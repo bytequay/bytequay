@@ -57,6 +57,12 @@ function editable(target: EventTarget | null): boolean {
   return target instanceof HTMLElement && (target.isContentEditable || target.matches('input, textarea, select'));
 }
 
+/** Opens a Jira ticket's development composer over the page, with an instruction the user reviews and sends. */
+export function startTicket(reference: string, instruction: string): void {
+  const [connectionId, cloudId, issueId] = reference.split(':');
+  zoomReference({ kind: 'jira', connectionId, cloudId, issueId, start: true, draft: instruction });
+}
+
 /** Opens a goal item where the app shows it: a pull request, issue or ticket over the page, a task as its screen. */
 export function openGoalItem(item: GoalItemDto, workspaceId: string, onOpenTask: (taskId: string) => void): void {
   if (item.kind === 'TASK') {
@@ -186,6 +192,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       onOpenItem={(item) => openGoalItem(item, workspaceId, onOpenTask)}
       onOpenTask={onOpenTask}
       onStartIssue={onStartIssue}
+      onStartTicket={startTicket}
       search={goals.search}
     />
   );
@@ -268,6 +275,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
               }) : goals.startCard(goal.id, card.id).then(() => {
                 // A work card's task starts only when the user sends the composer it opens.
                 if (card.card.issue !== null) onStartIssue(card.card.issue, card.card.scope);
+                else if (card.card.ticket !== null) startTicket(card.card.ticket, card.card.scope);
               }))}
               onDismiss={() => goals.dismissCard(goal.id, card.id)} />)}
           </div>

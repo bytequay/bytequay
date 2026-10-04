@@ -104,10 +104,13 @@ public record GoalRecommendation(
 
     /**
      * What the card offers. A research card reads its scope at the workspace's monitored head, the checkouts of the workspaces it depends
-     * on, and the pages it names; a lesson card opens the lesson of its work item; a work card prepares a task for one open issue, its scope
-     * the instruction the composer opens with.
+     * on, and the pages it names; a lesson card opens the lesson of its work item; a work card prepares a task for one open issue or one
+     * Jira ticket mapped to the workspace, its scope the instruction the composer opens with.
+     *
+     * @param ticket the Jira ticket a work card names: its key in the agent's answer, its connection:cloud:issue reference once floated
      */
-    public record Card(Kind kind, String title, String reason, String scope, List<String> pages, Optional<String> workItemId, Optional<Integer> issue)
+    public record Card(Kind kind, String title, String reason, String scope, List<String> pages, Optional<String> workItemId, Optional<Integer> issue,
+            Optional<String> ticket)
     {
         public static final int MAX_PAGES = 8;
 
@@ -124,7 +127,16 @@ public record GoalRecommendation(
             requireNonNull(workItemId, "workItemId is null");
             checkArgument(workItemId.isPresent() == (kind == Kind.LESSON), "a lesson card names its lesson, and only a lesson card does");
             requireNonNull(issue, "issue is null");
-            checkArgument(issue.isPresent() == (kind == Kind.WORK), "a work card names its issue, and only a work card does");
+            requireNonNull(ticket, "ticket is null");
+            ticket.ifPresent(value -> checkText(value, "ticket", 300));
+            checkArgument(kind == Kind.WORK ? issue.isPresent() != ticket.isPresent() : issue.isEmpty() && ticket.isEmpty(),
+                    "a work card names one issue or one Jira ticket, and only a work card does");
+        }
+
+        /** The same card naming the ticket by its stable reference. */
+        public Card withTicket(String reference)
+        {
+            return new Card(kind, title, reason, scope, pages, workItemId, issue, Optional.of(reference));
         }
     }
 }

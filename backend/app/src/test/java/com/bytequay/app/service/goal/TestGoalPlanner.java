@@ -25,14 +25,11 @@ import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
 import com.bytequay.core.store.GoalTopicStore;
-import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -45,6 +42,7 @@ import java.util.stream.IntStream;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
@@ -53,7 +51,7 @@ class TestGoalPlanner
 {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
     private static final GoalRecommendation.Card CARD = new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
-            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty());
+            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty());
 
     @Test
     void acceptsOnlyAReplyInTheNamedShape()
@@ -92,7 +90,7 @@ class TestGoalPlanner
         assertThatThrownBy(() -> GoalPlanner.parse("""
                 {"assessment": "x", "question": null, "proposal": null, "course": null, "recommendation": {"kind": "WORK", "title": "t", "reason": "r",
                 "scope": "s", "pages": [], "workItemId": null, "issue": null}}"""))
-                .hasMessageContaining("a work card names its issue");
+                .hasMessageContaining("a work card names one issue or one Jira ticket");
         assertThat(GoalPlanner.parse("""
                 {"assessment": "Manifests are new to you.", "question": null, "proposal": null, "course": null, "recommendation": null,
                 "topics": [{"topic": "Manifests", "level": "NEW", "evidence": ["discussion:q-1"]}]}""").topics())
@@ -130,10 +128,11 @@ class TestGoalPlanner
         WorkspaceRelationships relationships = mock(WorkspaceRelationships.class);
         Workspace trino = workspace("trinodb", "trino");
         when(trino.monitoredRepositoryId()).thenReturn(1L);
-        RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
-        when(issues.findPage(1, RepoRef.of("trinodb", "trino"), 0, 60)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("trinodb", "trino"), ImmutableList.of(
-                new RepositoryIssue(7, 31252, "Checkpoint drops rows with deletion vectors", "", "bo", "", "https://github.com/trinodb/trino/issues/31252",
-                        ImmutableList.of("delta-lake"), ImmutableList.of(), 3, NOW, NOW)), 0, 60, 1, false, Optional.of(NOW)));
+        GoalCandidates candidates = mock(GoalCandidates.class);
+        when(candidates.pool(any())).thenReturn(new GoalCandidates.Pool(ImmutableList.of(
+                new GoalCandidates.Candidate("#31252", "Checkpoint drops rows with deletion vectors", ImmutableList.of("delta-lake"), Optional.empty(), Optional.empty(), NOW),
+                new GoalCandidates.Candidate("TRINO-12", "Delta checkpoint loses rows", ImmutableList.of(), Optional.of("In progress"), Optional.of("High"), NOW)),
+                new GoalCandidates.Coverage(500, 900, Optional.of(NOW), 4)));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(trino));
         when(relationships.list("workspace")).thenReturn(ImmutableList.of(
                 new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, ""),
@@ -152,7 +151,7 @@ class TestGoalPlanner
         GoalTopicStore topics = mock(GoalTopicStore.class);
         when(topics.list("goal-1")).thenReturn(ImmutableList.of(new GoalTopic("goal-1:manifests", "goal-1", "workspace", "Manifests", GoalTopic.Level.NEW,
                 ImmutableList.of("discussion:q-1"), true, NOW)));
-        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons, issues, questions,
+        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons, candidates, questions,
                 topics);
 
         GoalView goal = new GoalView("goal-1", "workspace", "Iceberg connector expert", "", true, Optional.empty(),
@@ -182,7 +181,8 @@ class TestGoalPlanner
                 .contains("\"title\" : \"Read the Iceberg specification\"", "\"state\" : \"SHOWN\"")
                 .contains("\"knowledgeNotes\" : [ \"Manifest lists\" ]")
                 .contains("\"part\" : \"Iceberg tables\"", "\"state\" : \"DONE\"")
-                .contains("\"number\" : 31252", "\"labels\" : [ \"delta-lake\" ]")
+                .contains("\"id\" : \"#31252\"", "\"labels\" : [ \"delta-lake\" ]", "\"id\" : \"TRINO-12\"", "\"status\" : \"In progress\"",
+                        "\"issuesRead\" : 500", "\"issuesOpen\" : 900", "\"ticketsRead\" : 4")
                 .contains("\"id\" : \"discussion:q-1\"", "\"text\" : \"What is a manifest list?\"", "\"setByUser\" : true");
         assertThat(planner.prompt(goal, earlier, GoalExchange.told("research:task", "goal-1", "workspace", "The research run saved 1 note: Manifest lists.", 1, NOW)))
                 .contains("\"event\" : \"The research run saved 1 note: Manifest lists.\"");

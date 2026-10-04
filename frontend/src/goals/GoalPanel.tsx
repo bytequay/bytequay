@@ -86,6 +86,8 @@ export type GoalPanelProps = {
   onOpenTask: (taskId: string) => void;
   /** Opens the issue's task composer with an instruction the user reviews and sends. */
   onStartIssue: (issue: number, instruction: string) => void;
+  /** The same for a Jira ticket, by its connection:cloud:issue reference. */
+  onStartTicket: (ticket: string, instruction: string) => void;
   search: (query: string) => Promise<GoalItemDto[]>;
 };
 
@@ -142,7 +144,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         conversation={props.conversation} onBack={() => props.onLesson(null)} />
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
         : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
-          onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onReview={setSelected} />
+          onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onStartTicket={props.onStartTicket} onReview={setSelected} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
       {cancelling && goal !== null && (
         <ConfirmDialog
@@ -211,8 +213,9 @@ function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onReview }: Pick<GoalPanelProps, 'goal' | 'repository'
-  | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue'> & { onReview: (workItemId: string) => void }): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onReview }: Pick<GoalPanelProps, 'goal'
+  | 'repository' | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket'> & { onReview: (workItemId: string) => void })
+  : React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -264,7 +267,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
       )}
       {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} onPick={pick} />}
       {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} onOpenTask={onOpenTask}
-        onLesson={onLesson} onStartIssue={onStartIssue} onReview={onReview} />)}
+        onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onReview={onReview} />)}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
@@ -280,7 +283,8 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
  * dropped. Practice leads to its task once the user sent it, back to the prepared composer until then, and to its result once its pull request
  * merged, which the user accepts.
  */
-function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onReview }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson' | 'onStartIssue'> & {
+function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket, onReview }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson' | 'onStartIssue'
+  | 'onStartTicket'> & {
   goal: GoalDto;
   card: GoalRecommendationDto;
   onReview: (workItemId: string) => void;
@@ -298,7 +302,10 @@ function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onReview }: P
       {work !== undefined && pull?.state === 'MERGED' && <button type="button" className="goal-link" onClick={() => onReview(work.id)}>Review result</button>}
       {card.card.kind === 'WORK' && (task !== undefined
         ? <button type="button" className="goal-link" onClick={() => onOpenTask(task.key)}>Open task</button>
-        : card.card.issue !== null && <button type="button" className="goal-link" onClick={() => onStartIssue(card.card.issue, card.card.scope)}>Open the composer</button>)}
+        : <button type="button" className="goal-link" onClick={() => {
+          if (card.card.issue !== null) onStartIssue(card.card.issue, card.card.scope);
+          else if (card.card.ticket !== null) onStartTicket(card.card.ticket, card.card.scope);
+        }}>Open the composer</button>)}
     </div>
   );
 }

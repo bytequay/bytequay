@@ -124,8 +124,8 @@ export const ZOOM_REFERENCE = 'bytequay:zoom-reference';
 export type ZoomedReference =
   | { kind: 'pull'; repo: string; number: number; workspaceId?: string }
   | { kind: 'issue'; repo: string; number: number; workspaceId: string }
-  /** `start` also opens the development composer over the ticket. */
-  | ({ kind: 'jira'; start?: boolean } & JiraLocation);
+  /** `start` also opens the development composer over the ticket, with `draft` as its instruction when given. */
+  | ({ kind: 'jira'; start?: boolean; draft?: string } & JiraLocation);
 
 /**
  * Shows one issue, pull request or Jira ticket over the page or layer that asked for it. Every

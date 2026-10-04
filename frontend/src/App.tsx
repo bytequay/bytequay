@@ -213,10 +213,11 @@ export default function App() {
       backToApp();
       setPaletteOpen(false);
       const target = (event as CustomEvent<ZoomedReference>).detail;
-      // A reference that is already open comes back to the top, as it was, instead of opening twice.
+      // A reference that is already open comes back to the top, as it was, instead of opening twice; a start, such as a Goal card's,
+      // still opens its composer.
       setLayers(current => [
         ...current.filter(layer => layerKey(layer) !== layerKey(target)),
-        current.find(layer => layerKey(layer) === layerKey(target)) ?? target,
+        (target.kind === 'jira' && target.start ? undefined : current.find(layer => layerKey(layer) === layerKey(target))) ?? target,
       ]);
     };
     window.addEventListener(ZOOM_REFERENCE, open);
@@ -567,7 +568,7 @@ export default function App() {
                   onClose={() => closeLayer(key)}
                 />
               )}
-              {layer.kind === 'jira' && <JiraTicketLayer location={layer} start={layer.start} onClose={() => closeLayer(key)} />}
+              {layer.kind === 'jira' && <JiraTicketLayer location={layer} start={layer.start} draft={layer.draft} onClose={() => closeLayer(key)} />}
             </div>
           </LayerCovered.Provider>
         );

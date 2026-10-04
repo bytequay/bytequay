@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -23,12 +24,10 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalExchangeStore;
 import com.bytequay.core.store.GoalTopicStore;
-import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +40,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -70,7 +70,7 @@ class TestGoalConversationService
             Optional.empty(), ImmutableList.of());
     private static final GoalExchange.Reply RESEARCH = new GoalExchange.Reply("Read the specification before the connector.", Optional.empty(), Optional.empty(),
             Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification", "You start from the specification",
-                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of());
+                    "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty())), Optional.empty(), ImmutableList.of());
     private static final GoalExchange.Reply PROPOSAL = new GoalExchange.Reply("I understand the goal.", Optional.empty(),
             Optional.of(new GoalExchange.Proposal("Iceberg reads", "Explain how reads plan files", "Trace a scan end to end", "Knows the specification", "Five hours a week")),
             Optional.empty(), Optional.empty(), ImmutableList.of());
@@ -85,7 +85,7 @@ class TestGoalConversationService
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
     private final InMemoryGoalRecommendationStore cards = new InMemoryGoalRecommendationStore();
-    private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
+    private final GoalCandidates candidates = mock(GoalCandidates.class);
     private final GoalResearchService research = mock(GoalResearchService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final Topics topics = new Topics();
@@ -97,7 +97,7 @@ class TestGoalConversationService
     private final GoalPlanner planner = mock(GoalPlanner.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final Clock clock = Clock.fixed(Instant.parse("2026-10-03T10:00:00Z"), ZoneOffset.UTC);
-    private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, workspaces, issues,
+    private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, workspaces, candidates,
             beans.getBeanProvider(GoalResearchService.class), questions, topics, models, planner, clock, queued::add);
 
     @BeforeEach
@@ -107,6 +107,7 @@ class TestGoalConversationService
         when(workspace.monitoredRepositoryId()).thenReturn(1L);
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("trinodb", "trino"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+        when(candidates.pool(any())).thenReturn(pool());
         beans.registerSingleton("goalResearchService", research);
         when(work.list("workspace")).thenReturn(ImmutableList.of());
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
@@ -279,7 +280,8 @@ class TestGoalConversationService
         queued.removeFirst().run();
         service.accept("workspace", goal.id(), "op-1", Optional.empty());
         GoalExchange.Reply unknown = new GoalExchange.Reply("Take the next lesson.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(
-                GoalRecommendation.Kind.LESSON, "What a table is", "You are ready", "Table metadata", ImmutableList.of(), Optional.of("not-a-lesson"), Optional.empty())),
+                GoalRecommendation.Kind.LESSON, "What a table is", "You are ready", "Table metadata", ImmutableList.of(), Optional.of("not-a-lesson"), Optional.empty(),
+                Optional.empty())),
                 Optional.empty(), ImmutableList.of());
         doReturn(unknown).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
@@ -296,10 +298,9 @@ class TestGoalConversationService
         service.accept("workspace", goal.id(), "op-1", Optional.empty());
         doReturn(work(404)).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
-        assertThat(cards.list(goal.id())).as("an issue the workspace does not hold open is dropped").isEmpty();
+        assertThat(cards.list(goal.id())).as("an issue the agent was not offered as a candidate is dropped").isEmpty();
 
-        when(issues.find(1, 31252)).thenReturn(Optional.of(new RepositoryIssue(7, 31252, "Checkpoint drops rows", "", "bo", "",
-                "https://github.com/trinodb/trino/issues/31252", ImmutableList.of(), ImmutableList.of(), 0, Instant.EPOCH, Instant.EPOCH)));
+        when(candidates.pool(any())).thenReturn(pool("#31252"));
         service.ask("workspace", goal.id(), "op-2", "What can I practice?");
         doReturn(work(31252)).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
@@ -413,11 +414,45 @@ class TestGoalConversationService
         assertThat(GoalConversationService.title("Iceberg\nsecond line")).isEqualTo("Iceberg");
     }
 
+    @Test
+    void aWorkCardNamingAMappedTicketKeepsItsReferenceAndStartAdoptsTheTicket()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        JiraIssue ticket = mock(JiraIssue.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(ticket.connectionId()).thenReturn("connection");
+        when(ticket.cloudId()).thenReturn("cloud");
+        when(ticket.id()).thenReturn("10412");
+        when(candidates.pool(any())).thenReturn(pool("TRINO-12"));
+        when(candidates.ticket("workspace", "TRINO-12")).thenReturn(Optional.of(ticket));
+        doReturn(new GoalExchange.Reply("Practice on the ticket.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.WORK,
+                "Fix TRINO-12", "You learned checkpoints", "Keep rows across checkpoints.", ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.of("TRINO-12"))),
+                Optional.empty(), ImmutableList.of())).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        GoalRecommendation card = cards.list(goal.id()).getFirst();
+        assertThat(card.card().ticket()).as("the ticket is kept by its stable reference").contains("connection:cloud:10412");
+
+        when(work.adopt(eq("workspace"), eq(goal.id()), any(), eq("Fix TRINO-12"), eq("Keep rows across checkpoints."), eq(GoalItemKind.JIRA),
+                eq("connection:cloud:10412"))).thenReturn(new WorkItemView("work-2", "workspace", Optional.of(goal.id()), "Fix TRINO-12", WorkItem.Kind.DEVELOP,
+                "Keep rows across checkpoints.", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(),
+                Instant.EPOCH, Instant.EPOCH));
+        assertThat(service.startCard("workspace", goal.id(), card.id()).workItemId()).contains("work-2");
+    }
+
+    private static GoalCandidates.Pool pool(String... ids)
+    {
+        return new GoalCandidates.Pool(Arrays.stream(ids).map(id -> new GoalCandidates.Candidate(id, "Rows lost", ImmutableList.of(), Optional.empty(),
+                Optional.empty(), Instant.EPOCH)).collect(toImmutableList()), new GoalCandidates.Coverage(ids.length, ids.length, Optional.empty(), 0));
+    }
+
     private static GoalExchange.Reply work(int issue)
     {
         return new GoalExchange.Reply("Practice on a real gap.", Optional.empty(), Optional.empty(), Optional.of(new GoalRecommendation.Card(GoalRecommendation.Kind.WORK,
                 "Fix #" + issue, "You learned checkpoints", "Key add and remove actions by path and deletion vector.", ImmutableList.of(), Optional.empty(),
-                Optional.of(issue))), Optional.empty(), ImmutableList.of());
+                Optional.of(issue), Optional.empty())), Optional.empty(), ImmutableList.of());
     }
 
     private static GoalExchange.Reply levels(GoalTopic.Change... changes)

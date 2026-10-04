@@ -92,14 +92,18 @@ asked in the lesson carries it to the agent. Mark lesson done accepts the Learn
 work item and tells the agent, which may recommend the next lesson as a card;
 Start on a lesson card opens the lesson.
 
-Once the Goal is defined, the agent also sees the first page of the workspace's
-open issues from the local store and may recommend one as a Practice card, with
-the instruction a developer would give a coding agent for it. A card naming an
-issue the store does not hold open is dropped. Start makes the issue a Develop
-work item of the Goal, with the card's scope as its criteria under merged
-delivery, and opens that issue's ordinary composer with the instruction filled
-in; the task and its source snapshot are created only when the user sends it,
-through the existing issue admission, as that work item's attempt. The card
+Once the Goal is defined, the agent also sees up to 100 practice candidates from
+the local stores: the workspace's open issues, the 500 updated last, and the
+Jira tickets mapped to it, without sources that already have work, a task or a
+dismissed card, the ones sharing the most words with the Goal first, and how
+much of each source was read. It may recommend one as a Practice card, naming an
+issue's number or a ticket's key, with the instruction a developer would give a
+coding agent for it; a card naming anything else is dropped. Start makes the
+issue or ticket a Develop work item of the Goal, with the card's scope as its
+criteria under merged delivery, and opens its ordinary composer with the
+instruction filled in; the task and its source snapshot are created only when
+the user sends it, through the existing issue or ticket admission, as that work
+item's attempt. The card
 stays started, and no other Practice card floats, until the work is done or
 dropped; the agent hears each accept, drop or reopen of the Goal's work.
 

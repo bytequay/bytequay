@@ -112,7 +112,7 @@ function panel(props: Partial<GoalPanelProps>): string {
     <GoalPanel mode="window" view="work" onView={() => {}} conversation={NO_CONVERSATION} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       repository="trinodb/trino" goals={[GOAL, { ...GOAL, id: 'goal-2', pinned: false }]} goal={GOAL}
       needsYou={new Set(['PULL_REQUEST trinodb/trino#30925'])} now={Date.parse('2026-09-27T12:00:00Z')}
-      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
+      onClose={() => {}} onExpand={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onDelete={async () => {}}
       workItems={GOAL.items} onCreateWork={async () => GOAL.items[0]} onDecide={async () => GOAL.items[0]} onLink={async () => GOAL.items[0]} onAdd={async () => {}} onOpenItem={() => {}} search={async () => []} {...props} />);
 }
 
@@ -157,7 +157,7 @@ const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research r
 } };
 const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, workItemId: null, createdAt: '2026-10-03T10:00:00Z',
   card: { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification', scope: 'Snapshots and manifests',
-    pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null } };
+    pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null } };
 const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: '2026-10-03T10:00:00Z',
   sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null },
     { reference: 'apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java', commit: 'c'.repeat(40) }] };
@@ -215,6 +215,12 @@ describe('goal guidance', () => {
         state: 'MERGED', status: 'Merged' }] }] } });
     expect(merged).toContain('#31260 merged');
     expect(merged).toContain('>Review result</button>');
+    const ticket = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...practice, card: { ...practice.card, title: 'Fix TRINO-12', issue: null,
+      ticket: 'connection:cloud:10412' } }] } });
+    expect(ticket).toContain('Practicing: Fix TRINO-12');
+    expect(ticket).toContain('>Open the composer</button>');
+    expect(parseGoalRecommendation({ ...practice, card: { ...practice.card, issue: null, ticket: 'connection:cloud:10412' } }).card.ticket)
+      .toBe('connection:cloud:10412');
     const lesson = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED',
       card: { ...CARD.card, kind: 'LESSON', title: 'What a table is', pages: [], workItemId: 'work-0' } }] } });
     expect(lesson).toContain('Learning: What a table is');

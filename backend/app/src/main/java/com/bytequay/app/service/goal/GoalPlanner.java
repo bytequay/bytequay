@@ -27,7 +27,6 @@ import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
 import com.bytequay.core.store.GoalTopicStore;
-import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -55,8 +54,6 @@ public class GoalPlanner
     private static final int MAX_LINKS = 6;
     private static final int MAX_NOTES = 60;
     private static final int MAX_LESSON_NOTES = 30;
-    // ponytail: the first page of open issues, as the workspace lists them; filter by the goal's topics once repositories outgrow it.
-    private static final int MAX_ISSUES = 60;
     static final int MAX_QUESTIONS = 20;
     private static final int MAX_LESSON_EXCERPT = 3_000;
     private static final String LESSON_INSTRUCTIONS = """
@@ -107,9 +104,11 @@ public class GoalPlanner
             order, each with lessons that name what the user can do afterward. Start where the user's starting knowledge
             ends; a user who already knows the specification starts at the connector. Once a course is accepted, recommend
             its next lesson as a LESSON card naming the lesson's id when the user is ready for it, one at a time. When the
-            user is ready to practice an area, recommend one of the open issues as a WORK card naming its number: say why
-            it fits what they learned, and put in scope the instruction a developer would give a coding agent for it,
-            what to change and how to check it. Never call an issue suitable that the issue data does not support. Start
+            user is ready to practice an area, recommend one of practiceCandidates as a WORK card, an issue by its number
+            in issue or a Jira ticket by its key in ticket: say why it fits what they learned, and put in scope the
+            instruction a developer would give a coding agent for it, what to change and how to check it. Never call a
+            candidate suitable that its data does not support. The candidates are the open issues and mapped tickets
+            nearest the goal among those candidateCoverage says were read; never claim nothing else exists. Start
             on a WORK card makes the issue one of the goal's work items; recommend no other practice until that item is
             done or dropped, and when its result is accepted, let the topics it practiced cite it as work:<id>.
 
@@ -129,7 +128,7 @@ public class GoalPlanner
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
             "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "..."}]}]},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
-            "issue": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}]}
+            "issue": null, "ticket": null}, "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}]}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
             - question: null, or one question of at most 600 characters with zero to four suggestions of at most 200 each.
             - proposal: null, or a definition: a title of at most 200 characters and the other fields at most 2000 each;
@@ -137,8 +136,9 @@ public class GoalPlanner
             - course: null, or one to four parts of one to six lessons, sixteen lessons at most; titles of at most 120
               characters and outcomes of at most 400.
             - recommendation: null, or a card: a title of at most 120 characters, a one-line reason of at most 300, a
-              scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId and issue are null; a LESSON
-              card names its lesson's id in workItemId; a WORK card names an open issue's number in issue.
+              scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId, issue and ticket are null; a
+              LESSON card names its lesson's id in workItemId; a WORK card names one candidate: an issue's number in issue
+              or a ticket's key in ticket.
             - topics: an empty list, or up to eight topics whose level the evidence changed, each citing one to ten ids.
             """;
 
@@ -148,12 +148,12 @@ public class GoalPlanner
     private final WorkspaceRelationships relationships;
     private final GoalKnowledgeNoteStore notes;
     private final GoalLessonStore lessons;
-    private final RepositoryIssueStore issues;
+    private final GoalCandidates candidates;
     private final GoalQuestions questions;
     private final GoalTopicStore topics;
 
     public GoalPlanner(AgentDriverRegistry drivers, TextOnlyHelper helper, WorkspaceStore workspaces, WorkspaceRelationships relationships, GoalKnowledgeNoteStore notes,
-            GoalLessonStore lessons, RepositoryIssueStore issues, GoalQuestions questions, GoalTopicStore topics)
+            GoalLessonStore lessons, GoalCandidates candidates, GoalQuestions questions, GoalTopicStore topics)
     {
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.helper = requireNonNull(helper, "helper is null");
@@ -161,7 +161,7 @@ public class GoalPlanner
         this.relationships = requireNonNull(relationships, "relationships is null");
         this.notes = requireNonNull(notes, "notes is null");
         this.lessons = requireNonNull(lessons, "lessons is null");
-        this.issues = requireNonNull(issues, "issues is null");
+        this.candidates = requireNonNull(candidates, "candidates is null");
         this.questions = requireNonNull(questions, "questions is null");
         this.topics = requireNonNull(topics, "topics is null");
     }
@@ -219,12 +219,18 @@ public class GoalPlanner
             });
         });
         if (goal.definition().isPresent()) {
-            ArrayNode open = data.putArray("openIssues");
-            workspaces.findById(goal.workspaceId()).ifPresent(workspace -> issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, MAX_ISSUES)
-                    .issues().forEach(issue -> {
-                        ObjectNode entry = open.addObject().put("number", issue.number()).put("title", issue.title()).put("comments", issue.commentCount());
-                        issue.labels().forEach(entry.putArray("labels")::add);
-                    }));
+            GoalCandidates.Pool pool = candidates.pool(goal);
+            ArrayNode practice = data.putArray("practiceCandidates");
+            pool.candidates().forEach(candidate -> {
+                ObjectNode entry = practice.addObject().put("id", candidate.id()).put("title", candidate.title());
+                candidate.labels().forEach(entry.putArray("labels")::add);
+                candidate.status().ifPresent(status -> entry.put("status", status));
+                candidate.priority().ifPresent(priority -> entry.put("priority", priority));
+            });
+            GoalCandidates.Coverage coverage = pool.coverage();
+            ObjectNode covered = data.putObject("candidateCoverage").put("issuesRead", coverage.issuesRead()).put("issuesOpen", coverage.issuesOpen())
+                    .put("ticketsRead", coverage.ticketsRead());
+            coverage.issuesSyncedAt().ifPresent(at -> covered.put("issuesSyncedAt", at.toString()));
         }
         ArrayNode work = objective.putArray("workItems");
         goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> {

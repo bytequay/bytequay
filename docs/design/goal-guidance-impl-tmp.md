@@ -137,6 +137,13 @@ published, list refreshes refresh each open pull request of the Goals' open
 work, and a merge records one receipt and tells the agent; the planner sees each
 work item's links and the Goal window offers Review result.
 
+Item 4 is implemented: each guidance request carries up to 100 candidates from
+the 500 open issues updated last and the cached Jira tickets mapped to the
+workspace, without worked, tasked, Goal or dismissed sources, ranked by the words
+they share with the Goal, with the coverage read. A Practice card names one of
+them, a ticket kept by its stable reference, and Start opens the ticket's
+composer with the instruction filled in.
+
 Done when: a Practice card leads to a task whose merged pull request is recorded
 on the Goal and moves the topic it practiced, after which a new card can float;
 an issue and a mapped Jira ticket can each be recommended and started; and a

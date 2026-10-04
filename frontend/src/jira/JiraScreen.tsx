@@ -549,9 +549,12 @@ function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDe
   </div>;
 }
 
-/** A ticket a link opened over its page. It has no board, so moving between sprints stays on the Jira page. */
-export function JiraTicketLayer({ location, start = false, onClose }: { location: JiraLocation; start?: boolean; onClose: () => void }) {
-  const [launch, setLaunch] = useState<{ issue: JiraIssue; onChanged?: (detail: JiraIssueDetail) => void } | null>(null);
+/**
+ * A ticket a link opened over its page. It has no board, so moving between sprints stays on the Jira page. A start opens its development
+ * composer, filled with the draft when one came with it.
+ */
+export function JiraTicketLayer({ location, start = false, draft, onClose }: { location: JiraLocation; start?: boolean; draft?: string; onClose: () => void }) {
+  const [launch, setLaunch] = useState<{ issue: JiraIssue; draft?: string; onChanged?: (detail: JiraIssueDetail) => void } | null>(null);
   useEffect(() => {
     if (!start) return;
     let active = true;
@@ -559,13 +562,13 @@ export function JiraTicketLayer({ location, start = false, onClose }: { location
     void window.bridge.getJiraIssue(location, true).then(({ issue }) => {
       if (!active) return;
       if (issue.task) window.location.hash = workspaceAgentTaskRoute(issue.task.workspaceId, issue.task.id);
-      else if (!issue.isGoal && !issue.hasChildren && issue.status.category !== 'done') setLaunch({ issue });
+      else if (!issue.isGoal && !issue.hasChildren && issue.status.category !== 'done') setLaunch({ issue, draft });
     }).catch(() => { /* The ticket view reports its own refresh failure. */ });
     return () => { active = false; };
-  }, [location, start]);
+  }, [draft, location, start]);
   return <>
     <JiraDetail location={location} scope={null} boardId={null} sprints={[]} onClose={onClose} onChanged={notifyJiraChanged} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />
-    {launch && <JiraLaunch issue={launch.issue} onChanged={detail => { notifyJiraChanged(); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}
+    {launch && <JiraLaunch issue={launch.issue} draft={launch.draft} onChanged={detail => { notifyJiraChanged(); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}
   </>;
 }
 
@@ -918,14 +921,14 @@ function JiraWorkspaceDialog({ issue, onClose, onAssigned }: { issue: JiraIssue;
   </dialog>;
 }
 
-function JiraLaunch({ issue: initialIssue, onClose, onChanged }: { issue: JiraIssue; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void }) {
+function JiraLaunch({ issue: initialIssue, draft, onClose, onChanged }: { issue: JiraIssue; draft?: string; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void }) {
   const [issue, setIssue] = useState(initialIssue);
   return issue.workspace === null
     ? <JiraWorkspaceDialog issue={issue} onClose={onClose} onAssigned={detail => { setIssue(detail.issue); onChanged(detail); }} />
-    : <JiraLaunchContent issue={issue} workspaceId={issue.workspace.id} onClose={onClose} onChanged={detail => { setIssue(detail.issue); onChanged(detail); }} />;
+    : <JiraLaunchContent issue={issue} workspaceId={issue.workspace.id} draft={draft} onClose={onClose} onChanged={detail => { setIssue(detail.issue); onChanged(detail); }} />;
 }
 
-function JiraLaunchContent({ issue, workspaceId, onClose, onChanged }: { issue: JiraIssue; workspaceId: string; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void }) {
+function JiraLaunchContent({ issue, workspaceId, draft, onClose, onChanged }: { issue: JiraIssue; workspaceId: string; draft?: string; onClose: () => void; onChanged: (detail: JiraIssueDetail) => void }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -944,12 +947,12 @@ function JiraLaunchContent({ issue, workspaceId, onClose, onChanged }: { issue: 
     <header><h2>Develop {issue.key}</h2><span className="jira-spacer" /><button type="button" className="bq-iconbtn" aria-label="Refresh development source" title="Refresh ticket context" disabled={busy || refreshing} onClick={() => { void refresh(); }}><RefreshCw size={16} /></button><button type="button" className="bq-iconbtn" aria-label="Close development" disabled={busy} onClick={onClose}><X size={18} /></button></header>
     <p>{issue.title}</p><JiraWorkspaceBadge workspace={issue.workspace} />
     {error && <div className="ws-error" role="alert">{error}</div>}
-    <JiraLaunchComposer key={workspaceId} issue={issue} workspaceId={workspaceId} refreshing={refreshing} onBusy={setBusy} />
+    <JiraLaunchComposer key={workspaceId} issue={issue} workspaceId={workspaceId} draft={draft} refreshing={refreshing} onBusy={setBusy} />
   </dialog>;
 }
-function JiraLaunchComposer({ issue, workspaceId, onBusy, refreshing }: { issue: JiraIssue; workspaceId: string; onBusy: (busy: boolean) => void; refreshing: boolean }) {
+function JiraLaunchComposer({ issue, workspaceId, draft, onBusy, refreshing }: { issue: JiraIssue; workspaceId: string; draft?: string; onBusy: (busy: boolean) => void; refreshing: boolean }) {
   const onOpenTask = useCallback((id: string) => { window.location.hash = workspaceAgentTaskRoute(workspaceId, id); }, [workspaceId]);
-  const creation = useAgentTaskCreation({ workspaceId, bridge, sourceJira: issue, onOpenTask, onOpenCreatedTask: task => {
+  const creation = useAgentTaskCreation({ workspaceId, bridge, sourceJira: issue, initialDraft: draft, onOpenTask, onOpenCreatedTask: task => {
     recordAttentionAction(`jira:${issue.cloudId}:${issue.id}`, 'prompt');
     window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id);
   } });

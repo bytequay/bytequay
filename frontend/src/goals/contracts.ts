@@ -162,6 +162,8 @@ export type GoalCardDto = {
   pages: string[];
   workItemId: string | null;
   issue: number | null;
+  /** The Jira ticket a work card names, by its connection:cloud:issue reference. */
+  ticket: string | null;
 };
 
 /** A lesson of the goal's course, written once from its knowledge notes. */
@@ -221,6 +223,7 @@ function parseCard(value: unknown): GoalCardDto {
     pages: parseList(card.pages, (entry) => text(entry, 'goal card page'), 'goal card pages'),
     workItemId: optionalText(card.workItemId),
     issue: Number.isSafeInteger(card.issue) && (card.issue as number) > 0 ? card.issue as number : null,
+    ticket: optionalText(card.ticket),
   };
 }
 

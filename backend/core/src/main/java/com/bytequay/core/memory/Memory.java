@@ -36,9 +36,10 @@ import static java.util.Objects.requireNonNull;
  * that the docs don't give, or a specification that governs code, with the paths it applies to and the sources it came from. Agents never change a memory the user owns,
  * and a report flags a memory without editing or hiding it.
  *
+ * @param title the situation it covers, so a reader can tell whether it applies before reading the text
  * @param scope path prefixes ending in {@code /}, file paths or globs; empty applies to the whole repository
- * @param version counts changes to the text and scope, for optimistic edits
- * @param previous the text and scope the last change replaced, one level deep
+ * @param version counts changes to the title, text and scope, for optimistic edits
+ * @param previous the title, text and scope the last change replaced, one level deep
  * @param delivered how many agent turns received it
  * @param cited how many findings or answers cited it
  */
@@ -46,6 +47,7 @@ public record Memory(
         String id,
         String workspaceId,
         Kind kind,
+        String title,
         String text,
         List<String> scope,
         List<MemorySource> sources,
@@ -58,6 +60,7 @@ public record Memory(
         Instant createdAt,
         Instant updatedAt)
 {
+    public static final int MAX_TITLE = 80;
     public static final int MAX_TEXT_BYTES = 600;
     public static final int MAX_SCOPE = 8;
     public static final int MAX_SOURCES = 8;
@@ -79,6 +82,7 @@ public record Memory(
         checkArgument(ID.matcher(id).matches(), "memory id %s is not m followed by a number", id);
         checkText(workspaceId, "workspaceId");
         requireNonNull(kind, "kind is null");
+        checkTitle(title);
         checkMemoryText(text);
         scope = checkScope(scope);
         sources = ImmutableList.copyOf(sources);
@@ -134,19 +138,19 @@ public record Memory(
     }
 
     /** The user's edit makes the memory theirs and settles its reports: they read it before changing it. */
-    public Memory edited(String newText, Instant at)
+    public Memory edited(String newTitle, String newText, Instant at)
     {
-        return new Memory(id, workspaceId, kind, newText, scope, sources, Origin.USER_EDIT, version + 1, Optional.of(new Previous(text, scope)),
+        return new Memory(id, workspaceId, kind, newTitle, newText, scope, sources, Origin.USER_EDIT, version + 1, Optional.of(new Previous(title, text, scope)),
                 delivered, cited, ImmutableList.of(), createdAt, at);
     }
 
-    /** Swaps the text and scope with the ones the last change replaced, so a second restore undoes the first. */
+    /** Swaps the title, text and scope with the ones the last change replaced, so a second restore undoes the first. */
     public Memory restored(Instant at)
     {
         Previous replaced = previous.orElseThrow(() -> new IllegalStateException("Memory " + id + " has no previous version"));
         Origin restorer = origin.user() ? origin : Origin.USER_EDIT;
-        return new Memory(id, workspaceId, kind, replaced.text(), replaced.scope(), sources, restorer, version + 1, Optional.of(new Previous(text, scope)),
-                delivered, cited, reports, createdAt, at);
+        return new Memory(id, workspaceId, kind, replaced.title(), replaced.text(), replaced.scope(), sources, restorer, version + 1,
+                Optional.of(new Previous(title, text, scope)), delivered, cited, reports, createdAt, at);
     }
 
     /** An agent saw the rule again: the new sources are added, oldest kept first, up to {@link #MAX_SOURCES}; the text stays. */
@@ -155,14 +159,14 @@ public record Memory(
         checkState(!origin.user(), "Memory %s is the user's; agents never change it", id);
         List<MemorySource> merged = Stream.concat(sources.stream(), added.stream().filter(source -> sources.stream().noneMatch(kept -> kept.key().equals(source.key()))))
                 .limit(MAX_SOURCES).collect(ImmutableList.toImmutableList());
-        return new Memory(id, workspaceId, kind, text, scope, merged, origin, version, previous, delivered, cited, reports, createdAt, at);
+        return new Memory(id, workspaceId, kind, title, text, scope, merged, origin, version, previous, delivered, cited, reports, createdAt, at);
     }
 
-    /** A newer source overrides the rule: the text and scope are replaced, the old ones kept as the previous version, and both sources stay. */
-    public Memory replaced(String newText, List<String> newScope, List<MemorySource> added, Instant at)
+    /** A newer source overrides the rule: the title, text and scope are replaced, the old ones kept as the previous version, and both sources stay. */
+    public Memory replaced(String newTitle, String newText, List<String> newScope, List<MemorySource> added, Instant at)
     {
         Memory sourced = withSources(added, at);
-        return new Memory(id, workspaceId, kind, newText, newScope, sourced.sources(), origin, version + 1, Optional.of(new Previous(text, scope)),
+        return new Memory(id, workspaceId, kind, newTitle, newText, newScope, sourced.sources(), origin, version + 1, Optional.of(new Previous(title, text, scope)),
                 delivered, cited, ImmutableList.of(), createdAt, at);
     }
 
@@ -170,7 +174,7 @@ public record Memory(
     public Memory rescoped(List<String> newScope, Instant at)
     {
         checkState(!origin.user(), "Memory %s is the user's; agents never change it", id);
-        return new Memory(id, workspaceId, kind, text, newScope, sources, origin, version + 1, Optional.of(new Previous(text, scope)),
+        return new Memory(id, workspaceId, kind, title, text, newScope, sources, origin, version + 1, Optional.of(new Previous(title, text, scope)),
                 delivered, cited, reports, createdAt, at);
     }
 
@@ -179,13 +183,32 @@ public record Memory(
     {
         List<MemoryReport> kept = ImmutableList.<MemoryReport>builder().addAll(reports.size() < MAX_REPORTS ? reports : reports.subList(1, reports.size()))
                 .add(report).build();
-        return new Memory(id, workspaceId, kind, text, scope, sources, origin, version, previous, delivered, cited, kept, createdAt, at);
+        return new Memory(id, workspaceId, kind, title, text, scope, sources, origin, version, previous, delivered, cited, kept, createdAt, at);
     }
 
     /** The user read the reports and keeps the memory as it is. */
     public Memory kept(Instant at)
     {
-        return new Memory(id, workspaceId, kind, text, scope, sources, origin, version, previous, delivered, cited, ImmutableList.of(), createdAt, at);
+        return new Memory(id, workspaceId, kind, title, text, scope, sources, origin, version, previous, delivered, cited, ImmutableList.of(), createdAt, at);
+    }
+
+    public static void checkTitle(String title)
+    {
+        requireNonNull(title, "title is null");
+        checkArgument(!title.isBlank() && title.codePointCount(0, title.length()) <= MAX_TITLE, "memory title must have 1 to %s characters", MAX_TITLE);
+        checkArgument(title.chars().noneMatch(Character::isISOControl), "memory title is one line");
+    }
+
+    /** A title cut from longer words, such as a finding's title or an address: whole words up to {@value #MAX_TITLE} characters, marked when cut. */
+    public static String titleFrom(String words)
+    {
+        String line = words.replaceAll("[\\s\\p{Cc}]+", " ").strip();
+        if (line.codePointCount(0, line.length()) <= MAX_TITLE) {
+            return line;
+        }
+        String cut = line.substring(0, line.offsetByCodePoints(0, MAX_TITLE - 1));
+        int space = cut.lastIndexOf(' ');
+        return (space > MAX_TITLE / 2 ? cut.substring(0, space) : cut).replaceAll("[\\s,;:.]+$", "") + "…";
     }
 
     public static void checkMemoryText(String text)
@@ -226,10 +249,11 @@ public record Memory(
         }
     }
 
-    public record Previous(String text, List<String> scope)
+    public record Previous(String title, String text, List<String> scope)
     {
         public Previous
         {
+            checkTitle(title);
             checkMemoryText(text);
             scope = checkScope(scope);
         }

@@ -52,7 +52,7 @@ class TestMemory
         assertThatThrownBy(() -> memory("Rule", ImmutableList.of("../secrets/"))).hasMessageContaining("must not contain . or ..");
         assertThatThrownBy(() -> memory("Rule", ImmutableList.of("/etc/"))).hasMessageContaining("relative to the repository root");
         assertThatThrownBy(() -> memory("Rule", ImmutableList.of("a/", "a/"))).hasMessageContaining("duplicates");
-        assertThatThrownBy(() -> new Memory("12", "workspace", Memory.Kind.RULE, "Rule", ImmutableList.of(), ImmutableList.of(SOURCE),
+        assertThatThrownBy(() -> new Memory("12", "workspace", Memory.Kind.RULE, "Title", "Rule", ImmutableList.of(), ImmutableList.of(SOURCE),
                 Memory.Origin.USER_EDIT, 1, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW)).hasMessageContaining("not m followed by a number");
         assertThatThrownBy(() -> MemorySource.pullRequest("http://github.com/x", "Quote", NOW, SOURCE.pullRequest().orElseThrow())).hasMessageContaining("HTTPS");
         MemorySource words = MemorySource.user("Keep refactors in their own commits.", NOW, new MemorySource.UserPart(MemorySource.Where.TASK_MESSAGE, "task", "event"));
@@ -68,17 +68,33 @@ class TestMemory
     {
         Memory agent = memory("Keep the old name working.", ImmutableList.of("plugin/"))
                 .reported(new MemoryReport("Wrong", "", "task", NOW), NOW);
-        Memory edited = agent.edited("Keep the old name with @LegacyConfig.", NOW.plusSeconds(1));
+        Memory edited = agent.edited("Legacy config names", "Keep the old name with @LegacyConfig.", NOW.plusSeconds(1));
         assertThat(edited.origin()).isEqualTo(Memory.Origin.USER_EDIT);
         assertThat(edited.version()).isEqualTo(2);
         assertThat(edited.reports()).isEmpty();
-        assertThat(edited.previous()).contains(new Memory.Previous("Keep the old name working.", ImmutableList.of("plugin/")));
+        assertThat(edited.previous()).contains(new Memory.Previous("Renamed properties", "Keep the old name working.", ImmutableList.of("plugin/")));
 
         Memory restored = edited.restored(NOW.plusSeconds(2));
-        assertThat(restored.text()).isEqualTo("Keep the old name working.");
+        assertThat(restored).extracting(Memory::title, Memory::text).containsExactly("Renamed properties", "Keep the old name working.");
+        assertThat(restored.previous().orElseThrow().title()).isEqualTo("Legacy config names");
         assertThat(restored.previous().orElseThrow().text()).isEqualTo("Keep the old name with @LegacyConfig.");
         assertThat(restored.restored(NOW.plusSeconds(3)).text()).isEqualTo(edited.text());
         assertThatThrownBy(() -> agent.restored(NOW)).hasMessageContaining("no previous version");
+    }
+
+    @Test
+    void titlesAreOneShortLineAndLongerWordsAreCutAtAWord()
+    {
+        Memory.checkTitle("é".repeat(Memory.MAX_TITLE));
+        assertThatThrownBy(() -> Memory.checkTitle(" ")).hasMessageContaining("1 to 80 characters");
+        assertThatThrownBy(() -> Memory.checkTitle("x".repeat(81))).hasMessageContaining("1 to 80 characters");
+        assertThatThrownBy(() -> Memory.checkTitle("Two\nlines")).hasMessageContaining("one line");
+        assertThatThrownBy(() -> new Memory.Previous("", "Rule", ImmutableList.of())).hasMessageContaining("1 to 80 characters");
+
+        assertThat(Memory.titleFrom("  Close\ton failure\n overwrites a checkpoint ")).isEqualTo("Close on failure overwrites a checkpoint");
+        assertThat(Memory.titleFrom("When changing streaming Delta Lake checkpoint writes, publish only after the read/write phase succeeds"))
+                .isEqualTo("When changing streaming Delta Lake checkpoint writes, publish only after the…");
+        assertThat(Memory.titleFrom("Specification at trino.io/" + "x".repeat(100))).hasSize(Memory.MAX_TITLE).endsWith("x…");
     }
 
     @Test
@@ -96,7 +112,7 @@ class TestMemory
 
     private static Memory memory(String text, List<String> scope)
     {
-        return new Memory("m1", "workspace", Memory.Kind.RULE, text, scope, ImmutableList.of(SOURCE), new Memory.Origin(false, "Learn from my PRs", Optional.of("task")),
-                1, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW);
+        return new Memory("m1", "workspace", Memory.Kind.RULE, "Renamed properties", text, scope, ImmutableList.of(SOURCE),
+                new Memory.Origin(false, "Learn from my PRs", Optional.of("task")), 1, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW);
     }
 }

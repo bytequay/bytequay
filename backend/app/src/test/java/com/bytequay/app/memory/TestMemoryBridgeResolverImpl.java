@@ -123,6 +123,7 @@ class TestMemoryBridgeResolverImpl
         JsonNode byPath = call(bridge, "{\"action\":\"SEARCH\",\"path\":\"plugin/trino-delta-lake/src/main/java/DeltaLakeWriter.java\"}");
         assertThat(byPath.path("memories").findValuesAsText("id")).containsExactly("m3", "m2", "m1");
         assertThat(byPath.path("memories").get(1).path("source").asText()).isEqualTo("PR #31201 @alice · 2 PRs");
+        assertThat(byPath.path("memories").get(1).path("title").asText()).isEqualTo("Document every new table property on the connector's page.");
         assertThat(byPath.path("memories").get(2).path("scope").asText()).isEqualTo("repository");
         assertThat(byPath.path("activityLine").asText()).isEqualTo("Searched memory in plugin/trino-delta-lake/src/main/java/DeltaLakeWriter.java · 3 memories");
 
@@ -132,6 +133,7 @@ class TestMemoryBridgeResolverImpl
         JsonNode read = call(bridge, "{\"action\":\"READ\",\"id\":\"m2\"}");
         assertThat(read.path("sources").findValuesAsText("quote")).containsExactly("Please document the new property.", "Please document the new property.");
         assertThat(read.path("sources").get(1).path("pullRequest").asInt()).isEqualTo(30877);
+        assertThat(read.path("title").asText()).isEqualTo("Document every new table property on the connector's page.");
         assertThat(read.path("activityLine").asText()).isEqualTo("Read memory m2");
 
         JsonNode reported = call(bridge, "{\"action\":\"REPORT\",\"id\":\"m3\",\"reason\":\"The writer now encodes partition values\",\"quote\":\"path(partition)\"}");
@@ -186,34 +188,39 @@ class TestMemoryBridgeResolverImpl
         MemorySource command = MemorySource.command("./mvnw -pl core test", NOW,
                 new MemorySource.CommandPart(task.id().toString(), turn.toString(), "./mvnw -pl core test", ".", "a".repeat(40)));
         when(sources.passingCommand(task, turn, "./mvnw -pl core test")).thenReturn(command);
-        store.save(new Memory("m9", "workspace", Memory.Kind.RULE, "The user's own rule.", ImmutableList.of(), ImmutableList.of(words), Memory.Origin.USER_EDIT, 1,
-                Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW));
+        store.save(new Memory("m9", "workspace", Memory.Kind.RULE, "Own rule", "The user's own rule.", ImmutableList.of(), ImmutableList.of(words), Memory.Origin.USER_EDIT,
+                1, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW));
         MemoryBridge bridge = resolver.resolve(task.id().toString()).orElseThrow();
 
-        JsonNode rule = call(bridge, "{\"action\":\"REMEMBER\",\"kind\":\"RULE\",\"text\":\"Keep refactors\\nin their own commits.\","
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"kind\":\"RULE\",\"text\":\"Keep refactors in their own commits.\","
+                + "\"quote\":\"Keep refactors in their own commits.\"}")).hasMessage("REMEMBER needs a title: the situation it covers, in at most 80 characters");
+        JsonNode rule = call(bridge, "{\"action\":\"REMEMBER\",\"kind\":\"RULE\",\"title\":\"Refactor commits\",\"text\":\"Keep refactors\\nin their own commits.\","
                 + "\"quote\":\"Keep refactors in their own commits.\"}");
         String ruleId = rule.path("id").asText();
-        assertThat(rule.path("activityLine").asText()).isEqualTo("Remembered " + ruleId + " · Keep refactors in their own commits.");
+        assertThat(rule.path("activityLine").asText()).isEqualTo("Remembered " + ruleId + " · Refactor commits");
         Memory saved = store.find(ruleId).orElseThrow();
         assertThat(saved.sources()).containsExactly(words);
         assertThat(saved.origin()).isEqualTo(new Memory.Origin(false, "Remembered in a task", Optional.of(task.id().toString())));
 
-        JsonNode recipe = call(bridge, "{\"action\":\"REMEMBER\",\"kind\":\"RECIPE\",\"text\":\"Run the core tests with `./mvnw -pl core test`.\","
+        JsonNode recipe = call(bridge, "{\"action\":\"REMEMBER\",\"kind\":\"RECIPE\",\"title\":\"Core tests\",\"text\":\"Run the core tests with `./mvnw -pl core test`.\","
                 + "\"command\":\"./mvnw -pl core test\",\"scope\":[\"core/\"]}");
         Memory remembered = store.find(recipe.path("id").asText()).orElseThrow();
         assertThat(remembered.kind()).isEqualTo(Memory.Kind.RECIPE);
         assertThat(remembered.scope()).containsExactly("core/");
         assertThat(remembered.sources()).containsExactly(command);
 
-        JsonNode updated = call(bridge, "{\"action\":\"REMEMBER\",\"id\":\"" + ruleId + "\",\"kind\":\"RULE\",\"text\":\"Keep refactors and behavior changes "
-                + "in separate commits.\",\"quote\":\"Keep refactors in their own commits.\"}");
-        assertThat(updated.path("activityLine").asText()).startsWith("Updated " + ruleId + " · Keep refactors and behavior");
+        JsonNode updated = call(bridge, "{\"action\":\"REMEMBER\",\"id\":\"" + ruleId + "\",\"kind\":\"RULE\",\"title\":\"Refactors and behavior changes\","
+                + "\"text\":\"Keep refactors and behavior changes in separate commits.\",\"quote\":\"Keep refactors in their own commits.\"}");
+        assertThat(updated.path("activityLine").asText()).isEqualTo("Updated " + ruleId + " · Refactors and behavior changes");
+        assertThat(store.find(ruleId).orElseThrow().previous()).map(Memory.Previous::title).contains("Refactor commits");
         assertThat(store.find(ruleId).orElseThrow().previous()).map(Memory.Previous::text).contains("Keep refactors in their own commits.");
-        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"id\":\"" + ruleId + "\",\"kind\":\"RECIPE\",\"text\":\"x\","
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"id\":\"" + ruleId + "\",\"kind\":\"RECIPE\",\"title\":\"x\",\"text\":\"x\","
                 + "\"command\":\"./mvnw -pl core test\"}")).hasMessage("Memory " + ruleId + " is a RULE; remember a RECIPE as a new memory");
-        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"id\":\"m9\",\"kind\":\"RULE\",\"text\":\"x\",\"quote\":\"Keep refactors in their own commits.\"}"))
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"id\":\"m9\",\"kind\":\"RULE\",\"title\":\"x\",\"text\":\"x\","
+                + "\"quote\":\"Keep refactors in their own commits.\"}"))
                 .hasMessageContaining("Memory m9 is the user's; agents never change it");
-        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"kind\":\"RECIPE\",\"text\":\"x\"}")).hasMessage("A RECIPE needs the command that passed");
+        assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"kind\":\"RECIPE\",\"title\":\"x\",\"text\":\"x\"}"))
+                .hasMessage("A RECIPE needs the command that passed");
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"REMEMBER\",\"kind\":\"SPEC\",\"text\":\"x\"}")).hasMessage("kind must be RULE or RECIPE");
 
         memories.undoRemember("workspace", ruleId);

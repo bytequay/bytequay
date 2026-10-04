@@ -1103,6 +1103,7 @@ public final class PermissionBroker
                                 .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")))
                                 .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                                 .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("RULE", "RECIPE")))
+                                .put("title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 80))
                                 .put("text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 600))
                                 .put("scope", ImmutableMap.of("type", "array", "maxItems", 8, "items", ImmutableMap.of("type", "string", "maxLength", 300)))
                                 .put("command", ImmutableMap.of("type", "string", "maxLength", 2000))

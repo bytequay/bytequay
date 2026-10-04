@@ -59,8 +59,8 @@ public class MemoryController
     @PatchMapping("/{memoryId}")
     public MemoryPage edit(@PathVariable String workspaceId, @PathVariable String memoryId, @RequestBody EditRequest request)
     {
-        checkArgument(request != null && request.expectedVersion() != null && request.text() != null, "expectedVersion and text are required");
-        memories.edit(workspaceId, memoryId, request.expectedVersion(), request.text());
+        checkArgument(request != null && request.expectedVersion() != null && request.title() != null && request.text() != null, "expectedVersion, title and text are required");
+        memories.edit(workspaceId, memoryId, request.expectedVersion(), request.title(), request.text());
         return pages.page(workspaceId);
     }
 
@@ -122,7 +122,7 @@ public class MemoryController
                 Optional.ofNullable(request.repo()));
     }
 
-    public record EditRequest(Long expectedVersion, String text) {}
+    public record EditRequest(Long expectedVersion, String title, String text) {}
 
     public record RestoreRequest(Long expectedVersion) {}
 

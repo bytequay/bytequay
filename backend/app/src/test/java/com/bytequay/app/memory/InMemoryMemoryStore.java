@@ -60,7 +60,7 @@ public final class InMemoryMemoryStore
     public synchronized void countDelivered(Collection<String> memoryIds)
     {
         memoryIds.stream().distinct().filter(memories::containsKey).forEach(id -> memories.computeIfPresent(id, (ignored, memory) -> new Memory(memory.id(),
-                memory.workspaceId(), memory.kind(), memory.text(), memory.scope(), memory.sources(), memory.origin(), memory.version(), memory.previous(),
+                memory.workspaceId(), memory.kind(), memory.title(), memory.text(), memory.scope(), memory.sources(), memory.origin(), memory.version(), memory.previous(),
                 memory.delivered() + 1, memory.cited(), memory.reports(), memory.createdAt(), memory.updatedAt())));
     }
 
@@ -68,7 +68,7 @@ public final class InMemoryMemoryStore
     public synchronized void countCited(Collection<String> memoryIds)
     {
         memoryIds.stream().distinct().filter(memories::containsKey).forEach(id -> memories.computeIfPresent(id, (ignored, memory) -> new Memory(memory.id(),
-                memory.workspaceId(), memory.kind(), memory.text(), memory.scope(), memory.sources(), memory.origin(), memory.version(), memory.previous(),
+                memory.workspaceId(), memory.kind(), memory.title(), memory.text(), memory.scope(), memory.sources(), memory.origin(), memory.version(), memory.previous(),
                 memory.delivered(), memory.cited() + 1, memory.reports(), memory.createdAt(), memory.updatedAt())));
     }
 }

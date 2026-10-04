@@ -405,6 +405,7 @@ class TestContextSpecCheckService
                 Optional.of("The writer keys removes by path on purpose until deletion vectors are enabled."));
         assertThat(dismissed.candidate("c1").dismissed()).contains("Not a real gap");
         assertThat(memories.list(WORKSPACE)).singleElement().satisfies(memory -> {
+            assertThat(memory.title()).isEqualTo("Checkpoints key removes by path only");
             assertThat(memory.text()).isEqualTo("The writer keys removes by path on purpose until deletion vectors are enabled.");
             assertThat(memory.scope()).containsExactly("plugin/trino-delta-lake/src/Writer.java");
             assertThat(memory.origin().user()).isTrue();

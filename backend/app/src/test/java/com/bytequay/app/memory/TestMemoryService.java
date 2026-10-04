@@ -16,6 +16,7 @@ package com.bytequay.app.memory;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;
+import com.bytequay.core.memory.MemorySource;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -75,18 +76,36 @@ class TestMemoryService
     {
         Memory memory = create("Keep the old name working.").reported(new MemoryReport("Wrong", "", "task", NOW), NOW);
         store.save(memory);
-        assertThatThrownBy(() -> memories.edit("workspace", "m1", 7, "Text")).isInstanceOf(ResponseStatusException.class)
+        assertThatThrownBy(() -> memories.edit("workspace", "m1", 7, "Title", "Text")).isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("changed since you opened it");
+        assertThatThrownBy(() -> memories.edit("workspace", "m1", 1, " ", "Text")).hasMessageContaining("memory title must have 1 to 80 characters");
 
-        Memory edited = memories.edit("workspace", "m1", 1, "  Keep the old name\nwith @LegacyConfig.  ");
+        Memory edited = memories.edit("workspace", "m1", 1, " Legacy config names ", "  Keep the old name\nwith @LegacyConfig.  ");
+        assertThat(edited.title()).isEqualTo("Legacy config names");
         assertThat(edited.text()).isEqualTo("Keep the old name with @LegacyConfig.");
         assertThat(edited.origin().user()).isTrue();
         assertThat(edited.reports()).isEmpty();
 
         Memory restored = memories.restore("workspace", "m1", 2);
-        assertThat(restored.text()).isEqualTo("Keep the old name working.");
+        assertThat(restored).extracting(Memory::title, Memory::text).containsExactly("Keep the old name working.", "Keep the old name working.");
         assertThatThrownBy(() -> memories.restore("workspace", "m1", 2)).hasMessageContaining("changed since you opened it");
-        assertThatThrownBy(() -> memories.edit("other", "m1", 3, "Text")).hasMessageContaining("is not in this workspace");
+        assertThatThrownBy(() -> memories.edit("other", "m1", 3, "Title", "Text")).hasMessageContaining("is not in this workspace");
+    }
+
+    @Test
+    void searchMatchesTitlesAndTextAndRememberedReasonsAreTitledByTheirFinding()
+    {
+        memories.create("workspace", Memory.Kind.RULE, "Checkpoint publishing", "Publish only after the write succeeds.", ImmutableList.of(),
+                ImmutableList.of(pullRequestSource(31354, "alice")), new Memory.Origin(false, "Learn from my PRs", Optional.of("harvest-task")));
+        assertThat(memories.search("workspace", Optional.of("CHECKPOINT"), Optional.empty(), 1, memory -> true).memories()).extracting(Memory::id).containsExactly("m1");
+        assertThat(memories.search("workspace", Optional.of("write succeeds"), Optional.empty(), 1, memory -> true).memories()).extracting(Memory::id).containsExactly("m1");
+
+        Memory reason = memories.rememberReason("workspace", "Close on failure can overwrite another writer's checkpoint after a concurrent publish of the same version",
+                "We abort the stream instead of closing it.", "plugin/trino-delta-lake/src/main/java/Writer.java",
+                new MemorySource.UserPart(MemorySource.Where.RESOLVE, "review", "finding"));
+        assertThat(reason.title()).isEqualTo("Close on failure can overwrite another writer's checkpoint after a concurrent…");
+        assertThat(reason.text()).isEqualTo("We abort the stream instead of closing it.");
+        assertThat(reason.origin().user()).isTrue();
     }
 
     @Test
@@ -134,6 +153,7 @@ class TestMemoryService
         memories.rememberSpecs("workspace", "plugin/trino-delta-lake/", ImmutableList.of(spec, spec), "task-1");
         Memory saved = memories.list("workspace").getFirst();
         assertThat(saved.kind()).isEqualTo(Memory.Kind.SPEC);
+        assertThat(saved.title()).isEqualTo("Specification at github.com/delta-io/delta/blob/master/PROTOCOL.md");
         assertThat(saved.scope()).containsExactly("plugin/trino-delta-lake/");
         assertThat(saved.origin().description()).isEqualTo("Spec check of plugin/trino-delta-lake/");
 
@@ -143,7 +163,7 @@ class TestMemoryService
         assertThat(widened.scope()).containsExactly("plugin/trino-delta-lake/", "lib/trino-delta-common/");
         assertThat(widened.previous().orElseThrow().scope()).containsExactly("plugin/trino-delta-lake/");
 
-        memories.edit("workspace", widened.id(), widened.version(), "The Delta protocol governs these modules.");
+        memories.edit("workspace", widened.id(), widened.version(), "Delta protocol", "The Delta protocol governs these modules.");
         memories.rememberSpecs("workspace", "plugin/trino-hive/", ImmutableList.of(spec), "task-4");
         assertThat(memories.list("workspace")).singleElement().satisfies(memory -> assertThat(memory.scope()).doesNotContain("plugin/trino-hive/"));
     }
@@ -161,7 +181,7 @@ class TestMemoryService
 
     private Memory create(String text)
     {
-        return memories.create("workspace", Memory.Kind.RULE, text, ImmutableList.of(), ImmutableList.of(pullRequestSource(31201, "alice")),
+        return memories.create("workspace", Memory.Kind.RULE, text, text, ImmutableList.of(), ImmutableList.of(pullRequestSource(31201, "alice")),
                 new Memory.Origin(false, "Learn from my PRs", Optional.of("harvest-task")));
     }
 }

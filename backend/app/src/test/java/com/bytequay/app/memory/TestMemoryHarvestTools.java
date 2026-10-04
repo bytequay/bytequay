@@ -80,7 +80,7 @@ class TestMemoryHarvestTools
         when(service.authorize(TASK.toString(), Optional.of(TURN))).thenAnswer(call -> current());
         when(unitOfWork.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
         memoryStore.save(rule("m11", WORKSPACE, "Document every new table property.", ImmutableList.of("plugin/")));
-        memoryStore.save(new Memory("m12", WORKSPACE, Memory.Kind.RULE, "Keep refactors in their own commits.", ImmutableList.of(),
+        memoryStore.save(new Memory("m12", WORKSPACE, Memory.Kind.RULE, "Refactor commits", "Keep refactors in their own commits.", ImmutableList.of(),
                 ImmutableList.of(MemoryFixtures.pullRequestSource(30000, "bo")), Memory.Origin.USER_EDIT, 2, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW));
     }
 
@@ -95,6 +95,7 @@ class TestMemoryHarvestTools
         JsonNode first = call(bridge, "repository_context_harvest_threads", "{}");
         assertThat(first.path("pages").intValue()).isEqualTo(2);
         assertThat(first.path("memories").findValuesAsText("id")).containsExactlyInAnyOrder("m11", "m12");
+        assertThat(first.path("memories").findValuesAsText("title")).containsExactlyInAnyOrder("Document every new table property.", "Refactor commits");
         assertThat(first.path("memories").findParents("id").stream().filter(memory -> memory.path("yours").booleanValue()).map(memory -> memory.path("id").asText()))
                 .containsExactly("m12");
         assertThat(first.path("threads")).hasSize(MemoryHarvestTools.PAGE_SIZE);
@@ -115,10 +116,14 @@ class TestMemoryHarvestTools
         store.save(Optional.empty(), build(3));
         ReviewBridge bridge = tools.bridge(TASK.toString()).orElseThrow();
 
-        JsonNode saved = call(bridge, "repository_context_harvest_save",
-                "{\"action\":\"SAVE\",\"text\":\"When a connector adds a session property,\\ngive it a catalog property too.\",\"scope\":[\"plugin/\"],\"sources\":[\"c1\"]}");
+        assertThat(call(bridge, "repository_context_harvest_save", "{\"action\":\"SAVE\",\"text\":\"x\",\"sources\":[\"c1\"]}").path("error").path("message").asText())
+                .isEqualTo("title: required");
+        JsonNode saved = call(bridge, "repository_context_harvest_save", "{\"action\":\"SAVE\",\"title\":\"Connector session properties\","
+                + "\"text\":\"When a connector adds a session property,\\ngive it a catalog property too.\",\"scope\":[\"plugin/\"],\"sources\":[\"c1\"]}");
         String id = saved.path("id").asText();
+        assertThat(saved.path("activityLine").asText()).isEqualTo("Saved " + id + " · Connector session properties");
         Memory memory = memories.get(WORKSPACE, id);
+        assertThat(memory.title()).isEqualTo("Connector session properties");
         assertThat(memory.text()).isEqualTo("When a connector adds a session property, give it a catalog property too.");
         assertThat(memory.origin()).isEqualTo(new Memory.Origin(false, "Learn from my PRs", Optional.of(TASK.toString())));
         MemorySource source = memory.sources().getFirst();
@@ -128,10 +133,10 @@ class TestMemoryHarvestTools
 
         call(bridge, "repository_context_harvest_save", "{\"action\":\"ADD_SOURCE\",\"id\":\"m11\",\"sources\":[\"c2\"]}");
         assertThat(memories.get(WORKSPACE, "m11").sources()).hasSize(2);
-        call(bridge, "repository_context_harvest_save", "{\"action\":\"REPLACE\",\"id\":\"m11\",\"text\":\"Document table properties on the connector page.\","
-                + "\"scope\":[\"plugin/trino-delta-lake/\"],\"sources\":[\"c3\"]}");
+        call(bridge, "repository_context_harvest_save", "{\"action\":\"REPLACE\",\"id\":\"m11\",\"title\":\"Table property docs\","
+                + "\"text\":\"Document table properties on the connector page.\",\"scope\":[\"plugin/trino-delta-lake/\"],\"sources\":[\"c3\"]}");
         Memory replaced = memories.get(WORKSPACE, "m11");
-        assertThat(replaced.text()).isEqualTo("Document table properties on the connector page.");
+        assertThat(replaced).extracting(Memory::title, Memory::text).containsExactly("Table property docs", "Document table properties on the connector page.");
         assertThat(replaced.previous().orElseThrow().text()).isEqualTo("Document every new table property.");
         assertThat(replaced.sources()).hasSize(3);
 

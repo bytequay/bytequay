@@ -34,8 +34,9 @@ public final class MemoryFixtures
     {
         List<MemorySource> sources = Arrays.stream(pullRequests.length == 0 ? new int[] {31201} : pullRequests)
                 .mapToObj(number -> pullRequestSource(number, "alice")).collect(toImmutableList());
-        return new Memory(id, workspaceId, Memory.Kind.RULE, text, scope, sources, new Memory.Origin(false, "Learn from my PRs", Optional.of("harvest-task")), 1,
-                Optional.empty(), 0, 0, ImmutableList.of(), NOW.plusSeconds(Long.parseLong(id.substring(1))), NOW);
+        return new Memory(id, workspaceId, Memory.Kind.RULE, Memory.titleFrom(text), text, scope, sources,
+                new Memory.Origin(false, "Learn from my PRs", Optional.of("harvest-task")), 1, Optional.empty(), 0, 0, ImmutableList.of(),
+                NOW.plusSeconds(Long.parseLong(id.substring(1))), NOW);
     }
 
     public static MemorySource pullRequestSource(int number, String author)

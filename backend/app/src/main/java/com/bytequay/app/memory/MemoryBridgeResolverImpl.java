@@ -155,6 +155,7 @@ public class MemoryBridgeResolverImpl
             item.put("workspaceId", workspaceId);
             item.put("version", memory.version());
             item.put("kind", memory.kind().name());
+            item.put("title", memory.title());
             item.put("text", memory.text());
             scope(item, memory);
             item.put("source", MemoryService.sourceLabel(memory));
@@ -179,6 +180,7 @@ public class MemoryBridgeResolverImpl
         result.put("id", memory.id());
         result.put("version", memory.version());
         result.put("kind", memory.kind().name());
+        result.put("title", memory.title());
         result.put("text", memory.text());
         scope(result, memory);
         result.put("savedBy", memory.origin().user() ? "the user; agents cannot change it" : memory.origin().description());
@@ -221,7 +223,7 @@ public class MemoryBridgeResolverImpl
 
     /**
      * Saves a rule resting on the user's words in this turn, or a recipe resting on a command that passed in this task. With an id, the
-     * rule or recipe an agent saved before takes the new text and scope, and the old ones stay as its previous version.
+     * rule or recipe an agent saved before takes the new title, text and scope, and the old ones stay as its previous version.
      */
     private ObjectNode remember(String workspaceId, AgentTask task, boolean review, TurnId turn, JsonNode arguments)
     {
@@ -230,6 +232,8 @@ public class MemoryBridgeResolverImpl
             case "RECIPE" -> Memory.Kind.RECIPE;
             default -> throw new IllegalArgumentException("kind must be RULE or RECIPE");
         };
+        String title = text(arguments, "title")
+                .orElseThrow(() -> new IllegalArgumentException("REMEMBER needs a title: the situation it covers, in at most " + Memory.MAX_TITLE + " characters"));
         String text = text(arguments, "text").map(value -> value.replaceAll("\\s*\\R\\s*", " "))
                 .orElseThrow(() -> new IllegalArgumentException("REMEMBER needs the text, in your own words"));
         List<String> scope = paths(arguments);
@@ -241,23 +245,18 @@ public class MemoryBridgeResolverImpl
         if (id.isPresent()) {
             Memory existing = memories.get(workspaceId, id.orElseThrow());
             checkArgument(existing.kind() == kind, "Memory %s is a %s; remember a %s as a new memory", existing.id(), existing.kind(), kind);
-            saved = memories.replace(workspaceId, existing.id(), text, scope, ImmutableList.of(source));
+            saved = memories.replace(workspaceId, existing.id(), title, text, scope, ImmutableList.of(source));
         }
         else {
-            saved = memories.create(workspaceId, kind, text, scope, ImmutableList.of(source),
+            saved = memories.create(workspaceId, kind, title, text, scope, ImmutableList.of(source),
                     new Memory.Origin(false, review ? "Remembered in a review" : "Remembered in a task", Optional.of(task.id().toString())));
         }
         ObjectNode result = mapper.createObjectNode();
         result.put("id", saved.id());
         result.put("created", id.isEmpty());
-        // The transcript shows this line with Undo; its id and text are what the row needs.
-        result.put("activityLine", (id.isEmpty() ? "Remembered " : "Updated ") + saved.id() + " · " + excerpt(saved.text()));
+        // The transcript shows this line with Undo; its id and title are what the row needs.
+        result.put("activityLine", (id.isEmpty() ? "Remembered " : "Updated ") + saved.id() + " · " + saved.title());
         return result;
-    }
-
-    private static String excerpt(String text)
-    {
-        return text.length() <= 160 ? text : text.substring(0, 159) + "…";
     }
 
     private static List<String> paths(JsonNode arguments)

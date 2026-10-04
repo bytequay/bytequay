@@ -286,7 +286,8 @@ public class ContextSpecCheckService
                     .orElseThrow(() -> new IllegalArgumentException("This finding cites no code to remember the rule for"));
         });
         ContextSpecCheck saved = checks.save(workspaceId, Optional.of(check), check.withCandidate(candidate.withDismissed(reason.strip())));
-        rule.ifPresent(text -> memories.rememberReason(workspaceId, text, path.orElseThrow(), new MemorySource.UserPart(MemorySource.Where.DISMISS, checkId, candidateId)));
+        rule.ifPresent(text -> memories.rememberReason(workspaceId, candidate.title(), text, path.orElseThrow(),
+                new MemorySource.UserPart(MemorySource.Where.DISMISS, checkId, candidateId)));
         return saved;
     }
 

@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseStartMemoryHarvestRequest } from './contracts';
 import type { MemoryDto, MemorySourceDto } from './contracts';
-import { age, flagged, kilobytes, matches, memoryFlags, pageLabel, sourceChip, sourceHead } from './model';
+import { age, flagged, kilobytes, matches, memoryFlags, pageLabel, sourceChip, sourceHead, titleRepeated } from './model';
 
 const review = (number: number, overrides: Partial<NonNullable<MemorySourceDto['pullRequest']>> = {}): MemorySourceDto => ({
   kind: 'PULL_REQUEST', url: `https://github.com/trinodb/trino/pull/${number}`, quote: 'Docs, please.', at: '2026-10-01T00:00:00Z', section: null,
@@ -22,7 +22,8 @@ const review = (number: number, overrides: Partial<NonNullable<MemorySourceDto['
   command: null,
 });
 const memory = (overrides: Partial<MemoryDto> = {}): MemoryDto => ({
-  id: 'm12', kind: 'RULE', text: 'Document every new table property on the connector page.', scope: ['plugin/'], sources: [review(31201), review(30877)],
+  id: 'm12', kind: 'RULE', title: 'Table property docs', text: 'Document every new table property on the connector page.', scope: ['plugin/'],
+  sources: [review(31201), review(30877)],
   origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 1, previous: null, delivered: 3, cited: 1, reports: [], missingScope: [],
   createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', ...overrides,
 });
@@ -65,6 +66,7 @@ describe('memory model', () => {
 
   it('filters by kind, source and literal text', () => {
     expect(matches(memory(), 'ALL', 'ANY', 'connector page')).toBe(true);
+    expect(matches(memory(), 'ALL', 'ANY', 'property docs')).toBe(true);
     expect(matches(memory(), 'SPEC', 'ANY', '')).toBe(false);
     expect(matches(memory(), 'ALL', 'USER', '')).toBe(false);
     expect(matches(memory({ origin: { user: true, description: 'Edited by you', taskId: null } }), 'ALL', 'USER', '')).toBe(true);
@@ -72,6 +74,12 @@ describe('memory model', () => {
     expect(matches(memory(), 'ALL', 'ANY', 'plugin/')).toBe(true);
     expect(matches(memory(), 'ALL', 'ANY', '@alice')).toBe(true);
     expect(matches(memory(), 'ALL', 'ANY', 'iceberg')).toBe(false);
+  });
+
+  it('knows a title the text already opens with, such as one cut from the text', () => {
+    expect(titleRepeated(memory())).toBe(false);
+    expect(titleRepeated(memory({ title: 'Document every new table property on the…' }))).toBe(true);
+    expect(titleRepeated(memory({ title: 'Document every new table property on the connector page.' }))).toBe(true);
   });
 
   it('states ages and sizes compactly', () => {
@@ -89,18 +97,20 @@ describe('memory model', () => {
 describe('memory contracts', () => {
   it('reads the page the backend sends and refuses malformed values', () => {
     const source = { ...review(31201), pullRequest: { ...review(31201).pullRequest, commentId: '7' } };
-    const stored: Record<string, unknown> = { id: 'm12', workspaceId: 'w', kind: 'RULE', text: 'Rule', scope: [], sources: [source], origin: { user: false, description: 'Learn', taskId: null },
-      version: 1, previous: { text: 'Old', scope: ['plugin/'] }, delivered: 0, cited: 0, reports: [], createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' };
+    const stored: Record<string, unknown> = { id: 'm12', workspaceId: 'w', kind: 'RULE', title: 'Title', text: 'Rule', scope: [], sources: [source],
+      origin: { user: false, description: 'Learn', taskId: null }, version: 1, previous: { title: 'Old title', text: 'Old', scope: ['plugin/'] }, delivered: 0, cited: 0,
+      reports: [], createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z' };
     const page = parseMemoryPage({ memories: [{ memory: stored, missingScope: ['plugin/'] }], switches: { reviews: true, development: false },
       guidelines: [{ path: 'CONTRIBUTING.md', bytes: 5120, cut: false, url: 'https://github.com/trinodb/trino/blob/a/CONTRIBUTING.md' }], head: null,
       harvest: { cursor: { number: 31201, closedAt: '2026-10-01T00:00:00Z' }, last: { harvestId: 'h', label: 'Learn from my PRs', startedAt: '2026-10-02T00:00:00Z',
         endedAt: null, pulls: 3, threads: 7, saved: ['m12'], seenAgain: 1, replaced: 0, outcome: 'RUNNING' } } });
-    expect(page.memories[0]).toMatchObject({ id: 'm12', missingScope: ['plugin/'], previous: { text: 'Old', scope: ['plugin/'] } });
+    expect(page.memories[0]).toMatchObject({ id: 'm12', title: 'Title', missingScope: ['plugin/'], previous: { title: 'Old title', text: 'Old', scope: ['plugin/'] } });
     expect(page.switches).toEqual({ reviews: true, development: false });
     expect(page.head).toBeNull();
     expect(page.harvest.cursor?.number).toBe(31201);
     expect(page.harvest.last?.saved).toEqual(['m12']);
     expect(() => parseMemoryPage({ ...page, memories: [{ memory: { ...stored, kind: 'NOTE' }, missingScope: [] }] })).toThrow('Malformed memory kind');
+    expect(() => parseMemoryPage({ ...page, memories: [{ memory: { ...stored, title: null }, missingScope: [] }] })).toThrow('Malformed memory title');
     expect(() => parseMemoryId('m0')).toThrow('Malformed memory id');
     expect(parseMemoryId('m12')).toBe('m12');
   });

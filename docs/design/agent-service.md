@@ -311,16 +311,16 @@ recipe check off the provider's thread; it never fails or delays settlement.
 
 `MemoryBridge` gives an open interactive development task or a review the
 `repository_memory` tool when the workspace has
-[repository memory](repository-memory.md) on for it. SEARCH matches literal text
-and paths, scoped memories first and longest scope first, twenty per page; READ
-returns one memory with its sources and quotes; REPORT flags one as wrong with
-a reason and a quote and records the reporting task. REMEMBER saves a RULE
-resting on the user's words in the session's turn, or a RECIPE resting on a
-command that finished with exit code 0 in the task; ByteQuay binds both sources
-from the task log, and with an id it replaces a rule or recipe an agent saved.
-No action changes a memory the user owns. Results are JSON with an
+[repository memory](repository-memory.md) on for it. SEARCH matches literal title
+or text and paths, scoped memories first and longest scope first, twenty per page;
+READ returns one memory with its title, sources and quotes; REPORT flags one as
+wrong with a reason and a quote and records the reporting task. REMEMBER saves a
+titled RULE resting on the user's words in the session's turn, or a titled RECIPE
+resting on a command that finished with exit code 0 in the task; ByteQuay binds
+both sources from the task log, and with an id it replaces a rule or recipe an
+agent saved. No action changes a memory the user owns. Results are JSON with an
 `activityLine` that the task log shows in place of the tool name; a saved
-memory's line, "Remembered m12 · …", gives the transcript row its Undo. Restricted and text-only
+memory's line, "Remembered m12 · " and its title, gives the transcript row its Undo. Restricted and text-only
 sessions, spec checks and other noninteractive runs get no tool; in a Codex
 review it is a root-only tool, like the other review writes.
 

@@ -37,16 +37,17 @@ agent rebuilds each turn with CodeGraph and reading.
 
 ## 2. Memory
 
-A memory is one short rule with a scope and its sources.
+A memory is one short rule with a title, a scope and its sources.
 
 | Field | Content |
 |---|---|
 | `kind` | RECIPE: how to build, test or run something here, with the command. RULE: a convention, decision or correction, meaning what to do or avoid, when, and why. SPEC: a specification that governs code, with its address, the paths that implement it and deviations kept on purpose |
+| `title` | At most 80 characters on one line, naming the situation the memory covers, such as "Adding connector table properties", so a reader can tell whether it applies before reading the text. Agents write it with the text, and the user edits it. A memory saved without a model takes its finding's title or "Specification at" its address, cut at a word. A memory saved before titles existed shows its text's opening words until it is edited |
 | `text` | At most 600 bytes, one paragraph, a condition and an instruction: "When adding a connector table property, document it on the connector's page; maintainers ask for it on every such PR." Recipes put the command in backticks. No SHAs, run numbers or dates; sources carry those |
 | `scope` | Up to 8 path prefixes or globs, the repository, or the user everywhere (personal preferences across workspaces) |
 | `sources` | 1 to 8 references, each with a quote of at most 300 bytes: PR (number, comment or review, author, whether the author is a maintainer, merged or closed), ISSUE (number, comment, author), USER (task or review, message or reason, the user's words), COMMAND (task, turn, command, directory, exit code 0, commit), PAGE (address, section, cited text), FILE (path and lines at a commit) |
 | `origin` | AGENT, with the task, review or harvest run that saved it, or USER when the user typed or edited it. Agents never change a USER memory |
-| `id`, `version`, `previous` | Stable identity, a version for optimistic edits, and the text and scope it replaced, one level deep, for Undo and Restore |
+| `id`, `version`, `previous` | Stable identity, a version for optimistic edits, and the title, text and scope it replaced, one level deep, for Undo and Restore |
 | counts | Delivered and cited: how often it reached an agent and how often a finding or answer cited it |
 
 A workspace holds at most 300 memories and the user at most 100 personal ones.
@@ -113,10 +114,11 @@ setting.
 - It may read the repository at the monitored head with CodeGraph and file reads
   to scope a rule and confirm it still applies.
 - It saves through one tool:
-  - SAVE adds a new rule.
+  - SAVE adds a new rule with its title.
   - ADD_SOURCE adds a source when a rule is seen again, so a recurring
     convention shows "3 PRs".
-  - REPLACE records a newer pull request that overrides an older rule.
+  - REPLACE records a newer pull request that overrides an older rule, with a
+    new title, text and scope.
 - Every save cites comment IDs from the run's own threads, and ByteQuay rejects
   any other source.
 - **Its instructions:** save what a maintainer asked for that would apply to
@@ -134,8 +136,8 @@ A harvest and a spec check share the workspace's one run slot.
 
 Development tasks and reviews get REMEMBER in the memory tool. The instruction:
 when the user corrects you or says how they want work done, and it would apply
-beyond this change, remember it in your own words with the user's words as the
-source.
+beyond this change, remember it in your own words, titled with the situation it
+covers, with the user's words as the source.
 
 - **Source binding.** ByteQuay binds the source to the user message the turn is
   answering, or to the review discussion message. The agent may quote the user's
@@ -143,12 +145,13 @@ source.
   turn, steers included; it cannot cite anything else. A review step, a generated
   follow-up and a local review dispatch carry ByteQuay's words, not the user's,
   so they remember no rule. Only a USER source can have the user-everywhere scope.
-- **Saving.** A memory is saved at once. The transcript shows "Remembered: …"
-  with Undo, which deletes it, or restores the previous version of an update.
+- **Saving.** A memory is saved at once. The transcript shows "Remembered:" and
+  its title, with Undo, which deletes it, or restores the previous version of an
+  update.
 - **Remember on Resolve and Dismiss.** Resolve on a review finding and Dismiss on
   a spec finding gain **Remember for \<path\>** beside their reason. The reason
-  is saved as written: a RULE with a USER source, scoped to the finding's file,
-  with no model. Dismiss picks its reason from a list, so its Remember asks for
+  is saved as written: a RULE with a USER source, titled with the finding's title
+  and scoped to the finding's file, with no model. Dismiss picks its reason from a list, so its Remember asks for
   the rule in the user's words. A spec finding's file is the first code it cites
   under the checked directory; a finding with no file offers no Remember.
 - **Save lesson** and its lesson drafts are removed; these paths replace them.
@@ -179,7 +182,8 @@ deleted after the task's retention window.
   links, may propose a specification the code doesn't link, decides which are
   specifications and reproduces gaps.
 - **Spec memories.** Each specification a check used becomes, or updates, a SPEC
-  memory with its address, the paths that link it and the sections read. A
+  memory titled "Specification at" its address, with the paths that link it and
+  the sections read. A
   development task or review that read a spec page may REMEMBER a SPEC with a
   PAGE source.
 - **Deviations.** A deviation kept on purpose is a RULE. It comes from a spec
@@ -297,17 +301,21 @@ memories.
 - **Header:** chips with an icon and a count, the sentence on hover, for recipes,
   rules and specs, and for memories from you, from pull requests and from tasks.
 - **Actions:** Learn from my PRs, showing how far the cursor is ("Learned
-  through #31201"), with the last run's counts and the rules it saved, each with
-  Delete; and Check against spec, with a directory picker. Opening the page reads
-  no GitHub data, so the count of newer pull requests comes with the run.
-- **Needs you:** flagged memories with the reason.
+  through #31201"), with the last run's counts and the titles of the rules it
+  saved, each with Delete; and Check against spec, with a directory picker.
+  Opening the page reads no GitHub data, so the count of newer pull requests comes
+  with the run.
+- **Needs you:** flagged memories by title, with the reason.
 - **List:**
   - **Grouping and filters:** grouped by kind, with source and path filters and a
-    literal filter.
-  - **Row:** the rule, scope chips, a source chip ("PR #31201 @alice · 3 PRs",
-    "You", "Task", "Page") and the cited count, with no bold text.
-  - **Drawer:** a row opens the memory drawer with its text, sources with quotes
-    and links, the previous version, Edit, and Delete with an Undo toast.
+    literal filter over titles, text, scope and sources.
+  - **Row:** the title, the rule beneath it, muted and cut to two lines, scope
+    chips, a source chip ("PR #31201 @alice · 3 PRs", "You", "Task", "Page") and
+    the cited count, with no bold text. A title the text already opens with, such
+    as one cut from the text, is not repeated.
+  - **Drawer:** a row opens the memory drawer with its title and text, sources
+    with quotes and links, the previous version, Edit for the title and text, and
+    Delete with an Undo toast.
 - **Guidelines:** the files that reach agents, with size and an open link.
 - **Specs:** spec memories with each one's latest check report, reusing the
   current report UI.
@@ -320,7 +328,7 @@ memories.
 | Surface | Change |
 |---|---|
 | Pull request page | Learn from this PR, on merged or closed pull requests; Replay review, on merged ones |
-| Task and review transcripts | "Remembered: …" rows with Undo, shown while their activity is folded; a Codex review whose root tools run outside MCP reports no line for them, so it shows none. The turn receipt folds "Memory: 6 delivered" and "Guidelines: 3 files" |
+| Task and review transcripts | "Remembered:" rows with the memory's title and Undo, shown while their activity is folded; a Codex review whose root tools run outside MCP reports no line for them, so it shows none. The turn receipt folds "Memory: 6 delivered" and "Guidelines: 3 files" |
 | Review findings | "Memory used", folded. The Resolve dialog gains Remember for \<path\> |
 | Tasks list | Harvest runs appear as learning runs do today: read-only activity with Stop |
 | Home | Needs attention keeps a row while memories are flagged |

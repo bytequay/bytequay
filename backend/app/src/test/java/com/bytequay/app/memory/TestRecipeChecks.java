@@ -70,7 +70,7 @@ class TestRecipeChecks
     @Test
     void aLaterFailedRunOfTheCommandFlagsTheRecipeOncePerTask()
     {
-        store.save(new Memory("m7", "workspace", Memory.Kind.RECIPE, "Run the parser test with `" + COMMAND + "`.", ImmutableList.of("core/"),
+        store.save(new Memory("m7", "workspace", Memory.Kind.RECIPE, "Parser test", "Run the parser test with `" + COMMAND + "`.", ImmutableList.of("core/"),
                 ImmutableList.of(MemorySource.command(COMMAND, NOW, new MemorySource.CommandPart("earlier-task", "earlier-turn", COMMAND, "core", "a".repeat(40)))),
                 new Memory.Origin(false, "Remembered in a task", Optional.of("earlier-task")), 1, Optional.empty(), 0, 0, ImmutableList.of(), NOW, NOW));
         when(events.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty())).thenAnswer(ignored -> new AgentHistoryPage(log, OptionalLong.empty(),

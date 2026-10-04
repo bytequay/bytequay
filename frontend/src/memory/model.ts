@@ -93,7 +93,12 @@ export function matches(memory: MemoryDto, kind: MemoryKindFilter, source: Memor
   if (source === 'PAGE' && !memory.sources.some(item => item.kind === 'PAGE')) return false;
   if (source === 'TASK' && !fromTask(memory)) return false;
   const needle = query.trim().toLowerCase();
-  return needle === '' || [memory.text, ...memory.scope, sourceChip(memory).label].join(' ').toLowerCase().includes(needle);
+  return needle === '' || [memory.title, memory.text, ...memory.scope, sourceChip(memory).label].join(' ').toLowerCase().includes(needle);
+}
+
+/** Whether the text opens with the title, as a title cut from the text does; the text alone then says both. */
+export function titleRepeated(memory: { title: string; text: string }): boolean {
+  return memory.text.startsWith(memory.title.replace(/…$/, ''));
 }
 
 /** "now", "5h", "3d", "2w", "4mo": how long ago, in the list's narrow age column. */

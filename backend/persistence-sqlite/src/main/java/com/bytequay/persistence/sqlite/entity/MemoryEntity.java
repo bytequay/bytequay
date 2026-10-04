@@ -49,6 +49,10 @@ public class MemoryEntity
     @Column(nullable = false)
     private String kind;
 
+    // Nullable because the schema update adds it to tables that already hold memories; SQLite cannot add a NOT NULL column without a default.
+    @Column
+    private String title;
+
     @Column(nullable = false, columnDefinition = "TEXT")
     private String text;
 
@@ -107,6 +111,7 @@ public class MemoryEntity
     public void update(Memory memory)
     {
         kind = memory.kind().name();
+        title = memory.title();
         text = memory.text();
         scope = memory.scope();
         sources = memory.sources();
@@ -123,7 +128,8 @@ public class MemoryEntity
 
     public Memory toDomain()
     {
-        return new Memory(id, workspaceId, Memory.Kind.valueOf(kind), text, scope, sources,
+        // A memory saved before titles existed is titled by its text's opening words until it is edited.
+        return new Memory(id, workspaceId, Memory.Kind.valueOf(kind), Optional.ofNullable(title).orElseGet(() -> Memory.titleFrom(text)), text, scope, sources,
                 new Memory.Origin(originUser, originDescription, Optional.ofNullable(originTaskId)), version, Optional.ofNullable(previous),
                 delivered, cited, reports, createdAt, updatedAt);
     }

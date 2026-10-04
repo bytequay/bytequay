@@ -17,11 +17,12 @@ import type { MemoryDto } from './contracts';
 import { MemoryDrawer } from './MemoryDrawer';
 
 const memory: MemoryDto = {
-  id: 'm4', kind: 'RULE', text: 'Keep partition values out of data file paths.', scope: ['plugin/trino-delta-lake/'],
+  id: 'm4', kind: 'RULE', title: 'Data file paths', text: 'Keep partition values out of data file paths.', scope: ['plugin/trino-delta-lake/'],
   sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/28770#discussion_r1', quote: 'We use random prefixes for data files.',
     at: '2026-09-01T00:00:00Z', section: null, pullRequest: { number: 28770, part: 'REVIEW_COMMENT', author: 'bo', maintainer: true, merged: true, resolved: true,
       outdated: false }, user: null, command: null }],
-  origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 2, previous: { text: 'Partition values stay out of paths.', scope: [] },
+  origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 2,
+  previous: { title: 'Partition paths', text: 'Partition values stay out of paths.', scope: [] },
   delivered: 6, cited: 0, reports: [{ reason: 'The writer now encodes partition values', quote: 'path(partition)', taskId: 'task', at: '2026-10-01T00:00:00Z' }],
   missingScope: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
 };
@@ -29,8 +30,10 @@ const render = (value: MemoryDto) => renderToStaticMarkup(<MemoryDrawer memory={
   onSave={() => {}} onRestore={() => {}} onKeep={() => {}} onDelete={() => {}} onOpen={() => {}} />);
 
 describe('MemoryDrawer', () => {
-  it('shows the flag with Keep, every source with its quote, and the previous version with Restore', () => {
+  it('shows the title, the flag with Keep, every source with its quote, and the previous version with Restore', () => {
     const markup = render(memory);
+    expect(markup).toContain('<p class="mem-drawer__title">Data file paths</p>');
+    expect(markup).toContain('<div class="mem-previous__title">Partition paths</div>');
     expect(markup).toContain('Reported wrong: The writer now encodes partition values');
     expect(markup).toContain('Keep as it is');
     expect(markup).toContain('PR #28770 · review comment · @bo, maintainer · merged');
@@ -46,6 +49,12 @@ describe('MemoryDrawer', () => {
     expect(markup).toContain('Yours · agents won’t change it');
     expect(markup).not.toContain('Keep as it is');
     expect(markup).not.toContain('Previous version');
+  });
+
+  it('leaves out a title the text already opens with', () => {
+    const markup = render({ ...memory, title: 'Keep partition values out of data…' });
+    expect(markup).not.toContain('mem-drawer__title');
+    expect(markup).toContain('Keep partition values out of data file paths.');
   });
 
   it('renders Markdown in source quotes', () => {

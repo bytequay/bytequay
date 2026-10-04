@@ -61,7 +61,9 @@ import {
   parseSpecCheckDirectory,
   parseStartContextSpecCheckRequest,
 } from './repository-context/contracts';
-import { parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseMemorySwitches, parseMemoryText, parseMemoryVersion, parseStartMemoryHarvestRequest } from './memory/contracts';
+import {
+  parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseMemorySwitches, parseMemoryText, parseMemoryTitle, parseMemoryVersion, parseStartMemoryHarvestRequest,
+} from './memory/contracts';
 import { parseMarkReplayRequest, parseReplay, parseReplayId, parseReplays, parseStartReplayRequest } from './memory/replays';
 import {
   parseAgentReview,
@@ -1392,8 +1394,9 @@ function registerIpc(): void {
       jsonInit('POST', parseDismissContextSpecFindingRequest(request), agentHeaders())).then(parseContextSpecCheck));
   const memoryUrl = (workspaceId: string, path = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/memory${path}`;
   ipcMain.handle('memory:page', (_event, workspaceId: string) => backendJson(memoryUrl(workspaceId)).then(parseMemoryPage));
-  ipcMain.handle('memory:edit', (_event, workspaceId: string, memoryId: unknown, expectedVersion: unknown, text: unknown) =>
-    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}`), jsonInit('PATCH', { expectedVersion: parseMemoryVersion(expectedVersion), text: parseMemoryText(text) }))
+  ipcMain.handle('memory:edit', (_event, workspaceId: string, memoryId: unknown, expectedVersion: unknown, title: unknown, text: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}`),
+      jsonInit('PATCH', { expectedVersion: parseMemoryVersion(expectedVersion), title: parseMemoryTitle(title), text: parseMemoryText(text) }))
       .then(parseMemoryPage));
   ipcMain.handle('memory:restore', (_event, workspaceId: string, memoryId: unknown, expectedVersion: unknown) =>
     backendJson(memoryUrl(workspaceId, `/${parseMemoryId(memoryId)}/restore`), jsonInit('POST', { expectedVersion: parseMemoryVersion(expectedVersion) })).then(parseMemoryPage));

@@ -338,7 +338,8 @@ it('reads a directory’s spec sources and starts a check of it, refusing a forg
 it('routes memory reads and the user’s changes, refusing a forged memory id before sending it', async () => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
-  const memory: Record<string, unknown> = { id: 'm12', workspaceId: 'workspace/one', kind: 'RULE', text: 'Document every new table property.', scope: ['plugin/'],
+  const memory: Record<string, unknown> = { id: 'm12', workspaceId: 'workspace/one', kind: 'RULE', title: 'Table property docs', text: 'Document every new table property.',
+    scope: ['plugin/'],
     sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/31201', quote: 'Docs, please.', at: '2026-10-02T00:00:00Z', section: null,
       pullRequest: { number: 31201, part: 'REVIEW', commentId: '7', author: 'alice', maintainer: true, merged: true, resolved: false, outdated: false } }],
     origin: { user: false, description: 'Learn from my PRs', taskId: 'task' }, version: 1, previous: null, delivered: 3, cited: 1, reports: [],
@@ -353,7 +354,7 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
   expect(read.memories[0].sources[0].pullRequest.author).toBe('alice');
   expect(fetch).toHaveBeenLastCalledWith(base, expect.anything());
   const cases = [
-    { name: 'edit', args: ['m12', 1, 'New text'], path: '/m12', method: 'PATCH', body: { expectedVersion: 1, text: 'New text' } },
+    { name: 'edit', args: ['m12', 1, 'New title', 'New text'], path: '/m12', method: 'PATCH', body: { expectedVersion: 1, title: 'New title', text: 'New text' } },
     { name: 'restore', args: ['m12', 2], path: '/m12/restore', method: 'POST', body: { expectedVersion: 2 } },
     { name: 'switches', args: [{ reviews: false, development: true }], path: '/switches', method: 'PUT', body: { reviews: false, development: true } },
   ];
@@ -374,8 +375,9 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
   fetch.mockClear();
   expect(() => desktop.handlers.get('memory:harvest')?.({}, 'workspace/one', { ...harvest, repo: null })).toThrow('Malformed harvest request');
   expect(() => desktop.handlers.get('memory:delete')?.({}, 'workspace/one', '../m12')).toThrow('Malformed memory id');
-  expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 0, 'Text')).toThrow('Malformed memory version');
-  expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 1, '  ')).toThrow('Malformed memory text');
+  expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 0, 'Title', 'Text')).toThrow('Malformed memory version');
+  expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 1, ' ', 'Text')).toThrow('Malformed memory title');
+  expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 1, 'Title', '  ')).toThrow('Malformed memory text');
   expect(fetch).not.toHaveBeenCalled();
 });
 

@@ -19,7 +19,8 @@ import type { HarvestLastRunDto, MemoryDto, MemoryPageDto } from './contracts';
 import { LearnCard } from './MemoryPage';
 
 const memory: MemoryDto = {
-  id: 'm31', kind: 'RULE', text: 'When a connector adds a session property, give it a catalog property too.', scope: ['plugin/'],
+  id: 'm31', kind: 'RULE', title: 'Connector session properties', text: 'When a connector adds a session property, give it a catalog property too.',
+  scope: ['plugin/'],
   sources: [{ kind: 'PULL_REQUEST', url: 'https://github.com/trinodb/trino/pull/31188', quote: 'Please add a catalog property too.', at: '2026-10-01T00:00:00Z',
     section: null, pullRequest: { number: 31188, part: 'REVIEW_COMMENT', author: 'alice', maintainer: true, merged: true, resolved: true, outdated: false },
     user: null, command: null }],
@@ -51,7 +52,7 @@ describe('LearnCard', () => {
     expect(markup).toContain(' · 1 new');
     expect(markup).toContain(' · 2 seen again');
     expect(markup).toContain(' · 1 replaced');
-    expect(markup).toContain('When a connector adds a session property');
+    expect(markup).toContain('>Connector session properties</button>');
     expect(markup).toContain('>Delete</button>');
     expect(render(page(last('NOTHING')), idle)).toContain('found no new maintainer threads in 12 pull requests');
     expect(render(page(last('FAILED')), idle)).toContain('did not finish; what it saved is kept');

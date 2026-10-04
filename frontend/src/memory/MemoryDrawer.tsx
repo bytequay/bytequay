@@ -16,19 +16,20 @@ import { Quote, Send, TriangleAlert } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import { Icon } from '../repository-context/icons';
 import type { MemoryDto } from './contracts';
-import { age, KIND_LABEL, memoryFlags, sourceHead } from './model';
+import { age, KIND_LABEL, memoryFlags, sourceHead, titleRepeated } from './model';
 
+const MAX_TITLE = 80;
 const MAX_TEXT_BYTES = 600;
 const utf8 = new TextEncoder();
 
-/** One memory: its text, where it applies, the sources it rests on with their quotes, and the user's edit, restore and delete. */
+/** One memory: its title and text, where it applies, the sources it rests on with their quotes, and the user's edit, restore and delete. */
 export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, onKeep, onDelete, onOpen }: {
-  memory: MemoryDto; busy: boolean; now: number; onClose: () => void; onSave: (text: string) => void; onRestore: () => void; onKeep: () => void;
+  memory: MemoryDto; busy: boolean; now: number; onClose: () => void; onSave: (title: string, text: string) => void; onRestore: () => void; onKeep: () => void;
   onDelete: () => void; onOpen: (url: string) => void;
 }) {
-  const [draft, setDraft] = useState<string | null>(null);
+  const [draft, setDraft] = useState<{ title: string; text: string } | null>(null);
   const flags = memoryFlags(memory);
-  const size = draft === null ? 0 : utf8.encode(draft.trim()).length;
+  const size = draft === null ? 0 : utf8.encode(draft.text.trim()).length;
   return <>
     <div className="rcp-drawer__head"><div className="rcp-drawer__top">
       <span className="mem-kind">{KIND_LABEL[memory.kind].one}</span>
@@ -39,12 +40,20 @@ export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, on
     </div></div>
     <div className="rcp-drawer__body mem-drawer">
       {draft === null
-        ? <p className="mem-drawer__text">{memory.text}</p>
-        : <label className="mem-edit">{KIND_LABEL[memory.kind].one}
-          <textarea value={draft} rows={5} autoFocus onChange={event => setDraft(event.target.value)} />
-          <span className={`mem-edit__hint${size > MAX_TEXT_BYTES ? ' is-over' : ''}`}>{size} of {MAX_TEXT_BYTES} bytes, one paragraph. Editing makes it yours:
-            agents won’t change it.</span>
-        </label>}
+        ? <>
+          {!titleRepeated(memory) && <p className="mem-drawer__title">{memory.title}</p>}
+          <p className="mem-drawer__text">{memory.text}</p>
+        </>
+        : <>
+          <label className="mem-edit">Title
+            <input value={draft.title} maxLength={MAX_TITLE} onChange={event => setDraft({ ...draft, title: event.target.value })} />
+          </label>
+          <label className="mem-edit">{KIND_LABEL[memory.kind].one}
+            <textarea value={draft.text} rows={5} autoFocus onChange={event => setDraft({ ...draft, text: event.target.value })} />
+            <span className={`mem-edit__hint${size > MAX_TEXT_BYTES ? ' is-over' : ''}`}>{size} of {MAX_TEXT_BYTES} bytes, one paragraph. Editing makes it yours:
+              agents won’t change it.</span>
+          </label>
+        </>}
       <div className="mem-meta"><span>Applies to</span>
         {memory.scope.length === 0 ? <span className="mem-scope">Repository</span> : memory.scope.map(path => <span key={path} className="mem-scope is-path">{path}</span>)}
       </div>
@@ -72,19 +81,23 @@ export function MemoryDrawer({ memory, busy, now, onClose, onSave, onRestore, on
       })}
       {memory.previous !== null && <>
         <h3 className="mem-label">Previous version</h3>
-        <div className="mem-previous">{memory.previous.text}</div>
+        <div className="mem-previous">
+          {!titleRepeated(memory.previous) && <div className="mem-previous__title">{memory.previous.title}</div>}
+          {memory.previous.text}
+        </div>
         <button type="button" className="rcp-link" disabled={busy || draft !== null} onClick={onRestore}>Restore</button>
       </>}
     </div>
     <div className="rcp-drawer__foot mem-foot">
       {draft === null
         ? <>
-          <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => setDraft(memory.text)}>Edit</button>
+          <button type="button" className="rcp-btn rcp-btn--sm" disabled={busy} onClick={() => setDraft({ title: memory.title, text: memory.text })}>Edit</button>
           <button type="button" className="rcp-btn rcp-btn--sm rcp-btn--danger" disabled={busy} onClick={onDelete}>Delete</button>
         </>
         : <>
-          <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--sm" disabled={busy || draft.trim() === '' || size > MAX_TEXT_BYTES}
-            onClick={() => { onSave(draft); setDraft(null); }}>Save</button>
+          <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--sm"
+            disabled={busy || draft.title.trim() === '' || draft.text.trim() === '' || size > MAX_TEXT_BYTES}
+            onClick={() => { onSave(draft.title, draft.text); setDraft(null); }}>Save</button>
           <button type="button" className="rcp-btn rcp-btn--sm" onClick={() => setDraft(null)}>Cancel</button>
         </>}
     </div>

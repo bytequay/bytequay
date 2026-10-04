@@ -28,7 +28,9 @@ import { MemoryDrawer } from './MemoryDrawer';
 import { ReplayDrawer, ReplaysSection } from './ReplaysSection';
 import { replayRunning, type ReplayDto } from './replays';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
-import { age, flagged, fromTask, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, type MemoryKindFilter, type MemorySourceFilter } from './model';
+import {
+  age, flagged, fromTask, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, titleRepeated, type MemoryKindFilter, type MemorySourceFilter,
+} from './model';
 import '../css/repository-context.css';
 import '../css/memory.css';
 
@@ -281,7 +283,7 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
               const flag = memoryFlags(memory)[0];
               return <button type="button" key={memory.id} className="mem-need" onClick={() => open({ kind: 'memory', id: memory.id })}>
                 <span className="mem-need__icon"><TriangleAlert size={15} aria-hidden="true" /></span>
-                <span className="mem-need__main"><span className="mem-need__title">{memory.text}</span>
+                <span className="mem-need__main"><span className="mem-need__title">{memory.title}</span>
                   <span className="mem-need__meta"><span className="mem-warn">{flag.title}</span> · {flag.detail}</span></span>
                 <span className="rcp-age">{age(memory.reports.at(-1)?.at ?? memory.updatedAt, now)}</span>
                 <ChevronRight size={14} aria-hidden="true" className="mem-chevron" />
@@ -372,7 +374,8 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
             onOpenReview={reviewId => { window.location.hash = workspaceReviewTaskRoute(workspaceId, reviewId); }} />
           : selected !== null && <MemoryDrawer key={selected.id + ':' + selected.version} memory={selected} busy={busy} now={now} onClose={() => setDrawer(null)}
             onOpen={openUrl}
-            onSave={text => change(() => window.bridge.editMemory(workspaceId, selected.id, selected.version, text), () => say('Memory saved · it is yours now'))}
+            onSave={(title, text) => change(() => window.bridge.editMemory(workspaceId, selected.id, selected.version, title, text),
+              () => say('Memory saved · it is yours now'))}
             onRestore={() => change(() => window.bridge.restoreMemory(workspaceId, selected.id, selected.version), () => say('Previous version restored'))}
             onKeep={() => change(() => window.bridge.keepMemory(workspaceId, selected.id), () => say('Kept as it is'))}
             onDelete={() => change(() => window.bridge.deleteMemory(workspaceId, selected.id), () => { setDrawer(null); say('Memory deleted', selected.id); })} />}
@@ -417,6 +420,7 @@ function MemoryRow({ memory, now, fresh, selected, onOpen }: { memory: MemoryDto
   const flag = memoryFlags(memory)[0];
   return <button type="button" className={`mem-row${selected ? ' is-selected' : ''}`} onClick={onOpen}>
     <span className="mem-row__main">
+      {!titleRepeated(memory) && <span className="mem-row__title">{memory.title}</span>}
       <span className="mem-row__text">{memory.text}</span>
       <span className="mem-row__meta">
         {memory.scope.length === 0 ? <span className="mem-scope">Repository</span> : memory.scope.map(path => <span key={path} className="mem-scope is-path">{path}</span>)}
@@ -482,7 +486,7 @@ function LastRun({ last, saved, busy, onDelete, onOpen }: {
       {[last.saved.length > 0 ? `${last.saved.length} new` : '', last.seenAgain > 0 ? `${last.seenAgain} seen again` : '',
         last.replaced > 0 ? `${last.replaced} replaced` : ''].filter(part => part !== '').map(part => <span key={part} className="mem-muted"> · {part}</span>)}</div>
     {saved.length > 0 && <div className="mem-box mem-learn__saved">{saved.map(memory => <div className="mem-learn__item" key={memory.id}>
-      <button type="button" className="mem-learn__text" onClick={() => onOpen(memory.id)}>{memory.text}</button>
+      <button type="button" className="mem-learn__text" onClick={() => onOpen(memory.id)}>{memory.title}</button>
       <button type="button" className="rcp-link mem-learn__delete" disabled={busy} onClick={() => onDelete(memory.id)}>Delete</button>
     </div>)}</div>}
   </div>;

@@ -25,11 +25,11 @@ export type MemorySourceDto = {
   command: null | { taskId: string; turnId: string; command: string; directory: string; commit: string };
 };
 export type MemoryReportDto = { reason: string; quote: string; taskId: string; at: string };
-/** One rule or spec agents receive; `missingScope` lists scope paths gone from the monitored head. */
+/** One rule or spec agents receive, titled with the situation it covers; `missingScope` lists scope paths gone from the monitored head. */
 export type MemoryDto = {
-  id: string; kind: MemoryKind; text: string; scope: string[]; sources: MemorySourceDto[];
+  id: string; kind: MemoryKind; title: string; text: string; scope: string[]; sources: MemorySourceDto[];
   origin: { user: boolean; description: string; taskId: string | null };
-  version: number; previous: null | { text: string; scope: string[] }; delivered: number; cited: number; reports: MemoryReportDto[];
+  version: number; previous: null | { title: string; text: string; scope: string[] }; delivered: number; cited: number; reports: MemoryReportDto[];
   missingScope: string[]; createdAt: string; updatedAt: string;
 };
 /** Whether reviews and development tasks of the workspace receive memory and the memory tool. */
@@ -86,11 +86,13 @@ export function parseMemory(value: unknown): MemoryDto {
   const origin = object(item.origin, 'memory origin');
   const previous = item.previous == null ? null : object(item.previous, 'memory previous version');
   return {
-    id: text(item.id, 'memory id'), kind: oneOf(item.kind, ['RULE', 'RECIPE', 'SPEC'], 'memory kind'), text: text(item.text, 'memory text'),
+    id: text(item.id, 'memory id'), kind: oneOf(item.kind, ['RULE', 'RECIPE', 'SPEC'], 'memory kind'), title: text(item.title, 'memory title'),
+    text: text(item.text, 'memory text'),
     scope: strings(item.scope, 'memory scope'), sources: list(item.sources, 'memory sources', source),
     origin: { user: flag(origin.user, 'memory origin'), description: text(origin.description, 'memory origin'), taskId: optionalText(origin.taskId) },
     version: count(item.version, 'memory version'),
-    previous: previous === null ? null : { text: text(previous.text, 'memory previous text'), scope: strings(previous.scope, 'memory previous scope') },
+    previous: previous === null ? null : { title: text(previous.title, 'memory previous title'), text: text(previous.text, 'memory previous text'),
+      scope: strings(previous.scope, 'memory previous scope') },
     delivered: count(item.delivered, 'memory deliveries'), cited: count(item.cited, 'memory citations'),
     reports: list(item.reports, 'memory reports', report => {
       const found = object(report, 'memory report');
@@ -162,6 +164,10 @@ export function parseMemoryId(value: unknown): string {
 }
 export function parseMemoryVersion(value: unknown): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 1) throw new Error('Malformed memory version');
+  return value;
+}
+export function parseMemoryTitle(value: unknown): string {
+  if (typeof value !== 'string' || value.trim() === '' || value.length > 200) throw new Error('Malformed memory title');
   return value;
 }
 export function parseMemoryText(value: unknown): string {

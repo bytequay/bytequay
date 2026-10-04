@@ -87,8 +87,8 @@ public class MemoryService
     }
 
     /**
-     * Literal matches among the visible memories: the text contains the query, ignoring case, and the scope covers the path. A
-     * path also finds the repository-wide memories, after the ones scoped to it, longest scope first.
+     * Literal matches among the visible memories: the title or text contains the query, ignoring case, and the scope covers the path.
+     * A path also finds the repository-wide memories, after the ones scoped to it, longest scope first.
      */
     public Page search(String workspaceId, Optional<String> query, Optional<String> path, int page, Predicate<Memory> visible)
     {
@@ -97,7 +97,7 @@ public class MemoryService
         Optional<String> target = path.map(String::strip).filter(text -> !text.isEmpty());
         List<Memory> matches = store.list(workspaceId).stream()
                 .filter(visible)
-                .filter(memory -> needle.isEmpty() || memory.text().toLowerCase(Locale.ROOT).contains(needle.orElseThrow()))
+                .filter(memory -> needle.isEmpty() || (memory.title() + "\n" + memory.text()).toLowerCase(Locale.ROOT).contains(needle.orElseThrow()))
                 .filter(memory -> target.isEmpty() || memory.repositoryWide() || memory.match(target.orElseThrow()).isPresent())
                 .sorted(Comparator.comparingInt((Memory memory) -> target.map(memory::match).orElse(OptionalInt.empty()).orElse(0)).reversed())
                 .collect(toImmutableList());
@@ -107,7 +107,7 @@ public class MemoryService
     }
 
     /** Saves a new memory under the next number; numbers are never reused, so a cited {@code [m12]} always means one memory. */
-    public Memory create(String workspaceId, Memory.Kind kind, String text, List<String> scope, List<MemorySource> sources, Memory.Origin origin)
+    public Memory create(String workspaceId, Memory.Kind kind, String title, String text, List<String> scope, List<MemorySource> sources, Memory.Origin origin)
     {
         synchronized (lock) {
             if (store.list(workspaceId).size() >= MAX_WORKSPACE_MEMORIES) {
@@ -115,7 +115,7 @@ public class MemoryService
             }
             long number = settings.get(LAST_NUMBER).map(Long::parseLong).orElse(0L) + 1;
             Instant now = clock.instant();
-            Memory memory = new Memory("m" + number, workspaceId, kind, text, scope, sources, origin, 1, Optional.empty(), 0, 0, ImmutableList.of(), now, now);
+            Memory memory = new Memory("m" + number, workspaceId, kind, title, text, scope, sources, origin, 1, Optional.empty(), 0, 0, ImmutableList.of(), now, now);
             settings.put(LAST_NUMBER, Long.toString(number));
             store.save(memory);
             return memory;
@@ -142,11 +142,11 @@ public class MemoryService
         }
     }
 
-    /** A harvest found a newer pull request that overrides the rule; the replaced text and scope stay as the previous version. */
-    public Memory replace(String workspaceId, String memoryId, String text, List<String> scope, List<MemorySource> sources)
+    /** A harvest found a newer pull request that overrides the rule; the replaced title, text and scope stay as the previous version. */
+    public Memory replace(String workspaceId, String memoryId, String title, String text, List<String> scope, List<MemorySource> sources)
     {
         synchronized (lock) {
-            Memory replaced = agentOwned(workspaceId, memoryId).replaced(text, scope, sources, clock.instant());
+            Memory replaced = agentOwned(workspaceId, memoryId).replaced(title, text, scope, sources, clock.instant());
             store.save(replaced);
             return replaced;
         }
@@ -161,11 +161,11 @@ public class MemoryService
         return memory;
     }
 
-    /** The user's words replace the text; line breaks become spaces, since a memory is one paragraph. */
-    public Memory edit(String workspaceId, String memoryId, long expectedVersion, String text)
+    /** The user's words replace the title and text; line breaks become spaces, since a memory is one paragraph. */
+    public Memory edit(String workspaceId, String memoryId, long expectedVersion, String title, String text)
     {
         synchronized (lock) {
-            Memory edited = current(workspaceId, memoryId, expectedVersion).edited(text.strip().replaceAll("\\s*\\R\\s*", " "), clock.instant());
+            Memory edited = current(workspaceId, memoryId, expectedVersion).edited(title.strip(), text.strip().replaceAll("\\s*\\R\\s*", " "), clock.instant());
             store.save(edited);
             return edited;
         }
@@ -199,21 +199,22 @@ public class MemoryService
             store.delete(memoryId);
             Instant now = clock.instant();
             deleted.values().removeIf(earlier -> earlier.updatedAt().plus(UNDO_WINDOW).isBefore(now));
-            deleted.put(memoryId, new Memory(memory.id(), memory.workspaceId(), memory.kind(), memory.text(), memory.scope(), memory.sources(), memory.origin(),
-                    memory.version(), memory.previous(), memory.delivered(), memory.cited(), memory.reports(), memory.createdAt(), now));
+            deleted.put(memoryId, new Memory(memory.id(), memory.workspaceId(), memory.kind(), memory.title(), memory.text(), memory.scope(), memory.sources(),
+                    memory.origin(), memory.version(), memory.previous(), memory.delivered(), memory.cited(), memory.reports(), memory.createdAt(), now));
         }
     }
 
     /**
      * A rule in the user's own words, saved as written with no model: the reason they gave when resolving a review finding, or the rule
-     * they wrote when dismissing a spec finding, scoped to the finding's file. The user owns it, so agents never change it.
+     * they wrote when dismissing a spec finding, titled by the finding and scoped to its file. The user owns it, so agents never change it.
      */
-    public Memory rememberReason(String workspaceId, String reason, String path, MemorySource.UserPart where)
+    public Memory rememberReason(String workspaceId, String findingTitle, String reason, String path, MemorySource.UserPart where)
     {
         String text = checkReason(reason);
         MemorySource source = MemorySource.user(ContextText.excerpt(text, MemorySource.MAX_QUOTE_BYTES), clock.instant(), where);
         String description = where.where() == MemorySource.Where.RESOLVE ? "You, resolving a finding" : "You, dismissing a spec finding";
-        return create(workspaceId, Memory.Kind.RULE, text, ImmutableList.of(path), ImmutableList.of(source), new Memory.Origin(true, description, Optional.empty()));
+        return create(workspaceId, Memory.Kind.RULE, Memory.titleFrom(findingTitle), text, ImmutableList.of(path), ImmutableList.of(source),
+                new Memory.Origin(true, description, Optional.empty()));
     }
 
     /** A reason as a memory's text, one paragraph within {@value Memory#MAX_TEXT_BYTES} bytes; checked before the finding changes. */
@@ -227,7 +228,7 @@ public class MemoryService
 
     /**
      * Undo on a transcript's Remembered row: a memory the agent saved goes, with the usual window to bring it back, and one it replaced
-     * gets its previous text and scope back. A memory the user has made theirs since is left for them to change in Memory.
+     * gets its previous title, text and scope back. A memory the user has made theirs since is left for them to change in Memory.
      */
     public void undoRemember(String workspaceId, String memoryId)
     {
@@ -301,7 +302,8 @@ public class MemoryService
                     }
                 }
                 String text = "Implements the specification at " + url + ".";
-                create(workspaceId, Memory.Kind.SPEC, ContextLimits.bytes(text) <= Memory.MAX_TEXT_BYTES ? text : "Implements the specification linked in its source.",
+                create(workspaceId, Memory.Kind.SPEC, Memory.titleFrom("Specification at " + url.replaceFirst("^https://", "")),
+                        ContextLimits.bytes(text) <= Memory.MAX_TEXT_BYTES ? text : "Implements the specification linked in its source.",
                         ImmutableList.of(directory), ImmutableList.of(MemorySource.page(url, "", clock.instant(), Optional.empty())),
                         new Memory.Origin(false, "Spec check of " + directory, Optional.of(taskId)));
             }

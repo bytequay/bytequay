@@ -42,7 +42,7 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 class TestMemoryController
 {
     private static final Instant NOW = Instant.parse("2026-10-02T10:00:00Z");
-    private static final Memory MEMORY = new Memory("m12", "workspace", Memory.Kind.RULE, "Document every new table property.", ImmutableList.of("plugin/"),
+    private static final Memory MEMORY = new Memory("m12", "workspace", Memory.Kind.RULE, "Table property docs", "Document every new table property.", ImmutableList.of("plugin/"),
             ImmutableList.of(MemorySource.pullRequest("https://github.com/trinodb/trino/pull/31201#discussion_r1", "Docs, please.", NOW,
                     new MemorySource.PullRequestPart(31201, MemorySource.Part.REVIEW_COMMENT, "1", "alice", true, true, true, false))),
             new Memory.Origin(false, "Learn from my PRs", Optional.of("task-1")), 1, Optional.empty(), 37, 4, ImmutableList.of(), NOW, NOW);
@@ -80,9 +80,11 @@ class TestMemoryController
             throws Exception
     {
         when(pages.page("workspace")).thenReturn(PAGE);
-        mvc.perform(patch("/api/workspaces/workspace/memory/m12").contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":1,\"text\":\"New text\"}"))
-                .andExpect(status().isOk()).andExpect(jsonPath("$.memories[0].memory.id").value("m12"));
-        verify(memories).edit("workspace", "m12", 1, "New text");
+        mvc.perform(patch("/api/workspaces/workspace/memory/m12").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"expectedVersion\":1,\"title\":\"New title\",\"text\":\"New text\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.memories[0].memory.id").value("m12"))
+                .andExpect(jsonPath("$.memories[0].memory.title").value("Table property docs"));
+        verify(memories).edit("workspace", "m12", 1, "New title", "New text");
 
         mvc.perform(post("/api/workspaces/workspace/memory/m12/restore").contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":2}"))
                 .andExpect(status().isOk());

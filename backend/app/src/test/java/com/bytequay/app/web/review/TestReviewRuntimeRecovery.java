@@ -168,7 +168,7 @@ class TestReviewRuntimeRecovery
                         .content("{\"expectedVersion\":0,\"reason\":\"We validate input at the API boundary.\",\"remember\":true}"))
                 .andExpect(status().isOk());
         verify(reviews).resolveFinding(REVIEW_ID, "finding-1", 0, "We validate input at the API boundary.");
-        verify(memories).rememberReason("workspace-1", "We validate input at the API boundary.", "src/App.java",
+        verify(memories).rememberReason("workspace-1", "Unchecked input", "We validate input at the API boundary.", "src/App.java",
                 new MemorySource.UserPart(MemorySource.Where.RESOLVE, REVIEW_ID, "finding-1"));
 
         assertThatThrownBy(() -> mvc.perform(post("/api/agent-review/{reviewId}/findings/finding-1/resolve", REVIEW_ID).contentType("application/json")

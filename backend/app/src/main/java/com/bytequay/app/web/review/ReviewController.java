@@ -33,7 +33,6 @@ import com.bytequay.app.web.agent.AgentHttpModels;
 import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.app.web.agent.ResolveApprovalRequest;
 import com.bytequay.core.memory.MemorySource;
-import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
@@ -273,20 +272,19 @@ public class ReviewController
     {
         String reason = Optional.ofNullable(request.reason()).orElse("");
         // Checked before resolving, so a reason that cannot be remembered leaves the finding open.
-        Optional<String> remembered = Boolean.TRUE.equals(request.remember()) ? Optional.of(rememberedPath(reviewId, findingId, reason)) : Optional.empty();
+        Optional<ReviewFinding> remembered = Boolean.TRUE.equals(request.remember()) ? Optional.of(rememberedFinding(reviewId, findingId, reason)) : Optional.empty();
         reviews.resolveFinding(reviewId, findingId, required(request.expectedVersion(), "expectedVersion"), reason);
         AgentReviewProjection resolved = reviews.get(reviewId);
-        remembered.ifPresent(path -> memories.rememberReason(resolved.review().workspaceId(), reason, path,
+        remembered.ifPresent(finding -> memories.rememberReason(resolved.review().workspaceId(), finding.title(), reason, finding.anchor().orElseThrow().path(),
                 new MemorySource.UserPart(MemorySource.Where.RESOLVE, reviewId, findingId)));
         return ReviewHttpModels.review(resolved);
     }
 
-    /** The file a resolved finding's reason is remembered for; a finding about the whole change has none. */
-    private String rememberedPath(String reviewId, String findingId, String reason)
+    /** The finding whose reason is remembered, titled by it and for its file; a finding about the whole change has no file. */
+    private ReviewFinding rememberedFinding(String reviewId, String findingId, String reason)
     {
         MemoryService.checkReason(reason);
-        return reviews.get(reviewId).findings().stream().filter(finding -> finding.id().equals(findingId)).findFirst()
-                .flatMap(ReviewFinding::anchor).map(ReviewAnchor::path)
+        return reviews.get(reviewId).findings().stream().filter(finding -> finding.id().equals(findingId) && finding.anchor().isPresent()).findFirst()
                 .orElseThrow(() -> new ReviewInvalidRequestException("A finding about the whole change has no file to remember its reason for"));
     }
 

@@ -26,6 +26,7 @@ import com.bytequay.app.repository.github.GitHubHarvestClient.PullDiscussion;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
+import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -223,9 +224,11 @@ public class MemoryHarvestService
                 + "memories already saved. Save what a maintainer asked for that would apply to other changes, with repository_context_harvest_save:\n"
                 + "- SAVE a new rule in your own words: one paragraph of at most 600 bytes, a condition and an instruction, with the reason when the "
                 + "thread gives one, such as \"When adding a connector table property, document it on the connector's page; maintainers ask for it "
-                + "on every such PR.\" Scope it to the path prefixes it applies to, ending in /, or to none for the whole repository.\n"
+                + "on every such PR.\" Title it with the situation it covers, in at most " + Memory.MAX_TITLE + " characters, such as \"Adding "
+                + "connector table properties\": agents decide from the title whether a rule applies to their work. Scope it to the path prefixes "
+                + "it applies to, ending in /, or to none for the whole repository.\n"
                 + "- ADD_SOURCE to an existing memory when a thread says the same thing again, instead of saving it twice.\n"
-                + "- REPLACE an existing memory when a newer pull request overrides it; the old version is kept.\n"
+                + "- REPLACE an existing memory's title, text and scope when a newer pull request overrides it; the old version is kept.\n"
                 + "Every save cites the note keys, such as c12, it rests on; only this run's notes can be cited. Skip one-off nits, typos and requests "
                 + "about one line. Prefer threads marked applied, where the code changed or the thread was resolved. A rule from a closed pull "
                 + "request says what was rejected and why. Never save how the code works: agents read code themselves. You may read this worktree, "

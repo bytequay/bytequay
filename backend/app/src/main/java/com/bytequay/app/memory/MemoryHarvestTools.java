@@ -100,12 +100,13 @@ public class MemoryHarvestTools
                         ImmutableMap.of("type", "object", "properties", ImmutableMap.of("page", ImmutableMap.of("type", "integer", "minimum", 1)),
                                 "additionalProperties", false),
                         arguments -> call(taskId, turn, arguments, this::threads)),
-                new ReviewTool("repository_context_harvest_save", "Save repository memory from this harvest's notes. SAVE a new rule with text and scope; "
-                        + "ADD_SOURCE to memory id when a thread repeats it; REPLACE memory id's text and scope when a newer pull request overrides it. "
-                        + "sources are note keys from this harvest, such as c12.",
+                new ReviewTool("repository_context_harvest_save", "Save repository memory from this harvest's notes. SAVE a new rule with title, text and "
+                        + "scope; ADD_SOURCE to memory id when a thread repeats it; REPLACE memory id's title, text and scope when a newer pull request "
+                        + "overrides it. sources are note keys from this harvest, such as c12.",
                         ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
                                 "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SAVE", "ADD_SOURCE", "REPLACE")),
                                 "id", ImmutableMap.of("type", "string", "pattern", "^m[1-9][0-9]*$"),
+                                "title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", Memory.MAX_TITLE),
                                 "text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 600),
                                 "scope", ImmutableMap.of("type", "array", "maxItems", Memory.MAX_SCOPE, "items", ImmutableMap.of("type", "string", "maxLength", 300)),
                                 "sources", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", Memory.MAX_SOURCES,
@@ -125,7 +126,7 @@ public class MemoryHarvestTools
         if (page == 1) {
             ArrayNode saved = result.putArray("memories");
             memories.list(build.workspaceId()).stream().filter(memory -> memory.kind() == Memory.Kind.RULE).forEach(memory -> {
-                ObjectNode item = saved.addObject().put("id", memory.id()).put("text", memory.text()).put("yours", memory.origin().user());
+                ObjectNode item = saved.addObject().put("id", memory.id()).put("title", memory.title()).put("text", memory.text()).put("yours", memory.origin().user());
                 memory.scope().forEach(item.putArray("scope")::add);
             });
         }
@@ -157,21 +158,20 @@ public class MemoryHarvestTools
         switch (action) {
             case "SAVE" -> {
                 checkArgument(!args.has("id"), "id: SAVE makes a new memory");
-                String text = text(args);
-                memory = memories.create(build.workspaceId(), Memory.Kind.RULE, text, scope(args), sources,
+                memory = memories.create(build.workspaceId(), Memory.Kind.RULE, required(args, "title"), required(args, "text"), scope(args), sources,
                         new Memory.Origin(false, harvest.label(), Optional.of(build.taskId())));
-                line = "Saved " + memory.id() + " · " + ContextText.excerpt(text, 120);
+                line = "Saved " + memory.id() + " · " + memory.title();
                 attempts = ImmutableMap.of(SAVED + memory.id(), "1");
             }
             case "ADD_SOURCE" -> {
-                checkArgument(!args.has("text") && !args.has("scope"), "ADD_SOURCE keeps the memory's text and scope");
+                checkArgument(!args.has("title") && !args.has("text") && !args.has("scope"), "ADD_SOURCE keeps the memory's title, text and scope");
                 memory = memories.addSources(build.workspaceId(), id(args), sources);
                 line = "Seen again: " + memory.id() + " · " + sources.size() + (sources.size() == 1 ? " source" : " sources");
                 attempts = ImmutableMap.of(SEEN_AGAIN + memory.id() + ":" + Instant.now(clock).toEpochMilli(), "1");
             }
             case "REPLACE" -> {
-                memory = memories.replace(build.workspaceId(), id(args), text(args), scope(args), sources);
-                line = "Replaced " + memory.id() + " · " + ContextText.excerpt(memory.text(), 120);
+                memory = memories.replace(build.workspaceId(), id(args), required(args, "title"), required(args, "text"), scope(args), sources);
+                line = "Replaced " + memory.id() + " · " + memory.title();
                 attempts = ImmutableMap.of(REPLACED + memory.id(), "1");
             }
             default -> throw new IllegalArgumentException("action: use SAVE, ADD_SOURCE or REPLACE");
@@ -221,10 +221,10 @@ public class MemoryHarvestTools
         }
     }
 
-    private static String text(JsonNode args)
+    private static String required(JsonNode args, String key)
     {
-        JsonNode value = args.get("text");
-        checkArgument(value != null && value.isTextual() && !value.textValue().isBlank(), "text: required");
+        JsonNode value = args.get(key);
+        checkArgument(value != null && value.isTextual() && !value.textValue().isBlank(), "%s: required", key);
         return value.textValue().strip().replaceAll("\\s*\\R\\s*", " ");
     }
 

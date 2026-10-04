@@ -25,6 +25,8 @@ import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.service.goal.GoalView;
 import com.bytequay.app.service.goal.WorkItemView;
+import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalKnowledgeNote;
@@ -216,6 +218,26 @@ class TestGoalController
         when(conversations.stop("workspace", "goal-1", "op-1")).thenReturn(ImmutableList.of());
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges/op-1/stop")).andExpect(status().isOk());
         verify(conversations).stop("workspace", "goal-1", "op-1");
+    }
+
+    @Test
+    void choosesTheGoalsOwnModelOrFollowsTheWorkspaceAgain()
+            throws Exception
+    {
+        AgentModelSetting chosen = new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "codex", "Codex", "gpt-5.6-sol", "GPT-5.6 Sol", Optional.of("low"));
+        when(conversations.chooseModel("workspace", "goal-1", "codex", "gpt-5.6-sol", Optional.of("low"))).thenReturn(chosen);
+        mvc.perform(put("/api/workspaces/workspace/goals/goal-1/model").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"configId\":\"codex\",\"model\":\"gpt-5.6-sol\",\"effort\":\"low\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.explicit").value(true))
+                .andExpect(jsonPath("$.effort").value("low"));
+
+        when(conversations.followWorkspaceModel("workspace", "goal-1"))
+                .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, false, "codex", "Codex", "gpt-5.6-sol", "GPT-5.6 Sol", Optional.of("xhigh")));
+        mvc.perform(delete("/api/workspaces/workspace/goals/goal-1/model")).andExpect(status().isOk()).andExpect(jsonPath("$.explicit").value(false));
+
+        when(conversations.model("workspace", "goal-1")).thenReturn(chosen);
+        mvc.perform(get("/api/workspaces/workspace/goals/goal-1/model")).andExpect(status().isOk()).andExpect(jsonPath("$.model").value("gpt-5.6-sol"));
     }
 
     @Test

@@ -15,7 +15,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
 import { issueUrl } from '../repository-context/specChecks';
-import type { Bridge } from '../types';
+import type { ModelChoice } from '../settings/ModelsPage';
+import type { AgentModelSettingDto, Bridge, ModelSettingsDto } from '../types';
 import type {
   GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalItemKind, GoalKnowledgeNoteDto, GoalLessonDto, GoalRecommendationDto, TopicLevel, WorkItemDto, CreateWorkItem,
   WorkItemDecision,
@@ -32,7 +33,10 @@ const ANSWER_POLL_MS = 1_500;
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'acceptGoalDefinition'
   | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
-  | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser'>;
+  | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'>;
+
+/** The model a goal's agent uses, with the configured models to choose from. */
+export type GoalModel = { setting: AgentModelSettingDto; settings: ModelSettingsDto };
 
 export type Goals = {
   goals: GoalDto[];
@@ -69,6 +73,9 @@ export type Goals = {
   knowledge: (goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
   gaps: (goalId: string) => Promise<GoalGapDto[]>;
   addGap: (goalId: string, candidateId: string) => Promise<GoalGapDto[]>;
+  model: (goalId: string) => Promise<GoalModel>;
+  /** Gives the goal its own model, or with null makes it follow the workspace's Development model again. */
+  chooseModel: (goalId: string, choice: ModelChoice | null) => Promise<AgentModelSettingDto>;
   /** Opens a gap's drafted issue on GitHub's form, for the user to file; answers whether its body was cut and copied to the clipboard instead. */
   fileIssue: (repository: string, draft: NonNullable<GoalGapDto['draft']>) => Promise<boolean>;
   /** Reads the goals again now, as when an answer may have floated a card. */
@@ -106,6 +113,9 @@ export type GoalConversation = {
   readLesson: (lessonId: string) => Promise<GoalLessonDto>;
   finishLesson: (lessonId: string, operationId: string) => Promise<void>;
   correctTopic: (topic: string, level: TopicLevel) => Promise<void>;
+  /** The model the goal's agent uses; null until read, and while it cannot be. */
+  model: GoalModel | null;
+  chooseModel: (choice: ModelChoice | null) => Promise<void>;
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
@@ -208,6 +218,8 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
   const exchanges = useCallback((goalId: string) => bridge().listGoalExchanges(workspaceId, goalId), [bridge, workspaceId]);
   const knowledge = useCallback((goalId: string) => bridge().listGoalKnowledge(workspaceId, goalId), [bridge, workspaceId]);
   const gaps = useCallback((goalId: string) => bridge().listGoalGaps(workspaceId, goalId), [bridge, workspaceId]);
+  const model = useCallback((goalId: string) => Promise.all([bridge().getGoalModel(workspaceId, goalId), bridge().getModelSettings(workspaceId)])
+    .then(([setting, settings]) => ({ setting, settings })), [bridge, workspaceId]);
   const refresh = useCallback(() => announce(workspaceId), [workspaceId]);
   // Kept the same across reads, so an open lesson is not opened again each time the goals refresh.
   const openLesson = useCallback((goalId: string, lessonId: string) => bridge().openGoalLesson(workspaceId, goalId, lessonId), [bridge, workspaceId]);
@@ -264,6 +276,9 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     knowledge,
     gaps,
     addGap: (goalId, candidateId) => bridge().addGoalGap(workspaceId, goalId, candidateId).then((found) => { announce(workspaceId); return found; }),
+    model,
+    chooseModel: (goalId, choice) => (choice === null ? bridge().clearGoalModel(workspaceId, goalId)
+      : bridge().setGoalModel(workspaceId, goalId, choice.configId, choice.model, choice.effort)),
     fileIssue: (repository, draft) => {
       const { url, cut } = issueUrl(repository, draft);
       return (cut ? navigator.clipboard.writeText(draft.body) : Promise.resolve()).then(() => bridge().openInAppBrowser(url)).then(() => cut);
@@ -273,7 +288,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     readLesson,
     finishLesson: (goalId, lessonId, operationId) => bridge().finishGoalLesson(workspaceId, goalId, lessonId, operationId).then(settle),
     setTopic: (goalId, topic, level) => bridge().setGoalTopic(workspaceId, goalId, topic, level).then(settle),
-  }), [bridge, error, exchanges, gaps, goals, knowledge, openLesson, readLesson, refresh, workItems, search, settle, settleCard, settleWork, workspaceId]);
+  }), [bridge, error, exchanges, gaps, goals, knowledge, model, openLesson, readLesson, refresh, workItems, search, settle, settleCard, settleWork, workspaceId]);
 }
 
 /**
@@ -294,6 +309,8 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
   const openOne = useCallback((lessonId: string) => (goalId === null ? Promise.reject(new Error('There is no goal')) : openLesson(goalId, lessonId)), [goalId, openLesson]);
   const readOne = useCallback((lessonId: string) => (goalId === null ? Promise.reject(new Error('There is no goal')) : readLesson(goalId, lessonId)), [goalId, readLesson]);
   const wasAnswering = useRef(false);
+  const [model, setModel] = useState<(GoalModel & { goalId: string }) | null>(null);
+  const { model: modelOf } = goals;
 
   // A settled answer may have floated a card, which the goals carry.
   useEffect(() => {
@@ -318,6 +335,14 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
     const timer = answering ? window.setInterval(load, ANSWER_POLL_MS) : undefined;
     return () => { active = false; window.clearInterval(timer); };
   }, [answering, cards, gapsOf, goalId, knowledge, list, shown]);
+
+  useEffect(() => {
+    if (goalId === null || !shown) return;
+    let active = true;
+    // Without its model the goal shows no model control; its agent still answers with the workspace's.
+    void Promise.resolve().then(() => modelOf(goalId)).then((found) => { if (active) setModel({ ...found, goalId }); }, () => {});
+    return () => { active = false; };
+  }, [goalId, modelOf, shown]);
 
   return useMemo(() => {
     const show = (found: GoalExchangeDto[]): void => {
@@ -344,6 +369,10 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
       finishLesson: (lessonId, operationId) => (goalId === null ? Promise.resolve()
         : goals.finishLesson(goalId, lessonId, operationId).then(() => goals.exchanges(goalId)).then(show)),
       correctTopic: (topic, level) => (goalId === null ? Promise.resolve() : goals.setTopic(goalId, topic, level).then(() => {})),
+      model: model !== null && model.goalId === goalId ? model : null,
+      chooseModel: (choice) => (goalId === null ? Promise.resolve() : goals.chooseModel(goalId, choice).then((setting) => {
+        setModel((last) => (last === null || last.goalId !== goalId ? last : { ...last, setting }));
+      })),
     };
-  }, [current, error, exchanges, gapsFound, goalId, goals, notes, openOne, readOne]);
+  }, [current, error, exchanges, gapsFound, goalId, goals, model, notes, openOne, readOne]);
 }

@@ -103,7 +103,7 @@ describe('goal model', () => {
   });
 });
 
-const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, ask: async () => {}, retry: async () => {},
+const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, ask: async () => {}, retry: async () => {},
   stop: async () => {}, accept: async () => {},
   acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {},
   correctTopic: async () => {} };

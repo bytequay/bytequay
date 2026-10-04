@@ -19,11 +19,20 @@ import type { GoalCardDto, GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeN
 import type { Goals } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import type { SpecCheckRequest } from '../../repository-context/specChecks';
+import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
+import type { AgentModelSettingDto, ModelSettingsDto } from '../../types';
 import '../../css/base.css';
+import '../../css/settings-window.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
-  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], failNextAsk: false };
+  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], failNextAsk: false, model: null as AgentModelSettingDto | null };
+/** The workspace's Development model, which a goal follows until it has its own. */
+const WORKSPACE_MODEL: AgentModelSettingDto = { type: 'DEVELOPMENT', explicit: false, configId: 'codex', label: 'Codex', model: 'sol', modelLabel: 'Sol', effort: 'high' };
+const MODELS: ModelSettingsDto = { agents: [], apiKeys: [], keyProviders: [], providers: [{ id: 'codex', label: 'Codex', readiness: 'READY', diagnostic: '',
+  capabilities: NO_AGENT_CAPABILITIES, selectedModel: 'sol', selectedEffort: 'high', models: [
+    { id: 'sol', name: 'Sol', description: '', efforts: ['low', 'high'], defaultEffort: 'high' },
+    { id: 'luna', name: 'Luna', description: '', efforts: ['low', 'high'], defaultEffort: 'low' }] }] };
 const CARD: GoalCardDto = { kind: 'RESEARCH', title: 'Read the Iceberg specification', reason: 'You start from the specification',
   scope: 'Table metadata, snapshots and manifests', pages: ['https://iceberg.apache.org/spec/'], workItemId: null, issue: null, ticket: null, module: null, reproductions: null };
 const PRACTICE: GoalCardDto = { kind: 'WORK', title: 'Fix #31252', reason: 'You learned how checkpoints reconcile actions',
@@ -71,6 +80,11 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   gaps: async () => [],
   addGap: unexpected,
   fileIssue: unexpected,
+  model: async () => ({ setting: server.model ?? WORKSPACE_MODEL, settings: MODELS }),
+  chooseModel: async (_goalId, choice) => {
+    server.model = choice === null ? null : { ...WORKSPACE_MODEL, explicit: true, ...choice, modelLabel: choice.model === 'luna' ? 'Luna' : 'Sol' };
+    return server.model ?? WORKSPACE_MODEL;
+  },
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);
     const card = server.goal.recommendations.find((candidate) => candidate.id === recommendationId);
@@ -131,6 +145,11 @@ function button(label: string): HTMLButtonElement {
   assert(found !== undefined, `Missing button ${label}`);
   return found;
 }
+function option(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((candidate) => candidate.querySelector('.setw-menu-label')?.textContent === label);
+  assert(found !== undefined, `Missing option ${label}`);
+  return found;
+}
 function composer(): HTMLTextAreaElement {
   const found = document.querySelector<HTMLTextAreaElement>('.goal-composer textarea');
   assert(found !== null, 'Missing composer');
@@ -171,6 +190,21 @@ export async function run(): Promise<boolean> {
     assert(server.stopped.length === 1 && text().includes('Stopped before the agent answered.') && !text().includes('Thinking…'), 'Stop ends a slow reply and keeps the message');
     button('Ask again').click(); await settle(); await settle();
     assert(text().includes('Thinking…') && asked() === 1, 'Ask again sends the stopped message once more');
+
+    const model = (): string => button('Development model').textContent ?? '';
+    // Read through a function: an assertion narrows the server's fields for the rest of the run.
+    const chosen = (): AgentModelSettingDto | null => server.model;
+    assert(model() === 'Sol · workspace default', 'The window names the workspace model the goal follows');
+    button('Development model').click(); await settle();
+    option('Luna').click(); await settle(); await settle();
+    assert(chosen()?.model === 'luna' && chosen()?.effort === 'high' && model() === 'Luna' && button('Development effort').textContent === 'high',
+      'Picking another model gives this goal its own and keeps the effort it offers');
+    button('Development effort').click(); await settle();
+    option('low').click(); await settle(); await settle();
+    assert(chosen()?.effort === 'low', 'The goal can work at its own effort');
+    button('Development model').click(); await settle();
+    option('Workspace default').click(); await settle(); await settle();
+    assert(chosen() === null && model() === 'Sol · workspace default', 'The goal can follow the workspace model again');
 
     answer({ assessment: 'You want to understand the connector deeply.', proposal: null, recommendation: null, course: null,
       question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });

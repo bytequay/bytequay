@@ -71,7 +71,7 @@ class TestGoalLessonService
     {
         beans.registerSingleton("goalConversationService", conversation);
         goal(WorkItem.State.PLANNED);
-        when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
+        when(models.goalModel("goal-1", "workspace"))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "codex", "Codex", "gpt", "GPT", Optional.empty()));
     }
 

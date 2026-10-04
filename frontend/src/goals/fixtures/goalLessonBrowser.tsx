@@ -58,7 +58,7 @@ function Fixture(): React.JSX.Element {
   }), []);
   const conversation: GoalConversation = {
     ...lessons,
-    loaded: true, exchanges, notes: [], gaps: [], addGap: async () => {}, error: null, stop: async () => {}, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {}, correctTopic: async () => {},
+    loaded: true, exchanges, notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, stop: async () => {}, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {}, correctTopic: async () => {},
     ask: async (operationId, message, lessonId) => {
       server.asked.push(lessonId);
       setExchanges([{ id: operationId, goalId: 'goal', message, automatic: false, lessonId: lessonId ?? null, inputRevision: 1, state: 'ANSWERED', failure: null,

@@ -1492,6 +1492,10 @@ export type Bridge = JiraBridge & {
   retryGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
   /** Stops the reply the agent is writing; the message stays to ask again. */
   stopGoalExchange: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalExchangeDto[]>;
+  /** The model the goal's agent answers and writes lessons with; it follows the workspace's Development model until the goal has its own. */
+  getGoalModel: (workspaceId: string, goalId: string) => Promise<AgentModelSettingDto>;
+  setGoalModel: (workspaceId: string, goalId: string, configId: string, model: string, effort: string | null) => Promise<AgentModelSettingDto>;
+  clearGoalModel: (workspaceId: string, goalId: string) => Promise<AgentModelSettingDto>;
   acceptGoalDefinition: (workspaceId: string, goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: each lesson becomes a Learn work item of the goal, and nothing starts. */
   acceptGoalCourse: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;

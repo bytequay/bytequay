@@ -15,7 +15,6 @@ package com.bytequay.app.service.goal;
 
 import com.bytequay.app.context.ContextText;
 import com.bytequay.app.service.settings.AgentModelSetting;
-import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
@@ -123,6 +122,27 @@ public class GoalConversationService
     {
         goal(workspaceId, goalId);
         return exchanges.list(goalId);
+    }
+
+    /** The model the goal's agent answers and writes lessons with. */
+    public AgentModelSetting model(String workspaceId, String goalId)
+    {
+        goal(workspaceId, goalId);
+        return models.goalModel(goalId, workspaceId);
+    }
+
+    /** Gives the goal its own model and effort in place of the workspace's Development model. */
+    public AgentModelSetting chooseModel(String workspaceId, String goalId, String configId, String model, Optional<String> effort)
+    {
+        goal(workspaceId, goalId);
+        return models.setGoalModel(goalId, workspaceId, configId, model, effort);
+    }
+
+    /** Makes the goal follow its workspace's Development model again. */
+    public AgentModelSetting followWorkspaceModel(String workspaceId, String goalId)
+    {
+        goal(workspaceId, goalId);
+        return models.clearGoalModel(goalId, workspaceId);
     }
 
     /** Starts a goal from the user's first answer, makes it the one the pages follow, and asks its agent. */
@@ -401,7 +421,7 @@ public class GoalConversationService
         try {
             GoalView goal = goal(exchange.workspaceId(), exchange.goalId());
             read = Optional.of(goal);
-            AgentModelSetting setting = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(exchange.workspaceId()));
+            AgentModelSetting setting = models.goalModel(goal.id(), exchange.workspaceId());
             model = Optional.of(setting.configId() + "/" + setting.model());
             List<GoalExchange> earlier = exchanges.list(goal.id()).stream().takeWhile(candidate -> !candidate.id().equals(exchange.id())).collect(toImmutableList());
             settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange), clock.instant());

@@ -65,6 +65,7 @@ import static java.util.Objects.requireNonNull;
 public class ModelSettingsService
 {
     public static final String WORKSPACE_AGENT_MODEL_PREFIX = "workspace.agentModel.";
+    private static final String GOAL_MODEL_PREFIX = "goal.agentModel.";
 
     private static final Logger log = LoggerFactory.getLogger(ModelSettingsService.class);
 
@@ -353,6 +354,31 @@ public class ModelSettingsService
     {
         settings.delete(workspaceKey(requireNonNull(workspaceId, "workspaceId is null"), requireNonNull(type, "type is null")));
         return agentModel(type, Optional.of(workspaceId));
+    }
+
+    /** The model a Goal's agent answers and writes lessons with: the Goal's own choice, else its workspace's Development model. */
+    public AgentModelSetting goalModel(String goalId, String workspaceId)
+    {
+        requireNonNull(goalId, "goalId is null");
+        return readAgentModel(GOAL_MODEL_PREFIX + goalId).map(stored -> resolve(AgentModelType.DEVELOPMENT, true, stored)).orElseGet(() -> {
+            AgentModelSetting workspace = agentModel(AgentModelType.DEVELOPMENT, Optional.of(workspaceId));
+            return new AgentModelSetting(workspace.type(), false, workspace.configId(), workspace.label(), workspace.model(), workspace.modelLabel(),
+                    workspace.effort());
+        });
+    }
+
+    public AgentModelSetting setGoalModel(String goalId, String workspaceId, String configId, String model, Optional<String> effort)
+    {
+        requireNonNull(goalId, "goalId is null");
+        requireAgentSelection(configId, model, effort);
+        writeJson(GOAL_MODEL_PREFIX + goalId, new StoredOverride(configId, model, effort.orElse(null)));
+        return goalModel(goalId, workspaceId);
+    }
+
+    public AgentModelSetting clearGoalModel(String goalId, String workspaceId)
+    {
+        settings.delete(GOAL_MODEL_PREFIX + requireNonNull(goalId, "goalId is null"));
+        return goalModel(goalId, workspaceId);
     }
 
     /** Drops every per-type override for a workspace being deleted. */

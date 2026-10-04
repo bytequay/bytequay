@@ -14,7 +14,6 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.app.service.settings.AgentModelSetting;
-import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalLesson;
@@ -179,7 +178,7 @@ public class GoalLessonService
             WorkItemView item = lesson(goal, lesson.id());
             String part = goal.course().orElseThrow().parts().stream().filter(candidate -> candidate.lessons().contains(lesson.id()))
                     .map(GoalCourse.Part::title).findFirst().orElseThrow();
-            AgentModelSetting setting = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(lesson.workspaceId()));
+            AgentModelSetting setting = models.goalModel(goal.id(), lesson.workspaceId());
             model = Optional.of(setting.configId() + "/" + setting.model());
             settled = lesson.written(model.orElseThrow(), planner.lesson(setting, goal, item, part, notes.list(goal.id())), clock.instant());
         }

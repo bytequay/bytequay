@@ -58,9 +58,11 @@ The existing source services still reopen the current task by default.
 The Goal window opens on guidance. A workspace without a Goal, or a Goal with no
 conversation and no definition, asks what the user wants to achieve and offers
 three directions written from the repository name without a model request. Each
-message is saved as a Goal exchange before a tool-free request to the workspace
-Development model, rebuilt from the Goal, its accepted definition, its work
-items and its recent exchanges. The reply must be one JSON object with an
+message is saved as a Goal exchange before a tool-free request to the Goal's
+model, rebuilt from the Goal, its accepted definition, its work items and its
+recent exchanges. The Goal window names that model: the workspace Development
+model until the user picks another configured model and effort for this Goal,
+and each exchange and lesson records the model it used. The reply must be one JSON object with an
 assessment, at most one question with up to four suggested answers, and an
 optional proposed definition; anything else fails the exchange, which the user
 can ask again. The user picks any number of the directions or suggested
@@ -157,9 +159,8 @@ The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
 acceptance into other work items, linking a filed issue to its gap, course changes, automatic
-outcome harvesting, stale-note marking, a per-Goal model choice, request
-cancellation and the two-call discovery shortlist with a source refresh remain
-pending. The checklist
+outcome harvesting, stale-note marking and the two-call discovery shortlist with
+a source refresh remain pending. The checklist
 distinguishes these from implemented behavior.
 
 The checked development database contained no Goals or issue/Jira task bindings.

@@ -290,6 +290,13 @@ input.goal-panel__title {
   outline-offset: 1px;
 }
 
+.goal-model {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
 .goal-panel__situation {
   margin-top: 2px;
   font-size: 12.5px;
@@ -921,7 +928,7 @@ button.goal-tile:hover {
 .goal-work-history p { white-space: pre-wrap; overflow-wrap: anywhere; }
 .goal-columns { grid-template-columns: repeat(4, minmax(160px, 1fr)); overflow-x: auto; }
 
-.goal-panel__views { align-self: flex-start; margin-top: 10px; }
+.goal-panel__views { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
 .goal-guide { gap: 12px; }
 .goal-guide__ask { font-size: 15px; font-weight: 600; line-height: 21px; text-wrap: pretty; }
 .goal-guide__hint { margin-top: 4px; font-size: 12.5px; line-height: 18px; color: #57606a; }

@@ -1860,6 +1860,12 @@ function registerIpc(): void {
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges/${encodeURIComponent(exchangeId)}/retry`), { method: 'POST' }).then(exchanges));
   ipcMain.handle('goals:stop', (_event, workspaceId: string, goalId: string, exchangeId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/exchanges/${encodeURIComponent(exchangeId)}/stop`), { method: 'POST' }).then(exchanges));
+  const goalModelUrl = (workspaceId: string, goalId: string) => goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/model`);
+  ipcMain.handle('goals:model', (_event, workspaceId: string, goalId: string) => backendJson(goalModelUrl(workspaceId, goalId)));
+  ipcMain.handle('goals:model:set', (_event, workspaceId: string, goalId: string, configId: string, model: string, effort: string | null) =>
+    backendJson(goalModelUrl(workspaceId, goalId), jsonInit('PUT', { configId, model, effort })));
+  ipcMain.handle('goals:model:clear', (_event, workspaceId: string, goalId: string) =>
+    backendJson(goalModelUrl(workspaceId, goalId), { method: 'DELETE' }));
   ipcMain.handle('goals:accept', (_event, workspaceId: string, goalId: string, exchangeId: string, title: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/definition`), jsonInit('POST', { exchangeId, title })).then(parseGoal));
   ipcMain.handle('goals:course', (_event, workspaceId: string, goalId: string, exchangeId: string) =>

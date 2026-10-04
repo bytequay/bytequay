@@ -113,7 +113,7 @@ class TestGoalConversationService
         beans.registerSingleton("goalResearchService", research);
         beans.registerSingleton("goalSpecChecks", specChecks);
         when(work.list("workspace")).thenReturn(ImmutableList.of());
-        when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
+        when(models.goalModel(any(), eq("workspace")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, true, "codex", "Codex", "gpt", "GPT", Optional.empty()));
     }
 

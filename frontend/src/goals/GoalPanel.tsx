@@ -27,7 +27,8 @@ import {
   sourceUrl, summarize, itemNeedsYou,
   type GoalTab,
 } from './model';
-import type { GoalConversation } from './useGoals';
+import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
+import type { GoalConversation, GoalModel } from './useGoals';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { TOPIC_LEVELS } from './contracts';
 
@@ -143,9 +144,12 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
             {goal.description !== '' && <div className="goal-panel__desc">{goal.description}</div>}
           </>
         )}
-        {props.onBack === undefined && <div className="goal-tabs goal-panel__views" role="tablist" aria-label="Goal views">
-          {(['guide', 'work'] as const).map((value) => <button type="button" role="tab" aria-selected={view === value} key={value}
-            className={`goal-tab${view === value ? ' is-active' : ''}`} onClick={() => { setSelected(null); props.onView(value); }}>{value === 'guide' ? 'Guide' : 'Work'}</button>)}
+        {props.onBack === undefined && <div className="goal-panel__views">
+          <div className="goal-tabs" role="tablist" aria-label="Goal views">
+            {(['guide', 'work'] as const).map((value) => <button type="button" role="tab" aria-selected={view === value} key={value}
+              className={`goal-tab${view === value ? ' is-active' : ''}`} onClick={() => { setSelected(null); props.onView(value); }}>{value === 'guide' ? 'Guide' : 'Work'}</button>)}
+          </div>
+          {goal !== null && props.conversation.model !== null && <GoalModelPicker model={props.conversation.model} onChoose={props.conversation.chooseModel} />}
         </div>}
       </div>
       {lessonItem !== undefined && goal !== null ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
@@ -182,6 +186,22 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           {cancelError !== null && <p className="goal-guide__error" role="alert">{cancelError}</p>}
         </ConfirmDialog>
       )}
+    </div>
+  );
+}
+
+/** The model the goal's agent answers and writes lessons with: the workspace's Development model until the user picks one for this goal. */
+function GoalModelPicker({ model, onChoose }: { model: GoalModel; onChoose: (choice: ModelChoice | null) => Promise<void> }): React.JSX.Element {
+  const [error, setError] = useState<string | null>(null);
+  const choose = (choice: ModelChoice | null): void => {
+    setError(null);
+    void onChoose(choice).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The model was not changed'));
+  };
+  return (
+    <div className="goal-model">
+      {error !== null && <span className="goal-guide__error" role="alert">{error}</span>}
+      <AgentModelControls agent={model.setting} settings={model.settings} onChoose={choose} onInherit={() => choose(null)}
+        inheritLabel={model.setting.explicit ? 'Workspace default' : `${model.setting.modelLabel} · workspace default`} />
     </div>
   );
 }

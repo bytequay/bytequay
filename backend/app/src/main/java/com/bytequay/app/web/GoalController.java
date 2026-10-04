@@ -21,6 +21,7 @@ import com.bytequay.app.service.goal.GoalResearchService;
 import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.GoalSpecChecks;
 import com.bytequay.app.service.goal.GoalView;
+import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.core.domain.GoalExchange;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalKnowledgeNote;
@@ -201,6 +202,24 @@ public class GoalController
     {
         checkArgument(request != null && request.topic() != null && request.level() != null, "topic and level are required");
         return conversations.correctTopic(workspaceId, goalId, request.topic(), request.level());
+    }
+
+    @GetMapping("/{goalId}/model")
+    public AgentModelSetting model(@PathVariable String workspaceId, @PathVariable String goalId)
+    {
+        return conversations.model(workspaceId, goalId);
+    }
+
+    @PutMapping("/{goalId}/model")
+    public AgentModelSetting chooseModel(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody WorkspaceController.AgentModelRequest request)
+    {
+        return conversations.chooseModel(workspaceId, goalId, request.configId(), request.model(), Optional.ofNullable(request.effort()));
+    }
+
+    @DeleteMapping("/{goalId}/model")
+    public AgentModelSetting followWorkspaceModel(@PathVariable String workspaceId, @PathVariable String goalId)
+    {
+        return conversations.followWorkspaceModel(workspaceId, goalId);
     }
 
     @GetMapping("/{goalId}/gaps")

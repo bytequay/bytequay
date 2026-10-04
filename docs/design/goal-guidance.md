@@ -144,8 +144,13 @@ a retry, and the agent hears what it reproduced and what was already reported.
 The Goal window lists the gaps of the last finished check that nobody dismissed:
 File issue opens GitHub's form with the drafted issue, which only the user
 submits, and Add to goal makes the gap a Develop work item under merged delivery,
-done once its reproduction test passes and the fix merges. No other spec check is
-recommended while one of those gaps is neither done nor dropped.
+done once its reproduction test passes and the fix merges. Once the user files
+the drafted issue and the issue list reads it, the gap offers that issue: the
+newest open issue with the draft's exact title, opened after the check by the
+signed-in account. Adding the gap, or adding it again, links the issue to the
+gap's work, so a task started from the issue becomes its attempt rather than a
+second work item. No other spec check is recommended while one of those gaps is
+neither done nor dropped.
 
 When a turn of an interactive task ends and the task belongs to a Goal's work
 item, the turn is recorded once in the item's history as a receipt, keyed by the
@@ -192,8 +197,7 @@ ByteQuay keeps only evidence that exists and never changes a level the user set.
 The Guide view lists what the user knows, and the user can correct any level.
 
 A new explicit same-source attempt without deleting the prior task, proposal
-acceptance into other work items, linking a filed issue to its gap, automatic
-outcome harvesting, stale-note marking and the two-call discovery shortlist
+acceptance into other work items, automatic outcome harvesting, stale-note marking and the two-call discovery shortlist
 remain pending. The checklist
 distinguishes these from implemented behavior.
 

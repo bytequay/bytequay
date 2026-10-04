@@ -252,7 +252,7 @@ describe('goal guidance', () => {
     const gap: GoalGapDto = { checkId: 'check-1', candidateId: 'c-1', module: 'plugin/trino-delta-lake/', title: 'Checkpoint keys actions by path only',
       rule: 'Reconcile by path and deletion vector', specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md',
       test: { path: 'TestCheckpoint.java', command: 'mvn test', exitCode: 1 }, draft: { title: 'Checkpoint loses rows', body: 'Body', labels: ['bug'] },
-      workItemId: null, state: null };
+      workItemId: null, state: null, filed: null };
     expect(parseGoalGap(JSON.parse(JSON.stringify({ ...gap, test: { ...gap.test, output: 'Rows lost', source: 'provider' } })))).toEqual(gap);
     const open = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, gaps: [gap] } });
     expect(open).toContain('Gaps the spec check reproduced · 1');
@@ -261,6 +261,10 @@ describe('goal guidance', () => {
     const added = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, gaps: [{ ...gap, workItemId: 'work-7', state: 'PLANNED' }] } });
     expect(added).toContain('>Work: planned</button>');
     expect(added).not.toContain('Add to goal');
+    // The issue the user filed from the draft is offered to the gap's work, once added or as it is added.
+    expect(panel({ view: 'guide', conversation: { ...NO_CONVERSATION, gaps: [{ ...gap, filed: 31301 }] } })).toContain('>Add to goal with #31301</button>');
+    expect(panel({ view: 'guide', conversation: { ...NO_CONVERSATION, gaps: [{ ...gap, workItemId: 'work-7', state: 'PLANNED', filed: 31301 }] } }))
+      .toMatch(/>Link #(<!-- -->)?31301(<!-- -->)? to its work<\/button>/);
   });
 
   it('reads a proposed and an accepted course, and offers the course only until one is accepted', () => {

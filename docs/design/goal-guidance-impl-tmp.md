@@ -299,6 +299,11 @@ one summary request after the agent hears the decision, keyed by the acceptance;
 the summary is a SUMMARY event in the item's history, shown above its sources
 and sent with the work item to the planner. A failed request records nothing.
 
+Item 3 is implemented: a gap with a draft reads the 100 issues updated last for
+the user's open issue with the draft's exact title opened after the check, and
+offers it until the gap's work links it; adopting the gap, again if need be,
+links the issue through the work item's ordinary link with its revision.
+
 Done when: an accepted result carries a saved summary; an investigation card
 becomes one work item however often it is started; a filed gap issue links to
 the gap's work in one click; and a moved file marks the notes that cite it.

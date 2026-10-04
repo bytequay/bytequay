@@ -17,10 +17,18 @@ import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.context.ContextSpecModule;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.Goal;
+import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalStore;
+import com.bytequay.core.store.RepositoryIssueStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,8 +64,12 @@ class TestGoalSpecChecks
     private final GoalConversationService conversation = mock(GoalConversationService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final WorkItemService work = mock(WorkItemService.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
+    private final CredentialService credentials = mock(CredentialService.class);
     private final GoalSpecChecks specChecks = new GoalSpecChecks(goals, cards, beans.getBeanProvider(WorkItemService.class), beans.getBeanProvider(ContextSpecCheckService.class),
-            beans.getBeanProvider(ContextBuildService.class), beans.getBeanProvider(GoalConversationService.class), Clock.fixed(NOW, ZoneOffset.UTC));
+            beans.getBeanProvider(ContextBuildService.class), beans.getBeanProvider(GoalConversationService.class), workspaces, issues, credentials,
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -156,6 +168,51 @@ class TestGoalSpecChecks
         when(builds.baseline("workspace")).thenReturn(Optional.of(new ContextBuildService.Baseline("master", "b".repeat(40))));
         specChecks.modules("workspace");
         verify(checks, times(2)).modules("workspace");
+    }
+
+    @Test
+    void theIssueTheUserFiledFromAGapsDraftIsOfferedAndJoinsTheGapsWork()
+    {
+        cards.save(cards.find("card-1").orElseThrow().checking("check-1", NOW).done(NOW));
+        ContextSpecCheck.Candidate gap = candidate(ContextSpecCheck.Status.CONFIRMED, "Checkpoint keys actions by path only", Optional.empty());
+        when(gap.id()).thenReturn("c-1");
+        when(gap.rule()).thenReturn("");
+        when(gap.specUrl()).thenReturn(PROTOCOL);
+        when(gap.test()).thenReturn(Optional.empty());
+        when(gap.draft()).thenReturn(Optional.of(new ContextSpecCheck.Draft("Checkpoint loses rows with deletion vectors", "Body", ImmutableList.of("bug"))));
+        ContextSpecCheck check = check(ContextSpecCheck.State.DONE, gap);
+        when(check.startedAt()).thenReturn(NOW);
+        when(checks.checks("workspace")).thenReturn(ImmutableList.of(check));
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.monitoredRepositoryId()).thenReturn(1L);
+        when(workspace.monitoredRepository()).thenReturn(RepoRef.of("trinodb", "trino"));
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+        when(credentials.cachedLogin()).thenReturn(Optional.of("jack"));
+        when(issues.findPage(1, RepoRef.of("trinodb", "trino"), 0, 100)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("trinodb", "trino"), ImmutableList.of(
+                issue(31301, "Checkpoint loses rows with deletion vectors", "jack", NOW.plusSeconds(60)),
+                issue(31302, "Checkpoint loses rows with deletion vectors", "someone", NOW.plusSeconds(90)),
+                issue(31200, "Checkpoint loses rows with deletion vectors", "jack", NOW.minusSeconds(60)),
+                issue(31303, "Checkpoint loses rows", "jack", NOW.plusSeconds(120))), 0, 100, 4, false, Optional.of(NOW)));
+        when(work.list("workspace")).thenReturn(ImmutableList.of());
+        assertThat(specChecks.gaps("workspace", "goal-1").getFirst().filed()).as("the user's own issue, filed after the check, under the draft's title").contains(31301);
+
+        String id = UUID.nameUUIDFromBytes("gap:plugin/trino-delta-lake/:c-1".getBytes(UTF_8)).toString();
+        WorkItemView created = new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows with deletion vectors", WorkItem.Kind.DEVELOP, "Fixed",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+        when(work.create(eq("workspace"), eq(id), any(), any(), any(), any(), any())).thenReturn(created);
+        specChecks.adopt("workspace", "goal-1", "c-1");
+        verify(work).link("workspace", id, 2, GoalItemKind.ISSUE, "trinodb/trino#31301");
+
+        when(work.list("workspace")).thenReturn(ImmutableList.of(new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows", WorkItem.Kind.DEVELOP,
+                "Fixed", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 3, ImmutableList.of(new GoalItemView(GoalItemKind.ISSUE, "trinodb/trino#31301",
+                "#31301", "Checkpoint loses rows", GoalItemState.IDLE, "Open", false, Optional.empty(), Optional.empty(), Optional.of(NOW))), ImmutableList.of(), NOW, NOW)));
+        assertThat(specChecks.gaps("workspace", "goal-1").getFirst().filed()).as("once linked, nothing is offered").isEmpty();
+    }
+
+    private static RepositoryIssue issue(int number, String title, String author, Instant created)
+    {
+        return new RepositoryIssue(number, number, title, "", author, "", "https://github.com/trinodb/trino/issues/" + number, ImmutableList.of(), ImmutableList.of(), 0,
+                created, created);
     }
 
     private static ContextSpecCheck check(ContextSpecCheck.State state, ContextSpecCheck.Candidate... candidates)

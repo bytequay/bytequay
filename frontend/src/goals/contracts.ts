@@ -226,6 +226,8 @@ export type GoalGapDto = {
   draft: { title: string; body: string; labels: string[] } | null;
   workItemId: string | null;
   state: WorkItemState | null;
+  /** The open issue the user filed from the draft, while the gap's work does not link it yet. */
+  filed: number | null;
 };
 
 /** What a research run learned for a goal, with the pages and files it rests on. */
@@ -285,6 +287,7 @@ export function parseGoalGap(value: unknown): GoalGapDto {
       labels: parseList(draft.labels ?? [], (label) => text(label, 'goal gap draft label'), 'goal gap draft labels') },
     workItemId: optionalText(gap.workItemId),
     state: gap.state === null || gap.state === undefined ? null : oneOf(gap.state, ['PLANNED', 'WORKING', 'DONE', 'DROPPED'] as const, 'goal gap state'),
+    filed: typeof gap.filed === 'number' ? gap.filed : null,
   };
 }
 

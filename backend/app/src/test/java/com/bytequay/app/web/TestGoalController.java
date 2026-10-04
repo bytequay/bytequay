@@ -275,7 +275,7 @@ class TestGoalController
     {
         GoalGap gap = new GoalGap("check-1", "c-1", "plugin/trino-delta-lake/", "Checkpoint keys actions by path only", "Reconcile by path and deletion vector",
                 "https://github.com/delta-io/delta/blob/master/PROTOCOL.md", Optional.empty(), Optional.of(new ContextSpecCheck.Draft("Checkpoint loses rows",
-                "Body", ImmutableList.of("bug"))), Optional.empty(), Optional.empty());
+                "Body", ImmutableList.of("bug"))), Optional.empty(), Optional.empty(), Optional.empty());
         when(specChecks.gaps("workspace", "goal-1")).thenReturn(ImmutableList.of(gap));
         mvc.perform(get("/api/workspaces/workspace/goals/goal-1/gaps"))
                 .andExpect(status().isOk())

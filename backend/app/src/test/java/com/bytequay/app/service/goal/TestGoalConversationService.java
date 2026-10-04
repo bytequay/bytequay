@@ -698,7 +698,7 @@ class TestGoalConversationService
         assertThat(cards.list(goal.id())).as("a module the agent was not given is dropped").isEmpty();
 
         GoalGap open = new GoalGap("check-0", "c-1", "plugin/trino-delta-lake/", "Checkpoint keys actions by path only", "", "", Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty());
         when(specChecks.gaps("workspace", goal.id())).thenReturn(ImmutableList.of(open));
         service.ask("workspace", goal.id(), "op-2", "Find more gaps");
         doReturn(check("plugin/trino-delta-lake/")).when(planner).answer(any(), any(), anyList(), any());

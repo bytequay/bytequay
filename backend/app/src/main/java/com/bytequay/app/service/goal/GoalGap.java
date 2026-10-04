@@ -26,9 +26,10 @@ import static java.util.Objects.requireNonNull;
  *
  * @param draft the issue the check drafted, which only the user files
  * @param workItemId the Goal work it became; until then the gap is still open
+ * @param filed the open issue the user filed from the draft, while the gap's work does not link it yet
  */
 public record GoalGap(String checkId, String candidateId, String module, String title, String rule, String specUrl, Optional<ContextSpecCheck.Test> test,
-        Optional<ContextSpecCheck.Draft> draft, Optional<String> workItemId, Optional<WorkItem.State> state)
+        Optional<ContextSpecCheck.Draft> draft, Optional<String> workItemId, Optional<WorkItem.State> state, Optional<Integer> filed)
 {
     public GoalGap
     {
@@ -42,6 +43,7 @@ public record GoalGap(String checkId, String candidateId, String module, String 
         requireNonNull(draft, "draft is null");
         requireNonNull(workItemId, "workItemId is null");
         requireNonNull(state, "state is null");
+        requireNonNull(filed, "filed is null");
     }
 
     /** Neither done nor dropped: while one is open, the goal's agent recommends no other spec check. */

@@ -375,8 +375,13 @@ function Gaps({ gaps, onAdd, onFile, onReview }: {
             : 'The issue form opened on GitHub; file it there.'), failed('The issue form did not open'));
         }}>File issue</button>}
         {gap.workItemId === null
-          ? <button type="button" className="goal-link" onClick={() => { setNote(null); void onAdd(gap.candidateId).catch(failed('The gap was not added')); }}>Add to goal</button>
+          ? <button type="button" className="goal-link" onClick={() => { setNote(null); void onAdd(gap.candidateId).catch(failed('The gap was not added')); }}>
+            {gap.filed === null ? 'Add to goal' : `Add to goal with #${gap.filed}`}</button>
           : <button type="button" className="goal-link" onClick={() => onReview(gap.workItemId)}>Work: {gap.state?.toLowerCase() ?? 'open'}</button>}
+        {/* Adding again links an issue the user filed since, so a task started from it joins the gap's work. */}
+        {gap.workItemId !== null && gap.filed !== null && <button type="button" className="goal-link" onClick={() => {
+          setNote(null); void onAdd(gap.candidateId).catch(failed('The issue was not linked'));
+        }}>Link #{gap.filed} to its work</button>}
       </div>)}
       {note !== null && <p className="goal-muted" role="status">{note}</p>}
     </section>

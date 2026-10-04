@@ -1,8 +1,9 @@
 # Agent guided goals implementation plan
 
-Status: The first and second implementation slices are complete. The later items of Steps 3 to 6 below remain as listed. The [Goal guidance design](goal-guidance.md) owns the product and
-behavior contract; this checklist records delivery order, concrete actions and
-proof required.
+Status: The first and second implementation slices are complete and the third
+is in progress. The later items of Steps 3 to 6 below remain as listed. The
+[Goal guidance design](goal-guidance.md) owns the product and behavior contract;
+this checklist records delivery order, concrete actions and proof required.
 
 The first useful release must help an unsure user clarify a goal, learn through a
 course built from research, accept and start prepared work, and return to a
@@ -162,6 +163,34 @@ Done when: a Practice card leads to a task whose merged pull request is recorded
 on the Goal and moves the topic it practiced, after which a new card can float;
 an issue and a mapped Jira ticket can each be recommended and started; and a
 spec-check card's reproduced gap can become Goal work.
+
+## Third implementation slice
+
+Let the user see where a Goal stands and steer its agent, as live use asked for:
+a reasoning model takes minutes to answer, and the panel did not say what the
+Goal was waiting on.
+
+1. Where the Goal stands. One plain-language line under the title, a projection
+   of local facts: clarifying, researching, learning a lesson, practicing on
+   work, checking a module, the user's decision (a proposal, a course, a merged
+   result) or ready to conclude. The Goal control shows the number of decisions
+   waiting instead of nothing.
+2. Steer a slow reply. The pending reply shows how long the agent has been
+   working, and Stop cancels the provider turn; the message stays retryable.
+3. Choose the Goal's model. The Goal window names the model its agent uses and
+   lets the user pick another configured model and effort for this Goal; the
+   workspace Development model stays the default, and each request records the
+   model it used.
+4. Pause guidance and Update now. A paused Goal receives no automatic events;
+   the user can still ask. Update now asks the agent to reassess from the
+   current facts.
+5. Failures and reviews first. A failed or interrupted turn of a Goal's task and
+   a review that requests changes on its work's pull request tell the agent,
+   which leads with recovery before new work.
+
+Done when: the panel says what the Goal waits on, a slow reply can be stopped
+and retried, a Goal can use its own model, guidance can pause, and a failed
+attempt or a requested change brings recovery guidance without the user asking.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

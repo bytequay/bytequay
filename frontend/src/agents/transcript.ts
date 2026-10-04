@@ -128,6 +128,15 @@ export type AgentNode = {
   backfilling: boolean;
 };
 
+/** Paths remain the agent's identity; only the name shown to the reader is humanized. */
+export function agentDisplayName(label: string): string {
+  if (!/[/_-]/.test(label)) return label;
+  const name = (label.split('/').filter(Boolean).at(-1) ?? 'Agent')
+    .replace(/[_-]+/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').trim();
+  return (name.charAt(0).toUpperCase() + name.slice(1))
+    .replace(/\b(?:api|ci|cli|pr|sdk|ui)\b/gi, word => word.toUpperCase());
+}
+
 type UserBlock = {
   id: string;
   text: string;
@@ -557,6 +566,11 @@ export function projectTranscript(
     const thread = agentThreadOf(event);
     if (agentThread !== null) {
       if (thread === agentThread) builderFor(event.turnId).apply(event);
+      else if (event.source.parentProviderThreadId === agentThread) {
+        const phase = agentPhase(event);
+        if (phase === 'AGENT_STARTED') builderFor(event.turnId).applyAgent(event, 'started');
+        else if (phase !== null) builderFor(event.turnId).applyAgent(event, 'finished');
+      }
       continue;
     }
     if (thread === null) {
@@ -733,4 +747,3 @@ export function planSummary(steps: PlanStep[]): string {
 export function currentPlan(turns: TranscriptTurn[]): PlanBlock | null {
   return turns.at(-1)?.blocks.find((block): block is PlanBlock => block.kind === 'plan') ?? null;
 }
-

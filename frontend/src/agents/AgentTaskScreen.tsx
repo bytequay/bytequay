@@ -20,7 +20,6 @@ Archive,
 ArchiveRestore,
 Bot,
 CircleCheck,
-CircleX,
 ListChecks,
 MessageCircle,
 PanelRight,
@@ -70,7 +69,7 @@ PullRequestDto,
 WorkspaceDto
 } from '../types';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
-import { AgentConversation,BlockView,clock,codeGraphText,ConversationComposer,ConversationQueue,Glyph,modelName,PlanSteps,serviceTierName,shortDate,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
+import { AgentConversation,codeGraphText,ConversationComposer,ConversationQueue,modelName,PlanSteps,serviceTierName,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
@@ -90,7 +89,7 @@ import { usePullRequestDetail } from '../pulls/usePullRequestDetail';
 import { AutomationControl } from './AutomationControl';
 import { developmentQuestion, stoppingEndsDevelopment } from './developmentAutomation';
 import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
-import { AgentMark } from './AgentMark';
+import SubagentsPanel from './SubagentsPanel';
 import { taskArchived } from './AgentTasksView';
 import { taskAttentionAfterQueue, taskAttentionItem } from './attention';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
@@ -123,6 +122,7 @@ type RetryableInput
 } from './model';
 import {
 activeAgents,
+agentDisplayName,
 currentPlan,
 formatDuration,
 planSummary,
@@ -295,7 +295,7 @@ function RecoveryCard({ task, turn, working, onStopServer, onMarkFailed }: {
         <div className="agt-recovery__row">
           <TriangleAlert aria-hidden="true" />
           <span className="agt-recovery__key">Last reported activity:</span>
-          <span className="agt-ellipsis">{working.map((agent) => agent.label).join(', ')}</span>
+          <span className="agt-ellipsis">{working.map((agent) => agentDisplayName(agent.label)).join(', ')}</span>
         </div>
       )}
       <div className="agt-recovery__actions">
@@ -481,30 +481,6 @@ function PlanCard({ steps, open, onToggle }: { steps: PlanStep[]; open: boolean;
       </button>
       {open && <PlanSteps steps={steps} compact />}
     </div>
-  );
-}
-
-/** How long an agent worked, live while it runs and fixed once it ends. */
-function agentElapsed(agent: AgentNode, now: number): string | null {
-  if (agent.startedAt === null || agent.status === 'unknown') return null;
-  const end = agent.endedAt === null ? now : Date.parse(agent.endedAt);
-  return formatDuration(Math.max(0, end - Date.parse(agent.startedAt)));
-}
-
-function AgentRow({ agent, now, onOpen }: { agent: AgentNode; now: number; onOpen: () => void }): React.JSX.Element {
-  return (
-    <button type="button" className="agt-panel__row" onClick={onOpen} title="Open this agent">
-      <AgentMark name={agent.label} />
-      <span className="agt-panel__name">
-        <span className="agt-panel__label">{agent.label}</span>
-        {agent.purpose !== null && <span className="agt-panel__purpose">{agent.purpose}</span>}
-      </span>
-      {agent.status === 'running' ? <Spinner /> : <span className="agt-spacer" />}
-      {agent.status === 'unknown' && <span className="agt-chip">historical activity</span>}
-      {agent.status === 'failed' && <span className="agt-chip is-warn">failed</span>}
-      <span className="agt-mono agt-muted">{agentElapsed(agent, now) ?? ''}</span>
-      <Chevron />
-    </button>
   );
 }
 
@@ -702,9 +678,6 @@ function SidePanel({
   }, [workspaceId, prRepo, prNumber, reviewReload, task?.id, task?.interactive]);
   const privateThreads = discussions === undefined || pullRequest === null || task?.interactive !== true ? undefined
     : privateThreadSource(discussions, pullRequest);
-  const active = activeAgents(agents);
-  const done = agents.filter((agent) => agent.status !== 'running');
-  const labels = Object.fromEntries(agents.map((agent) => [agent.threadId, agent.label]));
   const agentCount = agents.length + expiredChildren.length;
   const shownUtilities = utilityTabs.filter(utility => (utility === 'agents' ? showAgents : discussions !== undefined));
   const agentTab = shownUtilities.length === 0 ? undefined : shownUtilities.map(utility => {
@@ -871,130 +844,15 @@ function SidePanel({
       </PanelFrame>
     );
   }
-  if (openAgent !== null) {
-    const agent = agents.find((node) => node.threadId === openAgent);
-    const expired = expiredChildren.find((child) => child.threadId === openAgent);
-    const activityExpired = agent === undefined && expired !== undefined && !historyUnloaded;
-    const blocks = transcript.flatMap((turn) => turn.blocks);
-    const label = agent?.label ?? expired?.label ?? 'Agent';
-    const result = agent?.result ?? expired?.result ?? null;
-    const purpose = agent?.purpose ?? expired?.purpose ?? null;
-    const parent = agent?.parentThreadId ?? expired?.parentThreadId ?? null;
-    const parentLabel = parent === null ? 'root agent' : labels[parent] ?? 'root agent';
-    const endedAt = agent?.endedAt ?? expired?.endedAt ?? null;
-    const startedAt = agent?.startedAt ?? expired?.startedAt ?? null;
-    const worked = startedAt === null || agent?.status === 'unknown' ? null : formatDuration(Math.max(0, (endedAt === null ? now : Date.parse(endedAt)) - Date.parse(startedAt)));
-    const running = agent?.status === 'running';
-    // A live agent's log is what the user came to watch; a finished one folds to its result.
-    const logOpen = logChoice === openAgent ? true : logChoice === `!${openAgent}` ? false : running;
-    return (
-      <PanelFrame label={`Agent: ${label}`} tabs={tabs} width={width} {...code}>
-        <div className="agt-panel__head">
-          <button type="button" className="agt-back" onClick={onCloseAgent} aria-label="Back to all subagents">‹</button>
-          <AgentMark name={label} muted={agent === undefined} />
-          <strong className={`agt-panel__label${agent === undefined ? ' is-muted' : ''}`}>{label}</strong>
-          {running
-            ? <Spinner />
-            : (
-              <span className={`agt-panel__outcome${agent?.status === 'failed' ? ' is-failed' : agent === undefined ? ' is-expired' : ' is-done'}`}>
-                {agent?.status === 'failed' ? <CircleX aria-hidden="true" /> : <CircleCheck aria-hidden="true" />}
-                <span>{agent?.status === 'unknown' ? 'Historical activity' : agent?.status === 'failed' ? 'Failed' : agent === undefined ? `Done${endedAt === null ? '' : ` · ${shortDate(endedAt)}`}` : 'Done'}</span>
-              </span>
-            )}
-        </div>
-        {worked !== null && blocks.length > 0 && (
-          <button
-            type="button"
-            className="agt-panel__worked"
-            aria-expanded={logOpen}
-            title="Show or hide this agent's log"
-            onClick={() => onToggleLog(logOpen ? `!${openAgent}` : openAgent)}
-          >
-            {running ? 'Working for ' : 'Worked for '}{worked}{endedAt === null ? '' : ` · finished ${clock(endedAt)}`}
-            <Chevron open={logOpen} size={11} />
-          </button>
-        )}
-        {blocks.length === 0 && (historyUnloaded || activityExpired) && (
-          <div className="agt-panel__expired">
-            <div className="agt-panel__expired-title">{historyUnloaded ? 'Activity is not loaded' : 'Activity expired'}</div>
-            {historyUnloaded ? <button type="button" className="agt-action" disabled={historyLoading} onClick={onLoadEarlier}>Load earlier activity</button> : <div className="agt-panel__expired-body">
-              {deleteAfter === null
-                ? 'Detailed steps were removed at the end of the retention window. The result is kept.'
-                : `Detailed steps were removed on ${shortDate(deleteAfter, true)} at the end of the retention window. The result is kept.`}
-            </div>}
-          </div>
-        )}
-        {logOpen && blocks.length > 0 && (
-          <>
-            {purpose !== null && (
-              <div className="agt-panel__prompt"><span className="agt-panel__from">From {parentLabel} —</span> {purpose}</div>
-            )}
-            {agent?.backfilling === true && (
-              <div className="agt-note">Recovering this agent&apos;s activity from its history…</div>
-            )}
-            <div className="agt-panel__log">
-              {blocks.map((block) => (
-                <BlockView
-                  key={block.id}
-                  block={block}
-                  repository={repository}
-                  activityChoice={activityChoice}
-                  agentLabels={labels}
-                  onToggleActivity={onToggleActivity}
-                  onDecide={onDecide}
-                />
-              ))}
-            </div>
-          </>
-        )}
-        {result !== null && (
-          <>
-            <div className="agt-label agt-panel__section">Result{activityExpired ? ' — kept' : ''}</div>
-            <div className="agt-panel__result">{renderMarkdown(result, repository)}</div>
-          </>
-        )}
-        {!running && worked !== null && (
-          <div className="agt-panel__finished">
-            <Glyph icon={CircleCheck} className="is-ok" />
-            {blocks.length === 0 && endedAt !== null ? `Finished ${shortDate(endedAt)} · ${worked}` : worked}
-          </div>
-        )}
-      </PanelFrame>
-    );
-  }
-  return (
-    <PanelFrame label="Subagents" tabs={tabs} width={width} {...code}>
-      {historyUnloaded && <div className="agt-note">Showing subagents in loaded activity. Earlier or newer pages may contain others.</div>}
-      <div className="agt-label agt-panel__section">{historyUnloaded ? 'Active in this window' : 'Active'} · {active.length}</div>
-      {active.length === 0
-        ? <div className="agt-muted agt-panel__empty">{historyUnloaded ? 'No active subagents in loaded activity' : 'No active subagents'}</div>
-        : active.map((agent) => (
-          <AgentRow key={agent.threadId} agent={agent} now={now} onOpen={() => onOpenAgent(agent.threadId)} />
-        ))}
-      {(done.length > 0 || expiredChildren.length > 0) && (
-        <div className="agt-label agt-panel__section">{done.some((agent) => agent.status === 'unknown') ? 'Earlier activity' : 'Done'} · {done.length + expiredChildren.length}</div>
-      )}
-      {done.map((agent) => (
-        <AgentRow key={agent.threadId} agent={agent} now={now} onOpen={() => onOpenAgent(agent.threadId)} />
-      ))}
-      {expiredChildren.map((child) => (
-        <button
-          type="button"
-          className="agt-panel__row"
-          key={child.threadId}
-          onClick={() => onOpenAgent(child.threadId)}
-          title="Open this agent"
-        >
-          <AgentMark name={child.label} muted />
-          <span className="agt-panel__name"><span className="agt-panel__label is-muted">{child.label}</span></span>
-          <span className="agt-chip">{historyUnloaded ? 'not loaded' : 'expired'}</span>
-          <span className="agt-spacer" />
-          {child.endedAt !== null && <span className="agt-mono">{shortDate(child.endedAt)}</span>}
-          <Chevron />
-        </button>
-      ))}
-    </PanelFrame>
-  );
+  const agentLabel = agents.find(agent => agent.threadId === openAgent)?.label
+    ?? expiredChildren.find(agent => agent.threadId === openAgent)?.label ?? 'Agent';
+  return <PanelFrame label={openAgent === null ? 'Subagents' : `Agent: ${agentDisplayName(agentLabel)}`} tabs={tabs} width={width} {...code}>
+    <SubagentsPanel agents={agents} openAgent={openAgent} expiredChildren={expiredChildren} deleteAfter={deleteAfter}
+      transcript={transcript} now={now} repository={repository} activityChoice={activityChoice}
+      onOpenAgent={onOpenAgent} onCloseAgent={onCloseAgent} onToggleActivity={onToggleActivity} onDecide={onDecide}
+      logChoice={logChoice} onToggleLog={onToggleLog} historyUnloaded={historyUnloaded}
+      onLoadEarlier={onLoadEarlier} historyLoading={historyLoading} />
+  </PanelFrame>;
 }
 
 /**

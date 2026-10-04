@@ -75,7 +75,11 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
   headerAction?: ReactNode;
 }): React.JSX.Element {
   const pane = useTaskPane();
-  const [tab, setTab] = useState<HeaderTab>('changes');
+  const [tab, setTab] = useState<HeaderTab | 'agents'>('changes');
+  const coveredAgentTab = useRef<HeaderTab>('changes');
+  if (tab !== 'agents') coveredAgentTab.current = tab;
+  const [agentTabTarget, setAgentTabTarget] = useState<HTMLSpanElement | null>(null);
+  const [agentBodyTarget, setAgentBodyTarget] = useState<HTMLDivElement | null>(null);
   const [changesToolbar, setChangesToolbar] = useState<HTMLElement | null>(null);
   const [codeVisited, setCodeVisited] = useState(false);
   const [changesVisited, setChangesVisited] = useState(false);
@@ -99,14 +103,18 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
       </header>
       <AgentReviewTab workspaceId={review.workspaceId} viewer={null} review={review} onReviewChange={onReviewChange}
         mode="conversation" focusFindingId={null} onNavigateToChanges={navigateToChanges}
+        agentPanel={{ tabTarget: agentTabTarget, bodyTarget: agentBodyTarget, active: tab === 'agents',
+          onSelect: () => setTab('agents'), onClose: () => { if (tab === 'agents') setTab(coveredAgentTab.current); } }}
         onOpenReview={target => { setReviewFocus(current => ({ target, token: (current?.token ?? 0) + 1 })); setTab('review'); }} />
     </section>
     <TaskPaneDivider pane={pane} />
     <section className="pull-detail agt-panel" style={{ width: pane.width }} aria-label="WorkBench">
-      <PullDetailHeader pr={null} detail={null} tab={tab} onTab={setTab} review={review} onReviewChange={onReviewChange}
+      <PullDetailHeader pr={null} detail={null} tab={tab === 'agents' ? null : tab} onTab={setTab} review={review} onReviewChange={onReviewChange}
+        agentTab={<span ref={setAgentTabTarget} />}
         onChangesToolbar={setChangesToolbar}
         onRefresh={async () => onReviewChange(await window.bridge.getAgentReview(review.id))} refreshing={false}
         onReviewSubmitted={() => {}} pendingComments={[]} onPendingCommentsChange={() => {}} />
+      <div className="agt-panel__scroll" ref={setAgentBodyTarget} hidden={tab !== 'agents'} />
       <div className="pull-detail__body pull-detail__review" hidden={tab !== 'review'}>
         <AgentReviewTab workspaceId={review.workspaceId} viewer={null} review={review} onReviewChange={onReviewChange}
           ownStream={false} onSelectCommit={selectCommit} focusFindingId={findingFocus} focusReviewCard={reviewFocus} onNavigateToChanges={navigateToChanges} />

@@ -13,6 +13,7 @@
  */
 
 import React from 'react';
+import { agentDisplayName } from './transcript';
 
 /** The design's mark family: one shape and one colour per agent, chosen from its name alone. */
 export const AGENT_MARK_FAMILY = [
@@ -139,7 +140,7 @@ export function AgentMark({ name, size = 15, muted = false }: {
       strokeLinecap="round"
       strokeLinejoin="round"
       role="img"
-      aria-label={`${name} — ${shape} mark`}
+      aria-label={`${agentDisplayName(name)} — ${shape} mark`}
       data-shape={shape}
       style={{ color: muted ? '#8c959f' : AGENT_MARK_PALETTE[hue] }}
     >

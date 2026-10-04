@@ -572,7 +572,11 @@ separates provider completion from cleanup without adding a new task state.
 A V1 subagent may use the nickname App Server supplies through
 `thread/started` as its display label. V2 instead uses the canonical
 `agentPath` as its stable label and logical path; nickname metadata never
-replaces or overwrites it. A purpose is shown only when the provider supplies
+replaces or overwrites it. The UI displays a readable name from the final path
+segment: `/root/abort_contract` becomes **Abort contract** and
+`/root/sdk_semantics` becomes **SDK semantics**. The original path still seeds
+the agent's icon, and navigation continues to use its thread ID.
+A purpose is shown only when the provider supplies
 the prompt it was spawned with. codex-cli 0.152.1 may announce a child through
 `thread/started` with its parent and nickname but expose no spawn prompt on the
 collaboration item or as the child's own first message, so the purpose line is
@@ -626,6 +630,11 @@ report. An explanation or summary refresh never releases a pending decision.
 **Subagents**, with its total count, opens as a closable top-level tab beside
 PR and WorkBench when a subagent chip in the conversation is clicked, on
 providers that support nested activity.
+Review conversations use the same inspector and their existing review stream:
+clicking a running or finished agent opens its messages and result, and an
+agent's own child chips open that child in the same panel. Closing Subagents
+returns to the covered PR or WorkBench view without discarding the conversation
+draft or mounted Code & Tests state.
 Refresh, **Submit review**, and the checks/merge
 button remain in the toolbar. An author can submit a comment review on their
 own PR, without approval or request-changes choices. **Open full width** shows

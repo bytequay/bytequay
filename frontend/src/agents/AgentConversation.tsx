@@ -38,7 +38,7 @@ import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQue
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
-import { activitySummary,formatDuration,planChip,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
+import { agentDisplayName,activitySummary,formatDuration,planChip,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
 /** Answers accompany a question tool's allow; every other approval sends the decision alone. */
 export type ApprovalDecider = (approvalId: string, decision: AgentApprovalDecision, answers?: Record<string, string>) => void;
@@ -460,7 +460,7 @@ function QuestionView({ block, questions, allow, deny, onDecide }: {
         <Glyph icon={MessageSquare} className="is-warn" />
         <span className="agt-appr__chip">Your answer</span>
         <span className="agt-spacer" />
-        <span className="agt-mono agt-right">{block.agent}</span>
+        <span className="agt-mono agt-right">{agentDisplayName(block.agent)}</span>
       </div>
       {questions.map((question) => (
         <div className="agt-ask__question" key={question.question}>
@@ -545,7 +545,7 @@ function ApprovalView({ block, onDecide }: {
         <span className="agt-appr__chip">Approval needed</span>
         <span className="agt-appr__title">{block.title}</span>
         <span className="agt-spacer" />
-        <span className="agt-mono agt-right">{block.agent}</span>
+        <span className="agt-mono agt-right">{agentDisplayName(block.agent)}</span>
       </div>
       {block.detail !== '' && <pre className="agt-code">{block.detail}</pre>}
       {block.scope.length > 0 && (
@@ -627,7 +627,7 @@ export function BlockView({ block, repository, activityChoice, agentLabels, onTo
               title="Open this agent"
             >
               <AgentMark name={agentLabels[threadId] ?? 'Agent'} />
-              {agentLabels[threadId] ?? 'Agent'}
+              {agentDisplayName(agentLabels[threadId] ?? 'Agent')}
             </button>
           ))}
           <span className="agt-agents__phase">{block.phase === 'started' ? 'started working' : 'finished'}</span>

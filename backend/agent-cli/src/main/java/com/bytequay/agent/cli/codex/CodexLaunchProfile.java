@@ -173,6 +173,8 @@ final class CodexLaunchProfile
         }
         arguments.add(childProfile == ChildProfile.V1 ? "--enable" : "--disable", "multi_agent");
         arguments.add(childProfile == ChildProfile.V2 ? "--enable" : "--disable", "multi_agent_v2");
+        // Model metadata can enable subagents despite the legacy feature flags in newer Codex releases.
+        arguments.add("-c", "agents.enabled=" + (childProfile != ChildProfile.NONE));
         if (childProfile == ChildProfile.V1) {
             arguments.add("-c", "agents.max_depth=" + MULTI_AGENT_MAX_DEPTH);
         }
@@ -253,9 +255,9 @@ final class CodexLaunchProfile
         if (!codeGraph) {
             config.put("mcp_servers", ImmutableMap.of());
         }
-        if (childProfile == ChildProfile.V1) {
-            config.put("agents", ImmutableMap.of("max_depth", MULTI_AGENT_MAX_DEPTH));
-        }
+        config.put("agents", childProfile == ChildProfile.V1
+                ? ImmutableMap.of("enabled", true, "max_depth", MULTI_AGENT_MAX_DEPTH)
+                : ImmutableMap.of("enabled", childProfile != ChildProfile.NONE));
         return config.buildOrThrow();
     }
 

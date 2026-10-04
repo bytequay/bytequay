@@ -5,6 +5,7 @@ Examples:
   python3 scripts/codex-child-completion-probe.py --mode v1 --background
   python3 scripts/codex-child-completion-probe.py --mode v1 --grandchild
   python3 scripts/codex-child-completion-probe.py --mode v2 --history-mode paginated
+  python3 scripts/codex-child-completion-probe.py --mode none --model gpt-6-astra
 
 Requires Python 3.9+, Codex, and permission to bind a loopback socket. Uses a
 fresh keyless profile and never contacts a real model. --background additionally
@@ -51,6 +52,7 @@ class ChildProvider:
         self.background = background
         self.grandchild = grandchild
         self.requests = []
+        self.spawn_next = True
         self.child_seen = threading.Event()
         self.release_child = threading.Event()
         self.close_target = None
@@ -97,9 +99,10 @@ class ChildProvider:
     def reply(self, payload):
         outputs = {item["call_id"]: item["output"] for item in payload["input"] if item.get("type") == "function_call_output"}
         namespace = "multi_agent_v1" if self.mode == "v1" else "collaboration"
-        if len(self.requests) == 1:
+        if self.spawn_next:
+            self.spawn_next = False
             arguments = {"message": "ByteQuay child fixture: return the fixed response. Use only the fixture's requested tool."}
-            if self.mode == "v2":
+            if self.mode != "v1":
                 arguments.update({"task_name": "fixture_child", "fork_turns": "none"})
             return self.call("spawn_agent", arguments, namespace)
         if self.close_target and "close_agent_fixture" not in outputs:
@@ -175,7 +178,8 @@ def children(app, parent_id, child_id, phase, status, grandchild_id=None, grandc
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--codex", default=shutil.which("codex") or "/opt/homebrew/bin/codex")
-    parser.add_argument("--mode", choices=("v1", "v2"), default="v1")
+    parser.add_argument("--mode", choices=("none", "v1", "v2"), default="v1")
+    parser.add_argument("--model", default="fixture-model", help="Catalog model name sent only to the local fake provider")
     parser.add_argument("--history-mode", choices=("legacy", "paginated"), default="legacy")
     parser.add_argument("--background", action="store_true", help="Check V1 close_agent with a completed child's yielded sleep command")
     parser.add_argument("--grandchild", action="store_true", help="Check V1 recursive close while a completed child has a live grandchild")
@@ -194,21 +198,49 @@ def main():
     with ChildProvider(output, options.mode, options.background, options.grandchild) as provider:
         arguments = [str(Path(options.codex).absolute()), "app-server", "--listen", "stdio://", "--strict-config", "--enable", "skip_host_skill_discovery",
                      "--enable" if options.mode == "v1" else "--disable", "multi_agent", "--enable" if options.mode == "v2" else "--disable", "multi_agent_v2"]
-        config = {"model_provider": "fixture", "model": "fixture-model", "model_providers.fixture.name": "ByteQuay local child fixture",
+        config = {"model_provider": "fixture", "model": options.model, "model_providers.fixture.name": "ByteQuay local child fixture",
                   "model_providers.fixture.base_url": "http://127.0.0.1:" + str(provider.server.server_port) + "/v1",
                   "model_providers.fixture.wire_api": "responses", "model_providers.fixture.requires_openai_auth": False,
                   "model_providers.fixture.supports_websockets": False, "model_providers.fixture.request_max_retries": 0,
-                  "web_search": "disabled", "shell_environment_policy.inherit": "none"}
+                  "web_search": "disabled", "shell_environment_policy.inherit": "none", "agents.enabled": options.mode != "none"}
         if options.grandchild:
             config["agents.max_depth"] = 2
         for key, value in config.items():
             arguments.extend(["-c", key + "=" + json.dumps(value)])
         probe.write_json(output / "launch.json", {"arguments": arguments, "environment": environment})
         with probe.AppServer(arguments, environment, output, "child") as app:
-            thread_config = {"cwd": str(output / "workspace"), "historyMode": options.history_mode, "model": "fixture-model",
-                             "modelProvider": "fixture", "approvalPolicy": "never", "sandbox": "read-only", "ephemeral": False}
+            effective = app.request("config/read", {"includeLayers": True}, "config")["result"]
+            probe.require(effective["config"]["agents"]["enabled"] == (options.mode != "none"), "Incorrect effective agent enablement")
+            flags = [layer["config"] for layer in effective["layers"] if layer["name"]["type"] == "sessionFlags"]
+            probe.require(len(flags) == 1 and flags[0]["agents"]["enabled"] == (options.mode != "none"), "Incorrect session agent enablement")
+            thread_config = {"cwd": str(output / "workspace"), "historyMode": options.history_mode, "model": options.model,
+                             "modelProvider": "fixture", "approvalPolicy": "never", "sandbox": "read-only", "ephemeral": False,
+                             "config": {"agents": {"enabled": options.mode != "none"}}}
             root = app.request("thread/start", thread_config, "root-start")["result"]["thread"]
             turn = app.request("turn/start", {"threadId": root["id"], "input": [{"type": "text", "text": "Spawn one child for this authorized fixture, then return the fixed response."}]}, "root-turn")["result"]["turn"]
+            if options.mode == "none":
+                wait_for(lambda: any(item.get("method") == "turn/completed" and item.get("params", {}).get("turn", {}).get("id") == turn["id"] for item in app.notifications), "Root did not complete")
+                probe.require(len(provider.requests) == 2 and not provider.child_seen.is_set(), "Disabled profile spawned a child")
+                probe.require(all(item["body"]["model"] == options.model and not item["authorizationPresent"] for item in provider.requests), "Unexpected provider request")
+                probe.require("spawn_agent" not in json.dumps(provider.requests[0]["body"]), "Disabled profile advertised spawn_agent")
+                outputs = [item["output"] for item in provider.requests[1]["body"]["input"] if item.get("call_id") == "spawn_agent_fixture" and item.get("type") == "function_call_output"]
+                probe.require(outputs == ["unsupported call: collaborationspawn_agent"], "Disabled spawn was not rejected")
+                result = app.request("thread/list", {"parentThreadId": root["id"], "sourceKinds": ["subAgent"], "modelProviders": []}, "disabled-children")["result"]
+                probe.require(result["data"] == [], "Disabled profile created a child thread")
+                inspect(app, root["id"], "disabled-spawn-completed", "idle", "completed")
+                resume = {key: value for key, value in thread_config.items() if key not in ("historyMode", "ephemeral")}
+                resume.update(threadId=root["id"], excludeTurns=True)
+                restored = app.request("thread/resume", resume, "disabled-resume")["result"]["thread"]
+                probe.require(restored["id"] == root["id"], "Resume changed the root identity")
+                provider.spawn_next = True
+                turn = app.request("turn/start", {"threadId": root["id"], "input": [{"type": "text", "text": "Try the same fixture spawn again."}]}, "resumed-turn")["result"]["turn"]
+                wait_for(lambda: any(item.get("method") == "turn/completed" and item.get("params", {}).get("turn", {}).get("id") == turn["id"] for item in app.notifications), "Resumed root did not complete")
+                probe.require(len(provider.requests) == 4 and not provider.child_seen.is_set(), "Resumed disabled profile spawned a child")
+                outputs = [item["output"] for item in provider.requests[-1]["body"]["input"] if item.get("call_id") == "spawn_agent_fixture" and item.get("type") == "function_call_output"]
+                probe.require(outputs[-1:] == ["unsupported call: collaborationspawn_agent"], "Resumed disabled spawn was not rejected")
+                inspect(app, root["id"], "resumed-disabled-spawn-completed", "idle", "completed")
+                print("PASS: agents.enabled=false hides and rejects spawn_agent on start/resume for " + options.model + "; 4 local requests.", flush=True)
+                return
             probe.require(provider.child_seen.wait(10), "Child made no local fixture request")
             wait_for(lambda: any(item.get("method") == "turn/completed" and item.get("params", {}).get("turn", {}).get("id") == turn["id"] for item in app.notifications), "Root did not complete")
             relationships = [item["params"]["item"] for item in app.notifications if item.get("method") == "item/completed"]
@@ -256,7 +288,7 @@ def main():
             probe.require(result["data"] == [], "Child inventory crossed root boundaries")
         expected_requests = (5 if options.mode == "v1" else 3) + int(options.background) + 2 * int(options.grandchild)
         probe.require(len(provider.requests) == expected_requests, "Unexpected local provider request count")
-        probe.require(all(item["body"]["model"] == "fixture-model" and not item["authorizationPresent"] for item in provider.requests), "Unexpected provider request")
+        probe.require(all(item["body"]["model"] == options.model and not item["authorizationPresent"] for item in provider.requests), "Unexpected provider request")
     print("PASS: " + options.mode + "/" + options.history_mode + " child active/completed state, direct/ancestor inventory, and unrelated-root exclusion; " + str(expected_requests) + " local requests.", flush=True)
 
 

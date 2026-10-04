@@ -739,7 +739,11 @@ renderer crashes detach the native surface and expose a reload action.
   repository, user, admin, plugin-owned, or out-of-root skill. The completed
   executable gate proves all three launch profiles: `NONE` disables both
   multi-agent implementations, V1 enables only `multi_agent` with the proven
-  recursive depth, and V2 enables only `multi_agent_v2`. The model catalog runs
+  recursive depth, and V2 enables only `multi_agent_v2`. Process and thread
+  config also pin `agents.enabled` to false for `NONE` and true otherwise;
+  the effective config and session-flags layer are checked before thread
+  creation. In Codex 0.159.3, legacy feature flags alone do not disable
+  model-selected subagents. The model catalog runs
   under `NONE`; each accepted turn's immutable model snapshot selects its
   matching `NONE`, V1, or V2 task profile. Skill discovery and the origin/error
   guard repeat immediately before every turn so an earlier workspace-write

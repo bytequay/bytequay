@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.codex;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -210,6 +211,20 @@ class TestCodexLaunchProfile
             assertThat(arguments).containsSequence("--disable", feature);
             assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, true))
                     .containsEntry(feature, false);
+        }
+    }
+
+    @Test
+    void pinsAgentEnablementAtProcessAndResumedThreadScope()
+    {
+        for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
+            boolean enabled = childProfile != CodexLaunchProfile.ChildProfile.NONE;
+            assertThat(CodexLaunchProfile.arguments("codex", childProfile, Optional.empty(), false, ImmutableList.of(), false, false))
+                    .containsSequence("-c", "agents.enabled=" + enabled);
+            assertThat(CodexLaunchProfile.threadConfig(childProfile, false, false, ImmutableList.of(), false, false))
+                    .containsEntry("agents", childProfile == CodexLaunchProfile.ChildProfile.V1
+                            ? ImmutableMap.of("enabled", true, "max_depth", 2)
+                            : ImmutableMap.of("enabled", enabled));
         }
     }
 

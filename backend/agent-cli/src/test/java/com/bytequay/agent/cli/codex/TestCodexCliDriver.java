@@ -1560,6 +1560,23 @@ class TestCodexCliDriver
     }
 
     @Test
+    void rejectsMissingOrMismatchedAgentEnablementBeforeCreatingAThread()
+    {
+        for (boolean enabled : ImmutableList.of(false, true)) {
+            for (String value : ImmutableList.of("{}", "{\"enabled\":null}", "{\"enabled\":\"false\"}", "{\"enabled\":" + !enabled + "}")) {
+                ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+                supervisor.reportModelVersion(Optional.of(enabled ? "v2" : "disabled"));
+                supervisor.configBody = "{\"agents\":" + value + "}";
+
+                assertThatThrownBy(() -> driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
+                        .isInstanceOf(AgentUnavailableException.class)
+                        .hasMessageContaining("enabled");
+                assertThat(supervisor.server().threadRequests()).isEmpty();
+            }
+        }
+    }
+
+    @Test
     void appliesEachTurnsOwnSettingsSnapshotToTurnStart()
             throws Exception
     {

@@ -3623,6 +3623,16 @@ The connection and task sequence is:
    `multi_agent_v2`; a model advertising no child support stays on the no-child
    profile. An unknown advertised version makes that model unavailable rather
    than silently selecting another graph protocol. Every profile explicitly
+   sets `agents.enabled` at process launch and in thread start/resume config:
+   false for `NONE`, true for V1 and V2. Both effective config and the
+   session-flags layer must report that exact boolean before a thread starts.
+   Codex 0.159.3 can expose model-selected V2 tools despite both legacy
+   multi-agent feature flags being false; those flags alone are not a no-child
+   boundary. The keyless `scripts/codex-child-completion-probe.py --mode none
+   --model gpt-6-astra` fixture verifies that `agents.enabled=false` hides and
+   rejects a spawn call without interrupting the root. Saved MCP-only reviews,
+   restricted sessions, CI, and text-only helpers retain their no-child profile.
+   Every profile explicitly
    disables apps, plugins, hooks, host skill discovery, the other
    multi-agent feature, and all other unapproved optional capabilities, and
    applies the same minimal command environment. Ordinary tasks enable native

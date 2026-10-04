@@ -295,6 +295,7 @@ final class CodexIsolationGuard
                 throw unavailable("Codex feature " + feature.getKey() + " does not match the launch profile");
             }
         }
+        requireBooleanValue(config.path("agents"), "enabled", childProfile != CodexLaunchProfile.ChildProfile.NONE);
         CodexLaunchProfile.expectedAgentMaxDepth(childProfile).ifPresent(expected -> {
             JsonNode depth = config.path("agents").path("max_depth");
             if (!depth.isIntegralNumber() || depth.asInt() != expected) {

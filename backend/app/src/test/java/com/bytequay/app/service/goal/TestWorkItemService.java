@@ -124,6 +124,31 @@ class TestWorkItemService
     }
 
     @Test
+    void theWorkPicksUpThePullRequestItsTaskPublishedUntilItIsConcluded()
+    {
+        WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#31252", "ISSUE:github.com:42");
+        WorkItemLink task = link(GoalItemKind.TASK, "task-1", "TASK:task-1");
+        WorkItemLink pull = link(GoalItemKind.PULL_REQUEST, "org/repo#31260", "PULL_REQUEST:github.com:org/repo#31260");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#31252")).thenReturn(issue);
+        when(references.related("workspace", issue)).thenReturn(ImmutableList.of(issue, task));
+        String id = UUID.randomUUID().toString();
+        WorkItemView working = service.adopt("workspace", "goal", id, "Fix #31252", "Rows survive a checkpoint", GoalItemKind.ISSUE, "org/repo#31252");
+        assertThat(working.links()).hasSize(2);
+
+        when(references.related("workspace", task)).thenReturn(ImmutableList.of(task, issue));
+        assertThat(service.linkRelated("workspace", id)).as("nothing new was published").isEqualTo(working);
+        when(references.related("workspace", task)).thenReturn(ImmutableList.of(task, issue, pull));
+        WorkItemView published = service.linkRelated("workspace", id);
+        assertThat(published.links()).extracting(GoalItemView::key).containsExactly("org/repo#31252", "task-1", "org/repo#31260");
+        assertThat(service.linkRelated("workspace", id)).isEqualTo(published);
+
+        WorkItemView dropped = service.change("workspace", id, decision(published, WorkItemCommand.Action.DROP, "Not now"));
+        WorkItemLink later = link(GoalItemKind.PULL_REQUEST, "org/repo#31270", "PULL_REQUEST:github.com:org/repo#31270");
+        when(references.related("workspace", task)).thenReturn(ImmutableList.of(task, issue, pull, later));
+        assertThat(service.linkRelated("workspace", id)).as("concluded work keeps the evidence it was decided on").isEqualTo(dropped);
+    }
+
+    @Test
     void aDecisionOnGoalWorkIsPublishedOnceButNotItsReplayOrWorkOutsideAGoal()
     {
         String id = UUID.randomUUID().toString();

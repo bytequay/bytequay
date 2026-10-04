@@ -107,7 +107,12 @@ When a turn of an interactive task completes and the task belongs to a Goal's
 work item, its final answer is recorded once in the item's history as a receipt,
 keyed by the turn, and the Goal's agent is told, so it can recommend what comes
 next. Development's own automatic turns and noninteractive runs are not recorded,
-and the item's state stays the user's decision.
+and the item's state stays the user's decision. The receipt also links the pull
+request the task published. A linked pull request that merges is recorded once
+on the open work it delivers and told to the agent, whether a detail refresh, a
+list refresh, which also refreshes each open linked pull request, or a restart
+shows it; the Goal window then offers Review result, and accepting stays the
+user's decision.
 
 Each request also carries the user's twenty newest questions from their private
 cards in every workspace (passage and comment discussions, local review

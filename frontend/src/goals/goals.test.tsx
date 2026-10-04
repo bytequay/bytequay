@@ -209,6 +209,12 @@ describe('goal guidance', () => {
       items: [...GOAL.items, { ...GOAL.items[0], id: 'work-9', links: [{ ...GOAL.items[0].links[0], kind: 'TASK', key: 'task-31252' }] }] } });
     expect(sent).toContain('>Open task</button>');
     expect(sent).not.toContain('Open the composer');
+    expect(sent).not.toContain('Review result');
+    const merged = panel({ view: 'guide', goal: { ...GOAL, recommendations: [practice], items: [...GOAL.items, { ...GOAL.items[0], id: 'work-9',
+      links: [{ ...GOAL.items[0].links[0], kind: 'TASK', key: 'task-31252' }, { ...GOAL.items[0].links[0], kind: 'PULL_REQUEST', key: 'trinodb/trino#31260', label: '#31260',
+        state: 'MERGED', status: 'Merged' }] }] } });
+    expect(merged).toContain('#31260 merged');
+    expect(merged).toContain('>Review result</button>');
     const lesson = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED',
       card: { ...CARD.card, kind: 'LESSON', title: 'What a table is', pages: [], workItemId: 'work-0' } }] } });
     expect(lesson).toContain('Learning: What a table is');

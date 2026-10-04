@@ -142,7 +142,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         conversation={props.conversation} onBack={() => props.onLesson(null)} />
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
         : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} onStart={props.onStart} onOpenTask={props.onOpenTask}
-          onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} />
+          onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onReview={setSelected} />
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
       {cancelling && goal !== null && (
         <ConfirmDialog
@@ -211,8 +211,8 @@ function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation'
-  | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue'>): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLesson, onBack, onStartIssue, onReview }: Pick<GoalPanelProps, 'goal' | 'repository'
+  | 'conversation' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue'> & { onReview: (workItemId: string) => void }): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -264,7 +264,7 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
       )}
       {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} onPick={pick} />}
       {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} onOpenTask={onOpenTask}
-        onLesson={onLesson} onStartIssue={onStartIssue} />)}
+        onLesson={onLesson} onStartIssue={onStartIssue} onReview={onReview} />)}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
       {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
       {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} onAccept={(title) => conversation.accept(open.exchangeId, title)} />}
@@ -277,20 +277,25 @@ function GoalGuide({ goal, repository, conversation, onStart, onOpenTask, onLess
 
 /**
  * A card the user started, while it lasts: research while its run goes, a lesson while it is open, and practice until its work is done or
- * dropped. Practice leads to its task once the user sent it, and back to the prepared composer until then.
+ * dropped. Practice leads to its task once the user sent it, back to the prepared composer until then, and to its result once its pull request
+ * merged, which the user accepts.
  */
-function Started({ goal, card, onOpenTask, onLesson, onStartIssue }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson' | 'onStartIssue'> & {
+function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onReview }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson' | 'onStartIssue'> & {
   goal: GoalDto;
   card: GoalRecommendationDto;
+  onReview: (workItemId: string) => void;
 }): React.JSX.Element {
   const work = card.workItemId === null ? undefined : goal.items.find((item) => item.id === card.workItemId);
   const task = work?.links.findLast((link) => link.kind === 'TASK');
+  const pull = work?.links.findLast((link) => link.kind === 'PULL_REQUEST');
   return (
     <div className="goal-guide__running" role="status">
       <span>{card.card.kind === 'RESEARCH' ? 'Researching' : card.card.kind === 'LESSON' ? 'Learning' : 'Practicing'}: {card.card.title}</span>
       {card.card.kind === 'RESEARCH' && card.taskId !== null && <button type="button" className="goal-link" onClick={() => onOpenTask(card.taskId)}>Open run</button>}
       {card.card.kind === 'LESSON' && card.card.workItemId !== null && <button type="button" className="goal-link"
         onClick={() => onLesson(card.card.workItemId)}>Open lesson</button>}
+      {pull !== undefined && <span className="goal-muted">{pull.label} {pull.status.toLowerCase()}</span>}
+      {work !== undefined && pull?.state === 'MERGED' && <button type="button" className="goal-link" onClick={() => onReview(work.id)}>Review result</button>}
       {card.card.kind === 'WORK' && (task !== undefined
         ? <button type="button" className="goal-link" onClick={() => onOpenTask(task.key)}>Open task</button>
         : card.card.issue !== null && <button type="button" className="goal-link" onClick={() => onStartIssue(card.card.issue, card.card.scope)}>Open the composer</button>)}

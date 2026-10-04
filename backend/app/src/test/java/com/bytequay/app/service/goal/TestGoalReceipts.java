@@ -80,6 +80,7 @@ class TestGoalReceipts
         when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item(Optional.of("goal-1"))));
         receipts.record(task(true), turn(TurnState.COMPLETED));
         verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+        verify(work).linkRelated("workspace", "work-1");
         verify(conversation).tell("workspace", "goal-1", "turn:" + turnId,
                 "A task for \"Fix #31252\" finished a turn: Keyed checkpoint actions by path and deletion vector; the new test passes.");
     }

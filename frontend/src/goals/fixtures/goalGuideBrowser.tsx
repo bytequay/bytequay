@@ -15,7 +15,7 @@ import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { GoalLayer } from '../GoalLayer';
-import type { GoalCardDto, GoalDto, GoalExchangeDto, GoalKnowledgeNoteDto, GoalRecommendationDto } from '../contracts';
+import type { GoalCardDto, GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto } from '../contracts';
 import type { Goals } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -203,6 +203,17 @@ export async function run(): Promise<boolean> {
     assert(text().includes('Practicing: Fix #31252') && !text().includes('Researching: Fix #31252'), 'The started practice shows as practice, not research');
     button('Open the composer').click(); await settle();
     assert(composers() === 2 && started[1].issue === 31252, 'Until its task is sent, the practice leads back to the prepared composer');
+
+    // The task the user sent published a pull request, which merged; accepting the result stays the user's decision.
+    const link = (kind: GoalItemDto['kind'], key: string, label: string, status: string): GoalItemDto => ({ kind, key, label, title: 'Key actions by path',
+      state: status === 'Merged' ? 'MERGED' : 'WORKING', status, blocked: false, url: null, activity: null, addedAt: NOW });
+    server.goal = { ...server.goal, items: [{ id: 'work-1', workspaceId: 'workspace', goalId: 'goal', title: 'Fix #31252', kind: 'DEVELOP',
+      acceptanceCriteria: PRACTICE.scope, completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 2, history: [], createdAt: NOW, updatedAt: NOW,
+      links: [link('ISSUE', 'trinodb/trino#31252', '#31252', 'Open'), link('TASK', 'task-1', 'Task', 'Completed'), link('PULL_REQUEST', 'trinodb/trino#31260', '#31260', 'Merged')] }] };
+    changed(); await settle();
+    assert(text().includes('#31260 merged') && text().includes('Open task'), 'The practice shows its task and the merged pull request');
+    button('Review result').click(); await settle();
+    assert(text().includes('Accept result') && text().includes('Fix #31252'), 'Review result opens the work, where the user accepts it');
 
     // The user cancels the goal and starts the next one by saying what they want.
     button('Cancel goal').click(); await settle();

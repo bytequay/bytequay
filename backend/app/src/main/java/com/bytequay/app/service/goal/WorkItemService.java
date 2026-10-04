@@ -166,6 +166,36 @@ public class WorkItemService
         });
     }
 
+    /**
+     * Picks up what the work's tasks connect to now, such as the pull request a task published after the work was linked. Concluded work
+     * keeps the evidence it was decided on, and a source or task another work item owns stays with it.
+     */
+    public WorkItemView linkRelated(String workspaceId, String id)
+    {
+        WorkItem current = requireItem(workspaceId, id);
+        if (concluded(current)) {
+            return view(current);
+        }
+        List<WorkItemLink> related = current.links().stream().filter(link -> link.reference().kind() == GoalItemKind.TASK)
+                .flatMap(link -> references.related(workspaceId, link).stream()).collect(toImmutableList());
+        return unitOfWork.execute(() -> {
+            WorkItem item = requireItem(workspaceId, id);
+            List<WorkItemLink> added = related.stream()
+                    .filter(link -> item.links().stream().noneMatch(old -> old.identity().equals(link.identity())))
+                    .filter(link -> items.findByIdentity(link.identity()).isEmpty())
+                    .collect(toImmutableList());
+            if (added.isEmpty() || concluded(item)) {
+                return view(item);
+            }
+            return view(saveLinks(item, item.goalId(), added, "Linked what its task published"));
+        });
+    }
+
+    private static boolean concluded(WorkItem item)
+    {
+        return item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED;
+    }
+
     /** Rejects a new attempt on concluded or another workspace's work before task creation prepares a worktree. */
     public void requireStartable(String workspaceId, String sourceIdentity)
     {

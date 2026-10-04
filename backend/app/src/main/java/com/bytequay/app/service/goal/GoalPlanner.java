@@ -52,6 +52,7 @@ public class GoalPlanner
     // ponytail: the last eight exchanges plus the accepted definition; summarize older ones once conversations outgrow that.
     static final int MAX_EARLIER = 8;
     private static final int MAX_WORK_ITEMS = 30;
+    private static final int MAX_LINKS = 6;
     private static final int MAX_NOTES = 60;
     private static final int MAX_LESSON_NOTES = 30;
     // ponytail: the first page of open issues, as the workspace lists them; filter by the goal's topics once repositories outgrow it.
@@ -226,8 +227,12 @@ public class GoalPlanner
                     }));
         }
         ArrayNode work = objective.putArray("workItems");
-        goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> work.addObject().put("id", item.id())
-                .put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name()));
+        goal.items().stream().limit(MAX_WORK_ITEMS).forEach(item -> {
+            ObjectNode entry = work.addObject().put("id", item.id()).put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name());
+            // What the work's sources, tasks and pull requests show now, such as a merged pull request awaiting the user's acceptance.
+            ArrayNode links = entry.putArray("links");
+            item.links().stream().limit(MAX_LINKS).forEach(link -> links.add(link.kind().name() + " " + link.label() + ": " + link.status()));
+        });
         ArrayNode known = data.putArray("topics");
         topics.list(goal.id()).forEach(topic -> known.addObject().put("topic", topic.topic()).put("level", topic.level().name()).put("setByUser", topic.userSet()));
         ArrayNode asked = data.putArray("recentQuestions");

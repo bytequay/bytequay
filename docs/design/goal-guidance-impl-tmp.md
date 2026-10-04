@@ -132,6 +132,11 @@ Goal window shows the practice with its task, or the composer until it is sent.
 Accepting, dropping or reopening Goal work tells the agent, and a decided practice
 settles its card.
 
+Item 2 is implemented: a turn's receipt links the pull request its task
+published, list refreshes refresh each open pull request of the Goals' open
+work, and a merge records one receipt and tells the agent; the planner sees each
+work item's links and the Goal window offers Review result.
+
 Done when: a Practice card leads to a task whose merged pull request is recorded
 on the Goal and moves the topic it practiced, after which a new card can float;
 an issue and a mapped Jira ticket can each be recommended and started; and a

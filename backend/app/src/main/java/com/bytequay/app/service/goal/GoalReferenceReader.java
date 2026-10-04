@@ -238,7 +238,7 @@ public class GoalReferenceReader
     }
 
     /** {@code owner/repo#number}, the key of a pull request or issue item. */
-    private record NumberedKey(String repo, int number)
+    record NumberedKey(String repo, int number)
     {
         static NumberedKey parse(String key)
         {

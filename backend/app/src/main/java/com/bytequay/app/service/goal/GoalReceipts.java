@@ -38,8 +38,8 @@ import java.util.concurrent.Executors;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Records what a finished turn of a task working on a Goal's work item said: a receipt in the item's history, once per turn, and a word to
- * the goal's agent, which may recommend what comes next. The item's state stays the user's decision.
+ * Records what a finished turn of a task working on a Goal's work item said: a receipt in the item's history, once per turn, the pull request
+ * the task published, and a word to the goal's agent, which may recommend what comes next. The item's state stays the user's decision.
  */
 @Component
 public class GoalReceipts
@@ -88,6 +88,13 @@ public class GoalReceipts
         String answer = ContextText.excerpt(finalAnswer(task, turn).orElse("The turn ended without a final answer."), MAX_ANSWER);
         String workspaceId = task.workspaceId().orElseThrow();
         work.getObject().receipt(workspaceId, item.get().id(), "turn:" + turn.id(), "Task turn finished: " + answer);
+        try {
+            // A pull request the turn published joins the work it delivers, so its merge can be recorded.
+            work.getObject().linkRelated(workspaceId, item.get().id());
+        }
+        catch (RuntimeException failure) {
+            log.debug("Goal work {} did not pick up its task's pull request: {}", item.get().id(), failure.toString());
+        }
         conversations.getObject().tell(workspaceId, item.get().goalId().orElseThrow(), "turn:" + turn.id(),
                 "A task for \"" + item.get().title() + "\" finished a turn: " + answer);
     }

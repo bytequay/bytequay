@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first five implementation slices are complete. The later items of
-Steps 3 to 6 below remain as listed.
+Status: The first five implementation slices are complete and the sixth is in
+progress. The later items of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -316,6 +316,24 @@ result, and the started card opens that work. The fifth slice is complete.
 Done when: an accepted result carries a saved summary; an investigation card
 becomes one work item however often it is started; a filed gap issue links to
 the gap's work in one click; and a moved file marks the notes that cite it.
+
+## Sixth implementation slice
+
+Let one outcome take several explicit attempts: an ended task no longer blocks
+starting over on the same issue or ticket, and every attempt stays on the same
+work item.
+
+1. Another attempt on an issue. The issue's current task still opens by
+   default. Once that task has ended and no delivery runs for it, Start another
+   attempt in the Goal's Work view opens the issue composer for a new attempt.
+   Sending it creates a new task that becomes the issue's task, while the ended
+   one keeps its source and stays the work item's earlier attempt. Admission
+   checks the ended state under the issue's lock, and the new task's identity
+   makes a retried request create nothing twice.
+2. Another attempt on a Jira ticket, the same way through the ticket composer.
+
+Done when: a failed issue task can be followed by a new attempt without deleting
+it, both tasks show on the one work item, and an open task cannot be replaced.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

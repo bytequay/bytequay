@@ -295,12 +295,13 @@ under review, and every other task's worktree start commit. Each file is cut at
 skipped. A read that fails leaves the input unchanged and never fails the turn.
 Core records the paths on AgentTurn when delivery starts, and the turn footer
 counts them. Generated development and review turns use the same preparation
-path. On a resumed conversation they omit guidelines only if an earlier
-provider-acknowledged turn carried them in the same frozen scope: the task's
-start commit for development, or the current review run's base and changed paths.
-A new conversation or review run, a failed guideline read, or an unacknowledged
-delivery sends them again. Ordinary user turns still receive guidelines;
-steering and helper sessions do not. Codex's own `AGENTS.md` loading is
+path. On a resumed conversation a turn omits guidelines only if the latest
+provider-acknowledged turn that carried them did so in the same frozen scope,
+the task's start commit for development or the current review run's base and
+changed paths, and neither that turn nor any since compacted the conversation.
+A new conversation or review run, a compaction, a failed guideline read, or an
+unacknowledged delivery sends them again. Steering and helper sessions never
+receive guidelines. Codex's own `AGENTS.md` loading is
 off and Claude keeps `--setting-sources=`, so both lanes read the same text.
 Guidelines never enter managed instructions or process arguments.
 
@@ -317,7 +318,9 @@ only repository-wide memories. Path matches come
 first, longest scope first, then memories with more sources, newest first. Core
 records the delivered lines on AgentTurn beside the guideline paths, the turn
 receipt lists them, and the deliveries are counted once the provider acknowledges
-the input. A memory read that fails leaves the block out. Once a turn has ended
+the input. The lookup runs on every turn, but a block identical to the latest one
+the provider acknowledged, with no compaction since, is left out. A memory read
+that fails leaves the block out. Once a turn has ended
 and its events are in the task log, the port's `finished` call hands it to the
 recipe check off the provider's thread; it never fails or delays settlement.
 

@@ -15,6 +15,7 @@ package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.store.AgentTurnStore;
@@ -77,12 +78,10 @@ public final class RepositoryGuidelineReader
         try {
             Optional<ReviewRun> run = reviews.findReviewByTask(task.id().toString())
                     .flatMap(review -> reviews.listRuns(review.id()).stream().max(Comparator.comparingInt(ReviewRun::ordinal)));
-            boolean generated = turn.developmentOrigin().isPresent() || (run.isPresent() && turn.idempotencyKey().startsWith("review-step:"));
             // The task start commit and each review run's base/path scope are immutable. Receipts from
             // that scope suffice; an unacknowledged send never proves the provider has the guidelines.
-            if (generated && task.sessionReference().isPresent() && turns.list(task.id()).stream()
-                    .filter(previous -> previous.providerTurnReference().isPresent() && !previous.guidelines().isEmpty())
-                    .anyMatch(previous -> run.isEmpty() || run.orElseThrow().turnIds().contains(previous.id().toString()))) {
+            if (task.sessionReference().isPresent() && ReviewTurnInputResolver.stillInConversation(turns.list(task.id()), previous -> !previous.guidelines().isEmpty()
+                    && (run.isEmpty() || run.orElseThrow().turnIds().contains(previous.id().toString()))).isPresent()) {
                 return Reference.NONE;
             }
             if (run.isPresent()) {

@@ -164,7 +164,7 @@ covers, with the user's words as the source.
 
 ### 3.3 Recipes
 
-**Docs come first.** Guideline files reach every turn (section 4), so a recipe
+**Docs come first.** Guideline files reach every conversation (section 4), so a recipe
 records only what the docs don't say or got wrong.
 
 **Proof.** REMEMBER with kind RECIPE must cite a command that finished in this
@@ -248,12 +248,13 @@ follow them where they don't conflict.
 **Receipt.** Each turn records the files it carried, and its footer shows
 "Guidelines 2".
 
-Automatic development and review follow-ups reuse guidelines already
-acknowledged by the provider in that conversation and frozen scope. A new
-conversation or review run reads them again; an absent or unacknowledged
-receipt cannot suppress delivery. User turns still receive guidelines.
-This reuse does not suppress a review turn's fresh Memory lookup; generated
-development turns continue without another Memory block.
+Turns reuse guidelines already acknowledged by the provider in that
+conversation and frozen scope until the conversation is compacted. A new
+conversation or review run, or a compaction, reads them again; an absent or
+unacknowledged receipt cannot suppress delivery. Memory is looked up afresh on
+every turn, and a block identical to the latest acknowledged one, with no
+compaction since, is left out; generated development turns continue without
+another Memory block.
 
 ## 5. Delivery and receipts
 

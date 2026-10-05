@@ -72,12 +72,13 @@ with GitHub, stores durable local state in SQLite, and hosts the implemented
 worktree-scoped agent service. Its implemented rich task surface is specified
 in [Agent Task UI Design](agent-task-ui.md).
 
-Every accepted agent turn carries the repository's guideline files as
-delimited reference data, read at a commit the turn cannot change.
+Every agent conversation carries the repository's guideline files as
+delimited reference data, read at a commit the turn cannot change; a turn sends
+them unless the conversation still holds them from an earlier one.
 [Repository memory](repository-memory.md) keeps short rules and specifications
 per workspace in the `repository_memory` table, each with its sources.
 Development tasks and reviews whose workspace has memories get the titles of the
-matching ones at the start of every turn and one tool to search, read and report
+matching ones at the start of a turn whenever that list changed and one tool to search, read and report
 them; no agent can edit one.
 
 A [spec check](spec-check.md) compares one directory's code

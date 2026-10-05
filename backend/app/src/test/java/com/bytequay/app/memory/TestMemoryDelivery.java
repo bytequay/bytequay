@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.memory;
 
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
@@ -22,10 +23,14 @@ import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMemory;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.domain.DiffFile;
@@ -66,7 +71,8 @@ class TestMemoryDelivery
     private final InMemoryMemoryStore store = new InMemoryMemoryStore();
     private final MemoryService memories = new MemoryService(store, new InMemoryAppSettingsStore(), new ObjectMapper(), Clock.fixed(NOW, ZoneOffset.UTC));
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final MemoryDelivery delivery = new MemoryDelivery(memories, store, reviews, git);
+    private final AgentTurnStore turns = mock(AgentTurnStore.class);
+    private final MemoryDelivery delivery = new MemoryDelivery(memories, store, reviews, git, turns);
 
     @TempDir
     private Path root;
@@ -155,6 +161,27 @@ class TestMemoryDelivery
         memories.saveSwitches("workspace", new MemorySwitches(false, false));
         replay(true, NOW.plusSeconds(3600));
         assertThat(delivery.reference(review, turn(true)).memories()).extracting(TurnMemory::id).containsExactly("m1");
+    }
+
+    @Test
+    void leavesOutABlockTheConversationStillHoldsAsItsLatest()
+            throws IOException
+    {
+        store.save(rule("m1", "workspace", "Keep refactors in their own commits.", ImmutableList.of()));
+        AgentTask task = task(initialCommit()).withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "conversation"), NOW);
+        Reference block = delivery.reference(task, turn(true));
+        AgentTurn delivered = turn(true).withReference(ImmutableList.of(), block.memories()).markDeliveryStarted(NOW)
+                .running(new ProviderTurnRef("first"), Optional.empty());
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered));
+        assertThat(delivery.reference(task, turn(true))).isEqualTo(Reference.NONE);
+
+        // The block is sent again once it changes or a compaction may have summarized it away.
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered.withMetrics(new AgentMetrics(0, 0, 0, Optional.empty(), Duration.ZERO,
+                new ToolCounters(0, 0, 1)))));
+        assertThat(delivery.reference(task, turn(true))).isEqualTo(block);
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered));
+        store.save(rule("m2", "workspace", "Run the module's tests before committing.", ImmutableList.of()));
+        assertThat(delivery.reference(task, turn(true)).memories()).extracting(TurnMemory::id).contains("m1", "m2");
     }
 
     @Test

@@ -16,6 +16,8 @@ package com.bytequay.agent.core;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.function.Predicate;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -61,6 +63,26 @@ public interface ReviewTurnInputResolver
     default Reference reference(AgentTask task, AgentTurn turn)
     {
         return Reference.NONE;
+    }
+
+    /**
+     * The latest turn the provider acknowledged that carried a kind of reference data, while that data is still in the task's one
+     * conversation word for word: neither that turn nor any since compacted it. A turn can then leave the same data out.
+     *
+     * @param turns the task's turns, oldest first
+     * @param carried whether a turn carried that kind of reference data
+     */
+    static Optional<AgentTurn> stillInConversation(List<AgentTurn> turns, Predicate<AgentTurn> carried)
+    {
+        for (AgentTurn turn : turns.reversed()) {
+            if (turn.metrics().counters().compactions() > 0) {
+                return Optional.empty();
+            }
+            if (turn.providerTurnReference().isPresent() && carried.test(turn)) {
+                return Optional.of(turn);
+            }
+        }
+        return Optional.empty();
     }
 
     /** The guideline files and memories a turn carries, by path and as delivered, and the delimited reference text that carries them. */

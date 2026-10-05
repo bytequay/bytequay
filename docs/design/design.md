@@ -99,7 +99,7 @@ historical checkpoint evidence and explicitly deferred future work.
   files and short rules captured where the information appears: pull request
   history, corrections in tasks and reviews, passing commands and spec pages,
   instead of notes learned by reading code. Phases 0 to 2 are implemented:
-  guidelines reach every turn, and the learning system and its note data are
+  guidelines reach every conversation, and the learning system and its note data are
   deleted.
 - [Spec check](spec-check.md) is implemented: compare a directory's code with the
   specification it implements, reproduce each gap with a test the check writes

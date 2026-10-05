@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
@@ -23,6 +24,7 @@ import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -188,7 +190,7 @@ final class TestRepositoryGuidelineReader
         when(turns.list(taskId)).thenReturn(ImmutableList.of(sent.running(new ProviderTurnRef("first"), Optional.empty())));
         assertThat(reader.read(resumed, next)).isEqualTo(Reference.NONE);
         assertThat(reader.read(fresh, next).guidelines()).containsExactly("AGENTS.md");
-        assertThat(reader.read(resumed, turn("user-followup")).guidelines()).containsExactly("AGENTS.md");
+        assertThat(reader.read(resumed, turn("user-followup"))).isEqualTo(Reference.NONE);
 
         ReviewRun changedScope = run(2, base, base, "plugin/delta/Writer.java");
         when(reviews.listRuns("review")).thenReturn(ImmutableList.of(firstRun, changedScope));
@@ -216,6 +218,30 @@ final class TestRepositoryGuidelineReader
         when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered));
         assertThat(reader.read(resumed, generated)).isEqualTo(Reference.NONE);
         assertThat(reader.read(fresh, generated).guidelines()).containsExactly("AGENTS.md");
+    }
+
+    @Test
+    void userTurnsReuseAcknowledgedGuidelinesUntilTheConversationIsCompacted()
+            throws IOException
+    {
+        write("AGENTS.md", "Root rules.\n");
+        AgentTask resumed = task(commit()).withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "conversation"), Instant.EPOCH);
+        AgentTurn delivered = turn("user").withReference(ImmutableList.of("AGENTS.md"), ImmutableList.of()).markDeliveryStarted(Instant.EPOCH)
+                .running(new ProviderTurnRef("first"), Optional.empty());
+        AgentTurn later = turn("later").markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("later"), Optional.empty());
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered, later));
+        assertThat(reader.read(resumed, turn("next"))).isEqualTo(Reference.NONE);
+
+        // A compaction may have summarized the guidelines away, whether in the turn that carried them or after it.
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered, later.withMetrics(compacted())));
+        assertThat(reader.read(resumed, turn("next")).guidelines()).containsExactly("AGENTS.md");
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered.withMetrics(compacted()), later));
+        assertThat(reader.read(resumed, turn("next")).guidelines()).containsExactly("AGENTS.md");
+    }
+
+    private static AgentMetrics compacted()
+    {
+        return new AgentMetrics(0, 0, 0, Optional.empty(), Duration.ZERO, new ToolCounters(1, 0, 1));
     }
 
     private AgentTurn turn(String key)

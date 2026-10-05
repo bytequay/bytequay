@@ -16,9 +16,11 @@ package com.bytequay.app.memory;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.ReviewTurnInputResolver.Reference;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnMemory;
+import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.DiffFile;
@@ -52,7 +54,8 @@ import static java.util.Objects.requireNonNull;
  * A review gets the memories scoped to its changed paths, then the repository-wide ones; a development task gets the repository-wide
  * ones and, once it has changed files, the ones scoped to them. Path matches come first, longest scope first, then those with more
  * sources, newest first, up to 40 lines and 12 KiB. A flagged memory is delivered with its flag. A replay gets memory only on its
- * side of the comparison, and only what it could have known. It never fails the turn.
+ * side of the comparison, and only what it could have known. A block the conversation still holds as the latest one is not sent
+ * again. It never fails the turn.
  */
 @Component
 public class MemoryDelivery
@@ -69,13 +72,15 @@ public class MemoryDelivery
     private final MemoryStore store;
     private final AgentReviewStore reviews;
     private final GitCommandRunner git;
+    private final AgentTurnStore turns;
 
-    public MemoryDelivery(MemoryService memories, MemoryStore store, AgentReviewStore reviews, GitCommandRunner git)
+    public MemoryDelivery(MemoryService memories, MemoryStore store, AgentReviewStore reviews, GitCommandRunner git, AgentTurnStore turns)
     {
         this.memories = requireNonNull(memories, "memories is null");
         this.store = requireNonNull(store, "store is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.git = requireNonNull(git, "git is null");
+        this.turns = requireNonNull(turns, "turns is null");
     }
 
     public Reference reference(AgentTask task, AgentTurn turn)
@@ -100,7 +105,11 @@ public class MemoryDelivery
             }
             List<String> changed = review ? run.map(value -> value.diff().stream().map(DiffFile::filename).collect(toImmutableList())).orElse(ImmutableList.of())
                     : changedPaths(task);
-            return reference(select(all, changed));
+            Reference selected = reference(select(all, changed));
+            boolean repeated = !selected.memories().isEmpty() && task.sessionReference().isPresent()
+                    && ReviewTurnInputResolver.stillInConversation(turns.list(task.id()), previous -> !previous.memories().isEmpty())
+                            .filter(previous -> previous.memories().equals(selected.memories())).isPresent();
+            return repeated ? Reference.NONE : selected;
         }
         catch (RuntimeException failure) {
             log.warn("Memory is left out of a turn of task {}", task.id(), failure);

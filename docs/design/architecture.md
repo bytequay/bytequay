@@ -539,6 +539,10 @@ until their deadline and remind again even without a source change. Pinned items
 unpinned. The renderer persists the global pinned destinations and shares pin/handling changes
 between Home, workspace Home, item details and the sidebar.
 The bell does not announce activity that predates enabling it.
+Native delivery failure pauses further native attempts until the app restarts
+and logs one diagnostic; the local attention poll and in-app updates continue.
+Failed attempts do not advance delivery marks. macOS native notifications require
+a signed app and notification permission.
 
 ### 6.2 Issue flow
 

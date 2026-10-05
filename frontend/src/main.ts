@@ -119,6 +119,7 @@ let pollingPrNotifications = false;
 let repollPrNotifications = false;
 let prNotificationGeneration = 0;
 let prMonitorMutations = 0;
+let nativePrNotificationsDisabled = false;
 let pendingPrNotification: { repo: string; number: number } | null = null;
 const showingPrNotifications = new Map<number, Notification>();
 
@@ -145,6 +146,14 @@ function saveNotificationState(): void {
   }
 }
 
+function disableNativePrNotifications(error: unknown): void {
+  if (nativePrNotificationsDisabled) return;
+  // Platform support does not imply permission: unsigned macOS builds also pass isSupported().
+  nativePrNotificationsDisabled = true;
+  console.warn('Native PR notifications paused until restart; PR updates remain available in ByteQuay. '
+    + 'On macOS, use a signed build and allow notifications in System Settings.', error);
+}
+
 async function pollPrNotifications(): Promise<void> {
   if (pollingPrNotifications || prMonitorMutations > 0) {
     repollPrNotifications = true;
@@ -158,15 +167,23 @@ async function pollPrNotifications(): Promise<void> {
     if (generation !== prNotificationGeneration || prMonitorMutations > 0) return;
     mainWindow?.webContents.send('prs:attention-updated', prs);
     const state = notificationState();
-    if (!Notification.isSupported()) return;
+    if (nativePrNotificationsDisabled || !Notification.isSupported()) return;
     for (const item of pendingPrNotifications(prs, state, Date.now())) {
+      if (nativePrNotificationsDisabled) break;
       const pr = item.pr;
       if (pr === null || showingPrNotifications.has(pr.id)) continue;
       const version = notificationVersion(item, state.handled[item.key]);
-      const notification = new Notification({
-        title: `PR updated · ${item.repo}#${item.number}`,
-        body: item.title,
-      });
+      let notification: Notification;
+      try {
+        notification = new Notification({
+          title: `PR updated · ${item.repo}#${item.number}`,
+          body: item.title,
+        });
+      }
+      catch (error) {
+        disableNativePrNotifications(error);
+        break;
+      }
       showingPrNotifications.set(pr.id, notification);
       const release = () => {
         if (showingPrNotifications.get(pr.id) === notification) showingPrNotifications.delete(pr.id);
@@ -192,7 +209,7 @@ async function pollPrNotifications(): Promise<void> {
       });
       notification.on('failed', (_event, error) => {
         release();
-        console.warn('Unable to display PR notification', error);
+        disableNativePrNotifications(error);
       });
       notification.on('close', release);
       try {
@@ -200,7 +217,7 @@ async function pollPrNotifications(): Promise<void> {
       }
       catch (error) {
         release();
-        console.warn('Unable to display PR notification', error);
+        disableNativePrNotifications(error);
       }
     }
   }

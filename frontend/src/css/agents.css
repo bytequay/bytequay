@@ -2865,6 +2865,7 @@
 
 :is(.agt-screen-head, .agt-tasks-head, .agt-page-head) > .agt-overview-toggle {
   position: static;
+  z-index: auto;
 }
 
 @keyframes agt-overview-in {

@@ -19,7 +19,7 @@ import { specCheckDirectory, type ContextBuildViewDto, type ContextSpecCandidate
 import { Chevron, Icon } from './icons';
 import { activeCheck, checkActive, checkProgress, plural, REPRODUCTION_LIMITS, shortDate, shortSha } from './model';
 import {
-  CHECK_STATE, checkSummary, codeLink, defaultPicks, DISMISS_REASONS, findingFile, MAX_SPECS, moduleRows, openFindings, pageLabel, specAddress, TYPE_LABEL, TYPE_TONE,
+  CHECK_STATE, checkSummary, codeLink, defaultPicks, DISMISS_REASONS, findingFile, MAX_SPECS, moduleRows, pageLabel, specAddress, TYPE_LABEL, TYPE_TONE,
   type SpecCheckRequest,
 } from './specChecks';
 
@@ -61,7 +61,7 @@ export function SpecCheckDrawer({ data, actions, busy, directory, prefill, onClo
       <div className="rcp-drawer__sub">Compares a directory’s code with the specifications it implements. Only a gap whose test fails is reported.</div></div>
     <div className="rcp-drawer__body">
       {chosen === null && <ChooseDirectory workspaceId={data.workspaceId} onChoose={setChosen} />}
-      {check !== null && <Report data={data} actions={actions} busy={busy} check={check} />}
+      {check !== null && <Report data={data} check={check} />}
       {chosen !== null && running === null && <StartCheck key={chosen} data={data} actions={actions} busy={busy} directory={chosen} previous={check}
         prefill={chosen === directory ? prefill : undefined} />}
       {chosen !== null && running !== null && running.id !== check?.id && <div className="rcp-note-caption">The check of {running.directory} is running.
@@ -215,8 +215,7 @@ function sourceLine(source: ContextSpecSourceDto): string {
   return `${kind} · cited ${plural(source.links, 'time')}${source.sections.length > 0 ? ` · ${plural(source.sections.length, 'section')}` : ''}`;
 }
 
-function Report({ data, actions, busy, check }: { data: SpecCheckData; actions: SpecCheckActions; busy: boolean; check: ContextSpecCheckDto }) {
-  const findings = openFindings(check);
+function Report({ data, check }: { data: SpecCheckData; check: ContextSpecCheckDto }) {
   const of = (status: ContextSpecCandidateDto['status']) => check.candidates.filter(candidate => candidate.status === status);
   const waiting = check.candidates.filter(candidate => candidate.status === 'PENDING' || candidate.status === 'REPRODUCING');
   const dismissed = of('CONFIRMED').filter(candidate => candidate.dismissed !== null);
@@ -241,9 +240,6 @@ function Report({ data, actions, busy, check }: { data: SpecCheckData; actions: 
         <span className="rcp-spec-row__meta">{candidate.status === 'REPRODUCING' ? 'Reproducing now' : 'Waiting'}</span>
       </div>)}
     </>}
-    <div className="rcp-drawer-label">FINDINGS · {findings.length}</div>
-    {findings.length === 0 && <div className="rcp-note-caption">{checkActive(check) ? 'Confirmed gaps appear here as their tests fail.' : 'No confirmed gap to file.'}</div>}
-    {findings.map(candidate => <Finding key={candidate.id} data={data} actions={actions} busy={busy} check={check} candidate={candidate} />)}
     <Others title="ALREADY REPORTED" candidates={of('ALREADY_REPORTED')} line={candidate => candidate.duplicate === null ? ''
       : `#${candidate.duplicate.number} ${candidate.duplicate.title} · ${candidate.duplicate.state}`}
       open={candidate => candidate.duplicate === null ? null : candidate.duplicate.url} />
@@ -254,7 +250,7 @@ function Report({ data, actions, busy, check }: { data: SpecCheckData; actions: 
 }
 
 /** A confirmed gap: the rule, the code, the failing test, and the issue a click opens on GitHub for the user to file. */
-function Finding({ data, actions, busy, check, candidate }: {
+export function SpecFinding({ data, actions, busy, check, candidate }: {
   data: SpecCheckData; actions: SpecCheckActions; busy: boolean; check: ContextSpecCheckDto; candidate: ContextSpecCandidateDto;
 }) {
   const [dismissing, setDismissing] = useState(false);
@@ -296,11 +292,11 @@ function Finding({ data, actions, busy, check, candidate }: {
       </div>
       : <div className="rcp-finding__actions">
         <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--xs" disabled={busy || candidate.draft === null} onClick={() => actions.openIssue(candidate)}>
-          <Icon name="link" size={12} />Open issue</button>
+          <Icon name="link" size={12} />Open GitHub issue form</button>
         {candidate.draft !== null && <button type="button" className="rcp-btn rcp-btn--secondary rcp-btn--xs"
           onClick={() => void navigator.clipboard.writeText(candidate.draft?.body ?? '').then(() => actions.say('Issue body copied'))}>Copy body</button>}
         <button type="button" className="rcp-link" onClick={() => setDismissing(true)}>Dismiss</button>
-        <span className="rcp-finding__hint">GitHub’s form opens pre-filled; you file it there.</span>
+        <span className="rcp-finding__hint">Opens a prefilled form on GitHub. Nothing is published until you submit it.</span>
       </div>}
   </div>;
 }

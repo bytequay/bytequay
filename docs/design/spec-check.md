@@ -46,14 +46,16 @@ or 8. Usually the user just starts. The run line states what the click starts:
 one task, a check turn and up to that many reproduction turns, and the model.
 One check or memory harvest runs at a time per workspace.
 
-**Finish.** The directory's row shows a summary and the count of findings to
-file, and its drawer shows the report. It says, for
-example: "2 bugs and 3 feature requests confirmed · 4 not reproduced · 1 already
-reported (#31252)", which specifications the check used, and what it covered:
+**Finish.** The Spec checks tab shows each directory's summary with its confirmed
+findings directly beneath it under **Findings**, without opening a drawer.
+**Check details** opens the coverage report, other outcomes and rerun controls.
+The summary says, for example: "2 bugs and 3 feature requests confirmed · 4 not
+reproduced · 1 already reported (#31252)". The details list which specifications
+the check used and what it covered:
 "41 rules in 14 sections; the next check continues with Column Mapping and Domain
 Metadata". Each confirmed
 finding has its type, title, the spec rule with its link, the code lines, the
-failing test, its output and a proposed change. **Open issue** opens GitHub's
+failing test, its output and a proposed change. **Open GitHub issue form** opens GitHub's
 new-issue form in the in-app browser, pre-filled with that finding; the user
 submits it there. A body too long for the form's address is cut there and copied
 whole to the clipboard, and **Copy body** copies it at any time. **Dismiss** hides
@@ -175,7 +177,7 @@ only on the Memory page.
   build there, with network access for build dependencies, as
   [CI Autofix](ci-autofix-service.md) tasks do.
 - It never receives a GitHub credential, pushes, comments or files anything. Its
-  branch stays local; **Open issue** is the user's action.
+  branch stays local; **Open GitHub issue form** is the user's action.
 - It never starts a ByteQuay local run; its test commands run in its own sandbox.
 - Each turn has the configured turn timeout. Stop ends the check and keeps what it
   has confirmed.

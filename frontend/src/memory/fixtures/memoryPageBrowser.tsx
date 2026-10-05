@@ -16,6 +16,7 @@ import { flushSync } from 'react-dom';
 import { assert, settle } from '../../fixtures/harness';
 import type { WorkspaceDto } from '../../types';
 import type { MemoryDto, MemoryPageDto } from '../contracts';
+import type { ContextSpecCandidateDto, ContextSpecCheckDto } from '../../repository-context/contracts';
 import MemoryPage from '../MemoryPage';
 import '../../css/base.css';
 
@@ -37,15 +38,48 @@ const page: MemoryPageDto = {
   switches: { reviews: true, development: true }, guidelines: [], head: '1404575', harvest: { cursor: null, last: null },
 };
 
-export function mount() {
+const finding: ContextSpecCandidateDto = {
+  id: 'gap-1', type: 'BUG', predicted: 'DIVERGES', title: 'Deletion-vector decoding discards the high 32 bits of row indexes',
+  rule: 'If a snapshot contains logical files with records that are invalidated by a deletion vector, those records must not be returned in the output.',
+  specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md#reader-requirements-for-deletion-vectors',
+  code: ['plugin/trino-delta-lake/src/main/java/io/trino/plugin/deltalake/delete/DeletionVectors.java:194-214'],
+  reasoning: 'The decoded index loses the upper bits.', severity: 1, duplicate: null, status: 'CONFIRMED', reason: null, dismissed: null,
+  test: { path: 'plugin/trino-delta-lake/TestDeletionVectors.java', command: './mvnw test', exitCode: 1, output: 'Expected the full row index',
+    source: 'assertEquals(decoded, expected);' },
+  draft: { title: 'Deletion-vector decoding discards the high 32 bits of row indexes', body: 'Preserve the full row index.', labels: ['bug'] },
+};
+const completedCheck: ContextSpecCheckDto = {
+  id: 'check-1', directory: 'plugin/trino-delta-lake/', baselineSha: 'a'.repeat(40), requestKey: 'check-key',
+  specs: [finding.specUrl], checkedAgainst: [finding.specUrl], labels: [], state: 'DONE',
+  candidates: [finding, { ...finding, id: 'gap-2', type: 'IMPROVEMENT', title: 'Use the specified commit timestamp in Delta Lake table changes',
+    draft: { title: 'Use the specified commit timestamp in Delta Lake table changes', body: 'Use the specified commit timestamp.', labels: ['delta-lake'] } },
+  { ...finding, id: 'dismissed', dismissed: 'Not a real gap', title: 'A dismissed result' },
+  { ...finding, id: 'unconfirmed', status: 'NOT_REPRODUCED', title: 'An unconfirmed result', draft: null, test: null }],
+  covered: ['Deletion vectors'], next: ['Commit timestamps'], reproductions: 3, maxReproductions: 3, detail: null,
+  startedAt: '2026-01-01T00:00:00Z', endedAt: '2026-01-01T01:00:00Z',
+};
+
+export function mount(withFindings = false) {
   const calls: string[] = [];
+  const opened: string[] = [];
+  const copied: string[] = [];
+  let checks: ContextSpecCheckDto[] = withFindings ? [completedCheck] : [];
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     getMemoryPage: async () => page,
-    getRepositoryContextSpecChecks: async () => [],
+    getRepositoryContextSpecChecks: async () => checks,
     getRepositoryContextBuild: async () => ({ buildRequestSequence: 0, canStart: true, build: null }),
     listReviewReplays: async () => [],
     getModelSettings: async () => { throw new Error('No configured model'); },
     getRepositoryContextSpecModules: async () => { calls.push('modules'); return []; },
+    getRepositoryContextSpecSources: async () => [],
+    openInAppBrowser: async (url: string) => { opened.push(url); },
+    dismissRepositoryContextSpecFinding: async (_workspace, checkId, candidateId, request) => {
+      calls.push('dismiss');
+      checks = checks.map(check => check.id !== checkId ? check : { ...check,
+        candidates: check.candidates.map(candidate => candidate.id !== candidateId ? candidate : { ...candidate, dismissed: request.reason }) });
+      return checks[0];
+    },
     startMemoryHarvest: async () => { calls.push('harvest'); throw new Error('Unexpected run'); },
     startRepositoryContextSpecCheck: async () => { calls.push('check'); throw new Error('Unexpected run'); },
   } satisfies Partial<typeof window.bridge> });
@@ -54,8 +88,50 @@ export function mount() {
   document.body.append(host);
   const root = createRoot(host);
   flushSync(() => root.render(<MemoryPage workspace={workspace} />));
-  return { host, calls, showSpec: () => flushSync(() => root.render(<MemoryPage workspace={workspace} spec={{ directory: null }} />)),
+  return { host, calls, opened, copied, showSpec: () => flushSync(() => root.render(<MemoryPage workspace={workspace} spec={{ directory: null }} />)),
     close: () => { flushSync(() => root.unmount()); host.remove(); } };
+}
+
+export async function runFindings() {
+  const view = mount(true);
+  const openedCount = () => view.opened.length;
+  try {
+    await settle();
+    view.host.querySelector<HTMLButtonElement>('#mem-tab-specs')?.click(); await settle();
+    const panel = view.host.querySelector<HTMLElement>('#mem-panel-specs');
+    assert(panel !== null, 'Spec checks panel is visible');
+    const findings = () => panel.querySelectorAll<HTMLElement>('.rcp-finding');
+    const button = (host: Element, label: string) => {
+      const value = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent?.trim() === label);
+      assert(value !== undefined, 'Button exists: ' + label);
+      return value;
+    };
+    assert(view.host.querySelector('[role="dialog"]') === null && findings().length === 2, 'Both confirmed findings appear without opening the drawer');
+    assert(panel.textContent?.includes('Findings · 2') === true, 'Findings count is visible');
+    assert(panel.textContent?.includes('A dismissed result') === false && panel.textContent?.includes('An unconfirmed result') === false,
+      'Dismissed and unconfirmed results are not presented as findings');
+    assert(openedCount() === 0, 'Rendering findings does not contact GitHub');
+    button(findings()[0], 'Open GitHub issue form').click(); await settle();
+    const url = new URL(view.opened[0]);
+    assert(url.origin + url.pathname === 'https://github.com/trinodb/trino/issues/new', 'Action opens the issue form, not a publication endpoint');
+    assert(url.searchParams.get('title') === finding.draft?.title && url.searchParams.get('body') === finding.draft?.body, 'Form carries the selected draft');
+    assert(findings().length === 2 && !view.calls.includes('dismiss'), 'Opening the form does not mark a finding filed');
+    button(findings()[0], 'Copy body').click(); await settle();
+    assert(view.copied[0] === finding.draft?.body, 'Copy body remains available on the page');
+    panel.querySelector<HTMLButtonElement>('.rcp-review')?.click(); await settle();
+    const drawer = view.host.querySelector('[role="dialog"]');
+    assert(drawer !== null && drawer.querySelector('.rcp-finding') === null && drawer.textContent?.includes('Covered: Deletion vectors') === true,
+      'Drawer shows check details without duplicating findings');
+    view.host.querySelector<HTMLButtonElement>('[aria-label="Close"]')?.click(); await settle();
+    for (const remaining of [1, 0]) {
+      button(findings()[0], 'Dismiss').click(); await settle();
+      button(findings()[0], 'Dismiss').click(); await settle();
+      assert(findings().length === remaining && panel.textContent?.includes(`Findings · ${remaining}`) === true, 'Dismiss updates the visible findings and count');
+    }
+    assert(panel.textContent?.includes('No confirmed findings to review.') === true, 'Last dismissal leaves a clear empty state');
+    assert(openedCount() === 1, 'Dismissal publishes nothing');
+    return [{ name: 'Inline spec findings and explicit GitHub form action' }];
+  } finally { view.close(); }
 }
 
 export async function run() {

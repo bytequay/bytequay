@@ -334,7 +334,8 @@ memories.
     Delete with an Undo toast.
 - **Guidelines:** the files that reach agents, with size and an open link.
 - **Specs:** spec memories with each one's latest check report, reusing the
-  current report UI.
+  current report UI. Each check's confirmed findings appear directly on the
+  Spec checks tab; its drawer holds coverage, other outcomes and rerun controls.
 - **Replays:** each replay with what each side raised, the sum over finished
   replays, and a drawer that sets the maintainers' comments beside both sides'
   findings, file by file, where the user changes a call and opens either review.

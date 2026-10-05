@@ -41,6 +41,8 @@
 .mem-section__title { margin: 0; font-size: 12px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: #57606a; }
 .mem-box { border: 1px solid #e3e3e6; border-radius: 12px; background: #fff; box-shadow: 0 1px 2px rgba(31, 35, 40, 0.05); overflow: hidden; }
 .mem-box > * + * { border-top: 1px solid #efeff0; }
+.mem-spec-findings { padding: 16px; }
+.mem-spec-check .rcp-finding__hint { flex-basis: 100%; color: #57606a; }
 
 .mem-tabs { display: inline-flex; gap: 2px; padding: 2px; border-radius: 8px; background: #f3f4f6; }
 .mem-tab { border: 0; border-radius: 6px; padding: 4px 10px; font-size: 12px; cursor: pointer; color: #1f2328; background: transparent; }

@@ -19,7 +19,7 @@ import Toast from '../Toast';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import type { AgentRuntimeStopImpactDto, ModelSettingsDto, WorkspaceDto } from '../types';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-context/contracts';
-import { RunLine, SpecCheckDrawer, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
+import { RunLine, SpecCheckDrawer, SpecFinding, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
 import { Icon, Spinner } from '../repository-context/icons';
 import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, shortSha } from '../repository-context/model';
 import { CHECK_STATE, checkSummary, issueUrl, openFindings, type SpecCheckRequest } from '../repository-context/specChecks';
@@ -366,17 +366,25 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
             {ordered.length === 0
               ? <div className="rcp-empty">No spec check yet. A check reads the pages a directory’s code links, decides which are specifications, and reproduces each
                 gap it finds with a test. Only a gap whose test fails is reported, and each specification it used becomes a memory.</div>
-              : <div className="mem-box">{ordered.map(check => {
-                const findings = openFindings(check).length;
-                return <button type="button" key={check.id} className={`rcp-review rcp-tone--${CHECK_STATE[check.state].tone}`}
-                  onClick={() => open({ kind: 'spec', directory: check.directory })}>
-                  <span className="rcp-review__main"><span className="rcp-review__title">{check.directory}
-                    {findings > 0 && ` · ${plural(findings, 'finding')} to file`}</span>
-                    <span className="rcp-review__meta"><span className="rcp-review__kind">{CHECK_STATE[check.state].label}</span><span className="rcp-sep">·</span>
-                      <span className="rcp-review__origin">{checkActive(check) ? checkProgress(check) : checkSummary(check)}</span></span></span>
-                  <span className="rcp-age">{shortDate(check.endedAt ?? check.startedAt, now)}</span>
-                </button>;
-              })}</div>}
+              : ordered.map(check => {
+                const findings = openFindings(check);
+                return <article key={check.id} className="mem-box mem-spec-check" aria-label={check.directory}>
+                  <button type="button" className={`rcp-review rcp-tone--${CHECK_STATE[check.state].tone}`}
+                    onClick={() => open({ kind: 'spec', directory: check.directory })}>
+                    <span className="rcp-review__main"><span className="rcp-review__title">{check.directory}</span>
+                      <span className="rcp-review__meta"><span className="rcp-review__kind">{CHECK_STATE[check.state].label}</span><span className="rcp-sep">·</span>
+                        <span className="rcp-review__origin">{checkActive(check) ? checkProgress(check) : checkSummary(check)}</span></span></span>
+                    <span className="rcp-age">{shortDate(check.endedAt ?? check.startedAt, now)}</span>
+                    <span className="rcp-link">Check details</span>
+                  </button>
+                  <div className="mem-spec-findings">
+                    <h3 className="mem-section__title">Findings · {findings.length}</h3>
+                    {findings.length === 0 && <p className="mem-muted">{checkActive(check)
+                      ? 'Confirmed gaps appear here as their tests fail.' : 'No confirmed findings to review.'}</p>}
+                    {findings.map(candidate => <SpecFinding key={candidate.id} data={data} actions={actions} busy={busy} check={check} candidate={candidate} />)}
+                  </div>
+                </article>;
+              })}
           </section>}
 
           {tab === 'replays' && <ReplaysSection replays={replays} now={now} onOpen={id => open({ kind: 'replay', id })} />}

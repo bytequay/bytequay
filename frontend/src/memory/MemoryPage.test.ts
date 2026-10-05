@@ -19,3 +19,10 @@ it('switches memory sections without stacking content or losing filters', async 
     entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 750 });
   expect(results).toEqual([{ name: 'Memory section navigation, filters, scrolling and spec entry' }]);
 }, 30_000);
+
+it('shows confirmed findings on the page and opens GitHub only on an explicit click', async () => {
+  const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-spec-findings-',
+    entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 900,
+    body: 'const results = await window.webContents.executeJavaScript("MemoryPageTests.runFindings()");' });
+  expect(results).toEqual([{ name: 'Inline spec findings and explicit GitHub form action' }]);
+}, 30_000);

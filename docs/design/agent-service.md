@@ -3905,8 +3905,12 @@ the only item-based display-graph source; the other form is supplementary activi
 thread identities still must resolve inside that same graph. A live
 `thread/started` notification may establish lineage only when it carries an
 explicit `parentThreadId`; a missing parent is never inferred to mean the root.
-For V2, the root path is `/`, and every activity path is absolute, normalized,
-and stable for its thread. A selected-profile `started` edge must supply a path
+For V2, Codex's provider root path is `/root`, and every activity path is
+absolute, normalized, and stable for its thread. The adapter validates native
+paths before projecting only the root to `/` in ByteQuay events; descendant
+paths retain their full provider value. An upward `interacted` item targeting
+the root must therefore match `/root`, including after a session resumes.
+A selected-profile `started` edge must supply a path
 distinct from and strictly nested below its direct parent's already known path,
 including for root children and grandchildren. `thread/started` may bind
 explicit lineage metadata, but the driver does not route or announce that V2

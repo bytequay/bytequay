@@ -283,7 +283,8 @@ gate reads every V1 `spawnAgent` or V2
 `started` edge to a fixed point and requires exactly root, child, and
 grandchild in one session with direct-parent identity, one completed turn
 each, and exact final markers. V2 upward `interacted` activity never creates a
-child edge. Its root logical path is `/`; each V2 path is absolute, normalized,
+child edge. The provider root path is `/root`; the adapter projects it to `/`
+only in ByteQuay events. Each V2 provider path is absolute, normalized,
 and stable for its thread, and each selected `started` edge is strictly nested
 under its direct parent's path. Only passive transcript items and the selected
 collaboration item type are used to discover the graph. The other known V1/V2 collaboration item
@@ -297,6 +298,10 @@ recursive-child CP1 gate. The normal keyless command feeds synthetic V1 and V2
 trees, including V2 upward `interacted` activity, through the same graph
 assertions; that is regression coverage for the checker, not model-behavior
 evidence.
+The installed-CLI keyless `codex-child-completion-probe.py --mode v2` also
+requires a child to send a message to `/root` and checks the resulting
+`interacted` item's root identity and path. The adapter regression replays
+that shape on fresh and resumed sessions while retaining `/` in root events.
 The bounded prompt asks each parent to wait to reduce nondeterminism, but V2
 history does not expose a distinct wait item. Acceptance therefore proves the
 topology and eventual terminal fixed point, not wait-call causality.

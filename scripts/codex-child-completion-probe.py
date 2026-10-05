@@ -127,6 +127,8 @@ class ChildProvider:
                 probe.require(self.owned_identity.endswith("/bin/sleep"), "Unexpected owned command identity")
             self.child_seen.set()
             probe.require(self.release_child.wait(25), "Child response was never released")
+            if self.mode == "v2" and "send_message_fixture" not in outputs:
+                return self.call("send_message", {"target": "/root", "message": "Child fixture reporting to its parent."}, namespace)
             text = "Child fixture completed."
         return {"id": "msg_fixture_" + str(len(self.requests)), "type": "message", "role": "assistant", "status": "completed",
                 "content": [{"type": "output_text", "text": text, "annotations": []}]}
@@ -179,12 +181,15 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--codex", default=shutil.which("codex") or "/opt/homebrew/bin/codex")
     parser.add_argument("--mode", choices=("none", "v1", "v2"), default="v1")
-    parser.add_argument("--model", default="fixture-model", help="Catalog model name sent only to the local fake provider")
+    parser.add_argument("--model", help="Catalog model name sent only to the local fake provider (V2 defaults to gpt-6-astra)")
     parser.add_argument("--history-mode", choices=("legacy", "paginated"), default="legacy")
     parser.add_argument("--background", action="store_true", help="Check V1 close_agent with a completed child's yielded sleep command")
     parser.add_argument("--grandchild", action="store_true", help="Check V1 recursive close while a completed child has a live grandchild")
     parser.add_argument("--output-parent", type=Path)
     options = parser.parse_args()
+    if options.model is None:
+        # Child tool selection needs a catalog model that advertises V2 messaging.
+        options.model = "gpt-6-astra" if options.mode == "v2" else "fixture-model"
     if (options.background or options.grandchild) and options.mode != "v1":
         parser.error("--background and --grandchild require --mode v1 (V2 advertises no close_agent)")
     if options.background and options.grandchild:
@@ -269,6 +274,13 @@ def main():
                 wait_for(lambda: any(item.get("method") == "turn/completed" and item.get("params", {}).get("threadId") == child_id for item in app.notifications), "Child did not complete")
                 inspect(app, child_id, "child-completed", "idle", "completed", options.background)
                 children(app, root["id"], child_id, "child-completed", "idle")
+                if options.mode == "v2":
+                    activities = [item["params"]["item"] for item in app.notifications
+                                  if item.get("method") == "item/completed" and item["params"]["item"]["type"] == "subAgentActivity"]
+                    probe.require(any(item["agentThreadId"] == child_id and item["agentPath"] == "/root/fixture_child"
+                                      and item["kind"] == "started" for item in activities), "Unexpected V2 child path")
+                    probe.require(any(item["agentThreadId"] == root["id"] and item["agentPath"] == "/root"
+                                      and item["kind"] == "interacted" for item in activities), "Missing V2 message to the canonical root path")
             if options.mode == "v1":
                 if options.background:
                     probe.require(process_identity(provider.owned_pid) == provider.owned_identity, "Owned sleep ended before close_agent")
@@ -286,7 +298,7 @@ def main():
             unrelated = app.request("thread/start", thread_config, "unrelated-start")["result"]["thread"]
             result = app.request("thread/list", {"parentThreadId": unrelated["id"], "sourceKinds": ["subAgent"], "modelProviders": []}, "unrelated-children")["result"]
             probe.require(result["data"] == [], "Child inventory crossed root boundaries")
-        expected_requests = (5 if options.mode == "v1" else 3) + int(options.background) + 2 * int(options.grandchild)
+        expected_requests = (5 if options.mode == "v1" else 4) + int(options.background) + 2 * int(options.grandchild)
         probe.require(len(provider.requests) == expected_requests, "Unexpected local provider request count")
         probe.require(all(item["body"]["model"] == options.model and not item["authorizationPresent"] for item in provider.requests), "Unexpected provider request")
     print("PASS: " + options.mode + "/" + options.history_mode + " child active/completed state, direct/ancestor inventory, and unrelated-root exclusion; " + str(expected_requests) + " local requests.", flush=True)

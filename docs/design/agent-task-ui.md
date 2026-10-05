@@ -590,8 +590,10 @@ selected model's V1 `spawnAgent` or V2 `subAgentActivity` `started` shape. This
 keeps a child's final answer from being read back as the task's own recorded
 final response without inventing a relationship.
 
-For V2, the root logical path is `/`; every activity path is absolute,
-normalized, and stable for its thread, and every `started` child path is
+For V2, the root logical path in ByteQuay events is `/`, projected from the
+provider's `/root` after identity validation. Descendant paths retain their
+full provider value. Every provider activity path is absolute, normalized,
+and stable for its thread, and every `started` child path is
 strictly nested beneath its direct parent's path. A `thread/started` lineage
 signal alone does not publish or route a V2 child before that canonical path
 arrives. The selected V1 spawn or V2 started item provides the child

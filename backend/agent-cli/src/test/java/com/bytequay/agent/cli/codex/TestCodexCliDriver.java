@@ -2324,8 +2324,9 @@ class TestCodexCliDriver
         assertThat(grandchild.source().parentProviderThreadId()).contains("child-history");
     }
 
-    @Test
-    void treatsV2StartedAsAnEdgeButNotInteractedAndPreservesTheFullAgentPath()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void routesV2ChildMessagesToTheRootOnFreshAndResumedSessions(boolean resume)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -2334,11 +2335,17 @@ class TestCodexCliDriver
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        if (resume) {
+            AgentSessionRef reference = session.reference();
+            session.close();
+            session = driver.open(context(Optional.of(reference), new AtomicReference<>()), events::add);
+            assertThat(supervisor.servers().getLast().resumeCount()).isOne();
+        }
         RunningTurn turn = session.start(command("v2 live activity"));
         supervisor.emitScriptedActivity("thread-1");
         supervisor.emitScriptedActivity("v2-child");
 
-        supervisor.server().completeTurn();
+        supervisor.servers().getLast().completeTurn();
         assertThat(turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
 
@@ -2349,9 +2356,16 @@ class TestCodexCliDriver
         assertThat(discoveries).singleElement().satisfies(discovery -> {
             assertThat(discovery.source().providerThreadId()).contains("v2-child");
             assertThat(discovery.source().parentProviderThreadId()).contains("thread-1");
-            assertThat(discovery.source().logicalAgentPath()).contains("/agents/team/reviewer");
+            assertThat(discovery.source().logicalAgentPath()).contains("/root/team/reviewer");
         });
-        assertThat(supervisor.server().backgroundTerminalThreads()).doesNotContain("not-a-child");
+        assertThat(events)
+                .filteredOn(event -> event.source().providerThreadId().filter("thread-1"::equals).isPresent())
+                .isNotEmpty()
+                .allSatisfy(event -> {
+                    assertThat(event.source().parentProviderThreadId()).isEmpty();
+                    assertThat(event.source().logicalAgentPath()).contains("/");
+                });
+        assertThat(supervisor.servers().getLast().backgroundTerminalThreads()).doesNotContain("not-a-child");
         assertThat(events)
                 .filteredOn(event -> event instanceof ProviderAgentEvent.Message message
                         && message.messageKind() == ProviderAgentEvent.MessageKind.PROMPT)
@@ -2420,30 +2434,32 @@ class TestCodexCliDriver
                         event -> event.source().parentProviderThreadId().orElseThrow(),
                         event -> event.source().logicalAgentPath().orElseThrow())
                 .containsExactlyInAnyOrder(
-                        org.assertj.core.groups.Tuple.tuple("v2-child", "thread-1", "/agents/reviewer"),
+                        org.assertj.core.groups.Tuple.tuple("v2-child", "thread-1", "/root/reviewer"),
                         org.assertj.core.groups.Tuple.tuple(
                                 "v2-grandchild",
                                 "v2-child",
-                                "/agents/reviewer/researcher"));
+                                "/root/reviewer/researcher"));
     }
 
     @Test
     void rejectsUnknownRelativeOrUnstableV2SupplementaryActivity()
             throws Exception
     {
-        AgentTurnResult unknown = runInvalidV2Activity("unknown-child", "/agents/unknown");
+        AgentTurnResult unknown = runInvalidV2Activity("unknown-child", "/root/unknown");
         assertThat(unknown.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("graph identity"));
 
         AgentTurnResult relative = runInvalidV2Activity("v2-child", "relative/path");
         assertThat(relative.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("absolute"));
 
-        AgentTurnResult changed = runInvalidV2Activity("v2-child", "/agents/changed");
+        AgentTurnResult changed = runInvalidV2Activity("v2-child", "/root/changed");
         assertThat(changed.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("path changed"));
+        AgentTurnResult changedRoot = runInvalidV2Activity("thread-1", "/");
+        assertThat(changedRoot.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("path changed"));
         AgentTurnResult rootPath = runInvalidRootV2Activity();
         assertThat(rootPath.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("not nested"));
         AgentTurnResult notNested = runInvalidNestedV2Activity();
         assertThat(notNested.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("not nested"));
-        assertThat(ImmutableList.of(unknown, relative, changed, rootPath, notNested)).allSatisfy(result -> {
+        assertThat(ImmutableList.of(unknown, relative, changed, changedRoot, rootPath, notNested)).allSatisfy(result -> {
             assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
             assertThat(result.providerQuiescent()).isTrue();
         });
@@ -2735,7 +2751,7 @@ class TestCodexCliDriver
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("live v2 path"));
         String threadId = "live-v2-child";
-        String agentPath = "/agents/live-reviewer";
+        String agentPath = "/root/live-reviewer";
 
         if (threadMetadataFirst) {
             supervisor.server().emitThreadStarted(threadId, "Nickname must not become the path");
@@ -2795,7 +2811,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.scriptNestedV2Activity("/agents/other/researcher");
+        supervisor.scriptNestedV2Activity("/root/other/researcher");
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("invalid nested v2"));
@@ -2810,7 +2826,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         supervisor.reportModelVersion(Optional.of("v2"));
-        supervisor.scriptRootV2Activity("/");
+        supervisor.scriptRootV2Activity("/root");
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         RunningTurn turn = session.start(command("invalid root v2"));
@@ -3404,7 +3420,7 @@ class TestCodexCliDriver
         {
             try {
                 for (JsonNode entry : objectMapper.readTree(scriptedItems.get(threadId)).path("data")) {
-                    server().emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"" + threadId
+                    servers().getLast().emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"" + threadId
                             + "\",\"turnId\":\"" + entry.path("turnId").asText() + "\",\"item\":" + entry.path("item") + "}}");
                 }
             }
@@ -3481,7 +3497,7 @@ class TestCodexCliDriver
             scriptedItems.put("thread-1", "{\"data\":["
                     + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"subAgentActivity\","
                     + "\"id\":\"v2-start\",\"agentThreadId\":\"v2-child\","
-                    + "\"agentPath\":\"/agents/team/reviewer\",\"kind\":\"started\"}},"
+                    + "\"agentPath\":\"/root/team/reviewer\",\"kind\":\"started\"}},"
                     + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"collabAgentToolCall\","
                     + "\"id\":\"v1-supplement\",\"tool\":\"spawnAgent\",\"status\":\"completed\","
                     + "\"senderThreadId\":\"thread-1\",\"receiverThreadIds\":[\"v2-child\"],"
@@ -3490,7 +3506,7 @@ class TestCodexCliDriver
             scriptedItems.put("v2-child", "{\"data\":["
                     + "{\"turnId\":\"child-turn\",\"item\":{\"type\":\"subAgentActivity\","
                     + "\"id\":\"v2-upward\",\"agentThreadId\":\"thread-1\","
-                    + "\"agentPath\":\"/\",\"kind\":\"interacted\"}},"
+                    + "\"agentPath\":\"/root\",\"kind\":\"interacted\"}},"
                     + "{\"turnId\":\"child-turn\",\"item\":{\"type\":\"collabAgentToolCall\","
                     + "\"id\":\"v1-wait\",\"tool\":\"wait\",\"status\":\"completed\","
                     + "\"senderThreadId\":\"v2-child\",\"receiverThreadIds\":[\"thread-1\"],"
@@ -3501,14 +3517,14 @@ class TestCodexCliDriver
 
         private void scriptNestedV2Activity()
         {
-            scriptNestedV2Activity("/agents/reviewer/researcher");
+            scriptNestedV2Activity("/root/reviewer/researcher");
         }
 
         private void scriptNestedV2Activity(String grandchildPath)
         {
             scriptedItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
                     + "\"type\":\"subAgentActivity\",\"id\":\"v2-child-start\","
-                    + "\"agentThreadId\":\"v2-child\",\"agentPath\":\"/agents/reviewer\","
+                    + "\"agentThreadId\":\"v2-child\",\"agentPath\":\"/root/reviewer\","
                     + "\"kind\":\"started\"}}],\"nextCursor\":null}");
             scriptedItems.put("v2-child", "{\"data\":[{\"turnId\":\"child-turn\",\"item\":{"
                     + "\"type\":\"subAgentActivity\",\"id\":\"v2-grandchild-start\","
@@ -3530,7 +3546,7 @@ class TestCodexCliDriver
             scriptedItems.put("thread-1", "{\"data\":["
                     + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"subAgentActivity\","
                     + "\"id\":\"v2-start\",\"agentThreadId\":\"v2-child\","
-                    + "\"agentPath\":\"/agents/reviewer\",\"kind\":\"started\"}},"
+                    + "\"agentPath\":\"/root/reviewer\",\"kind\":\"started\"}},"
                     + "{\"turnId\":\"turn-1\",\"item\":{\"type\":\"subAgentActivity\","
                     + "\"id\":\"v2-invalid\",\"agentThreadId\":\"" + secondThreadId + "\","
                     + "\"agentPath\":\"" + secondPath + "\",\"kind\":\"interacted\"}}"
@@ -3550,7 +3566,7 @@ class TestCodexCliDriver
         {
             scriptedItems.put("thread-1", "{\"data\":[{\"turnId\":\"turn-1\",\"item\":{"
                     + "\"type\":\"subAgentActivity\",\"id\":\"nonselected-v2\","
-                    + "\"agentThreadId\":\"unknown-v2-child\",\"agentPath\":\"/agents/unknown\","
+                    + "\"agentThreadId\":\"unknown-v2-child\",\"agentPath\":\"/root/unknown\","
                     + "\"kind\":\"started\"}}],\"nextCursor\":null}");
         }
 

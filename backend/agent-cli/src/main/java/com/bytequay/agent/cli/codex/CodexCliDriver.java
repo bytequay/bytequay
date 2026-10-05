@@ -884,6 +884,10 @@ public final class CodexCliDriver
             public Optional<String> labelOf(String threadId)
             {
                 if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
+                    // Provider identity uses /root; the shared event contract uses / for the root.
+                    if (threadId.equals(reference.providerValue())) {
+                        return Optional.of("/");
+                    }
                     return Optional.ofNullable(v2AgentPaths.get(threadId));
                 }
                 return Optional.ofNullable(children.get(threadId)).map(ChildFacts::label);
@@ -947,7 +951,7 @@ public final class CodexCliDriver
                     guardedReviewTools.isPresent() ? REVIEW_DYNAMIC_CONTRACT_VERSION : CONTRACT_VERSION, threadId);
             observedThreads.add(reference.providerValue());
             if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
-                v2AgentPaths.put(reference.providerValue(), "/");
+                v2AgentPaths.put(reference.providerValue(), "/root");
             }
         }
 
@@ -1423,7 +1427,7 @@ public final class CodexCliDriver
             }
             String existing = v2AgentPaths.get(threadId);
             if (existing != null && !existing.equals(rawPath)) {
-                throw new AgentUnavailableException("Codex V2 agent path changed for an existing child");
+                throw new AgentUnavailableException("Codex V2 agent path changed for an existing agent");
             }
             if (edge) {
                 String parentPath = v2AgentPaths.get(parentThreadId);
@@ -1442,7 +1446,7 @@ public final class CodexCliDriver
         {
             String existing = v2AgentPaths.putIfAbsent(threadId, agentPath);
             if (existing != null && !existing.equals(agentPath)) {
-                throw new AgentUnavailableException("Codex V2 agent path changed for an existing child");
+                throw new AgentUnavailableException("Codex V2 agent path changed for an existing agent");
             }
         }
 

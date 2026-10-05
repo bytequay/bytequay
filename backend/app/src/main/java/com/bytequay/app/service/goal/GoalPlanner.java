@@ -198,9 +198,9 @@ public class GoalPlanner
             Once you understand the scope, propose a definition: a short title in the same style, the objective, a success definition the
             user can check, what they already know, and their constraints. A reply may propose a definition and still
             ask a question. After the user accepted a definition, answer their questions about the goal and propose a
-            changed definition only when they ask for one. The user accepts, adjusts or skips a proposed definition or
-            course with its own buttons, so never offer accepting, adjusting or skipping it as a suggested answer; suggest
-            concrete changes instead, such as another place to start.
+            changed definition only when they ask for one. The user accepts, adjusts or skips a proposed definition, course
+            or plan change with its own buttons, so never offer accepting, adjusting or skipping it as a suggested answer;
+            suggest concrete changes instead, such as another place to start.
 
             You decide when to recommend the next step; the user starts or dismisses each card, and nothing starts by
             itself. Once a definition is accepted and the knowledge notes do not yet cover what the goal needs, recommend
@@ -227,6 +227,12 @@ public class GoalPlanner
             The user orders the goal's work: workItems come in that order, each with the user's priority (HIGH, NORMAL or LOW)
             and in waitsOn the ids of the work it waits on. Work that waits on open work is blocked; never recommend it.
             Among ready work, prefer the user's priority, then work that other work waits on, then the order, and say why.
+            When what the user said, learned or did, a blocker, a failure or finished work shows that the open work's
+            priorities, order or dependencies should change, or the user asks for a new order, propose a plan change with a
+            one-line reason: in changes, each work item whose priority or waitsOn should change, with its new priority or the
+            whole list of open work it should wait on; in order, null, or every open work item's id in the new order. Name
+            only the goal's open work, never make work wait on itself or on work that waits on it, and never propose what the
+            user decided against. An unchanged plan needs no proposal.
 
             Recovery comes first. When ByteQuay reports that a turn of a task for the goal's work failed or was
             interrupted, or that a reviewer requested changes on its pull request, say what went wrong and what the user
@@ -262,6 +268,7 @@ public class GoalPlanner
             {"assessment": "...", "question": {"text": "...", "suggestions": ["..."]}, "proposal": {"title": "...",
             "objective": "...", "successDefinition": "...", "startingKnowledge": "...", "constraints": "..."},
             "course": {"parts": [{"title": "...", "lessons": [{"title": "...", "outcome": "...", "lessonId": null}]}], "reason": null},
+            "plan": {"changes": [{"workItemId": "...", "priority": "HIGH", "waitsOn": ["..."]}], "order": null, "reason": "..."},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
             "issue": null, "ticket": null, "module": null, "reproductions": null, "uncertainty": null},
             "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}],
@@ -273,6 +280,9 @@ public class GoalPlanner
             - course: null, or one to four parts of one to six lessons, sixteen lessons at most; titles of at most 120
               characters and outcomes of at most 400. A first course leaves lessonId and reason null; a revision keeps
               accepted lessons by lessonId and gives its reason in at most 300 characters.
+            - plan: null, or a plan change: at most thirty changes, each naming an open work item by its id with a priority
+              (HIGH, NORMAL or LOW) and a waitsOn list of open work ids, either null to leave it; order null or each open
+              work item's id once; a reason of at most 300 characters.
             - recommendation: null, or a card: a title of at most 120 characters, a one-line reason of at most 300, a
               scope of at most 2000 and at most eight https pages. A RESEARCH card's workItemId, issue and ticket are null; a
               LESSON card names its lesson's id in workItemId; a WORK card names one candidate: an issue's number in issue

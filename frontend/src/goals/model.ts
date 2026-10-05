@@ -235,6 +235,36 @@ export function openCourse(goal: GoalDto | null, exchanges: GoalExchangeDto[]): 
   return { exchangeId: last.id, course: last.reply.course };
 }
 
+/**
+ * The plan change the user can still accept: the newest answer's, as the differences it still makes to the goal's open work, one line each.
+ * Once the work matches it, through Accept or the user's own changes, nothing is left to accept.
+ */
+export function openPlan(goal: GoalDto | null, exchanges: GoalExchangeDto[]): { exchangeId: string; reason: string; differences: string[] } | null {
+  const last = exchanges.at(-1);
+  if (goal === null || last === undefined || last.reply === null || last.reply.plan === null) return null;
+  const plan = last.reply.plan;
+  const items = new Map(goal.items.map((item) => [item.id, item]));
+  const title = (id: string): string => items.get(id)?.title ?? id;
+  const differences: string[] = [];
+  for (const change of plan.changes) {
+    const item = items.get(change.workItemId);
+    const waitsOn = change.waitsOn;
+    if (item === undefined) continue;
+    if (change.priority !== null && change.priority !== item.priority) differences.push(`${item.title}: ${PRIORITY_WORDS[change.priority]} priority`);
+    if (waitsOn !== null) {
+      waitsOn.filter((id) => !item.blockedBy.includes(id)).forEach((id) => differences.push(`${item.title} waits on ${title(id)}`));
+      item.blockedBy.filter((id) => !waitsOn.includes(id)).forEach((id) => differences.push(`${item.title} no longer waits on ${title(id)}`));
+    }
+  }
+  const order = plan.order;
+  if (order !== null && order.join('\n') !== inOrder(goal.items).filter(isOpen).map((item) => item.id).join('\n')) {
+    differences.push(`New order: ${order.map(title).join(' → ')}`);
+  }
+  return differences.length === 0 ? null : { exchangeId: last.id, reason: plan.reason, differences };
+}
+
+const PRIORITY_WORDS: Record<WorkItemPriority, string> = { HIGH: 'High', NORMAL: 'Normal', LOW: 'Low' };
+
 /** What a started card is doing, as the panel names it. */
 export const STARTED_LABELS: Record<GoalCardDto['kind'], string> = { RESEARCH: 'Researching', LESSON: 'Learning', WORK: 'Practicing', SPEC_CHECK: 'Checking',
   INVESTIGATE: 'Investigating' };
@@ -250,17 +280,21 @@ export function situation(goal: GoalDto, exchanges: GoalExchangeDto[], gaps: Goa
   const merged = open.filter((item) => item.links.some((link) => link.kind === 'PULL_REQUEST' && link.state === 'MERGED'));
   const proposal = openProposal(goal, exchanges);
   const course = openCourse(goal, exchanges);
+  const plan = openPlan(goal, exchanges);
   const unadded = gaps.filter((gap) => gap.workItemId === null);
-  const decisions = (proposal === null ? 0 : 1) + (course === null ? 0 : 1) + merged.length + unadded.length;
-  return { text: situationText(goal, exchanges, { proposal: proposal !== null, course: course !== null, merged, unadded: unadded.length, open }), decisions };
+  const decisions = (proposal === null ? 0 : 1) + (course === null ? 0 : 1) + (plan === null ? 0 : 1) + merged.length + unadded.length;
+  return { text: situationText(goal, exchanges, { proposal: proposal !== null, course: course !== null, plan: plan !== null, merged, unadded: unadded.length, open }),
+    decisions };
 }
 
-function situationText(goal: GoalDto, exchanges: GoalExchangeDto[], waiting: { proposal: boolean; course: boolean; merged: WorkItemDto[]; unadded: number; open: WorkItemDto[] }): string {
+function situationText(goal: GoalDto, exchanges: GoalExchangeDto[], waiting: { proposal: boolean; course: boolean; plan: boolean; merged: WorkItemDto[]; unadded: number;
+  open: WorkItemDto[]; }): string {
   const last = exchanges.at(-1);
   if (last?.state === 'PENDING') return 'Waiting for the agent';
   if (last?.state === 'FAILED') return 'The agent’s last reply failed; ask again';
   if (waiting.proposal) return 'Your decision: the proposed goal';
   if (waiting.course) return goal.course === null ? 'Your decision: the proposed course' : 'Your decision: the revised course';
+  if (waiting.plan) return 'Your decision: the proposed plan change';
   if (waiting.merged.length > 0) return `Your decision: accept ${waiting.merged[0].title}`;
   if (waiting.unadded > 0) return `Your decision: ${waiting.unadded === 1 ? 'a reproduced gap' : `${waiting.unadded} reproduced gaps`}`;
   if (goal.definition === null) return 'Clarifying your goal';

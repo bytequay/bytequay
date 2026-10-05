@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first fifteen implementation slices are complete. The later items
+Status: The first sixteen implementation slices are complete. The later items
 of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -656,6 +656,12 @@ adjusts or skips like a definition or a course.
    change, or when the user asks for a new order; an unchanged plan needs no
    proposal. Changes to a work item's scope or criteria stay with the user.
 
+Progress: the sixteenth slice is complete. Accepting stops work waiting before
+it adds new waits, so no step on the way closes a cycle the whole change does
+not, and the open work takes the places open work held, leaving concluded work
+where it was. The Guide view works out what still differs from the work it
+already shows, so no Goal record notes the acceptance.
+
 Done when: a reply's plan change is validated before it is saved, the Guide
 view shows its differences with Accept, Adjust and Skip, accepting applies
 them through the work items' own decisions, and a cycle or an unknown item
@@ -732,7 +738,7 @@ work-item and Goal window Chromium journeys, and desktop packaging passed.
 - [x] Build bounded context from canonical plan/results and recent conversation.
   Retain full user-visible history and pinned decisions; do not silently truncate
   constraints or depend on provider session memory.
-- [ ] Validate typed model replies, evidence IDs, reference ownership, proposed
+- [x] Validate typed model replies, evidence IDs, reference ownership, proposed
   dependency cycles and size limits before saving. Invalid output leaves the
   previous plan intact and produces a retryable error.
 - [x] Include current assessment, one consequential clarification, short suggested
@@ -761,8 +767,8 @@ stopped, restart settlement, cards that float only once the Goal is defined and
 never stack or repeat a dismissed one, course acceptance), `TestTextOnlyHelper`,
 `TestModelSettingsService` for the Goal's own model, the Codex and Claude driver
 text-only session tests, `TestGoalPlanner` and the `goalGuideBrowser` and
-`goalWindowBrowser` journeys. Still partial: response coverage is not saved, and
-replies cannot propose dependencies, so there are no proposed cycles to refuse.
+`goalWindowBrowser` journeys, and for validation the plan-change tests in
+`TestGoalConversationService`. Still partial: response coverage is not saved.
 
 Done when: opening an empty Goal or one named “Iceberg connector expertise” offers
 useful directions; a suggested answer can lead to a saved goal definition and
@@ -880,7 +886,8 @@ Still partial: private cards are the twenty newest rather than those on the
 Goal's topics; task deletion and runtime cleanup do not wait for a receipt;
 a task start reaches the agent only with its first finished turn; plan
 differences cover
-the course only; there is no persisted input fingerprint; there
+the course and the open work's priorities, order and dependencies, not a work
+item's scope or criteria; there is no persisted input fingerprint; there
 is no Remember action; and task deletion, log expiry and uncertain provider cleanup are
 not exercised.
 

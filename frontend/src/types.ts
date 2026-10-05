@@ -1536,6 +1536,7 @@ export type Bridge = JiraBridge & {
   acceptGoalDefinition: (workspaceId: string, goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: each lesson becomes a Learn work item of the goal, and nothing starts. */
   acceptGoalCourse: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;
+  acceptGoalPlan: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;
   /** Start on a card under the Goal control: the research it recommends begins as one read-only run. */
   startGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   dismissGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;

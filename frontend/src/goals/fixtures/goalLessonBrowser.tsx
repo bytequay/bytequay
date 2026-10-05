@@ -87,13 +87,13 @@ function Fixture(): React.JSX.Element {
   }), []);
   const conversation: GoalConversation = {
     ...lessons,
-    loaded: true, exchanges, notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, stop: async () => {}, retry: async () => {}, accept: async () => {}, acceptCourse: async () => {}, correctTopic: async () => {},
+    loaded: true, exchanges, notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, stop: async () => {}, retry: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {}, correctTopic: async () => {},
     researchRun: async () => ({ buildRequestSequence: 0, canStart: true, build: null }), stopResearch: async () => ({ buildRequestSequence: 0, canStart: true, build: null }),
     ask: async (operationId, message, lessonId) => {
       server.asked.push(lessonId);
       server.messages.push(message);
       setExchanges([{ id: operationId, goalId: 'goal', message, automatic: false, lessonId: lessonId ?? null, inputRevision: 1, state: 'ANSWERED', failure: null,
-        askedAt: NOW, reply: { assessment: 'Because each snapshot shares unchanged manifests.', question: null, proposal: null, recommendation: null, course: null } }]);
+        askedAt: NOW, reply: { assessment: 'Because each snapshot shares unchanged manifests.', question: null, proposal: null, plan: null, recommendation: null, course: null } }]);
     },
   };
   return (

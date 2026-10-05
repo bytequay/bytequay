@@ -33,7 +33,7 @@ const ANSWER_POLL_MS = 1_500;
 
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'orderWorkItems' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'summarizeGoalWork' | 'acceptGoalDefinition'
-  | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
+  | 'acceptGoalCourse' | 'acceptGoalPlan' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
   | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'
   | 'getRepositoryContextBuild' | 'stopRepositoryContextBuild'>;
 
@@ -78,6 +78,8 @@ export type Goals = {
   accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: its lessons become the goal's Learn work items. */
   acceptCourse: (goalId: string, exchangeId: string) => Promise<GoalDto>;
+  /** Applies what a proposed plan change still changes in the goal's open work. */
+  acceptPlan: (goalId: string, exchangeId: string) => Promise<GoalDto>;
   /** Start on a card: the run it recommends begins. */
   startCard: (goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   /** Not now on a card; the agent does not offer it again. */
@@ -124,6 +126,7 @@ export type GoalConversation = {
   reassess: (operationId: string) => Promise<void>;
   accept: (exchangeId: string, title: string) => Promise<void>;
   acceptCourse: (exchangeId: string) => Promise<void>;
+  acceptPlan: (exchangeId: string) => Promise<void>;
   openLesson: (lessonId: string, again?: boolean) => Promise<GoalLessonDto>;
   readLesson: (lessonId: string) => Promise<GoalLessonDto>;
   finishLesson: (lessonId: string, operationId: string) => Promise<void>;
@@ -301,6 +304,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     stopResearch: (taskId) => bridge().stopRepositoryContextBuild(workspaceId, taskId).then((view) => { announce(workspaceId); return view; }),
     accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
     acceptCourse: (goalId, exchangeId) => bridge().acceptGoalCourse(workspaceId, goalId, exchangeId).then(settle),
+    acceptPlan: (goalId, exchangeId) => bridge().acceptGoalPlan(workspaceId, goalId, exchangeId).then(settle),
     startCard: (goalId, recommendationId) => bridge().startGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
     dismissCard: (goalId, recommendationId) => bridge().dismissGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
     knowledge,
@@ -395,6 +399,7 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
       // Accepting tells the agent, whose answer is read at once.
       accept: (exchangeId, title) => (goalId === null ? Promise.resolve() : goals.accept(goalId, exchangeId, title).then(() => goals.exchanges(goalId)).then(show)),
       acceptCourse: (exchangeId) => (goalId === null ? Promise.resolve() : goals.acceptCourse(goalId, exchangeId).then(() => goals.exchanges(goalId)).then(show)),
+      acceptPlan: (exchangeId) => (goalId === null ? Promise.resolve() : goals.acceptPlan(goalId, exchangeId).then(() => goals.exchanges(goalId)).then(show)),
       openLesson: openOne,
       readLesson: readOne,
       // Finishing tells the agent, whose answer is read at once.

@@ -367,6 +367,16 @@ export function parseGoalKnowledgeNote(value: unknown): GoalKnowledgeNoteDto {
   };
 }
 
+/**
+ * A change the agent proposes to the goal's open work: new priorities, the whole list of open work an item waits on, and a new order of every
+ * open item, with its reason. A field left null keeps what the work has.
+ */
+export type GoalPlanChangeDto = {
+  changes: { workItemId: string; priority: WorkItemPriority | null; waitsOn: string[] | null }[];
+  order: string[] | null;
+  reason: string;
+};
+
 /** One message the user sent a goal's agent, and its answer once it arrives. */
 export type GoalExchangeDto = {
   id: string;
@@ -383,6 +393,7 @@ export type GoalExchangeDto = {
     question: { text: string; suggestions: string[] } | null;
     proposal: GoalProposalDto | null;
     course: GoalCourseDraftDto | null;
+    plan: GoalPlanChangeDto | null;
     recommendation: GoalCardDto | null;
   } | null;
   failure: string | null;
@@ -428,10 +439,28 @@ export function parseGoalExchange(value: unknown): GoalExchangeDto {
         }, 'goal course parts'),
         reason: optionalText(object(reply.course, 'goal course').reason),
       },
+      plan: reply.plan === null || reply.plan === undefined ? null : parsePlanChange(reply.plan),
       recommendation: reply.recommendation === null || reply.recommendation === undefined ? null : parseCard(reply.recommendation),
     },
     failure: optionalText(exchange.failure),
     askedAt: text(exchange.askedAt, 'goal exchange time'),
+  };
+}
+
+function parsePlanChange(value: unknown): GoalPlanChangeDto {
+  const plan = object(value, 'goal plan change');
+  const ids = (list: unknown): string[] | null => (list === null || list === undefined ? null : parseList(list, (id) => text(id, 'goal plan work item'), 'goal plan work'));
+  return {
+    changes: plan.changes === null || plan.changes === undefined ? [] : parseList(plan.changes, (entry) => {
+      const change = object(entry, 'goal plan work change');
+      return {
+        workItemId: text(change.workItemId, 'goal plan work item'),
+        priority: change.priority === null || change.priority === undefined ? null : oneOf(change.priority, ['HIGH', 'NORMAL', 'LOW'] as const, 'goal plan priority'),
+        waitsOn: ids(change.waitsOn),
+      };
+    }, 'goal plan changes'),
+    order: ids(plan.order),
+    reason: text(plan.reason, 'goal plan reason'),
   };
 }
 

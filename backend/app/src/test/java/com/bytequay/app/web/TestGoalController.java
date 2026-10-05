@@ -147,7 +147,7 @@ class TestGoalController
 
         GoalExchange answered = GoalExchange.ask("op-2", "goal-1", "workspace", "Reads first", 0, NOW).answered("codex/gpt", new GoalExchange.Reply("You want to start with reads.",
                 Optional.of(new GoalExchange.Question("Do you know the Iceberg specification?", ImmutableList.of("Yes", "Not yet"))), Optional.empty(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty()), NOW);
+                Optional.empty(), ImmutableList.of(), Optional.empty(), Optional.empty()), NOW);
         when(conversations.ask("workspace", "goal-1", "op-2", "Reads first", Optional.empty())).thenReturn(ImmutableList.of(answered));
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/exchanges").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"operationId\":\"op-2\",\"message\":\"Reads first\"}"))
@@ -169,6 +169,10 @@ class TestGoalController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.course").value(nullValue()));
         verify(conversations).acceptCourse("workspace", "goal-1", "op-3");
+        when(conversations.acceptPlan("workspace", "goal-1", "op-4")).thenReturn(GOAL);
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/plan").contentType(MediaType.APPLICATION_JSON).content("{\"exchangeId\":\"op-4\"}"))
+                .andExpect(status().isOk());
+        verify(conversations).acceptPlan("workspace", "goal-1", "op-4");
         verify(conversations).retry("workspace", "goal-1", "op-2");
     }
 

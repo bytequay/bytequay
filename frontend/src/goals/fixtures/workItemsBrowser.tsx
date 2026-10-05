@@ -45,7 +45,7 @@ async function decisionsSurviveFailure(): Promise<void> {
     const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'First contribution', description: '', pinned: true, paused: false, source: null,
       definition: null, revision: 0, course: null, items: item.goalId === 'goal' ? [item] : [], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
-      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
@@ -102,7 +102,7 @@ async function finishedWorkKeepsItsSummary(): Promise<void> {
     const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
       definition: null, revision: 0, course: null, items: [item], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
-      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
@@ -145,7 +145,7 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
     const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
       definition: null, revision: 0, course: null, items: [item], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
-      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={(issue, instruction, replaces) => started.push([issue, instruction, replaces])}
@@ -190,7 +190,7 @@ async function orderAndBlockers(): Promise<void> {
     const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
       definition: null, revision: 0, course: null, items, recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
-      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}
@@ -259,7 +259,7 @@ async function viewsPutReadyWorkFirst(): Promise<void> {
   const cards = (): string[] => [...host.querySelectorAll('.goal-work-card .goal-work-card__title')].map((title) => title.textContent ?? '');
   try {
     flushSync(() => root.render(<GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
-      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
+      conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}

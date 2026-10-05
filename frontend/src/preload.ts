@@ -200,6 +200,7 @@ const bridge: Bridge = {
   clearGoalModel: (workspaceId, goalId) => ipcRenderer.invoke('goals:model:clear', workspaceId, goalId),
   acceptGoalDefinition: (workspaceId, goalId, exchangeId, title) => ipcRenderer.invoke('goals:accept', workspaceId, goalId, exchangeId, title),
   acceptGoalCourse: (workspaceId, goalId, exchangeId) => ipcRenderer.invoke('goals:course', workspaceId, goalId, exchangeId),
+  acceptGoalPlan: (workspaceId, goalId, exchangeId) => ipcRenderer.invoke('goals:plan', workspaceId, goalId, exchangeId),
   startGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:start', workspaceId, goalId, recommendationId),
   dismissGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:dismiss', workspaceId, goalId, recommendationId),
   listGoalKnowledge: (workspaceId, goalId) => ipcRenderer.invoke('goals:knowledge', workspaceId, goalId),

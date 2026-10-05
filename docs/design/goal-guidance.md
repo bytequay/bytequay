@@ -221,15 +221,23 @@ it.
 
 The Work view opens on Next, or on the first view holding work when nothing is
 ready. Next is planned work waiting on nothing open, the user's priority first,
-then work that other work waits on, then the Goal's order. Each
-card shows the user's priority, how much work waits on it and a source's own
-priority, such as a Jira ticket's, as Jira names it and never mapped. Working,
-Blocked and Done hold the rest; Blocked names what each item waits on, open work
-of the Goal or a source that reports itself blocked. Filters narrow every view
-by priority and by source, and the board shows the four views side by side.
-The agent reads the work in that order with its priorities and blockers,
-prefers ready work that unblocks other work, and a lesson card naming a lesson
-that waits on open work is dropped.
+then work that other work waits on, then the Goal's order. Each card shows the
+user's priority, how much work waits on it and a source's own priority, such as
+a Jira ticket's, as Jira names it and never mapped. Working, Blocked and Done
+hold the rest; Blocked names what each item waits on, open work of the Goal or a
+source that reports itself blocked. Filters narrow every view by priority and by
+source, and the board shows the four views side by side. The agent reads the
+work in that order with its priorities and blockers, prefers ready work that
+unblocks other work, and a lesson card naming a lesson that waits on open work
+is dropped. It may also propose a plan change with a reason: new priorities, the
+whole list of open work an item waits on, and a new order of the open work. The
+Guide view shows it as the differences it makes to the work as it stands, with
+Accept, Adjust and Skip; Accept applies those differences as the user's own
+decisions, each in its item's history, and once nothing differs the proposal is
+gone. A change that names work the Goal does not hold open, makes work wait on
+itself through other work or orders anything but the open work fails the reply,
+and a newer proposal replaces an older one. Changing a work item's scope or
+criteria stays with the user.
 
 When a question needs evidence nobody has gathered, such as whether the code
 supports a specification feature, and neither research nor a spec check fits

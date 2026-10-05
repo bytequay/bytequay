@@ -172,6 +172,13 @@ public class GoalController
         return conversations.acceptCourse(workspaceId, goalId, request.exchangeId());
     }
 
+    @PostMapping("/{goalId}/plan")
+    public GoalView acceptPlan(@PathVariable String workspaceId, @PathVariable String goalId, @RequestBody AcceptRequest request)
+    {
+        checkArgument(request != null && request.exchangeId() != null, "exchangeId is required");
+        return conversations.acceptPlan(workspaceId, goalId, request.exchangeId());
+    }
+
     /** Start on a card: research begins its read-only run, and a work card is marked started while its composer opens. */
     @PostMapping("/{goalId}/recommendations/{recommendationId}/start")
     public GoalRecommendation startRecommendation(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String recommendationId)

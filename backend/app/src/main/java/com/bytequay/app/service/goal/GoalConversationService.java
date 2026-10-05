@@ -31,6 +31,7 @@ import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -64,6 +65,7 @@ import java.util.stream.Stream;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
@@ -490,6 +492,126 @@ public class GoalConversationService
     }
 
     /**
+     * Accepts the plan change an answer proposed: each work item it names takes its new priority and waits on the open work it names, and the
+     * open work takes its new order. Only what still differs from the work as it stands is applied, each as the user's decision in its item's
+     * history, so accepting again changes nothing. A newer proposal replaces it.
+     */
+    public GoalView acceptPlan(String workspaceId, String goalId, String exchangeId)
+    {
+        GoalExchange exchange = exchanges.find(exchangeId).filter(candidate -> candidate.goalId().equals(goalId) && candidate.workspaceId().equals(workspaceId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Message not found"));
+        GoalExchange.PlanChange plan = exchange.reply().flatMap(GoalExchange.Reply::plan)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "This answer proposes no plan change."));
+        if (exchanges.list(goalId).stream().anyMatch(other -> other.askedAt().isAfter(exchange.askedAt()) && other.reply().flatMap(GoalExchange.Reply::plan).isPresent())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A newer plan change was proposed. Accept that one or ask again.");
+        }
+        GoalView goal = goal(workspaceId, goalId);
+        // The work may have moved on since the agent proposed this.
+        Optional<String> invalid = invalidPlan(goal, plan);
+        if (invalid.isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, invalid.orElseThrow() + " Ask the agent again.");
+        }
+        Map<String, WorkItemView> items = goal.items().stream().collect(toImmutableMap(WorkItemView::id, item -> item));
+        Map<String, Long> revisions = new HashMap<>();
+        items.values().forEach(item -> revisions.put(item.id(), item.revision()));
+        String step = "plan:" + exchangeId + ":";
+        // What the change stops work waiting on goes first, so no step on the way closes a cycle the whole change does not.
+        for (GoalExchange.WorkChange change : plan.changes()) {
+            WorkItemView item = items.get(change.workItemId());
+            for (String blocker : item.blockedBy()) {
+                if (change.waitsOn().filter(waits -> !waits.contains(blocker)).isPresent()) {
+                    decide(workspaceId, item.id(), revisions, step + item.id() + ":unblock:" + blocker, WorkItemCommand.Action.UNBLOCK, Optional.empty(),
+                            Optional.of(blocker));
+                }
+            }
+        }
+        for (GoalExchange.WorkChange change : plan.changes()) {
+            WorkItemView item = items.get(change.workItemId());
+            for (String blocker : change.waitsOn().orElse(ImmutableList.of())) {
+                if (!item.blockedBy().contains(blocker)) {
+                    decide(workspaceId, item.id(), revisions, step + item.id() + ":block:" + blocker, WorkItemCommand.Action.BLOCK, Optional.empty(),
+                            Optional.of(blocker));
+                }
+            }
+            if (change.priority().filter(priority -> priority != item.priority()).isPresent()) {
+                decide(workspaceId, item.id(), revisions, step + item.id() + ":priority", WorkItemCommand.Action.PRIORITIZE, change.priority(), Optional.empty());
+            }
+        }
+        if (plan.order().isPresent()) {
+            // The open work takes the places open work holds now, so concluded work keeps its own.
+            List<WorkItemView> ranked = goal.items().stream().sorted(Comparator.comparingLong(WorkItemView::rank).thenComparing(WorkItemView::createdAt))
+                    .collect(toImmutableList());
+            ImmutableList.Builder<String> ordered = ImmutableList.builder();
+            int next = 0;
+            for (WorkItemView item : ranked) {
+                ordered.add(open(item) ? plan.order().orElseThrow().get(next++) : item.id());
+            }
+            List<String> order = ordered.build();
+            if (!order.equals(ranked.stream().map(WorkItemView::id).collect(toImmutableList()))) {
+                work.order(workspaceId, goalId, order);
+            }
+        }
+        tellDecision(workspaceId, goalId, "plan:" + exchangeId, "The user accepted the plan change: " + plan.reason());
+        return goal(workspaceId, goalId);
+    }
+
+    private void decide(String workspaceId, String id, Map<String, Long> revisions, String operationId, WorkItemCommand.Action action,
+            Optional<WorkItem.Priority> priority, Optional<String> blocker)
+    {
+        WorkItemView changed = work.change(workspaceId, id, new WorkItemCommand(operationId, revisions.get(id), action, Optional.empty(), Optional.empty(),
+                Optional.empty(), Optional.empty(), "Accepted the agent's plan change.", priority, blocker, false));
+        revisions.put(id, changed.revision());
+    }
+
+    /**
+     * Why a plan change cannot apply to the goal's open work: it names work the goal does not hold open, makes work wait on anything else,
+     * makes work wait on itself through other work, or orders anything but the open work, each once.
+     */
+    static Optional<String> invalidPlan(GoalView goal, GoalExchange.PlanChange plan)
+    {
+        Map<String, List<String>> waits = new HashMap<>();
+        goal.items().stream().filter(GoalConversationService::open).forEach(item -> waits.put(item.id(), item.blockedBy()));
+        for (GoalExchange.WorkChange change : plan.changes()) {
+            if (!waits.containsKey(change.workItemId())) {
+                return Optional.of("The plan change names work the goal does not hold open.");
+            }
+            if (change.waitsOn().filter(blockers -> !waits.keySet().containsAll(blockers)).isPresent()) {
+                return Optional.of("The plan change makes work wait on work the goal does not hold open.");
+            }
+        }
+        if (plan.order().filter(order -> !ImmutableSet.copyOf(order).equals(waits.keySet())).isPresent()) {
+            return Optional.of("The plan change does not order each open work item once.");
+        }
+        plan.changes().forEach(change -> change.waitsOn().ifPresent(blockers -> waits.put(change.workItemId(), blockers)));
+        Set<String> clear = new HashSet<>();
+        for (String id : waits.keySet()) {
+            if (circles(id, waits, new HashSet<>(), clear)) {
+                return Optional.of("The plan change makes work wait on itself through other work.");
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Whether following what work waits on from {@code id} comes back to work already on the path; work found clear is not walked again. */
+    private static boolean circles(String id, Map<String, List<String>> waits, Set<String> path, Set<String> clear)
+    {
+        if (clear.contains(id) || !waits.containsKey(id)) {
+            return false;
+        }
+        if (!path.add(id)) {
+            return true;
+        }
+        for (String blocker : waits.get(id)) {
+            if (circles(blocker, waits, path, clear)) {
+                return true;
+            }
+        }
+        path.remove(id);
+        clear.add(id);
+        return false;
+    }
+
+    /**
      * Start on a card: research begins its run; a work card makes its issue or ticket the Goal's work while the composer opens with its
      * instruction, and the task starts only when the user sends it, as that work's attempt; an investigation becomes the Goal's Investigate
      * work.
@@ -707,8 +829,10 @@ public class GoalConversationService
             model = Optional.of(setting.configId() + "/" + setting.model());
             List<GoalExchange> earlier = exchanges.list(goal.id()).stream().takeWhile(candidate -> !candidate.id().equals(exchange.id())).collect(toImmutableList());
             settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange), clock.instant());
-            // Invalid output leaves the accepted course intact and the message to ask again.
-            Optional<String> invalid = settled.reply().flatMap(GoalExchange.Reply::course).flatMap(course -> invalidRevision(goal, course));
+            // Invalid output leaves the accepted course and the plan intact and the message to ask again.
+            Optional<GoalExchange.Reply> reply = settled.reply();
+            Optional<String> invalid = reply.flatMap(GoalExchange.Reply::course).flatMap(course -> invalidRevision(goal, course))
+                    .or(() -> reply.flatMap(GoalExchange.Reply::plan).flatMap(plan -> invalidPlan(goal, plan)));
             if (invalid.isPresent()) {
                 settled = exchange.failed(model, invalid.orElseThrow(), clock.instant());
             }

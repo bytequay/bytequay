@@ -23,7 +23,7 @@ import type {
   CreateWorkItem, CompletionRule, WorkItemKind, WorkItemPriority,
 } from './contracts';
 import {
-  GOAL_SOURCES, STARTED_LABELS, WORK_VIEWS, addable, goalDirections, inOrder, isOpen, openCourse, openProposal, progressWidths, recentActivity, refKey, ringDash,
+  GOAL_SOURCES, STARTED_LABELS, WORK_VIEWS, addable, goalDirections, inOrder, isOpen, openCourse, openPlan, openProposal, progressWidths, recentActivity, refKey, ringDash,
   situation, sourceOf, sourceUrl, summarize, itemNeedsYou, unblocks, waitingOn, workIn,
   type WorkSource, type WorkView,
 } from './model';
@@ -317,6 +317,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
   const question = last?.state === 'ANSWERED' ? last.reply?.question ?? null : null;
   const open = openProposal(goal, exchanges);
   const course = openCourse(goal, exchanges);
+  const plan = openPlan(goal, exchanges);
   const send = (operationId: string, message: string): Promise<unknown> => (goal === null ? onStart(operationId, message) : conversation.ask(operationId, message, lessonId));
   const say = (message: string): void => {
     setError(null);
@@ -401,6 +402,11 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
         {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} title={title}
           onTitle={(value) => setTitled({ exchangeId: open.exchangeId, title: value })} />}
         {course !== null && <CourseProposal key={course.exchangeId} goal={goal} course={course.course} />}
+        {plan !== null && <section className="goal-proposal" aria-label="Proposed plan change">
+          <div className="goal-proposal__label">Proposed plan change</div>
+          <p className="goal-course__reason"><GoalText>{plan.reason}</GoalText></p>
+          <ul className="goal-plan">{plan.differences.map((difference) => <li key={difference}><GoalText>{difference}</GoalText></li>)}</ul>
+        </section>}
         {!docked && alert}
       </div>
       {docked && <div className="goal-guide__dock">
@@ -412,6 +418,8 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
           onAccept={() => conversation.accept(open.exchangeId, title.trim())} onAdjust={adjust} onSkip={skip} />}
         {course !== null && <Decision key={course.exchangeId} label={goal?.course == null ? 'Accept course' : 'Accept revision'} ready answering={answering}
           failure="The course was not saved" onAccept={() => conversation.acceptCourse(course.exchangeId)} onAdjust={adjust} onSkip={skip} />}
+        {plan !== null && <Decision key={plan.exchangeId} label="Accept plan change" ready answering={answering} failure="The plan change was not saved"
+          onAccept={() => conversation.acceptPlan(plan.exchangeId)} onAdjust={adjust} onSkip={skip} />}
         {alert}
         {composer}
       </div>}

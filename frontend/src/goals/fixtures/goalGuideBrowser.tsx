@@ -29,8 +29,8 @@ import '../../css/settings-window.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
-  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], reassessed: [] as string[], failNextAsk: false, model: null as AgentModelSettingDto | null,
-  researchStopped: false };
+  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], reassessed: [] as string[], planned: [] as string[], failNextAsk: false,
+  model: null as AgentModelSettingDto | null, researchStopped: false };
 /** The workspace's Development model, which a goal follows until it has its own. */
 const WORKSPACE_MODEL: AgentModelSettingDto = { type: 'DEVELOPMENT', explicit: false, configId: 'codex', label: 'Codex', model: 'sol', modelLabel: 'Sol', effort: 'high' };
 const MODELS: ModelSettingsDto = { agents: [], apiKeys: [], keyProviders: [], providers: [{ id: 'codex', label: 'Codex', readiness: 'READY', diagnostic: '',
@@ -70,6 +70,13 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     changed();
   },
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected, orderWork: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
+  // The backend applies what the plan change still differs in: the test becomes urgent and moves first.
+  acceptPlan: async (_goalId, exchangeId) => {
+    server.planned.push(exchangeId);
+    server.goal = { ...server.goal, items: server.goal.items.map((item) => (item.id === 'work-2' ? { ...item, priority: 'HIGH', rank: 0 } : { ...item, rank: 1 })) };
+    changed();
+    return server.goal;
+  },
   stop: async (_goalId, exchangeId) => {
     server.stopped.push(exchangeId);
     server.exchanges = server.exchanges.map((exchange) => (exchange.id === exchangeId && exchange.state === 'PENDING'
@@ -189,7 +196,7 @@ const composers = (): number => started.length;
 /** References in Goal prose use the same title preview and zoom as an agent conversation. */
 export async function references(): Promise<boolean> {
   await conversation.start('references', 'Explain #31252');
-  answer({ assessment: 'Compare #31252 with #31270, then check #31299.', question: null, proposal: null, recommendation: null, course: null });
+  answer({ assessment: 'Compare #31252 with #31270, then check #31299.', question: null, proposal: null, plan: null, recommendation: null, course: null });
   setCards([{ id: 'practice', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
   const host = document.createElement('div');
   host.style.cssText = 'position:absolute;inset:0';
@@ -294,7 +301,7 @@ export async function run(): Promise<boolean> {
     option('Workspace default').click(); await settle(); await settle();
     assert(chosen() === null && model() === 'Sol · workspace default', 'The goal can follow the workspace model again');
 
-    answer({ assessment: 'You want to understand the connector deeply.', proposal: null, recommendation: null, course: null,
+    answer({ assessment: 'You want to understand the connector deeply.', proposal: null, plan: null, recommendation: null, course: null,
       question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });
     await nextRead();
     assert(text().includes('Do you already know the Iceberg specification?'), 'The question arrives without reopening the window');
@@ -306,7 +313,7 @@ export async function run(): Promise<boolean> {
     button('Update now').click(); await settle(); await settle();
     assert(server.reassessed.length === 1 && text().includes('reassess the goal from its current facts') && button('Update now').disabled,
       'Update now asks a paused goal\'s agent to reassess, once at a time');
-    answer({ assessment: 'Nothing changed; you still start from the specification.', proposal: null, recommendation: null, course: null,
+    answer({ assessment: 'Nothing changed; you still start from the specification.', proposal: null, plan: null, recommendation: null, course: null,
       question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] } });
     await nextRead();
     button('Resume guidance').click(); await settle(); await settle();
@@ -319,12 +326,12 @@ export async function run(): Promise<boolean> {
     button('Send').click(); await settle(); await settle();
     assert(asked() === 3 && server.asked[1] === server.asked[2], 'Resending the same draft reuses its operation');
 
-    answer({ assessment: 'You can spend five hours a week.', proposal: null, recommendation: null, course: null,
+    answer({ assessment: 'You can spend five hours a week.', proposal: null, plan: null, recommendation: null, course: null,
       question: { text: 'Do you want to learn first or start on real work?', suggestions: ['Learn first', 'Real work first'] } });
     await nextRead();
     button('Other options').click(); await settle(); await settle();
     assert(asked() === 4 && server.exchanges.at(-1)?.message === 'None of these fit. Show me other options.', 'Other options asks the agent for different answers');
-    answer({ assessment: 'Here are other ways to spend the time.', proposal: null, recommendation: null, course: null,
+    answer({ assessment: 'Here are other ways to spend the time.', proposal: null, plan: null, recommendation: null, course: null,
       question: { text: 'Do you want to learn first or start on real work?', suggestions: ['Learn first', 'Read pull requests first', 'One evening of each'] } });
     await nextRead();
     button('Learn first').click(); await settle();
@@ -336,7 +343,7 @@ export async function run(): Promise<boolean> {
     button('Send').click(); await settle(); await settle();
     assert(asked() === 5 && server.exchanges.at(-1)?.message === 'Learn first\nMostly the scheduler', 'Send sends the picked answers with the user\'s words');
 
-    answer({ assessment: 'Start from the specification, then the connector.', question: null, recommendation: null, course: null, proposal: {
+    answer({ assessment: 'Start from the specification, then the connector.', question: null, plan: null, recommendation: null, course: null, proposal: {
       title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
       startingKnowledge: 'Knows Trino', constraints: 'Five hours a week' } });
     await nextRead();
@@ -345,7 +352,7 @@ export async function run(): Promise<boolean> {
     changeInput(composer(), ''); await settle();
     button('Skip').click(); await settle(); await settle();
     assert(asked() === 6 && server.exchanges.at(-1)?.message === 'Skip this proposal for now.', 'Skip tells the agent the user passes on the proposal');
-    answer({ assessment: 'Start from the specification, then the connector.', question: null, recommendation: null, course: null, proposal: {
+    answer({ assessment: 'Start from the specification, then the connector.', question: null, plan: null, recommendation: null, course: null, proposal: {
       title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
       startingKnowledge: 'Knows Trino', constraints: 'Five hours a week' } });
     await nextRead();
@@ -366,7 +373,7 @@ export async function run(): Promise<boolean> {
       && (offset < 14 || thread.scrollTop >= thread.scrollHeight - thread.clientHeight - 1), 'The conversation scrolls its newest turn into view');
 
     // The agent judges research is the next step; the backend floats its card when it saves the answer.
-    answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, recommendation: CARD, course: null });
+    answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, plan: null, recommendation: CARD, course: null });
     setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
     await nextRead(); await settle();
     const card = document.querySelector('.goal-cards .goal-rec');
@@ -409,6 +416,21 @@ export async function run(): Promise<boolean> {
     button('Review result').click(); await settle();
     assert(text().includes('Accept result') && text().includes('Fix #31252'), 'Review result opens the work, where the user accepts it');
 
+    // The agent proposes to write the regression test first; the Guide view shows only what that changes.
+    server.goal = { ...server.goal, items: [...server.goal.items, { ...server.goal.items[0], id: 'work-2', title: 'Add a regression test', state: 'PLANNED', rank: 1,
+      links: [] }] };
+    changed(); button('Guide').click(); await settle();
+    changeInput(composer(), 'What should come first?'); await settle();
+    button('Send').click(); await settle(); await settle();
+    answer({ assessment: 'Prove the fix first.', question: null, proposal: null, course: null, recommendation: null, plan: { changes: [{ workItemId: 'work-2',
+      priority: 'HIGH', waitsOn: null }], order: ['work-2', 'work-1'], reason: 'The test proves the fix before anything builds on it' } });
+    await nextRead(); await settle();
+    assert(text().includes('Proposed plan change') && text().includes('Add a regression test: High priority')
+      && text().includes('New order: Add a regression test → Fix #31252'), 'A plan change shows the differences it makes and why');
+    button('Accept plan change').click(); await settle(); await settle();
+    assert(server.planned.join() === server.exchanges.at(-1)?.id && !text().includes('Proposed plan change'),
+      'Accepting applies it, after which nothing is left to accept');
+
     // The user cancels the goal and starts the next one by saying what they want.
     button('Cancel goal').click(); await settle();
     const confirmation = document.querySelector<HTMLInputElement>('dialog[open] input');
@@ -421,7 +443,7 @@ export async function run(): Promise<boolean> {
     assert(document.activeElement === composer(), 'The next question is ready for typing');
     changeInput(composer(), 'Review Iceberg pull requests with confidence'); await settle();
     button('Send').click(); await settle(); await settle();
-    assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 7, 'The typed answer starts the next goal');
+    assert(server.goal?.title === 'Review Iceberg pull requests with confidence' && asked() === 8, 'The typed answer starts the next goal');
 
     // The agent recommends a spec check; Adjust opens the Spec check drawer with the card's choices instead of starting it.
     setCards([{ id: 'card-3', goalId: 'goal', card: CHECK, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);

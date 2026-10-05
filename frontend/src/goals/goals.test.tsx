@@ -17,12 +17,15 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
-import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto, LessonContentDto, WorkItemDto } from './contracts';
+import type {
+  GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalPlanChangeDto, GoalRecommendationDto, LessonContentDto, WorkItemDto,
+} from './contracts';
 import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import { ChapterBody, componentPlaces, flowPlaces, LessonDiagram, treePlaces, wrap } from './LessonBook';
 import {
-  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, situation, sourceOf,
+  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openPlan, openProposal, placePill, recentActivity, refKey, situation,
+  sourceOf,
   sourceUrl,
   summarize, waitingOn, workIn,
 } from './model';
@@ -134,6 +137,7 @@ describe('goal model', () => {
 
 const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, ask: async () => {}, retry: async () => {},
   stop: async () => {}, reassess: async () => {}, accept: async () => {},
+  acceptPlan: async () => { throw new Error('No plan change'); },
   acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {},
   correctTopic: async () => {}, researchRun: async () => ({ buildRequestSequence: 0, canStart: true, build: null }), stopResearch: async () => ({ buildRequestSequence: 0, canStart: true, build: null }) };
 
@@ -181,15 +185,15 @@ describe('goal panel', () => {
 const ASKED: GoalExchangeDto = { id: 'op-1', goalId: 'goal-1', message: 'I want to become an Iceberg connector expert', automatic: false, lessonId: null, inputRevision: 0,
   state: 'ANSWERED', failure: null, askedAt: '2026-10-03T10:00:00Z', reply: {
     assessment: 'You want to understand the connector deeply.',
-    question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null, recommendation: null, course: null,
+    question: { text: 'Do you already know the Iceberg specification?', suggestions: ['Yes', 'Not yet'] }, proposal: null, plan: null, recommendation: null, course: null,
   } };
 const PROPOSED: GoalExchangeDto = { ...ASKED, id: 'op-2', message: 'Not yet', reply: {
   assessment: 'Start from the specification, then the connector.', question: null,
   proposal: { title: 'Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
-    startingKnowledge: 'Knows Trino, not the specification', constraints: '' }, recommendation: null, course: null,
+    startingKnowledge: 'Knows Trino, not the specification', constraints: '' }, plan: null, recommendation: null, course: null,
 } };
 const COURSE: GoalExchangeDto = { ...ASKED, id: 'op-3', message: 'The research run saved 2 notes.', automatic: true, reply: {
-  assessment: 'Here is a course from the notes.', question: null, proposal: null, recommendation: null,
+  assessment: 'Here is a course from the notes.', question: null, proposal: null, plan: null, recommendation: null,
   course: { parts: [{ title: 'Iceberg tables', lessons: [{ title: 'What a table is', outcome: 'Explain metadata, snapshots and manifests', lessonId: null }] }], reason: null },
 } };
 const CARD: GoalRecommendationDto = { id: 'card-1', goalId: 'goal-1', state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: '2026-10-03T10:00:00Z',
@@ -210,6 +214,30 @@ function conversation(exchanges: GoalExchangeDto[]): GoalConversation {
 }
 
 describe('goal guidance', () => {
+  it('shows a proposed plan change as the differences it still makes, until the work matches it', () => {
+    const work = (id: string, title: string, state: WorkItemDto['state'], rank: number, blockedBy: string[] = []): WorkItemDto =>
+      ({ ...GOAL.items[0], id, title, state, rank, blockedBy, priority: 'NORMAL', links: [], history: [] });
+    const items = [work('w-1', 'Fix #31252', 'DONE', 0), work('w-2', 'Add a regression test', 'PLANNED', 1, ['w-3']), work('w-3', 'Backport the fix', 'PLANNED', 2),
+      work('w-4', 'Write the release note', 'WORKING', 3)];
+    const plan: GoalPlanChangeDto = { changes: [{ workItemId: 'w-2', priority: 'HIGH', waitsOn: [] }, { workItemId: 'w-3', priority: null, waitsOn: ['w-2'] }],
+      order: ['w-4', 'w-2', 'w-3'], reason: 'The test proves the fix before it is backported' };
+    const proposed: GoalExchangeDto = { ...ASKED, id: 'op-9', reply: { ...ASKED.reply, question: null, plan } };
+    expect(parseGoalExchange(JSON.parse(JSON.stringify(proposed))).reply?.plan).toEqual(plan);
+    const goal: GoalDto = { ...GOAL, items };
+    expect(openPlan(goal, [ASKED, proposed])).toEqual({ exchangeId: 'op-9', reason: 'The test proves the fix before it is backported', differences: [
+      'Add a regression test: High priority', 'Add a regression test no longer waits on Backport the fix', 'Backport the fix waits on Add a regression test',
+      'New order: Write the release note → Add a regression test → Backport the fix'] });
+    expect(situation(goal, [ASKED, proposed], [])).toEqual({ text: 'Your decision: the proposed plan change', decisions: 1 });
+    const markup = panel({ view: 'guide', goal, conversation: conversation([ASKED, proposed]) });
+    expect(markup).toContain('Proposed plan change');
+    expect(markup).toContain('Backport the fix waits on Add a regression test');
+    expect(markup).toContain('>Accept plan change</button>');
+    // Accepted, or made by the user's own hand, the change leaves nothing to accept.
+    const applied: GoalDto = { ...goal, items: [items[0], { ...items[3], rank: 1 }, { ...items[1], priority: 'HIGH', blockedBy: [], rank: 2 },
+      { ...items[2], blockedBy: ['w-2'], rank: 3 }] };
+    expect(openPlan(applied, [ASKED, proposed])).toBeNull();
+  });
+
   it('links references throughout goal conversation, output, notes and definitions in its repository', () => {
     const markup = panel({ view: 'guide', goal: { ...GOAL, description: 'Resolve #41', definition: {
       successDefinition: 'Fix #42', startingKnowledge: 'Read #43', constraints: 'Wait for #44', exchangeId: ASKED.id, acceptedAt: ASKED.askedAt,

@@ -124,7 +124,7 @@ public record GoalExchange(
      * @param title a short readable name for the goal, like a mission, while its definition is open
      */
     public record Reply(String assessment, Optional<Question> question, Optional<Proposal> proposal, Optional<GoalRecommendation.Card> recommendation,
-            Optional<GoalCourse.Draft> course, List<GoalTopic.Change> topics, Optional<String> title)
+            Optional<GoalCourse.Draft> course, List<GoalTopic.Change> topics, Optional<String> title, Optional<PlanChange> plan)
     {
         public static final int MAX_NAME = 80;
 
@@ -142,6 +142,52 @@ public record GoalExchange(
             title = title == null ? Optional.empty() : title.map(String::strip);
             title.ifPresent(value -> checkArgument(!value.isEmpty() && value.length() <= MAX_NAME && value.lines().count() == 1,
                     "a goal's name is one line of at most %s characters", MAX_NAME));
+            // A reply saved before plan changes existed has none.
+            plan = plan == null ? Optional.empty() : plan;
+        }
+    }
+
+    /**
+     * A change to the priority, order and dependencies of the goal's open work, which the user accepts or not.
+     *
+     * @param changes the work items whose priority, or whole list of the open work they wait on, should change
+     * @param order every open work item of the goal in its new order, when the order should change
+     */
+    public record PlanChange(List<WorkChange> changes, Optional<List<String>> order, String reason)
+    {
+        public static final int MAX_CHANGES = 30;
+
+        public PlanChange
+        {
+            // A reply that only reorders may leave changes out.
+            changes = changes == null ? ImmutableList.of() : ImmutableList.copyOf(changes);
+            checkArgument(changes.size() <= MAX_CHANGES, "a plan change changes at most %s work items", MAX_CHANGES);
+            checkArgument(changes.stream().map(WorkChange::workItemId).distinct().count() == changes.size(), "a plan change names each work item once");
+            requireNonNull(order, "order is null");
+            order = order.map(ImmutableList::copyOf);
+            order.ifPresent(ids -> checkArgument(ids.size() <= MAX_CHANGES && ids.stream().distinct().count() == ids.size(),
+                    "a plan change orders each work item once"));
+            checkArgument(!changes.isEmpty() || order.isPresent(), "a plan change changes something");
+            checkText(reason, "plan change reason", 300);
+        }
+    }
+
+    /**
+     * One work item's new priority, the whole list of the open work it should wait on, or both.
+     *
+     * @param waitsOn the open work it waits on afterward, none for an empty list
+     */
+    public record WorkChange(String workItemId, Optional<WorkItem.Priority> priority, Optional<List<String>> waitsOn)
+    {
+        public WorkChange
+        {
+            checkText(workItemId, "workItemId", 200);
+            requireNonNull(priority, "priority is null");
+            requireNonNull(waitsOn, "waitsOn is null");
+            waitsOn = waitsOn.map(ImmutableList::copyOf);
+            checkArgument(priority.isPresent() || waitsOn.isPresent(), "a work change sets a priority or what the work waits on");
+            waitsOn.ifPresent(ids -> checkArgument(ids.size() <= PlanChange.MAX_CHANGES && ids.stream().distinct().count() == ids.size() && !ids.contains(workItemId),
+                    "work waits on other work, each once"));
         }
     }
 

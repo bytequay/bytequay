@@ -302,6 +302,21 @@ class TestModelSettingsService
     }
 
     @Test
+    void settingsPreserveExplicitGlobalModelsAndWorkspaceInheritance()
+    {
+        AgentModelSetting development = service.setAgentModel(AgentModelType.DEVELOPMENT, "claude", "opus", Optional.of("Max"));
+        AgentModelSetting review = service.setAgentModel(AgentModelType.REVIEW, "codex", "gpt-5.6-sol", Optional.of("high"));
+
+        assertThat(service.get().agents()).containsExactly(development, review);
+        assertThat(service.get(Optional.of("ws-1")).agents()).allSatisfy(agent -> assertThat(agent.explicit()).isFalse());
+        assertThat(service.agentModel(AgentModelType.REVIEW, Optional.of("ws-1")).model()).isEqualTo(review.model());
+
+        service.clearAgentModel(AgentModelType.REVIEW);
+        assertThat(service.get().agents()).containsExactly(development, new AgentModelSetting(
+                AgentModelType.REVIEW, false, development.configId(), development.label(), development.model(), development.modelLabel(), development.effort()));
+    }
+
+    @Test
     void unknownProvidersAndDuplicateAliasesAreRejected()
     {
         service.addApiKey("OpenAI", "team", "sk-secret");

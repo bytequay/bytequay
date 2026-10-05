@@ -294,7 +294,7 @@ public class ModelSettingsService
                 .orElseGet(() -> {
                     AgentModelSetting global = agentModel(type);
                     return new AgentModelSetting(
-                            type, false, global.configId(), global.label(), global.model(), global.modelLabel(), global.effort());
+                            type, workspaceId.isEmpty() && global.explicit(), global.configId(), global.label(), global.model(), global.modelLabel(), global.effort());
                 });
     }
 

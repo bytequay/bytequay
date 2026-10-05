@@ -58,6 +58,7 @@ final class CodexProtocol
                     name = "thread/tokenUsage/updated",
                     value = TokenUsageUpdatedNotification.class),
             @JsonSubTypes.Type(name = "error", value = ErrorNotification.class),
+            @JsonSubTypes.Type(name = "serverRequest/resolved", value = ServerRequestResolvedNotification.class),
     })
     sealed interface Notification
             permits TurnStartedNotification, TurnCompletedNotification,
@@ -65,7 +66,7 @@ final class CodexProtocol
             AutoApprovalReviewStartedNotification, AutoApprovalReviewCompletedNotification,
             CommandOutputNotification, AgentMessageDeltaNotification, PlanDeltaNotification,
             PlanUpdatedNotification, TokenUsageUpdatedNotification, ErrorNotification,
-            ThreadStartedNotification, UnknownNotification
+            ThreadStartedNotification, ServerRequestResolvedNotification, UnknownNotification
     {
         Params params();
 
@@ -86,7 +87,7 @@ final class CodexProtocol
      * instead of each wrapper reaching into its own params type.
      */
     sealed interface Params
-            permits TurnScopedParams, TurnNotificationParams, ThreadStartedParams, UnknownParams
+            permits TurnScopedParams, TurnNotificationParams, ThreadStartedParams, ServerRequestResolvedParams, UnknownParams
     {
         String threadId();
 
@@ -287,6 +288,26 @@ final class CodexProtocol
             requireNonNull(item, "item is null");
             checkIdentifier(threadId, "threadId");
             checkIdentifier(turnId, "turnId");
+        }
+    }
+
+    /** App Server settled one of its own requests, such as an approval asked by an agent that was since closed. */
+    record ServerRequestResolvedNotification(ServerRequestResolvedParams params)
+            implements Notification
+    {
+        ServerRequestResolvedNotification
+        {
+            requireNonNull(params, "params is null");
+        }
+    }
+
+    record ServerRequestResolvedParams(String threadId, Object requestId)
+            implements Params
+    {
+        ServerRequestResolvedParams
+        {
+            checkIdentifier(threadId, "threadId");
+            requireNonNull(requestId, "requestId is null");
         }
     }
 

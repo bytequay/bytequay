@@ -152,6 +152,8 @@ final class CodexEventMapper
                 ImmutableList.of(autoApprovalReview(completed, completed.params(), lineage));
             // The driver announces a new thread once its lineage is known; nothing to show here.
             case CodexProtocol.ThreadStartedNotification ignored -> ImmutableList.of();
+            // The session withdraws the approval it settles; the resolution event says so.
+            case CodexProtocol.ServerRequestResolvedNotification ignored -> ImmutableList.of();
             case CodexProtocol.CommandOutputNotification output -> ImmutableList.of(
                     new ProviderAgentEvent.Command(
                             Optional.empty(),

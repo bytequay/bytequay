@@ -30,7 +30,9 @@ public interface AgentApprovalHandler
      * Presents one provider permission request to ByteQuay for an explicit decision.
      *
      * <p>The returned stage completes with a user decision or a timeout denial. A
-     * provider must not infer approval from a disconnect or incomplete stage.
+     * provider must not infer approval from a disconnect or incomplete stage. A
+     * provider that settles the request itself cancels the stage, which withdraws
+     * the request without a decision.
      *
      * @param request provider-neutral permission request
      * @param timeout maximum time to await a decision

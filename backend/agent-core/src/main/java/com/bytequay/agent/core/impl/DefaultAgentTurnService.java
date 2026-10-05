@@ -2051,8 +2051,22 @@ public final class DefaultAgentTurnService
                     turn.id(),
                     request,
                     Instant.now(clock));
-            return approvalService.request(approval, timeout)
-                    .thenApply(DefaultAgentTurnService::toProviderDecision);
+            CompletableFuture<ProviderApprovalDecision> decision = approvalService.request(approval, timeout)
+                    .thenApply(DefaultAgentTurnService::toProviderDecision)
+                    .toCompletableFuture();
+            // A provider that settled its own request cancels this stage; its card closes rather than waiting to expire.
+            decision.whenComplete((ignored, failure) -> {
+                if (failure instanceof CancellationException) {
+                    try {
+                        approvalService.withdraw(approval.id());
+                    }
+                    catch (RuntimeException withdrawFailure) {
+                        // The card then closes when its turn ends or its wait expires.
+                        log.log(System.Logger.Level.WARNING, "Cannot withdraw approval " + approval.id(), withdrawFailure);
+                    }
+                }
+            });
+            return decision;
         }
     }
 

@@ -2535,6 +2535,24 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void aProviderWithdrawsAnApprovalItSettledItself()
+    {
+        DefaultAgentApprovalService durableApprovals = durableApprovals(runtimeRegistry);
+        service = service(driver, runtimeRegistry, events, durableApprovals);
+        AgentTurn running = service.start(command("Inspect", "approval-withdrawn"));
+        CompletableFuture<ProviderApprovalDecision> pending = driver.requestApproval(approvalRequest("withdrawn"), Duration.ofMinutes(5)).toCompletableFuture();
+        assertThat(stores.listPending(running.id())).hasSize(1);
+
+        pending.cancel(false);
+
+        assertThat(stores.listPending(running.id())).isEmpty();
+        assertThat(events.readAfter(task.id(), 0, 100)).anySatisfy(event -> assertThat(event.payload())
+                .isInstanceOfSatisfying(AgentEventPayload.ApprovalResolved.class,
+                        resolved -> assertThat(resolved.outcome()).isEqualTo(AgentEventPayload.ApprovalOutcome.CANCELLED)));
+        driver.complete("The agent that asked was closed");
+    }
+
+    @Test
     void providerDistinguishesApprovalExpiryFromAnExplicitDenial()
             throws Exception
     {
@@ -3826,6 +3844,12 @@ class TestDefaultAgentTurnService
     private static final class RecordingApprovalService
             implements AgentApprovalService
     {
+        @Override
+        public void withdraw(ApprovalId approvalId)
+        {
+            throw new UnsupportedOperationException();
+        }
+
         private final List<ApprovalRequest> requests = new ArrayList<>();
         private final List<TurnId> deniedTurns = new ArrayList<>();
         private Runnable beforeDeny = () -> {};

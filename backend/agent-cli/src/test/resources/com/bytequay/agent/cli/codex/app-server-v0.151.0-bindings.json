@@ -278,6 +278,52 @@
       ]
     },
     {
+      "javaType": "ServerRequestResolvedNotification",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerNotification[method=serverRequest/resolved]"
+      ],
+      "context": {
+        "method": "serverRequest/resolved"
+      },
+      "decodeAs": "Notification",
+      "components": [
+        {
+          "javaName": "params",
+          "wireName": "params",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "requestId": 1,
+            "threadId": "value"
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "ServerRequestResolvedParams",
+      "mode": "decode",
+      "sources": [
+        "v2#ServerRequestResolvedNotification"
+      ],
+      "components": [
+        {
+          "javaName": "threadId",
+          "wireName": "threadId",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "requestId",
+          "wireName": "requestId",
+          "required": true,
+          "nullable": false,
+          "sample": 1
+        }
+      ]
+    },
+    {
       "javaType": "PlanUpdatedNotification",
       "mode": "decode",
       "sources": [

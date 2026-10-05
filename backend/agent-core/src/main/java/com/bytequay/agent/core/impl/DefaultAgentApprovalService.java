@@ -224,6 +224,13 @@ public final class DefaultAgentApprovalService
         deny(approvalStore.listPending());
     }
 
+    @Override
+    public void withdraw(ApprovalId approvalId)
+    {
+        requireNonNull(approvalId, "approvalId is null");
+        approvalStore.find(approvalId).filter(AgentApproval::pending).ifPresent(approval -> deny(ImmutableList.of(approval)));
+    }
+
     private void deny(List<AgentApproval> approvals)
     {
         RuntimeException firstFailure = null;

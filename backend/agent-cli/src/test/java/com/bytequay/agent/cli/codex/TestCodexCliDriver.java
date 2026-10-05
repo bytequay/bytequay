@@ -3069,6 +3069,33 @@ class TestCodexCliDriver
     }
 
     @Test
+    void withdrawsAnApprovalAppServerSettledItself()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
+        AtomicBoolean asked = new AtomicBoolean();
+        try (AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> {
+            asked.set(true);
+            return decision;
+        }), event -> {})) {
+            RunningTurn turn = session.start(command("Run the check"));
+            AppServerProcess server = supervisor.server();
+            server.emit("{\"id\":501,\"method\":\"item/commandExecution/requestApproval\",\"params\":{"
+                    + "\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+                    + "\"itemId\":\"exec-9\",\"command\":\"echo check\","
+                    + "\"availableDecisions\":[\"accept\",\"decline\"],\"reason\":null,\"startedAtMs\":1}}");
+            awaitCondition(asked::get);
+            // App Server answers its own request, as when the agent that asked is closed.
+            server.emit("{\"method\":\"serverRequest/resolved\",\"params\":{\"threadId\":\"thread-1\",\"requestId\":501}}");
+
+            awaitCondition(decision::isCancelled);
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+        }
+    }
+
+    @Test
     void keepsTheTurnRunningWhenAnEventCannotBeRecorded()
             throws Exception
     {

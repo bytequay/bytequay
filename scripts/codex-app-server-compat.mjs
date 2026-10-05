@@ -100,6 +100,12 @@ const referenceRecordBindings = [
   recordBinding("ThreadStartedParams", "decode", [
     schemaSource("v2", "ThreadStartedNotification"),
   ], [component("thread")]),
+  recordBinding("ServerRequestResolvedNotification", "decode", [
+    schemaSource("v2", "ServerNotification", "method", "serverRequest/resolved"),
+  ], [component("params")]),
+  recordBinding("ServerRequestResolvedParams", "decode", [
+    schemaSource("v2", "ServerRequestResolvedNotification"),
+  ], [component("threadId"), component("requestId", "requestId", 1)]),
   recordBinding("PlanUpdatedNotification", "decode", [
     schemaSource("v2", "ServerNotification", "method", "turn/plan/updated"),
   ], [component("params")]),

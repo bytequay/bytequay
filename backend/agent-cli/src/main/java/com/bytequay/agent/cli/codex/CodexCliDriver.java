@@ -881,6 +881,8 @@ public final class CodexCliDriver
         private Optional<String> instructionUpdate = Optional.empty();
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
+        /** Approvals awaiting ByteQuay, by App Server request id, so one App Server settles itself can be withdrawn. */
+        private final Map<String, CompletableFuture<ProviderApprovalDecision>> pendingApprovals = new ConcurrentHashMap<>();
         /** Every subagent this process has named, by thread, with its parent and label. */
         private final Map<String, ChildFacts> children = new ConcurrentHashMap<>();
         /** Canonical V2 paths, separate from labels a preceding thread/started may carry. */
@@ -1264,6 +1266,15 @@ public final class CodexCliDriver
         @Override
         public synchronized void onNotification(CodexProtocol.Notification notification)
         {
+            if (notification instanceof CodexProtocol.ServerRequestResolvedNotification resolved) {
+                CompletableFuture<ProviderApprovalDecision> pending = pendingApprovals.remove(String.valueOf(resolved.params().requestId()));
+                if (pending != null) {
+                    // Nobody needs to answer it now, and an unanswered card would later expire and stop the root turn.
+                    // Withdrawing crosses into agent-core, which may take the task lock, so never under this monitor.
+                    Thread.ofVirtual().name("bytequay-codex-withdrawn-approval").start(() -> pending.cancel(false));
+                }
+                return;
+            }
             if (running == null) {
                 return;
             }
@@ -2197,8 +2208,11 @@ public final class CodexCliDriver
                             serverRequest.turnId(),
                             Optional.of(itemId)),
                     Instant.ofEpochMilli(startedAtMs));
-            return context.approvals().request(approvalRequest, APPROVAL_TIMEOUT)
-                    .thenApply(decision -> approvalResponse(serverRequest, decision, expectedTurn));
+            CompletableFuture<ProviderApprovalDecision> decision = context.approvals().request(approvalRequest, APPROVAL_TIMEOUT).toCompletableFuture();
+            String requestId = String.valueOf(serverRequest.id());
+            pendingApprovals.put(requestId, decision);
+            decision.whenComplete((ignored, failure) -> pendingApprovals.remove(requestId, decision));
+            return decision.thenApply(value -> approvalResponse(serverRequest, value, expectedTurn));
         }
 
         /**

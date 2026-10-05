@@ -24,6 +24,7 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.ApprovalDecision;
+import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
@@ -627,6 +628,12 @@ class TestAgentMaintenance
     private static final class RecordingApprovals
             implements AgentApprovalService
     {
+        @Override
+        public void withdraw(ApprovalId approvalId)
+        {
+            throw new UnsupportedOperationException();
+        }
+
         private boolean recoveredAll;
 
         @Override

@@ -65,4 +65,12 @@ public interface AgentApprovalService
 
     /** Denies every unresolved durable approval during startup recovery. */
     void denyAllPending();
+
+    /**
+     * Closes one unresolved approval the provider settled itself, such as one asked by an agent that was since
+     * stopped. It closes as cancelled; nobody decided it.
+     *
+     * @param approvalId approval to close
+     */
+    void withdraw(ApprovalId approvalId);
 }

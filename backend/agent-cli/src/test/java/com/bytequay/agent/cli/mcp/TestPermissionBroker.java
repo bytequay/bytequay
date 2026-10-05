@@ -1356,8 +1356,9 @@ class TestPermissionBroker
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                     SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of())) {
                 JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
+                // A session that may change nothing writes no cache or temporary file a later build would run.
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
-                        .isEqualTo(objectMapper.valueToTree(temporaryRoots(ImmutableMap.of())));
+                        .isEqualTo(objectMapper.valueToTree(access == SessionAccess.FULL ? temporaryRoots(ImmutableMap.of()) : ImmutableList.of()));
                 assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isEqualTo(access == SessionAccess.FULL);
                 assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
             }
@@ -1438,7 +1439,7 @@ class TestPermissionBroker
                                 if (reviewSession) {
                                     assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
                                     assertThat(settings.at("/sandbox/filesystem/allowWrite"))
-                                            .isEqualTo(objectMapper.valueToTree(temporaryRoots(ImmutableMap.of())));
+                                            .isEqualTo(objectMapper.valueToTree(access == SessionAccess.FULL ? temporaryRoots(ImmutableMap.of()) : ImmutableList.of()));
                                     assertThat(settings.at("/permissions/deny").toString()).contains("Bash(git commit:*)", "Bash(git update-ref:*)")
                                             .doesNotContain("Bash(git add", "Bash(git write-tree", "Bash(git update-index", "Bash(git symbolic-ref", "Bash(git reset");
                                     assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();

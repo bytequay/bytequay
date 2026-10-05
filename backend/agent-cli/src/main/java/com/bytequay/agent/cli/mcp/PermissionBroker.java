@@ -15,10 +15,9 @@ package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
 import com.bytequay.agent.cli.process.AgentPermissionManager;
-import com.bytequay.agent.cli.process.BuildCacheRoots;
 import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.SecretRedactor;
-import com.bytequay.agent.cli.process.TemporaryWriteRoots;
+import com.bytequay.agent.cli.process.SessionWriteRoots;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -1381,13 +1380,13 @@ public final class PermissionBroker
         boolean allowUnsandboxedRetry = access == SessionAccess.FULL
                 && (permissionPolicy == AgentPermissionPolicy.AUTO || permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX);
         ImmutableList.Builder<String> allowWrite = ImmutableList.builder();
-        allowWrite.addAll(BuildCacheRoots.writableRoots(environment).stream().map(Path::toString).collect(toImmutableList()));
+        allowWrite.addAll(SessionWriteRoots.buildCaches(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
         if (access == SessionAccess.FULL && !reviewSession
                 && Files.exists(worktree.resolve(".git"), LinkOption.NOFOLLOW_LINKS)) {
             List<String> gitRoots = GitWorktreeWriteRoots.writableRoots(worktree);
             allowWrite.addAll(gitRoots.subList(1, gitRoots.size()));
         }
-        allowWrite.addAll(TemporaryWriteRoots.writableRoots(environment).stream().map(Path::toString).collect(toImmutableList()));
+        allowWrite.addAll(SessionWriteRoots.temporary(scope, environment).stream().map(Path::toString).collect(toImmutableList()));
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
@@ -1397,7 +1396,7 @@ public final class PermissionBroker
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
                         // Claude's private scratch allowance does not cover /tmp or macOS Java's host temp root.
-                        // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one.
+                        // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one; SessionWriteRoots grants it.
                         "allowWrite", allowWrite.build(),
                         "denyRead", denyRead.build(),
                         // The task runtime directory holds the CI logs, the event log, and this

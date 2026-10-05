@@ -2514,7 +2514,9 @@ selected lane. Account choice does not add write access to the related checkout.
 Shared caches, reads, Git common metadata and approved unsandboxed commands mean
 ByteQuay does not promise complete filesystem isolation between accounts.
 Claude's Bash sandbox explicitly permits the resolved host `/tmp`, `/var/tmp`,
-JVM temporary directory and inherited `TMPDIR`, as well as the build caches.
+JVM temporary directory and inherited `TMPDIR`, as well as the build caches, to
+full-access sessions; a read-only or text-only session writes none of them on
+either lane.
 Its private scratch directory alone does not cover macOS Java temporary files
 or scripts that write directly to `/tmp`. These grants do not extend the file
 editing tool's automatic approvals outside the task worktree and build caches.
@@ -4471,7 +4473,11 @@ inside `~/.m2`; cache roots are shared across tasks. Full development, CI,
 and cherry-pick turns with a linked worktree also add only its verified private
 Git directory, shared objects, task branch ref and reflog, and their lock
 files. Malformed linked metadata prevents launch. Review and read-only turns
-do not get these Git write roots. The process
+do not get these Git write roots. `SessionWriteRoots` grants the caches and
+temporary roots by access level for both lanes: a read-only or text-only turn,
+which may answer over untrusted text, gets none, so it cannot leave a cache
+entry such as a Gradle init script for a later build to run. Codex's read-only
+sandbox already writes nothing. The process
 environment carries `JAVA_HOME`, the backend's own value when it has an
 executable `bin/java` and otherwise its JVM's `java.home`, and none when neither
 does: Claude Code's macOS sandbox limits `sysctl` reads, which

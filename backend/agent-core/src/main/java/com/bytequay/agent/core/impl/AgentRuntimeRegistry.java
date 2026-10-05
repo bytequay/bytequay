@@ -34,6 +34,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.function.Consumer;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -47,7 +48,7 @@ public final class AgentRuntimeRegistry
         implements AutoCloseable
 {
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
-    private final ConcurrentMap<TurnId, RunningTurn> runningTurns = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TurnId, LiveTurn> runningTurns = new ConcurrentHashMap<>();
     // One monitor per task for the life of the process: a stripe shared with an unrelated task made each wait on the
     // other's provider launch. ponytail: never evicted, which is a few bytes per task this backend has seen.
     private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
@@ -309,11 +310,12 @@ public final class AgentRuntimeRegistry
         }
     }
 
-    public void registerRunning(TurnId turnId, RunningTurn runningTurn)
+    public void registerRunning(TaskId taskId, TurnId turnId, RunningTurn runningTurn)
     {
+        requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
         requireNonNull(runningTurn, "runningTurn is null");
-        if (runningTurns.putIfAbsent(turnId, runningTurn) != null) {
+        if (runningTurns.putIfAbsent(turnId, new LiveTurn(taskId, runningTurn)) != null) {
             throw new AgentConflictException("Turn already has a live provider handle: " + turnId);
         }
     }
@@ -321,15 +323,27 @@ public final class AgentRuntimeRegistry
     public Optional<RunningTurn> running(TurnId turnId)
     {
         requireNonNull(turnId, "turnId is null");
-        return Optional.ofNullable(runningTurns.get(turnId));
+        return Optional.ofNullable(runningTurns.get(turnId)).map(LiveTurn::handle);
+    }
+
+    /** The task's turns that still hold a live provider handle, including a settled one whose cleanup has to be retried. */
+    public List<TurnId> runningTurns(TaskId taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return runningTurns.entrySet().stream()
+                .filter(entry -> entry.getValue().taskId().equals(taskId))
+                .map(Map.Entry::getKey)
+                .collect(toImmutableList());
     }
 
     public void removeRunning(TurnId turnId, RunningTurn runningTurn)
     {
         requireNonNull(turnId, "turnId is null");
         requireNonNull(runningTurn, "runningTurn is null");
-        runningTurns.remove(turnId, runningTurn);
+        runningTurns.computeIfPresent(turnId, (ignored, live) -> live.handle() == runningTurn ? null : live);
     }
+
+    private record LiveTurn(TaskId taskId, RunningTurn handle) {}
 
     private record DevelopmentOwner(TurnId sourceTurnId, Map<DevelopmentTurnOrigin.Kind, CompletableFuture<DevelopmentTurnCompletion>> turns) {}
 }

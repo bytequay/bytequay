@@ -1610,7 +1610,7 @@ public final class DefaultAgentTurnService
                     acknowledgedAt)));
             return updated;
         });
-        runtimeRegistry.registerRunning(running.id(), runningTurn);
+        runtimeRegistry.registerRunning(running.taskId(), running.id(), runningTurn);
         queueEventId.ifPresent(eventId -> {
             try {
                 eventService.drain(eventId);
@@ -2387,7 +2387,8 @@ public final class DefaultAgentTurnService
 
     private void retryCompletedTurn(TaskId taskId)
     {
-        turnStore.list(taskId).forEach(this::retryCompletedTurn);
+        // Only a turn with a live handle can need it, and the registry knows those without reading every turn row.
+        runtimeRegistry.runningTurns(taskId).forEach(turnId -> turnStore.find(turnId).ifPresent(this::retryCompletedTurn));
     }
 
     private void retryCompletedTurn(AgentTurn turn)

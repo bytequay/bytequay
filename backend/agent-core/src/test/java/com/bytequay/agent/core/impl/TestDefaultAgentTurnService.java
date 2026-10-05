@@ -410,7 +410,7 @@ class TestDefaultAgentTurnService
         AgentTask configured = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 interactive.id(), interactive.version(), interactive.defaults().withDevelopmentAutomation(automation)));
         AgentTurn first = service.start(new StartAgentTurnCommand(configured.id(), configured.version(), "first", ImmutableList.of(), "automation-1")
-                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY.forDevelopment())));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
                 configured.id(), taskService.get(configured.id()).version(), "second", ImmutableList.of(), "automation-queue"));
         AgentTask current = taskService.get(configured.id());
@@ -451,7 +451,7 @@ class TestDefaultAgentTurnService
 
         AgentTurn first = service.start(new StartAgentTurnCommand(
                 deepSeek.id(), "first", ImmutableList.of(), "deepseek-first")
-                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY.forDevelopment())));
         assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
         assertThat(driver.openedContexts().getLast().codeQueries()).isEmpty();
         assertThat(driver.openedContexts().getLast().managedInstructions())
@@ -1037,6 +1037,22 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void keepsATrustedReadOnlyQuestionFromCommittingWhenStartedOrQueued()
+    {
+        AgentTask development = interactiveTask("Development");
+        AgentTurn question = service.start(new StartAgentTurnCommand(development.id(), "Why this design?", ImmutableList.of(), "learning-question")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(development.id(), taskService.get(development.id()).version(),
+                "And this test?", ImmutableList.of(), "learning-queue", Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+
+        assertThat(question.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+        assertThat(driver.openedContexts().getFirst().managedInstructions()).contains("NEVER commit").doesNotContain("Commit finished development work");
+        driver.complete("Because");
+        driver.complete("It covers the edge");
+    }
+
+    @Test
     void localOnlyInstructionsUseTheAcceptedSelectionWithoutRequiringAReportingTool()
     {
         AgentTask development = interactiveTask("Development");
@@ -1093,7 +1109,7 @@ class TestDefaultAgentTurnService
         assertThat(runtimeRegistry.hasDevelopmentOwner(task.id())).isFalse();
         assertThat(events.readAfter(task.id(), 0, 100).getLast().payload())
                 .isEqualTo(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, "Development automation settled"));
-        service.start(command("Local follow-up", "local-only").withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        service.start(command("Local follow-up", "local-only").withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY.forDevelopment())));
         driver.complete("Done locally");
         assertThat(completed).hasSize(2);
         service.finishDevelopmentContinuation(task.id(), completed.getLast().turn().id());
@@ -1601,7 +1617,7 @@ class TestDefaultAgentTurnService
         List<DevelopmentTurnCompletion> completed = new ArrayList<>();
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("Change locally", "summary-source")
-                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY.forDevelopment())));
         driver.complete("Local edits complete");
         assertThat(completed).hasSize(1);
         DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id());
@@ -1633,9 +1649,10 @@ class TestDefaultAgentTurnService
         AgentTurn question = service.start(command("Explain this card", "local-question")
                 .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
         driver.complete("Explanation");
-        assertThatThrownBy(() -> service.handoffDevelopmentContinuationToQueue(task.id(), question.id()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("user answer");
-        service.finishDevelopmentContinuation(task.id(), question.id());
+        // A read-only question is no development turn, so the delivery stays held for the user's answer.
+        assertThat(service.ownsDevelopmentContinuation(task.id(), question.id())).isFalse();
+        assertThatThrownBy(() -> service.resumeQueued(task.id()))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Answer the development question");
     }
 
     @Test
@@ -1643,7 +1660,7 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         AgentTurn source = service.start(command("Change locally", "stop-summary-source")
-                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY.forDevelopment())));
         driver.complete("Done");
         service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id()), "Refine summary");
         AgentTurn refinement = stores.findActive(task.id()).orElseThrow();

@@ -2426,8 +2426,14 @@ public final class DefaultAgentTurnService
         }
         Optional<DevelopmentAutomation> effective = automation.or(task.defaults()::developmentAutomation);
         if (task.interactive()) {
-            effective = Optional.of(task.localReviewHead().isPresent() ? DevelopmentAutomation.LOCAL_ONLY
-                    : effective.orElse(DevelopmentAutomation.DEFAULT).forDevelopment());
+            if (task.localReviewHead().isPresent()) {
+                effective = Optional.of(DevelopmentAutomation.LOCAL_ONLY);
+            }
+            // A person's request always commits; only a trusted caller, such as a learning card's read-only question, asks for a
+            // turn that commits nothing.
+            else if (automation.filter(requested -> !requested.autoCommit()).isEmpty()) {
+                effective = Optional.of(effective.orElse(DevelopmentAutomation.DEFAULT).forDevelopment());
+            }
         }
         return new AgentTurnSettings(
                 task.defaults().model(),

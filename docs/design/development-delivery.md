@@ -43,6 +43,8 @@ do not duplicate them in a new delivery lifecycle.
 **Settings → Agents → Workflow** has three settings. Auto draft PR and Auto CI
 fix are on by default; Auto review summary is off by default.
 Finished development work is always committed locally; there is no Auto commit toggle.
+A question about a learning card is not development work: it keeps its local-only
+settings, never commits, and never enters delivery.
 
 | Setting | Meaning |
 | --- | --- |

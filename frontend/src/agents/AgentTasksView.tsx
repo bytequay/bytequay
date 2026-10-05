@@ -643,15 +643,18 @@ export function useWorkspaceWork(workspaceId: string, bridge: () => AgentBridgeP
   const [work, setWork] = useState<WorkspaceWork>(() => getCached<WorkspaceWork>(seed) ?? NO_WORK);
   useEffect(() => {
     let active = true;
+    let reading = false;
     const read = (): void => {
-      if (document.hidden) return;
+      if (!active || document.hidden || reading) return;
       const port = bridge();
+      reading = true;
       // ponytail: every list on every tick; per-source change events if these reads ever show up.
       void Promise.allSettled([
         port.listAgentReviews?.(workspaceId) ?? Promise.resolve([]),
         port.listCherryPickExecutions?.(200) ?? Promise.resolve([]),
         port.listCiAutofixRuns?.(100) ?? Promise.resolve([]),
       ]).then(([reviews, executions, runs]) => {
+        reading = false;
         if (!active) return;
         setWork((last) => ({
           reviews: reviews.status === 'fulfilled' ? reviews.value : last.reviews,

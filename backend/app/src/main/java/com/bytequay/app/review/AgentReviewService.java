@@ -40,7 +40,7 @@ public interface AgentReviewService
 
     AgentReviewProjection get(String reviewId);
 
-    /** Lists open and closed workspace reviews by descending update time, without starting work or refreshing GitHub. Replays are left out. */
+    /** Lists open and closed workspace reviews without inspecting working copies or refreshing GitHub. Replays are left out; newest updates come first. */
     List<AgentReviewProjection> list(String workspaceId);
 
     /** Starts a review, or returns the open one: one review per workspace and pull request. */

@@ -136,6 +136,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -145,6 +146,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestDefaultAgentReviewService
@@ -437,6 +439,25 @@ class TestDefaultAgentReviewService
                 .contains("Report with review_save_summary");
         assertThat(started.getValue().idempotencyKey()).startsWith("review-step:");
         verify(fixture.observer, times(1)).watch(any(AgentReview.class));
+    }
+
+    @Test
+    void listingReviewsDoesNotInspectEveryWorkingCopy()
+    {
+        Fixture fixture = new Fixture();
+        AgentReviewProjection started = fixture.service.start(WORKSPACE, REPO, NUMBER);
+        clearInvocations(fixture.worktrees, fixture.git, fixture.experiments);
+
+        AgentReviewProjection listed = fixture.service.list(WORKSPACE).getFirst();
+
+        assertThat(listed.review()).isEqualTo(started.review());
+        assertThat(listed.runs()).isEqualTo(started.runs());
+        assertThat(listed.task()).isEqualTo(started.task());
+        assertThat(listed.worktreeSync()).isEmpty();
+        verifyNoInteractions(fixture.worktrees, fixture.git, fixture.experiments);
+
+        assertThat(fixture.service.get(started.review().id()).worktreeSync()).isPresent();
+        verify(fixture.worktrees).ownedCheckout(taskWorktree());
     }
 
     @Test

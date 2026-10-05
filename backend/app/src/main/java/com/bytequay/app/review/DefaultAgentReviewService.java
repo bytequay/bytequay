@@ -271,7 +271,7 @@ public class DefaultAgentReviewService
     @Override
     public List<AgentReviewProjection> list(String workspaceId)
     {
-        return store.listReviews(workspaceId).stream().filter(review -> review.replay().isEmpty()).map(review -> projection(review.id())).collect(toImmutableList());
+        return store.listReviews(workspaceId).stream().filter(review -> review.replay().isEmpty()).map(review -> projection(review, false)).collect(toImmutableList());
     }
 
     @Override
@@ -1513,7 +1513,12 @@ public class DefaultAgentReviewService
 
     private AgentReviewProjection projection(String reviewId)
     {
-        AgentReview review = requireReview(reviewId);
+        return projection(requireReview(reviewId), true);
+    }
+
+    private AgentReviewProjection projection(AgentReview review, boolean inspectWorktree)
+    {
+        String reviewId = review.id();
         List<ReviewRun> runs = store.listRuns(reviewId);
         TaskId taskId = TaskId.valueOf(review.taskId());
         AgentTask task = tasks.get(taskId);
@@ -1547,7 +1552,7 @@ public class DefaultAgentReviewService
                 review.number().stream().mapToObj(number -> drafts.find(review.repo(), number).map(ignored -> publications.draft(review.repo(), number)))
                         .flatMap(Optional::stream).findFirst(),
                 review.number().stream().mapToObj(number -> pullRequests.findStored(review.repo(), number)).flatMap(Optional::stream).findFirst(),
-                worktreeSync(review, task, runs));
+                inspectWorktree ? worktreeSync(review, task, runs) : Optional.empty());
     }
 
     private AgentReviewProjection.MessageView messageView(TaskId taskId, ReviewMessage message)

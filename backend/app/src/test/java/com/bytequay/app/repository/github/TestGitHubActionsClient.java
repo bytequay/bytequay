@@ -105,6 +105,47 @@ class TestGitHubActionsClient
     }
 
     @Test
+    void rereadsUnchangedEvidenceWithItsEtag()
+    {
+        Fixture fixture = fixture();
+        String pullRequest = """
+                {"state":"open","user":{"login":"author"},
+                 "head":{"ref":"feature","sha":"%s","repo":{"full_name":"owner/repo"}},
+                 "base":{"ref":"main","sha":"%s","repo":{"full_name":"owner/repo"}},
+                 "html_url":"https://github.com/owner/repo/pull/7"}
+                """.formatted(HEAD_SHA, BASE_SHA);
+        String runs = """
+                {"total_count":1,"workflow_runs":[{"id":900,"workflow_id":80,"name":"Build","run_attempt":1,
+                  "status":"in_progress","conclusion":null,"head_sha":"%s"}]}
+                """.formatted(HEAD_SHA);
+        String pullRequestUrl = "https://api.github.test/repos/owner/repo/pulls/7";
+        fixture.apiServer.expect(requestTo(pullRequestUrl)).andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
+                .andRespond(withSuccess(pullRequest, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"pr-1\""));
+        fixture.apiServer.expect(requestTo(runsUrl(1))).andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
+                .andRespond(withSuccess(runs, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"runs-1\""));
+        fixture.apiServer.expect(requestTo(jobsUrl(900, 1))).andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
+                .andRespond(withSuccess("""
+                        {"total_count":1,"jobs":[{"id":902,"name":"Compile","run_attempt":1,"status":"in_progress","conclusion":null,"steps":[]}]}
+                        """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"jobs-1\""));
+        fixture.apiServer.expect(requestTo(pullRequestUrl)).andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"pr-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"pr-1\""));
+        fixture.apiServer.expect(requestTo(runsUrl(1))).andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"runs-1\""))
+                .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"runs-1\""));
+        fixture.apiServer.expect(requestTo(jobsUrl(900, 1))).andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"jobs-1\""))
+                .andRespond(withSuccess("""
+                        {"total_count":1,"jobs":[{"id":902,"name":"Compile","run_attempt":1,"status":"completed","conclusion":"success","steps":[]}]}
+                        """, MediaType.APPLICATION_JSON).header(HttpHeaders.ETAG, "\"jobs-2\""));
+
+        CiHeadSnapshot first = fixture.client.inspect(PULL_REQUEST);
+        CiHeadSnapshot second = fixture.client.inspect(PULL_REQUEST);
+
+        assertThat(second.headSha()).isEqualTo(first.headSha()).isEqualTo(HEAD_SHA);
+        assertThat(second.workflowRuns()).extracting(CiWorkflowRun::status).containsExactly("in_progress");
+        assertThat(second.workflowRuns().getFirst().jobs()).extracting(CiJob::status).containsExactly("completed");
+        fixture.verify();
+    }
+
+    @Test
     void newerPullRequestRunDoesNotHideAFailedPushRunOfTheSameWorkflow()
     {
         Fixture fixture = fixture();

@@ -33,6 +33,8 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -109,6 +111,8 @@ public class GitHubActionsClient
     private final Supplier<String> tokenSupplier;
     private final LogBlobWriter blobWriter;
     private final CiRawLogStore rawLogs;
+    /** CI polls reread mostly unchanged evidence, and GitHub does not count a 304 against the rate limit. */
+    private final Cache<String, ConditionalRead> conditionalReads = CacheBuilder.newBuilder().maximumSize(256).build();
 
     @Autowired
     public GitHubActionsClient(
@@ -441,18 +445,39 @@ public class GitHubActionsClient
         }
     }
 
+    /**
+     * Sends the ETag of the previous read of the same page and reuses that body on a 304. Every page is still
+     * requested, so a 304 vouches only for its own page.
+     */
+    private <T> T conditional(String key, RestClient.RequestHeadersSpec<?> request, Class<T> type)
+    {
+        ConditionalRead cached = conditionalReads.getIfPresent(key);
+        if (cached != null) {
+            request.header(HttpHeaders.IF_NONE_MATCH, cached.etag());
+        }
+        ResponseEntity<T> entity = request.retrieve().toEntity(type);
+        if (cached != null && entity.getStatusCode() == HttpStatus.NOT_MODIFIED) {
+            return type.cast(cached.body());
+        }
+        T body = entity.getBody();
+        String etag = entity.getHeaders().getETag();
+        if (body == null || etag == null) {
+            conditionalReads.invalidate(key);
+        }
+        else {
+            conditionalReads.put(key, new ConditionalRead(etag, body));
+        }
+        return body;
+    }
+
+    private record ConditionalRead(String etag, Object body) {}
+
     private PullRequestResponse fetchPullRequest(String pat, PullRequestRef pullRequest)
     {
-        return translating(() -> {
-            PullRequestResponse response = requireBody(get(gitHubRestClient, pat,
-                    "/repos/{owner}/{repo}/pulls/{number}",
-                            pullRequest.owner(),
-                            pullRequest.repo(),
-                            pullRequest.number())
-                    .retrieve()
-                    .body(PullRequestResponse.class), "GitHub returned an empty pull request");
-            return response;
-        });
+        return translating(() -> requireBody(conditional(
+                "pulls/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + pullRequest.number(),
+                get(gitHubRestClient, pat, "/repos/{owner}/{repo}/pulls/{number}", pullRequest.owner(), pullRequest.repo(), pullRequest.number()),
+                PullRequestResponse.class), "GitHub returned an empty pull request"));
     }
 
     private List<CiWorkflowRun> fetchWorkflowRuns(String pat, PullRequestRef pullRequest, String headSha)
@@ -502,13 +527,14 @@ public class GitHubActionsClient
             int page)
     {
         return translating(() -> {
-            WorkflowRunsResponse response = get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs")
-                    .queryParam("head_sha", headSha)
-                    .queryParam("per_page", PAGE_SIZE)
-                    .queryParam("page", page)
-                    .build(pullRequest.owner(), pullRequest.repo()))
-                    .retrieve()
-                    .body(WorkflowRunsResponse.class);
+            WorkflowRunsResponse response = conditional(
+                    "runs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + headSha + "/" + page,
+                    get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs")
+                            .queryParam("head_sha", headSha)
+                            .queryParam("per_page", PAGE_SIZE)
+                            .queryParam("page", page)
+                            .build(pullRequest.owner(), pullRequest.repo())),
+                    WorkflowRunsResponse.class);
             if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.workflowRuns() == null) {
                 throw badGateway("GitHub returned incomplete workflow-run evidence");
             }
@@ -582,13 +608,14 @@ public class GitHubActionsClient
             int page)
     {
         return translating(() -> {
-            JobsResponse response = get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs/{runId}/jobs")
-                    .queryParam("filter", "all")
-                    .queryParam("per_page", PAGE_SIZE)
-                    .queryParam("page", page)
-                    .build(pullRequest.owner(), pullRequest.repo(), workflowRunId))
-                    .retrieve()
-                    .body(JobsResponse.class);
+            JobsResponse response = conditional(
+                    "jobs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + workflowRunId + "/" + page,
+                    get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs/{runId}/jobs")
+                            .queryParam("filter", "all")
+                            .queryParam("per_page", PAGE_SIZE)
+                            .queryParam("page", page)
+                            .build(pullRequest.owner(), pullRequest.repo(), workflowRunId)),
+                    JobsResponse.class);
             if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.jobs() == null) {
                 throw badGateway("GitHub returned incomplete workflow-job evidence");
             }

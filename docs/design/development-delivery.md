@@ -493,7 +493,9 @@ cannot restart an exhausted run; this MVP has no resume/retry delivery action.
 
 The application implements this through `CiAutofixService.startDevelopment`,
 then calls `advance` from the same live coordinator with a five-second wait
-between observations. It supplies the accepted provider without fallback,
+between observations. Each observation rereads the pull request, workflow runs
+and jobs with the previous response's ETag, so an unchanged page returns 304,
+which GitHub does not count against the rate limit. It supplies the accepted provider without fallback,
 original activation timestamp, parent/source-turn IDs, and exact verified PR
 identity. `DevelopmentCiOwnership` ties the optional persisted CI parent link
 to that live owner; a database row alone cannot restore authority. Existing CI

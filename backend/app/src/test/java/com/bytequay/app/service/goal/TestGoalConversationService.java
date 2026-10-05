@@ -110,8 +110,10 @@ class TestGoalConversationService
     private final AppSettingsService settings = mock(AppSettingsService.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-03T10:00:00Z"));
+    private final GoalPages pages = mock(GoalPages.class);
     private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, workspaces, candidates,
-            beans.getBeanProvider(GoalResearchService.class), beans.getBeanProvider(GoalSpecChecks.class), questions, topics, models, planner, settings, clock, queued::add);
+            beans.getBeanProvider(GoalResearchService.class), beans.getBeanProvider(GoalSpecChecks.class), questions, topics, models, planner, pages, settings, clock,
+            queued::add);
 
     @BeforeEach
     void setUp()
@@ -997,6 +999,28 @@ class TestGoalConversationService
         assertThatThrownBy(() -> service.acceptPlan("workspace", goal.id(), "op-1")).isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("A newer plan change was proposed");
         verify(work, never()).order(any(), any(), any());
+    }
+
+    @Test
+    void aResearchCardFloatsWithoutThePagesThatDoNotExistAndSaysSo()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Reads first");
+        doReturn(PROPOSAL).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.accept("workspace", goal.id(), "op-1", Optional.empty());
+        GoalRecommendation.Card card = new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Delta protocol", "You start from the protocol",
+                "Checkpoints and deletion vectors", ImmutableList.of("https://github.com/delta-io/delta/blob/master/PROTOCOL.md", "https://delta.io/remembered-wrongly"),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("I have not read the protocol."), Optional.empty(),
+                Optional.empty());
+        when(pages.missing(card.pages())).thenReturn(ImmutableList.of("https://delta.io/remembered-wrongly"));
+        doReturn(new GoalExchange.Reply("Read the protocol first.", Optional.empty(), Optional.empty(), Optional.of(card), Optional.empty(), ImmutableList.of(),
+                Optional.empty(), Optional.empty())).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        GoalRecommendation.Card floated = cards.list(goal.id()).getFirst().card();
+        assertThat(floated.pages()).containsExactly("https://github.com/delta-io/delta/blob/master/PROTOCOL.md");
+        assertThat(floated.uncertainty()).contains("ByteQuay could not find https://delta.io/remembered-wrongly, so the research will not read it. "
+                + "I have not read the protocol.");
     }
 
     @Test

@@ -108,23 +108,25 @@ from private cards and the practice candidates out of the open issues, with the
 same in words on hover.
 
 Once a definition is accepted, ByteQuay tells the agent, and its answer may
-recommend a research card: a scope and up to eight https pages. The Goal
-control shows one count, the work needing the user and the decisions waiting
-together, naming both on hover. Cards float under the Goal control with Start
-and Not now; one of a kind waits at a time and
-a dismissed card is not offered again. Start begins a research run as the third
-kind of the workspace's restricted run, beside spec checks and memory harvests,
-at the monitored head with the checkouts of the workspace's Dependency
-workspaces. Its one tool, `goal_knowledge_save`, saves a note whose sources are
-https pages or files at a commit the run reads. While it runs, the Guide view
-shows how many notes it saved, the newest on hover, and Stop; it is the
-workspace's restricted run, not a task with a conversation to open. A finished
-run completes the card and tells the agent what it saved; a failed or stopped
-one shows the card again. The Guide view lists the notes with their sources,
-folded under their count. A note citing a file is marked stale once that file
-changed between the commit the research read and the monitored head of its
-workspace or Dependency, and the agent sees the mark and may recommend reading
-it again; pages are not checked.
+recommend a research card: a scope and up to eight https pages. Before the card
+floats, ByteQuay opens each page once; a page that does not exist, not found,
+gone or on a host that does not resolve, is left out and named in the card's
+uncertainty, so the run never reads an address the agent remembered wrongly. The
+Goal control shows one count, the work needing the user and the decisions
+waiting together, naming both on hover. Cards float under the Goal control with
+Start and Not now; one of a kind waits at a time and a dismissed card is not
+offered again. Start begins a research run as the third kind of the workspace's
+restricted run, beside spec checks and memory harvests, at the monitored head
+with the checkouts of the workspace's Dependency workspaces. Its one tool,
+`goal_knowledge_save`, saves a note whose sources are https pages or files at a
+commit the run reads. While it runs, the Guide view shows how many notes it
+saved, the newest on hover, and Stop; it is the workspace's restricted run, not
+a task with a conversation to open. A finished run completes the card and tells
+the agent what it saved; a failed or stopped one shows the card again. The Guide
+view lists the notes with their sources, folded under their count. A note citing
+a file is marked stale once that file changed between the commit the research
+read and the monitored head of its workspace or Dependency, and the agent sees
+the mark and may recommend reading it again; pages are not checked.
 
 Once notes exist, the agent may propose a course: up to four parts with at most
 sixteen lessons, each naming what the user can do afterward. Accepting it saves

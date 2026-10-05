@@ -184,6 +184,12 @@ public record GoalRecommendation(
             return new Card(kind, title, reason, scope, pages, workItemId, issue, ticket, module, reproductions, value, prerequisites, criteria);
         }
 
+        /** The same card reading only these pages. */
+        public Card withPages(List<String> value)
+        {
+            return new Card(kind, title, reason, scope, value, workItemId, issue, ticket, module, reproductions, uncertainty, prerequisites, criteria);
+        }
+
         /** The same card naming the ticket by its stable reference. */
         public Card withTicket(String reference)
         {

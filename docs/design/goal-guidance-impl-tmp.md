@@ -864,6 +864,22 @@ had to cover the user's own Update now.
 Done when: a second Update now with nothing new asks no model, and one after the
 work changed does.
 
+## Twenty-sixth implementation slice
+
+Pages that exist: the live check showed the agent naming research pages from
+memory, so ByteQuay opens them before the card floats.
+
+1. Research pages are opened once. Before a research card floats, each page it
+   names is asked for with one request, all at once. A page that is not found,
+   gone, malformed or on a host that does not resolve is left out of the card,
+   and the card's uncertainty names it. A page that refuses the request or times
+   out is kept, since it may well exist.
+
+Progress: the twenty-sixth slice is complete.
+
+Done when: a research card floats without a page that does not exist and says
+which one it left out.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -1000,7 +1016,7 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [ ] Refresh shortlisted sources through existing services. Add only the missing
   duplicate/closing-PR evidence reads needed for the readiness decision. Record
   source revision, freshness and skipped coverage.
-- [ ] Supply at most 100 compact candidates, inspect at most five selected sources
+- [x] Supply at most 100 compact candidates, inspect at most five selected sources
   and display at most three recommendations. Reject model-invented IDs and URLs.
   Cache conclusions by input revision; unchanged candidates need no new model call.
 - [x] Include reason, scope, prerequisites, completion criteria and uncertainty
@@ -1022,15 +1038,17 @@ work items. Closing and reopening the app retains the conversation and plan.
 
 Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
 `TestGoalCandidates`, `TestGoalResearchService` for runs, stale notes and
-Remember, `TestGoalDiscovery`, the card parsing in `TestGoalPlanner`, the
-investigation-card test in `TestGoalConversationService`, the prepared request
-in `goals.test.tsx` and the `goalGuideBrowser` journey. Still partial: cited
-pages are never checked for staleness; shortlisted sources record no duplicate
-read or revision, though a card whose source could not be read again says so;
-research pages accept any https address; conclusions are cached by the Goal's
-last exchange and the digest of its facts, not per candidate; new Jira tickets
-do not trigger discovery; and Start rechecks the source, its role, the work's
-state and its current task, but not the work item's revision.
+Remember, `TestGoalPages` and the research-card test in
+`TestGoalConversationService` for pages that do not exist, `TestGoalDiscovery`,
+the card parsing in `TestGoalPlanner`, the investigation-card test in
+`TestGoalConversationService`, the prepared request in `goals.test.tsx` and the
+`goalGuideBrowser` journey. Still partial: cited pages are never checked for
+staleness; shortlisted sources record no duplicate read or revision, though a
+card whose source could not be read again says so; spec-check pages are not
+opened before their card floats; conclusions are cached by the Goal's last
+exchange and the digest of its facts, not per candidate; new Jira tickets do not
+trigger discovery; and Start rechecks the source, its role, the work's state and
+its current task, but not the work item's revision.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed

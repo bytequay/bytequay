@@ -88,6 +88,8 @@ public class GoalConversationService
     // An accepted result repeats the criteria and every merged PR; the agent needs its gist.
     private static final int MAX_DECISION = 600;
     private static final Logger log = LoggerFactory.getLogger(GoalConversationService.class);
+    // Missing pages are named in a card's uncertainty while they fit beside the agent's own words.
+    private static final int MAX_NAMED_PAGES = 500;
 
     private final GoalService goals;
     private final WorkItemService work;
@@ -101,6 +103,7 @@ public class GoalConversationService
     private final GoalTopicStore topics;
     private final ModelSettingsService models;
     private final GoalPlanner planner;
+    private final GoalPages pages;
     private final AppSettingsService settings;
     private final Clock clock;
     private final Executor executor;
@@ -129,15 +132,15 @@ public class GoalConversationService
     @Autowired
     public GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
             WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, ObjectProvider<GoalSpecChecks> specChecks,
-            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, AppSettingsService settings, Clock clock)
+            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, GoalPages pages, AppSettingsService settings, Clock clock)
     {
-        this(goals, work, exchanges, recommendations, workspaces, candidates, research, specChecks, questions, topics, models, planner, settings, clock,
+        this(goals, work, exchanges, recommendations, workspaces, candidates, research, specChecks, questions, topics, models, planner, pages, settings, clock,
                 Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
     }
 
     GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
             WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, ObjectProvider<GoalSpecChecks> specChecks,
-            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, AppSettingsService settings, Clock clock,
+            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, GoalPages pages, AppSettingsService settings, Clock clock,
             Executor executor)
     {
         this.goals = requireNonNull(goals, "goals is null");
@@ -152,6 +155,7 @@ public class GoalConversationService
         this.topics = requireNonNull(topics, "topics is null");
         this.models = requireNonNull(models, "models is null");
         this.planner = requireNonNull(planner, "planner is null");
+        this.pages = requireNonNull(pages, "pages is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -881,7 +885,7 @@ public class GoalConversationService
         // GitHub or Jira answers whether a practice card's source is still open, so it is asked before the lock.
         GoalCandidates.Read checked = answered.filter(found -> found.kind() == GoalRecommendation.Kind.WORK).map(found -> read(defined.orElseThrow(), found))
                 .orElse(GoalCandidates.Read.NOTHING);
-        Optional<GoalRecommendation.Card> card = answered.map(found -> checked.doubt().map(found::doubting).orElse(found));
+        Optional<GoalRecommendation.Card> card = answered.map(found -> checked.doubt().map(found::doubting).orElse(found)).map(this::opened);
         Optional<String> unready = checked.unready();
         boolean setAside = false;
         synchronized (writes) {
@@ -904,6 +908,28 @@ public class GoalConversationService
             tellDecision(settled.workspaceId(), settled.goalId(), "unready:" + settled.id(), unready.orElseThrow() + " Recommend another candidate.");
         }
         flush(exchange.goalId());
+    }
+
+    /** A research card without the pages that do not exist, which it names; they are opened before the lock, like a practice card's source. */
+    private GoalRecommendation.Card opened(GoalRecommendation.Card card)
+    {
+        if (card.kind() != GoalRecommendation.Kind.RESEARCH || card.pages().isEmpty()) {
+            return card;
+        }
+        try {
+            List<String> missing = pages.missing(card.pages());
+            if (missing.isEmpty()) {
+                return card;
+            }
+            String named = String.join(" and ", missing);
+            return card.withPages(card.pages().stream().filter(page -> !missing.contains(page)).collect(toImmutableList()))
+                    .doubting(named.length() <= MAX_NAMED_PAGES ? "ByteQuay could not find " + named + ", so the research will not read " + (missing.size() == 1 ? "it." : "them.")
+                            : "ByteQuay could not find " + missing.size() + " of its pages, so the research will not read them.");
+        }
+        catch (RuntimeException failure) {
+            log.debug("The pages of a research card were not opened", failure);
+            return card;
+        }
     }
 
     private GoalCandidates.Read read(GoalView goal, GoalRecommendation.Card card)

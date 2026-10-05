@@ -590,6 +590,42 @@ Done when: an accepted result's event names the work it unblocks, the lesson
 that finishes a part names that part and the next, and the summary prompt asks
 for insights and the next step.
 
+## Fifteenth implementation slice
+
+Ground chapters in the code: a chapter is written from what CodeGraph finds for
+it, the course has one map of its concepts, and the writer follows diagram
+rules.
+
+1. Diagram rules. The lesson writer is told that every box is one real thing,
+   such as a component, a class or a piece of state, every group a real
+   boundary, such as a process, a module or a service, and every arrow a real
+   call, message or data flow labelled with what moves; that a diagram keeps
+   one zoom level, named in its caption; that the question a diagram answers
+   picks its kind; and that commands belong to the exercise and reference
+   facts to a short table. The writer also sees the course in order, so a
+   chapter builds on the ones before it.
+2. A code map for each chapter. Before a chapter is written, ByteQuay asks
+   CodeGraph one bounded question, the lesson's title and outcome, against the
+   baseline of the Goal's repository, the index of its monitored default
+   branch. The tool-free writer gets the symbols, files and relationships found
+   at that commit, names boxes and arrows after them and links files at that
+   commit. Without CodeGraph or a baseline the chapter is written from the
+   notes alone. Research runs are told to name the classes and methods behind
+   each note and how they connect.
+3. A map of the course. The first chapter written for an accepted course first
+   draws the course map: one COMPONENTS diagram of the concepts the course
+   teaches and how they connect, from the notes, the course and a code map for
+   the Goal. It is saved with the course, drawn at the top of the course
+   overview and given to every chapter, so one thing keeps one name; a revised
+   course draws a new one. A failed map leaves the chapter to be written
+   without it.
+4. Write again. A written chapter can be written again from the current notes,
+   map and code.
+
+Done when: a chapter's request carries its code map, the course map and the
+diagram rules, the course overview draws the map, and Write again replaces a
+written chapter.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

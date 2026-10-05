@@ -15,6 +15,8 @@ package com.bytequay.agent.core;
 
 import com.bytequay.agent.spi.ProviderUsageSample;
 
+import java.util.OptionalLong;
+
 /**
  * Converts provider usage samples into durable turn and task metrics.
  *
@@ -44,14 +46,27 @@ public interface AgentMetricsService
     AgentMetrics record(TaskId taskId, TurnId turnId, ProviderUsageSample sample);
 
     /**
-     * Finalizes elapsed time and usage for a terminal turn.
+     * Counts a turn's finished tool and command activity from the task log, newest page first. Reading stops at the
+     * turn's first event when the caller knows its sequence and covers the whole log otherwise. Nothing here reads
+     * the database, so a caller counts before it opens a unit of work.
+     *
+     * @param taskId task whose log holds the turn
+     * @param turnId turn whose activity is counted
+     * @param firstSequence sequence of the turn's first event, when known
+     * @return the turn's tool counters
+     */
+    ToolCounters countTools(TaskId taskId, TurnId turnId, OptionalLong firstSequence);
+
+    /**
+     * Finalizes elapsed time, usage and tool counters for a terminal turn.
      *
      * @param turnId terminal turn
      * @param terminalState completed, failed, cancelled, or interrupted state
+     * @param counters the turn's tool counters from {@link #countTools}
      * @return immutable final metrics
      * @throws AgentConflictException when {@code terminalState} is not terminal
      */
-    AgentMetrics finishTurn(TurnId turnId, TurnState terminalState);
+    AgentMetrics finishTurn(TurnId turnId, TurnState terminalState, ToolCounters counters);
 
     /**
      * Returns durable totals across every turn in a task.

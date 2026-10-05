@@ -25,6 +25,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.store.AgentEventOutboxStore;
@@ -39,6 +40,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 import static com.bytequay.agent.core.AgentEventOutboxEntry.pendingInline;
@@ -120,7 +122,8 @@ public final class AgentMaintenance
                     }
                     EventId eventId = EventId.random();
                     unitOfWork.execute(() -> {
-                        AgentMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED);
+                        // The turn never reached its provider, so it has no tool activity to count.
+                        AgentMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED, ToolCounters.ZERO);
                         Instant interruptedAt = Instant.now(clock);
                         AgentTask claimedTask = taskStore.find(current.taskId()).orElseThrow();
                         turnStore.update(turnStore.find(current.id()).orElseThrow().finish(
@@ -342,8 +345,9 @@ public final class AgentMaintenance
         WorktreeMutationClaim claim = WorktreeMutationClaim.turn(turn.id(), turn.createdAt());
         String reason = unverifiableLaunch.isPresent() ? UNVERIFIED_STOP_REASON : VERIFIED_STOP_REASON;
         EventId eventId = EventId.random();
+        ToolCounters counters = metricsService.countTools(task.id(), turn.id(), OptionalLong.empty());
         unitOfWork.execute(() -> {
-            AgentMetrics metrics = metricsService.finishTurn(turn.id(), TurnState.INTERRUPTED);
+            AgentMetrics metrics = metricsService.finishTurn(turn.id(), TurnState.INTERRUPTED, counters);
             Instant interruptedAt = Instant.now(clock);
             AgentTask current = taskStore.find(task.id()).orElseThrow();
             turnStore.update(turnStore.find(turn.id()).orElseThrow().finish(

@@ -46,6 +46,7 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -175,7 +176,7 @@ class TestDefaultAgentMetricsService
         stores.insert(turn);
         clock.advance(Duration.ofSeconds(5));
 
-        AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
+        AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED, ToolCounters.ZERO);
 
         assertThat(result.elapsed()).isEqualTo(Duration.ofSeconds(5));
         assertThat(stores.find(task.id()).orElseThrow().metrics().elapsed()).isEqualTo(Duration.ofSeconds(5));
@@ -192,9 +193,24 @@ class TestDefaultAgentMetricsService
                     new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())));
         }
 
-        AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
+        AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED, service.countTools(task.id(), turn.id(), OptionalLong.empty()));
 
         assertThat(result.counters()).isEqualTo(new ToolCounters(12, 12));
+    }
+
+    @Test
+    void countsOnlyBackToTheTurnsFirstEvent()
+    {
+        TurnId turn = TurnId.random();
+        for (int sequence = 1; sequence <= 30; sequence++) {
+            // The turn's own events from sequence 21 on; an earlier stray event of the same id must be ignored once the
+            // caller names where the turn began.
+            logStore.append(event(sequence, sequence >= 21 || sequence == 3 ? turn : TurnId.random(),
+                    new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())));
+        }
+
+        assertThat(service.countTools(task.id(), turn, OptionalLong.of(21))).isEqualTo(new ToolCounters(10, 10));
+        assertThat(service.countTools(task.id(), turn, OptionalLong.empty())).isEqualTo(new ToolCounters(11, 11));
     }
 
     private static AgentTurnSettings turnSettings()

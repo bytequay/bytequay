@@ -16,6 +16,7 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentStorageException;
@@ -39,6 +40,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -47,7 +49,6 @@ import static java.util.Objects.requireNonNull;
 public final class DefaultAgentMetricsService
         implements AgentMetricsService
 {
-    private static final int EVENT_PAGE_SIZE = 8;
     private static final Set<String> EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS", "code_query", "bytequay/code_query", "mcp__bytequay__code_query");
     private static final Set<CommandActionKind> EXPLORE_ACTIONS =
             ImmutableSet.of(CommandActionKind.READ, CommandActionKind.LIST_FILES, CommandActionKind.SEARCH);
@@ -90,10 +91,34 @@ public final class DefaultAgentMetricsService
     }
 
     @Override
-    public AgentMetrics finishTurn(TurnId turnId, TurnState terminalState)
+    public ToolCounters countTools(TaskId taskId, TurnId turnId, OptionalLong firstSequence)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(turnId, "turnId is null");
+        requireNonNull(firstSequence, "firstSequence is null");
+        // Folded from the persisted log rather than counted live, so replay and recovery agree with it. Pages are
+        // byte-bounded and a turn's events end the log, so a long task costs no more than its latest turn.
+        ToolCounters counters = ToolCounters.ZERO;
+        OptionalLong before = OptionalLong.empty();
+        while (true) {
+            AgentHistoryPage page = logStore.readHistory(taskId, before, OptionalLong.empty());
+            counters = counters.plus(foldCounters(page.events().stream()
+                    .filter(event -> firstSequence.isEmpty() || event.sequence() >= firstSequence.getAsLong())
+                    .collect(toImmutableList()), turnId));
+            if (page.events().isEmpty() || page.beforeCursor().isEmpty()
+                    || (firstSequence.isPresent() && page.events().getFirst().sequence() <= firstSequence.getAsLong())) {
+                return counters;
+            }
+            before = page.beforeCursor();
+        }
+    }
+
+    @Override
+    public AgentMetrics finishTurn(TurnId turnId, TurnState terminalState, ToolCounters counters)
     {
         requireNonNull(turnId, "turnId is null");
         requireNonNull(terminalState, "terminalState is null");
+        requireNonNull(counters, "counters is null");
         if (!terminalState.terminal()) {
             throw new AgentConflictException("Turn state is not terminal: " + terminalState);
         }
@@ -104,14 +129,13 @@ public final class DefaultAgentMetricsService
             throw new AgentStorageException("Turn elapsed time is negative");
         }
         AgentMetrics current = turn.metrics();
-        // Folded from the persisted log rather than counted live, so replay and recovery agree with it.
         AgentMetrics finished = new AgentMetrics(
                 current.inputTokens(),
                 current.cachedInputTokens(),
                 current.outputTokens(),
                 current.cost(),
                 elapsed,
-                readCounters(turn.taskId(), turnId));
+                counters);
         AgentTurn stored = turnStore.update(turn.withMetrics(finished));
         persistTaskTotals(turn.taskId());
         return stored.metrics();
@@ -232,20 +256,6 @@ public final class DefaultAgentMetricsService
     private static boolean terminal(ActivityState state)
     {
         return state == ActivityState.COMPLETED || state == ActivityState.FAILED;
-    }
-
-    private ToolCounters readCounters(TaskId taskId, TurnId turnId)
-    {
-        ToolCounters counters = ToolCounters.ZERO;
-        long after = 0;
-        while (true) {
-            List<AgentEventEnvelope> page = logStore.readAfter(taskId, after, EVENT_PAGE_SIZE);
-            if (page.isEmpty()) {
-                return counters;
-            }
-            counters = counters.plus(foldCounters(page, turnId));
-            after = page.getLast().sequence();
-        }
     }
 
     private static AgentMetrics calculateTaskTotals(List<AgentTurn> turns)

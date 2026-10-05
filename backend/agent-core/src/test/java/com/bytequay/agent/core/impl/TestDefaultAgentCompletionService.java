@@ -42,6 +42,7 @@ import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -921,7 +922,13 @@ class TestDefaultAgentCompletionService
         }
 
         @Override
-        public AgentMetrics finishTurn(TurnId turnId, TurnState terminalState)
+        public ToolCounters countTools(TaskId taskId, TurnId turnId, OptionalLong firstSequence)
+        {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public AgentMetrics finishTurn(TurnId turnId, TurnState terminalState, ToolCounters counters)
         {
             throw new UnsupportedOperationException();
         }

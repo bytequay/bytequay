@@ -54,6 +54,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.UnsequencedAgentEvent;
@@ -97,9 +98,12 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
@@ -153,6 +157,8 @@ public final class DefaultAgentTurnService
     private final BiConsumer<AgentTask, AgentTurn> developmentAccepted;
     private final Consumer<DevelopmentTurnCompletion> developmentCompletion;
     private final Consumer<TaskId> stopChildren;
+    /** The log sequence of each launched turn's first event, so counting its tools reads back no further. */
+    private final ConcurrentMap<TurnId, Long> turnLogStarts = new ConcurrentHashMap<>();
 
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
@@ -765,7 +771,7 @@ public final class DefaultAgentTurnService
                 task = requireAcceptedLaunch(turn);
                 // The development baseline capture below takes seconds of Git and GitHub reads; publish
                 // the accepted message first so the transcript shows it while Send is still waiting.
-                eventService.drain(acceptance.deliveryEventId());
+                turnLogStarts.put(turn.id(), eventService.drain(acceptance.deliveryEventId()).sequence());
             }
             ReviewTurnInputResolver.Reference reference = reviewTurnInput.reference(task, turn);
             String message = reviewTurnInput.prepare(task, turn, reference.append(acceptance.message()));
@@ -2258,8 +2264,12 @@ public final class DefaultAgentTurnService
             boolean knownUnsent)
     {
         EventId eventId = EventId.random();
+        Long firstSequence = turnLogStarts.remove(turn.id());
+        // Read before the unit of work opens: the log can be long, and the unit of work holds the database.
+        ToolCounters counters = knownUnsent ? ToolCounters.ZERO
+                : metricsService.countTools(turn.taskId(), turn.id(), firstSequence == null ? OptionalLong.empty() : OptionalLong.of(firstSequence));
         unitOfWork.execute(() -> {
-            AgentMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState);
+            AgentMetrics finalMetrics = metricsService.finishTurn(turn.id(), terminalState, counters);
             Instant endedAt = Instant.now(clock);
             AgentTurn latest = turnStore.require(turn.id());
             AgentTurn finished = knownUnsent

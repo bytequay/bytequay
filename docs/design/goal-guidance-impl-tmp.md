@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first nine implementation slices are complete. The later items of
-Steps 3 to 6 below remain as listed.
+Status: The first nine implementation slices are complete and the tenth is in
+progress. The later items of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -457,6 +457,35 @@ Done when: a Highest ticket that shares no words with the Goal is still a
 candidate, an issue with an open linked pull request floats with that doubt, a
 card whose issue closed after it floated cannot start, and a card shows the
 uncertainty the agent gave.
+
+## Tenth implementation slice
+
+Learn beside the conversation: the expanded Goal window teaches an open lesson
+next to the Goal's conversation, the user answers the lesson's check there, and
+what the user says, a question or a check answer, can move the level of the
+topic it shows.
+
+1. The lesson sits beside the conversation. In the expanded window an open
+   lesson takes the left of the panel and the Goal's conversation, with its
+   reply field, the right; a message sent while the lesson is open belongs to
+   it. The floating window still shows the lesson alone, with Back to guidance.
+2. The check takes an answer. Under the lesson's check, the user writes an
+   answer and sends it as a message about the lesson; the agent says whether it
+   shows what the lesson's outcome promises and what it misses.
+3. The user's own words count. Every message the user sent the Goal, a lesson
+   question or a check answer included, reaches the agent with an id it may
+   cite for a topic level, and ByteQuay keeps the level only when that message
+   exists.
+
+Progress: item 3 is implemented. Each message the user sent the Goal reaches the
+agent with a message:<id> it may cite, a lesson question also naming its lesson,
+and a level citing such a message is kept; one citing an event ByteQuay reported
+or an unknown message is not.
+
+Done when: in the expanded window an open lesson and the conversation show side
+by side and a question sent there belongs to the lesson; a check answer reaches
+the agent as an answer to the open lesson's check; and a level citing a message
+the user sent is kept, while one citing an invented or automatic message is not.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

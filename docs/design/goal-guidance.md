@@ -250,9 +250,12 @@ events with it.
 Each request also carries the user's twenty newest questions from their private
 cards in every workspace (passage and comment discussions, local review
 comments and review questions, without ByteQuay's own summary requests) and the
-Goal's topic levels. The agent may change a topic's level, New, Learning,
-Practiced or Strong, citing the questions, lessons or work items it rests on;
-ByteQuay keeps only evidence that exists and never changes a level the user set.
+Goal's topic levels, and each of the user's own messages to the Goal carries an
+id. The agent may change a topic's level, New, Learning, Practiced or Strong,
+citing the user's messages, such as a lesson question or a check answer, their
+private questions, lessons or work items it rests on; ByteQuay keeps only
+evidence that exists, never an event it reported, and never changes a level the
+user set.
 The Guide view lists what the user knows, folded under its count, and the user
 can correct any level.
 

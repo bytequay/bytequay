@@ -473,6 +473,21 @@ class TestGoalConversationService
     }
 
     @Test
+    void theUsersOwnMessageBacksATopicLevelButAnEventDoesNot()
+    {
+        GoalView goal = goals.create("workspace", "Iceberg", "");
+        service.ask("workspace", goal.id(), "op-1", "My answer to the check: a snapshot points to its manifest list");
+        doReturn(levels()).when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.tellDecision("workspace", goal.id(), "lesson:lesson-1", "The user finished the lesson \"What a table is\".");
+        doReturn(levels(new GoalTopic.Change("Snapshots", GoalTopic.Level.LEARNING, ImmutableList.of("message:op-1", "message:lesson:lesson-1", "message:invented"))))
+                .when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        assertThat(goals.list("workspace").getFirst().topics()).singleElement()
+                .satisfies(topic -> assertThat(topic.evidence()).as("only what the user said backs the level").containsExactly("message:op-1"));
+    }
+
+    @Test
     void whatTheUserAlreadyKnowsBacksTheFirstTopicLevels()
     {
         GoalView goal = goals.create("workspace", "Iceberg", "");

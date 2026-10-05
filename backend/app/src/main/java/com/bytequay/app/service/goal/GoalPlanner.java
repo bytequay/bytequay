@@ -171,8 +171,10 @@ public class GoalPlanner
 
             Keep track of what the user knows, topic by topic: from finished lessons, check answers, their questions here
             and in their private cards (recentQuestions), and the work they did. When the evidence changes a topic's level
-            (NEW, LEARNING, PRACTICED or STRONG), put it in topics with the ids of the questions, lessons (lesson:<id>) or
-            work items (work:<id>) it rests on. Once the user accepted a definition that says what they already know, set
+            (NEW, LEARNING, PRACTICED or STRONG), put it in topics with the ids of the user's messages here (message:<id>),
+            their questions, lessons (lesson:<id>) or work items (work:<id>) it rests on. When the user answers the open
+            lesson's check, say whether the answer shows what the lesson's outcome promises and what it misses; an answer
+            that shows it is evidence for the lesson's topics. Once the user accepted a definition that says what they already know, set
             the first levels of the topics it names, citing the definition's id. Never change a level the user set. Let the levels decide what comes next:
             more practice where an area is still being learned, the next part once it is practiced, and shorter lessons
             where the user starts strong. A question about an area shows it is new to them. An event, such as a finished research run, is something ByteQuay reports, not the user's
@@ -378,7 +380,12 @@ public class GoalPlanner
         }
         ArrayNode exchanges = data.putArray("earlierExchanges");
         for (GoalExchange exchange : earlier.subList(omitted, earlier.size())) {
-            ObjectNode entry = exchanges.addObject().put(exchange.automatic() ? "event" : "user", exchange.message());
+            ObjectNode entry = exchanges.addObject();
+            if (!exchange.automatic()) {
+                entry.put("id", messageId(exchange));
+            }
+            entry.put(exchange.automatic() ? "event" : "user", exchange.message());
+            exchange.lessonId().ifPresent(lesson -> entry.put("aboutLesson", lesson));
             exchange.reply().ifPresentOrElse(reply -> entry.set("agent", MAPPER.valueToTree(reply)), () -> entry.put("agent", "No answer"));
         }
         current.lessonId().flatMap(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst()).ifPresent(item -> {
@@ -386,8 +393,17 @@ public class GoalPlanner
             lessons.find(item.id()).flatMap(GoalLesson::content).ifPresent(content -> open.put("explanation", excerpt(content.explanation(), MAX_LESSON_EXCERPT))
                     .put("exercise", content.exercise()).put("check", content.check()));
         });
+        if (!current.automatic()) {
+            data.put("messageId", messageId(current));
+        }
         data.put(current.automatic() ? "event" : "message", current.message());
         return INSTRUCTIONS + "\n<goal-data>\n" + data.toPrettyString() + "\n</goal-data>\n";
+    }
+
+    /** What a topic level cites for something the user said to the goal; an event ByteQuay reported has none. */
+    static String messageId(GoalExchange exchange)
+    {
+        return "message:" + exchange.id();
     }
 
     static GoalExchange.Reply parse(String answer)

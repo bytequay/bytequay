@@ -1005,10 +1005,27 @@ class TestGoalConversationService
         GoalView goal = goals.create("workspace", "Delta Lake", "");
         service.ask("workspace", goal.id(), "op-1", "Where do I start?");
         doReturn(named("Delta Lake checkpoints")).when(planner).answer(any(), any(), anyList(), any());
-        GoalExchange.Coverage coverage = new GoalExchange.Coverage(6, 14, 3, 100, 512);
+        GoalExchange.Coverage coverage = new GoalExchange.Coverage(6, 14, 3, 100, 512, Optional.of("facts-1"));
         when(planner.coverage("op-1")).thenReturn(Optional.of(coverage));
         queued.removeFirst().run();
         assertThat(exchanges.list(goal.id()).getFirst().coverage()).contains(coverage);
+    }
+
+    @Test
+    void updateNowAsksNoModelWhenNothingChangedSinceTheLastAnswer()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Where do I start?");
+        doReturn(named("Delta Lake checkpoints")).when(planner).answer(any(), any(), anyList(), any());
+        when(planner.coverage("op-1")).thenReturn(Optional.of(new GoalExchange.Coverage(0, 0, 0, 0, 0, Optional.of("facts-1"))));
+        queued.removeFirst().run();
+
+        when(planner.fingerprint(any())).thenReturn("facts-1");
+        assertThatThrownBy(() -> service.reassess("workspace", goal.id(), "op-2")).hasMessageContaining("Nothing changed since the agent's last answer");
+        assertThat(exchanges.list(goal.id())).hasSize(1);
+        // Once anything the agent is given changed, Update now asks it.
+        when(planner.fingerprint(any())).thenReturn("facts-2");
+        assertThat(service.reassess("workspace", goal.id(), "op-2")).extracting(GoalExchange::id).containsExactly("op-1", "op-2");
     }
 
     @Test

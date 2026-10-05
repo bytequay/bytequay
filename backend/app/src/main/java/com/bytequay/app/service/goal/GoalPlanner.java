@@ -42,6 +42,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -56,6 +57,7 @@ import java.util.Set;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Comparator.comparingLong;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -509,7 +511,17 @@ public class GoalPlanner
         return found;
     }
 
-    String prompt(GoalView goal, List<GoalExchange> earlier, GoalExchange current)
+    /**
+     * A digest of what the goal stands on now apart from its conversation: its definition, course, work, cards, notes, candidates, topics and
+     * the user's questions. The same digest as the last answer's means the agent has nothing new to answer.
+     */
+    public String fingerprint(GoalView goal)
+    {
+        return digest(facts(goal, "", Optional.empty()));
+    }
+
+    /** Everything the agent is given about the goal but the conversation; for an exchange, what it held is kept for its answer. */
+    private ObjectNode facts(GoalView goal, String message, Optional<String> exchangeId)
     {
         ObjectNode data = MAPPER.createObjectNode();
         workspaces.findById(goal.workspaceId()).ifPresent(workspace -> data.put("repository", workspace.monitoredRepository().fullName()));
@@ -589,7 +601,7 @@ public class GoalPlanner
         ArrayNode knowledge = data.putArray("knowledgeNotes");
         List<GoalKnowledgeNote> saved = notes.list(goal.id()).stream().limit(MAX_NOTES).collect(toImmutableList());
         Set<String> stale = research.stale(goal.workspaceId(), saved);
-        Set<String> inFull = nearestNotes(saved, current.message(), GoalCandidates.context(goal), MAX_NOTES_IN_FULL);
+        Set<String> inFull = nearestNotes(saved, message, GoalCandidates.context(goal), MAX_NOTES_IN_FULL);
         saved.forEach(note -> {
             ObjectNode entry = knowledge.addObject().put("topic", note.topic());
             if (stale.contains(note.id())) {
@@ -599,7 +611,26 @@ public class GoalPlanner
                 entry.put("body", note.body());
             }
         });
-        covered.put(current.id(), new GoalExchange.Coverage(inFull.size(), saved.size() - inFull.size(), nearest.size(), offered, issuesOpen));
+        if (exchangeId.isPresent()) {
+            covered.put(exchangeId.orElseThrow(), new GoalExchange.Coverage(inFull.size(), saved.size() - inFull.size(), nearest.size(), offered, issuesOpen,
+                    Optional.of(digest(data))));
+        }
+        return data;
+    }
+
+    /** The facts without the notes' bodies, which follow the message rather than the goal. */
+    private static String digest(ObjectNode data)
+    {
+        ObjectNode copy = data.deepCopy();
+        if (copy.get("knowledgeNotes") instanceof ArrayNode noted) {
+            noted.forEach(note -> ((ObjectNode) note).remove("body"));
+        }
+        return Hashing.sha256().hashString(copy.toString(), UTF_8).toString();
+    }
+
+    String prompt(GoalView goal, List<GoalExchange> earlier, GoalExchange current)
+    {
+        ObjectNode data = facts(goal, current.message(), Optional.of(current.id()));
         int omitted = Math.max(0, earlier.size() - MAX_EARLIER);
         if (omitted > 0) {
             data.put("omittedEarlierExchanges", omitted);

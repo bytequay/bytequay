@@ -207,6 +207,13 @@ class TestGoalPlanner
                 ImmutableList.of(later, first), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
 
         String prompt = planner.prompt(goal, ImmutableList.of(), GoalExchange.ask("op", "goal-1", "workspace", "What next?", 1, NOW));
+        assertThat(planner.coverage("op").flatMap(GoalExchange.Coverage::facts)).as("an answer keeps the digest of the facts it was given, not of its message")
+                .contains(planner.fingerprint(goal));
+        GoalView started = new GoalView("goal-1", "workspace", "Delta Lake correctness", "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false,
+                ImmutableList.of(later, new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Read the checkpoint code", WorkItem.Kind.LEARN, "Explain it",
+                        WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.WORKING, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0,
+                        ImmutableList.of(), Optional.empty(), 0)), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+        assertThat(planner.fingerprint(started)).as("work that moved is a new fact").isNotEqualTo(planner.fingerprint(goal));
         assertThat(prompt.indexOf("\"id\" : \"work-1\"")).as("the work comes in the user's order").isLessThan(prompt.indexOf("\"id\" : \"work-2\""));
         assertThat(prompt).contains("\"priority\" : \"HIGH\"", "\"waitsOn\" : [ \"work-1\" ]", "never recommend it");
         assertThat(prompt).as("the agent may propose a new order").contains("propose a plan", "waitsOn or acceptanceCriteria should", "An unchanged plan");
@@ -319,7 +326,8 @@ class TestGoalPlanner
                 .contains("\"directory\" : \"plugin/trino-delta-lake/\"", "\"sections\" : 42", "PROTOCOL.md")
                 .contains("\"id\" : \"discussion:q-1\"", "\"text\" : \"What is a manifest list?\"", "\"setByUser\" : true");
         assertThat(planner.coverage("op-now")).as("the answer is saved with what its prompt held")
-                .contains(new GoalExchange.Coverage(2, 0, 1, 2, 900));
+                .hasValueSatisfying(coverage -> assertThat(coverage).usingRecursiveComparison().ignoringFields("facts")
+                        .isEqualTo(new GoalExchange.Coverage(2, 0, 1, 2, 900, Optional.empty())));
         assertThat(planner.coverage("op-now")).as("given once").isEmpty();
         assertThat(planner.prompt(goal, earlier, GoalExchange.told("research:task", "goal-1", "workspace", "The research run saved 1 note: Manifest lists.", 1, NOW)))
                 .contains("\"event\" : \"The research run saved 1 note: Manifest lists.\"")

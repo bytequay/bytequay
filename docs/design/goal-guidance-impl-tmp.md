@@ -845,6 +845,25 @@ Progress: the twenty-fourth slice is complete.
 Done when: an answer about a topic the notes cover reads those notes in full,
 and the Guide view says what each answer read.
 
+## Twenty-fifth implementation slice
+
+Fewer model calls: an answer keeps a digest of the facts it was given, so asking
+again about the same facts asks no model.
+
+1. A persisted input fingerprint. Each answer saves a digest of everything the
+   agent was given about the Goal but the conversation: its definition, course,
+   work, cards, notes by topic, candidates, topics and the user's questions.
+2. Update now asks only when something changed. With no held event and the
+   same digest as the agent's last answer, Update now is refused with "Nothing
+   changed since the agent's last answer" and no model is asked.
+
+Progress: the twenty-fifth slice is complete. Background events were already
+told once each and discovery already waits for new issues, so the digest only
+had to cover the user's own Update now.
+
+Done when: a second Update now with nothing new asks no model, and one after the
+work changed does.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -1008,10 +1027,10 @@ investigation-card test in `TestGoalConversationService`, the prepared request
 in `goals.test.tsx` and the `goalGuideBrowser` journey. Still partial: cited
 pages are never checked for staleness; shortlisted sources record no duplicate
 read or revision, though a card whose source could not be read again says so;
-research pages accept any https address; conclusions are cached only for
-discovery, by the Goal's last exchange; new Jira tickets do not trigger
-discovery; and Start rechecks the source, its role, the work's state and its
-current task, but not the work item's revision.
+research pages accept any https address; conclusions are cached by the Goal's
+last exchange and the digest of its facts, not per candidate; new Jira tickets
+do not trigger discovery; and Start rechecks the source, its role, the work's
+state and its current task, but not the work item's revision.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed
@@ -1048,7 +1067,7 @@ already-started source cannot slip through stale recommendations.
 - [x] Propose specific plan differences when scope/order/dependencies should
   change, with their reason. Refresh recommendations within accepted constraints
   automatically; preserve accepted decisions until the user changes them.
-- [ ] Reconsider after meaningful linked work/source changes. Persist the input
+- [x] Reconsider after meaningful linked work/source changes. Persist the input
   fingerprint, coalesce events and respect quiet hours and the design's call
   limits. Add Pause guidance and Update now; panel polling remains local.
 - [x] Use request and input revision checks to discard stale proposed changes.
@@ -1063,11 +1082,11 @@ Evidence for the checked items: the spec-check and blocked-lesson card tests in
 `TestGoalQuestions` for questions on the Goal's topics, `TestGoalDeliveries` for
 reviews, failing checks and pull requests waiting for review, `TestGoalReceipts`
 and `TestDefaultAgentCompletionService` for receipts kept through cleanup and
-deletion, and the summary retry in `TestGoalConversationService`. Still partial:
-a task start reaches the agent only with its first finished turn; plan
-differences cover the course and the open work's priorities, order, dependencies
-and criteria, not a work item's title or completion rule; and the persisted
-input fingerprint covers only discovery.
+deletion, the summary retry and the unchanged Update now in
+`TestGoalConversationService`, and the facts digest in `TestGoalPlanner`. Still
+partial: a task start reaches the agent only with its first finished turn, and
+plan differences cover the course and the open work's priorities, order,
+dependencies and criteria, not a work item's title or completion rule.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

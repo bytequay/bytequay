@@ -343,7 +343,9 @@ Pause guidance stops these messages: a paused Goal's agent hears no automatic
 event, the user's acceptances included, and the facts are still recorded. The
 user's own messages still reach it, and Update now asks it to reassess the Goal
 from its current facts, paused or not, one request at a time, taking any held
-events with it.
+events with it. Each answer keeps a digest of the facts it was given, everything
+but the conversation, so Update now with no held event and the same facts as the
+agent's last answer asks no model and says nothing changed.
 
 Each request also carries the user's twenty newest questions from their private
 cards in every workspace (passage and comment discussions, local review

@@ -221,9 +221,35 @@ public class GoalConversationService
     /** Update now: asks the agent to reassess the goal from its current facts, also while guidance is paused. */
     public List<GoalExchange> reassess(String workspaceId, String goalId, String operationId)
     {
+        boolean waiting;
+        synchronized (writes) {
+            waiting = held.containsKey(goalId) || exchanges.find(operationId).isPresent();
+        }
+        // Asked again about the same facts, the agent would say the same, so nothing new asks no model.
+        if (!waiting && unchanged(workspaceId, goalId)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Nothing changed since the agent's last answer.");
+        }
         // Held events go with the request instead of waiting for a pass of their own.
         return send(workspaceId, goalId, operationId, goal -> GoalExchange.told(operationId, goalId, workspaceId,
                 held.containsKey(goalId) ? REASSESS + "\n\n" + events(release(goalId)) : REASSESS, goal.revision(), clock.instant()));
+    }
+
+    /** Whether the goal stands on the same facts as when the agent last answered; an older answer that kept none never counts as the same. */
+    private boolean unchanged(String workspaceId, String goalId)
+    {
+        Optional<String> answered = exchanges.list(goalId).stream().reduce((first, second) -> second)
+                .filter(last -> last.state() == GoalExchange.State.ANSWERED).flatMap(GoalExchange::coverage).flatMap(GoalExchange.Coverage::facts);
+        if (answered.isEmpty()) {
+            return false;
+        }
+        try {
+            return answered.orElseThrow().equals(planner.fingerprint(goal(workspaceId, goalId)));
+        }
+        catch (RuntimeException unreadable) {
+            // A goal whose facts cannot be read now is asked about anyway.
+            log.debug("Goal {} facts were not read for Update now", goalId, unreadable);
+            return false;
+        }
     }
 
     private List<GoalExchange> send(String workspaceId, String goalId, String operationId, Function<GoalView, GoalExchange> request)

@@ -58,7 +58,7 @@ class TestGoalExchangeConverter
                         Optional.of(plan)),
                 NOW);
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(planned))).isEqualTo(planned);
-        GoalExchange covered = planned.covering(Optional.of(new GoalExchange.Coverage(6, 14, 3, 100, 512)));
+        GoalExchange covered = planned.covering(Optional.of(new GoalExchange.Coverage(6, 14, 3, 100, 512, Optional.of("4f1c"))));
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(covered))).isEqualTo(covered);
 
         GoalCourse.Draft course = new GoalCourse.Draft(ImmutableList.of(new GoalCourse.DraftPart("Iceberg tables", ImmutableList.of(

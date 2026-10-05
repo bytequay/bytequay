@@ -126,12 +126,15 @@ public record GoalExchange(
     /**
      * What an answer rested on: the knowledge notes it read in full and those it saw by topic only, the user's questions from private cards,
      * and the practice candidates it was offered out of the open issues.
+     *
+     * @param facts a digest of everything it was given about the goal but the conversation, so an unchanged goal can be told apart
      */
-    public record Coverage(int notesInFull, int notesByTopic, int questions, int candidates, long issuesOpen)
+    public record Coverage(int notesInFull, int notesByTopic, int questions, int candidates, long issuesOpen, Optional<String> facts)
     {
         public Coverage
         {
             checkArgument(notesInFull >= 0 && notesByTopic >= 0 && questions >= 0 && candidates >= 0 && issuesOpen >= 0, "an answer's coverage is not negative");
+            requireNonNull(facts, "facts is null");
         }
     }
 

@@ -88,7 +88,7 @@ export default function ReviewDetails({ run, repository, compact = false }: { ru
       {run.steps.length > 0 && <details>
         <summary>Review passes · {run.steps.length}</summary>
         {run.steps.map(step => <details key={step.number}>
-          <summary>{step.number}. {{ INVESTIGATE: 'Investigation', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation' }[step.kind]}
+          <summary>{step.number}. {{ INVESTIGATE: 'Investigation', CHECK_NITS: 'Nit check', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation' }[step.kind]}
             {step.repair ? ' · report correction' : ''}{step.investigation === null && step.validation === null ? ' · no report recorded' : ''}</summary>
           {step.investigation !== null && <>
             <p>{step.investigation.reviewedFiles.length} changed {step.investigation.reviewedFiles.length === 1 ? 'file' : 'files'} assessed

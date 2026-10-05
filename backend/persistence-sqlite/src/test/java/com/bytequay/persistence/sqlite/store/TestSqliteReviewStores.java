@@ -255,7 +255,7 @@ class TestSqliteReviewStores
     }
 
     @Test
-    void roundTripsTheSealedEvidenceRequestAndResponse()
+    void roundTripsTheSealedEvidenceRequestAndResponseWithANitCheck()
     {
         AgentReview review = newReview("review-loop", "workspace-a", "bytequay/sample", 7, "task-loop", NOW);
         ReviewInvestigation initial = new ReviewInvestigation("Caller lifetime", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
@@ -273,7 +273,10 @@ class TestSqliteReviewStores
                 .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.of(validation)), NOW)
                 .withStep(new ReviewStep(3, ReviewStep.Kind.COLLECT_EVIDENCE, true, Optional.of(response), Optional.empty()), NOW)
                 .withInvestigation(response, NOW)
-                .withStep(new ReviewStep(4, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.empty()), NOW)
+                .withStep(new ReviewStep(4, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.of(new ReviewValidation(3,
+                        ImmutableList.of(new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.REJECTED, "The caller closes it", ImmutableList.of("ev-2"),
+                                "Every caller has guaranteed cleanup", Optional.empty(), Optional.empty(), Optional.empty())), COVERAGE, ImmutableList.of()))), NOW)
+                .withStep(new ReviewStep(5, ReviewStep.Kind.CHECK_NITS, false, Optional.empty(), Optional.empty()), NOW)
                 .withCompletionRepairUsed(NOW);
         store.insertReview(review);
         store.insertRun(run);
@@ -284,6 +287,7 @@ class TestSqliteReviewStores
         assertThat(restored.steps().get(1).validation()).contains(validation);
         assertThat(restored.steps().get(2).investigation()).contains(response);
         assertThat(restored.steps().get(2).key(run.id())).isEqualTo("review-step:run-loop:3:repair");
+        assertThat(restored.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.CHECK_NITS);
     }
 
     @Test

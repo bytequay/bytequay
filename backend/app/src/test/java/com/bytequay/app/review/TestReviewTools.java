@@ -103,6 +103,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
+import static com.bytequay.core.review.ReviewStep.Kind.CHECK_NITS;
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -1638,6 +1639,28 @@ class TestReviewTools
         assertThat(store.findRun(RUN_ID).orElseThrow().coverage().orElseThrow().complete()).isTrue();
         assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().validations().getFirst().findingId()).contains(findingId);
         assertThat(store.findFinding(findingId).orElseThrow().evidence().getFirst().explanation()).contains("Validation:", "no caller guard");
+    }
+
+    @Test
+    void nitCheckPreservesCandidatesAndRequiresValidationBeforeSavingFindings()
+    {
+        call("review_save_summary", summary("summary", "Reject unchecked input"));
+        readSource();
+        assertThat(call("review_finish", finish("no-findings", ImmutableList.of(assessment(1, "REJECTED")))).path("status").asText()).isEqualTo("accepted");
+        advance(CHECK_NITS);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("kind").asText()).isEqualTo("CHECK_NITS");
+        assertThat(call("review_save_finding", finding("too-early", "Nit: Clarify the name", "A2", ImmutableList.of(evidence("E1"))))
+                .at("/error/field").asText()).isEqualTo("validation");
+        assertThat(call("review_save_investigation", investigation("lost-candidate", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of()))
+                .at("/error/field").asText()).isEqualTo("candidates");
+        assertThat(call("review_save_investigation", investigation("nits", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
+                ImmutableList.of(CANDIDATE, "Nit: Clarify the name"))).path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+        String findingId = call("review_save_finding", finding("nit", "Nit: Clarify the name", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
+        Map<String, Object> result = new LinkedHashMap<>(finish("validated-nit", ImmutableList.of(assessment(1, "REJECTED"), supported(2, findingId, 1))));
+        result.put("investigationStep", 3);
+        assertThat(call("review_finish", result).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listFindings(REVIEW_ID)).singleElement().extracting(ReviewFinding::title).isEqualTo("Nit: Clarify the name");
     }
 
     @ParameterizedTest

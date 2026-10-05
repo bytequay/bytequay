@@ -27,7 +27,8 @@ discussions, resumed turns, and report repair.
    Read the complete relevant timeline thread before interpreting a reply.
    Record whether each relevant lead survives validation.
    Also save up to five nit candidates, each starting with "Nit:": small,
-   concrete polish in test writing, code simplification, naming or comments, a
+   concrete polish in test writing, code simplification, method/field naming,
+   API usage or comments, a
    commit subject or body, or the PR description. They are used only when the
    review supports no other finding.
 3. **Validate by trying to prove and disprove each candidate.** Establish the
@@ -103,7 +104,10 @@ discussions, resumed turns, and report repair.
    description has no lines: save it with scope pull_request instead of anchors,
    name its real subject in the first sentence, give the proposed wording as
    text, and cite the command or source evidence it rests on. Discussions,
-   retries, and repair share the round's limit.
+   retries, and repair share the round's limit. Before accepting a complete
+   zero-finding result, ByteQuay always schedules one dedicated nit check and
+   validates its candidates. A second zero-finding result can finish; do not
+   invent findings to avoid it.
 7. Before saving, reread the finding as a standalone GitHub comment. Lead with
    the specific claim, reachable trigger and consequence; add a brief real
    example only when it clarifies the failure. Keep every material condition.
@@ -176,6 +180,15 @@ later pages. Tool descriptions define pagination, fields and evidence refs.
   and save each attempted check with evidenceRefs or an honest limitation in
   answers. Refresh the verification handoff with reusable setup and results,
   seal investigation, and end the turn. ByteQuay alone schedules the next turn.
+- Nit check: after zero supported findings, look again at method/field naming,
+  API calls, code simplification, and test clarity. Check whether the tests
+  exercise the intended feature or fix and fail without it for the intended
+  reason, not an unrelated serialization error or broken setup. Consider simpler
+  tests that preserve the same behavioral coverage. Reuse applicable evidence,
+  assessed scope, verification setup and completed checks. Preserve existing
+  candidate text and numbering, append concrete candidates, and seal
+  review_save_investigation with empty answers. Do not save findings until
+  validation. Report any real defect as such; do not relabel it as a nit.
 - Discussion: read existing findings to avoid duplicates. A targeted card question
   uses review_reply with its exact target; revise or withdraw the selected finding
   when warranted. After an accepted review, save new validated defects or concrete

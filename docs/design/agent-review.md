@@ -28,6 +28,10 @@ Validation either supports a finding, rejects a hypothesis, requests a specific
 piece of evidence, or records an unresolved claim. A valid evidence request
 starts an evidence-collection turn; its answers return to a new validation
 turn. At most two evidence-collection assignments run per frozen head attempt.
+Before accepting complete coverage with zero supported findings, ByteQuay always
+starts one dedicated nit-check investigation followed by validation. This extra
+round runs at most once per run, retains the frozen scope and evidence, and does
+not reset the evidence-collection budget. Its validated result can remain empty.
 This is explicit self-review in one conversation, not independent verification.
 
 The agent judges whether evidence establishes the claim. ByteQuay checks report
@@ -281,7 +285,7 @@ this is not a second task engine:
 | --- | --- |
 | Review | Workspace, optional source development task, optional logical PR identity, physical repository/head-branch identity, reviewer agent task ID, latest completed run, latest observed PR head, follow-up execution enabled/paused, optimistic version, explicit closure |
 | Run | Review ID, full/incremental scope, frozen base tip and merge base, head SHA, prior successful reviewed head if any, turn IDs, ordered assignments, latest investigation, accepted result/coverage, terminal outcome |
-| Assignment | Consecutive number, investigation/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
+| Assignment | Consecutive number, investigation/nit-check/validation/evidence-collection kind, reporting-repair attempt, immutable report when sealed |
 | Investigation | Change map, distinct assessed changed-file paths, captured supporting context refs, numbered hypotheses, evidence-request answers, latest validation conclusions |
 | Validation | Sealed investigation step number, assessment of every candidate, newly discovered hypotheses, coverage, blocking omissions and verification warnings |
 | Summary | Run ID, revision, purpose, actual commit explanations |
@@ -827,7 +831,7 @@ automatically executed script or permission grant. Validation checks the code,
 experiment files, environment and purpose before reusing a result and repeats
 checks whose inputs changed or whose evidence does not answer the candidate.
 
-Only an investigation or evidence-collection assignment can call it. The
+Only an investigation, nit-check or evidence-collection assignment can call it. The
 summary must account for every actual commit first. Subsequent collection
 preserves candidate text and one-based numbering, appends hypotheses requested
 by validation, and may append new discoveries. Its `answers` account for each
@@ -897,7 +901,7 @@ clear claim/condition style without a separate length cap.
 
 When validation supports no defect and no suggestion, the review reports up to
 five nits instead of an empty result: small, concrete polish in test writing,
-code simplification, naming or comments, a commit subject or body, or the PR
+code simplification, method/field naming, API usage or comments, a commit subject or body, or the PR
 description. Nit candidates are collected during investigation, because a
 candidate added during validation requires another investigation round. They
 become severity-free findings titled `Nit:` only when no other finding is
@@ -905,6 +909,19 @@ supported; otherwise validation rejects them as held back. A nit about a commit
 message or the PR description is a whole-pull-request finding and names its real
 subject first. A review with no true nit still reports zero findings; nits are
 never padded.
+
+A complete validation with zero supported findings triggers one additional
+nit-check investigation before the run can finish. The assignment explicitly
+revisits method and field naming, API calls, simpler code and tests, and whether
+tests exercise the intended feature or fix. A test control must fail without
+the behavior for the intended reason, not an unrelated serialization error,
+compilation failure or broken setup. The investigator reuses applicable evidence,
+verification setup and completed checks, preserves assessed scope and candidate
+numbering, and appends any concrete candidates before sealing its report.
+The ordinary validator checks that report, including any real defects discovered;
+the extra round does not relax finding requirements or require a quota of nits.
+The persisted nit-check assignment prevents another automatic nit round after
+reconciliation, repair or restart. Pausing defers its launch until Resume.
 
 Evidence stays with the finding it supports, distinguishing executed checks
 from source inspection and reported CI results. `review_finish` still records
@@ -1099,8 +1116,9 @@ complete=true with empty omissions when every required file and candidate has
 been assessed. A warning cannot replace evidence needed to support or reject a
 candidate. A complete zero-finding result is explicit.
 
-A run advances the successful reviewed-head cursor only after the validation
-turn settles and complete=true with no omissions. Partial, failed, stopped,
+A run advances the successful reviewed-head cursor only after the final validation
+turn settles and complete=true with no omissions, including the mandatory nit
+round when the preceding result had zero findings. Partial, failed, stopped,
 and incomplete runs never advance it. Ignore previously accepted runs with
 incomplete coverage or missing commit explanations when choosing a baseline.
 Findings from unfinished/failed runs remain provisional.

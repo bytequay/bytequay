@@ -96,6 +96,7 @@ import java.util.regex.Pattern;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.SUPPORTED;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.UNRESOLVED;
+import static com.bytequay.core.review.ReviewStep.Kind.CHECK_NITS;
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
@@ -262,7 +263,8 @@ public class ReviewTools
                         "Save the change map, assessed changed-file paths, supporting evidence refs, and candidate claims before ending investigation. "
                                 + "Candidates are private hypotheses numbered from 1, not findings. "
                                 + "verification carries reusable test setup and completed checks backed by command evidence; omission retains the previous handoff in this run. "
-                                + "Only the assigned investigation or evidence-collection turn may seal this report. Evidence collection must answer every requested check.",
+                                + "Only the assigned investigation, nit-check or evidence-collection turn may seal this report. "
+                                + "Evidence collection must answer every requested check.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "changeMap", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_TEXT),
@@ -491,7 +493,7 @@ public class ReviewTools
         if (replay.result().isPresent()) {
             return replay.result().orElseThrow();
         }
-        ReviewStep step = assigned(call, INVESTIGATE, COLLECT_EVIDENCE);
+        ReviewStep step = assigned(call, INVESTIGATE, CHECK_NITS, COLLECT_EVIDENCE);
         if (!call.run().hasCompleteSummary()) {
             throw new ReviewInvalidRequestException("summary: save the intention and every actual commit before sealing the investigation");
         }
@@ -508,7 +510,8 @@ public class ReviewTools
         if (step.kind() == COLLECT_EVIDENCE) {
             previous = ImmutableList.<String>builder().addAll(previous).addAll(lastValidation(call.run()).orElseThrow().newCandidates()).build();
         }
-        if (step.kind() == COLLECT_EVIDENCE && (candidates.size() < previous.size() || !candidates.subList(0, previous.size()).equals(previous))) {
+        if ((step.kind() == COLLECT_EVIDENCE || step.kind() == CHECK_NITS)
+                && (candidates.size() < previous.size() || !candidates.subList(0, previous.size()).equals(previous))) {
             throw new ReviewInvalidRequestException("candidates: preserve existing candidate text and numbering; append new hypotheses if needed");
         }
         Set<Integer> requested = new HashSet<>();

@@ -679,12 +679,12 @@ class TestDefaultAgentReviewService
         assertThat(validating.state()).isEqualTo(ReviewRun.State.RUNNING);
         assertThat(validating.turnIds()).containsExactly(TURN_ONE.toString(), TURN_TWO.toString());
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
-        completeValidation(fixture, validating);
+        completeCleanReview(fixture, validating);
         fixture.service.reconcile(reviewId);
 
         assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.ACCEPTED);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(unlinked.id());
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -1059,13 +1059,60 @@ class TestDefaultAgentReviewService
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
+    void zeroFindingsStartOneNitRoundAfterCleanupAndResume(boolean paused)
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
+        completeValidation(fixture, validating);
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.recovery("cleanup", NOW), NOW));
+        fixture.service.reconcile(reviewId);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask());
+        if (paused) {
+            fixture.service.stop(reviewId);
+            fixture.service.reconcile(reviewId);
+            verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+            assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
+            fixture.service.resume(reviewId);
+        }
+        fixture.service.reconcile(reviewId);
+        fixture.service.reconcile(reviewId);
+
+        ReviewRun checkingNits = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(checkingNits.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.CHECK_NITS);
+        assertThat(checkingNits.headSha()).isEqualTo(validating.headSha());
+        assertThat(checkingNits.summary()).isEqualTo(validating.summary());
+        assertThat(checkingNits.investigation()).isEqualTo(validating.investigation());
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).isEmpty();
+        ArgumentCaptor<StartAgentTurnCommand> commands = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
+        verify(fixture.turns, times(3)).start(commands.capture());
+        assertThat(commands.getValue().message()).contains("method and field naming", "API calls", "code simplification", "test clarity and simplification",
+                "same assertions fail without it", "unrelated serialization error", "reuse relevant evidence");
+
+        completeValidation(fixture, beginValidation(fixture, checkingNits));
+        fixture.service.reconcile(reviewId);
+        fixture.service.reconcile(reviewId);
+
+        ReviewRun accepted = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(accepted.state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        assertThat(accepted.steps()).extracting(ReviewStep::kind).containsExactly(
+                ReviewStep.Kind.INVESTIGATE, ReviewStep.Kind.VALIDATE, ReviewStep.Kind.CHECK_NITS, ReviewStep.Kind.VALIDATE);
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(validating.id());
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns, never()).synchronizeWorktree(any(), anyLong(), any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
     void reconcileAcceptsACompletedRunWithASummaryAndCoverage(boolean paused)
     {
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewRun validating = beginValidation(fixture, run);
-        completeValidation(fixture, validating);
+        completeCleanReview(fixture, validating);
         if (paused) {
             fixture.service.stop(reviewId);
         }
@@ -1078,7 +1125,7 @@ class TestDefaultAgentReviewService
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(run.id());
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isEqualTo(paused);
         // The observed head is already reviewed, so nothing new is scheduled.
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -1175,14 +1222,14 @@ class TestDefaultAgentReviewService
         ReviewRun validationRepair = fixture.store.findRun(run.id()).orElseThrow();
         assertThat(validationRepair.currentStep().orElseThrow().repair()).isTrue();
         assertThat(validationRepair.turnIds()).hasSize(4);
-        completeValidation(fixture, validationRepair);
+        completeCleanReview(fixture, validationRepair);
         fixture.service.reconcile(reviewId);
 
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
         assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(run.id());
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
-        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(6)).start(any(StartAgentTurnCommand.class));
         verify(fixture.turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
 
@@ -1229,7 +1276,7 @@ class TestDefaultAgentReviewService
         verify(fixture.turns, times(2)).start(started.capture());
         assertThat(started.getValue().idempotencyKey()).isEqualTo("review-step:" + run.id() + ":2");
 
-        completeValidation(fixture, validating);
+        completeCleanReview(fixture, validating);
         fixture.service.reconcile(reviewId);
 
         assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
@@ -1277,13 +1324,20 @@ class TestDefaultAgentReviewService
         submitCandidateValidation(fixture, revalidating, ReviewCandidateValidation.Outcome.REJECTED);
         fixture.service.reconcile(validating.reviewId());
 
+        ReviewRun checkingNits = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(checkingNits.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.CHECK_NITS);
+        ReviewRun nitValidation = beginValidation(fixture, checkingNits, validating.investigation().orElseThrow());
+        submitCandidateValidation(fixture, nitValidation, ReviewCandidateValidation.Outcome.REJECTED);
+        fixture.service.reconcile(validating.reviewId());
+
         ReviewRun accepted = fixture.store.findRun(validating.id()).orElseThrow();
         assertThat(accepted.state()).isEqualTo(ReviewRun.State.ACCEPTED);
         assertThat(accepted.steps()).extracting(ReviewStep::kind).containsExactly(
-                ReviewStep.Kind.INVESTIGATE, ReviewStep.Kind.VALIDATE, ReviewStep.Kind.COLLECT_EVIDENCE, ReviewStep.Kind.VALIDATE);
-        assertThat(accepted.currentStep().orElseThrow().validation().orElseThrow().investigationStep()).isEqualTo(3);
+                ReviewStep.Kind.INVESTIGATE, ReviewStep.Kind.VALIDATE, ReviewStep.Kind.COLLECT_EVIDENCE, ReviewStep.Kind.VALIDATE,
+                ReviewStep.Kind.CHECK_NITS, ReviewStep.Kind.VALIDATE);
+        assertThat(accepted.currentStep().orElseThrow().validation().orElseThrow().investigationStep()).isEqualTo(5);
         verify(fixture.tasks, times(1)).create(any(CreateAgentTaskCommand.class));
-        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(6)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -1507,6 +1561,12 @@ class TestDefaultAgentReviewService
         assertThat(fixture.store.findReview(validating.reviewId()).orElseThrow().latestCompletedRunId()).isEmpty();
         submitCandidateValidation(fixture, repairing, ReviewCandidateValidation.Outcome.REJECTED);
         fixture.service.reconcile(validating.reviewId());
+        ReviewRun checkingNits = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(checkingNits.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.CHECK_NITS);
+        ReviewRun nitValidation = beginValidation(fixture, checkingNits, validating.investigation().orElseThrow());
+        submitCandidateValidation(fixture, nitValidation, ReviewCandidateValidation.Outcome.REJECTED);
+        fixture.service.reconcile(validating.reviewId());
+
         assertThat(fixture.store.findRun(validating.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
     }
 
@@ -1516,7 +1576,7 @@ class TestDefaultAgentReviewService
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun baseline = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
-        completeValidation(fixture, baseline);
+        completeCleanReview(fixture, baseline);
         fixture.service.reconcile(reviewId);
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(ok(""));
@@ -1537,7 +1597,7 @@ class TestDefaultAgentReviewService
         assertThat(incomplete.investigation()).isPresent();
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(baseline.id());
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isTrue();
-        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(6)).start(any(StartAgentTurnCommand.class));
 
         fixture.service.resume(reviewId);
 
@@ -1597,7 +1657,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewRun validating = beginValidation(fixture, run);
-        completeValidation(fixture, validating);
+        completeCleanReview(fixture, validating);
         when(fixture.tasks.get(TASK_ID)).thenReturn(idleTask().claimWorktreeMutation(WorktreeMutationClaim.recovery("pending-cleanup", NOW), NOW));
 
         fixture.service.reconcile(reviewId);
@@ -1610,7 +1670,7 @@ class TestDefaultAgentReviewService
 
         assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.ACCEPTED);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(run.id());
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -1699,7 +1759,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun first = fixture.store.listRuns(reviewId).getFirst();
         ReviewRun validating = beginValidation(fixture, first);
-        completeValidation(fixture, validating);
+        completeCleanReview(fixture, validating);
         fixture.service.reconcile(reviewId);
         ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, first.id(), 1, ReviewFinding.State.OPEN));
         String newerBase = "3".repeat(40);
@@ -1721,7 +1781,7 @@ class TestDefaultAgentReviewService
         assertThat(question.runId()).isEqualTo(updated.id());
         assertThat(question.runId()).isNotEqualTo(first.id());
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
-        verify(fixture.turns, times(4)).start(started.capture());
+        verify(fixture.turns, times(6)).start(started.capture());
         assertThat(started.getValue().message()).contains("reviewed head " + HEAD.substring(0, 7),
                 "pending reassessment in the current review scope", "current base and head");
     }
@@ -1732,7 +1792,7 @@ class TestDefaultAgentReviewService
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun first = fixture.store.listRuns(reviewId).getFirst();
-        completeValidation(fixture, beginValidation(fixture, first));
+        completeCleanReview(fixture, beginValidation(fixture, first));
         fixture.service.reconcile(reviewId);
         ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, first.id(), 1, ReviewFinding.State.OPEN));
         fixture.service.resolveFinding(reviewId, finding.id(), finding.version(), "Addressed locally");
@@ -1745,7 +1805,7 @@ class TestDefaultAgentReviewService
         ReviewFinding resolved = fixture.store.findFinding(finding.id()).orElseThrow();
         assertThat(resolved.state()).isEqualTo(ReviewFinding.State.RESOLVED);
         assertThat(resolved.outdated()).isTrue();
-        completeValidation(fixture, beginValidation(fixture, second));
+        completeCleanReview(fixture, beginValidation(fixture, second));
         fixture.service.reconcile(reviewId);
         assertThat(fixture.store.findRun(second.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
 
@@ -1823,7 +1883,7 @@ class TestDefaultAgentReviewService
         assertThat(retry.headSha()).isEqualTo(incomplete.headSha());
         assertThat(retry.completionRepairUsed()).isFalse();
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
-        completeValidation(fixture, beginValidation(fixture, retry));
+        completeCleanReview(fixture, beginValidation(fixture, retry));
         fixture.service.reconcile(reviewId);
 
         assertThat(fixture.store.findRun(retry.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
@@ -1875,7 +1935,7 @@ class TestDefaultAgentReviewService
         assertThat(continuing.summary()).contains(summary());
         assertThat(continuing.currentStep().orElseThrow().repair()).isTrue();
         verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
-        completeValidation(fixture, beginValidation(fixture, continuing));
+        completeCleanReview(fixture, beginValidation(fixture, continuing));
         fixture.service.reconcile(reviewId);
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
         assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
@@ -1902,8 +1962,12 @@ class TestDefaultAgentReviewService
         settleCurrentTurn(fixture, continuing);
         fixture.service.reconcile(reviewId);
 
+        ReviewRun checkingNits = fixture.store.findRun(validating.id()).orElseThrow();
+        assertThat(checkingNits.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.CHECK_NITS);
+        completeValidation(fixture, beginValidation(fixture, checkingNits));
+        fixture.service.reconcile(reviewId);
         assertThat(fixture.store.findRun(validating.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
-        verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(5)).start(any(StartAgentTurnCommand.class));
     }
 
     @ParameterizedTest
@@ -1945,7 +2009,7 @@ class TestDefaultAgentReviewService
         ArgumentCaptor<StartAgentTurnCommand> commands = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(fixture.turns, times(2)).start(commands.capture());
         assertThat(commands.getAllValues().getFirst()).isEqualTo(commands.getAllValues().getLast());
-        completeValidation(fixture, beginValidation(fixture, run));
+        completeCleanReview(fixture, beginValidation(fixture, run));
         fixture.service.reconcile(reviewId);
         assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
     }
@@ -2196,7 +2260,7 @@ class TestDefaultAgentReviewService
         assertThat(sync.headSha()).contains(NEW_HEAD);
         assertThat(sync.dirty()).isFalse();
         verify(fixture.git).run(taskWorktree().canonicalWorktree(), rewritten ? realign(NEW_HEAD) : fastForward(NEW_HEAD));
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
     }
 
@@ -2235,7 +2299,7 @@ class TestDefaultAgentReviewService
         assertThat(fixture.store.findFinding(finding.id())).contains(finding);
         verify(fixture.experiments).discard(taskWorktree(), NEW_HEAD);
         verify(fixture.git).run(taskWorktree().canonicalWorktree(), localCommits ? realign(NEW_HEAD) : fastForward(NEW_HEAD));
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
         verify(fixture.experiments).synchronize(eq(taskWorktree()), eq(expectedHead), eq(NEW_HEAD), any(Runnable.class));
     }
 
@@ -2264,7 +2328,7 @@ class TestDefaultAgentReviewService
         assertThat(checkout.head).isEqualTo(HEAD);
         verify(fixture.experiments, never()).discard(any(TaskWorktree.class), anyString());
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -2277,7 +2341,7 @@ class TestDefaultAgentReviewService
 
         assertThat(checkout.head).isEqualTo(HEAD);
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -2296,7 +2360,7 @@ class TestDefaultAgentReviewService
         assertThat(checkout.head).isEqualTo(thirdHead);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().worktreeHeadSha()).contains(thirdHead);
         assertThat(fixture.store.listRuns(reviewId)).containsExactly(assessed);
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
 
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, thirdHead)).thenReturn(ok(""));
         fixture.service.update(reviewId);
@@ -2304,7 +2368,7 @@ class TestDefaultAgentReviewService
         assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
         assertThat(fixture.store.listRuns(reviewId).getFirst()).isEqualTo(assessed);
         assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(thirdHead);
-        verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(5)).start(any(StartAgentTurnCommand.class));
     }
 
     @ParameterizedTest
@@ -2335,7 +2399,7 @@ class TestDefaultAgentReviewService
 
         assertThat(checkout.head).isEqualTo(NEW_HEAD);
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @ParameterizedTest
@@ -2366,7 +2430,7 @@ class TestDefaultAgentReviewService
         assertThat(checkout.head).isEqualTo(previousHead);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
         verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -2408,7 +2472,7 @@ class TestDefaultAgentReviewService
         assertThat(checkout.head).isEqualTo(HEAD);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
         verify(fixture.experiments, never()).synchronizeClean(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -2464,7 +2528,7 @@ class TestDefaultAgentReviewService
         assertThat(fixture.service.get(reviewId).worktreeSync().orElseThrow().state()).isEqualTo(AgentReviewProjection.WorktreeSyncView.State.UNAVAILABLE);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -2504,14 +2568,14 @@ class TestDefaultAgentReviewService
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getFirst());
         assertThat(validating.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.VALIDATE);
         assertThat(checkout.head).isEqualTo(HEAD);
-        completeValidation(fixture, validating);
+        completeCleanReview(fixture, validating);
         fixture.service.reconcile(reviewId);
 
         assertThat(fixture.store.listRuns(reviewId)).hasSize(1);
         assertThat(fixture.store.listRuns(reviewId).getFirst().state()).isEqualTo(ReviewRun.State.ACCEPTED);
         assertThat(fixture.store.listRuns(reviewId).getFirst().headSha()).isEqualTo(HEAD);
         assertThat(fixture.store.findReview(reviewId).orElseThrow().observedHeadSha()).contains(NEW_HEAD);
-        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(4)).start(any(StartAgentTurnCommand.class));
         assertThat(checkout.head).isEqualTo(NEW_HEAD);
         verify(fixture.experiments, never()).synchronize(any(TaskWorktree.class), anyString(), anyString(), any(Runnable.class));
     }
@@ -2592,7 +2656,7 @@ class TestDefaultAgentReviewService
         assertThat(run.diff()).isEqualTo(fixture.store.listRuns(reviewId).getFirst().diff());
         verify(fixture.experiments).synchronize(eq(taskWorktree()), eq(HEAD), eq(NEW_HEAD), any(Runnable.class));
         verify(fixture.git).run(taskWorktree().canonicalWorktree(), fastForward(NEW_HEAD));
-        verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(5)).start(any(StartAgentTurnCommand.class));
     }
 
     @Test
@@ -2613,7 +2677,7 @@ class TestDefaultAgentReviewService
         assertThat(fixture.store.findReview(reviewId).orElseThrow().followUpPaused()).isFalse();
         assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
         assertThat(fixture.store.listRuns(reviewId).getLast().headSha()).isEqualTo(NEW_HEAD);
-        verify(fixture.turns, times(3)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, times(5)).start(any(StartAgentTurnCommand.class));
         verify(fixture.git).run(taskWorktree().canonicalWorktree(), realign(NEW_HEAD));
     }
 
@@ -2640,7 +2704,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewRun validating = beginValidation(fixture, run);
-        completeValidation(fixture, validating);
+        completeCleanReview(fixture, validating);
         fixture.service.reconcile(reviewId);
         pushHead(fixture, NEW_HEAD);
         when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
@@ -2794,6 +2858,15 @@ class TestDefaultAgentReviewService
                 .thenReturn(settledTurn(TurnId.valueOf(run.turnIds().getLast()), TurnState.COMPLETED, Optional.empty()));
         fixture.service.reconcile(run.reviewId());
         return fixture.store.findRun(run.id()).orElseThrow();
+    }
+
+    private static void completeCleanReview(Fixture fixture, ReviewRun run)
+    {
+        completeValidation(fixture, run);
+        fixture.service.reconcile(run.reviewId());
+        ReviewRun checkingNits = fixture.store.findRun(run.id()).orElseThrow();
+        assertThat(checkingNits.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.CHECK_NITS);
+        completeValidation(fixture, beginValidation(fixture, checkingNits));
     }
 
     private static void completeValidation(Fixture fixture, ReviewRun run)

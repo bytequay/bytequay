@@ -188,7 +188,7 @@ export function reviewProgress(review: AgentReviewDto, compact = false): ReviewP
   if (run === null) return null;
   const step = run.steps.at(-1);
   const phaseName = step === undefined ? 'Preparation' : {
-    INVESTIGATE: 'Investigation', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation',
+    INVESTIGATE: 'Investigation', CHECK_NITS: 'Nit check', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation',
   }[step.kind];
   const phase = step === undefined && run.state !== 'RUNNING' ? 'Review pass not recorded'
     : `${compact ? `${phaseName} pass` : `${run.state === 'RUNNING' ? 'Current pass' : 'Last pass'}: ${phaseName}`}${step?.repair ? ' · correcting report' : ''}`;

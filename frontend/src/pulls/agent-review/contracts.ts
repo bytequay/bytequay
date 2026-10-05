@@ -60,7 +60,7 @@ export type ReviewInvestigationDto = {
 
 export type ReviewStepDto = {
   number: number;
-  kind: 'INVESTIGATE' | 'COLLECT_EVIDENCE' | 'VALIDATE';
+  kind: 'INVESTIGATE' | 'CHECK_NITS' | 'COLLECT_EVIDENCE' | 'VALIDATE';
   repair: boolean;
   investigation: ReviewInvestigationDto | null;
   validation: { investigationStep: number; candidates: ReviewCandidateValidationDto[]; coverage: ReviewCoverageDto; newCandidates: string[] } | null;
@@ -331,7 +331,7 @@ function parseStep(value: unknown): ReviewStepDto {
   if (validation !== null && coverage === null) throw new Error('Malformed validation coverage from the review service');
   return {
     number: count(step.number, 'review step number'),
-    kind: oneOf(step.kind, ['INVESTIGATE', 'COLLECT_EVIDENCE', 'VALIDATE'] as const, 'review step kind'),
+    kind: oneOf(step.kind, ['INVESTIGATE', 'CHECK_NITS', 'COLLECT_EVIDENCE', 'VALIDATE'] as const, 'review step kind'),
     repair: flag(step.repair),
     investigation: parseInvestigation(step.investigation),
     validation: validation === null || coverage === null ? null : {

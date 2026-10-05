@@ -104,6 +104,15 @@ final class ReviewPrompts
         ReviewStep step = run.currentStep().orElseThrow();
         String assignment = switch (step.kind()) {
             case INVESTIGATE -> "Finish the investigation: save the intention and every commit explanation, then seal review_save_investigation. Do not save findings.";
+            case CHECK_NITS -> "The review has zero supported findings. Take one more look specifically for concrete nits: "
+                    + "method and field naming, API calls and usage, code simplification, and test clarity and simplification. "
+                    + "Verify that tests exercise the intended feature or fix: would the same assertions fail without it for the intended behavioral reason, "
+                    + "rather than an unrelated serialization error, compilation failure, or broken setup? "
+                    + "Read the saved investigation, previous validation and verification handoff; reuse relevant evidence and completed checks. "
+                    + "Preserve assessed scope and existing candidate text and numbering, and append up to five concrete Nit: candidates with supporting evidence. "
+                    + "Do not invent nits or downgrade a real defect to a nit; record any newly discovered defect as a normal candidate. "
+                    + "Seal review_save_investigation with empty answers, then end this turn without saving findings. "
+                    + "ByteQuay will validate the candidates before finishing; a second zero-finding result is valid.";
             case COLLECT_EVIDENCE -> "Collect evidence for the questions in assignment.previousValidation. Execute or inspect each requested check; "
                     + "capture its result with review_get_context and answer it in review_save_investigation. Explain unavailable evidence as a limitation. "
                     + "Preserve candidate numbering. End this turn after sealing; ByteQuay will schedule validation.";

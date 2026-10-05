@@ -107,6 +107,7 @@ import java.util.function.Supplier;
 
 import static com.bytequay.agent.spi.AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.ACCEPT;
+import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.CHECK_NITS;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.COLLECT_EVIDENCE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_COVERAGE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_REPORT;
@@ -983,6 +984,11 @@ public class DefaultAgentReviewService
         }
         ReviewStep step = run.currentStep().orElseThrow();
         return switch (action) {
+            case CHECK_NITS -> {
+                ReviewRun next = store.updateRun(run.withStep(step.next(ReviewStep.Kind.CHECK_NITS), now));
+                startFollowup(next, task);
+                yield review;
+            }
             case VALIDATE, COLLECT_EVIDENCE -> {
                 ReviewStep.Kind kind = action == VALIDATE ? ReviewStep.Kind.VALIDATE : ReviewStep.Kind.COLLECT_EVIDENCE;
                 ReviewRun next = store.updateRun(run.withStep(step.next(kind), now));
@@ -1017,7 +1023,14 @@ public class DefaultAgentReviewService
             if (validation.needsEvidence() && run.steps().stream().filter(value -> value.kind() == ReviewStep.Kind.COLLECT_EVIDENCE).count() < 2) {
                 return COLLECT_EVIDENCE;
             }
-            return validation.coverage().complete() && validation.coverage().omissions().isEmpty() ? ACCEPT : INCOMPLETE_COVERAGE;
+            if (!validation.coverage().complete() || !validation.coverage().omissions().isEmpty()) {
+                return INCOMPLETE_COVERAGE;
+            }
+            if (validation.candidates().stream().noneMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED)
+                    && run.steps().stream().noneMatch(value -> value.kind() == ReviewStep.Kind.CHECK_NITS)) {
+                return CHECK_NITS;
+            }
+            return ACCEPT;
         }
         if (run.coverage().filter(coverage -> !coverage.complete() || !coverage.omissions().isEmpty()).isPresent()) {
             return INCOMPLETE_COVERAGE;
@@ -1637,6 +1650,7 @@ public class DefaultAgentReviewService
     enum CompletionAction
     {
         VALIDATE,
+        CHECK_NITS,
         COLLECT_EVIDENCE,
         REPAIR,
         ACCEPT,

@@ -37,6 +37,7 @@ import {
   shownRun,
 } from './model';
 import { reviewFixture, runningReviewFixture } from './fixtures/review';
+import { parseAgentReview } from './contracts';
 import type { AgentReviewDto, ReviewDraftDto, ReviewFindingDto, ReviewInvestigationDto, ReviewMessageDto, ReviewStepDto } from './contracts';
 
 function withFindings(...findings: ReviewFindingDto[]): AgentReviewDto {
@@ -136,6 +137,12 @@ describe('review status', () => {
       { number: 2, kind: 'COLLECT_EVIDENCE', repair: false, investigation: null, validation: null },
     ] }] };
     expect(reviewStatus(collecting)).toMatchObject({ label: 'Reviewing', chip: 'Reviewing' });
+    const checkingNits = parseAgentReview({ ...collecting, runs: [{ ...collecting.runs[0], steps: [
+      ...collecting.runs[0].steps,
+      { number: 3, kind: 'CHECK_NITS', repair: false, investigation: null, validation: null },
+    ] }] });
+    expect(reviewStatus(checkingNits)).toMatchObject({ label: 'Reviewing', chip: 'Reviewing' });
+    expect(reviewProgress(checkingNits)?.phase).toBe('Current pass: Nit check');
     expect(reviewStatus({ ...collecting, queuedInputIds: ['q1'] }).chip).toBe('Reviewing · 1 queued');
     expect(reviewStatus({ ...validating, activeTurn: { id: 'discussion-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } }).label).toBe('Running');
     expect(reviewRequests(validating).find(request => request.turnId === 'turn-1')?.action).toBe('Follow-up review');

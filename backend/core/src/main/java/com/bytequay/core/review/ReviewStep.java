@@ -79,6 +79,7 @@ public record ReviewStep(
     public enum Kind
     {
         INVESTIGATE,
+        CHECK_NITS,
         COLLECT_EVIDENCE,
         VALIDATE
     }

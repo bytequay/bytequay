@@ -455,7 +455,7 @@ class TestGoalConversationService
     void aPrivateQuestionChangesATopicLevelUnlessTheUserSetIt()
     {
         GoalView goal = goals.create("workspace", "Iceberg", "");
-        when(questions.recent(GoalPlanner.MAX_QUESTIONS)).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
+        when(questions.nearest(any(), eq(GoalPlanner.MAX_QUESTIONS))).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
                 "Task Fix scan planning", Instant.EPOCH)));
         service.ask("workspace", goal.id(), "op-1", "What next?");
         doReturn(levels(new GoalTopic.Change("Manifests", GoalTopic.Level.NEW, ImmutableList.of("discussion:q-1", "discussion:invented")),

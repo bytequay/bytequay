@@ -246,7 +246,7 @@ class TestGoalPlanner
                                         new GoalLesson.Node("snapshot", "Snapshot", Optional.empty(), Optional.of("table"), Optional.empty())), ImmutableList.of())))),
                         Optional.empty(), "Read TableMetadata.", "Snapshots are listed.", "What does a snapshot point to?"), NOW)));
         GoalQuestions questions = mock(GoalQuestions.class);
-        when(questions.recent(GoalPlanner.MAX_QUESTIONS)).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
+        when(questions.nearest(any(), eq(GoalPlanner.MAX_QUESTIONS))).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
                 "Task Fix scan planning", NOW)));
         GoalTopicStore topics = mock(GoalTopicStore.class);
         when(topics.list("goal-1")).thenReturn(ImmutableList.of(new GoalTopic("goal-1:manifests", "goal-1", "workspace", "Manifests", GoalTopic.Level.NEW,

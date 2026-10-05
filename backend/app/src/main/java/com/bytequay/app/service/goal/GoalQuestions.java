@@ -33,6 +33,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -75,8 +76,20 @@ public class GoalQuestions
      */
     public record Question(String id, String text, String where, Instant at) {}
 
-    /** The user's newest questions, newest first. */
-    public List<Question> recent(int limit)
+    /**
+     * The user's questions on the goal's topics first: those sharing the most words with the goal, its topics and its work, the newest first
+     * among equals, then the newest of the rest.
+     */
+    public List<Question> nearest(GoalView goal, int limit)
+    {
+        Set<String> words = GoalCandidates.words(GoalCandidates.context(goal));
+        return all().stream()
+                .sorted(Comparator.comparingLong((Question question) -> GoalCandidates.words(question.text()).stream().filter(words::contains).count()).reversed()
+                        .thenComparing(Question::at, Comparator.reverseOrder()))
+                .limit(limit).collect(toImmutableList());
+    }
+
+    private List<Question> all()
     {
         List<Question> found = new ArrayList<>();
         for (Workspace workspace : workspaces.findAllRetained()) {
@@ -105,7 +118,7 @@ public class GoalQuestions
                 }
             }
         }
-        return found.stream().sorted(Comparator.comparing(Question::at).reversed()).limit(limit).collect(toImmutableList());
+        return found;
     }
 
     private static Question question(String id, String body, String where, Instant at)

@@ -176,7 +176,7 @@ public class GoalCandidates
         return new Pool(kept, new Coverage(read, open, synced, tickets.size()));
     }
 
-    private static String context(GoalView goal)
+    static String context(GoalView goal)
     {
         StringBuilder text = new StringBuilder(goal.title()).append(' ').append(goal.description());
         goal.definition().ifPresent(definition -> text.append(' ').append(definition.successDefinition()).append(' ').append(definition.startingKnowledge()));

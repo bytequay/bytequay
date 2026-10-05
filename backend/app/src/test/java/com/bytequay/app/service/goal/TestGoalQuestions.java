@@ -19,6 +19,7 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.core.discussion.DiscussionMessage;
 import com.bytequay.core.discussion.TaskDiscussion;
 import com.bytequay.core.discussion.TaskDiscussionStore;
+import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.localreview.LocalReviewMessage;
 import com.bytequay.core.localreview.LocalReviewStore;
@@ -32,6 +33,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 
 import java.time.Instant;
+import java.util.Optional;
 import java.util.OptionalInt;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,12 +95,22 @@ class TestGoalQuestions
         when(question.createdAt()).thenReturn(NOW.minusSeconds(20));
         when(reviews.listMessages("review-1")).thenReturn(ImmutableList.of(question));
 
-        assertThat(new GoalQuestions(workspaces, tasks, discussions, comments, reviews).recent(20))
+        GoalQuestions questions = new GoalQuestions(workspaces, tasks, discussions, comments, reviews);
+        assertThat(questions.nearest(goal("Ship the release", ""), 20))
                 .extracting(GoalQuestions.Question::id, GoalQuestions.Question::where)
                 .containsExactly(
                         tuple("comment:c-1", "trinodb/trino#31252 plugin/trino-delta-lake/Checkpoint.java"),
                         tuple("review:r-1", "trinodb/trino#31300"),
                         tuple("discussion:d-1", "Task Fix scan planning"));
+        assertThat(questions.nearest(goal("Iceberg reads", "Manifest lists"), 2)).as("a question on the goal's topic comes first, however old")
+                .extracting(GoalQuestions.Question::id).containsExactly("discussion:d-1", "comment:c-1");
+    }
+
+    private static GoalView goal(String title, String topic)
+    {
+        return new GoalView("goal-1", "workspace", title, "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false, ImmutableList.of(),
+                ImmutableList.of(), topic.isEmpty() ? ImmutableList.of() : ImmutableList.of(new GoalTopic("goal-1:topic", "goal-1", "workspace", topic,
+                        GoalTopic.Level.NEW, ImmutableList.of(), false, NOW)), NOW, NOW);
     }
 
     private static DiscussionMessage discussionMessage(String id, DiscussionMessage.Author author, String body, Instant at)

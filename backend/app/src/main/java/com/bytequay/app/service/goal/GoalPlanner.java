@@ -554,7 +554,7 @@ public class GoalPlanner
         ArrayNode known = data.putArray("topics");
         topics.list(goal.id()).forEach(topic -> known.addObject().put("topic", topic.topic()).put("level", topic.level().name()).put("setByUser", topic.userSet()));
         ArrayNode asked = data.putArray("recentQuestions");
-        questions.recent(MAX_QUESTIONS).forEach(question -> asked.addObject().put("id", question.id()).put("text", question.text()).put("where", question.where()));
+        questions.nearest(goal, MAX_QUESTIONS).forEach(question -> asked.addObject().put("id", question.id()).put("text", question.text()).put("where", question.where()));
         ArrayNode cards = data.putArray("cards");
         goal.recommendations().forEach(card -> cards.addObject().put("kind", card.card().kind().name()).put("title", card.card().title())
                 .put("state", card.state().name()));

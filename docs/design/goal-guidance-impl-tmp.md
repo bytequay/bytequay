@@ -667,6 +667,29 @@ view shows its differences with Accept, Adjust and Skip, accepting applies
 them through the work items' own decisions, and a cycle or an unknown item
 fails the reply.
 
+## Seventeenth implementation slice
+
+Results and history, and the questions that matter: the Goal shows what each
+piece of finished work achieved and every decision and event behind it, and
+the agent reads the user's questions on the Goal's topics first.
+
+1. Questions on the Goal's topics. The agent reads the user's private
+   questions that share the most words with the Goal, its topics and its work
+   first, the newest first among equals, then the newest others, instead of
+   only the newest.
+2. Results. The Done view shows each concluded work item's outcome: an
+   accepted result in the user's words with the pull requests observed merged,
+   or why it was dropped. Retries, comments and pull requests are its
+   evidence, never extra outcomes.
+3. History. The Work view's latest decisions name each event's kind, such as
+   accepted, dropped, reopened, scope changed, priority, waits on, task turn or
+   summary, and the work it belongs to, which opens its details. All history
+   lists every decision and verified event of the Goal's work, newest first.
+
+Done when: the planner puts the questions on the Goal's topics first, a
+finished item shows its result and evidence in Done, and All history shows
+every event of the Goal's work with its kind and item.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -846,7 +869,7 @@ already-started source cannot slip through stale recommendations.
 - [x] Add topic levels (new, learning, practiced, strong) with their evidence:
   lessons finished, check answers, questions and merged work. The agent proposes
   changes with evidence; a user correction wins.
-- [ ] Read the user's private cards from `task_discussion`, `local_review_thread`
+- [x] Read the user's private cards from `task_discussion`, `local_review_thread`
   and `agent_review_message` in every workspace, locally. Select those on the
   Goal's topics, cite them in assessments and treat their text as reference data.
 - [x] Pace recommendations: practice an area until it is practiced, then advance
@@ -881,15 +904,13 @@ already-started source cannot slip through stale recommendations.
   uncertain provider cleanup. Preserve receipts and user decisions in every case.
 
 Evidence for the checked items: the spec-check and blocked-lesson card tests in
-`TestGoalConversationService` and the delivery tests in `TestWorkItemService`.
-Still partial: private cards are the twenty newest rather than those on the
-Goal's topics; task deletion and runtime cleanup do not wait for a receipt;
-a task start reaches the agent only with its first finished turn; plan
-differences cover
-the course and the open work's priorities, order and dependencies, not a work
-item's scope or criteria; there is no persisted input fingerprint; there
-is no Remember action; and task deletion, log expiry and uncertain provider cleanup are
-not exercised.
+`TestGoalConversationService`, the delivery tests in `TestWorkItemService` and
+`TestGoalQuestions` for questions on the Goal's topics. Still partial: task
+deletion and runtime cleanup do not wait for a receipt; a task start reaches the
+agent only with its first finished turn; plan differences cover the course and
+the open work's priorities, order and dependencies, not a work item's scope or
+criteria; there is no persisted input fingerprint; there is no Remember action;
+and task deletion, log expiry and uncertain provider cleanup are not exercised.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

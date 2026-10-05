@@ -897,7 +897,7 @@ public class GoalConversationService
     }
 
     /**
-     * Saves the levels the agent changed, each with the evidence it cited that exists: one of the user's recent questions, one of their
+     * Saves the levels the agent changed, each with the evidence it cited that exists: one of the user's questions it was shown, one of their
      * messages to the goal, such as a lesson question or a check answer, or one of the goal's lessons or work items. A level the user set
      * stays theirs.
      */
@@ -907,7 +907,7 @@ public class GoalConversationService
             return;
         }
         Set<String> known = new HashSet<>();
-        questions.recent(GoalPlanner.MAX_QUESTIONS).forEach(question -> known.add(question.id()));
+        questions.nearest(goal, GoalPlanner.MAX_QUESTIONS).forEach(question -> known.add(question.id()));
         exchanges.list(goal.id()).stream().filter(exchange -> !exchange.automatic()).forEach(exchange -> known.add(GoalPlanner.messageId(exchange)));
         goal.items().forEach(item -> {
             known.add("lesson:" + item.id());

@@ -23,7 +23,6 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.RunningTurn;
 import com.google.common.collect.ImmutableList;
-import com.google.common.util.concurrent.Striped;
 
 import java.util.EnumMap;
 import java.util.List;
@@ -33,7 +32,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 
 import static java.util.Objects.requireNonNull;
@@ -50,8 +48,10 @@ public final class AgentRuntimeRegistry
 {
     private final ConcurrentMap<TaskId, AgentSession> sessions = new ConcurrentHashMap<>();
     private final ConcurrentMap<TurnId, RunningTurn> runningTurns = new ConcurrentHashMap<>();
-    private final Striped<Lock> taskLocks = Striped.lock(64);
-    private final Striped<Lock> steerLocks = Striped.lock(64);
+    // One monitor per task for the life of the process: a stripe shared with an unrelated task made each wait on the
+    // other's provider launch. ponytail: never evicted, which is a few bytes per task this backend has seen.
+    private final ConcurrentMap<TaskId, Object> taskLocks = new ConcurrentHashMap<>();
+    private final ConcurrentMap<TaskId, Object> steerLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, Object> stopLocks = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, TurnId> latestAcceptedTurns = new ConcurrentHashMap<>();
     private final ConcurrentMap<TaskId, RuntimeException> unverifiedCloses = new ConcurrentHashMap<>();
@@ -194,21 +194,21 @@ public final class AgentRuntimeRegistry
     public Object taskLock(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        return taskLocks.get(taskId);
+        return taskLocks.computeIfAbsent(taskId, ignored -> new Object());
     }
 
     /** Serializes provider steer requests without holding the task state lock while awaiting I/O. */
     Object steerLock(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        return steerLocks.get(taskId);
+        return steerLocks.computeIfAbsent(taskId, ignored -> new Object());
     }
 
     /** Keeps overlapping shutdowns from reaching a newly opened session after another stop settles. */
     Object stopLock(TaskId taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        // Parent shutdown nests child shutdown, so unrelated tasks must never share a stripe.
+        // Parent shutdown nests child shutdown, so unrelated tasks must never share a monitor.
         return stopLocks.computeIfAbsent(taskId, ignored -> new Object());
     }
 

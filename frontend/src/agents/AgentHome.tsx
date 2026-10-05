@@ -24,6 +24,7 @@ import { jiraIssueLocation } from '../jira/contracts';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import { displayModelName, laneLabel } from '../settings/model';
+import { BackportButton } from './BackportRequestHint';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import {
   ComposerDock, StartingAgentTask, TaskComposer, taskArchived, useAgentTaskCreation, useTaskChanges, useWorkspaceWork, type DraftImage, type TaskModelSelection,
@@ -297,6 +298,7 @@ export function AgentHomeView({
           </div>
         </section>
         <ComposerDock repository={repository} chips={<>
+          <BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />
           {SUGGESTIONS.map((suggestion) => {
             const Icon = suggestion.icon;
             return (
@@ -309,6 +311,7 @@ export function AgentHomeView({
         </>}>
           {error !== null && <div className="cmt-error" role="alert">{error}</div>}
           <TaskComposer
+            backport
             automation={automation}
             draft={draft}
             blocker={blocker}

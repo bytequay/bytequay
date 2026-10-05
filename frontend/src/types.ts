@@ -1146,10 +1146,10 @@ export type BackportChainRouteDto = {
 export type BackportChainPrDto = { owner: string; repo: string; number: number };
 export type BackportChainViewDto = {
   chain: {
-    id: string; workspaceId: string; requestingTaskId: string; sourceTaskId: string; source: BackportChainRouteDto;
+    id: string; workspaceId: string; requestingTaskId: string; sourceTaskId: string | null; source: BackportChainRouteDto;
     sourcePullRequest: BackportChainPrDto | null; sourceMerged: boolean;
     acceptances: { operationKey: string; turnId: string; destinations: string[] }[];
-    hops: { route: BackportChainRouteDto; executionId: string | null; pullRequest: BackportChainPrDto | null;
+    hops: { sourceHop: number; route: BackportChainRouteDto; executionId: string | null; pullRequest: BackportChainPrDto | null;
       selection: { commits: string[]; tipSha: string } | null; landedSource: { commits: string[]; mergeSha: string } | null; completed: boolean; noOp: boolean }[];
     state: 'ACTIVE' | 'BLOCKED' | 'STOPPING' | 'STOPPED' | 'COMPLETED'; reason: string | null; createdAt: string; updatedAt: string; version: number;
   };
@@ -1170,6 +1170,7 @@ export type WorkspaceRelationshipDto = {
   workspaceId: string;
   kind: 'FORK' | 'DEPENDENCY';
   guidance: string;
+  backportByDefault: boolean;
 };
 
 export type WorkspaceSettingsDto = {
@@ -1465,7 +1466,7 @@ export type Bridge = JiraBridge & {
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
   getBackportChains: (workspaceId: string) => Promise<BackportChainViewDto[]>;
-  selectBackportSource: (workspaceId: string, id: string, selection: { version: number; oldest: string; newest: string }) => Promise<BackportChainViewDto>;
+  selectBackportSource: (workspaceId: string, id: string, selection: { version: number; hopIndex: number; oldest: string; newest: string }) => Promise<BackportChainViewDto>;
   stopBackportChain: (workspaceId: string, id: string) => Promise<BackportChainViewDto>;
   resumeBackportChain: (workspaceId: string, id: string) => Promise<BackportChainViewDto>;
   getLinkedWorkspaceWork: (workspaceId: string) => Promise<LinkedWorkspaceWorkDto[]>;

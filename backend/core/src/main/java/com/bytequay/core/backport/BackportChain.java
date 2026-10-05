@@ -30,7 +30,7 @@ import static java.util.Objects.requireNonNull;
 
 /** Saved route and child references; cherry-pick and CI services own execution. */
 public record BackportChain(
-        String id, String workspaceId, String requestingTaskId, String sourceTaskId, String sourceBranch, Route source,
+        String id, String workspaceId, String requestingTaskId, Optional<String> sourceTaskId, String sourceBranch, Route source,
         Optional<PullRequestRef> sourcePullRequest, boolean sourceMerged, List<Acceptance> acceptances, List<Hop> hops,
         State state, Optional<String> reason, long version, Instant createdAt, Instant updatedAt)
 {
@@ -39,15 +39,20 @@ public record BackportChain(
         checkText(id, "id", 100);
         checkText(workspaceId, "workspaceId", 100);
         checkText(requestingTaskId, "requestingTaskId", 100);
-        checkText(sourceTaskId, "sourceTaskId", 100);
+        requireNonNull(sourceTaskId, "sourceTaskId is null");
+        sourceTaskId.ifPresent(value -> checkText(value, "sourceTaskId", 100));
         checkText(sourceBranch, "sourceBranch");
         requireNonNull(source, "source is null");
         requireNonNull(sourcePullRequest, "sourcePullRequest is null");
+        checkArgument(sourceTaskId.isPresent() || sourcePullRequest.isPresent(), "Choose a source conversation or PR");
         acceptances = ImmutableList.copyOf(acceptances);
         hops = ImmutableList.copyOf(hops);
         checkArgument(!acceptances.isEmpty() && !hops.isEmpty() && hops.size() <= 20, "A chain needs 1 to 20 destinations and accepted authority");
         checkArgument(hops.stream().map(hop -> hop.route().repositoryId()).distinct().count() == hops.size()
                 && hops.stream().noneMatch(hop -> hop.route().repositoryId() == source.repositoryId()), "A route cannot repeat a repository");
+        for (int index = 0; index < hops.size(); index++) {
+            checkArgument(hops.get(index).sourceHop() >= -1 && hops.get(index).sourceHop() < index, "Each hop must use the source PR or an earlier hop");
+        }
         requireNonNull(state, "state is null");
         requireNonNull(reason, "reason is null");
         checkArgument(version >= 0, "version is negative");
@@ -82,18 +87,19 @@ public record BackportChain(
     }
 
     /** The original accepted root turn and exact requested extension, retained for idempotent replay. */
-    public record Acceptance(String operationKey, String turnId, List<String> destinations)
+    public record Acceptance(String operationKey, String turnId, List<String> destinations, List<Integer> sourceHops)
     {
         public Acceptance
         {
             checkText(operationKey, "operationKey", 100);
             checkText(turnId, "turnId", 100);
             destinations = ImmutableList.copyOf(destinations);
-            checkArgument(!destinations.isEmpty(), "Choose destinations");
+            sourceHops = ImmutableList.copyOf(sourceHops);
+            checkArgument(!destinations.isEmpty() && destinations.size() == sourceHops.size(), "Choose destinations and their sources");
         }
     }
 
-    public record Hop(Route route, String laneId, Optional<String> model, Optional<String> effort,
+    public record Hop(int sourceHop, Route route, String laneId, Optional<String> model, Optional<String> effort,
             Optional<MergedPullRequestRange> landedSource, Optional<Selection> selection, Optional<Plan> plan, Optional<String> executionId, boolean publicationAttempted,
             Optional<PullRequestRef> pullRequest, boolean completed, boolean noOp)
     {
@@ -114,12 +120,12 @@ public record BackportChain(
 
         public Hop withSource(MergedPullRequestRange source)
         {
-            return new Hop(route, laneId, model, effort, Optional.of(source), selection, plan, executionId, publicationAttempted, pullRequest, completed, noOp);
+            return new Hop(sourceHop, route, laneId, model, effort, Optional.of(source), selection, plan, executionId, publicationAttempted, pullRequest, completed, noOp);
         }
 
         public Hop withSelection(Selection value)
         {
-            return new Hop(route, laneId, model, effort, landedSource, Optional.of(value), plan, executionId, publicationAttempted, pullRequest, completed, noOp);
+            return new Hop(sourceHop, route, laneId, model, effort, landedSource, Optional.of(value), plan, executionId, publicationAttempted, pullRequest, completed, noOp);
         }
 
         public String sourceBaseSha()
@@ -139,27 +145,27 @@ public record BackportChain(
 
         public Hop withPlan(Plan value)
         {
-            return new Hop(route, laneId, model, effort, landedSource, selection, Optional.of(value), executionId, publicationAttempted, pullRequest, completed, noOp);
+            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, Optional.of(value), executionId, publicationAttempted, pullRequest, completed, noOp);
         }
 
         public Hop withExecution(String id)
         {
-            return new Hop(route, laneId, model, effort, landedSource, selection, plan, Optional.of(id), publicationAttempted, pullRequest, completed, noOp);
+            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, Optional.of(id), publicationAttempted, pullRequest, completed, noOp);
         }
 
         public Hop publishing()
         {
-            return new Hop(route, laneId, model, effort, landedSource, selection, plan, executionId, true, pullRequest, completed, noOp);
+            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, executionId, true, pullRequest, completed, noOp);
         }
 
         public Hop withPullRequest(PullRequestRef pr)
         {
-            return new Hop(route, laneId, model, effort, landedSource, selection, plan, executionId, publicationAttempted, Optional.of(pr), completed, noOp);
+            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, executionId, publicationAttempted, Optional.of(pr), completed, noOp);
         }
 
         public Hop finish(boolean empty)
         {
-            return new Hop(route, laneId, model, effort, landedSource, selection, plan, executionId, publicationAttempted, pullRequest, true, empty);
+            return new Hop(sourceHop, route, laneId, model, effort, landedSource, selection, plan, executionId, publicationAttempted, pullRequest, true, empty);
         }
     }
 
@@ -185,6 +191,24 @@ public record BackportChain(
             checkArgument(commits.stream().distinct().count() == commits.size(), "Selection repeats a commit");
             requireNonNull(acceptedAt, "acceptedAt is null");
         }
+    }
+
+    public Route sourceRoute(int index)
+    {
+        int parent = hops.get(index).sourceHop();
+        return parent < 0 ? source : hops.get(parent).route();
+    }
+
+    public Optional<PullRequestRef> sourcePr(int index)
+    {
+        int parent = hops.get(index).sourceHop();
+        return parent < 0 ? sourcePullRequest : hops.get(parent).pullRequest();
+    }
+
+    public boolean ready(int index)
+    {
+        int parent = hops.get(index).sourceHop();
+        return !hops.get(index).completed() && (parent < 0 || hops.get(parent).completed());
     }
 
     public String executionKey(int index)

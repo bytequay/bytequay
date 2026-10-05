@@ -30,3 +30,6 @@
 .backport-block p { margin: 0 0 6px; color: #80621d; }
 .backport-chain .linked-work-state.is-blocked { color: #9a6a12; background: #fff4cf; }
 .backport-chain .linked-work-state.is-completed { color: #287341; background: #e5f5e8; }
+
+.agt-backport-hint { padding: 10px 14px 0; font-size: 12px; color: var(--text-2); }
+.backport-intro .setw-btn { margin-top: 10px; display: block; }

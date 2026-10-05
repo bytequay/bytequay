@@ -96,7 +96,7 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
     }
   };
   const addButton = <button type="button" className="setw-btn" disabled={data === null || busy}
-    onClick={() => { setEditing({ workspaceId: '', kind: '', guidance: '' }); setExisting(false); setError(null); }}>+ Add related workspace</button>;
+    onClick={() => { setEditing({ workspaceId: '', kind: '', guidance: '', backportByDefault: false }); setExisting(false); setError(null); }}>+ Add related workspace</button>;
   return <div className="related-settings">
     <SettingsCard footer={<div className="setw-foot-row"><span>One-way: {workspace.name} isn’t added to their settings. Doesn’t change Git remotes or PR routing.</span></div>}>
       <div className="related-card-heading"><strong>Related workspaces</strong>
@@ -117,6 +117,7 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
           <div className="related-row-main">
             <div className="related-row-title"><strong>{name}</strong><span className={`related-badge is-${link.kind.toLowerCase()}`}>{link.kind === 'FORK' ? 'Fork' : 'Dependency'}</span>
               {unavailable && <span className="related-badge is-unavailable">Unavailable</span>}</div>
+            {link.backportByDefault && <div className="related-guidance">Default backport source → {workspace.name}</div>}
             {link.guidance && <div className="related-guidance">{link.guidance}</div>}
             {unavailable && <div className="related-unavailable">{unavailable}. New work there won’t start.</div>}
           </div>
@@ -133,7 +134,7 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
       {editing !== null && <form className="related-form" onSubmit={event => {
         event.preventDefault();
         if (editing.workspaceId && editing.kind && !busy) void apply(() => window.bridge.saveWorkspaceRelationship(workspace.id,
-          { workspaceId: editing.workspaceId, kind: editing.kind as WorkspaceRelationshipDto['kind'], guidance: editing.guidance }));
+          { workspaceId: editing.workspaceId, kind: editing.kind as WorkspaceRelationshipDto['kind'], guidance: editing.guidance, backportByDefault: editing.backportByDefault }));
       }}>
         <span className="related-field-label">Workspace</span>
         <SelectPill ariaLabel="Related workspace" value={editing.workspaceId} disabled={busy || existing} align="left" wide
@@ -148,11 +149,17 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
         <span className="related-field-label">Type</span><div>
           <Segmented label="Relationship type" value={editing.kind}
             options={[{ value: 'FORK', label: 'Fork', disabled: busy }, { value: 'DEPENDENCY', label: 'Dependency', disabled: busy }]}
-            onChange={kind => setEditing({ ...editing, kind: kind as Draft['kind'] })} />
+            onChange={kind => setEditing({ ...editing, kind: kind as Draft['kind'], backportByDefault: kind === 'FORK' && editing.backportByDefault })} />
           <p className="related-hint">{editing.kind === 'FORK' ? 'Our code builds on this project. Read, investigate, and backport when requested.'
             : editing.kind === 'DEPENDENCY' ? 'We use this library. Read and investigate; no cherry-picks or backports between these projects.'
               : `Choose how ${workspace.name} relates to it.`}</p>
         </div>
+        {editing.kind === 'FORK' && <><span className="related-field-label">Backports</span><div>
+          <label><input type="checkbox" checked={editing.backportByDefault} disabled={busy}
+            onChange={event => setEditing({ ...editing, backportByDefault: event.target.checked })} /> Use as default backport source</label>
+          <p className="related-hint">When you request @backport, copy from this source into {workspace.name}. Downstream forks wait for this workspace’s PR to merge.
+            Forks sharing a source can run in parallel. Saving this setting does not start work.</p>
+        </div></>}
         <label className="related-field-label" htmlFor={guidanceId}>Guidance</label><div>
           <textarea id={guidanceId} className="setw-input" aria-label="Relationship guidance" maxLength={500} rows={3}
             placeholder={'When should the agent consult it? Add version hints, e.g. “The dependency version is declared in pom.xml.”'}

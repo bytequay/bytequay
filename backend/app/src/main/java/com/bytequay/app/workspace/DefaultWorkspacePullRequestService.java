@@ -285,7 +285,7 @@ public final class DefaultWorkspacePullRequestService
         checkArgument(index >= 0 && index < chain.hops().size(), "Invalid chain hop");
         var hop = chain.hops().get(index);
         checkState(hop.publicationAttempted() && !hop.completed(), "This hop has no publication authority");
-        var source = index == 0 ? chain.source() : chain.hops().get(index - 1).route();
+        var source = chain.sourceRoute(index);
         checkState(source.equals(BackportChain.Route.of(requireWorkspace(source.workspaceId())))
                         && hop.route().equals(BackportChain.Route.of(requireWorkspace(hop.route().workspaceId()))),
                 "Chain repository routing changed");

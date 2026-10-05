@@ -348,11 +348,17 @@ The bridge binds the active accepted user turn, and generated related-work turns
 cannot hand off again. Older Codex sessions without this tool retain their existing
 capabilities and need a fresh conversation to use it.
 
-SAVE_CHAIN/READ_CHAIN use the same root-bound bridge. A source must be this
-conversation or its linked FIX conversation. The saved route runs through existing
-cherry-pick, delivery and CI services; it waits for each PR to merge without keeping
-an agent turn open. Destination Fork relationships authorize the route, without
-giving the source conversation reverse code or memory discovery.
+DISCOVER_BACKPORT/SAVE_CHAIN/READ_CHAIN use the same root-bound bridge.
+`@backport` marks an explicit user request. Discovery returns watched repository
+identities and Fork routing defaults, without transitive code or memory access.
+The source is this conversation, its linked FIX conversation, or an existing PR
+verified against a watched workspace. Each saved destination references the
+original source or an earlier hop. Siblings can run concurrently; dependent hops
+wait for their own source PR to merge and use its landed commits. The existing
+cherry-pick, delivery and CI services own execution, without keeping an agent
+turn open. Fork settings define routing; the accepted user request authorizes
+execution and publication. Ambiguous source names or conflicting ordering are
+clarified before saving. See [workspace backports](workspace-backports.md).
 
 ## Development-agent CI evidence
 
@@ -5080,6 +5086,15 @@ Attempting to start a task while sign-in is required navigates or links to this
 settings section and explains that the task has not started. Raw messages such
 as `OAuth session expired and could not be refreshed` may remain in diagnostic
 details, but the primary message is **Claude sign-in required**.
+
+New-task composers permit drafting without any provider account. They prefer
+the configured Development provider when usable, otherwise a ready Codex lane
+or another ready provider, including a saved API key, before the user sends.
+Explicitly supplied launches and already-created tasks retain their selected
+provider. Unavailable providers do not require the user to create an account:
+the composer offers provider choice, and provider-specific authentication
+commands and diagnostics stay in settings. The backend still checks the
+submitted provider before allocating a task.
 
 ### 12.3 Release acceptance
 

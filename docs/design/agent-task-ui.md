@@ -903,7 +903,11 @@ The composer is docked at the bottom of the page: centred at 760px over a white
 fade the list scrolls under, sticky at the foot of the page's scroller so the
 last row always scrolls clear of it. A round chip holding only the repository
 avatar sits 10px above the composer and names the repository new tasks start
-in.
+in. On Workspace Home and the Tasks tab, a **Backport** pill beside it inserts
+`@backport ` and focuses the composer, preserving an existing draft. These two
+composers suggest `@backport` when typing a leading `@` or matching prefix.
+Click, Enter or Tab completes the marker without sending; Escape dismisses
+the list. Other composers do not show this shortcut or suggestion.
 
 A cherry-pick opens its progress over the list. A CI fix opens the development
 task that started it, else the cherry-pick whose pull request it fixes, else
@@ -1175,8 +1179,15 @@ open-task cards on Home show ◎ for a task in the pinned goal or one working on
 pull request in it.
 
 The composer checks the same typed provider readiness returned by Workspace
-Settings before enabling its send control. Authentication-required, missing,
-unsupported, and unavailable lanes are disabled with an actionable link to
+Settings before enabling its send control. Drafting and the Backport shortcut
+stay available during provider setup. A new draft uses its configured Development
+model when ready; otherwise it selects a ready Codex lane or another available
+provider, including a saved API key. This changes only the draft's visible choice,
+not saved defaults. Explicit launches and failed starts retain their provider
+until the user selects another. When none is usable, the composer asks the user
+to choose or configure a provider, without sign-in commands or raw diagnostics.
+Authentication-required, missing, unsupported, and unavailable lanes remain
+disabled in the provider picker with an actionable link to
 **Workspace Settings → Agent providers**. No task row, runtime directory, or
 worktree is created until a fresh backend readiness check succeeds; the
 backend repeats this gate so stale UI status cannot race task creation.

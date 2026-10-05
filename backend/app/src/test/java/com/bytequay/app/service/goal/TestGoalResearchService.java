@@ -89,8 +89,8 @@ class TestGoalResearchService
     @Test
     void startsTheCardsRunWithItsDependencyCheckoutsOnce()
     {
-        when(relationships.list("workspace")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, ""),
-                new WorkspaceRelationships.Relationship("fork", WorkspaceRelationships.Kind.FORK, "")));
+        when(relationships.list("workspace")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "", false),
+                new WorkspaceRelationships.Relationship("fork", WorkspaceRelationships.Kind.FORK, "", false)));
         Workspace iceberg = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(iceberg.id()).thenReturn("iceberg");
         when(iceberg.monitoredRepository()).thenReturn(RepoRef.of("apache", "iceberg"));

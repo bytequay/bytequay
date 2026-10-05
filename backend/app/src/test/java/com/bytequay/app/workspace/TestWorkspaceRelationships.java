@@ -40,19 +40,19 @@ class TestWorkspaceRelationships
         Workspace p2 = add("p2", 2);
         Workspace p3 = add("p3", 3);
         add("p4", 4);
-        relationships.save("p2", new WorkspaceRelationships.Relationship("p3", FORK, "Our private additions"));
-        relationships.save("p3", new WorkspaceRelationships.Relationship("p4", FORK, "Upstream behavior"));
+        relationships.save("p2", new WorkspaceRelationships.Relationship("p3", FORK, "Our private additions", false));
+        relationships.save("p3", new WorkspaceRelationships.Relationship("p4", FORK, "Upstream behavior", false));
         assertThat(relationships.requireRelated("p2", "p3")).isEqualTo(p3);
         assertThatThrownBy(() -> relationships.requireRelated("p2", "p4")).hasMessageContaining("not directly related");
         assertThatThrownBy(() -> relationships.requireRelated("p3", "p2")).hasMessageContaining("not directly related");
-        assertThatThrownBy(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p2", FORK, "")))
+        assertThatThrownBy(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p2", FORK, "", false)))
                 .hasMessageContaining("itself");
         Workspace alias = add("alias", 3);
-        assertThatThrownBy(() -> relationships.save("p2", new WorkspaceRelationships.Relationship(alias.id(), FORK, "")))
+        assertThatThrownBy(() -> relationships.save("p2", new WorkspaceRelationships.Relationship(alias.id(), FORK, "", false)))
                 .hasMessageContaining("already related");
-        assertThatThrownBy(() -> relationships.save("p3", new WorkspaceRelationships.Relationship(alias.id(), FORK, "")))
+        assertThatThrownBy(() -> relationships.save("p3", new WorkspaceRelationships.Relationship(alias.id(), FORK, "", false)))
                 .hasMessageContaining("upstream settings");
-        relationships.save("p2", new WorkspaceRelationships.Relationship("p3", DEPENDENCY, "Version in pom.xml"));
+        relationships.save("p2", new WorkspaceRelationships.Relationship("p3", DEPENDENCY, "Version in pom.xml", false));
         assertThat(new WorkspaceRelationships(workspaces, settings, new ObjectMapper()).list("p2")).singleElement()
                 .satisfies(link -> assertThat(link.guidance()).isEqualTo("Version in pom.xml"));
         assertThat(workspaces.findById("p2")).contains(p2);
@@ -71,7 +71,7 @@ class TestWorkspaceRelationships
         Workspace push = add("iceberg-push", 3);
         workspaces.save(push.withRepositoryRouting(push.selectedRepository(), Optional.of(2L), Optional.of(iceberg.monitoredRepository()),
                 2, iceberg.monitoredRepository(), "main", push.originCloneUrl(), Optional.of("main"), Optional.of(iceberg.originCloneUrl()), Instant.EPOCH));
-        relationships.save("trino", new WorkspaceRelationships.Relationship("iceberg-push", DEPENDENCY, "Library"));
+        relationships.save("trino", new WorkspaceRelationships.Relationship("iceberg-push", DEPENDENCY, "Library", false));
         assertThatThrownBy(() -> relationships.requireTransferAllowed(trino.monitoredRepository(), iceberg.monitoredRepository()))
                 .hasMessageContaining("cannot cherry-pick");
         assertThatThrownBy(() -> relationships.requireTransferAllowed(push.selectedRepository(), trino.monitoredRepository()))
@@ -80,8 +80,32 @@ class TestWorkspaceRelationships
                 .hasMessageContaining("no saved source repository");
         relationships.requireTransferAllowed(Optional.empty(), RepoRef.of("other", "project"));
         relationships.requireTransferAllowed(RepoRef.of("other", "project"), trino.monitoredRepository());
-        relationships.save("trino", new WorkspaceRelationships.Relationship("iceberg-push", FORK, "Fork"));
+        relationships.save("trino", new WorkspaceRelationships.Relationship("iceberg-push", FORK, "Fork", false));
         relationships.requireTransferAllowed(push.selectedRepository(), trino.monitoredRepository());
+    }
+
+    @Test
+    void defaultBackportSourceIsExplicitUniqueAndAcyclic()
+    {
+        add("oss", 1);
+        add("internal", 2);
+        add("private", 3);
+        relationships.save("internal", new WorkspaceRelationships.Relationship("oss", FORK, "", true));
+        relationships.save("private", new WorkspaceRelationships.Relationship("internal", FORK, "", true));
+        assertThat(relationships.list("private").getFirst().backportByDefault()).isTrue();
+        assertThat(relationships.backportWorkspaces()).hasSize(3);
+        assertThatThrownBy(() -> relationships.save("private", new WorkspaceRelationships.Relationship("oss", FORK, "", true)))
+                .hasMessageContaining("one default");
+        assertThatThrownBy(() -> relationships.save("oss", new WorkspaceRelationships.Relationship("private", FORK, "", true)))
+                .hasMessageContaining("cycle");
+        assertThatThrownBy(() -> new WorkspaceRelationships.Relationship("oss", DEPENDENCY, "", true)).hasMessageContaining("Only a Fork");
+        relationships.save("private", new WorkspaceRelationships.Relationship("internal", FORK, "", false));
+        relationships.save("private", new WorkspaceRelationships.Relationship("oss", FORK, "", true));
+        assertThat(relationships.backportWorkspaces().stream().filter(workspace -> workspace.workspaceId().equals("private")).findFirst().orElseThrow().sources())
+                .anySatisfy(link -> {
+                    assertThat(link.workspaceId()).isEqualTo("oss");
+                    assertThat(link.backportByDefault()).isTrue();
+                });
     }
 
     @Test
@@ -91,8 +115,8 @@ class TestWorkspaceRelationships
         add("p3", 3);
         add("p4", 4);
         CompletableFuture.allOf(
-                CompletableFuture.runAsync(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p3", FORK, ""))),
-                CompletableFuture.runAsync(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p4", FORK, ""))))
+                CompletableFuture.runAsync(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p3", FORK, "", false))),
+                CompletableFuture.runAsync(() -> relationships.save("p2", new WorkspaceRelationships.Relationship("p4", FORK, "", false))))
                 .join();
         assertThat(relationships.list("p2")).extracting(WorkspaceRelationships.Relationship::workspaceId).containsExactlyInAnyOrder("p3", "p4");
     }

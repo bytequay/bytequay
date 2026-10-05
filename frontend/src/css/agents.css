@@ -58,6 +58,7 @@
 
 .agt-dock__chips {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
   margin-bottom: 10px;
@@ -3603,9 +3604,14 @@ button:is(.agt-type-chip, .agt-type-tile) {
   cursor: pointer;
 }
 
-.agt-start:hover {
+.agt-start:hover:not(:disabled) {
   border-color: #b6bcc4;
   background: #f6f8fa;
+}
+
+.agt-start:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .agt-start > svg {

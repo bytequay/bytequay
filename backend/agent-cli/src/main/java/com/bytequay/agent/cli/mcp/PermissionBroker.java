@@ -1096,7 +1096,7 @@ public final class PermissionBroker
         context.relatedWork().ifPresent(ignored -> tools.add(new ToolDefinition(RelatedWorkspaceBridge.TOOL_NAME,
                 "Start explicitly requested work in a related workspace, or read the linked conversation's result; root agent only",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.<String, Object>builder()
-                        .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("START", "READ", "SAVE_CHAIN", "READ_CHAIN")))
+                        .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("START", "READ", "DISCOVER_BACKPORT", "SAVE_CHAIN", "READ_CHAIN")))
                         .put("operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                         .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                         .put("purpose", ImmutableMap.of("type", "string", "enum", ImmutableList.of("INVESTIGATE", "FIX")))
@@ -1105,6 +1105,12 @@ public final class PermissionBroker
                         .put("revision", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200))
                         .put("sourceTaskId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
                         .put("chainId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
+                        .put("sourcePullRequest", ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                                "workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100),
+                                "number", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Integer.MAX_VALUE)),
+                                "required", ImmutableList.of("workspaceId", "number"), "additionalProperties", false))
+                        .put("sourceHops", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
+                                "items", ImmutableMap.of("type", "integer", "minimum", -1, "maximum", 19)))
                         .put("destinations", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
                                 "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))).buildOrThrow(),
                         "required", ImmutableList.of("action", "operationKey"), "additionalProperties", false))));

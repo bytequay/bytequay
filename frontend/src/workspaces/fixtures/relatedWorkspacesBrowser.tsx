@@ -51,8 +51,8 @@ export function mount() {
   flushSync(() => root.render(<><aside style={{ width: 190 }}><RelatedWorkspaceNavigation workspaceId="trino" /></aside>
     <main className="setw-page" style={{ flex: 1 }}><h1>Repository</h1><RelatedWorkspaceSettings workspace={trino} /></main></>));
   return { host, reject: (value: boolean) => { reject = value; },
-    missingCheckout: () => { links = [{ workspaceId: 'iceberg', kind: 'DEPENDENCY', guidance: 'Keep this', unavailableReason: 'Managed checkout missing' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
-    unavailable: () => { links = [{ workspaceId: 'missing', kind: 'FORK', guidance: 'Saved guidance' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
+    missingCheckout: () => { links = [{ workspaceId: 'iceberg', kind: 'DEPENDENCY', backportByDefault: false, guidance: 'Keep this', unavailableReason: 'Managed checkout missing' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
+    unavailable: () => { links = [{ workspaceId: 'missing', kind: 'FORK', backportByDefault: false, guidance: 'Saved guidance' }]; window.dispatchEvent(new Event('bytequay:relationships-changed')); },
     close: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
@@ -90,7 +90,11 @@ export async function run() {
     assert(view.host.querySelectorAll('a').length === 4, 'Memory and commits links on both surfaces');
     await click('Edit Apache Iceberg');
     await click('Fork');
+    const backport = view.host.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    assert(backport !== null, 'Fork exposes a default backport source');
+    backport.click(); await settle();
     await click('Save');
+    assert(view.host.textContent?.includes('Default backport source → Trino'), 'Default backport direction is saved and shown');
     assert(view.host.querySelector('.related-kind')?.textContent === 'Fork', 'Edit updates sidebar');
     await click('Remove Apache Iceberg');
     assert(view.host.querySelector('[aria-label="Related workspaces"]') === null, 'Removed link disappears from sidebar');

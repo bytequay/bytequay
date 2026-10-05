@@ -56,11 +56,13 @@ import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
+import java.util.stream.IntStream;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -124,18 +126,47 @@ public class BackportChainService
         this.git = git;
     }
 
-    public record Request(String operationKey, String sourceTaskId, Optional<String> chainId, List<String> destinations)
+    public record SourcePullRequest(String workspaceId, int number)
+    {
+        public SourcePullRequest
+        {
+            checkText(workspaceId, "workspaceId", 100);
+            checkArgument(number > 0, "Choose a positive PR number");
+        }
+    }
+
+    public record Request(String operationKey, Optional<String> sourceTaskId, Optional<String> chainId, List<String> destinations,
+            Optional<SourcePullRequest> sourcePullRequest, Optional<List<Integer>> sourceHops)
     {
         public Request
         {
             checkText(operationKey, "operationKey", 100);
-            checkText(sourceTaskId, "sourceTaskId", 100);
+            requireNonNull(sourceTaskId, "sourceTaskId is null");
+            sourceTaskId.ifPresent(value -> checkText(value, "sourceTaskId", 100));
+            requireNonNull(sourcePullRequest, "sourcePullRequest is null");
+            checkArgument(sourceTaskId.isPresent() != sourcePullRequest.isPresent(), "Choose a source conversation or an existing PR");
+            sourceHops = requireNonNull(sourceHops, "sourceHops is null").map(ImmutableList::copyOf);
             requireNonNull(chainId, "chainId is null");
             chainId.ifPresent(value -> checkText(value, "chainId", 100));
             destinations = ImmutableList.copyOf(destinations);
             checkArgument(!destinations.isEmpty() && destinations.size() <= 20, "Choose 1 to 20 destinations");
             destinations.forEach(value -> checkText(value, "destination", 100));
+            checkArgument(sourceHops.isEmpty() || sourceHops.orElseThrow().size() == destinations.size(), "Each destination needs a source hop");
         }
+    }
+
+    public record BackportDiscovery(String currentWorkspaceId, List<WorkspaceRelationships.BackportWorkspace> workspaces)
+    {
+        public BackportDiscovery
+        {
+            workspaces = ImmutableList.copyOf(workspaces);
+        }
+    }
+
+    public BackportDiscovery discover(String taskId, TurnId turnId)
+    {
+        var task = requireTurn(taskId, turnId);
+        return new BackportDiscovery(task.workspaceId().orElseThrow(), relationships.backportWorkspaces());
     }
 
     public BackportChain save(String taskId, TurnId turnId, Request request)
@@ -164,42 +195,75 @@ public class BackportChainService
         try {
             requireTurn(taskId, turnId);
             Optional<BackportChain> previous = chains.find(id);
+            int offset = previous.map(chain -> chain.hops().size()).orElse(0);
+            var parentIndices = request.sourceHops().orElseGet(() -> IntStream.range(0, request.destinations().size())
+                    .mapToObj(index -> offset + index - 1).collect(toImmutableList()));
             if (previous.isPresent()) {
                 var chain = previous.orElseThrow();
                 checkArgument(chain.requestingTaskId().equals(taskId) && chain.sourceTaskId().equals(request.sourceTaskId()), "Another conversation owns this chain");
+                request.sourcePullRequest().ifPresent(value -> checkArgument(chain.source().workspaceId().equals(resolveDestination(value.workspaceId()))
+                        && chain.sourcePullRequest().map(PullRequestRef::number).equals(Optional.of(value.number())), "The source PR changed"));
                 var accepted = chain.acceptances().stream().filter(value -> value.operationKey().equals(request.operationKey())).findFirst();
                 if (accepted.isPresent()) {
-                    checkArgument(accepted.orElseThrow().destinations().equals(request.destinations()), "The saved request changed; choose a new operationKey");
+                    // Retry defaults are relative to the original extension, not the chain's current length.
+                    int start = 0;
+                    for (Acceptance acceptance : chain.acceptances()) {
+                        if (acceptance.operationKey().equals(request.operationKey())) {
+                            break;
+                        }
+                        start += acceptance.destinations().size();
+                    }
+                    int first = start;
+                    var replayParents = request.sourceHops().orElseGet(() -> IntStream.range(0, request.destinations().size())
+                            .mapToObj(index -> first + index - 1).collect(toImmutableList()));
+                    checkArgument(accepted.orElseThrow().destinations().equals(request.destinations()) && accepted.orElseThrow().sourceHops().equals(replayParents),
+                            "The saved request changed; choose a new operationKey");
                     return chain;
                 }
                 checkArgument(request.chainId().isPresent(), "The saved request changed");
                 validate(chain);
             }
-            AgentTask source = tasks.find(TaskId.valueOf(request.sourceTaskId())).orElseThrow(() -> new IllegalArgumentException("Source conversation is unavailable"));
-            if (!source.id().equals(owner.id())) {
+            Optional<AgentTask> source = request.sourceTaskId().map(value -> tasks.find(TaskId.valueOf(value))
+                    .orElseThrow(() -> new IllegalArgumentException("Source conversation is unavailable")));
+            source.filter(value -> !value.id().equals(owner.id())).ifPresent(value -> {
                 checkArgument(related.list(owner.workspaceId().orElseThrow()).stream().anyMatch(link ->
-                                taskId.equals(link.sourceTaskId()) && request.sourceTaskId().equals(link.targetTaskId()) && link.purpose().equals("FIX")),
+                                taskId.equals(link.sourceTaskId()) && value.id().toString().equals(link.targetTaskId()) && link.purpose().equals("FIX")),
                         "Choose this conversation or its linked fix conversation");
-                relationships.requireRelated(owner.workspaceId().orElseThrow(), source.workspaceId().orElseThrow());
-            }
-            Route sourceRoute = route(source.workspaceId().orElseThrow());
-            Route from = previous.map(chain -> chain.hops().getLast().route()).orElse(sourceRoute);
+                relationships.requireRelated(owner.workspaceId().orElseThrow(), value.workspaceId().orElseThrow());
+            });
+            Route sourceRoute = route(source.map(value -> value.workspaceId().orElseThrow())
+                    .orElseGet(() -> resolveDestination(request.sourcePullRequest().orElseThrow().workspaceId())));
+            Optional<PullRequestRef> sourcePr = request.sourcePullRequest().map(value -> PullRequestRef.of(
+                    sourceRoute.repository().owner(), sourceRoute.repository().repo(), value.number()));
+            Optional<GitHubPullRequestIdentity> identity = sourcePr.map(pr -> pullRequests.fetchPullRequestIdentity(
+                    credentials.resolveGitHubToken(sourceRoute.workspaceId()), pr));
+            identity.ifPresent(pr -> {
+                checkArgument(pr.pullRequest().equals(sourcePr.orElseThrow()) && pr.baseRepository().equals(sourceRoute.repository())
+                        && pr.baseBranch().equals(sourceRoute.branch()), "Source PR does not match the selected workspace and branch");
+                checkArgument(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
+            });
+            var routes = new ArrayList<Route>();
+            previous.ifPresent(chain -> chain.hops().forEach(hop -> routes.add(hop.route())));
             var next = ImmutableList.<Hop>builder();
-            for (String destination : request.destinations()) {
-                Route to = route(resolveDestination(destination));
+            for (int index = 0; index < request.destinations().size(); index++) {
+                int parent = parentIndices.get(index);
+                checkArgument(parent >= -1 && parent < routes.size(), "Each hop must use the source PR or an earlier hop");
+                Route from = parent < 0 ? sourceRoute : routes.get(parent);
+                Route to = route(resolveDestination(request.destinations().get(index)));
                 requireHop(from, to);
                 var model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(to.workspaceId()));
-                next.add(new Hop(to, model.configId(), Optional.of(model.model()), model.effort(),
+                next.add(new Hop(parent, to, model.configId(), Optional.of(model.model()), model.effort(),
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, Optional.empty(), false, false));
-                from = to;
+                routes.add(to);
             }
-            Acceptance authority = new Acceptance(request.operationKey(), turnId.toString(), request.destinations());
+            Acceptance authority = new Acceptance(request.operationKey(), turnId.toString(), request.destinations(), parentIndices);
             if (previous.isPresent()) {
                 return chains.save(previous.orElseThrow().append(authority, next.build(), clock.instant()));
             }
-            String branch = source.taskWorktree().orElseThrow(() -> new IllegalArgumentException("Source has no managed branch")).generatedBranch();
+            String branch = identity.map(GitHubPullRequestIdentity::headBranch).orElseGet(() -> source.orElseThrow().taskWorktree()
+                    .orElseThrow(() -> new IllegalArgumentException("Source has no managed branch")).generatedBranch());
             return chains.createOrGet(new BackportChain(id, owner.workspaceId().orElseThrow(), taskId, request.sourceTaskId(), branch,
-                    sourceRoute, Optional.empty(), false, ImmutableList.of(authority), next.build(), State.ACTIVE, Optional.empty(), 0, clock.instant(), clock.instant()));
+                    sourceRoute, sourcePr, false, ImmutableList.of(authority), next.build(), State.ACTIVE, Optional.empty(), 0, clock.instant(), clock.instant()));
         }
         finally {
             lock.unlock();
@@ -243,7 +307,7 @@ public class BackportChainService
         return chain;
     }
 
-    public record SelectSource(long version, String oldest, String newest)
+    public record SelectSource(long version, int hopIndex, String oldest, String newest)
     {
         public SelectSource
         {
@@ -262,23 +326,20 @@ public class BackportChainService
             var chain = owned(workspaceId, id);
             checkState(chain.version() == selection.version() && chain.state() == State.BLOCKED, "Chain changed; reload before selecting commits");
             validate(chain);
-            int index = 0;
-            while (index < chain.hops().size() && chain.hops().get(index).completed()) {
-                index++;
-            }
-            checkState(index < chain.hops().size(), "Chain has no remaining hop");
+            int index = selection.hopIndex();
+            checkArgument(index >= 0 && index < chain.hops().size() && chain.ready(index), "Choose a waiting hop whose source is ready");
             var hop = chain.hops().get(index);
             checkState(hop.executionId().isEmpty() && executionStore.findByIdempotencyKey(chain.executionKey(index)).isEmpty(),
                     "This cherry-pick already started; inspect its retained execution");
-            Route source = index == 0 ? chain.source() : chain.hops().get(index - 1).route();
-            var sourcePr = index == 0 ? chain.sourcePullRequest() : chain.hops().get(index - 1).pullRequest();
+            Route source = chain.sourceRoute(index);
+            var sourcePr = chain.sourcePr(index);
             if (sourcePr.isPresent()) {
                 var fresh = pullRequests.fetchMergedPullRequest(credentials.resolveGitHubToken(source.workspaceId()), sourcePr.orElseThrow());
                 checkState(fresh.identity().baseRepository().equals(source.repository()) && fresh.identity().baseBranch().equals(source.branch()),
                         "Source PR routing changed");
             }
             else {
-                checkState(index > 0 && chain.hops().get(index - 1).noOp(), "Wait for the source PR to merge");
+                checkState(hop.sourceHop() >= 0 && chain.hops().get(hop.sourceHop()).noOp(), "Wait for the source PR to merge");
             }
             String remote = sourceRemote(chain, hop.route(), source);
             var local = repositories.requireReadyRepository(hop.route().workspaceId());
@@ -383,8 +444,8 @@ public class BackportChainService
                     chain.source().repository(), chain.source().pushRepository(), chain.sourceBranch());
             checkState(matches.size() <= 1, "Several PRs match the source conversation; choose its intended published PR first");
             if (matches.isEmpty()) {
-                checkState(tasks.find(TaskId.valueOf(chain.sourceTaskId())).isPresent(), "Source conversation is unavailable");
-                var sourceTurns = turns.list(TaskId.valueOf(chain.sourceTaskId()));
+                checkState(tasks.find(TaskId.valueOf(chain.sourceTaskId().orElseThrow())).isPresent(), "Source conversation is unavailable");
+                var sourceTurns = turns.list(TaskId.valueOf(chain.sourceTaskId().orElseThrow()));
                 if (!sourceTurns.isEmpty()) {
                     var latest = sourceTurns.getLast();
                     checkState(latest.state() == com.bytequay.agent.core.TurnState.ACCEPTED || latest.state() == com.bytequay.agent.core.TurnState.RUNNING
@@ -401,22 +462,28 @@ public class BackportChainService
         }
         for (int index = 0; index < chain.hops().size(); index++) {
             Hop hop = chain.hops().get(index);
-            if (hop.completed()) {
+            if (!chain.ready(index)) {
                 continue;
             }
-            Route source = index == 0 ? chain.source() : chain.hops().get(index - 1).route();
-            Optional<PullRequestRef> sourcePr = index == 0 ? chain.sourcePullRequest() : chain.hops().get(index - 1).pullRequest();
+            Route source = chain.sourceRoute(index);
+            Optional<PullRequestRef> sourcePr = chain.sourcePr(index);
             if (hop.landedSource().isEmpty() && hop.selection().isEmpty()) {
                 checkState(sourcePr.isPresent(), "Select landed commits in the previous destination to continue after its no-op.");
                 var pr = pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(source.workspaceId()), sourcePr.orElseThrow());
-                String branch = index == 0 ? chain.sourceBranch() : executionStore.findByIdempotencyKey(chain.executionKey(index - 1))
+                String branch = hop.sourceHop() < 0 ? chain.sourceBranch() : executionStore.findByIdempotencyKey(chain.executionKey(hop.sourceHop()))
                         .orElseThrow(() -> new IllegalStateException("Previous execution is unavailable")).workspace().workBranch();
-                verifyPr(source, branch, pr);
+                if (hop.sourceHop() < 0 && chain.sourceTaskId().isEmpty()) {
+                    checkState(pr.pullRequest().equals(sourcePr.orElseThrow()) && pr.baseRepository().equals(source.repository())
+                            && pr.baseBranch().equals(source.branch()), "Source PR routing changed");
+                }
+                else {
+                    verifyPr(source, branch, pr);
+                }
                 checkState(pr.state() != GitHubPullRequestIdentity.State.CLOSED, "Source PR was closed without merging");
                 if (pr.state() != GitHubPullRequestIdentity.State.MERGED) {
-                    return;
+                    continue;
                 }
-                if (index == 0 && !chain.sourceMerged()) {
+                if (hop.sourceHop() < 0 && !chain.sourceMerged()) {
                     chain = chains.save(chain.withSourceMerged(clock.instant()));
                 }
                 chains.save(chain.withHop(index, hop.withSource(landed.resolve(source.workspaceId(), source.remote(), sourcePr.orElseThrow())), clock.instant()));
@@ -455,13 +522,14 @@ public class BackportChainService
             verifyExecution(chain, index, execution);
             checkState(execution.status() != CherryPickExecution.Status.PAUSED, execution.summary().orElse("Cherry-pick needs attention"));
             if (execution.status() != CherryPickExecution.Status.FINISHED) {
-                return;
+                continue;
             }
             checkState(execution.finishReason().orElseThrow() == CherryPickExecution.FinishReason.COMPLETED,
                     execution.summary().orElse("Cherry-pick stopped; inspect its retained work"));
             if (execution.items().stream().noneMatch(item -> item.result() == CherryPickItem.Result.APPLIED)) {
                 var next = chain.withHop(index, hop.finish(true), clock.instant());
-                if (index != chain.hops().size() - 1) {
+                int completedIndex = index;
+                if (chain.hops().stream().anyMatch(value -> value.sourceHop() == completedIndex)) {
                     next = next.withState(State.BLOCKED, Optional.of("Already present in this destination. Select its landed commits to continue to the next repository."),
                             clock.instant());
                 }
@@ -490,9 +558,10 @@ public class BackportChainService
                 checkState(run.status() != CiAutofixRun.Status.FINISHED || run.finishReason().filter(CiAutofixRun.FinishReason.GREEN::equals).isPresent(),
                         run.summary().orElse("CI stopped; inspect its run before continuing"));
             });
-            return;
         }
-        chains.save(chain.withState(State.COMPLETED, Optional.empty(), clock.instant()));
+        if (chain.hops().stream().allMatch(Hop::completed)) {
+            chains.save(chain.withState(State.COMPLETED, Optional.empty(), clock.instant()));
+        }
     }
 
     private String sourceRemote(BackportChain chain, Route target, Route source)
@@ -522,7 +591,7 @@ public class BackportChainService
                         && execution.workspace().laneId().equals(hop.laneId())
                         && execution.workspace().model().equals(hop.model()) && execution.workspace().effort().equals(hop.effort())
                         && execution.workspace().targetRemote().equals(hop.route().remote())
-                        && execution.workspace().sourceRepository().equals(Optional.of(index == 0 ? chain.source().repository() : chain.hops().get(index - 1).route().repository()))
+                        && execution.workspace().sourceRepository().equals(Optional.of(chain.sourceRoute(index).repository()))
                         && execution.range().initialTargetSha().equals(hop.plan().orElseThrow().targetSha())
                         && execution.pullRequestDraft().equals(hop.plan().map(BackportChain.Plan::draft))
                         && execution.items().stream().noneMatch(item -> item.disposition() == CherryPickItem.Disposition.USER_SKIPPED)
@@ -571,10 +640,8 @@ public class BackportChainService
     {
         checkState(workspaces.findById(chain.workspaceId()).isPresent(), "Requesting workspace is unavailable");
         checkState(chain.source().equals(route(chain.source().workspaceId())), "Source workspace routing changed");
-        Route previous = chain.source();
-        for (Hop hop : chain.hops()) {
-            requireHop(previous, hop.route());
-            previous = hop.route();
+        for (int index = 0; index < chain.hops().size(); index++) {
+            requireHop(chain.sourceRoute(index), chain.hops().get(index).route());
         }
     }
 

@@ -69,7 +69,7 @@ class TestRelatedWorkspaceContext
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
                 Optional.empty(), Optional.empty(), "/managed/iceberg", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
         when(relationships.list("trino")).thenReturn(ImmutableList.of(
-                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml")));
+                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml", false)));
         when(relationships.requireRelated("trino", "iceberg")).thenReturn(workspace);
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));

@@ -316,11 +316,11 @@ public class WorkspaceController
             catch (IllegalArgumentException | WorkspaceException failure) {
                 unavailable = failure.getMessage();
             }
-            return new RelationshipResponse(link.workspaceId(), link.kind(), link.guidance(), unavailable);
+            return new RelationshipResponse(link.workspaceId(), link.kind(), link.guidance(), link.backportByDefault(), unavailable);
         }).collect(toImmutableList());
     }
 
-    public record RelationshipResponse(String workspaceId, WorkspaceRelationships.Kind kind, String guidance, String unavailableReason) {}
+    public record RelationshipResponse(String workspaceId, WorkspaceRelationships.Kind kind, String guidance, boolean backportByDefault, String unavailableReason) {}
 
     @PutMapping("/{workspaceId}/relationships")
     public List<Relationship> saveRelationship(@PathVariable String workspaceId, @RequestBody Relationship relationship)

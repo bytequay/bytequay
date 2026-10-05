@@ -104,7 +104,7 @@ class TestWorkspaceCommitsSettingsController
         var workspaces = mock(WorkspaceRepositoryService.class);
         var relationships = mock(WorkspaceRelationships.class);
         when(relationships.list("trino")).thenReturn(ImmutableList.of(
-                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml")));
+                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Version in pom.xml", false)));
         when(workspaces.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", directory, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(PullRequestService.class),

@@ -1373,7 +1373,7 @@ function registerIpc(): void {
 
   ipcMain.handle('backport-chains:list', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/backport-chains`));
-  ipcMain.handle('backport-chains:source', (_event, workspaceId: string, id: string, selection: { version: number; oldest: string; newest: string }) =>
+  ipcMain.handle('backport-chains:source', (_event, workspaceId: string, id: string, selection: { version: number; hopIndex: number; oldest: string; newest: string }) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/backport-chains/${encodeURIComponent(id)}/source`, jsonInit('POST', selection)));
   for (const action of ['stop', 'resume'] as const) {
     ipcMain.handle(`backport-chains:${action}`, (_event, workspaceId: string, id: string) =>

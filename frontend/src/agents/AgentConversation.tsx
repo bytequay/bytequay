@@ -13,6 +13,7 @@
  */
 
 import type { JiraTaskSource } from '../jira/contracts';
+import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
 import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
@@ -1319,6 +1320,7 @@ export function ConversationComposer({
             <strong>@ci</strong><span>CI Autofix</span>
           </button>
         </div>}
+        {ciMention && <BackportRequestHint text={value} />}
         <textarea ref={setComposerRef} className="agt-compose__input" rows={1} value={value}
           aria-label="Message the agent" placeholder={connection === 'connecting' ? 'Connecting…' : closing ? 'Closing…' : placeholder} disabled={disabled}
           aria-autocomplete={ciMention ? 'list' : undefined} aria-controls={activeMention !== null ? mentionId : undefined}

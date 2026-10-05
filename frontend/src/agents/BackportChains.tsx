@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type MouseEventHandler } from 'react';
 import type { BackportChainPrDto, BackportChainViewDto, BackportChainRouteDto, GitCommitDto } from '../types';
 import { workspaceAgentTaskRoute, workspaceCherryPickRoute, workspacePullRequestRoute } from '../workspaces/model';
 import RepoAvatar from '../RepoAvatar';
@@ -48,7 +48,7 @@ function PrLink({ pr, workspaceId }: { pr: BackportChainPrDto; workspaceId: stri
 const labels = { ACTIVE: 'Active', BLOCKED: 'Blocked', STOPPING: 'Stopping', STOPPED: 'Stopped', COMPLETED: 'Completed' };
 
 export function BackportChainCard({ view, source = false }: { view: BackportChainViewDto; source?: boolean }) {
-  const [picker, setPicker] = useState<{ source: BackportChainRouteDto; commits: GitCommitDto[]; version: number } | null>(null);
+  const [picker, setPicker] = useState<{ source: BackportChainRouteDto; hopIndex: number; commits: GitCommitDto[]; version: number } | null>(null);
   const [updated, setUpdated] = useState<BackportChainViewDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -61,12 +61,12 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
     } catch (failure) { setError(String(failure)); }
     finally { setBusy(false); }
   };
-  const selectCommits = async (sourceRoute: BackportChainRouteDto) => {
+  const selectCommits = async (sourceRoute: BackportChainRouteDto, hopIndex: number) => {
     setBusy(true); setError(null);
     try {
       const result = await window.bridge.gitLog(sourceRoute.workspaceId, sourceRoute.remote === 'upstream' ? 'UPSTREAM' : 'WORKSPACE', sourceRoute.branch, 300);
       if (result.refresh.state === 'FAILED') throw new Error(result.refresh.error ?? 'Commit history is unavailable');
-      setPicker({ source: sourceRoute, commits: result.commits, version: chain.version });
+      setPicker({ source: sourceRoute, hopIndex, commits: result.commits, version: chain.version });
     } catch (failure) { setError(String(failure)); }
     finally { setBusy(false); }
   };
@@ -74,12 +74,15 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
     if (!picker || busy) return;
     setBusy(true); setError(null);
     try {
-      setUpdated(await window.bridge.selectBackportSource(chain.workspaceId, chain.id, { version: picker.version, oldest, newest }));
+      setUpdated(await window.bridge.selectBackportSource(chain.workspaceId, chain.id, { version: picker.version, hopIndex: picker.hopIndex, oldest, newest }));
       setPicker(null);
     } catch (failure) { setError(String(failure)); setPicker(null); }
     finally { setBusy(false); }
   };
-  const route = [chain.source, ...chain.hops.map(hop => hop.route)].map(item => `${item.repository.owner}/${item.repository.repo}`).join(' → ');
+  const repoName = (item: BackportChainRouteDto) => `${item.repository.owner}/${item.repository.repo}`;
+  const sequential = chain.hops.every((hop, index) => hop.sourceHop === index - 1);
+  const route = sequential ? [chain.source, ...chain.hops.map(hop => hop.route)].map(repoName).join(' → ')
+    : chain.hops.map(hop => `${repoName(hop.sourceHop < 0 ? chain.source : chain.hops[hop.sourceHop].route)} → ${repoName(hop.route)}`).join(' · ');
   const sourceMerged = chain.sourceMerged;
   return <div className="linked-work-entry">
     {picker && <SelectRangeDialog commits={picker.commits} scope={`${picker.source.repository.owner}/${picker.source.repository.repo} · ${picker.source.branch}`}
@@ -98,15 +101,15 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
           <div className="backport-step-title"><span className="backport-marker" aria-hidden="true">{sourceMerged ? '✓' : '○'}</span>
             <RepoAvatar owner={chain.source.repository.owner} repo={chain.source.repository.repo} size={16} radius={3} />
             <strong>{chain.source.repository.owner}/{chain.source.repository.repo}</strong><span>Source PR</span>
-            <span className="backport-links"><a href={workspaceAgentTaskRoute(chain.source.workspaceId, chain.sourceTaskId)}>Conversation ›</a>
+            <span className="backport-links">{chain.sourceTaskId && <a href={workspaceAgentTaskRoute(chain.source.workspaceId, chain.sourceTaskId)}>Conversation ›</a>}
               {chain.sourcePullRequest && <PrLink pr={chain.sourcePullRequest} workspaceId={chain.source.workspaceId} />}</span>
           </div>
           <p>{sourceMerged ? 'PR merged' : chain.sourcePullRequest ? `Waiting for #${chain.sourcePullRequest.number} to merge` : 'Waiting for the conversation’s published PR'}</p>
         </li>
         {chain.hops.map((hop, index) => {
           const state = progress[index];
-          const previous = index === 0 ? chain.source : chain.hops[index - 1].route;
-          const currentHop = !hop.completed && (index === 0 || chain.hops[index - 1].completed);
+          const previous = hop.sourceHop < 0 ? chain.source : chain.hops[hop.sourceHop].route;
+          const currentHop = !hop.completed && (hop.sourceHop < 0 || chain.hops[hop.sourceHop].completed);
           const caption = hop.noOp ? 'Already present — no PR needed' : hop.completed ? 'Backport merged'
             : currentHop && chain.state === 'STOPPED' ? 'Stopped — work kept'
             : currentHop && chain.state === 'BLOCKED' ? hop.selection ? 'Selected commits ready' : 'Needs your attention'
@@ -114,7 +117,7 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
             : state?.status === 'RUNNING' ? 'Cherry-pick in progress'
             : state?.status === 'PAUSED' ? 'Cherry-pick needs your input'
             : state?.status === 'FINISHED' ? 'Cherry-pick finished'
-            : currentHop && (hop.landedSource || hop.selection) ? 'Preparing cherry-pick' : 'Starts after the previous PR merges';
+            : currentHop && (hop.landedSource || hop.selection) ? 'Preparing cherry-pick' : `Starts after ${repoName(previous)} merges`;
           return <li key={hop.route.workspaceId} className={hop.completed ? 'is-complete' : currentHop ? 'is-current' : ''}>
             <div className="backport-step-title"><span className="backport-marker" aria-hidden="true">{hop.completed ? '✓' : chain.state === 'STOPPED' && currentHop ? '■' : '○'}</span>
               <RepoAvatar owner={hop.route.repository.owner} repo={hop.route.repository.repo} size={16} radius={3} />
@@ -122,9 +125,9 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
               <span className="backport-links">{hop.executionId && <a href={workspaceCherryPickRoute(hop.route.workspaceId, hop.executionId)}>Cherry-pick ›</a>}
                 {hop.pullRequest && <PrLink pr={hop.pullRequest} workspaceId={hop.route.workspaceId} />}</span>
             </div>
-            <p>{caption}</p>
+            <p>From {repoName(previous)} · {caption}</p>
             {currentHop && chain.reason && <div className="backport-block"><p>{chain.reason}</p>
-              {chain.state === 'BLOCKED' && !hop.executionId && !hop.landedSource && <button className="setw-btn" disabled={busy} onClick={() => void selectCommits(previous)}>Select commits</button>}
+              {chain.state === 'BLOCKED' && !hop.executionId && !hop.landedSource && <button className="setw-btn" disabled={busy} onClick={() => void selectCommits(previous, index)}>Select commits</button>}
               {state?.ciRunId && hop.pullRequest && <a className="setw-btn" href={workspacePullRequestRoute(hop.route.workspaceId, hop.pullRequest.number)}>Open CI run</a>}
             </div>}
             {currentHop && state?.summary && <p className="backport-summary">{state.summary}</p>}
@@ -135,12 +138,12 @@ export function BackportChainCard({ view, source = false }: { view: BackportChai
       <div className="linked-work-foot">{chain.state === 'STOPPED' ? 'Stopped. Existing work and PRs are kept. Resume rechecks current facts.'
         : chain.state === 'BLOCKED' ? 'Paused. Resume rechecks relationships, routing and PR state before continuing.'
         : chain.state === 'COMPLETED' ? 'Complete. Every backport merged or was already present.'
-        : 'Each step starts after the previous PR merges. Complete after the final merge. ByteQuay never merges PRs.'}</div>
+        : 'Each step waits for its source PR to merge. Independent destinations run in parallel. ByteQuay never merges PRs.'}</div>
     </article>
   </div>;
 }
 
-export function BackportChainList({ chains, error }: { chains: BackportChainViewDto[]; error: string | null }) {
+export function BackportChainList({ chains, error, onStart }: { chains: BackportChainViewDto[]; error: string | null; onStart?: MouseEventHandler<HTMLButtonElement> }) {
   const groups = [
     ['Needs you', chains.filter(view => view.chain.state === 'BLOCKED')],
     ['Active', chains.filter(view => view.chain.state === 'ACTIVE' || view.chain.state === 'STOPPING')],
@@ -148,9 +151,10 @@ export function BackportChainList({ chains, error }: { chains: BackportChainView
     ['Completed', chains.filter(view => view.chain.state === 'COMPLETED')],
   ] as const;
   return <div className="linked-work-list">
-    <div className="backport-intro"><strong>Start a chain by asking in a conversation</strong>
-      <p>Name the fix and the route. Each destination needs a Fork relationship to its source in Workspace settings. You can ask before or after the source PR exists.</p>
-      <q>Fix it upstream, then backport through our internal fork to this workspace.</q>
+    <div className="backport-intro"><strong>Start a backport with @backport</strong>
+      <p>Name a source PR, or describe the fix. Default backport sources in Related workspaces define the route. Add destinations to choose a different route.</p>
+      <q>@backport owner/repo #1234</q>
+      {onStart && <button type="button" className="setw-btn" onClick={onStart}>Start backport conversation</button>}
     </div>
     {error && <p role="alert" className="cmt-error">{error}</p>}
     {groups.map(([label, rows]) => rows.length > 0 && <section key={label}><h3>{label} <span>{rows.length}</span></h3>

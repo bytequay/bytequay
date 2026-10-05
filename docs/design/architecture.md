@@ -107,7 +107,8 @@ the existing application-settings store; discovery, memory reads and handoffs us
 the shared provider bridges. A single versioned chain value/store in `core` and
 `persistence-sqlite` records accepted routes and child identities. Its application
 coordinator advances through the existing monitor, cherry-pick, delivery, CI and
-rebase services. No additional agent or workflow engine waits for PR merges.
+rebase services. Each hop names its source dependency, allowing sibling backports
+to proceed independently while dependent hops consume their parent’s landed PR. No additional agent or workflow engine waits for PR merges.
 
 The backend is a small six-module Maven reactor. Every listed module contains
 implemented behavior; no empty extension or connector modules are reserved for

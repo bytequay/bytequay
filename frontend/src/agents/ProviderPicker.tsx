@@ -117,7 +117,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
                 </button>
                 {!available && (
                   <div className="agt-provider-picker__remedy">
-                    <span>{remedy.title}. {provider.diagnostic || remedy.detail}</span>
+                    <span>{remedy.title}. {remedy.detail}</span>
                     {onOpenSettings !== undefined && (
                       <button
                         type="button"

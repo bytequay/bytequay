@@ -51,6 +51,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.app.backport.BackportChainService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AgentModelSetting;
@@ -155,7 +156,8 @@ class TestRelatedWorkspaceWork
                 2, RepoRef.of("apache", "iceberg"), Workspace.Topology.DIRECT, "main", "https://github.com/apache/iceberg.git",
                 Optional.empty(), Optional.empty(), repository.toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
         when(relationships.requireRelated("trino", "iceberg")).thenReturn(destination);
-        when(relationships.list("trino")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Read core")));
+        when(relationships.list("trino")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "Read core", false)));
         when(repositories.requireLocalRepository("iceberg")).thenReturn(new WorkspaceRepositoryContext("iceberg", repository, 2,
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
@@ -348,8 +350,8 @@ class TestRelatedWorkspaceWork
         var service = service();
         ObjectProvider<RelatedWorkspaceWork> provider = mock(ObjectProvider.class);
         when(provider.getObject()).thenReturn(service);
-        ObjectProvider<com.bytequay.app.backport.BackportChainService> chainProvider = mock(ObjectProvider.class);
-        var chainService = mock(com.bytequay.app.backport.BackportChainService.class);
+        ObjectProvider<BackportChainService> chainProvider = mock(ObjectProvider.class);
+        var chainService = mock(BackportChainService.class);
         when(chainProvider.getObject()).thenReturn(chainService);
         var resolver = new RelatedWorkspaceBridgeResolverImpl(provider, turns, new ObjectMapper().findAndRegisterModules(), chainProvider);
         var bridge = resolver.resolve(source.id().toString()).orElseThrow();
@@ -360,8 +362,19 @@ class TestRelatedWorkspaceWork
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\",\"workspaceId\":\"other\"}"))
                 .isInstanceOf(IllegalArgumentException.class);
         bridge.call().apply("{\"action\":\"SAVE_CHAIN\",\"operationKey\":\"backport\",\"destinations\":[\"test/internal-trino\"]}");
-        verify(chainService).save(source.id().toString(), sourceTurn.id(), new com.bytequay.app.backport.BackportChainService.Request(
-                "backport", source.id().toString(), Optional.empty(), ImmutableList.of("test/internal-trino")));
+        verify(chainService).save(source.id().toString(), sourceTurn.id(), new BackportChainService.Request(
+                "backport", Optional.of(source.id().toString()), Optional.empty(), ImmutableList.of("test/internal-trino"), Optional.empty(), Optional.empty()));
+        bridge.call().apply("""
+                {"action":"DISCOVER_BACKPORT","operationKey":"route-settings"}
+                """);
+        verify(chainService).discover(source.id().toString(), sourceTurn.id());
+        bridge.call().apply("""
+                {"action":"SAVE_CHAIN","operationKey":"existing-pr","sourcePullRequest":{"workspaceId":"oss","number":1234},
+                 "destinations":["internal","private"],"sourceHops":[-1,-1]}
+                """);
+        verify(chainService).save(source.id().toString(), sourceTurn.id(), new BackportChainService.Request(
+                "existing-pr", Optional.empty(), Optional.empty(), ImmutableList.of("internal", "private"),
+                Optional.of(new BackportChainService.SourcePullRequest("oss", 1234)), Optional.of(ImmutableList.of(-1, -1))));
         when(turns.findActive(source.id())).thenReturn(Optional.of(accepted(source.id(), "later-user-turn")));
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\"}"))
                 .isInstanceOf(AgentConflictException.class);

@@ -23,6 +23,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Service;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -49,7 +50,7 @@ public class WorkspaceRelationships
 
     public enum Kind { FORK, DEPENDENCY }
 
-    public record Relationship(String workspaceId, Kind kind, String guidance)
+    public record Relationship(String workspaceId, Kind kind, String guidance, boolean backportByDefault)
     {
         public Relationship
         {
@@ -57,6 +58,7 @@ public class WorkspaceRelationships
             checkArgument(kind != null, "Choose Fork or Dependency");
             checkArgument(guidance != null && guidance.length() <= 500, "Guidance must be at most 500 characters");
             guidance = guidance.strip();
+            checkArgument(!backportByDefault || kind == Kind.FORK, "Only a Fork can be a default backport source");
         }
     }
 
@@ -73,6 +75,22 @@ public class WorkspaceRelationships
         }).orElse(ImmutableList.of());
     }
 
+    public record BackportWorkspace(String workspaceId, String name, String repository, List<Relationship> sources)
+    {
+        public BackportWorkspace
+        {
+            sources = ImmutableList.copyOf(sources);
+        }
+    }
+
+    public List<BackportWorkspace> backportWorkspaces()
+    {
+        return workspaces.findAllRetained().stream().filter(workspace -> workspaces.isWatched(workspace.id()))
+                .map(workspace -> new BackportWorkspace(workspace.id(), workspace.name(), workspace.monitoredRepository().fullName(),
+                        list(workspace.id()).stream().filter(link -> link.kind() == Kind.FORK).collect(toImmutableList())))
+                .collect(toImmutableList());
+    }
+
     public List<Relationship> save(String workspaceId, Relationship relationship)
     {
         return WorkspaceOperationLocks.withLock(workspaceId, () -> {
@@ -81,11 +99,24 @@ public class WorkspaceRelationships
             checkArgument(workspaces.isWatched(destination.id()), "Choose a watched workspace");
             requireDifferent(source, destination);
             List<Relationship> existing = list(workspaceId);
+            checkArgument(!relationship.backportByDefault() || existing.stream().noneMatch(other -> other.backportByDefault()
+                            && !other.workspaceId().equals(relationship.workspaceId())),
+                    "Choose one default backport source; turn off the existing default first");
             for (Relationship other : existing) {
                 if (!other.workspaceId().equals(destination.id())) {
                     checkArgument(workspaces.findById(other.workspaceId())
                                     .filter(value -> value.monitoredRepositoryId() == destination.monitoredRepositoryId()).isEmpty(),
                             "This project is already related through another workspace");
+                }
+            }
+            if (relationship.backportByDefault()) {
+                var visited = new HashSet<String>();
+                visited.add(workspaceId);
+                Optional<String> upstream = Optional.of(relationship.workspaceId());
+                while (upstream.isPresent()) {
+                    String current = upstream.orElseThrow();
+                    checkArgument(visited.add(current), "Default backport sources cannot form a cycle");
+                    upstream = list(current).stream().filter(Relationship::backportByDefault).map(Relationship::workspaceId).findFirst();
                 }
             }
             List<Relationship> next = ImmutableList.<Relationship>builder()

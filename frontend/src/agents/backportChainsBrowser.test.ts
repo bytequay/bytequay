@@ -21,3 +21,18 @@ it('shows the saved route and operates existing chain controls', async () => {
   expect(results.filter(result => result.error)).toEqual([]);
   expect(results).toHaveLength(1);
 }, 30_000);
+
+it('completes backport requests on workspace Home and Tasks without sending', async () => {
+  const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-backport-composer-',
+    entry: 'src/agents/fixtures/backportChainsBrowser.tsx', global: 'BackportChainsTests', styles: true, charset: true,
+    width: 1100, height: 950, body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runComposer()");' });
+  expect(results.filter(result => result.error)).toEqual([]);
+  expect(results).toHaveLength(1);
+}, 30_000);
+
+it('supports Codex or an API key without a Claude account and permits drafting before setup', async () => {
+  const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-provider-choice-',
+    entry: 'src/agents/fixtures/backportChainsBrowser.tsx', global: 'BackportChainsTests', styles: true, charset: true,
+    body: 'const results = await window.webContents.executeJavaScript("BackportChainsTests.runProviderChoice()");' });
+  expect(results.filter(result => result.error)).toEqual([]);
+}, 30_000);

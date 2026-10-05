@@ -400,7 +400,7 @@ describe('agent task list', () => {
     expect(markup).toContain('Open workspace settings');
   });
 
-  it('links a provider that is not ready to the settings that fix it', () => {
+  it('offers provider choice without putting authentication commands in the composer', () => {
     const catalog: ModelSettingsDto = {
       ...readyCatalog(MODELS),
       providers: [{ ...readyCatalog(MODELS).providers[0], readiness: 'AUTHENTICATION_REQUIRED' }],
@@ -408,19 +408,17 @@ describe('agent task list', () => {
 
     const blocker = creationBlocker(catalog, 'codex', { model: 'gpt-5.6-codex', effort: 'high' });
 
-    // The same typed readiness Workspace settings shows, with its remedy, not a generic failure.
-    expect(blocker).toContain('Codex is not ready');
-    expect(blocker).toContain('Sign in');
-    expect(blocker).toContain('codex login');
-    // A lane with its own home names the exact command, path included.
+    expect(blocker).toContain('Choose an available provider');
+    expect(blocker).not.toContain('Sign in');
+    expect(blocker).not.toContain('codex login');
     const ownHome: ModelSettingsDto = {
       ...catalog,
       providers: [{ ...catalog.providers[0], signInCommand: 'CODEX_HOME="/x/codex-home" codex login' }],
     };
     expect(creationBlocker(ownHome, 'codex', { model: 'gpt-5.6-codex', effort: 'high' }))
-      .toContain('CODEX_HOME="/x/codex-home" codex login');
+      .toEqual(blocker);
 
-    // A probe that names its obstacle is repeated verbatim, because the remedy alone is generic.
+    // Detailed diagnostics belong to provider settings.
     const unavailable: ModelSettingsDto = {
       ...catalog,
       providers: [{
@@ -430,7 +428,7 @@ describe('agent task list', () => {
       }],
     };
     expect(creationBlocker(unavailable, 'codex', { model: 'gpt-5.6-codex', effort: 'high' }))
-      .toContain('exec-policy rules at ~/.codex/rules');
+      .toEqual(blocker);
     // A catalog that has not arrived yet is loading, not an unchecked provider.
     expect(creationBlocker(null, 'codex', null)).toBeNull();
     expect(creationBlocker(readyCatalog(MODELS), 'codex', { model: 'gpt-5.6-codex', effort: 'high' })).toBeNull();
@@ -444,8 +442,8 @@ describe('agent task list', () => {
         diagnostic: 'DeepSeek rejected this API key' }],
     };
     const blocked = creationBlocker(catalog, laneId, { model: 'deepseek-flash', effort: null });
-    expect(blocked).toContain('Check the DeepSeek key');
-    expect(blocked).toContain('DeepSeek rejected this API key');
+    expect(blocked).toContain('Choose an available provider');
+    expect(blocked).not.toContain('DeepSeek rejected this API key');
     expect(blocked).not.toContain('codex login');
     expect(creationBlocker({ ...catalog, providers: [] }, laneId, null)).toContain('DeepSeek key removed');
   });

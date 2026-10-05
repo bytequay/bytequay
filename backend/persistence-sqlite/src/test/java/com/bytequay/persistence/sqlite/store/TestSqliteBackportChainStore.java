@@ -80,9 +80,9 @@ class TestSqliteBackportChainStore
 
     private static BackportChain chain()
     {
-        return new BackportChain(UUID.randomUUID().toString(), "p4", "request", "source", "task-branch", route(4), Optional.empty(), false,
-                ImmutableList.of(new Acceptance("request-key", "turn", ImmutableList.of("p3"))),
-                ImmutableList.of(new Hop(route(3), "codex", Optional.of("model"), Optional.of("high"),
+        return new BackportChain(UUID.randomUUID().toString(), "p4", "request", Optional.of("source"), "task-branch", route(4), Optional.empty(), false,
+                ImmutableList.of(new Acceptance("request-key", "turn", ImmutableList.of("p3"), ImmutableList.of(-1))),
+                ImmutableList.of(new Hop(-1, route(3), "codex", Optional.of("model"), Optional.of("high"),
                         Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), false, Optional.empty(), false, false)),
                 State.ACTIVE, Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
     }

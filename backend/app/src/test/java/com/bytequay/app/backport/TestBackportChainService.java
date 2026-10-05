@@ -160,7 +160,7 @@ class TestBackportChainService
             var workspace = workspace(number);
             workspaceData.put(workspace.id(), workspace);
             when(relationships.list(workspace.id())).thenReturn(ImmutableList.of(
-                    new WorkspaceRelationships.Relationship("p" + (number + 1), WorkspaceRelationships.Kind.FORK, "Fork")));
+                    new WorkspaceRelationships.Relationship("p" + (number + 1), WorkspaceRelationships.Kind.FORK, "Fork", false)));
             when(repositories.requireReadyRepository(workspace.id())).thenReturn(new WorkspaceRepositoryContext(workspace.id(), Path.of("/tmp", workspace.id()),
                     number, workspace.selectedRepository(), OptionalLong.empty(), workspace.monitoredRepository(), "origin", "origin", "main", ImmutableList.of()));
         }
@@ -209,6 +209,80 @@ class TestBackportChainService
         });
     }
 
+    @Test
+    void discoveryIdentifiesTheCurrentWorkspaceWithoutStartingWork()
+    {
+        var catalogue = ImmutableList.of(new WorkspaceRelationships.BackportWorkspace("p4", "OSS", "test/p4", ImmutableList.of()));
+        when(relationships.backportWorkspaces()).thenReturn(catalogue);
+        var discovery = service().discover(source.id().toString(), turn.id());
+        assertThat(discovery.currentWorkspaceId()).isEqualTo("p4");
+        assertThat(discovery.workspaces()).isEqualTo(catalogue);
+        assertThat(saved).isEmpty();
+        verify(executions, never()).start(any(), anyString(), any(), any());
+    }
+
+    @Test
+    void existingContributorPrStartsSiblingBackportsWithoutWaitingForEachOther()
+    {
+        when(relationships.list("p2")).thenReturn(ImmutableList.of(
+                new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.FORK, "Direct fork", true)));
+        var pr = identity(4, GitHubPullRequestIdentity.State.OPEN, "contributor-fix");
+        remote.put(4, new GitHubPullRequestIdentity(pr.pullRequest(), pr.url(), RepoRef.of("contributor", "fork"), pr.headBranch(),
+                pr.headSha(), pr.baseRepository(), pr.baseBranch(), pr.baseSha(), pr.state(), false, "contributor"));
+        var service = service();
+        var request = new Request("parallel", Optional.empty(), Optional.empty(), ImmutableList.of("p3", "p2"),
+                Optional.of(new BackportChainService.SourcePullRequest("p4", 4)), Optional.of(ImmutableList.of(-1, -1)));
+        var chain = service.save(source.id().toString(), turn.id(), request);
+        assertThat(chain.sourceTaskId()).isEmpty();
+        assertThat(chain.sourcePullRequest()).contains(pr.pullRequest());
+        service.advance(chain.id());
+        assertThat(children).isEmpty();
+        merge(4);
+        for (int tick = 0; tick < 8; tick++) {
+            service.advance(chain.id());
+        }
+        assertThat(children).hasSize(2);
+        assertThat(current(chain).hops()).allSatisfy(hop -> {
+            assertThat(hop.landedSource().orElseThrow().mergeSha()).isEqualTo(P4_SHA);
+            assertThat(hop.completed()).isFalse();
+            assertThat(hop.pullRequest()).isPresent();
+        });
+        assertThat(service.save(source.id().toString(), turn.id(), request)).isEqualTo(current(chain));
+        assertThatThrownBy(() -> service.save(source.id().toString(), turn.id(),
+                new Request("parallel", Optional.empty(), Optional.empty(),
+                request.destinations(), request.sourcePullRequest(), Optional.empty()))).hasMessageContaining("saved request changed");
+        merge(2);
+        service.advance(chain.id());
+        assertThat(current(chain).hops().get(1).completed()).isTrue();
+        assertThat(current(chain).state()).isEqualTo(State.ACTIVE);
+        merge(3);
+        service.advance(chain.id());
+        service.advance(chain.id());
+        assertThat(current(chain).state()).isEqualTo(State.COMPLETED);
+        verify(executions, times(2)).start(any(), anyString(), any(), any());
+    }
+
+    @Test
+    void rejectsForwardDependenciesAndChangedSourcePrBeforeDispatch()
+    {
+        var service = service();
+        var external = Optional.of(new BackportChainService.SourcePullRequest("p4", 4));
+        assertThatThrownBy(() -> service.save(source.id().toString(), turn.id(),
+                new Request("cycle", Optional.empty(), Optional.empty(),
+                ImmutableList.of("p3", "p2"), external, Optional.of(ImmutableList.of(1, 0))))).hasMessageContaining("earlier hop");
+        assertThat(saved).isEmpty();
+        var request = new Request("existing", Optional.empty(), Optional.empty(), ImmutableList.of("p3", "p2"), external, Optional.empty());
+        var chain = service.save(source.id().toString(), turn.id(), request);
+        assertThatThrownBy(() -> service.save(source.id().toString(), turn.id(),
+                new Request("existing", Optional.empty(), Optional.empty(),
+                request.destinations(), Optional.of(new BackportChainService.SourcePullRequest("p4", 99)), Optional.empty())))
+                .hasMessageContaining("source PR changed");
+        when(relationships.list("p3")).thenReturn(ImmutableList.of());
+        service.advance(chain.id());
+        assertThat(current(chain).state()).isEqualTo(State.BLOCKED);
+        verify(executions, never()).start(any(), anyString(), any(), any());
+    }
+
     @ParameterizedTest
     @CsvSource({"false", "true"})
     void waitsForEveryMergeAndUsesP3LandedChangesForP2(boolean alreadyMerged)
@@ -253,7 +327,7 @@ class TestBackportChainService
     @CsvSource({"p3,false", "p3,true", "p2,false", "p2,true"})
     void directRoutesCanBeRequestedBeforePublicationOrAfterMerge(String destination, boolean alreadyMerged)
     {
-        when(relationships.list(destination)).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.FORK, "Direct fork")));
+        when(relationships.list(destination)).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.FORK, "Direct fork", false)));
         var service = service();
         if (alreadyMerged) {
             merge(4);
@@ -294,7 +368,7 @@ class TestBackportChainService
         when(turns.findActive(id)).thenReturn(Optional.of(accepted));
         when(related.list("p2")).thenReturn(ImmutableList.of(linked(owner, accepted, "INVESTIGATE")));
         var service = service();
-        var request = new Request("linked-fix", source.id().toString(), Optional.empty(), ImmutableList.of("p3", "p2"));
+        var request = new Request("linked-fix", Optional.of(source.id().toString()), Optional.empty(), ImmutableList.of("p3", "p2"), Optional.empty(), Optional.empty());
         assertThatThrownBy(() -> service.save(id.toString(), accepted.id(), request)).hasMessageContaining("linked fix");
         assertThat(saved).isEmpty();
         when(related.list("p2")).thenReturn(ImmutableList.of(linked(owner, accepted, "FIX")));
@@ -338,13 +412,16 @@ class TestBackportChainService
         var chain = save(service, "test/p3");
         assertThat(save(service, "test/p3")).isEqualTo(chain);
         assertThatThrownBy(() -> save(service, "p2")).hasMessageContaining("saved request changed");
-        var appended = service.save(source.id().toString(), turn.id(), new Request("append", source.id().toString(), Optional.of(chain.id()), ImmutableList.of("p2")));
+        var appended = service.save(source.id().toString(), turn.id(),
+                new Request("append", Optional.of(source.id().toString()), Optional.of(chain.id()), ImmutableList.of("p2"), Optional.empty(), Optional.empty()));
         assertThat(appended.hops()).hasSize(2);
         assertThat(appended.hops().getFirst()).isEqualTo(chain.hops().getFirst());
-        assertThatThrownBy(() -> service.save(source.id().toString(), TurnId.random(), new Request("wrong", source.id().toString(), Optional.empty(), ImmutableList.of("p3"))))
+        assertThatThrownBy(() -> service.save(source.id().toString(), TurnId.random(),
+                new Request("wrong", Optional.of(source.id().toString()), Optional.empty(), ImmutableList.of("p3"), Optional.empty(), Optional.empty())))
                 .hasMessageContaining("no longer active");
-        when(relationships.list("p3")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.DEPENDENCY, "Library")));
-        assertThatThrownBy(() -> service.save(source.id().toString(), turn.id(), new Request("dependency", source.id().toString(), Optional.empty(), ImmutableList.of("p3"))))
+        when(relationships.list("p3")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.DEPENDENCY, "Library", false)));
+        assertThatThrownBy(() -> service.save(source.id().toString(), turn.id(),
+                new Request("dependency", Optional.of(source.id().toString()), Optional.empty(), ImmutableList.of("p3"), Optional.empty(), Optional.empty())))
                 .hasMessageContaining("Fork");
     }
 
@@ -438,7 +515,8 @@ class TestBackportChainService
         assertThat(current(chain).state()).isEqualTo(State.COMPLETED);
         assertThat(current(chain).hops().getFirst().noOp()).isTrue();
         verify(delivery, never()).deliverChain(anyString(), anyInt(), any(Boolean.class));
-        var appended = service.save(source.id().toString(), turn.id(), new Request("after-noop", source.id().toString(), Optional.of(chain.id()), ImmutableList.of("p2")));
+        var appended = service.save(source.id().toString(), turn.id(),
+                new Request("after-noop", Optional.of(source.id().toString()), Optional.of(chain.id()), ImmutableList.of("p2"), Optional.empty(), Optional.empty()));
         service.advance(appended.id());
         assertThat(current(chain).state()).isEqualTo(State.BLOCKED);
         assertThat(current(chain).reason()).get().asString().contains("Select landed commits");
@@ -477,7 +555,7 @@ class TestBackportChainService
         service.advance(chain.id());
         service.advance(chain.id());
         assertThat(current(chain).sourceMerged()).isTrue();
-        var request = new BackportChainService.SelectSource(current(chain).version(), P4_SHA, P4_SHA);
+        var request = new BackportChainService.SelectSource(current(chain).version(), 0, P4_SHA, P4_SHA);
         when(prs.fetchMergedPullRequest(anyString(), any())).thenReturn(new GitHubPullRequestReadClient.MergedPullRequest(
                 remote.get(4), 4, NOW, P4_SHA, ImmutableList.of(P4_SHA)));
         when(previews.preview(any())).thenReturn(new CherryPickPreview("manual", "p3", workspace(3).monitoredRepository(), RepoRef.of("test", "p4"),
@@ -520,7 +598,8 @@ class TestBackportChainService
 
     private BackportChain save(BackportChainService service, String... destinations)
     {
-        return service.save(source.id().toString(), turn.id(), new Request("route", source.id().toString(), Optional.empty(), ImmutableList.copyOf(destinations)));
+        return service.save(source.id().toString(), turn.id(),
+                new Request("route", Optional.of(source.id().toString()), Optional.empty(), ImmutableList.copyOf(destinations), Optional.empty(), Optional.empty()));
     }
 
     private BackportChain current(BackportChain chain)
@@ -530,7 +609,9 @@ class TestBackportChainService
 
     private void merge(int number)
     {
-        remote.put(number, identity(number, GitHubPullRequestIdentity.State.MERGED, remote.get(number).headBranch()));
+        var pr = remote.get(number);
+        remote.put(number, new GitHubPullRequestIdentity(pr.pullRequest(), pr.url(), pr.headRepository(), pr.headBranch(), pr.headSha(),
+                pr.baseRepository(), pr.baseBranch(), pr.baseSha(), GitHubPullRequestIdentity.State.MERGED, pr.draft(), pr.author()));
     }
 
     private BackportChainService service()

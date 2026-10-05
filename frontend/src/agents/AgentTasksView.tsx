@@ -12,13 +12,14 @@
  * limitations under the License.
  */
 
+import { BackportButton, BackportRequestHint, backportDraft, startBackportRequest } from './BackportRequestHint';
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import RepoAvatar from '../RepoAvatar';
-import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, remedyCommand } from '../settings/model';
+import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneDefaults, laneLabel, providerAvailable } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
@@ -162,12 +163,7 @@ export function creationBlocker(
     return `${laneLabel(laneId)} is not available in this build.`;
   }
   if (!providerAvailable(provider.readiness)) {
-    const remedy = providerRemedy(provider.readiness, provider.id);
-    const command = remedyCommand(provider, remedy);
-    // The probe's own diagnostic names the actual obstacle; the remedy alone can be generic.
-    return `${laneLabel(laneId)} is not ready — ${remedy.title}. ${remedy.detail}`
-      + (command === null ? '' : ` Run: ${command}`)
-      + (provider.diagnostic === '' ? '' : ` ${provider.diagnostic}`);
+    return 'Choose an available provider below, or configure one in settings.';
   }
   if (selection === null || !provider.models.some((model) => model.id === selection.model)) {
     return isDeepSeekKeyLane(laneId)
@@ -247,14 +243,13 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const submissions = submissionRef.current;
 
   /**
-   * Seeds the composer from the Development setting — the model this workspace's
-   * next task is meant to launch with — unless a launch was chosen for it, or a
-   * blocked start is retried on the lane it failed on.
+   * Use the Development setting when ready, else an available provider for the new draft.
+   * Explicit launches retain their lane until the user changes it.
    */
   const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaunch?.laneId) => {
     const available = taskCreationCatalog(settings, sourceBound ? 0 : null);
     setCatalog(available);
-    // The caller's own choice is taken as made; a retry that lands on another lane takes that lane's own.
+    // An explicitly supplied launch keeps its provider and model, including while it needs setup.
     if (initialLaunch !== undefined && preferredLaneId === initialLaunch.laneId
       && available.providers.some((candidate) => candidate.id === initialLaunch.laneId)) {
       setLaneId(initialLaunch.laneId);
@@ -275,18 +270,19 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       }
     }
     const development = available.agents.find((agent) => agent.type === 'DEVELOPMENT');
-    if (development !== undefined && available.providers.some((candidate) => candidate.id === development.configId)) {
+    const ready = available.providers.filter(candidate => providerAvailable(candidate.readiness) && candidate.models.length > 0);
+    const provider = ready.find(candidate => candidate.id === development?.configId)
+      ?? ready.find(candidate => candidate.id === INTERACTIVE_LANE_ID) ?? ready[0]
+      ?? available.providers.find(candidate => candidate.id === development?.configId) ?? available.providers[0];
+    if (development !== undefined && provider?.id === development.configId && provider.models.some(model => model.id === development.model)) {
       setLaneId(development.configId);
       setSelection({ model: development.model, effort: development.effort ?? null });
       return;
     }
-    const provider = available.providers.find((candidate) => candidate.id === (initialLaunch?.laneId ?? INTERACTIVE_LANE_ID)) ?? available.providers[0];
-    if (provider !== undefined && provider.selectedModel !== '') {
+    if (provider !== undefined) {
+      const defaults = laneDefaults(available.providers, provider.id);
       setLaneId(provider.id);
-      setSelection({
-        model: provider.selectedModel,
-        effort: provider.selectedEffort === '' ? null : provider.selectedEffort,
-      });
+      setSelection(defaults.model === '' ? null : { model: defaults.model, effort: defaults.effort || null });
     }
   }, [initialLaunch, sourceBound]);
 
@@ -318,7 +314,6 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     bridge().getModelSettings(workspaceId)
       .then((settings) => {
         if (!active) return;
-        // The user's own default selection, not a guess this screen invents.
         applyCatalog(settings);
       })
       .catch(() => { /* the blocker below reports an unusable catalog on its own */ });
@@ -381,9 +376,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     const next = catalog?.providers.find((candidate) => candidate.id === nextLaneId);
     if (next === undefined || !providerAvailable(next.readiness)) return;
     setLaneId(next.id);
-    setSelection(next.selectedModel === ''
-      ? null
-      : { model: next.selectedModel, effort: next.selectedEffort === '' ? null : next.selectedEffort });
+    const defaults = laneDefaults(catalog?.providers ?? [], next.id);
+    setSelection(defaults.model === '' ? null : { model: defaults.model, effort: defaults.effort || null });
+    setError(null);
   }, [catalog]);
 
   const attach = useCallback(async (source: 'picker' | 'clipboard' = 'picker') => {
@@ -473,14 +468,10 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     catch (failure) {
       const unavailable = agentProviderUnavailableFrom(failure);
       if (unavailable !== null) {
-        const remedy = providerRemedy(unavailable.readiness, unavailable.laneId);
-        const command = remedyCommand(unavailable, remedy);
-        setError(`${laneLabel(unavailable.laneId)} is not ready — ${remedy.title}. ${unavailable.diagnostic}`
-          + (command === null ? '' : ` Run: ${command}`));
-        // The preflight contract says no mutation happened, so do not replay it as an ambiguous
-        // delivery. Refresh the typed catalog and wait for another deliberate click.
+        setError(`${laneLabel(unavailable.laneId)} could not start. Choose another provider or check its settings.`);
+        // Refresh readiness without replacing a provider the user selects while the read is pending.
         void bridge().getModelSettings(workspaceId)
-          .then((settings) => applyCatalog(settings, unavailable.laneId))
+          .then(settings => setCatalog(taskCreationCatalog(settings, sourceBound ? 0 : null)))
           .catch(() => {});
         return;
       }
@@ -503,7 +494,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
+  }, [blocker, bridge, clearImages, draft, images, issue, sourceJira, sourceBound, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
     workItemId, workspaceId]);
 
   return {
@@ -827,6 +818,7 @@ export function ComposerDock({ repository, chips, children }: {
 export function TaskComposer({
   draft, blocker, laneId, providers, models, selection, onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenSettings,
   images = [], busy = false, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
+  backport = false,
 }: {
   draft: string;
   blocker: string | null;
@@ -847,7 +839,36 @@ export function TaskComposer({
   onAttach?: () => void;
   onPasteImages?: () => void;
   onRemoveImage?: (id: string) => void;
+  backport?: boolean;
 }): React.JSX.Element {
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const composing = useRef(false);
+  const nextCaret = useRef(false);
+  const dismissed = useRef<{ value: string; caret: number } | null>(null);
+  const [mention, setMention] = useState<string | null>(null);
+  const mentionId = useId();
+  const disabled = busy && !attaching;
+  const showMention = backport && !disabled && mention === draft;
+  const updateMention = (input: HTMLTextAreaElement): void => {
+    const caret = input.selectionStart;
+    if (dismissed.current?.value === input.value && dismissed.current.caret === caret) return;
+    dismissed.current = null;
+    const match = /^\s*@([^\s@]*)$/.exec(input.value.slice(0, caret));
+    const suffix = input.value.slice(caret).match(/^\S*/)?.[0] ?? '';
+    setMention(backport && !composing.current && caret === input.selectionEnd && match !== null
+      && 'backport'.startsWith((match[1] + suffix).toLowerCase()) ? input.value : null);
+  };
+  const selectBackport = (): void => {
+    nextCaret.current = true;
+    onDraftChange(backportDraft(draft));
+    setMention(null);
+  };
+  useLayoutEffect(() => {
+    if (!nextCaret.current || inputRef.current === null) return;
+    inputRef.current.focus();
+    inputRef.current.setSelectionRange('@backport '.length, '@backport '.length);
+    nextCaret.current = false;
+  });
   const imagesAccepted = !isDeepSeekKeyLane(laneId)
     && acceptsImages(models, selection?.model, providers.find((provider) => provider.id === laneId)?.capabilities ?? null);
   const openProviderSettings = (providerId: string): void => {
@@ -882,19 +903,48 @@ export function TaskComposer({
             ))}
           </div>
         )}
+        <BackportRequestHint text={draft} />
+        {showMention && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Task suggestions">
+          <button type="button" id={`${mentionId}-backport`} role="option" aria-selected="true" tabIndex={-1}
+            onMouseDown={event => event.preventDefault()} onClick={selectBackport}>
+            <strong>@backport</strong><span>Backport a PR through related workspaces</span>
+          </button>
+        </div>}
         <textarea
+          ref={inputRef}
           className="agt-compose__input"
           rows={1}
           aria-label="Describe a task"
           placeholder="Let's ship..."
           value={draft}
-          disabled={blocker !== null || (busy && !attaching)}
-          onChange={(event) => onDraftChange(event.target.value)}
+          disabled={disabled}
+          aria-autocomplete={backport ? 'list' : undefined}
+          aria-controls={showMention ? mentionId : undefined}
+          aria-activedescendant={showMention ? `${mentionId}-backport` : undefined}
+          onChange={event => { onDraftChange(event.target.value); updateMention(event.currentTarget); }}
+          onFocus={event => updateMention(event.currentTarget)}
+          onSelect={event => updateMention(event.currentTarget)}
+          onBlur={() => setMention(null)}
+          onCompositionStart={() => { composing.current = true; setMention(null); }}
+          onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
           onPaste={(event) => pasteImage(event, imagesAccepted && blocker === null && !busy, onPasteImages)}
           onKeyDown={(event) => {
-            if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
+            if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
+            if (showMention) {
+              if (event.key === 'Escape') {
+                event.preventDefault();
+                dismissed.current = { value: draft, caret: event.currentTarget.selectionStart };
+                setMention(null);
+                return;
+              }
+              if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
+                event.preventDefault(); selectBackport(); return;
+              }
+              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
+            }
+            if (event.key !== 'Enter' || event.shiftKey) return;
             event.preventDefault();
-            onCreate();
+            if (!busy && blocker === null && selection !== null && draft.trim() !== '') onCreate();
           }}
         />
         <div className="agt-compose__row">
@@ -1223,7 +1273,9 @@ export function AgentTaskList({
         )}
         {error !== null && <div className="cmt-error" role="alert">{error}</div>}
         {loading && <div className="agt-loading">Loading agent tasks…</div>}
-        {type === 'backports' && <BackportChainList chains={chainShelf} error={backports.error} />}
+        {type === 'backports' && <BackportChainList chains={chainShelf} error={backports.error} onStart={active ? event => {
+          startBackportRequest(event.currentTarget, draft, onDraftChange);
+        } : undefined} />}
         {type === 'linked' && <LinkedWorkList links={linkedShelf} error={linked.error} />}
         {type !== 'linked' && type !== 'backports' && !loading && visible.length === 0 && (active ? (
           <div className="agt-items-empty">{type === 'all' ? 'No tasks yet.' : 'No tasks of this type yet.'}</div>
@@ -1262,8 +1314,9 @@ export function AgentTaskList({
 
         {/* Anchored under the list: sending this first message is what creates a task. */}
         {active && (
-          <ComposerDock repository={repository}>
+          <ComposerDock repository={repository} chips={<BackportButton draft={draft} onDraftChange={onDraftChange} disabled={busy} />}>
             <TaskComposer
+              backport
               automation={automation}
               issueAttachment={issueAttachment}
               draft={draft}

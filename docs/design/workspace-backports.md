@@ -16,11 +16,12 @@ saved chain above the existing cherry-pick flow.
 | Dependency | Trino -> Apache Iceberg | Read code and memory, compare versions, and investigate there; no cherry-pick or backport between them |
 
 A fork means our source builds on that project. It need not be a GitHub fork.
-There is no third Reference kind or list of capability switches.
+There is no third relationship kind. A Fork can be selected as the default
+backport source for its destination; a Dependency cannot.
 
 Save a list in the existing workspace settings through `AppSettingsStore`.
-Each entry has only `workspaceId`, `kind` (`FORK` or `DEPENDENCY`), and
-`guidance`: why this workspace matters and when to consult it. Put version
+Each entry has `workspaceId`, `kind` (`FORK` or `DEPENDENCY`),
+`backportByDefault`, and `guidance`: why this workspace matters and when to consult it. Put version
 hints in that guidance, such as "Iceberg's version is declared in pom.xml";
 do not add a separate version configuration or dependency lockfile.
 
@@ -57,6 +58,50 @@ relationships prohibit transfers between the linked repositories in either
 direction. Check actual repository identities in shared cherry-pick admission
 and delivery, so a manual request or another remote name cannot bypass this.
 Existing manual routes outside these relationships keep their current behavior.
+
+## Explicit backport requests
+
+`@backport` at the beginning of a user message marks a backport request in the
+new-task and conversation composers. Only Workspace Home and the Tasks tab's
+new-task composer offer a **Backport** pill beside the repository avatar and a
+suggestion list for a leading `@` or matching prefix such as `@backp`. Click,
+Enter or Tab selects the suggestion; Escape dismisses it. The pill and the
+Backport chains example fill and focus the composer, preserve the rest of the
+draft and avoid duplicating the marker. Selection never sends a message;
+only Send starts work. Provider readiness gates Send, not drafting or the
+Backport shortcut. Plain-language backport requests remain supported.
+
+In Related workspaces, **Use as default backport source** selects one Fork
+source per destination. This setting supplies routing, never standing authority
+to copy changes or publish. A user request such as `@backport oss/repo #1234`
+can follow these saved edges. `@backport #1234` uses an unambiguous source from
+the current workspace and configured route; otherwise ask which repository.
+Explicit destinations restrict the request, including only necessary intermediate
+hops. Repository names or aliases must resolve unambiguously before saving.
+
+The root-bound `DISCOVER_BACKPORT` operation returns watched workspace names,
+repository identities and Fork edges with default flags. It does not expose
+transitive code, guidelines or memory. The agent reads the saved graph before
+interpreting order. Siblings backport from the same source independently; a
+nested destination consumes its parent's landed result after merge. If words
+such as "then" conflict with saved sibling routes, ask whether the user wants
+parallel copies of the original PR or a sequential route carrying adaptations.
+A requested sequential hop still requires a direct Fork relationship.
+
+`SAVE_CHAIN` accepts either a source conversation or an existing source PR
+(workspace identity and PR number), and one source-hop index per destination.
+Index -1 means the original source; every other index must point to an earlier
+hop. Omission preserves the ordinary sequential request. Unique destinations
+and earlier-only references prevent cycles and repeated publication of shared
+prefixes. Existing PR sources are verified against their monitored repository
+and base branch without requiring a ByteQuay-created source conversation.
+
+The saved chain freezes these dependencies and authority. The coordinator skips
+waiting hops so ready siblings can run concurrently, while each dependent hop
+waits for its own parent to merge. Stop, attention and recovery remain chain-wide.
+Source-range selection names the affected hop. The card labels each hop's
+source and shows parallel routes without implying a sequential order. No new
+workflow engine, agent polling loop or automatic merge is introduced.
 
 ## 2. Fit the current code
 
@@ -220,8 +265,8 @@ No general cross-workspace messaging system or new result store is needed.
 The accepted user request supplies authority for the named work. An agent's
 suggestion or a memory entry does not. Keep provider approvals, existing stop
 controls, and root/turn checks. A plain investigation never creates a backport
-chain. Starting a conversation remains the user entry point; no Create task
-button is added.
+chain. Starting a conversation remains the user entry point; the Start backport
+conversation button fills the existing composer without sending.
 
 ### Implemented handoff
 
@@ -292,8 +337,8 @@ chain operation saves/appends the route under the accepted user request. Append
 only unstarted work; do not rewrite completed steps. Freeze destinations when
 the request is accepted, and reject changed fields on a reused key.
 
-The existing root-only `related_workspace_work` tool now accepts `SAVE_CHAIN`
-and `READ_CHAIN`. Omit `sourceTaskId` to use this conversation; supply the linked
+The existing root-only `related_workspace_work` tool accepts `DISCOVER_BACKPORT`,
+`SAVE_CHAIN` and `READ_CHAIN`. Omit `sourceTaskId` to use this conversation; supply the linked
 FIX conversation ID for an upstream fix. Destinations accept watched workspace
 IDs or unambiguous `owner/repository` names, so a P4 conversation needs no reverse
 memory or code access to name its downstream route. Appending uses the saved
@@ -412,7 +457,7 @@ is the source of truth for this feature's layout and interactions. Its mock
 records and scenario-switching toolbar are preview-only. Use existing app
 primitives for the workspace picker, Fork/Dependency segments, compact related
 rows, linked-work cards and Tasks sub-tab. Preserve current conversation entry;
-this feature adds no Create task button.
+the Start backport conversation button only fills and focuses the existing composer.
 
 
 | Existing surface | Addition |

@@ -339,7 +339,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
     let cancelled = false;
     void window.bridge.fetchWorkspaceIssue(workspaceId, initialIssueNumber)
-      .catch(() => readPreview(initialIssueNumber))
+      .catch((): null => null)
+      .then(issue => issue ?? readPreview(initialIssueNumber))
       .then(issue => {
         if (cancelled) return;
         if ('state' in issue) {

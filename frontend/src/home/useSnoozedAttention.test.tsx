@@ -64,7 +64,7 @@ describe('retained snoozed attention', () => {
 
   it('loads an exact closed issue after cache removal and retains the snapshot when its source is inaccessible', async () => {
     const bridge = {
-      fetchWorkspaceIssue: async () => { throw new Error('No open issue'); },
+      fetchWorkspaceIssue: async () => null,
       fetchGitHubIssuePreview: async () => ({ title: 'Resolved issue', body: 'Latest issue body', author: 'alice', labels: ['fixed'],
         updatedAt: '2026-09-28T10:00:00Z', state: 'closed', pullRequest: false }),
     } satisfies Partial<Bridge>;

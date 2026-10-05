@@ -323,6 +323,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     try {
       const updated = await bridge().fetchWorkspaceIssue(workspaceId, sourceIssueNumber);
       if (!mountedRef.current || request !== sourceRequest.current) return;
+      if (updated === null) throw new Error('Issue is no longer available locally. Refresh the workspace issues before starting development.');
       if (updated.developmentTask != null && updated.developmentTask.taskId !== replaces) {
         notifyIssueDevelopmentChanged(updated.id);
         window.location.hash = workspaceAgentTaskRoute(updated.developmentTask.workspaceId, updated.developmentTask.taskId);

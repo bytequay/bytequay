@@ -90,7 +90,10 @@ export async function refreshSnoozedItem(item: AttentionItem, bridge: Bridge): P
       return updated === null ? item : { ...pullRequestItem(updated, 'updated'), workspaceId: item.workspaceId };
     }
     if (item.workspaceId !== null) {
-      try { return { ...issueAttentionItem(await bridge.fetchWorkspaceIssue(item.workspaceId, item.number), item.repo, item.workspaceId), workspaceName: item.workspaceName }; }
+      try {
+        const updated = await bridge.fetchWorkspaceIssue(item.workspaceId, item.number);
+        if (updated !== null) return { ...issueAttentionItem(updated, item.repo, item.workspaceId), workspaceName: item.workspaceName };
+      }
       catch { /* Closed issues leave the open-issue cache; their exact GitHub preview remains readable. */ }
     }
     const [owner, repo] = item.repo.split('/');

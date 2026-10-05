@@ -38,7 +38,7 @@ function readStoredItem(visit: Visit, afterWrite = false): void {
     }
     else if (item.type === 'issue' && item.workspaceId !== null && window.bridge.fetchWorkspaceIssue !== undefined) {
       const row = await window.bridge.fetchWorkspaceIssue(item.workspaceId, item.number);
-      if (Date.parse(row.updatedAt) >= Date.parse(visit.item.updatedAt)) {
+      if (row !== null && Date.parse(row.updatedAt) >= Date.parse(visit.item.updatedAt)) {
         visit.item = issueAttentionItem(row, item.repo, item.workspaceId);
         notifyIssueDevelopmentChanged(row.id);
       }

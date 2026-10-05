@@ -42,6 +42,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standaloneSetup;
@@ -73,6 +74,16 @@ class TestWorkspaceIssueDevelopmentController
                 .andExpect(jsonPath("$.developmentTask.taskId").value("task-id"))
                 .andExpect(jsonPath("$.developmentTask.workspaceId").value("original-workspace"))
                 .andExpect(jsonPath("$.issue").doesNotExist());
+    }
+
+    @Test
+    void uncachedIssueReturnsJsonNull()
+            throws Exception
+    {
+        when(issues.find("workspace", 7)).thenReturn(Optional.empty());
+        mvc.perform(get("/api/workspaces/workspace/issues/7"))
+                .andExpect(status().isOk())
+                .andExpect(content().string("null"));
     }
 
     @Test

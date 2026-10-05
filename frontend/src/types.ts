@@ -1479,7 +1479,7 @@ export type Bridge = JiraBridge & {
   getWorkspace: (workspaceId: string) => Promise<WorkspaceDto>;
   getWorkspaceMetadata: (workspaceId: string) => Promise<RepositoryMetadataDto>;
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
-  fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number]>;
+  fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number] | null>;
   fetchWorkspaceIssueAttention: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
   setWorkspaceIssueEpic: (workspaceId: string, issueNumber: number, isEpic: boolean) => Promise<IssueDevelopmentDto>;
   /** The workspace's goals with every item read locally; nothing here writes to GitHub or Jira. */

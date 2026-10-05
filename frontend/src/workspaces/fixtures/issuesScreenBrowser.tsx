@@ -389,7 +389,7 @@ async function closedIssueReminder(): Promise<void> {
   let previewReads = 0;
   window.bridge = {
     fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({ repositoryId: 40, repository, issues: [], page: 0, pageSize: 50, totalIssues: 0, hasMore: false, syncedAt: null }),
-    fetchWorkspaceIssue: async () => { throw new Error('The closed issue is no longer cached'); },
+    fetchWorkspaceIssue: async () => null,
     fetchGitHubIssuePreview: async (owner: string, repo: string, number: number) => {
       assert(owner === 'upstream' && repo === 'app' && number === 99, 'The fallback reads the exact original issue');
       previewReads++; return preview;

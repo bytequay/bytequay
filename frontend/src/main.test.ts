@@ -523,6 +523,30 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/jira/connections', expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
 });
 
+it('records a Jira visit without parsing the empty response and preserves HTTP errors', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(null, { status: 204 }));
+  vi.stubGlobal('fetch', fetch);
+  const location = { connectionId: 'connection/one', cloudId: 'site/one', issueId: '7' };
+  await expect(desktop.handlers.get('jira:issue:recent')?.({}, location, 20)).resolves.toBeUndefined();
+  expect(fetch).toHaveBeenLastCalledWith(
+    'http://127.0.0.1:9527/api/jira/connections/connection%2Fone/sites/site%2Fone/issues/7/recent',
+    expect.objectContaining({ method: 'POST', body: JSON.stringify({ dwellSeconds: 20 }), headers: {
+      'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session',
+    } }),
+  );
+  fetch.mockImplementation(async () => new Response(JSON.stringify({ message: 'Ticket unavailable' }), { status: 404 }));
+  await expect(desktop.handlers.get('jira:issue:recent')?.({}, location, 20)).rejects.toThrow('Ticket unavailable');
+});
+
+it('returns an ordinary cache miss from the workspace issue lookup', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response('null')));
+  await expect(desktop.handlers.get('workspaces:issue')?.({}, 'workspace', 7)).resolves.toBeNull();
+});
+
 it.each([false, true])('allows a Jira collection refresh beyond one minute (completed: %s)', async completed => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

@@ -179,10 +179,9 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}")
-    public WorkspaceIssueHttpContract.Issue issue(@PathVariable String workspaceId, @PathVariable int issueNumber)
+    public Optional<WorkspaceIssueHttpContract.Issue> issue(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
-        return WorkspaceIssueHttpContract.issue(issues.find(workspaceId, issueNumber)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Issue is not available locally")), issueDevelopment);
+        return issues.find(workspaceId, issueNumber).map(issue -> WorkspaceIssueHttpContract.issue(issue, issueDevelopment));
     }
 
     @PostMapping("/{workspaceId}/issues/refresh")

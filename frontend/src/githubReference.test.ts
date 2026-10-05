@@ -104,7 +104,7 @@ describe('GitHub references', () => {
       const workspaces = watched ? [{ id: 'workspace-1', monitoredOwner: 'trinodb', monitoredRepo: 'trino' }] : [];
       const bridge = {
         listWorkspaces: vi.fn().mockResolvedValue(workspaces),
-        fetchWorkspaceIssue: vi.fn().mockRejectedValue(new Error('Issue is not cached')),
+        fetchWorkspaceIssue: vi.fn().mockResolvedValue(null),
         fetchGitHubIssuePreview: vi.fn().mockResolvedValue(issuePreview),
         fetchPullRequestDetailByRef: vi.fn(),
         openInAppBrowser: vi.fn(),

@@ -37,6 +37,10 @@ historical checkpoint evidence and explicitly deferred future work.
   actionable work items in both existing Needs attention views. The broader
   [work planning design](issue-development.md) remains the later roadmap.
 
+- [Epic work items](epic-work-items.md) proposes how an Epic gets ByteQuay work
+  items through its Epic view, syncs its source's children on a click, and shows
+  item status and Epic progress; the Epic drawer on workspace Home is implemented.
+
 - [Architecture](architecture.md) describes the whole system, Maven module
   boundaries, dependency direction, the dedicated SQLite persistence module,
   runtime composition, and extraction sequence.

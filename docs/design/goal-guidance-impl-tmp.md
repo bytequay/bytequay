@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first fourteen implementation slices are complete. The later items
+Status: The first fifteen implementation slices are complete. The later items
 of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -621,6 +621,12 @@ rules.
    without it.
 4. Write again. A written chapter can be written again from the current notes,
    map and code.
+
+Progress: the fifteenth slice is complete. The baseline query runs in an empty
+source directory, so CodeGraph answers from the index alone, with no checkout:
+symbols with their files and lines and how they relate. The course map is one
+components diagram saved with the course; a course accepted before maps, or a
+revised one, gets its map when its next chapter is written.
 
 Done when: a chapter's request carries its code map, the course map and the
 diagram rules, the course overview draws the map, and Write again replaces a

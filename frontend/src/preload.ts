@@ -206,7 +206,7 @@ const bridge: Bridge = {
   listGoalGaps: (workspaceId, goalId) => ipcRenderer.invoke('goals:gaps', workspaceId, goalId),
   addGoalGap: (workspaceId, goalId, candidateId) => ipcRenderer.invoke('goals:gaps:add', workspaceId, goalId, candidateId),
   setGoalTopic: (workspaceId, goalId, topic, level) => ipcRenderer.invoke('goals:topics', workspaceId, goalId, topic, level),
-  openGoalLesson: (workspaceId, goalId, lessonId) => ipcRenderer.invoke('goals:lessons:open', workspaceId, goalId, lessonId),
+  openGoalLesson: (workspaceId, goalId, lessonId, again) => ipcRenderer.invoke('goals:lessons:open', workspaceId, goalId, lessonId, again === true),
   readGoalLesson: (workspaceId, goalId, lessonId) => ipcRenderer.invoke('goals:lessons:read', workspaceId, goalId, lessonId),
   finishGoalLesson: (workspaceId, goalId, lessonId, operationId) => ipcRenderer.invoke('goals:lessons:done', workspaceId, goalId, lessonId, operationId),
   refreshWorkspaceIssues: workspaceId => ipcRenderer.invoke('workspaces:issues:refresh', workspaceId),

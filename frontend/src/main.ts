@@ -1941,8 +1941,8 @@ function registerIpc(): void {
     backendJson(recommendationUrl(workspaceId, goalId, recommendationId, 'dismiss'), { method: 'POST' }).then(parseGoalRecommendation));
   const lessonUrl = (workspaceId: string, goalId: string, lessonId: string, suffix = '') =>
     goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/lessons/${encodeURIComponent(lessonId)}${suffix}`);
-  ipcMain.handle('goals:lessons:open', (_event, workspaceId: string, goalId: string, lessonId: string) =>
-    backendJson(lessonUrl(workspaceId, goalId, lessonId), { method: 'POST' }).then(parseGoalLesson));
+  ipcMain.handle('goals:lessons:open', (_event, workspaceId: string, goalId: string, lessonId: string, again: boolean) =>
+    backendJson(lessonUrl(workspaceId, goalId, lessonId, again ? '?again=true' : ''), { method: 'POST' }).then(parseGoalLesson));
   ipcMain.handle('goals:lessons:read', (_event, workspaceId: string, goalId: string, lessonId: string) =>
     backendJson(lessonUrl(workspaceId, goalId, lessonId)).then(parseGoalLesson));
   ipcMain.handle('goals:lessons:done', (_event, workspaceId: string, goalId: string, lessonId: string, operationId: string) =>

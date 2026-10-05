@@ -185,11 +185,15 @@ public class GoalController
         return conversations.dismiss(workspaceId, goalId, recommendationId);
     }
 
-    /** Opens a lesson of the goal's course, asking for it to be written the first time; opening it is what Start means on its card. */
+    /**
+     * Opens a lesson of the goal's course, asking for it to be written the first time, or again when asked; opening it is what Start means
+     * on its card.
+     */
     @PostMapping("/{goalId}/lessons/{lessonId}")
-    public GoalLesson openLesson(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String lessonId)
+    public GoalLesson openLesson(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String lessonId,
+            @RequestParam(defaultValue = "false") boolean again)
     {
-        return lessons.open(workspaceId, goalId, lessonId);
+        return again ? lessons.writeAgain(workspaceId, goalId, lessonId) : lessons.open(workspaceId, goalId, lessonId);
     }
 
     @GetMapping("/{goalId}/lessons/{lessonId}")

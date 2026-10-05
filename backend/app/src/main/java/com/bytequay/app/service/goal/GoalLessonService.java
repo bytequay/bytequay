@@ -98,11 +98,23 @@ public class GoalLessonService
      */
     public GoalLesson open(String workspaceId, String goalId, String lessonId)
     {
+        return request(workspaceId, goalId, lessonId, false);
+    }
+
+    /** Writes a chapter again from the goal's current notes, course map and code; a chapter still being written is left to finish. */
+    public GoalLesson writeAgain(String workspaceId, String goalId, String lessonId)
+    {
+        return request(workspaceId, goalId, lessonId, true);
+    }
+
+    private GoalLesson request(String workspaceId, String goalId, String lessonId, boolean again)
+    {
         GoalLesson lesson;
         synchronized (writes) {
             lesson(goal(workspaceId, goalId), lessonId);
             Optional<GoalLesson> existing = lessons.find(lessonId);
-            if (existing.filter(found -> found.state() != GoalLesson.State.FAILED && found.content().filter(GoalLesson.Content::beforeChapters).isEmpty()).isPresent()) {
+            if (existing.filter(found -> found.state() == GoalLesson.State.WRITING
+                    || found.state() == GoalLesson.State.READY && !again && found.content().filter(GoalLesson.Content::beforeChapters).isEmpty()).isPresent()) {
                 start(goalId, lessonId);
                 return existing.orElseThrow();
             }

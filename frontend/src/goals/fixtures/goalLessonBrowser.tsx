@@ -27,7 +27,7 @@ const LESSON: WorkItemDto = { id: 'lesson-1', workspaceId: 'workspace', goalId: 
   blockedBy: [], links: [], history: [],
   createdAt: NOW, updatedAt: NOW };
 const NEXT: WorkItemDto = { ...LESSON, id: 'lesson-2', title: 'Follow a snapshot', acceptanceCriteria: 'Trace a snapshot to its data files' };
-const server = { reads: 0, opened: 0, finished: [] as string[], asked: [] as (string | null | undefined)[], messages: [] as string[] };
+const server = { reads: 0, opened: 0, again: 0, finished: [] as string[], asked: [] as (string | null | undefined)[], messages: [] as string[] };
 const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, content: {
   summary: 'A table is a tree of metadata files.', invariants: ['A snapshot never changes once written.'], explanation: null,
   sections: [
@@ -80,7 +80,7 @@ function Fixture(): React.JSX.Element {
     createdAt: NOW, updatedAt: NOW };
   // The app keeps these the same across renders, so an open lesson is not opened again.
   const lessons = useMemo<Pick<GoalConversation, 'openLesson' | 'readLesson' | 'finishLesson'>>(() => ({
-    openLesson: async (id) => { server.opened++; return { id, state: 'WRITING', content: null, failure: null }; },
+    openLesson: async (id, again) => { server.opened++; if (again === true) server.again++; return { id, state: 'WRITING', content: null, failure: null }; },
     // The lesson is written by the time the view reads it again.
     readLesson: async () => { server.reads++; return WRITTEN; },
     finishLesson: async (id, operationId) => { server.finished.push(`${id}:${operationId}`); setItem((current) => ({ ...current, state: 'DONE' })); },
@@ -135,6 +135,11 @@ export async function run(): Promise<boolean> {
       'A long command or a wide diagram stays inside the chapter, which sits in the middle of the page');
     assert(document.querySelector('.goal-chapter__section strong')?.textContent === 'current snapshot', 'A section reads as Markdown');
 
+    button('Write again').click(); await settle();
+    const again = (): number => server.again;
+    assert(again() === 1, 'Write again asks for the chapter to be written again');
+    await until(() => text().includes('A table is a tree of metadata files.'), 'The chapter written again replaces the writing state');
+
     changeInput(document.querySelector<HTMLTextAreaElement>('.goal-chapter__check .goal-composer textarea'), 'The manifest list of its table state'); await settle();
     button('Answer').click(); await settle();
     assert(server.asked[0] === 'lesson-1' && server.messages[0] === 'My answer to the check: The manifest list of its table state',
@@ -154,7 +159,7 @@ export async function run(): Promise<boolean> {
     button('Next: Follow a snapshot →').click(); await settle();
     await until(() => document.querySelector('.goal-book__chapter[aria-current="page"]')?.textContent?.includes('Follow a snapshot') === true,
       'Next opens the following chapter');
-    assert(opened() === 2, 'The next chapter is opened, and written, as it is first read');
+    assert(opened() === 3 && again() === 1, 'The next chapter is opened, and written, as it is first read');
     button('All chapters').click(); await settle();
     assert(document.querySelector('.goal-overview__chapter.is-done')?.textContent?.includes('What a table is') === true
       && button('Continue: Follow a snapshot') !== undefined, 'All chapters shows the course, the finished chapter checked and where to continue');

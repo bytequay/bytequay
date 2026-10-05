@@ -138,6 +138,24 @@ class TestGoalLessonService
     }
 
     @Test
+    void writeAgainRewritesAWrittenChapterButLeavesOneBeingWritten()
+    {
+        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.of(MAP))));
+        assertThat(service.writeAgain("workspace", "goal-1", "lesson-1").state()).isEqualTo(GoalLesson.State.WRITING);
+        assertThat(service.writeAgain("workspace", "goal-1", "lesson-1").state()).as("a chapter being written is left to finish").isEqualTo(GoalLesson.State.WRITING);
+        assertThat(queued).hasSize(1);
+        doReturn(CONTENT).when(planner).lesson(any(), any(), any(), anyString(), any());
+        queued.removeFirst().run();
+        assertThat(lessons.find("lesson-1")).map(GoalLesson::state).contains(GoalLesson.State.READY);
+
+        service.open("workspace", "goal-1", "lesson-1");
+        assertThat(queued).as("opening a written chapter writes nothing").isEmpty();
+        service.writeAgain("workspace", "goal-1", "lesson-1");
+        assertThat(queued).hasSize(1);
+        assertThat(lessons.find("lesson-1")).map(GoalLesson::state).contains(GoalLesson.State.WRITING);
+    }
+
+    @Test
     void theFirstChapterDrawsTheCourseMapAndIsWrittenWithIt()
     {
         service.open("workspace", "goal-1", "lesson-1");

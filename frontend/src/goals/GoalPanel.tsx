@@ -585,11 +585,11 @@ function LessonView({ goal, item, repository, conversation, ask, onLesson }: {
   const [asking, setAsking] = useState(false);
   const page = useRef<HTMLDivElement>(null);
   const part = goal.course?.parts.find((candidate) => candidate.lessons.includes(item.id))?.title ?? '';
-  const open = useCallback((): void => {
+  const open = useCallback((again = false): void => {
     setError(null);
-    void openLesson(item.id).then(setLesson, (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson could not be opened'));
+    void openLesson(item.id, again).then(setLesson, (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson could not be opened'));
   }, [item.id, openLesson]);
-  useEffect(open, [open]);
+  useEffect(() => open(), [open]);
   const writing = lesson?.state === 'WRITING';
   useEffect(() => {
     if (!writing) return;
@@ -620,7 +620,7 @@ function LessonView({ goal, item, repository, conversation, ask, onLesson }: {
       {lesson === null && error === null && <p className="goal-muted" role="status">Opening the lesson…</p>}
       {writing && <p className="goal-muted" role="status">Writing the chapter from the goal’s notes…</p>}
       {lesson?.state === 'FAILED' && <p className="goal-guide__error" role="alert">{lesson.failure}{' '}
-        <button type="button" className="goal-link" onClick={open}>Write again</button></p>}
+        <button type="button" className="goal-link" onClick={() => open()}>Write again</button></p>}
       {content !== null && <ChapterBody content={content} repository={repository} />}
       {content !== null && <section className="goal-chapter__check" aria-label="Check yourself">
         <div className="goal-chapter__kicker">Check yourself</div>
@@ -639,6 +639,8 @@ function LessonView({ goal, item, repository, conversation, ask, onLesson }: {
             void finishLesson(item.id, operation).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson was not marked done'))
               .finally(() => setBusy(false));
           }}>{busy ? 'Saving…' : 'Mark lesson done'}</button>}
+        {content !== null && <button type="button" className="goal-link" title="Write this chapter again from the goal’s current notes, map and code"
+          onClick={() => open(true)}>Write again</button>}
         <span className="goal-spacer" />
         {previous !== undefined && <button type="button" className="goal-link" onClick={() => onLesson(previous.id)}>← {previous.title}</button>}
         {next !== undefined && <button type="button" className="goal-add" onClick={() => onLesson(next.id)}>Next: {next.title} →</button>}

@@ -1546,7 +1546,8 @@ export type Bridge = JiraBridge & {
   /** The user's own assessment of a topic, which the agent leaves alone from then on. */
   setGoalTopic: (workspaceId: string, goalId: string, topic: string, level: TopicLevel) => Promise<GoalDto>;
   /** Opens a lesson of the goal's course, writing it the first time; opening it is what Start means on its card. */
-  openGoalLesson: (workspaceId: string, goalId: string, lessonId: string) => Promise<GoalLessonDto>;
+  /** Opens a lesson, writing it the first time, or again when asked. */
+  openGoalLesson: (workspaceId: string, goalId: string, lessonId: string, again?: boolean) => Promise<GoalLessonDto>;
   readGoalLesson: (workspaceId: string, goalId: string, lessonId: string) => Promise<GoalLessonDto>;
   /** Done is the user's decision: accepts the lesson's work item and tells the goal's agent. */
   finishGoalLesson: (workspaceId: string, goalId: string, lessonId: string, operationId: string) => Promise<GoalDto>;

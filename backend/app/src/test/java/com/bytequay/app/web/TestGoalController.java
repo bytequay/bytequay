@@ -209,6 +209,11 @@ class TestGoalController
         mvc.perform(post("/api/workspaces/workspace/goals/goal-1/lessons/lesson-1"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("WRITING"));
+        when(lessons.writeAgain("workspace", "goal-1", "lesson-1")).thenReturn(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW.plusSeconds(1)));
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/lessons/lesson-1").param("again", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.state").value("WRITING"));
+        verify(lessons).writeAgain("workspace", "goal-1", "lesson-1");
         when(lessons.find("workspace", "goal-1", "lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
                 new GoalLesson.Content(Optional.of("A table is a tree of metadata."), ImmutableList.of("A snapshot never changes once written."),
                         ImmutableList.of(new GoalLesson.Section("Metadata", "Each snapshot lists its manifests.", Optional.of(new GoalLesson.Diagram(GoalLesson.Diagram.Kind.TREE,

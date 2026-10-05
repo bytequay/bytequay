@@ -93,7 +93,8 @@ export type Goals = {
   /** Reads the goals again now, as when an answer may have floated a card. */
   refresh: () => void;
   /** Opens a lesson of the goal's course, writing it the first time. */
-  openLesson: (goalId: string, lessonId: string) => Promise<GoalLessonDto>;
+  /** Opens a lesson, writing it the first time, or again when asked. */
+  openLesson: (goalId: string, lessonId: string, again?: boolean) => Promise<GoalLessonDto>;
   readLesson: (goalId: string, lessonId: string) => Promise<GoalLessonDto>;
   finishLesson: (goalId: string, lessonId: string, operationId: string) => Promise<GoalDto>;
   /** The user's own assessment of a topic. */
@@ -123,7 +124,7 @@ export type GoalConversation = {
   reassess: (operationId: string) => Promise<void>;
   accept: (exchangeId: string, title: string) => Promise<void>;
   acceptCourse: (exchangeId: string) => Promise<void>;
-  openLesson: (lessonId: string) => Promise<GoalLessonDto>;
+  openLesson: (lessonId: string, again?: boolean) => Promise<GoalLessonDto>;
   readLesson: (lessonId: string) => Promise<GoalLessonDto>;
   finishLesson: (lessonId: string, operationId: string) => Promise<void>;
   correctTopic: (topic: string, level: TopicLevel) => Promise<void>;
@@ -238,7 +239,8 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     .then(([setting, settings]) => ({ setting, settings })), [bridge, workspaceId]);
   const refresh = useCallback(() => announce(workspaceId), [workspaceId]);
   // Kept the same across reads, so an open lesson is not opened again each time the goals refresh.
-  const openLesson = useCallback((goalId: string, lessonId: string) => bridge().openGoalLesson(workspaceId, goalId, lessonId), [bridge, workspaceId]);
+  const openLesson = useCallback((goalId: string, lessonId: string, again?: boolean) => bridge().openGoalLesson(workspaceId, goalId, lessonId, again),
+    [bridge, workspaceId]);
   const readLesson = useCallback((goalId: string, lessonId: string) => bridge().readGoalLesson(workspaceId, goalId, lessonId), [bridge, workspaceId]);
 
   // A card that finished or was dismissed leaves the goal's cards; a started one stays until its run ends.
@@ -334,7 +336,8 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
   const gapsFound = current?.gaps ?? NO_GAPS;
   const answering = exchanges.some((exchange) => exchange.state === 'PENDING');
   const { exchanges: list, knowledge, gaps: gapsOf, refresh, openLesson, readLesson } = goals;
-  const openOne = useCallback((lessonId: string) => (goalId === null ? Promise.reject(new Error('There is no goal')) : openLesson(goalId, lessonId)), [goalId, openLesson]);
+  const openOne = useCallback((lessonId: string, again?: boolean) => (goalId === null ? Promise.reject(new Error('There is no goal')) : openLesson(goalId, lessonId, again)),
+    [goalId, openLesson]);
   const readOne = useCallback((lessonId: string) => (goalId === null ? Promise.reject(new Error('There is no goal')) : readLesson(goalId, lessonId)), [goalId, readLesson]);
   const wasAnswering = useRef(false);
   const [model, setModel] = useState<(GoalModel & { goalId: string }) | null>(null);

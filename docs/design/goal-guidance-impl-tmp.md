@@ -632,6 +632,35 @@ Done when: a chapter's request carries its code map, the course map and the
 diagram rules, the course overview draws the map, and Write again replaces a
 written chapter.
 
+## Sixteenth implementation slice
+
+Plan changes the agent proposes: changes to the priority, order and
+dependencies of the Goal's open work, with a reason, which the user accepts,
+adjusts or skips like a definition or a course.
+
+1. A plan change in the reply. A reply may propose a plan change: the work
+   items whose priority or whole list of open work they wait on should change,
+   and optionally every open work item in a new order, with a one-line reason.
+   A change that names work the Goal does not hold or has concluded, makes work
+   wait on itself or on concluded work, closes a cycle, or orders anything but
+   the Goal's open work fails the reply, which the user can ask again; the plan
+   stays as it was.
+2. Shown as the difference it makes. The Guide view shows the change against
+   the work as it stands, one line per difference: a new priority, a
+   dependency added or removed, the new order. Accepting applies those
+   differences as the user's own decisions, each in its item's history, and
+   tells the agent. Once nothing differs the proposal is gone; a newer plan
+   change replaces it, and an older one cannot be accepted.
+3. When to propose. The agent proposes a plan change when what the user said,
+   learned or did, a blocker, a failure or finished work shows the order should
+   change, or when the user asks for a new order; an unchanged plan needs no
+   proposal. Changes to a work item's scope or criteria stay with the user.
+
+Done when: a reply's plan change is validated before it is saved, the Guide
+view shows its differences with Accept, Adjust and Skip, accepting applies
+them through the work items' own decisions, and a cycle or an unknown item
+fails the reply.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 

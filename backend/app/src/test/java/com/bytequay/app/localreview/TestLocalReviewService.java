@@ -344,7 +344,7 @@ class TestLocalReviewService
         when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
         doAnswer(call -> {
             String prompt = call.getArgument(2);
-            assertThat(prompt).contains("reply_local_review_comment", "never commit, push, or publish experiments").doesNotContain("finish and commit the change");
+            assertThat(prompt).contains("reply_local_review_comment", "Answer within this private review").doesNotContain("finish and commit the change");
             accepted.put(call.getArgument(3), turn);
             return null;
         }).when(reviewTasks).sendMessage(eq("review"), eq(0L), anyString(), anyString(), eq(false));

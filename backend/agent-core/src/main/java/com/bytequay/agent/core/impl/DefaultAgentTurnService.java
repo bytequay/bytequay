@@ -1964,7 +1964,8 @@ public final class DefaultAgentTurnService
                 return """
 
                         Private local review: investigate, edit local experiments, and run tests as requested.
-                        NEVER commit, push, publish, or change Git history. Keep tests and experimental edits local.
+                        NEVER commit, push, publish, change Git history, or use development delivery tools.
+                        Keep tests and experimental edits local and uncommitted.
                         ByteQuay requires an explicit return to development before any delivery can resume.
                         """;
             }

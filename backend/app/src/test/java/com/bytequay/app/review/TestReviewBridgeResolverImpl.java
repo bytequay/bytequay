@@ -96,7 +96,8 @@ class TestReviewBridgeResolverImpl
         ReviewBridge bridge = resolver.resolve(privateReview.id().toString()).orElseThrow();
 
         assertThat(bridge.tools()).isEmpty();
-        assertThat(bridge.instruction()).contains(HEAD, "uncommitted", "Never commit", "committed review diff", "Only the user");
+        // The turn's own instructions state the no-commit rules for every local-only turn, so the bridge does not repeat them.
+        assertThat(bridge.instruction()).contains(HEAD, "committed review diff", "Only the user").doesNotContain("Never commit");
         when(tasks.find(development.id())).thenReturn(Optional.of(development));
         assertThat(resolver.resolve(development.id().toString())).isEmpty();
     }

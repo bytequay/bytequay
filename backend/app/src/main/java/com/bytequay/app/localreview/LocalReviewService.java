@@ -467,7 +467,7 @@ public class LocalReviewService
         return "Private local review comment " + thread.id() + " for " + thread.repo() + "#" + thread.number() + ".\n"
                 + "Use reply_local_review_comment to answer this thread privately; resolve_local_review_comment can resolve or reopen it. "
                 + "Never post this feedback or discussion to GitHub comments, reviews, or the PR description, and never quote private feedback in commit messages. "
-                + "Answer within this private review. You may investigate, edit code, and test locally, but never commit, push, or publish experiments. "
+                + "Answer within this private review. "
                 + "The selected revision may precede the current worktree; locate its current counterpart first.\n"
                 + "Path: " + thread.path() + "; side: " + thread.side() + "; lines: " + thread.startLine() + "–" + thread.line()
                 + "; base: " + thread.baseSha().orElse("PR base") + "; head: " + thread.headSha().orElse("unknown") + "\n"

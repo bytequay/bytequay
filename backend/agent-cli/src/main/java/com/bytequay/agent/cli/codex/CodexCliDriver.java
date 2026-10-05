@@ -78,6 +78,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -1900,12 +1901,14 @@ public final class CodexCliDriver
                     return background;
                 }
             }
-            Set<String> childIds = childThreads(threadId);
+            // A child this process saw is the likeliest to still be working, so it is read before older, settled ones.
+            Set<String> childIds = new LinkedHashSet<>();
             for (Map.Entry<String, ChildFacts> child : children.entrySet()) {
                 if (child.getValue().parent().equals(threadId)) {
                     childIds.add(child.getKey());
                 }
             }
+            childIds.addAll(childThreads(threadId));
             for (String childId : childIds) {
                 Optional<String> childWork = firstUnfinishedAgent(childId, providerTurnId, stopBackgroundWork, visited, working);
                 if (childWork.isPresent()) {

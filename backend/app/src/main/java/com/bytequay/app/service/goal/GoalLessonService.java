@@ -22,6 +22,7 @@ import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalLessonStore;
 import com.bytequay.core.store.GoalRecommendationStore;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -33,12 +34,14 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -146,8 +149,25 @@ public class GoalLessonService
                             && (card.state() == GoalRecommendation.State.SHOWN || card.state() == GoalRecommendation.State.STARTED))
                     .forEach(card -> recommendations.save(card.done(clock.instant())));
         }
-        conversations.getObject().tellDecision(workspaceId, goalId, "lesson:" + lessonId, "The user finished the lesson \"" + item.title() + "\".");
-        return goal(workspaceId, goalId);
+        GoalView finished = goal(workspaceId, goalId);
+        conversations.getObject().tellDecision(workspaceId, goalId, "lesson:" + lessonId,
+                "The user finished the lesson \"" + item.title() + "\"." + completedPart(finished, lessonId));
+        return finished;
+    }
+
+    /** The course part a finished lesson completes, with the part that comes next, as a sentence for the agent; nothing while the part goes on. */
+    private static String completedPart(GoalView goal, String lessonId)
+    {
+        List<GoalCourse.Part> parts = goal.course().map(GoalCourse::parts).orElse(ImmutableList.of());
+        Set<String> done = goal.items().stream().filter(item -> item.state() == WorkItem.State.DONE).map(WorkItemView::id).collect(toImmutableSet());
+        for (int index = 0; index < parts.size(); index++) {
+            GoalCourse.Part part = parts.get(index);
+            if (part.lessons().contains(lessonId) && done.containsAll(part.lessons())) {
+                return " That completes part " + (index + 1) + ", \"" + part.title() + "\""
+                        + (index + 1 < parts.size() ? "; the next part is \"" + parts.get(index + 1).title() + "\"." : ", the last part of the course.");
+            }
+        }
+        return "";
     }
 
     private void start(String goalId, String lessonId)

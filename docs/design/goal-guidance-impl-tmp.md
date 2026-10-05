@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first thirteen implementation slices are complete. The later items
+Status: The first fourteen implementation slices are complete. The later items
 of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -567,6 +567,29 @@ Done when: a chapter can show its components and a sequence of calls, the
 writer is told to prefer them to prose, and the Lessons tab opens the course or
 the open chapter.
 
+## Fourteenth implementation slice
+
+Tell the agent what a result changes: summaries carry what the work taught and
+what follows it, and decisions name the work and milestones they open.
+
+1. Summaries have five parts. The summary of accepted work is written in What
+   changed, Evidence, Insights, Left open and Next, Next being the one follow-up
+   its history points to.
+2. Decisions name what they unblock. Accepting or dropping work tells the agent
+   which of the Goal's open work it leaves ready, waiting on nothing open.
+3. Lessons name the milestone. Finishing the last lesson of a course part tells
+   the agent that part is complete and which part comes next.
+
+A task start is not reported on its own: it is recorded inside the task's own
+transaction, where telling the agent could stall the single database
+connection, and the task's first finished turn already reaches the agent.
+
+Progress: the fourteenth slice is complete.
+
+Done when: an accepted result's event names the work it unblocks, the lesson
+that finishes a part names that part and the next, and the summary prompt asks
+for insights and the next step.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -760,7 +783,7 @@ already-started source cannot slip through stale recommendations.
 - [x] Verify selected delivery rules through application facts. Provide explicit
   result acceptance for learning and investigation, and coverage review where a
   merge does not establish the entire accepted scope.
-- [ ] Generate a concise summary from those receipts: what changed, evidence,
+- [x] Generate a concise summary from those receipts: what changed, evidence,
   insights, unresolved work and next recommendation. Saving a summary cannot
   change completion state or accepted scope.
 - [ ] Reassess the next intervention from real status: running, failed, blocked,
@@ -784,8 +807,8 @@ Evidence for the checked items: the spec-check and blocked-lesson card tests in
 `TestGoalConversationService` and the delivery tests in `TestWorkItemService`.
 Still partial: private cards are the twenty newest rather than those on the
 Goal's topics; task deletion and runtime cleanup do not wait for a receipt;
-summaries carry no insights or next recommendation; blocker changes, task starts
-and finished milestones are not reported to the agent; plan differences cover
+a task start reaches the agent only with its first finished turn; plan
+differences cover
 the course only; there is no persisted input fingerprint; there
 is no Remember action; and task deletion, log expiry and uncertain provider cleanup are
 not exercised.

@@ -574,7 +574,7 @@ public class GoalConversationService
                     case EDIT, BEGIN, MOVE, PRIORITIZE, BLOCK, UNBLOCK -> throw new IllegalArgumentException("Not a decision to report: " + decision.action());
                 };
                 tellDecision(decision.workspaceId(), decision.goalId(), "decided:" + decision.operationId(),
-                        "The user " + what + " \"" + decision.title() + "\": " + ContextText.excerpt(decision.detail(), MAX_DECISION));
+                        "The user " + what + " \"" + decision.title() + "\"" + unblocked(decision) + ": " + ContextText.excerpt(decision.detail(), MAX_DECISION));
                 if (decision.action() == WorkItemCommand.Action.ACCEPT) {
                     summarize(decision.workspaceId(), decision.goalId(), decision.workItemId(), "summary:" + decision.operationId());
                 }
@@ -584,6 +584,21 @@ public class GoalConversationService
             // The decision is saved; the agent reads the work's state with its next request.
             log.warn("Goal {} was not told about work item {}", decision.goalId(), decision.workItemId(), failure);
         }
+    }
+
+    /** The goal's open work a finished or dropped item leaves ready, waiting on nothing open any more, as a clause for the agent. */
+    private String unblocked(WorkItemDecided decision)
+    {
+        if (decision.action() == WorkItemCommand.Action.REOPEN) {
+            return "";
+        }
+        GoalView goal = goal(decision.workspaceId(), decision.goalId());
+        Set<String> finished = goal.items().stream().filter(item -> item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED)
+                .map(WorkItemView::id).collect(toImmutableSet());
+        List<String> ready = goal.items().stream()
+                .filter(item -> item.blockedBy().contains(decision.workItemId()) && !finished.contains(item.id()) && finished.containsAll(item.blockedBy()))
+                .map(item -> "\"" + item.title() + "\"").collect(toImmutableList());
+        return ready.isEmpty() ? "" : ", which unblocks " + String.join(", ", ready);
     }
 
     /**

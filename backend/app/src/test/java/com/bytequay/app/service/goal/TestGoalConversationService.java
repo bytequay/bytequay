@@ -857,6 +857,26 @@ class TestGoalConversationService
         assertThatThrownBy(() -> service.summarize("workspace", goal.id(), "lesson-1")).hasMessageContaining("Only finished work other than a lesson");
     }
 
+    @Test
+    void anAcceptedResultNamesTheWorkItLeavesReady()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        when(work.list("workspace")).thenReturn(ImmutableList.of(work("work-1", goal.id(), "Fix #31252", WorkItem.State.DONE),
+                work("work-2", goal.id(), "Add a regression test", WorkItem.State.PLANNED, "work-1"),
+                work("work-3", goal.id(), "Backport the fix", WorkItem.State.PLANNED, "work-1", "work-4"),
+                work("work-4", goal.id(), "Write the release note", WorkItem.State.PLANNED)));
+        service.decided(new WorkItemDecided("workspace", goal.id(), "work-1", "Fix #31252", WorkItem.Kind.DEVELOP, WorkItemCommand.Action.ACCEPT, "decision-1",
+                "User accepted all criteria"));
+        assertThat(exchanges.list(goal.id())).singleElement().extracting(GoalExchange::message).as("work still waiting on open work is not ready")
+                .isEqualTo("The user accepted the result of \"Fix #31252\", which unblocks \"Add a regression test\": User accepted all criteria");
+    }
+
+    private static WorkItemView work(String id, String goalId, String title, WorkItem.State state, String... blockedBy)
+    {
+        return new WorkItemView(id, "workspace", Optional.of(goalId), title, WorkItem.Kind.DEVELOP, "It lands", WorkItem.CompletionRule.MERGED_DELIVERY, state, 1,
+                ImmutableList.of(), ImmutableList.of(), Instant.EPOCH, Instant.EPOCH, WorkItem.Priority.NORMAL, 0, ImmutableList.copyOf(blockedBy), Optional.empty(), 0);
+    }
+
     private static WorkItemView done(String id, String goalId, WorkItem.Kind kind, WorkItemEvent... history)
     {
         return new WorkItemView(id, "workspace", Optional.of(goalId), "Fix #31252", kind, "Rows survive", WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 3,

@@ -159,6 +159,7 @@ class TestGoalPlanner
                 ImmutableList.of(work), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
 
         String prompt = planner.summaryPrompt(goal, work);
+        assertThat(prompt).as("a summary says what the work taught and what follows it").contains("Insights is what the work showed", "Next is the");
         assertThat(prompt.indexOf("untrusted reference data")).isLessThan(prompt.indexOf("<work-data>"));
         assertThat(prompt).contains("Task turn finished: the new test passes", "\"kind\" : \"ACCEPT\"").doesNotContain("actions keyed by path");
         assertThat(planner.prompt(goal, ImmutableList.of(), GoalExchange.ask("op", "goal-1", "workspace", "What next?", 1, NOW)))

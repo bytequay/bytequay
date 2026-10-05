@@ -256,8 +256,10 @@ user's decision. A review whose reviewer's latest verdict on a linked open pull
 request requests changes is recorded and told the same way, once per review, and
 the agent leads with that recovery too. When Goal work other than a lesson is
 accepted, a tool-free request on the Goal's model writes a short summary from
-its history, what changed, the evidence and what is left open, saved once in
-the item's history. The Work view shows it, the agent's next request reads it,
+its history, what changed, the evidence, the insights it gave about the code or
+how it is built and reviewed, what is left open and the one follow-up the
+history points to, saved once in the item's history. The Work view shows it, the
+agent's next request reads it,
 and a failed summary leaves Summary pending with Summarize to ask again. Turns that finished while ByteQuay was stopped, or whose receipt
 was lost, are recorded at startup, after the requests it was answering are
 settled and before the startup cleanup can remove their answers; the agent hears
@@ -271,8 +273,11 @@ normally is only reported: it asks the agent nothing by itself and goes with the
 next event, decision or Update now, a newer turn of the same work replacing it.
 The user's decisions, such as an accepted definition or course, a finished
 lesson or decided work, and a practice pick set aside are told as soon as the
-agent is free, quiet hours or not, with whatever is held. Held events live in
-memory; after a restart the next request still reads the recorded facts.
+agent is free, quiet hours or not, with whatever is held. Accepted or dropped
+work names the work it leaves ready, waiting on nothing open any more, and a
+finished lesson that completes its course part names that part and the next.
+Held events live in memory; after a restart the next request still reads the
+recorded facts.
 
 Pause guidance stops these messages: a paused Goal's agent hears no automatic
 event, the user's acceptances included, and the facts are still recorded. The

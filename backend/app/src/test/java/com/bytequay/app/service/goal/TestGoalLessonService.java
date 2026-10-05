@@ -150,6 +150,24 @@ class TestGoalLessonService
         verify(work).change(eq("workspace"), eq("lesson-1"), any(WorkItemCommand.class));
     }
 
+    @Test
+    void finishingTheLastLessonOfAPartSaysWhatComesNext()
+    {
+        WorkItemView lesson = new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain table metadata",
+                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0,
+                ImmutableList.of(), Optional.empty(), 0);
+        WorkItemView next = new WorkItemView("lesson-2", "workspace", Optional.of("goal-1"), "Plan a scan", WorkItem.Kind.LEARN, "Explain splits",
+                WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 1,
+                ImmutableList.of(), Optional.empty(), 0);
+        when(goals.list("workspace")).thenReturn(ImmutableList.of(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
+                Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1")),
+                        new GoalCourse.Part("The connector", ImmutableList.of("lesson-2"))), NOW)), false,
+                ImmutableList.of(lesson, next), ImmutableList.of(), ImmutableList.of(), NOW, NOW)));
+        service.finish("workspace", "goal-1", "lesson-1", "op-done");
+        verify(conversation).tellDecision("workspace", "goal-1", "lesson:lesson-1",
+                "The user finished the lesson \"What a table is\". That completes part 1, \"Iceberg tables\"; the next part is \"The connector\".");
+    }
+
     private void goal(WorkItem.State state)
     {
         WorkItemView lesson = new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain table metadata",

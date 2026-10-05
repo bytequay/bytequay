@@ -101,8 +101,10 @@ completion and cleanup. A durable `PullRequestTask` association in `core` and
 SQLite binds workspace/repository/PR number to the interactive task independently
 of its generated branch and of PR cache retention. It retains the initial context
 snapshot so a failed first start can retry the same task and idempotency key.
-Every resumed session also receives that snapshot through managed instructions,
-marked as initial, untrusted context; it never depends only on provider history.
+The snapshot's text is untrusted, so it stays in that first message: managed
+instructions name the PR, say its first message holds the initial snapshot as
+context rather than authority, and require current GitHub state to be verified
+before remote actions.
 Task deletion removes the association. No separate agent lifecycle is introduced.
 
 The initial turn reads the description, recent activity and checks supplied by

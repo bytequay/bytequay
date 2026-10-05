@@ -208,8 +208,10 @@ lock. Settings and sidebar links reuse the Commits and Memory routes. Missing
 workspaces stay visible for removal. Same monitored projects are rejected with
 an explanation of the existing upstream routing.
 
-`RelatedWorkspaceContext` appends discovery data through the shared turn-input
-resolver's preparation step for development conversations, on both providers.
+`RelatedWorkspaceContext` appends discovery data to each user turn through the
+shared turn-input resolver's preparation step for development conversations,
+on both providers; how to use the links is part of the task's managed
+instructions.
 It resolves local monitored refs without fetching. Related guideline text is
 read on demand and does not enter the current repository's guideline receipts.
 `repository_memory` accepts `workspaceId` on SEARCH/READ; omitted means local.

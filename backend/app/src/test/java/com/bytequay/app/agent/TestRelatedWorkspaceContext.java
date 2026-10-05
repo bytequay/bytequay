@@ -15,8 +15,12 @@ package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
+import com.bytequay.agent.core.AgentTurnSettings;
+import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.git.GitCommandRunner;
@@ -33,6 +37,7 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -77,9 +82,16 @@ class TestRelatedWorkspaceContext
         AgentTask task = AgentTask.created(TaskId.random(), Optional.of("trino"), true, "Upgrade Iceberg", new AgentLaneId("codex"),
                 new RepositoryIdentity("trinodb", "trino"), repository,
                 new AgentTaskDefaults(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty()), Instant.EPOCH);
-        String input = context.append(task, "Investigate the upgrade");
-        assertThat(input).startsWith("Investigate the upgrade").contains(repository.toString(), next, "Version in pom.xml", "apache/iceberg",
-                "NOT the version this project uses", "unknown mappings", "SEARCH/READ", "DEPENDENCY", "Memory is current advice", "verify its sources");
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "user", new AgentTurnSettings(Optional.empty(), Optional.empty(),
+                AgentPermissionPolicy.AUTO, Duration.ofHours(1), ImmutableList.of()), Instant.EPOCH);
+        String input = context.append(task, turn, "Investigate the upgrade");
+        assertThat(input).startsWith("Investigate the upgrade").contains(repository.toString(), next, "Version in pom.xml", "apache/iceberg", "DEPENDENCY")
+                .doesNotContain("SEARCH/READ");
+        assertThat(context.instructions(task)).contains("NOT the version this project uses", "unknown mappings", "SEARCH/READ", "Memory is current advice",
+                "verify its sources");
+        // A generated follow-up continues the turn that already listed the links.
+        AgentTurn followUp = turn.withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, TurnId.random()));
+        assertThat(context.append(task, followUp, "Commit the change")).isEqualTo("Commit the change");
         String mappedVersion = command(git, "rev-parse", "v1^{commit}");
         command(git, "tag", "-f", "v1", next);
         assertThat(command(git, "rev-parse", "v1^{commit}")).isEqualTo(next);
@@ -88,9 +100,10 @@ class TestRelatedWorkspaceContext
         assertThat(command(git, "diff", old, next, "--", "API.txt")).contains("-old API", "+new API");
         assertThat(command(git, "rev-parse", "HEAD")).isEqualTo(next);
         command(git, "update-ref", "-d", "refs/remotes/origin/main");
-        assertThat(context.append(task, "Investigate")).contains("unavailable", "synchronize").doesNotContain("\"commit\":");
+        assertThat(context.append(task, turn, "Investigate")).contains("unavailable", "synchronize").doesNotContain("\"commit\":");
         when(relationships.list("trino")).thenReturn(ImmutableList.of());
-        assertThat(context.append(task, "No related workspaces")).isEqualTo("No related workspaces");
+        assertThat(context.append(task, turn, "No related workspaces")).isEqualTo("No related workspaces");
+        assertThat(context.instructions(task)).isEmpty();
     }
 
     private String command(GitCommandRunner git, String... args)

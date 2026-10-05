@@ -383,14 +383,14 @@ public class AgentConfiguration
                 approvalService,
                 runtimeRegistry,
                 codeQueries,
-                task -> skills.instructions(task) + ciOwnership.instructions(task)
+                task -> skills.instructions(task) + ciOwnership.instructions(task) + relatedContext.instructions(task)
                         + pullRequestTasks.findByTaskId(task.id().toString()).map(PullRequestTaskService::instructions).orElse(""),
                 new ReviewTurnInputResolver()
                 {
                     @Override
                     public String prepare(AgentTask task, AgentTurn turn, String message)
                     {
-                        return relatedContext.append(task, message);
+                        return relatedContext.append(task, turn, message);
                     }
 
                     @Override

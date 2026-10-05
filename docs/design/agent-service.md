@@ -342,8 +342,10 @@ review it is a root-only tool, like the other review writes.
 
 Development conversations also receive direct related-workspace discovery at
 turn preparation: relationship kind, guidance, backend-resolved path and exact
-locally available monitored commit. This is separate from guideline/memory
-receipts. The memory tool accepts optional `workspaceId` for SEARCH/READ, checks
+locally available monitored commit. Each user turn lists them; generated
+follow-ups continue the turn that did. How to use the links is the same on
+every turn, so it is part of the task's managed instructions. This is separate
+from guideline/memory receipts. The memory tool accepts optional `workspaceId` for SEARCH/READ, checks
 current direct membership and both development switches, and is offered when
 only a related workspace has memories. REPORT and REMEMBER remain local; review/replay
 scope is unchanged. See [workspace relationships](workspace-backports.md).

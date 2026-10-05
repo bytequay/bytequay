@@ -19,6 +19,7 @@ import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -110,6 +111,17 @@ class TestGoalCandidates
         assertThat(pool.has("#103")).isFalse();
         assertThat(candidates.ticket("workspace", "trino-12")).map(GoalCandidates::reference).contains("connection:cloud:10412");
         assertThat(candidates.ticket("workspace", "TRINO-13")).as("a ticket mapped to another workspace is not this one's").isEmpty();
+    }
+
+    @Test
+    void epicMarkersExcludeContainersAndUnmarkingRestoresPractice()
+    {
+        when(issues.findPage(1, TRINO, 0, 100)).thenReturn(new RepositoryIssuePage(1, TRINO,
+                ImmutableList.of(issue(1, 101, "Delta Lake correctness", ImmutableList.of())), 0, 100, 1, false, Optional.of(NOW)));
+        when(development.findEpic("github.com", 1)).thenReturn(Optional.of(new IssueEpic("github.com", 1, "trinodb/trino", 101, true, NOW)));
+        assertThat(candidates.pool(goal("Delta Lake")).candidates()).isEmpty();
+        when(development.findEpic("github.com", 1)).thenReturn(Optional.of(new IssueEpic("github.com", 1, "trinodb/trino", 101, false, NOW)));
+        assertThat(candidates.pool(goal("Delta Lake")).candidates()).extracting(GoalCandidates.Candidate::id).containsExactly("#101");
     }
 
     @Test

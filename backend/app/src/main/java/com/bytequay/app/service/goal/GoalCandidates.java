@@ -248,7 +248,7 @@ public class GoalCandidates
     private boolean workable(RepositoryIssue issue)
     {
         return items.findByIdentity(WorkItemLink.issueIdentity(HOST, issue.id())).isEmpty() && development.findTask(HOST, issue.id()).isEmpty()
-                && development.findEpic(HOST, issue.id()).isEmpty();
+                && development.findEpic(HOST, issue.id()).filter(marker -> marker.isEpic()).isEmpty();
     }
 
     private boolean workable(JiraIssue ticket)

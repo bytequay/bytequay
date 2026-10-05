@@ -24,13 +24,9 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalReferenceReader;
-import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.GitHubIssueSource;
-import com.bytequay.core.domain.GoalItem;
-import com.bytequay.core.domain.GoalItemKind;
-import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -41,7 +37,6 @@ import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.util.concurrent.Striped;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -68,12 +63,11 @@ public class IssueDevelopmentService
     private final CredentialService credentials;
     private final Clock clock;
     private final WorkItemService workItems;
-    private final ObjectProvider<GoalService> goals;
     private final Striped<Lock> sourceLocks = Striped.lock(64);
 
     public IssueDevelopmentService(IssueDevelopmentStore sources, RepositoryIssueStore issues, WorkspaceStore workspaces,
             AgentTaskService tasks, AgentTaskStore taskStore, AgentUnitOfWork unitOfWork, GitHubRepoClient github,
-            CredentialService credentials, Clock clock, AgentTurnStore turns, ObjectProvider<GoalService> goals, WorkItemService workItems)
+            CredentialService credentials, Clock clock, AgentTurnStore turns, WorkItemService workItems)
     {
         this.sources = requireNonNull(sources, "sources is null");
         this.issues = requireNonNull(issues, "issues is null");
@@ -86,8 +80,6 @@ public class IssueDevelopmentService
         this.clock = requireNonNull(clock, "clock is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.turns = requireNonNull(turns, "turns is null");
-        // Resolved per marker change: goals read tasks, which reach this service while starting development.
-        this.goals = requireNonNull(goals, "goals is null");
     }
 
     public Metadata metadata(long issueId)
@@ -96,22 +88,14 @@ public class IssueDevelopmentService
                 sources.findTask(HOST, issueId).map(link -> new TaskLink(link.taskId(), link.workspaceId())));
     }
 
-    public Metadata setEpic(String workspaceId, int number, boolean goal)
+    public Metadata setEpic(String workspaceId, int number, boolean epic)
     {
         Workspace workspace = workspace(workspaceId);
         RepositoryIssue issue = issue(workspace, number);
         Lock lock = sourceLocks.get(issue.id());
         lock.lock();
         try {
-            sources.saveEpic(new IssueEpic(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, goal, clock.instant()));
-            // Unmarking keeps the issue's goal only while it holds work.
-            GoalSource source = new GoalSource(GoalItemKind.ISSUE, GoalItem.numberedKey(workspace.monitoredRepository().fullName(), number));
-            if (goal) {
-                goals.getObject().seed(workspaceId, source, issue.title());
-            }
-            else {
-                goals.getObject().unseed(source);
-            }
+            sources.saveEpic(new IssueEpic(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, epic, clock.instant()));
             return metadata(issue.id());
         }
         finally {

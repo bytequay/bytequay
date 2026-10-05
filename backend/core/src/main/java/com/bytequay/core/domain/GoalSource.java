@@ -16,14 +16,14 @@ package com.bytequay.core.domain;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** The issue or Jira ticket marked as a Goal that a seeded goal stands for; it is never one of the goal's items. */
+/** An informational issue or Jira reference for a guided Goal, independent of its Epic marker. */
 public record GoalSource(GoalItemKind kind, String key)
 {
     public GoalSource
     {
         requireNonNull(kind, "kind is null");
         requireNonNull(key, "key is null");
-        checkArgument(kind == GoalItemKind.ISSUE || kind == GoalItemKind.JIRA, "only an issue or a Jira ticket seeds a goal");
+        checkArgument(kind == GoalItemKind.ISSUE || kind == GoalItemKind.JIRA, "a goal source must be an issue or a Jira ticket");
         checkArgument(!key.isBlank(), "key is blank");
     }
 }

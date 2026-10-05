@@ -68,7 +68,6 @@ public class GoalReferenceReader
     private final PullRequestStore pullRequests;
     private final RepositoryIssueStore issues;
     private final IssueDevelopmentStore development;
-    // Lazy: marking a Jira ticket as a Goal seeds its goal through this service.
     private final ObjectProvider<JiraService> jira;
     private final AgentTaskService tasks;
     private final Clock clock;

@@ -146,8 +146,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
               {goal.paused ? <Play size={15} strokeWidth={1.8} aria-hidden="true" /> : <Pause size={15} strokeWidth={1.8} aria-hidden="true" />}
             </button>
           </>}
-          {/* A goal started from a marked issue or ticket ends when its source is unmarked. */}
-          {goal !== null && goal.source === null && (
+          {goal !== null && (
             <button type="button" className="goal-headbtn" title="Cancel goal" aria-label="Cancel goal" onClick={() => { setCancelling(''); setCancelError(null); }}>
               <Ban size={15} strokeWidth={1.8} aria-hidden="true" />
             </button>
@@ -842,7 +841,7 @@ function NoGoal({ onCreate }: { onCreate: (title: string) => Promise<unknown> })
   return (
     <div className="goal-panel__body goal-empty">
       <div className="goal-empty__title">No goal yet</div>
-      <div className="goal-empty__text">A goal groups accepted work toward an outcome. Each work item can link issues, tickets, tasks and pull requests. Marking an issue or ticket as a Goal also starts one.</div>
+      <div className="goal-empty__text">A Goal guides an outcome through learning, research and accepted work. Each work item can link issues, tickets, tasks and pull requests. Epic markers organize delivery work independently.</div>
       <NameInput busy={busy} onCancel={() => {}} onSubmit={(title) => { setBusy(true); void onCreate(title).finally(() => setBusy(false)); }} />
     </div>
   );

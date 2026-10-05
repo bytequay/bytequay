@@ -18,7 +18,6 @@ import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
-import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalStore;
@@ -82,7 +81,7 @@ public class GoalServiceImpl
         synchronized (writes) {
             Instant now = clock.instant();
             Goal goal = new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), description.trim(),
-                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), false, now, now);
+                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), 0, Optional.empty(), false, now, now);
             goals.save(goal);
             return view(goal);
         }
@@ -201,43 +200,6 @@ public class GoalServiceImpl
         return references.candidates(workspaceId, query);
     }
 
-    @Override
-    public void seed(String workspaceId, GoalSource source, String title)
-    {
-        synchronized (writes) {
-            Optional<Goal> existing = goals.findBySource(source).stream().filter(goal -> goal.workspaceId().equals(workspaceId) && !goal.archived()).findFirst();
-            if (existing.isPresent()) {
-                // A goal that kept its work when the source was unmarked becomes the source's goal again.
-                if (existing.orElseThrow().markedSource().isEmpty()) {
-                    goals.save(existing.orElseThrow().withMarked(true, clock.instant()));
-                }
-                return;
-            }
-            Instant now = clock.instant();
-            goals.save(new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), "", unpinned(workspaceId), false,
-                    Optional.of(source), Optional.empty(), Optional.empty(), 0, Optional.empty(), false, now, now));
-        }
-    }
-
-    @Override
-    public void unseed(GoalSource source)
-    {
-        synchronized (writes) {
-            for (Goal goal : goals.findBySource(source)) {
-                if (goal.archived() || goal.markedSource().isEmpty()) {
-                    continue;
-                }
-                // Only work needs keeping; an empty goal is archived, and marking the source again starts a fresh one.
-                if (work.hasWork(goal.workspaceId(), goal.id())) {
-                    goals.save(goal.withMarked(false, clock.instant()));
-                }
-                else {
-                    archive(goal);
-                }
-            }
-        }
-    }
-
     private void archive(Goal goal)
     {
         goals.save(goal.archive(clock.instant()));
@@ -277,7 +239,7 @@ public class GoalServiceImpl
 
     private static GoalView view(Goal goal, List<WorkItemView> items, List<GoalRecommendation> cards, List<GoalTopic> known)
     {
-        return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.markedSource(), goal.definition(), goal.revision(),
+        return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.source(), goal.definition(), goal.revision(),
                 goal.course(), goal.paused(), items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards, known,
                 goal.createdAt(), goal.updatedAt());
     }

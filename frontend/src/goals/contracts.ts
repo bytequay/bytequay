@@ -54,7 +54,7 @@ export type GoalDto = {
   title: string;
   description: string;
   pinned: boolean;
-  /** The issue or Jira ticket marked as a Goal that this goal stands for. */
+  /** An informational issue or Jira reference; Epic marking does not control this Goal. */
   source: { kind: GoalItemKind; key: string } | null;
   definition: GoalDefinitionDto | null;
   /** Counts changes to the title, objective and definition; a proposal built from an older revision cannot be accepted. */

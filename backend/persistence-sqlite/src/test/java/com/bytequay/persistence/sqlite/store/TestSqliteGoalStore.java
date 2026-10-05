@@ -51,30 +51,24 @@ class TestSqliteGoalStore
     void savesItemsAndSourceAndReplacesTheStoredGoal()
     {
         GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey("connection", "cloud", "10042"));
-        Goal seeded = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), Optional.empty(), 0,
+        Goal linked = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), 0,
                 Optional.empty(), false, NOW, NOW);
         Instant later = NOW.plusSeconds(1);
-        Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, false, Optional.empty(), Optional.empty(), Optional.empty(), 0,
+        Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, false, Optional.empty(), Optional.empty(), 0,
                 Optional.empty(), false, later, later);
-        store.save(seeded);
+        store.save(linked);
         store.save(other);
-        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW));
+        store.save(new Goal("goal-3", "workspace-2", "Elsewhere", "", true, false, Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW));
 
-        Goal withItems = seeded.withText("Accepted objective", "Saved plan", NOW.plusSeconds(5));
+        Goal withItems = linked.withText("Accepted objective", "Saved plan", NOW.plusSeconds(5));
         store.save(withItems);
 
         assertThat(store.list("workspace-1")).containsExactly(withItems, other);
         assertThat(store.find("goal-1")).contains(withItems);
         assertThat(store.findBySource(source)).containsExactly(withItems);
         assertThat(store.findBySource(new GoalSource(GoalItemKind.ISSUE, "trinodb/trino#1"))).isEmpty();
-        // Unmarking keeps the source, so marking it again finds this goal.
-        Goal unmarked = withItems.withMarked(false, NOW.plusSeconds(6));
-        store.save(unmarked);
-        assertThat(store.findBySource(source)).containsExactly(unmarked);
-        assertThat(unmarked.markedSource()).isEmpty();
-
         // Pinning leaves the revision; a definition moves it, so a proposal from before it cannot be accepted.
-        Goal defined = unmarked.withPinned(false, NOW.plusSeconds(7))
+        Goal defined = withItems.withPinned(false, NOW.plusSeconds(7))
                 .withDefinition("Iceberg reads", "Explain how reads plan files", new GoalDefinition("Explain a scan", "", "Five hours a week", "exchange-1", NOW),
                         NOW.plusSeconds(8));
         store.save(defined);

@@ -64,7 +64,7 @@ and opens on "what do you want to achieve?" with three local directions; free
 text or a suggested answer starts the Goal. A Goal without a conversation gets
 the same question rather than its title, with the focused answer field under it.
 New goal in the switcher asks it over the current Goal, Cancel goal archives a
-user-started Goal and returns to it, and the title renames in place. Durable Goal exchanges record the
+Goal independently of its source and returns to it, and the title renames in place. Durable Goal exchanges record the
 message, input revision, model, validated reply or failure. The reply carries an
 assessment, one question with suggested answers and an optional definition;
 accepting it saves the title, objective, success definition, starting knowledge
@@ -143,7 +143,7 @@ the agent hears once per work item what it missed.
 
 Item 4 is implemented: each guidance request carries up to 100 candidates from
 the 500 open issues updated last and the cached Jira tickets mapped to the
-workspace, without worked, tasked, Goal or dismissed sources, ranked by the words
+workspace, without worked, tasked, Epic or dismissed sources, ranked by the words
 they share with the Goal, with the coverage read. A Practice card names one of
 them, a ticket kept by its stable reference, and Start opens the ticket's
 composer with the instruction filled in.
@@ -488,9 +488,9 @@ intermediate reference-count percentage to maintain.
   no open or unavailable linked PR, recording closed unmerged PRs as abandoned.
 - [x] Replace reference rows with work-item cards and linked evidence. Create
   source-free work, edit scope, link existing tasks, reopen, detach and move Goals.
-- [x] Keep a source's Goal on unmarking while it holds work, archive it when
-  empty, restore the kept Goal when the source is marked again, and retain
-  work/history when archiving.
+- [x] Keep Epic classification independent of Goal guidance: marking and
+  unmarking create or archive no Goal. Preserve existing source references and
+  accepted work/history; every Goal has its own archive action.
 - [x] Inspect development data before changing the Goal mapping: no Goals or
   source-task rows existed. No runtime data was changed or reset.
 - [x] Add explicit another-attempt admission to GitHub/Jira stores and both
@@ -505,7 +505,7 @@ intermediate reference-count percentage to maintain.
 
 Checks cover SQLite revision conflicts and ownership rollback, source cache loss,
 reference grouping, abandoned and open PRs at acceptance, command retry, reopen,
-repeated source marking, archival and moving work without losing evidence.
+independent Epic marking, Goal archival and moving work without losing evidence.
 SQLite-backed launch checks prove one work item per issue attempt and refusal of
 Dropped or other-workspace work before the source fetch; a Jira check proves
 reassignment is refused while a work item owns the ticket. A Chromium journey exercises a

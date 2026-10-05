@@ -89,44 +89,18 @@ class TestGoalService
     }
 
     @Test
-    void unmarkAndArchiveRetainTheObjectiveAndWorkHistory()
+    void sourceLinkedGoalsCanBeArchivedIndependentlyAndRetainTheirHistory()
     {
-        service.seed("workspace", source, "Objective");
-        service.seed("workspace", source, "Objective");
-        assertThat(service.list("workspace")).hasSize(1);
-        String id = service.list("workspace").getFirst().id();
-        when(work.hasWork("workspace", id)).thenReturn(true);
-        service.unseed(source);
-        assertThat(service.list("workspace")).singleElement().satisfies(goal -> assertThat(goal.source()).isEmpty());
-        assertThat(store.find(id).orElseThrow().unmarkedAt()).isPresent();
-        service.delete("workspace", id);
+        GoalView created = service.create("workspace", "Objective", "");
+        Goal saved = store.find(created.id()).orElseThrow();
+        store.save(new Goal(saved.id(), saved.workspaceId(), saved.title(), saved.description(), saved.pinned(), false, Optional.of(source),
+                saved.definition(), saved.revision(), saved.course(), saved.paused(), saved.createdAt(), saved.updatedAt()));
+        assertThat(service.list("workspace")).singleElement().satisfies(goal -> assertThat(goal.source()).contains(source));
+        service.delete("workspace", saved.id());
         assertThat(service.list("workspace")).isEmpty();
-        assertThat(store.find(id)).map(Goal::archived).contains(true);
-    }
-
-    @Test
-    void markingAgainRestoresTheGoalThatKeptItsWork()
-    {
-        service.seed("workspace", source, "Objective");
-        String id = service.list("workspace").getFirst().id();
-        when(work.hasWork("workspace", id)).thenReturn(true);
-        service.unseed(source);
-        service.seed("workspace", source, "Objective");
-        assertThat(service.list("workspace")).singleElement().satisfies(goal -> {
-            assertThat(goal.id()).isEqualTo(id);
+        assertThat(store.find(saved.id())).hasValueSatisfying(goal -> {
+            assertThat(goal.archived()).isTrue();
             assertThat(goal.source()).contains(source);
         });
-    }
-
-    @Test
-    void markingAgainAfterUnmarkingAnEmptyGoalLeavesOneGoal()
-    {
-        service.seed("workspace", source, "Objective");
-        service.unseed(source);
-        assertThat(service.list("workspace")).isEmpty();
-        service.seed("workspace", source, "Objective");
-        service.unseed(source);
-        service.seed("workspace", source, "Objective");
-        assertThat(service.list("workspace")).singleElement().satisfies(goal -> assertThat(goal.pinned()).isTrue());
     }
 }

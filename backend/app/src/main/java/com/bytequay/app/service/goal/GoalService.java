@@ -16,7 +16,6 @@ package com.bytequay.app.service.goal;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
-import com.bytequay.core.domain.GoalSource;
 
 import java.util.List;
 import java.util.Optional;
@@ -67,10 +66,4 @@ public interface GoalService
 
     /** Stored pull requests, issues, Jira tickets and tasks matching the query, for adding to a goal. */
     List<GoalItemView> candidates(String workspaceId, String query);
-
-    /** Gives an issue or Jira ticket marked as a Goal its workspace goal, named after it, restoring the one that kept its work if any. */
-    void seed(String workspaceId, GoalSource source, String title);
-
-    /** Unmarks a Goal that holds work, which keeps it and its source for a later marking, and archives a Goal that holds none. */
-    void unseed(GoalSource source);
 }

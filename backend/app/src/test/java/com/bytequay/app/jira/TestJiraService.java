@@ -13,11 +13,8 @@
  */
 package com.bytequay.app.jira;
 
-import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.core.domain.GoalItemKind;
-import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.RecentReason;
@@ -81,12 +78,10 @@ class TestJiraService
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final AppSettingsService appSettings = mock(AppSettingsService.class);
     private final ObjectProvider<AppSettingsService> settingsProvider = mock(ObjectProvider.class);
-    private final GoalService goals = mock(GoalService.class);
-    private final ObjectProvider<GoalService> goalsProvider = mock(ObjectProvider.class);
     private final JiraCache cache = new JiraCache(settings, mapper);
     private final RecentTouchRecorder recent = mock(RecentTouchRecorder.class);
     private final WorkItemStore workItems = mock(WorkItemStore.class);
-    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(cache), workItems, recent);
+    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, new JiraActivityLog(cache), workItems, recent);
     private final Map<String, String> saved = new ConcurrentHashMap<>();
 
     @BeforeEach
@@ -196,17 +191,12 @@ class TestJiraService
         assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "missing")).hasMessageContaining("missing");
         assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().workspace())
                 .contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
-        when(goalsProvider.getObject()).thenReturn(goals);
         assertThat(jira.epic("connection", "cloud", "1001", true).issue().isEpic()).isTrue();
-        // Marking seeds the ticket's workspace goal; unmarking unseeds it. Neither reaches Jira.
-        GoalSource source = new GoalSource(GoalItemKind.JIRA, "connection:cloud:1001");
-        verify(goals).seed("workspace", source, issue.title());
         assertThat(jira.epic("connection", "cloud", "1001", false).issue().isEpic()).isFalse();
-        verify(goals).unseed(source);
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         JiraCache reopenedCache = new JiraCache(settings, mapper);
-        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, goalsProvider, new JiraActivityLog(reopenedCache), workItems, recent);
+        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, new JiraActivityLog(reopenedCache), workItems, recent);
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));

@@ -14,13 +14,9 @@
 package com.bytequay.app.jira;
 
 import com.bytequay.app.agent.JiraIssueLocks;
-import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceException;
-import com.bytequay.core.domain.GoalItem;
-import com.bytequay.core.domain.GoalItemKind;
-import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.RecentReason;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.JiraIssueTaskStore;
@@ -73,7 +69,6 @@ public class JiraService
     private final JiraIssueTaskStore tasks;
     private final WorkspaceStore workspaces;
     private final ObjectProvider<AppSettingsService> appSettings;
-    private final ObjectProvider<GoalService> goals;
     private final JiraActivityLog activity;
     private final WorkItemStore workItems;
     private final RecentTouchRecorder recent;
@@ -81,7 +76,7 @@ public class JiraService
     private final Map<Scope, FutureTask<JiraDtos.IssuePage>> refreshes = new ConcurrentHashMap<>();
 
     public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings,
-            ObjectProvider<GoalService> goals, JiraActivityLog activity, WorkItemStore workItems, RecentTouchRecorder recent)
+            JiraActivityLog activity, WorkItemStore workItems, RecentTouchRecorder recent)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
@@ -89,8 +84,6 @@ public class JiraService
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         // Agent initialization reads Jira context and also depends on settings; resolve settings only for refresh.
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
-        // Goals read cached tickets through this service; resolve them only when a Goal marker changes.
-        this.goals = requireNonNull(goals, "goals is null");
         this.activity = requireNonNull(activity, "activity is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.recent = requireNonNull(recent, "recent is null");
@@ -343,28 +336,21 @@ public class JiraService
 
     public boolean isEpic(String cloudId, String issueId)
     {
+        // Keep the stored marker key so the terminology change preserves existing Epic selections.
         return cache.read("goal." + segment(cloudId) + "." + segment(issueId), Boolean.class).orElse(false);
     }
 
-    public JiraDtos.Detail epic(String connectionId, String cloudId, String issueId, boolean goal)
+    public JiraDtos.Detail epic(String connectionId, String cloudId, String issueId, boolean epic)
     {
         return JiraIssueLocks.withLock(cloudId, issueId, () -> {
             JiraIssue issue = issue(connectionId, cloudId, issueId);
-            if (goal && tasks.findBySource(cloudId, issueId).isPresent()) {
+            if (epic && tasks.findBySource(cloudId, issueId).isPresent()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This ticket already has a development task.");
             }
-            if (goal && issue.workspace().isEmpty()) {
+            if (epic && issue.workspace().isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Assign a ByteQuay workspace before marking this ticket as an Epic.");
             }
-            cache.write("goal." + segment(cloudId) + "." + segment(issueId), goal);
-            // The marked ticket gets its own workspace goal, named after it; unmarking keeps that goal only while it holds work.
-            GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey(connectionId, cloudId, issueId));
-            if (goal) {
-                goals.getObject().seed(issue.workspace().orElseThrow().id(), source, issue.title());
-            }
-            else {
-                goals.getObject().unseed(source);
-            }
+            cache.write("goal." + segment(cloudId) + "." + segment(issueId), epic);
             return detail(connectionId, cloudId, issueId, false);
         });
     }

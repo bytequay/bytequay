@@ -401,11 +401,11 @@ describe('goal guidance', () => {
     expect(unread).not.toContain('<textarea');
   });
 
-  it('renames the goal in place, cancels a goal of its own and asks for the next one over the current', () => {
+  it('renames the goal in place, cancels any goal independently of its source and asks for the next one over the current', () => {
     const shown = panel({ view: 'guide' });
     expect(shown).toContain('<button type="button" class="goal-panel__title" title="Rename">Iceberg &amp; Delta Lake correctness for 482</button>');
     expect(shown).toContain('aria-label="Cancel goal"');
-    expect(panel({ view: 'guide', goal: { ...GOAL, source: { kind: 'ISSUE', key: 'trinodb/trino#31302' } } })).not.toContain('aria-label="Cancel goal"');
+    expect(panel({ view: 'guide', goal: { ...GOAL, source: { kind: 'ISSUE', key: 'trinodb/trino#31302' } } })).toContain('aria-label="Cancel goal"');
     const next = panel({ view: 'guide', goal: null, onBack: () => {} });
     expect(next).toContain('What do you want to achieve?');
     expect(next).toContain('>Back to the current goal</button>');

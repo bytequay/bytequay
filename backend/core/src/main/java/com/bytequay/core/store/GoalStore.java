@@ -26,7 +26,7 @@ public interface GoalStore
 
     Optional<Goal> find(String goalId);
 
-    /** Every goal seeded by the issue or Jira ticket, in any workspace. */
+    /** Every Goal referencing the issue or Jira ticket, in any workspace. */
     List<Goal> findBySource(GoalSource source);
 
     /** Inserts the goal or replaces the stored one with the same id. */

@@ -225,11 +225,6 @@ public class WorkItemService
         saveLinks(item, item.goalId(), ImmutableList.of(source, attempt), "Execution attempt started");
     }
 
-    public boolean hasWork(String workspaceId, String goalId)
-    {
-        return items.list(workspaceId).stream().anyMatch(item -> item.goalId().filter(goalId::equals).isPresent());
-    }
-
     public void detach(String workspaceId, String goalId, GoalItemKind kind, String key)
     {
         unitOfWork.execute(() -> {

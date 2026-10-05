@@ -61,15 +61,15 @@ The first release includes:
   using the assigned workspace's development model or the global development
   default for an unassigned ticket. Rewrites stay in the draft, support Undo and
   Discard, and never post a comment; changed or closed drafts ignore late results.
-- Mark a ticket as a local Goal, or start development on a leaf ticket. If it
+- Mark a ticket as a local Epic, or start development on a leaf ticket. If it
   has no ByteQuay workspace, either action asks the user to choose and confirm
   one first. Save the choice locally and show the workspace name on the card and
   detail dialog. Later actions reuse it. Development uses the existing
   provider/model/worktree composer; canceling the composer keeps the assignment
   without creating a task. View task opens the resulting task instead of creating
-  another one. Marking a ticket as a Goal also gives its workspace a goal named
-  after it. Unmarking keeps that Goal while it holds accepted work and archives
-  it otherwise; marking the ticket again restores the kept Goal.
+  another one. Epic marking is a local classification and does not change Jira's
+  issue type. Marking or unmarking creates or archives no guided Goal; existing
+  Goals and their work remain independent.
 - Show a ticket's subtasks (an epic's child work items) and its linked work
   items, grouped by how the ticket reads each link ("blocks", "is blocked by").
   Each row opens that ticket over the current one. Create a child with a summary
@@ -80,7 +80,7 @@ The first release includes:
   links come with the ticket read. A project that requires more fields on create
   is reported as needing Jira.
 - Surface cached tickets from connected watched board scopes in global Needs
-  attention, including backlog, parent, Goal, linked, unassigned, and Done
+  attention, including backlog, parent, Epic, linked, unassigned, and Done
   tickets present in those scopes. A workspace's Home lists only the tickets assigned
   to that workspace; Jira project names are never guessed to be
   repository/workspace names.
@@ -116,8 +116,8 @@ counts. Ticket dialogs retain the workspace route. The shared Jira source mark
 uses a monochrome outline matching the surrounding navigation icons.
 
 The native page uses ByteQuay's current card, badge, dialog, Markdown and
-composer styles. Start development and Goal are accessible icon actions with
-tooltips and selected Goal styling. The task transcript shows a compact source
+composer styles. Start development and Epic are accessible icon actions with
+tooltips and selected Epic styling. The task transcript shows a compact source
 request card; the source attachment sits above the composer with issue details
 on hover. No raw generated instruction block is rendered as the user's prompt.
 
@@ -133,7 +133,7 @@ Jira sources are distinct from GitHub sources. Their identity is `(cloudId,
 issueId)`, never the mutable issue key. Display includes the familiar key and
 site. A Jira ticket may belong to any explicitly selected repository workspace.
 A persisted association admits one development task per source across workspaces
-and connections. Goal changes and task admission share a source lock. Parent
+and connections. Epic changes and task admission share a source lock. Parent
 items and completed tickets cannot launch development; the admission refresh
 checks subtasks, hierarchy information and the Jira parent query. The
 association names the ticket's current task: once that task has ended and no
@@ -148,10 +148,10 @@ owns the assignment and cannot be moved to another workspace. A Goal work item
 for the ticket owns it the same way, because a launch must match both the
 assignment and the work item's workspace; that rejection is server-side only, so
 the field stays editable and reports it. A missing workspace
-leaves an unstarted ticket unassigned. Goal marking requires an assignment, and
+leaves an unstarted ticket unassigned. Epic marking requires an assignment, and
 new development admission validates that its selected workspace matches it.
 The ticket's Details panel shows a ByteQuay workspace field for assigning or
-changing this local association independently of Goal marking, development start,
+changing this local association independently of Epic marking, development start,
 or Jira edit permissions. It reuses the workspace chooser and explicit confirmation;
 the field is read-only when a linked development task owns the assignment.
 
@@ -283,7 +283,7 @@ Date buckets are mutually exclusive and use local midnight/Monday boundaries.
 Future timestamps and missing dates have explicit groups.
 
 Cache records are namespaced by connection and cloud ID; source identity and
-Goal/task association additionally
+Epic/task association additionally
 use immutable cloud/issue IDs. A failed refresh retains the prior result and
 reports that it is stale. Page limits and unsupported metadata are visible
 limitations rather than an assertion that the result is complete.
@@ -337,7 +337,7 @@ pagination and scope, completion-date selection, reopened-ticket membership,
 authenticated transport bounds, token validation/replacement, credential
 redaction, OAuth pairing/rotation, child listing and link direction. Frontend
 tests and a fixture exercise connection, list/board/detail, comments, subtasks
-and links, Goal and Start/View
+and links, Epic and Start/View
 task states, completed-history membership, and date grouping across time zones,
 daylight saving and week/year boundaries. Repository backend and frontend gates
 run from the isolated Jira worktree.

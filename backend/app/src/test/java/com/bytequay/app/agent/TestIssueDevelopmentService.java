@@ -25,11 +25,8 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
-import com.bytequay.app.service.goal.GoalService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.core.domain.GitHubIssueSource;
-import com.bytequay.core.domain.GoalItemKind;
-import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepoRef;
@@ -43,7 +40,6 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
-import org.springframework.beans.factory.ObjectProvider;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -86,14 +82,11 @@ class TestIssueDevelopmentService
     private final GitHubRepoClient github = mock(GitHubRepoClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final AtomicReference<IssueTask> linked = new AtomicReference<>();
-    private final AtomicReference<IssueEpic> goal = new AtomicReference<>();
+    private final AtomicReference<IssueEpic> epic = new AtomicReference<>();
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final TaskId taskId = TaskId.random();
-    private final GoalService goals = mock(GoalService.class);
-    @SuppressWarnings("unchecked")
-    private final ObjectProvider<GoalService> goalsProvider = mock(ObjectProvider.class);
     private final IssueDevelopmentService service = new IssueDevelopmentService(sources, issues, workspaces, tasks, taskStore,
-            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, goalsProvider, mock(WorkItemService.class));
+            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, mock(WorkItemService.class));
 
     @BeforeEach
     void setUp()
@@ -104,11 +97,11 @@ class TestIssueDevelopmentService
         when(workspaces.findById(anyString())).thenReturn(Optional.of(workspace));
         when(issues.find(2, 7)).thenReturn(Optional.of(new RepositoryIssue(70, 7, SOURCE.title(), SOURCE.body(), "alice", "", SOURCE.url(),
                 ImmutableList.of(), ImmutableList.of("alice"), 0, NOW, NOW)));
-        when(sources.findEpic("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(goal.get()));
+        when(sources.findEpic("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(epic.get()));
         when(sources.findTask("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(linked.get()));
         when(sources.findByTaskId(taskId.toString())).thenAnswer(ignored -> Optional.ofNullable(linked.get()));
         doAnswer(invocation -> {
-            goal.set(invocation.getArgument(0));
+            epic.set(invocation.getArgument(0));
             return null;
         }).when(sources).saveEpic(any());
         doAnswer(invocation -> {
@@ -121,18 +114,14 @@ class TestIssueDevelopmentService
         when(task.id()).thenReturn(taskId);
         when(task.workspaceId()).thenReturn(Optional.of("workspace"));
         when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
-        when(goalsProvider.getObject()).thenReturn(goals);
     }
 
     @Test
-    void markingAnIssueSeedsItsWorkspaceGoalAndUnmarkingRemovesIt()
+    void markingAnEpicOnlyChangesItsLocalClassification()
     {
-        GoalSource source = new GoalSource(GoalItemKind.ISSUE, "upstream/repo#7");
         assertThat(service.setEpic("workspace", 7, true).isEpic()).isTrue();
-        verify(goals).seed("workspace", source, SOURCE.title());
         assertThat(service.setEpic("workspace", 7, false).isEpic()).isFalse();
-        verify(goals).unseed(source);
-        verifyNoInteractions(github);
+        verifyNoInteractions(github, tasks, taskStore);
     }
 
     @Test
@@ -162,7 +151,7 @@ class TestIssueDevelopmentService
     }
 
     @Test
-    void goalRefusesStartBeforeRemoteReadOrTaskCreation()
+    void epicRefusesStartBeforeRemoteReadOrTaskCreation()
     {
         service.setEpic("other-workspace", 7, true);
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> {
@@ -314,7 +303,7 @@ class TestIssueDevelopmentService
     }
 
     @Test
-    void goalUpdateAndStartShareCanonicalLock()
+    void epicUpdateAndStartShareCanonicalLock()
             throws Exception
     {
         CountDownLatch creating = new CountDownLatch(1);
@@ -323,7 +312,7 @@ class TestIssueDevelopmentService
             var first = executor.submit(() -> service.start("workspace", taskId, INPUT, "Implement", source -> {
                 creating.countDown();
                 await(finish);
-                assertThat(goal.get()).isNull();
+                assertThat(epic.get()).isNull();
                 service.persistTask(task, source, "Implement");
                 return task;
             }));
@@ -334,7 +323,7 @@ class TestIssueDevelopmentService
             assertThat(mark.get(5, TimeUnit.SECONDS).isEpic()).isTrue();
         }
         assertThat(service.start("workspace", taskId, INPUT, "Implement", ignored -> {
-            throw new AssertionError("Goal must not admit a new turn");
+            throw new AssertionError("Epic must not admit a new turn");
         })).isSameAs(task);
     }
 

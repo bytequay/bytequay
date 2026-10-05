@@ -33,7 +33,7 @@ historical checkpoint evidence and explicitly deferred future work.
   development flow.
 
 - [Issue-backed Development](issue-development-plan.md) defines the approved small
-  GitHub release: local Goal marking, issue-to-task launch and navigation, and
+  GitHub release: local Epic marking, issue-to-task launch and navigation, and
   actionable work items in both existing Needs attention views. The broader
   [work planning design](issue-development.md) remains the later roadmap.
 

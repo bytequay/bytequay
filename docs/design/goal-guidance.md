@@ -31,11 +31,13 @@ source and memory boundaries.
 Goals now group durable work items. Each item has an identity, kind, acceptance
 criteria, completion rule, revision, supporting links and retained decisions.
 The panel provides creation, scope editing, linking, explicit result acceptance,
-dropping, reopening and moving between Goals. Unmarking a source keeps its Goal
-while the Goal holds work and archives it otherwise. The Goal remembers its
-source, so marking the source again restores the kept Goal rather than starting
-a second one. Archiving a Goal retains its work, which remains accessible
-through saved work.
+dropping, reopening and moving between Goals. **Goal** means the guided outcome,
+conversation, research and learning service. **Epic** means a large scope issue or
+ticket classified locally as a container for delivery work. Marking or unmarking
+an Epic does not create, archive or otherwise change a Goal. Existing Goals,
+source references, accepted work and history remain intact; users create Goals
+and link work explicitly. Archiving a Goal retains its work, which remains
+accessible through saved work.
 
 One item counts once regardless of its issue, Jira, task or PR links. Failed and
 completed tasks are ended activity, unmerged PR closure is not delivery, and
@@ -391,8 +393,8 @@ and Escape keeps the old name. Cancel goal in the header archives a Goal the
 user started, after the user types `cancel` in its confirmation dialog and clicks
 Confirm delete goal. The confirmation starts empty each time and stays disabled
 until the text matches exactly. The window then returns to the opening
-question; a Goal started from a marked issue or ticket ends by unmarking its
-source. New goal in the switcher asks the same question while the current Goal
+question. Goals with a source reference use the same independent cancellation
+action; an Epic marker never controls their lifecycle. New goal in the switcher asks the same question while the current Goal
 stays pinned until an answer starts the next one. The opening never asks for a
 name and never turns an existing title into the question; its answer field sits
 under the question and takes focus.
@@ -710,9 +712,8 @@ This recovery records facts; it does not restart an interrupted model request.
 
 Goal history outlives task runtime cleanup and source caches. Deleting an
 execution task leaves its saved result and an unavailable-task reference. Archive
-a Goal without deleting its work. Unmarking a source keeps a Goal that holds work,
-without its marking, and archives an empty one; marking the source again restores
-the kept Goal with its plan, conversation and outcomes.
+a Goal without deleting its work. Epic marking is independent: toggling a source's
+marker never changes a Goal's plan, conversation, source reference or outcomes.
 
 Goal insights are attributed summaries of this work. They do not automatically
 become repository-wide rules. Remember an applicable insight uses the existing
@@ -870,7 +871,7 @@ them. No off-device daemon or activity while the application is stopped is promi
 | Discovery covers only part of the source set | Show checked coverage and uncertainty; do not infer absence or completion |
 | Agent fails or emits invalid output | Preserve the user message, current plan and evidence; expose retry |
 | User edits while the agent answers | Preserve their edit; stale output cannot become the current plan |
-| Item is closed, marked as Goal or started elsewhere before Start | Revalidate admission and open existing work or explain the changed condition |
+| Item is closed, marked as Epic or started elsewhere before Start | Revalidate admission and open existing work or explain the changed condition |
 | Summary generation fails | Facts remain recorded; show Summary pending and retry independently |
 | A research run fails or is stopped | Keep the notes it saved; offer a card to retry the missing scope |
 | A private card is deleted | Keep the assessment; mark that evidence unavailable |

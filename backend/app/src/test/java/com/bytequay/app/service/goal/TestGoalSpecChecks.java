@@ -79,7 +79,7 @@ class TestGoalSpecChecks
         beans.registerSingleton("goalConversationService", conversation);
         beans.registerSingleton("workItemService", work);
         when(goals.list("workspace")).thenReturn(ImmutableList.of(new Goal("goal-1", "workspace", "Delta Lake correctness", "", true, false, Optional.empty(),
-                Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW)));
+                Optional.empty(), 0, Optional.empty(), false, NOW, NOW)));
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.SPEC_CHECK,
                 "Check the Delta checkpoint writer", "You know how checkpoints reconcile actions", "Checkpoint action reconciliation", ImmutableList.of(PROTOCOL),
                 Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("plugin/trino-delta-lake/"), Optional.of(3), Optional.empty()), GoalRecommendation.State.SHOWN,

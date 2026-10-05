@@ -62,10 +62,6 @@ public class GoalEntity
     @Column(name = "source_key")
     private String sourceKey;
 
-    @Column(name = "unmarked_at")
-    @Convert(converter = InstantToTextConverter.class)
-    private Instant unmarkedAt;
-
     @Column(nullable = false)
     private boolean archived;
 
@@ -109,7 +105,6 @@ public class GoalEntity
         pinned = goal.pinned();
         sourceKind = goal.source().map(source -> source.kind().name()).orElse(null);
         sourceKey = goal.source().map(GoalSource::key).orElse(null);
-        unmarkedAt = goal.unmarkedAt().orElse(null);
         archived = goal.archived();
         definition = goal.definition().orElse(null);
         revision = goal.revision();
@@ -121,7 +116,7 @@ public class GoalEntity
     public Goal toDomain()
     {
         Optional<GoalSource> source = sourceKind == null ? Optional.empty() : Optional.of(new GoalSource(GoalItemKind.valueOf(sourceKind), sourceKey));
-        return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(unmarkedAt), Optional.ofNullable(definition),
+        return new Goal(id, workspaceId, title, description, pinned, archived, source, Optional.ofNullable(definition),
                 revision == null ? 0 : revision, Optional.ofNullable(course), Boolean.TRUE.equals(paused), createdAt, updatedAt);
     }
 }

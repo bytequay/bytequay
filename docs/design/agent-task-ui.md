@@ -1089,7 +1089,7 @@ left, the section says **Nothing needs you right now.**
 
 The sources are all discovered personal and watched-repository pull requests,
 cached watched-repository issues, tickets in connected saved Jira board scopes,
-and unarchived local agent tasks. Assignment, Goal marking, a linked task, or
+and unarchived local agent tasks. Assignment, Epic marking, a linked task, or
 an ordinary update does not remove an item from this list. Those facts still
 control whether Start development is offered. Source discovery is independent
 of the limit used to warm full pull-request details. `GET /prs/attention` carries
@@ -1137,10 +1137,9 @@ ended activity, not Done. A linked item that no local store holds reads as
 evidence unavailable, never as closed. A ticket in a status named Blocked is
 blocked. A work item needs you while one of its links shows in the workspace's
 Needs attention, which the workspace reads once for all of its pages. Marking an
-issue or Jira ticket as a Goal gives its workspace a goal named after it that
-does not list the marked item itself. Unmarking archives that goal when it holds
-no work and otherwise keeps it without its marking; marking the source again
-restores it. A workspace's first goal is pinned, choosing another goal in the
+issue or Jira ticket as an Epic classifies it as a delivery container locally.
+The marker never creates or archives a guided Goal. Existing Goals, source
+references, work and history remain independently accessible. A workspace's first goal is pinned, choosing another goal in the
 switcher pins that one, and archiving the pinned goal pins the oldest one left.
 An archived goal keeps its work items, which **Add existing** can still reach.
 
@@ -1160,7 +1159,7 @@ opening and stays inside the page. Moving the pointer out of the pill and window
 closes it, except during a drag, a resize or a confirmation; Escape and × close
 it too, and drafts survive closing. ⤢ expands the same panel to a board and
 back. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
-**New goal**, and **Archive this goal** for a goal no marker seeded), the title
+**New goal**, and **Cancel goal** for every Goal), the title
 and description, a Done / Working / Planned bar with Dropped counted beside it,
 tiles for pull requests merged and open, what needs you and what is blocked,
 **Next · Working · Blocked · Done** views with priority and source filters,

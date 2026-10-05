@@ -1098,8 +1098,9 @@ button.goal-tile:hover {
 .goal-book__chapter:focus-visible, .goal-book__sections button:focus-visible { outline: 2px solid var(--control-strong); outline-offset: -2px; }
 .goal-book__page { overflow: auto; padding: 24px 40px 56px; }
 .goal-book__ask { width: 380px; min-height: 0; display: flex; flex-direction: column; border-left: 1px solid #eceff2; }
-.goal-chapter { display: grid; gap: 18px; max-width: 840px; margin: 0 auto; font-size: 15px; line-height: 1.7; }
-.goal-chapter__head { display: grid; gap: 6px; }
+/* The chapter's one column never grows past the chapter: a wide diagram scales down instead of pushing the page off centre. */
+.goal-chapter { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; max-width: 840px; margin: 0 auto; font-size: 15px; line-height: 1.7; }
+.goal-chapter__head { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; }
 .goal-chapter__bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; }
 .goal-chapter__ask {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid #d0d7de; border-radius: 14px;
@@ -1112,7 +1113,7 @@ button.goal-tile:hover {
 .goal-chapter__remember ul { display: grid; gap: 4px; margin: 6px 0 0; padding-left: 18px; }
 .goal-chapter__kicker { font-size: 11px; letter-spacing: 0.5px; text-transform: uppercase; color: #57606a; }
 .goal-chapter__section h2 { margin: 6px 0 10px; padding-top: 14px; border-top: 1px solid #eceff2; font-size: 19px; line-height: 1.35; font-weight: 600; }
-.goal-chapter__try, .goal-chapter__check { display: grid; gap: 8px; padding: 16px 18px; border: 1px solid #d0d7de; border-radius: 10px; }
+.goal-chapter__try, .goal-chapter__check { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 16px 18px; border: 1px solid #d0d7de; border-radius: 10px; }
 .goal-chapter__try { background: #f6f8fa; }
 .goal-chapter__try p, .goal-chapter__check p { margin: 0; }
 .goal-chapter__foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 16px; border-top: 1px solid #eceff2; }

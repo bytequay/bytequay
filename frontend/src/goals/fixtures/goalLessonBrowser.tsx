@@ -35,8 +35,19 @@ const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, 
       { id: 'table', label: 'Table metadata', note: null, parent: null, group: null }, { id: 'snapshot', label: 'Snapshot', note: 'One per commit', parent: 'table', group: null },
       { id: 'manifests', label: 'Manifest list', note: null, parent: 'snapshot', group: null }], edges: [] } },
     { title: 'Writing a snapshot', body: 'A commit swaps the metadata pointer.', diagram: { kind: 'FLOW', caption: 'A commit', nodes: [
-      { id: 'write', label: 'Write data files', note: null, parent: null, group: null }, { id: 'swap', label: 'Swap the pointer', note: null, parent: null, group: null }], edges: [] } }],
-  exercise: 'Run `TestIcebergMetadata`.', observe: 'The test lists two snapshots.', check: 'What does a snapshot point to?' } };
+      { id: 'write', label: 'Write data files', note: null, parent: null, group: null }, { id: 'swap', label: 'Swap the pointer', note: null, parent: null, group: null }], edges: [] } },
+    // Five participants draw wider than the chapter, which must scale the picture down rather than widen.
+    { title: 'Who reads a snapshot', body: 'Planning reads the current snapshot once.\n\n| Step | Code |\n| --- | --- |\n| Plan | '
+      + '`IcebergMetadata.getTableHandle -> IcebergSplitManager.getSplits -> IcebergSplitSource.getNextBatch -> TableScan.planFiles` |',
+    diagram: { kind: 'SEQUENCE', caption: 'Planning a scan', nodes: [
+      { id: 'engine', label: 'Engine', note: null, parent: null, group: null }, { id: 'connector', label: 'Connector', note: null, parent: null, group: null },
+      { id: 'catalog', label: 'Catalog', note: null, parent: null, group: null }, { id: 'table', label: 'Table metadata', note: null, parent: null, group: null },
+      { id: 'files', label: 'Manifest files', note: null, parent: null, group: null }], edges: [{ from: 'engine', to: 'connector', label: 'plan' },
+      { from: 'connector', to: 'catalog', label: 'load table' }, { from: 'catalog', to: 'table', label: 'current snapshot' }, { from: 'table', to: 'files', label: 'list' }] } }],
+  // A command too long to wrap must scroll inside the chapter instead of widening it.
+  exercise: 'Run the metadata test:\n\n```bash\n./mvnw -pl plugin/trino-iceberg -Dtest=TestIcebergMetadata#testSnapshotsListedInOrder '
+    + '-Dair.check.skip-all=true -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dmaven.javadoc.skip=true -Dlicense.skip=true test\n```',
+  observe: 'The test lists two snapshots.', check: 'What does a snapshot point to?' } };
 
 function text(): string {
   return document.body.textContent ?? '';
@@ -106,10 +117,15 @@ export async function run(): Promise<boolean> {
       'The expanded window reads as a book whose contents mark the open chapter');
     assert(document.querySelector('.goal-book__ask') === null, 'The questions open only on demand');
     assert(document.querySelector('.goal-chapter__remember li')?.textContent === 'A snapshot never changes once written.', 'The chapter lists what to remember');
-    assert(document.querySelectorAll('.goal-diagram svg').length === 2 && document.querySelectorAll('.goal-diagram rect').length === 5
-      && document.querySelectorAll('.goal-diagram__edge').length === 3, 'Each diagram draws its boxes and arrows');
-    assert([...document.querySelectorAll('.goal-book__sections button')].map((section) => section.textContent).join('|') === 'Table metadata|Writing a snapshot',
-      'The contents list the chapter\'s sections');
+    assert(document.querySelectorAll('.goal-diagram svg').length === 3 && document.querySelectorAll('.goal-diagram rect').length === 10
+      && document.querySelectorAll('.goal-diagram__edge').length === 7, 'Each diagram draws its boxes and arrows');
+    assert([...document.querySelectorAll('.goal-book__sections button')].map((section) => section.textContent).join('|')
+      === 'Table metadata|Writing a snapshot|Who reads a snapshot', 'The contents list the chapter\'s sections');
+    const page = document.querySelector('.goal-book__page')?.getBoundingClientRect();
+    const chapter = document.querySelector('.goal-chapter')?.getBoundingClientRect();
+    assert(page !== undefined && chapter !== undefined && chapter.width <= 840 && Math.abs((chapter.left - page.left) - (page.right - chapter.right)) < 24
+      && [...document.querySelectorAll('.goal-chapter > *')].every((part) => part.getBoundingClientRect().right <= chapter.right + 1),
+      'A long command or a wide diagram stays inside the chapter, which sits in the middle of the page');
     assert(document.querySelector('.goal-chapter__section strong')?.textContent === 'current snapshot', 'A section reads as Markdown');
 
     changeInput(document.querySelector<HTMLTextAreaElement>('.goal-chapter__check .goal-composer textarea'), 'The manifest list of its table state'); await settle();

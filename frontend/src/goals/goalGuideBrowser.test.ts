@@ -42,3 +42,10 @@ it('guides an unsure user by suggested answers alone, by keyboard, in a narrow w
     body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.unsure()');",
   })).toBe(true);
 }, 30_000);
+
+it('walks the reference journey from a vague Iceberg goal to a merged pull request on its work', async () => {
+  expect(await runBrowserFixture<boolean>({
+    prefix: 'bytequay-goal-reference-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 1200, height: 900,
+    body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.reference()');",
+  })).toBe(true);
+}, 60_000);

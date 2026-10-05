@@ -1134,7 +1134,7 @@ This finishes the clear-organization takeaway using the current surfaces.
   recovery guidance and proposed replanning after a blocker changes. Check visual
   hierarchy in floating and expanded view; the next useful action must be readable
   before statistics or board management. Opening the panel alone adds no model call.
-- [ ] Include the reference journey: an Iceberg expertise Goal clarified from a
+- [x] Include the reference journey: an Iceberg expertise Goal clarified from a
   vague answer, research and a fitted course, a lesson in the Goal window, a
   Delta spec-check card reproducing a #31252-style gap, and a practice card that
   ends in a merged pull request recorded on the Goal.
@@ -1149,16 +1149,20 @@ Evidence for the checked items: `TestWorkItemService` for priority, order and
 blockers, and the `workItemsBrowser` journeys for the views, the results Done
 shows and All history. Both Needs attention views fold a source the Goal's card
 offers as practice, as `AttentionList.test.tsx` and `goals.test.tsx` show. The
-agent service, architecture, agent task UI, repository memory and Jira designs
-describe what is implemented. The `goalGuideBrowser` journeys clarify a vague
-goal, take questions that arrive on their own, keep a draft whose send failed
-and resend it as the same operation, start research and a prepared practice
-task, and accept a plan change; one of them guides an unsure user by suggested
-answers alone, by keyboard, in a window 380 pixels wide, where nothing scrolls
-sideways, opening the window asks no model and a read from before an answer,
-arriving after it, does not undo it. `goalWindowBrowser` keeps drafts through
-moves, resizes and reopening. Still partial: no journey shows the agent's
-recovery guidance after a failed turn, which `TestGoalPlanner` and
+`goalGuideBrowser` reference journey walks a vague Iceberg goal through a
+suggested answer to a definition, research and the course fitted to its notes, a
+lesson read in the Goal window, a Delta spec check whose reproduced gap becomes
+the goal's work, and practice on that gap whose merged pull request is recorded
+on the work. The agent service, architecture, agent task UI, repository memory
+and Jira designs describe what is implemented. The `goalGuideBrowser` journeys
+clarify a vague goal, take questions that arrive on their own, keep a draft
+whose send failed and resend it as the same operation, start research and a
+prepared practice task, and accept a plan change; one of them guides an unsure
+user by suggested answers alone, by keyboard, in a window 380 pixels wide, where
+nothing scrolls sideways, opening the window asks no model and a read from
+before an answer, arriving after it, does not undo it. `goalWindowBrowser` keeps
+drafts through moves, resizes and reopening. Still partial: no journey shows the
+agent's recovery guidance after a failed turn, which `TestGoalPlanner` and
 `TestGoalConversationService` cover in the backend, and the visual hierarchy is
 checked only for fit.
 

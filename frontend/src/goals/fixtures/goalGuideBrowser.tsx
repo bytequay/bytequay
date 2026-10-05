@@ -15,7 +15,7 @@ import React, { useEffect, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { GoalLayer } from '../GoalLayer';
-import type { GoalCardDto, GoalDto, GoalExchangeDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto } from '../contracts';
+import type { GoalCardDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalRecommendationDto, WorkItemDto } from '../contracts';
 import type { Goals } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import type { SpecCheckRequest } from '../../repository-context/specChecks';
@@ -30,7 +30,8 @@ import '../../css/settings-window.css';
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
   started: [] as string[], cancelled: [] as string[], stopped: [] as string[], reassessed: [] as string[], planned: [] as string[], failNextAsk: false,
-  model: null as AgentModelSettingDto | null, researchStopped: false, slowNextRead: false, slowReadLeftAfter: -1 };
+  model: null as AgentModelSettingDto | null, researchStopped: false, slowNextRead: false, slowReadLeftAfter: -1, lesson: null as GoalLessonDto | null,
+  gaps: [] as GoalGapDto[] };
 /** The workspace's Development model, which a goal follows until it has its own. */
 const WORKSPACE_MODEL: AgentModelSettingDto = { type: 'DEVELOPMENT', explicit: false, configId: 'codex', label: 'Codex', model: 'sol', modelLabel: 'Sol', effort: 'high' };
 const MODELS: ModelSettingsDto = { agents: [], apiKeys: [], keyProviders: [], providers: [{ id: 'codex', label: 'Codex', readiness: 'READY', diagnostic: '',
@@ -69,7 +70,20 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     server.exchanges = [];
     changed();
   },
-  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, orderWork: unexpected, dismissCard: unexpected, acceptCourse: unexpected, refresh: changed,
+  createWork: unexpected, decideWork: unexpected, linkWork: unexpected, orderWork: unexpected, dismissCard: unexpected, refresh: changed,
+  // Accepting a course makes its lessons the goal's Learn work, in order.
+  acceptCourse: async (_goalId, exchangeId) => {
+    const course = server.exchanges.find((exchange) => exchange.id === exchangeId)?.reply?.course;
+    assert(course !== null && course !== undefined, 'No course to accept');
+    const lessons = course.parts.flatMap((part) => part.lessons).map((lesson, index): WorkItemDto => ({ id: `lesson-${index + 1}`, workspaceId: 'workspace',
+      goalId: 'goal', title: lesson.title, kind: 'LEARN', acceptanceCriteria: lesson.outcome, completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0,
+      priority: 'NORMAL', rank: index, blockedBy: [], links: [], history: [], createdAt: NOW, updatedAt: NOW }));
+    let next = 0;
+    server.goal = { ...server.goal, items: [...server.goal.items, ...lessons], course: { exchangeId, acceptedAt: NOW, map: null,
+      parts: course.parts.map((part) => ({ title: part.title, lessons: part.lessons.map(() => lessons[next++].id) })) } };
+    changed();
+    return server.goal;
+  },
   // The backend applies what the plan change still differs in: the test becomes urgent and moves first.
   acceptPlan: async (_goalId, exchangeId) => {
     server.planned.push(exchangeId);
@@ -87,11 +101,21 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     server.exchanges = server.exchanges.map((exchange) => (exchange.id === exchangeId ? { ...exchange, state: 'PENDING', failure: null } : exchange));
     return server.exchanges;
   },
-  openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected,
+  openLesson: async () => server.lesson ?? unexpected(), readLesson: async () => server.lesson ?? unexpected(), finishLesson: unexpected, setTopic: unexpected,
   knowledge: async () => server.notes,
   rememberNote: unexpected,
-  gaps: async () => [],
-  addGap: unexpected,
+  gaps: async () => server.gaps,
+  // Adding a reproduced gap makes it the goal's Develop work, which practice on its issue then works on.
+  addGap: async (_goalId, candidateId) => {
+    const gap = server.gaps.find((candidate) => candidate.candidateId === candidateId);
+    assert(gap !== undefined, 'No such gap');
+    server.gaps = server.gaps.map((candidate) => (candidate === gap ? { ...candidate, workItemId: 'work-1', state: 'PLANNED' } : candidate));
+    server.goal = { ...server.goal, items: [...server.goal.items, { id: 'work-1', workspaceId: 'workspace', goalId: 'goal', title: gap.title, kind: 'DEVELOP',
+      acceptanceCriteria: gap.rule, completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, priority: 'NORMAL', rank: server.goal.items.length,
+      blockedBy: [], links: [], history: [], createdAt: NOW, updatedAt: NOW }] };
+    changed();
+    return server.gaps;
+  },
   fileIssue: unexpected,
   summarize: unexpected,
   pause: async (_goalId, paused) => {
@@ -355,6 +379,113 @@ export async function unsure(): Promise<boolean> {
     await press('Space'); await settle(); await settle();
     assert(server.accepted.join() === 'Iceberg tables from the start' && asked() === 2, 'Space on Accept goal takes the proposed definition as it is');
     assert(document.querySelector('.goal-panel__title')?.textContent === 'Iceberg tables from the start', 'The goal takes the accepted title');
+    return true;
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+/** The card under the Goal control whose title says this, and one of its buttons. */
+function cardButton(title: string, label: string): HTMLButtonElement {
+  const card = [...document.querySelectorAll('.goal-cards .goal-rec')].find((found) => found.textContent?.includes(title) === true);
+  const found = card === undefined ? undefined : [...card.querySelectorAll('button')].find((candidate) => candidate.textContent === label);
+  assert(found !== undefined, `Missing ${label} on the card ${title}`);
+  return found;
+}
+
+const LESSON: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, content: { summary: 'A table is a tree of metadata files.',
+  invariants: ['A snapshot never changes once written.'], explanation: null,
+  sections: [{ title: 'Table metadata', body: 'The metadata file names the current snapshot.', diagram: null }],
+  exercise: 'Open a table\'s metadata file.', observe: 'The current snapshot id.', check: 'What does a snapshot point to?' } };
+const GAP: GoalGapDto = { checkId: 'check-1', candidateId: 'gap-1', module: 'plugin/trino-delta-lake/', title: 'Checkpoints drop rows a deletion vector removed',
+  rule: 'The checkpoint reconciles actions by path and deletion vector.', specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md',
+  test: { path: 'plugin/trino-delta-lake/src/test/java/io/trino/plugin/deltalake/TestCheckpointDeletionVectors.java', command: './mvnw test', exitCode: 1 },
+  draft: { title: 'Checkpoint drops rows removed by a deletion vector', body: 'A valid commit order loses rows.', labels: ['bug'] }, workItemId: null, state: null,
+  filed: 31252 };
+
+/**
+ * The reference journey: a vague Iceberg goal clarified into a definition, research and the course fitted to it, a lesson read in the Goal
+ * window, a Delta spec check whose reproduced gap becomes the goal's work, and practice on that gap that ends in a merged pull request
+ * recorded on the goal.
+ */
+export async function reference(): Promise<boolean> {
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;inset:0';
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<Fixture />)); await settle();
+    document.querySelector<HTMLButtonElement>('.goal-pill')?.click(); await settle();
+
+    // A vague answer starts the goal, and a suggested answer clarifies it into a definition.
+    changeInput(composer(), 'Iceberg'); await settle();
+    button('Send').click(); await settle(); await settle();
+    answer({ assessment: 'Iceberg covers a lot.', proposal: null, plan: null, recommendation: null, course: null,
+      question: { text: 'What do you want to be able to do?', suggestions: ['Explain and change the Iceberg connector', 'Review Iceberg pull requests'] } });
+    await nextRead();
+    button('Explain and change the Iceberg connector').click(); await settle();
+    button('Send').click(); await settle(); await settle();
+    assert(server.exchanges.at(-1)?.message === 'Explain and change the Iceberg connector', 'A suggested answer clarifies the vague goal');
+    answer({ assessment: 'You want to work on the connector.', question: null, plan: null, recommendation: null, course: null, proposal: {
+      title: 'Trino Iceberg connector expert', objective: 'Explain and change the Iceberg connector', successDefinition: 'Trace a scan end to end',
+      startingKnowledge: 'Knows Trino', constraints: '' } });
+    await nextRead();
+    button('Accept goal').click(); await settle(); await settle();
+    assert(server.accepted.join() === 'Trino Iceberg connector expert', 'The clarified definition is accepted');
+
+    // Research saves notes, and the agent fits a course to them, which the user accepts.
+    answer({ assessment: 'Read the specification first.', question: null, proposal: null, plan: null, recommendation: CARD, course: null });
+    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
+    changed(); await nextRead();
+    cardButton('Read the Iceberg specification', 'Start').click(); await settle(); await settle();
+    assert(server.started.join() === 'card-1', 'Start begins the research');
+    server.notes = [{ id: 'note-1', topic: 'Manifest lists', body: 'A snapshot lists its manifests in one manifest list.', savedAt: NOW, stale: false,
+      sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null }] }];
+    server.exchanges = [...server.exchanges, pending('research:task-research', 'The research run saved 1 note: Manifest lists.', true)];
+    answer({ assessment: 'A course from the notes, starting where you are.', question: null, proposal: null, plan: null, recommendation: null, course: { reason: null,
+      parts: [{ title: 'Iceberg tables', lessons: [{ title: 'What a table is', outcome: 'Explain metadata, snapshots and manifests', lessonId: null }] }] } });
+    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'DONE', taskId: 'task-research', workItemId: null, checkId: null, createdAt: NOW }]);
+    changed(); await nextRead();
+    assert(text().includes('What the agent learned · 1'), 'The research notes show in the Goal window');
+    button('Accept course').click(); await settle(); await settle();
+    const course = (): GoalDto['course'] => server.goal?.course ?? null;
+    assert(course()?.parts[0].lessons.join() === 'lesson-1', 'Accepting the course makes its lesson the goal\'s Learn work');
+
+    // The agent puts up the course's lesson; Start opens it in the Goal window.
+    server.lesson = LESSON;
+    const lesson: GoalCardDto = { kind: 'LESSON', title: 'What a table is', reason: 'You are ready for it', scope: 'Table metadata', pages: [], workItemId: 'lesson-1',
+      issue: null, ticket: null, module: null, reproductions: null };
+    setCards([{ id: 'card-2', goalId: 'goal', card: lesson, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
+    changed(); await settle();
+    cardButton('What a table is', 'Start').click(); await settle(); await settle(); await settle();
+    assert(text().includes('A table is a tree of metadata files.'), 'Start on a lesson card opens the lesson in the Goal window');
+
+    // A spec check of the Delta checkpoint writer reproduces a gap, which the user adds to the goal as work.
+    setCards([{ id: 'card-3', goalId: 'goal', card: CHECK, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
+    changed(); await settle();
+    cardButton('Check the Delta checkpoint writer', 'Start').click(); await settle(); await settle();
+    assert(server.started.join() === 'card-1,card-3', 'Start runs the spec check');
+    server.gaps = [GAP];
+    setCards([{ id: 'card-3', goalId: 'goal', card: CHECK, state: 'DONE', taskId: null, workItemId: null, checkId: 'check-1', createdAt: NOW }]);
+    changed(); await nextRead();
+    button('Guide').click(); await settle();
+    assert(text().includes('Gaps the spec check reproduced · 1') && text().includes('Checkpoints drop rows a deletion vector removed'),
+      'The reproduced gap shows with the issue the user filed for it');
+    button('Add to goal with #31252').click(); await settle(); await settle();
+    assert(server.gaps[0].workItemId === 'work-1' && text().includes('Work: planned'), 'The gap becomes the goal\'s work');
+
+    // Practice on the gap's issue opens a prepared composer, and its merged pull request is recorded on the goal.
+    setCards([{ id: 'card-4', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
+    changed(); await settle();
+    cardButton('Fix #31252', 'Start').click(); await settle(); await settle();
+    assert(started.at(-1)?.issue === 31252 && started.at(-1)?.instruction.includes('My goal: Trino Iceberg connector expert') === true,
+      'Start opens the issue composer prepared from the work and the goal');
+    const link = (kind: GoalItemDto['kind'], key: string, label: string, status: string): GoalItemDto => ({ kind, key, label, title: 'Key actions by path',
+      state: status === 'Merged' ? 'MERGED' : 'WORKING', status, blocked: false, url: null, activity: null, addedAt: NOW });
+    server.goal = { ...server.goal, items: server.goal.items.map((item) => (item.id === 'work-1' ? { ...item, state: 'WORKING', links: [
+      link('ISSUE', 'trinodb/trino#31252', '#31252', 'Open'), link('TASK', 'task-1', 'Task', 'Completed'), link('PULL_REQUEST', 'trinodb/trino#31260', '#31260', 'Merged')] }
+      : item)) };
+    changed(); await settle();
+    assert(text().includes('#31260 merged') && text().includes('Review result'), 'The merged pull request is recorded on the goal\'s work');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

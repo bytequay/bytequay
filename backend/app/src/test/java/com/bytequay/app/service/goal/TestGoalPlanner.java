@@ -13,8 +13,11 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.agent.core.CodeGraphException;
+import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.context.ContextSpecModule;
 import com.bytequay.app.service.ai.TextOnlyHelper;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -149,7 +152,7 @@ class TestGoalPlanner
     {
         GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), mock(WorkspaceStore.class), mock(WorkspaceRelationships.class),
                 mock(GoalKnowledgeNoteStore.class), mock(GoalLessonStore.class), mock(GoalCandidates.class), mock(GoalSpecChecks.class), mock(GoalQuestions.class),
-                mock(GoalTopicStore.class), mock(GoalResearchService.class));
+                mock(GoalTopicStore.class), mock(GoalResearchService.class), codeGraph());
         WorkItemView work = new WorkItemView("work-1", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.DONE, 4, ImmutableList.of(), ImmutableList.of(
                         new WorkItemEvent("turn:1", "", "RECEIPT", "Task turn finished: the new test passes", NOW),
@@ -171,7 +174,7 @@ class TestGoalPlanner
     {
         GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), mock(WorkspaceStore.class), mock(WorkspaceRelationships.class),
                 mock(GoalKnowledgeNoteStore.class), mock(GoalLessonStore.class), mock(GoalCandidates.class), mock(GoalSpecChecks.class), mock(GoalQuestions.class),
-                mock(GoalTopicStore.class), mock(GoalResearchService.class));
+                mock(GoalTopicStore.class), mock(GoalResearchService.class), codeGraph());
         WorkItemView later = new WorkItemView("work-2", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.HIGH, 1,
                 ImmutableList.of("work-1"), Optional.empty(), 0);
@@ -229,7 +232,7 @@ class TestGoalPlanner
         GoalResearchService research = mock(GoalResearchService.class);
         when(research.stale(eq("workspace"), anyList())).thenReturn(ImmutableSet.of("note-2"));
         GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, relationships, notes, lessons, candidates, checks, questions,
-                topics, research);
+                topics, research, codeGraph());
 
         GoalView goal = new GoalView("goal-1", "workspace", "Iceberg connector expert", "", true, Optional.empty(),
                 Optional.of(new GoalDefinition("Explain a scan", "Knows the specification", "Five hours a week", "op-0", NOW)), 1,
@@ -277,12 +280,17 @@ class TestGoalPlanner
                         "\"id\" : \"definition:op-0\"", "citing the definition's id")
                 .contains("\"id\" : \"message:op-why\"", "\"aboutLesson\" : \"lesson-1\"", "\"messageId\" : \"message:op-lesson\"", "lesson's check, say whether the answer shows");
 
-        String lesson = planner.lessonPrompt(goal, goal.items().getFirst(), "Iceberg tables", notes.list("goal-1"));
+        String lesson = planner.lessonPrompt(goal, goal.items().getFirst(), "Iceberg tables", notes.list("goal-1"), Optional.of(new PinnedCodeGraphService.BaselineResult(
+                "c".repeat(40), "**Exploration: What a table is**\n- `TableMetadata` (core/src/main/java/org/apache/iceberg/TableMetadata.java:52)")));
         assertThat(lesson.indexOf("untrusted reference data")).isLessThan(lesson.indexOf("<lesson-data>"));
         assertThat(lesson).contains("\"part\" : \"Iceberg tables\"", "\"outcome\" : \"Explain metadata\"", "https://iceberg.apache.org/spec/#manifest-lists",
                 "\"startingKnowledge\" : \"Knows the specification\"");
         assertThat(lesson).as("the chapter knows the course around it")
                 .contains("\"course\" : [ {", "\"chapters\" : [ {", "\"title\" : \"What a table is\"", "\"thisChapter\" : true", "build on the chapters before this one");
+        assertThat(lesson).as("boxes are named after what the code graph found, at its commit")
+                .contains("\"codeMap\" : {", "\"commit\" : \"" + "c".repeat(40) + "\"", "`TableMetadata` (core/src/main/java/org/apache/iceberg/TableMetadata.java:52)",
+                        "https://github.com/<repository>/blob/<commit>/<path>", "never invent a class, method or file");
+        assertThat(planner.lessonPrompt(goal, goal.items().getFirst(), "Iceberg tables", notes.list("goal-1"), Optional.empty())).doesNotContain("\"codeMap\" :");
         assertThat(lesson).as("diagrams follow the drawing rules")
                 .contains("Every box is one real thing", "every arrow is a real call, message or data flow", "Keep each diagram at one zoom level",
                         "Commands and steps to follow belong in the");
@@ -336,6 +344,32 @@ class TestGoalPlanner
                 {"summary": "Admission", "invariants": [], "sections": [{"title": "Parts", "body": "Who admits queries.", "diagram": %s},
                 {"title": "Order", "body": "One admission.", "diagram": %s}], "exercise": "Run one test.", "observe": "It passes.", "check": "Who admits a query?"}"""
                 .formatted(first.strip(), second.strip());
+    }
+
+    @Test
+    void aChapterAsksTheCodeGraphOfTheGoalsRepositoryAndGoesOnWithoutIt()
+    {
+        WorkspaceStore workspaces = mock(WorkspaceStore.class);
+        Workspace trino = workspace("trinodb", "trino");
+        when(trino.selectedRepository()).thenReturn(RepoRef.of("trinodb", "trino"));
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(trino));
+        PinnedCodeGraphService codeGraph = codeGraph();
+        PinnedCodeGraphService.BaselineResult found = new PinnedCodeGraphService.BaselineResult("c".repeat(40), "`InternalResourceGroup`");
+        when(codeGraph.exploreBaseline(new RepositoryIdentity("trinodb", "trino"), "Resource groups\nExplain admission")).thenReturn(Optional.of(found));
+        GoalPlanner planner = new GoalPlanner(mock(AgentDriverRegistry.class), mock(TextOnlyHelper.class), workspaces, mock(WorkspaceRelationships.class),
+                mock(GoalKnowledgeNoteStore.class), mock(GoalLessonStore.class), mock(GoalCandidates.class), mock(GoalSpecChecks.class), mock(GoalQuestions.class),
+                mock(GoalTopicStore.class), mock(GoalResearchService.class), codeGraph);
+        GoalView goal = new GoalView("goal-1", "workspace", "Resource groups", "", true, Optional.empty(), Optional.empty(), 1, Optional.empty(), false,
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
+
+        assertThat(planner.codeMap(goal, "Resource groups\nExplain admission")).contains(found);
+        when(codeGraph.exploreBaseline(any(), any())).thenThrow(new CodeGraphException("CodeGraph query failed"));
+        assertThat(planner.codeMap(goal, "Resource groups\nExplain admission")).as("a failed query leaves the chapter to the notes").isEmpty();
+    }
+
+    private static PinnedCodeGraphService codeGraph()
+    {
+        return mock(PinnedCodeGraphService.class, withSettings().mockMaker(MockMakers.INLINE));
     }
 
     private static Workspace workspace(String owner, String repo)

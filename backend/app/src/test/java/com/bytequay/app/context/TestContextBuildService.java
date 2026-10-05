@@ -362,7 +362,8 @@ class TestContextBuildService
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(turns).start(started.capture());
         assertThat(started.getValue().message()).startsWith("Research what a learner needs for the goal \"Iceberg connector expert\"")
-                .contains("goal_knowledge_save", "git -C /tmp/iceberg show " + "c".repeat(40), "https://iceberg.apache.org/spec/", "untrusted data");
+                .contains("goal_knowledge_save", "git -C /tmp/iceberg show " + "c".repeat(40), "https://iceberg.apache.org/spec/", "untrusted data")
+                .as("a note names the code behind it").contains("the classes and methods behind it and how they call each other");
 
         finishTurn(TurnState.COMPLETED, true);
         ContextBuildService.View settled = service.get(WORKSPACE);

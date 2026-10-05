@@ -9,7 +9,10 @@ worktrees because their committed and uncommitted contents may differ.
 
 The agent decides whether, when, and what to query. ByteQuay does not select
 graph context in advance. It provides one task-scoped tool, a managed usage
-instruction, bounded output, and safe lifecycle integration.
+instruction, bounded output, and safe lifecycle integration. The one exception
+is a tool-free writer that cannot call the tool, a Goal chapter: ByteQuay asks
+one bounded question for it, the lesson's title and outcome, against the
+repository baseline.
 
 Each task's index starts as a clone of the repository baseline, the index of
 the remote default branch, prepared off the request path when the task is
@@ -39,6 +42,8 @@ processes, interpret graph results, or expose graph tools.
 - preparing one graph for a verified `TaskWorktree` from that baseline and
   synchronizing it before every query;
 - running bounded structural queries;
+- answering one bounded query against a repository baseline for a tool-free
+  writer, from the index alone and without a checkout;
 - answering read-only symbol queries for a renderer-facing code view, which
   never build or rebuild an index on the request thread;
 - serializing refresh, preparation, and query work for the same repository
@@ -171,6 +176,15 @@ thread after the task is persisted.
 synchronizes or rebuilds the task index by the size rule, runs the bounded
 query, and returns capped text with an explicit truncation marker. Because
 every query synchronizes first, the agent never refreshes anything.
+
+`exploreBaseline` lives on the adapter, not the port, because only the Goal
+chapter writer in `app` uses it. Under the repository lock it runs one bounded
+`explore` against the baseline in an empty source directory, so the helper
+answers from the index alone: symbols with their files and lines and how they
+relate, without source. It returns the baseline's commit with the capped text,
+drops the helper's quoted advice to an agent that can call it again, and
+returns nothing without the helper or a usable baseline, or while a refresh
+holds the baseline past the bounded wait. It never refreshes the baseline.
 
 `searchSymbols` (`query --json --limit N`) and `fileSymbols` (the patched
 `node --file=<path> --symbols-only --json`) are read-only queries for the

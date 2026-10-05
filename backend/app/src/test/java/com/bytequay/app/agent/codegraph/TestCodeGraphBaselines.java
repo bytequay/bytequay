@@ -155,6 +155,25 @@ class TestCodeGraphBaselines
     }
 
     @Test
+    void baselineQueryAnswersFromTheIndexAtItsCommit(@TempDir Path temp)
+            throws IOException
+    {
+        assumeBundle();
+        Repository repository = Repository.create(temp, git);
+        RecordingCli cli = new RecordingCli(git);
+        PinnedCodeGraphService service = service(cli, temp);
+        assertThat(service.exploreBaseline(REPOSITORY, "alphaOne")).as("no baseline yet").isEmpty();
+
+        service.refreshBaseline(REPOSITORY, repository.root, repository.head());
+        PinnedCodeGraphService.BaselineResult result = service.exploreBaseline(REPOSITORY, "alphaOne").orElseThrow();
+        assertThat(result.commit()).isEqualTo(repository.head());
+        assertThat(result.text()).contains("alphaOne", "Alpha").doesNotStartWith(">").doesNotContain("\n>");
+        assertThat(cli.commands).containsExactly("codegraph.next:init", "codegraph:explore");
+        assertThat(repository.git("worktree", "list")).as("no checkout").hasLineCount(1);
+        assertThat(service(new CodeGraphCli(Optional.empty(), git, ImmutableList.of()), temp).exploreBaseline(REPOSITORY, "alphaOne")).as("no helper").isEmpty();
+    }
+
+    @Test
     void prepareWaitsForARunningRefresh(@TempDir Path temp)
             throws Exception
     {

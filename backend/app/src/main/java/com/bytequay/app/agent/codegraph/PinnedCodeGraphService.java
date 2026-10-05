@@ -50,6 +50,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.nio.file.LinkOption.NOFOLLOW_LINKS;
 import static java.nio.file.StandardCopyOption.ATOMIC_MOVE;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
  * {@link CodeGraphService} over the pinned CodeGraph 1.6.0 bundle.
@@ -91,6 +92,8 @@ public final class PinnedCodeGraphService
     private static final String NEXT_DIRECTORY = "codegraph.next";
     private static final String OLD_DIRECTORY = "codegraph.old";
     private static final String CHECKOUT_DIRECTORY = "checkout";
+    // A baseline query runs in an empty directory instead of a checkout, so the helper answers from the index alone.
+    private static final String EMPTY_SOURCE_DIRECTORY = "empty-source";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private final CodeGraphCli cli;
@@ -239,6 +242,63 @@ public final class PinnedCodeGraphService
         }
         finally {
             lock.unlock();
+        }
+    }
+
+    /**
+     * One bounded query against a repository baseline, for a tool-free writer that cannot call the graph tool itself, such as a Goal
+     * chapter. The helper answers from the index alone, so the result names symbols, their files and how they relate, without source.
+     *
+     * @return the commit the baseline records with the capped result; empty without the helper or a usable baseline, or while a
+     *         refresh holds the baseline longer than the bounded wait
+     * @throws CodeGraphException when the query fails
+     */
+    public Optional<BaselineResult> exploreBaseline(RepositoryIdentity repository, String query)
+    {
+        requireNonNull(repository, "repository is null");
+        requireNonNull(query, "query is null");
+        checkArgument(!query.isBlank(), "query is blank");
+        checkArgument(query.length() <= MAXIMUM_QUERY_LENGTH, "query is longer than %s characters", MAXIMUM_QUERY_LENGTH);
+        if (!cli.available()) {
+            return Optional.empty();
+        }
+        ReentrantLock lock = lockFor(repository);
+        if (!tryLock(lock, prepareWait)) {
+            return Optional.empty();
+        }
+        try {
+            Path base = baselineDirectory(repository);
+            Path index = base.resolve(INDEX_DIRECTORY);
+            Path head = base.resolve(HEAD_FILE);
+            if (!usable(index, head)) {
+                return Optional.empty();
+            }
+            Path source = base.resolve(EMPTY_SOURCE_DIRECTORY);
+            createDirectories(source);
+            Result result = cli.run(source, index, base.resolve(SCRATCH_HOME), queryTimeout, ImmutableList.of("explore", query));
+            if (!result.successful()) {
+                throw unavailable("baseline query", result);
+            }
+            // The quoted lines tell an agent how to call the tool again, which a tool-free reader cannot.
+            String answer = result.output().lines().filter(line -> !line.startsWith(">")).collect(joining("\n")).strip();
+            return Optional.of(new BaselineResult(readHead(head).orElseThrow(), cap(answer)));
+        }
+        finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * What a baseline query found.
+     *
+     * @param commit the default-branch commit the baseline indexes
+     */
+    public record BaselineResult(String commit, String text)
+    {
+        public BaselineResult
+        {
+            requireNonNull(commit, "commit is null");
+            requireNonNull(text, "text is null");
         }
     }
 

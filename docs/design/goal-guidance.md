@@ -140,32 +140,37 @@ Once a course is accepted, the Goal window has a Lessons tab beside Guide and
 Work, and a lesson opens there as a chapter of a book, in the expanded window.
 Without an open chapter the tab shows the course: how many chapters are done,
 where to continue, and each part with its chapters and what each teaches. The
-first time a chapter opens, a tool-free request writes it from the Goal's notes
-as a concise engineering handbook chapter, diagrams first: a short summary, up
-to six invariants to remember, two to six sections, each with a diagram wherever
-it shows a structure, a process or an interaction and a little Markdown that
-links the notes' sources for what the diagram cannot show, then one exercise,
-what to observe and a short check. A diagram is COMPONENTS, a system's parts in
-the columns of where they run with labelled arrows between them; SEQUENCE,
-participants and their numbered messages over time; FLOW, steps in order; or
-TREE, a hierarchy. ByteQuay validates its boxes and arrows and draws it; the
-model never writes markup. Every box is one real thing, every group a real
-boundary and every arrow a real call or flow labelled with what moves; a diagram
-keeps one zoom level, named in its caption, and commands belong to the exercise.
-The writer sees the whole course in order, so a chapter builds on the ones
-before it. Reopening a chapter needs no model call, a failed or interrupted
-write is retried on opening, and a lesson written before chapters is written
-again. The expanded window shows the course's contents at the left, its parts
-and chapters with the open chapter's sections to jump to, the chapter in the
-middle with its previous and next chapters and All chapters back to the course,
-and the Goal's conversation at the right when the user asks; a message sent
-there while the lesson is open carries it to the agent. Restored to the floating
-window, the chapter shows alone with its own question field. The user answers
-the check in a field under it, which opens the conversation; the answer goes to
-the agent as the answer to the open lesson's check, and the agent says whether
-it shows what the lesson promises. Mark lesson done accepts the Learn work item
-and tells the agent, which may recommend the next lesson as a card; Start on a
-lesson card opens the lesson.
+first time a chapter opens, ByteQuay asks CodeGraph one bounded question, the
+lesson's title and outcome, against the baseline of the Goal's repository, the
+index of its monitored default branch, and a tool-free request writes the
+chapter from the Goal's notes and the classes, methods and relationships found
+at that commit as a concise engineering handbook chapter, diagrams first: a
+short summary, up to six invariants to remember, two to six sections, each with
+a diagram wherever it shows a structure, a process or an interaction and a
+little Markdown that links the notes' sources for what the diagram cannot show,
+then one exercise, what to observe and a short check. A diagram is COMPONENTS, a
+system's parts in the columns of where they run with labelled arrows between
+them; SEQUENCE, participants and their numbered messages over time; FLOW, steps
+in order; or TREE, a hierarchy. ByteQuay validates its boxes and arrows and
+draws it; the model never writes markup. Every box is one real thing, every
+group a real boundary and every arrow a real call or flow labelled with what
+moves; a diagram keeps one zoom level, named in its caption, and commands belong
+to the exercise. The writer sees the whole course in order, so a chapter builds
+on the ones before it; it names boxes and arrows after the symbols CodeGraph
+found and links files at that commit, and without CodeGraph or a baseline it
+writes from the notes alone. Reopening a chapter needs no model call, a failed
+or interrupted write is retried on opening, and a lesson written before chapters
+is written again. The expanded window shows the course's contents at the left,
+its parts and chapters with the open chapter's sections to jump to, the chapter
+in the middle with its previous and next chapters and All chapters back to the
+course, and the Goal's conversation at the right when the user asks; a message
+sent there while the lesson is open carries it to the agent. Restored to the
+floating window, the chapter shows alone with its own question field. The user
+answers the check in a field under it, which opens the conversation; the answer
+goes to the agent as the answer to the open lesson's check, and the agent says
+whether it shows what the lesson promises. Mark lesson done accepts the Learn
+work item and tells the agent, which may recommend the next lesson as a card;
+Start on a lesson card opens the lesson.
 
 Once the Goal is defined, the agent also sees up to 100 practice candidates from
 the local stores: the workspace's open issues, the 500 updated last, and the
@@ -561,8 +566,9 @@ is the item's milestone. The course is a proposal until the user accepts it, and
 the agent may later propose to add, drop, reorder or shorten lessons under the
 same rule as any other plan change.
 
-A tool-free Goal request writes each lesson from the Goal's knowledge notes and
-the user's profile, and the lesson is saved, so reopening it needs no model call.
+A tool-free Goal request writes each lesson from the Goal's knowledge notes, the
+user's profile and what CodeGraph finds for the lesson at the baseline of the
+Goal's repository, and the lesson is saved, so reopening it needs no model call.
 It holds an explanation with links to specification sections and to code paths
 at the commit its notes were read from, one focused exercise with what to
 observe, and a short check. An exercise in a related repository names that
@@ -583,8 +589,9 @@ at its monitored head, the managed checkouts of the workspaces it declares as a
 Dependency (Trino's Apache Iceberg workspace), and the specification and
 documentation pages the card names. It cannot edit files or write to GitHub. Its
 only output is a set of notes saved through one fixed task-bound tool, each with
-a topic, a short body and its sources: a page with its section, or a repository
-path at a commit.
+a topic, a short body that names the classes and methods behind it and how they
+connect, and its sources: a page with its section, or a repository path at a
+commit.
 
 Notes belong to the Goal and are reused by lessons, discovery and later
 research. A note becomes stale when its source moves on, such as a newer

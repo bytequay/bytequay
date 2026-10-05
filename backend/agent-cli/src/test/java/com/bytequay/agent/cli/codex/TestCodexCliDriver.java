@@ -87,6 +87,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -3063,6 +3064,52 @@ class TestCodexCliDriver
                 assertThat(calls).hasValue(index + 1);
                 reference = Optional.of(session.reference());
             }
+        }
+    }
+
+    @Test
+    void resumesARelatedWorkThreadInPrivateLocalReview()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        AtomicBoolean localReview = new AtomicBoolean();
+        var related = new RelatedWorkspaceBridge(arguments -> "linked");
+        ReviewBridge privateReview = new ReviewBridge(ImmutableList.of(), "This task is in private local review of commit abc.");
+        LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
+        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
+                taskId -> localReview.get() ? Optional.of(privateReview) : Optional.empty(), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
+                taskId -> localReview.get() ? Optional.of(local) : Optional.empty(), BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(),
+                taskId -> localReview.get() ? Optional.empty() : Optional.of(related));
+        CodexHome.prepare(codexHome());
+        CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
+                ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
+        AgentSessionRef reference;
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            reference = session.reference();
+        }
+        assertThat(reference.contractVersion()).isEqualTo(2);
+
+        localReview.set(true);
+        try (AgentSession session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {})) {
+            // The task keeps the reference it saved, so the turn service accepts the resumed session.
+            assertThat(session.reference()).isEqualTo(reference);
+            AppServerProcess server = supervisor.servers().getLast();
+            assertThat(server.threadRequests().getFirst().path("excludeTurns").asBoolean()).isTrue();
+            String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
+            JsonNode listed = broker.handle(token, objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """)).body().orElseThrow();
+            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsAll(LocalReviewBridge.TOOL_NAMES);
+            session.start(command("Explain this comment"));
+            // The thread still lists the root tool it started with; this turn does not serve it.
+            server.emit("""
+                    {"id":301,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
+                    "callId":"root","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                    """.formatted(server.activeTurn()));
+            awaitCondition(() -> server.error(301) != null);
         }
     }
 

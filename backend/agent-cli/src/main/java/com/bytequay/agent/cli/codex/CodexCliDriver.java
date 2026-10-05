@@ -617,7 +617,9 @@ public final class CodexCliDriver
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
                 deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries());
         boolean review = codeQueries.flatMap(McpRegistration::review).isPresent();
-        if (review && context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION)
+        // Private local review of a development task has a review boundary but no review tools to keep with the root.
+        boolean reviewTools = codeQueries.flatMap(McpRegistration::review).filter(bridge -> !bridge.tools().isEmpty()).isPresent();
+        if (reviewTools && context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION)
                 && compareVersion(runningVersion, REVIEW_CHILD_GATE_MINIMUM_RELEASE).orElse(-1) < 0) {
             codeQueries.ifPresent(McpRegistration::close);
             throw new AgentUnavailableException("This Codex version cannot resume the guarded review tools");
@@ -635,7 +637,7 @@ public final class CodexCliDriver
             // Existing reviews have MCP-only tools in their saved thread and resume as single-agent.
             childProfile = CodexLaunchProfile.ChildProfile.NONE;
         }
-        boolean dynamicReview = review && (childProfile != CodexLaunchProfile.ChildProfile.NONE
+        boolean dynamicReview = reviewTools && (childProfile != CodexLaunchProfile.ChildProfile.NONE
                 || context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION));
         ClientLaunch launch;
         Optional<PermissionBroker.CodexRootTools> guardedReviewTools;
@@ -947,8 +949,9 @@ public final class CodexCliDriver
             isolation.verify(worktree);
             String threadId = openThread(context, worktree);
             isolation.verifyThread(threadId, worktree);
-            this.reference = new AgentSessionRef(laneId,
-                    guardedReviewTools.isPresent() ? REVIEW_DYNAMIC_CONTRACT_VERSION : CONTRACT_VERSION, threadId);
+            // A resumed thread keeps the contract it started with: root tools exist only from thread/start.
+            this.reference = new AgentSessionRef(laneId, context.sessionReference().map(AgentSessionRef::contractVersion)
+                    .orElse(guardedReviewTools.isPresent() ? REVIEW_DYNAMIC_CONTRACT_VERSION : CONTRACT_VERSION), threadId);
             observedThreads.add(reference.providerValue());
             if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
                 v2AgentPaths.put(reference.providerValue(), "/root");
@@ -985,8 +988,11 @@ public final class CodexCliDriver
                     deepSeek);
             String method = existing.isPresent() ? "thread/resume" : "thread/start";
             existing.ifPresent(previous -> {
-                int expectedContract = guardedReviewTools.isPresent() ? REVIEW_DYNAMIC_CONTRACT_VERSION : CONTRACT_VERSION;
-                if (!previous.laneId().equals(laneId) || previous.contractVersion() != expectedContract) {
+                // Root tools cannot be added to a thread after it starts. A thread that has them may resume without
+                // them, as in private local review: App Server still lists them and this session refuses each call.
+                boolean supported = previous.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION
+                        || (previous.contractVersion() == CONTRACT_VERSION && guardedReviewTools.isEmpty());
+                if (!previous.laneId().equals(laneId) || !supported) {
                     throw new AgentUnavailableException("Unsupported Codex session reference");
                 }
             });
@@ -1908,8 +1914,10 @@ public final class CodexCliDriver
                         new AgentUnavailableException("Codex request does not belong to the active turn"));
             }
             if (serverRequest instanceof CodexProtocol.DynamicToolCallRequest dynamic) {
-                if (guardedReviewTools.isEmpty() || !dynamic.threadId().equals(reference.providerValue())
-                        || !dynamic.params().namespace().isEmpty()) {
+                if (guardedReviewTools.isEmpty()) {
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("This tool is not available in this turn"));
+                }
+                if (!dynamic.threadId().equals(reference.providerValue()) || !dynamic.params().namespace().isEmpty()) {
                     return CompletableFuture.failedFuture(new AgentUnavailableException("Tool caller is not the root turn"));
                 }
                 return callReviewRootTool(dynamic, expectedTurn);

@@ -408,10 +408,16 @@ export type WorkItemDto = {
   priority: WorkItemPriority;
   /** Its place in its Goal's order, lowest first; equal places keep creation order. */
   rank: number;
-  /** The same Goal's work it waits on. */
+  /** The same Goal's or Epic's work it waits on. */
   blockedBy: string[];
+  /** The Epic the work belongs to: the canonical identity of the issue or ticket marked as one. */
+  epicId?: string | null;
+  /** Its place in its Epic's order, lowest first; equal places keep creation order. */
+  epicRank?: number;
 };
-export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'goalId' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule'>;
+export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'goalId' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule' | 'epicId'>;
+/** Work an Epic took in, and the other Epic it left, if any. */
+export type EpicJoinDto = { item: WorkItemDto; movedFrom: string | null };
 export type WorkItemDecision = {
   operationId: string;
   expectedRevision: number;
@@ -452,5 +458,11 @@ export function parseWorkItem(value: unknown): WorkItemDto {
     priority: oneOf(item.priority, ['HIGH', 'NORMAL', 'LOW'] as const, 'work item priority'),
     rank: item.rank as number,
     blockedBy: parseList(item.blockedBy, (value) => text(value, 'work item blocker'), 'work item blockers'),
+    ...(item.epicId == null ? {} : { epicId: text(item.epicId, 'work item Epic'), epicRank: Number.isSafeInteger(item.epicRank) ? item.epicRank as number : 0 }),
   };
+}
+
+export function parseEpicJoin(value: unknown): EpicJoinDto {
+  const join = object(value, 'Epic join');
+  return { item: parseWorkItem(join.item), movedFrom: optionalText(join.movedFrom) };
 }

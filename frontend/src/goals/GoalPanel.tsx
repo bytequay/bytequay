@@ -521,7 +521,7 @@ function Pending({ exchange, now, onStop }: { exchange: GoalExchangeDto; now?: n
 }
 
 /** The current time, read again every second while {@code ticking}. */
-function useNow(ticking: boolean): number {
+export function useNow(ticking: boolean): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!ticking) return;
@@ -848,7 +848,7 @@ function NoGoal({ onCreate }: { onCreate: (title: string) => Promise<unknown> })
 }
 
 /** Stored pull requests, issues, tickets and tasks to add, searched as the user types. */
-function useCandidates(goal: Pick<GoalDto, 'items'>, search: GoalPanelProps['search'], open: boolean): { query: string; setQuery: (query: string) => void; results: GoalItemDto[] } {
+export function useCandidates(goal: Pick<GoalDto, 'items'>, search: GoalPanelProps['search'], open: boolean): { query: string; setQuery: (query: string) => void; results: GoalItemDto[] } {
   const [query, setQuery] = useState('');
   const [found, setFound] = useState<GoalItemDto[]>([]);
   useEffect(() => {
@@ -862,7 +862,7 @@ function useCandidates(goal: Pick<GoalDto, 'items'>, search: GoalPanelProps['sea
   return { query, setQuery, results: addable(found, goal) };
 }
 
-function Candidate({ item, onAdd, board }: { item: GoalItemDto; onAdd: (item: GoalItemDto) => Promise<unknown>; board?: boolean }): React.JSX.Element {
+export function Candidate({ item, onAdd, board }: { item: GoalItemDto; onAdd: (item: GoalItemDto) => Promise<unknown>; board?: boolean }): React.JSX.Element {
   return (
     <div className="goal-result">
       <SourceIcon source={GOAL_SOURCES[item.kind]} tinted />

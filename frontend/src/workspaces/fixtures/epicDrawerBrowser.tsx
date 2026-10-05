@@ -16,13 +16,14 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import EpicDrawer from '../EpicDrawer';
 import { LayerCovered } from '../../Zoom';
-import { ZOOM_REFERENCE } from '../../githubReference';
+import type { WorkItemDto } from '../../goals/contracts';
 import { issueAttentionItem, type AttentionItem } from '../../home/attention';
 import { jiraAttentionItem } from '../../jira/attention';
 import type { JiraRelatedIssue } from '../../jira/contracts';
 import { jiraDetail, jiraIssue } from '../../jira/fixtures/jira';
 import type { Bridge } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
+import { epicIdentity } from '../epics';
 import '../../css/base.css';
 import '../../css/window-drag.css';
 
@@ -45,6 +46,10 @@ const EPICS = [
   ticket('998', 'Delta Lake deletion vectors in the native reader', true),
 ];
 const PLAIN = [issue(30303, 'Skip unselected values in Parquet projections', false, '2026-10-03T08:00:00Z'), ticket('1300', 'Not an Epic', false)];
+const work = (id: string, epicId: string, state: WorkItemDto['state']): WorkItemDto => ({ id, workspaceId: 'workspace', goalId: null, title: id, kind: 'DEVELOP',
+  acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [], history: [], createdAt: '2026-10-01T08:00:00Z',
+  updatedAt: '2026-10-01T08:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId, epicRank: 0 });
+const ICEBERG_WORK = ['DONE', 'WORKING', 'PLANNED', 'DROPPED'].map((state, index) => work(`iceberg-${index}`, 'ISSUE:github.com:24918', state as WorkItemDto['state']));
 
 function element<T extends HTMLElement = HTMLElement>(selector: string): T {
   const found = document.querySelector<T>(selector);
@@ -81,19 +86,18 @@ export async function run(): Promise<boolean> {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const zoomed: unknown[] = [];
-  window.addEventListener(ZOOM_REFERENCE, event => zoomed.push((event as CustomEvent).detail));
+  const openedEpics: string[] = [];
   const children = Array.from({ length: 6 }, (_, index): JiraRelatedIssue => ({ id: `c${index}`, key: `TRINO-${2000 + index}`, title: 'Child', type: 'Story',
     status: { id: 'todo', name: 'To Do', category: 'new' }, priority: null, assignee: null }));
   window.bridge = {
     getJiraIssue: async ({ issueId }: { issueId: string }) => ({ ...jiraDetail(), children: issueId === '1184' ? children : [] }),
   } as unknown as Bridge;
-  const render = (items: AttentionItem[], covered = false): void => flushSync(() => root.render(<LayerCovered.Provider value={covered}>
+  const render = (items: AttentionItem[], covered = false, workItems: WorkItemDto[] = ICEBERG_WORK): void => flushSync(() => root.render(<LayerCovered.Provider value={covered}>
     <div className="app-shell">
       <nav className="app-sidebar"><button type="button" id="sidebar-control">Workspace home</button><div className="app-sidebar__resize" /></nav>
       <main className="app-content">
         <div style={{ position: 'relative', height: '100%' }}>
-          <EpicDrawer items={items} />
+          <EpicDrawer items={items} work={workItems} onOpen={item => openedEpics.push(epicIdentity(item))} />
           <div style={{ padding: '24px 32px' }}><h1>trinodb/trino</h1><button type="button" id="page-control">Composer</button></div>
         </div>
       </main>
@@ -116,20 +120,40 @@ export async function run(): Promise<boolean> {
     assert(getComputedStyle(panel()).visibility === 'hidden', 'The collapsed drawer is out of the tab order');
     const control = element('#page-control').getBoundingClientRect();
 
-    // A pointer sweeping past the edge never opens it.
-    await mouse('mouseMove', at.left + 10, at.top + 30);
-    await wait(60);
-    await mouse('mouseMove', pane.left + 600, pane.top + 500);
-    await wait(300);
-    assert(!opened(), 'Leaving before the delay cancels the open');
+    // Timing comes from when the drawer's class changed, never from when a check happens to run on a loaded machine.
+    let openedAt = 0;
+    const watcher = new MutationObserver(() => { if (openedAt === 0 && opened()) openedAt = performance.now(); });
+    watcher.observe(element('.epic-drawer'), { attributes: true, attributeFilter: ['class'] });
 
+    // A pointer sweeping past the edge never opens it.
+    const swept = performance.now();
     await mouse('mouseMove', at.left + 10, at.top + 30);
-    assert(!opened(), 'Hover waits before opening');
-    // Mid-transition either way: growing during the delay, or shrinking back as the drawer comes out.
-    await wait(40);
-    assert(element('.epic-cue__tick').getBoundingClientRect().width > 5 && Number(getComputedStyle(element('.epic-tip')).opacity) > 0, 'Hover widens the ticks and names them');
-    await wait(100);
-    assert(opened() && cue.getAttribute('aria-expanded') === 'true', 'Hover opens the drawer after the delay');
+    await mouse('mouseMove', pane.left + 600, pane.top + 500);
+    const sweep = performance.now() - swept;
+    await wait(300);
+    assert(sweep > 140 || openedAt === 0, `Leaving before the delay cancels the open (swept in ${Math.round(sweep)}ms)`);
+    if (openedAt !== 0) await wait(500);
+    assert(!opened(), 'The swept drawer is closed');
+
+    // Ticks widen and name themselves while the open waits; sampled every frame, then the drawer opens only after its delay.
+    openedAt = 0;
+    let widest = 0;
+    let named = 0;
+    let sampling = true;
+    const sample = (): void => {
+      widest = Math.max(widest, element('.epic-cue__tick').getBoundingClientRect().width);
+      named = Math.max(named, Number(getComputedStyle(element('.epic-tip')).opacity));
+      if (sampling) requestAnimationFrame(sample);
+    };
+    const entered = performance.now();
+    requestAnimationFrame(sample);
+    await mouse('mouseMove', at.left + 10, at.top + 30);
+    await wait(250);
+    sampling = false;
+    watcher.disconnect();
+    assert(opened() && cue.getAttribute('aria-expanded') === 'true', 'Hover opens the drawer');
+    assert(openedAt - entered >= 145, `Hover waits before opening (${Math.round(openedAt - entered)}ms)`);
+    assert(widest > 5 && named > 0, 'Hover widens the ticks and names them');
     await still();
     const out = panel().getBoundingClientRect();
     assert(out.left === pane.left && out.top === at.top && out.width === Math.max(260, Math.min(320, pane.width - 120)),
@@ -196,8 +220,13 @@ export async function run(): Promise<boolean> {
 
     await click(at.left + 10, at.top + 30); await still();
     cards[1].click(); cards[0].click();
-    assert(JSON.stringify(zoomed) === JSON.stringify([{ kind: 'jira', connectionId: 'connection', cloudId: 'site', issueId: '1184' },
-      { kind: 'issue', repo: 'trinodb/trino', number: 24918, workspaceId: 'workspace' }]), `Epics open their issue or ticket: ${JSON.stringify(zoomed)}`);
+    assert(JSON.stringify(openedEpics) === JSON.stringify(['JIRA:4:site:1184', 'ISSUE:github.com:24918']), `Epics open their own view: ${JSON.stringify(openedEpics)}`);
+    const progress = cards[0].querySelector<HTMLElement>('.epic-card__progress');
+    assert(progress !== null && cards[0].querySelector('.epic-card__done')?.textContent === '1/3', 'A card counts its done work over the work in scope');
+    const [done, working] = [...progress.children].map(child => (child as HTMLElement).getBoundingClientRect().width);
+    const whole = progress.getBoundingClientRect().width;
+    assert(Math.abs(done - whole / 3) < 1 && Math.abs(working - whole / 3) < 1, 'The bar draws done, then working, over the planned rest; dropped work is apart');
+    assert(cards[1].querySelector('.epic-card__progress, .epic-card__done') === null, 'An Epic without work shows no progress');
     render([...PLAIN, ...EPICS], true); await settle();
     assert(!opened(), 'A layer over the page puts the drawer away');
     render([...PLAIN, ...EPICS]); await wait(250);

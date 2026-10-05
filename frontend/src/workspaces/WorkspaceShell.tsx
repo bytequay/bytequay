@@ -36,6 +36,8 @@ import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import EpicDrawer from './EpicDrawer';
+import EpicView from './EpicView';
+import { epicIdentity } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import { useWorkspaceAttention } from './workspaceAttention';
 import type { WorkspaceDto } from '../types';
@@ -68,6 +70,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   onSelectIssue: (number: number, mode: NavigationMode) => void;
 }) {
   const [openCherryPick, setOpenCherryPick] = useState<string | null>(null);
+  // The Epic whose view is open over Home, by the identity its work names it with.
+  const [openEpic, setOpenEpic] = useState<string | null>(null);
   const [initialCommitsRepo, setInitialCommitsRepo] = useState<'workspace' | 'upstream' | null>(null);
   const [commitSourceSelection, setCommitSourceSelection] = useState<CommitSourceSelection>();
   // Every agent screen can show every task as a window; ⇧⌘\ toggles it, Escape puts it away.
@@ -93,6 +97,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const attention = useWorkspaceAttention(workspace.id, monitoredRepository, taskAttention);
   const goals = useGoals(workspace.id);
   const needsYou = needsYouKeys(visibleAttention(attention.candidates, attention.handled, Date.now()));
+  const epics = attention.candidates.filter(item => item.isEpic === true);
+  // Unmarked while open, the Epic's view closes with it.
+  const epic = openEpic === null ? undefined : epics.find(item => epicIdentity(item) === openEpic);
   const goalToggle = useCallback((item: AttentionItem): GoalToggle | null => {
     const pinned = goals.pinned;
     const ref = goalRef(item);
@@ -174,6 +181,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   useEffect(() => {
     if (tab !== 'commits') setInitialCommitsRepo(null);
     if (tab !== 'tasks') setOpenCherryPick(null);
+    if (tab !== 'home') setOpenEpic(null);
   }, [tab]);
 
   useEffect(() => {
@@ -341,7 +349,11 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     // The design's Home: the question, three starting points, the open tasks as windows.
     // The Epic drawer comes first so its trigger is the next tab stop after the sidebar.
     return stage(<>
-      <EpicDrawer items={attention.candidates} />
+      {epic === undefined
+        ? <EpicDrawer items={attention.candidates} work={goals.workItems} onOpen={item => setOpenEpic(epicIdentity(item))} />
+        : <EpicView epic={epic} workspaceId={workspace.id} work={goals.workItems} needsYou={needsYou} goals={goals}
+          epicTitle={id => epics.find(item => epicIdentity(item) === id)?.title ?? null}
+          onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')} onClose={() => setOpenEpic(null)} />}
       <AgentHome
         workspaceId={workspace.id}
         headerAction={overviewOpen ? undefined : overviewToggle}

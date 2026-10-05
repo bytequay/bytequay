@@ -14,7 +14,7 @@
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { CreateWorkItem, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
+import type { CreateWorkItem, EpicJoinDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1484,6 +1484,12 @@ export type Bridge = JiraBridge & {
   decideWorkItem: (workspaceId: string, itemId: string, command: WorkItemDecision) => Promise<WorkItemDto>;
   linkWorkItem: (workspaceId: string, itemId: string, revision: number, kind: GoalItemKind, key: string) => Promise<WorkItemDto>;
   orderWorkItems: (workspaceId: string, goalId: string, ids: string[]) => Promise<WorkItemDto[]>;
+  /** Saves the order of an Epic's work, which names each of its items once. */
+  orderEpicWork: (workspaceId: string, epicId: string, ids: string[]) => Promise<WorkItemDto[]>;
+  /** Puts a source, task or PR in an Epic: the work that owns it joins, leaving any other Epic, or new work takes its title. */
+  joinEpic: (workspaceId: string, epicId: string, kind: GoalItemKind, key: string) => Promise<EpicJoinDto>;
+  /** Takes work out of its Epic; null when the work existed only for the Epic and was deleted. */
+  removeFromEpic: (workspaceId: string, itemId: string) => Promise<WorkItemDto | null>;
   listGoals: (workspaceId: string) => Promise<GoalDto[]>;
   createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
   updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;

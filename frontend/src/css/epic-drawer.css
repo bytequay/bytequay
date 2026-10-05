@@ -170,6 +170,34 @@
   margin-left: auto;
 }
 
+/* Done, then working, over the planned rest; Dropped work is counted apart. */
+.epic-card__progress {
+  display: flex;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: #eceff2;
+}
+
+.epic-card__progress > .is-done {
+  background: #1a7f37;
+}
+
+.epic-card__progress > .is-working {
+  background: #0969da;
+}
+
+.epic-card__meta > .epic-card__done {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.epic-card__meta > .epic-card__done + .card-age {
+  margin-left: 0;
+}
+
 .epic-card__children {
   display: inline-flex;
   align-items: center;

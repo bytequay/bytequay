@@ -73,6 +73,8 @@ function fixture() {
   const detail = (): WorkspaceIssueDetailDto => ({ repositoryId: 40, issueNumber: 7, timeline: [], currentType: null, availableTypes: [], refreshedAt: issue.updatedAt });
   const bridge = {
     ...preview,
+    // No Epic here holds work, so unmarking needs no confirmation.
+    listWorkItems: async () => [],
     listAgentTasks: async () => [],
     listAgentReviews: async () => [],
     getModelSettings: async (workspace?: string) => {

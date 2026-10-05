@@ -1,0 +1,223 @@
+/* ── Epic view ──
+   One Epic's work in a zoom card over workspace Home (workspaces/EpicView.tsx). Rows are cards.css item rows;
+   this sheet adds only the view's layout, its state icons and its controls. Nothing in a row is bold. */
+
+.epic-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: #ffffff;
+  color: var(--text-1);
+}
+
+.epic-view__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid #f0f0f2;
+}
+
+.epic-view__head > .epic-drawer__glyph {
+  width: 16px;
+  height: 16px;
+}
+
+.epic-view__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.epic-view__source,
+.epic-view__link,
+.epic-row__accept {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.epic-view__source {
+  padding: 2px 4px;
+  border: 0;
+  background: transparent;
+}
+
+.epic-view__source:hover {
+  background: rgba(31, 35, 40, 0.06);
+}
+
+.epic-view__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px 20px;
+  overflow-y: auto;
+}
+
+.epic-progress {
+  display: flex;
+  height: 6px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: #eceff2;
+}
+
+.epic-progress > .is-done {
+  background: #1a7f37;
+}
+
+.epic-progress > .is-working {
+  background: #0969da;
+}
+
+.epic-view__counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin-top: 6px;
+  color: #57606a;
+  font-size: 12px;
+}
+
+.epic-view__counts > .is-strong {
+  color: var(--text-1);
+}
+
+.epic-view__counts > .is-ready {
+  color: #1a7f37;
+}
+
+.epic-view__counts > .is-muted {
+  color: #8c959f;
+}
+
+.epic-view__notice {
+  color: #57606a;
+  font-size: 12px;
+}
+
+.epic-view__error {
+  color: #cf222e;
+  font-size: 12px;
+}
+
+.epic-state {
+  flex: none;
+}
+
+.epic-state.is-planned,
+.epic-state.is-dropped {
+  color: #8c959f;
+}
+
+.epic-state.is-working {
+  color: #0969da;
+}
+
+.epic-state.is-done {
+  color: #1a7f37;
+}
+
+.epic-row.is-dropped .item-row__title > span:first-child {
+  color: #57606a;
+}
+
+.epic-row__state {
+  color: #57606a;
+}
+
+.epic-row__accept {
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid #d0d7de;
+  background: #ffffff;
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.epic-row__accept:hover:not(:disabled) {
+  background: #f6f8fa;
+}
+
+.epic-row__wait {
+  max-width: 180px;
+  height: 24px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #57606a;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.epic-row__wait:hover:not(:disabled) {
+  background: rgba(31, 35, 40, 0.08);
+}
+
+.epic-view__new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px 7px 12px;
+  border: 1px dashed #d0d7de;
+  border-radius: 10px;
+  color: #57606a;
+}
+
+.epic-view__new:focus-within {
+  border-style: solid;
+  border-color: #54aeff;
+}
+
+.epic-view__new > input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+}
+
+.epic-view__link {
+  height: 24px;
+  padding: 0 6px;
+  border: 0;
+  background: transparent;
+  color: #0969da;
+  font-size: 12.5px;
+}
+
+.epic-view__link:hover {
+  background: #ddf4ff;
+}
+
+.epic-view__dropped > summary {
+  color: #57606a;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.epic-view__dropped > .item-list {
+  margin-top: 8px;
+}
+
+:is(.epic-view__source, .epic-view__link, .epic-row__accept, .epic-row__wait, .epic-view__dropped > summary):focus-visible {
+  outline: 2px solid var(--control-strong);
+  outline-offset: 1px;
+}

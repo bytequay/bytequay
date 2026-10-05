@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseEpicJoin, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1858,6 +1858,13 @@ function registerIpc(): void {
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/links`), jsonInit('POST', { expectedRevision, kind, key })).then(parseWorkItem));
   ipcMain.handle('work-items:order', (_event, workspaceId: string, goalId: string, ids: string[]) =>
     backendJson(workItemsUrl(workspaceId, '/order'), jsonInit('PUT', { goalId, ids })).then(items => parseList(items, parseWorkItem, 'work items')));
+  ipcMain.handle('work-items:epic-order', (_event, workspaceId: string, epicId: string, ids: string[]) =>
+    backendJson(workItemsUrl(workspaceId, '/epic-order'), jsonInit('PUT', { epicId, ids })).then(items => parseList(items, parseWorkItem, 'work items')));
+  ipcMain.handle('work-items:join-epic', (_event, workspaceId: string, epicId: string, kind: GoalItemKind, key: string) =>
+    backendJson(workItemsUrl(workspaceId, '/epic'), jsonInit('POST', { epicId, kind, key })).then(parseEpicJoin));
+  ipcMain.handle('work-items:leave-epic', (_event, workspaceId: string, itemId: string) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/epic`), { method: 'DELETE' })
+      .then(value => { const item = (value as { item?: unknown } | null)?.item; return item == null ? null : parseWorkItem(item); }));
   ipcMain.handle('goals:list', (_event, workspaceId: string) =>
     backendJson(goalsUrl(workspaceId)).then(goals => parseList(goals, parseGoal, 'goals')));
   ipcMain.handle('goals:create', (_event, workspaceId: string, title: string, description: string) =>

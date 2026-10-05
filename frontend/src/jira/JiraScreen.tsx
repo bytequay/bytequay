@@ -35,6 +35,8 @@ import { jiraAttentionItem } from './attention';
 import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueKey, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLinkType, type JiraLocation, type JiraRelatedIssue, type JiraSite, type JiraSprint, type JiraStatus, type JiraUser } from './contracts';
 import JiraIcon from './JiraIcon';
 import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraCommentThreads, jiraPriorityLevel, jiraWorkflowGroup } from './presentation';
+import { ticketEpicId } from '../workspaces/epics';
+import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import './jira.css';
 
 const message = (error: unknown) => error instanceof Error ? error.message : String(error);
@@ -100,7 +102,12 @@ export function JiraIssueActions({ issue, busy = false, labelled = false, onEpic
   const canStart = task === null && !issue.isEpic && !issue.hasChildren && !done;
   const epicLabel = `${issue.isEpic ? 'Unmark' : 'Mark'} ${issue.key} as Epic`;
   const epicHint = `${epicLabel} in ByteQuay. Its Jira issue type stays unchanged.`;
-  const epic = () => { if (!issue.isEpic && issue.workspace === null) setAssigning(true); else onEpic(); };
+  const unmark = useUnmarkEpic();
+  const epic = () => {
+    if (issue.isEpic) unmark.request(issue.workspace?.id ?? null, ticketEpicId(issue), onEpic);
+    else if (issue.workspace === null) setAssigning(true);
+    else onEpic();
+  };
   const viewTask = () => { if (task !== null) window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); };
   const flag = <Flag size={13} fill={issue.isEpic ? 'currentColor' : 'none'} className={issue.isEpic ? 'jira-epic-active' : undefined} aria-hidden="true" />;
   return <><span className="jira-actions" role="group" aria-label={`Actions for ${issue.key}`}>{labelled ? <>
@@ -113,7 +120,8 @@ export function JiraIssueActions({ issue, busy = false, labelled = false, onEpic
       : canStart && <IconButton label={`Use agent to develop ${issue.key}`} title="Start development" disabled={busy} onClick={onStart}><Play size={12} aria-hidden="true" /></IconButton>}
   </>}</span>
   {/* The chooser renders inside a card, whose click would otherwise open the ticket too. */}
-  {assigning && <span className="jira-contents" onClick={event => event.stopPropagation()}><JiraWorkspaceDialog issue={issue} onClose={() => setAssigning(false)} onAssigned={detail => { setAssigning(false); onAssigned?.(detail); onEpic(); }} /></span>}</>;
+  {assigning && <span className="jira-contents" onClick={event => event.stopPropagation()}><JiraWorkspaceDialog issue={issue} onClose={() => setAssigning(false)} onAssigned={detail => { setAssigning(false); onAssigned?.(detail); onEpic(); }} /></span>}
+  {unmark.dialog !== null && <span className="jira-contents" onClick={event => event.stopPropagation()}>{unmark.dialog}</span>}</>;
 }
 
 export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDto, 'id' | 'name'> }) {

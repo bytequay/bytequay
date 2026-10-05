@@ -15,10 +15,12 @@
 import React, { useCallback, useContext, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ListTree, X } from 'lucide-react';
 import { Card, CardAge, IconButton, LinkKey, Pill } from '../cards/Card';
-import { zoomReference } from '../githubReference';
+import type { WorkItemDto } from '../goals/contracts';
+import { progressWidths, summarize } from '../goals/model';
 import { statusPill, type AttentionItem } from '../home/attention';
-import { jiraIssueLocation, type JiraIssue } from '../jira/contracts';
+import type { JiraIssue } from '../jira/contracts';
 import { LayerCovered } from '../Zoom';
+import { epicIdentity, epicWork } from './epics';
 import '../css/epic-drawer.css';
 
 const OPEN_DELAY_MS = 150;
@@ -32,13 +34,19 @@ const MAX_TICKS = 4;
  * collapsed, and hover, click or the keyboard slides it out over the page without moving anything. A
  * workspace without Epics shows no cue at all.
  */
-export default function EpicDrawer({ items }: { items: AttentionItem[] }): React.JSX.Element | null {
+export default function EpicDrawer({ items, work, onOpen }: {
+  items: AttentionItem[];
+  /** Every work item of the workspace; each card draws its Epic's progress from them. */
+  work: WorkItemDto[];
+  /** Opens the Epic's view, where its work is added and decided. */
+  onOpen: (epic: AttentionItem) => void;
+}): React.JSX.Element | null {
   const epics = useMemo(() => items.filter(item => item.isEpic === true), [items]);
   // Unmounting at zero closes it, so a first Epic marked later fades its tick in closed.
-  return epics.length === 0 ? null : <Drawer epics={epics} />;
+  return epics.length === 0 ? null : <Drawer epics={epics} work={work} onOpen={onOpen} />;
 }
 
-function Drawer({ epics }: { epics: AttentionItem[] }): React.JSX.Element {
+function Drawer({ epics, work, onOpen }: { epics: AttentionItem[]; work: WorkItemDto[]; onOpen: (epic: AttentionItem) => void }): React.JSX.Element {
   const covered = useContext(LayerCovered);
   const panelId = useId();
   const layer = useRef<HTMLDivElement>(null);
@@ -155,27 +163,35 @@ function Drawer({ epics }: { epics: AttentionItem[] }): React.JSX.Element {
           <IconButton label="Close Epics" title="Close (Esc)" onClick={dismiss}><X size={14} aria-hidden="true" /></IconButton>
         </div>
         <div className="epic-drawer__list">
-          {epics.map(item => <EpicCard key={item.key} item={item} />)}
+          {epics.map(item => <EpicCard key={item.key} item={item} work={work} onOpen={() => onOpen(item)} />)}
         </div>
       </section>
     </div>
   );
 }
 
-/** One Epic; it opens the issue or ticket the way the rest of Home does, and never runs. */
-function EpicCard({ item }: { item: AttentionItem }): React.JSX.Element {
+/** One Epic; it opens the Epic's view and never runs. */
+function EpicCard({ item, work, onOpen }: { item: AttentionItem; work: WorkItemDto[]; onOpen: () => void }): React.JSX.Element {
   const { jira } = item;
   // The workspace's issue cache holds open issues only.
   const status = jira ? statusPill(jira.status) : { name: 'Open', tone: 'green' as const };
   const name = jira ? jira.key : `#${item.number}`;
+  const summary = summarize({ items: epicWork(work, epicIdentity(item)) }, new Set());
+  const widths = progressWidths(summary);
   return (
-    <Card compact className="epic-card" label={`Open ${name}: ${item.title}`} title={item.title}
-      onOpen={() => zoomReference(jira ? { kind: 'jira', ...jiraIssueLocation(jira) } : { kind: 'issue', repo: item.repo, number: item.number, workspaceId: item.workspaceId })}>
+    <Card compact className="epic-card" label={`Open the Epic ${name}: ${item.title}`} title={item.title} onOpen={onOpen}>
       <span className="epic-card__title">{item.title}</span>
+      {summary.total > 0 && (
+        <span className="epic-card__progress" aria-hidden="true">
+          <span className="is-done" style={{ width: widths.finished }} />
+          <span className="is-working" style={{ width: widths.working }} />
+        </span>
+      )}
       <span className="epic-card__meta">
         <LinkKey source={jira ? 'jira' : 'issue'} name={name} size={13} />
         <Pill tone={status.tone}>{status.name}</Pill>
         {jira?.hasChildren && <ChildCount ticket={jira} />}
+        {summary.total > 0 && <span className="epic-card__done" title={`${summary.finished} of ${summary.total} done`}>{summary.finished}/{summary.total}</span>}
         <CardAge at={item.updatedAt} />
       </span>
     </Card>
@@ -201,7 +217,7 @@ function ChildCount({ ticket }: { ticket: JiraIssue }): React.JSX.Element | null
 }
 
 /** Stacked bars: the drawer's cards seen end-on, the same shape the edge ticks draw. */
-function EpicGlyph(): React.JSX.Element {
+export function EpicGlyph(): React.JSX.Element {
   return (
     <svg className="epic-drawer__glyph" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
       <rect x="3" y="3" width="18" height="4.5" rx="1.5" />

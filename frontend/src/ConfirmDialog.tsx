@@ -53,7 +53,9 @@ export function ConfirmDialog({ title, children, confirmLabel, cancelLabel = 'Ca
       aria-modal="true"
       aria-busy={busy}
       onCancel={(event) => {
+        // React hands a dialog's cancel to its ancestors; a confirm inside another dialog must not close that one too.
         event.preventDefault();
+        event.stopPropagation();
         if (!busy) onCancel();
       }}
       onKeyDown={(event) => event.stopPropagation()}

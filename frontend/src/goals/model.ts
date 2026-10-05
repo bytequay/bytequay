@@ -68,7 +68,7 @@ export type GoalSummary = {
   dropped: number;
 };
 
-export function summarize(goal: GoalDto, needsYou: ReadonlySet<string>): GoalSummary {
+export function summarize(goal: Pick<GoalDto, 'items'>, needsYou: ReadonlySet<string>): GoalSummary {
   const count = (state: WorkItemState) => goal.items.filter((item) => item.state === state).length;
   const prs = [...new Map(goal.items.flatMap((item) => item.links).filter((link) => link.kind === 'PULL_REQUEST').map((link) => [refKey(link), link])).values()];
   return {

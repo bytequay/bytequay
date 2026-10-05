@@ -23,7 +23,9 @@ import Avatar from '../Avatar';
 import StartDevelopmentDialog from '../agents/StartDevelopmentDialog';
 import type { TaskLaunch } from '../agents/AgentTasksView';
 import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
+import { issueEpicId } from './epics';
 import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
+import { useUnmarkEpic } from './useUnmarkEpic';
 import type { NavigationMode } from '../navigationHistory';
 import CopyLinkButton from '../CopyLinkButton';
 import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers } from '../pulls/MarkdownBody';
@@ -246,6 +248,13 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
     finally { setChangingEpic(null); }
   }, [workspaceId, repository]);
+
+  const unmarkEpic = useUnmarkEpic();
+  // Unmarking also removes the Epic's view, so an Epic with work asks first.
+  const requestEpic = (issue: Issue): void => {
+    if (issue.isEpic) unmarkEpic.request(workspaceId, issueEpicId(issue.id), () => { void toggleEpic(issue); });
+    else void toggleEpic(issue);
+  };
 
   const closeIssue = useCallback(async (issue: Issue) => {
     setMutationError(null);
@@ -503,7 +512,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <IssueRow key={issue.id} issue={issue} repository={repository} labelColors={labelColors}
               labelFilter={labelFilter} onFilterLabel={label => setLabelFilter(current => current === label ? '' : label)}
               actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
-                onToggleEpic={() => { void toggleEpic(issue); }} changingEpic={changingEpic !== null} />}
+                onToggleEpic={() => requestEpic(issue)} changingEpic={changingEpic !== null} />}
               selected={issue.id === selectedId} onPick={() => {
                 onSelectIssue?.(issue.number, 'push');
                 setSelectedId(issue.id);
@@ -560,7 +569,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} readOnly={selected === previewIssue} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
               actions={selected === previewIssue ? undefined : <IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
-                onToggleEpic={() => { void toggleEpic(selected); }} changingEpic={changingEpic !== null} />}
+                onToggleEpic={() => requestEpic(selected)} changingEpic={changingEpic !== null} />}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
               onClose={() => closeIssue(selected)}
@@ -581,6 +590,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           onConfirm={launch => { setStartingIssue(null); onStartDevelopment(startingIssue, launch); }}
         />
       )}
+      {unmarkEpic.dialog}
     </div>
   );
 }

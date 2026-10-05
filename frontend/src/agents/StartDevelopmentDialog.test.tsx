@@ -15,9 +15,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { NO_AGENT_CAPABILITIES } from './capabilities';
-import { StartDevelopmentChoice, defaultDevelopmentLane } from './StartDevelopmentDialog';
-import { laneDefaults, modelEffort } from '../settings/model';
-import type { ModelProviderDto } from '../types';
+import { StartDevelopmentChoice } from './StartDevelopmentDialog';
+import { developmentDefaults, laneDefaults, modelEffort } from '../settings/model';
+import type { AgentModelSettingDto, ModelProviderDto } from '../types';
 
 function provider(id: string, readiness: ModelProviderDto['readiness'], efforts: string[] = [], selectedEffort = ''): ModelProviderDto {
   return {
@@ -37,13 +37,17 @@ function provider(id: string, readiness: ModelProviderDto['readiness'], efforts:
 }
 
 describe('start development dialog', () => {
-  it('offers the Development agent first and never a lane that cannot run', () => {
-    const both = [provider('claude', 'READY'), provider('codex', 'READY')];
-    expect(defaultDevelopmentLane(both, 'codex')).toBe('codex');
-    expect(defaultDevelopmentLane(both, undefined)).toBe('claude');
-    expect(defaultDevelopmentLane([provider('claude', 'AUTHENTICATION_REQUIRED'), provider('codex', 'READY')], 'claude')).toBe('codex');
-    expect(defaultDevelopmentLane([provider('claude', 'CLI_MISSING')], 'claude')).toBe('');
-    expect(defaultDevelopmentLane([provider('deepseek-key-123', 'READY'), provider('codex', 'READY')], undefined)).toBe('codex');
+  it.each([false, true])('uses the resolved Development model and effort regardless of readiness (workspace override: %s)', explicit => {
+    const development: AgentModelSettingDto = { type: 'DEVELOPMENT', explicit, configId: 'claude', label: 'Claude',
+      model: 'claude-mini', modelLabel: 'Opus', effort: 'max' };
+    const agents: AgentModelSettingDto[] = [{ ...development, type: 'REVIEW', configId: 'codex', model: 'codex-model', effort: 'high' }, development];
+    for (const readiness of ['READY', 'AUTHENTICATION_REQUIRED', 'TEMPORARILY_UNAVAILABLE', 'CLI_MISSING'] as const) {
+      expect(developmentDefaults({ agents, providers: [provider('claude', readiness), provider('codex', 'READY')] }))
+        .toEqual({ laneId: 'claude', model: 'claude-mini', effort: 'max' });
+    }
+    expect(developmentDefaults({ agents, providers: [provider('codex', 'READY')] }))
+      .toEqual({ laneId: 'claude', model: 'claude-mini', effort: 'max' });
+    expect(developmentDefaults({ agents: [], providers: [provider('claude', 'AUTHENTICATION_REQUIRED'), provider('codex', 'READY')] }).laneId).toBe('codex');
   });
 
   it('seeds the lane\u2019s own model and effort, and keeps an effort only a model still offers', () => {
@@ -74,5 +78,7 @@ describe('start development dialog', () => {
     expect(choice([provider('codex', 'READY')], 'codex', 'codex-model')).not.toContain('<span>Effort</span>');
     expect(choice(null, '')).toContain('disabled="">Start');
     expect(choice([], '')).toContain('No agent provider is available');
+    expect(choice([provider('claude', 'AUTHENTICATION_REQUIRED'), provider('codex', 'READY')], 'claude', 'claude-model'))
+      .toContain('disabled="">Start');
   });
 });

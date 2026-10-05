@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { AgentProviderReadiness, AgentProviderStatus, ModelOptionDto, ModelProviderDto } from '../types';
+import type { AgentProviderReadiness, AgentProviderStatus, ModelOptionDto, ModelProviderDto, ModelSettingsDto } from '../types';
 
 /** Half-hour steps across the day, as minutes of day, for the quiet-hours pickers. */
 export const MINUTE_OPTIONS = Array.from({ length: 48 }, (_, index) => index * 30);
@@ -109,6 +109,18 @@ export function laneDefaults(providers: ModelProviderDto[], laneId: string): { m
   const provider = providers.find(candidate => candidate.id === laneId);
   const model = provider?.models.find(option => option.id === provider.selectedModel) ?? provider?.models[0];
   return { model: model?.id ?? '', effort: modelEffort(model, provider?.selectedEffort) };
+}
+
+/** Settings already resolves workspace overrides before global defaults; readiness must not replace that choice. */
+export function developmentDefaults({ agents, providers }: Pick<ModelSettingsDto, 'agents' | 'providers'>): { laneId: string; model: string; effort: string | null } {
+  const development = agents.find(agent => agent.type === 'DEVELOPMENT');
+  if (development !== undefined) {
+    return { laneId: development.configId, model: development.model, effort: development.effort ?? null };
+  }
+  const ready = providers.filter(provider => providerAvailable(provider.readiness) && provider.models.length > 0);
+  const laneId = (ready.find(provider => provider.id === INTERACTIVE_LANE_ID) ?? ready[0] ?? providers[0])?.id ?? INTERACTIVE_LANE_ID;
+  const defaults = laneDefaults(providers, laneId);
+  return { laneId, model: defaults.model, effort: defaults.effort || null };
 }
 
 export function laneModels(providers: ModelProviderDto[] | null, laneId: string): ModelOptionDto[] {

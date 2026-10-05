@@ -19,7 +19,7 @@ import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef,
 import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import RepoAvatar from '../RepoAvatar';
-import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneDefaults, laneLabel, providerAvailable } from '../settings/model';
+import { INTERACTIVE_LANE_ID, developmentDefaults, displayModelName, isDeepSeekKeyLane, laneDefaults, laneLabel, providerAvailable } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
@@ -243,7 +243,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const submissions = submissionRef.current;
 
   /**
-   * Use the Development setting when ready, else an available provider for the new draft.
+   * Use the resolved Development setting, even when its provider needs setup.
    * Explicit launches retain their lane until the user changes it.
    */
   const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaunch?.laneId) => {
@@ -269,21 +269,9 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         return;
       }
     }
-    const development = available.agents.find((agent) => agent.type === 'DEVELOPMENT');
-    const ready = available.providers.filter(candidate => providerAvailable(candidate.readiness) && candidate.models.length > 0);
-    const provider = ready.find(candidate => candidate.id === development?.configId)
-      ?? ready.find(candidate => candidate.id === INTERACTIVE_LANE_ID) ?? ready[0]
-      ?? available.providers.find(candidate => candidate.id === development?.configId) ?? available.providers[0];
-    if (development !== undefined && provider?.id === development.configId && provider.models.some(model => model.id === development.model)) {
-      setLaneId(development.configId);
-      setSelection({ model: development.model, effort: development.effort ?? null });
-      return;
-    }
-    if (provider !== undefined) {
-      const defaults = laneDefaults(available.providers, provider.id);
-      setLaneId(provider.id);
-      setSelection(defaults.model === '' ? null : { model: defaults.model, effort: defaults.effort || null });
-    }
+    const defaults = developmentDefaults(available);
+    setLaneId(defaults.laneId);
+    setSelection(defaults.model === '' ? null : { model: defaults.model, effort: defaults.effort });
   }, [initialLaunch, sourceBound]);
 
   useEffect(() => {

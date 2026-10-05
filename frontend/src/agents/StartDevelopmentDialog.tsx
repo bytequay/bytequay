@@ -13,16 +13,9 @@
  */
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { displayModelName, effortLabel, isDeepSeekKeyLane, laneDefaults, laneLabel, laneModels, modelEffort, providerAvailable, providerStatusLabel } from '../settings/model';
+import { developmentDefaults, displayModelName, effortLabel, isDeepSeekKeyLane, laneDefaults, laneLabel, laneModels, modelEffort, providerAvailable, providerStatusLabel } from '../settings/model';
 import type { TaskLaunch } from './AgentTasksView';
 import type { ModelProviderDto } from '../types';
-
-/** The lane the composer would have seeded itself with: the Development agent, else the first ready provider. */
-export function defaultDevelopmentLane(providers: ModelProviderDto[], developmentLaneId?: string): string {
-  const usable = providers.filter(provider => !isDeepSeekKeyLane(provider.id) && providerAvailable(provider.readiness));
-  if (developmentLaneId !== undefined && usable.some(provider => provider.id === developmentLaneId)) return developmentLaneId;
-  return usable[0]?.id ?? '';
-}
 
 export default function StartDevelopmentDialog({ workspaceId, issueNumber, onConfirm, onCancel }: {
   workspaceId: string;
@@ -41,12 +34,11 @@ export default function StartDevelopmentDialog({ workspaceId, issueNumber, onCon
       .then(settings => {
         if (!active) return;
         const providers = settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id));
-        const lane = defaultDevelopmentLane(providers, settings.agents.find(agent => agent.type === 'DEVELOPMENT')?.configId);
-        const defaults = laneDefaults(providers, lane);
+        const defaults = developmentDefaults({ ...settings, providers });
         setProviders(providers);
-        setLaneId(lane);
+        setLaneId(defaults.laneId);
         setModel(defaults.model);
-        setEffort(defaults.effort);
+        setEffort(defaults.effort ?? '');
       })
       // An unreadable catalog offers nothing to choose, which the empty list already says.
       .catch(() => { if (active) setProviders([]); });
@@ -93,7 +85,7 @@ export function StartDevelopmentChoice({ issueNumber, providers, laneId, model, 
     <ConfirmDialog
       title={`Start development on #${issueNumber}?`}
       confirmLabel="Start"
-      confirmDisabled={laneId === '' || model === ''}
+      confirmDisabled={!providers?.some(provider => provider.id === laneId && providerAvailable(provider.readiness)) || !models.some(option => option.id === model)}
       onConfirm={onConfirm}
       onCancel={onCancel}
     >

@@ -5087,9 +5087,11 @@ settings section and explains that the task has not started. Raw messages such
 as `OAuth session expired and could not be refreshed` may remain in diagnostic
 details, but the primary message is **Claude sign-in required**.
 
-New-task composers permit drafting without any provider account. They prefer
-the configured Development provider when usable, otherwise a ready Codex lane
-or another ready provider, including a saved API key, before the user sends.
+New-task composers permit drafting without any provider account. They use the
+resolved Development provider, model, and effort from workspace settings,
+which inherit global defaults when no workspace override is saved. Readiness
+or a missing catalog never silently replaces that selection; Send remains
+blocked until the selected provider is usable or the user chooses another.
 Explicitly supplied launches and already-created tasks retain their selected
 provider. Unavailable providers do not require the user to create an account:
 the composer offers provider choice, and provider-specific authentication

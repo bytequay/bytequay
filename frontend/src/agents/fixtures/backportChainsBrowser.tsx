@@ -220,16 +220,20 @@ export async function runComposer() {
 
 export async function runProviderChoice() {
   for (const surface of ['Home', 'Tasks'] as const) {
-    for (const mode of ['codex', 'api-key', 'no-account', 'claude-ready', 'explicit-claude'] as const) {
+    for (const mode of ['codex', 'api-key', 'no-account', 'claude-ready', 'claude-unavailable', 'explicit-claude'] as const) {
       const bridge = createPreviewBridge('workspace-1');
       const settings = await bridge.getModelSettings();
       const codex: ModelProviderDto = { ...settings.providers[0], readiness: mode === 'api-key' || mode === 'no-account' ? 'AUTHENTICATION_REQUIRED' : 'READY' };
       const claude: ModelProviderDto = { ...codex, id: 'claude', label: 'Claude',
         readiness: mode === 'claude-ready' ? 'READY' : 'AUTHENTICATION_REQUIRED', diagnostic: 'Claude sign-in required',
+        models: [{ id: 'sonnet', name: 'Sonnet', description: '', efforts: ['high'], defaultEffort: 'high' },
+          { id: 'opus', name: 'Opus', description: '', efforts: ['high', 'max'], defaultEffort: 'high' }],
+        selectedModel: 'sonnet', selectedEffort: 'high',
         signInCommand: 'CLAUDE_CONFIG_DIR=/private/claude-home claude auth login' };
       const key: ModelProviderDto = { ...codex, id: 'deepseek-key-123', label: 'DeepSeek · personal', readiness: 'READY' };
       bridge.getModelSettings = async () => ({ ...settings,
-        agents: settings.agents.map(agent => ({ ...agent, configId: 'claude', label: 'Claude' })),
+        agents: settings.agents.map(agent => agent.type !== 'DEVELOPMENT' || mode === 'codex' || mode === 'explicit-claude' ? agent
+          : { ...agent, explicit: mode === 'claude-ready', configId: 'claude', label: 'Claude', model: 'opus', modelLabel: 'Opus', effort: 'max' }),
         providers: [claude, codex, ...(mode === 'api-key' ? [key] : [])],
       });
       const live = () => bridge;
@@ -256,14 +260,31 @@ export async function runProviderChoice() {
         changeInput(input, '@backport #1234'); await settle();
         const send = host.querySelector<HTMLButtonElement>('.agt-send');
         assert(send !== null, 'Send control exists');
-        const blocked = mode === 'no-account' || mode === 'explicit-claude';
+        let blocked = mode !== 'codex' && mode !== 'claude-ready';
         assert(send.disabled === blocked, 'Only a usable selected provider enables Send');
-        const expectedProvider = mode === 'api-key' ? key : mode === 'codex' ? codex : claude;
-        assert(host.querySelector(`[aria-label="Provider: ${expectedProvider.label}"]`) !== null, 'Provider selection matches readiness or explicit launch');
+        let expectedProvider = mode === 'codex' ? codex : claude;
+        assert(host.querySelector(`[aria-label="Provider: ${expectedProvider.label}"]`) !== null, 'Provider selection follows settings or explicit launch regardless of readiness');
+        if (mode !== 'codex' && mode !== 'explicit-claude') {
+          assert(host.querySelector('[aria-label="Model and effort for the new task"]')?.textContent === 'OpusMax', 'Composer inherits configured model and effort instead of lane defaults');
+        }
+        if (mode === 'api-key') {
+          host.querySelector<HTMLButtonElement>('[aria-label="Provider: Claude"]')?.click(); await settle();
+          const chooseKey = Array.from(host.querySelectorAll<HTMLButtonElement>('.agt-provider-picker__row button'))
+            .find(button => button.textContent?.startsWith(key.label));
+          assert(chooseKey !== undefined, 'Available API key can be selected explicitly');
+          chooseKey.click(); await settle();
+          expectedProvider = key;
+          blocked = false;
+          assert(!send.disabled, 'Explicit provider choice enables Send');
+        }
         input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })); await settle();
         const creations = bridge.commands.filter(command => command.name === 'createAgentTask');
         assert(creations.length === (blocked ? 0 : 1), 'Enter respects readiness while draft remains editable');
-        if (!blocked) assert((creations[0].args[0] as CreateAgentTaskRequest).laneId === expectedProvider.id, 'Submission uses the visible provider, not unavailable Claude');
+        if (!blocked) {
+          const request = creations[0].args[0] as CreateAgentTaskRequest;
+          assert(request.laneId === expectedProvider.id, 'Submission uses the visible provider');
+          if (mode === 'claude-ready') assert(request.defaults.model === 'opus' && request.defaults.effort === 'max', 'Submission preserves the configured model and effort');
+        }
       } finally { flushSync(() => root.unmount()); host.remove(); }
     }
   }

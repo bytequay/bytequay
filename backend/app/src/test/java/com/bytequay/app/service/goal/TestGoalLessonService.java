@@ -137,7 +137,8 @@ class TestGoalLessonService
     private void goal(WorkItem.State state)
     {
         WorkItemView lesson = new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain table metadata",
-                WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
+                WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(),
+                Optional.empty(), 0);
         when(goals.list("workspace")).thenReturn(ImmutableList.of(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
                 Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)), false,
                 ImmutableList.of(lesson), ImmutableList.of(), ImmutableList.of(), NOW, NOW)));

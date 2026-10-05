@@ -18,6 +18,7 @@ import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -54,6 +55,11 @@ public class WorkItemController
     {
         checkArgument(request.id() != null && request.title() != null && request.kind() != null && request.acceptanceCriteria() != null && request.completionRule() != null,
                 "id, title, kind, acceptance criteria and completion rule are required");
+        checkArgument(request.goalId().isEmpty() || request.epicId().isEmpty(), "New work starts in a Goal or an Epic, not both");
+        if (request.epicId().isPresent()) {
+            return items.createInEpic(workspaceId, request.id(), request.epicId().orElseThrow(), request.title(), request.kind(), request.acceptanceCriteria(),
+                    request.completionRule());
+        }
         return items.create(workspaceId, request.id(), request.goalId(), request.title(), request.kind(), request.acceptanceCriteria(), request.completionRule());
     }
 
@@ -70,6 +76,26 @@ public class WorkItemController
         return items.order(workspaceId, request.goalId(), request.ids());
     }
 
+    @PutMapping("/epic-order")
+    public List<WorkItemView> orderEpic(@PathVariable String workspaceId, @RequestBody OrderEpicWork request)
+    {
+        checkArgument(request.epicId() != null && request.ids() != null, "Epic and order are required");
+        return items.orderEpic(workspaceId, request.epicId(), request.ids());
+    }
+
+    @PostMapping("/epic")
+    public WorkItemService.EpicJoin joinEpic(@PathVariable String workspaceId, @RequestBody JoinEpic request)
+    {
+        checkArgument(request.epicId() != null && request.kind() != null && request.key() != null, "Epic and reference are required");
+        return items.joinEpic(workspaceId, request.epicId(), request.kind(), request.key());
+    }
+
+    @DeleteMapping("/{itemId}/epic")
+    public RemovedFromEpic removeFromEpic(@PathVariable String workspaceId, @PathVariable String itemId)
+    {
+        return new RemovedFromEpic(items.removeFromEpic(workspaceId, itemId));
+    }
+
     @PostMapping("/{itemId}/links")
     public WorkItemView link(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody LinkWorkItem request)
     {
@@ -77,10 +103,20 @@ public class WorkItemController
         return items.link(workspaceId, itemId, request.expectedRevision(), request.kind(), request.key());
     }
 
-    public record CreateWorkItem(String id, Optional<String> goalId, String title, WorkItem.Kind kind, String acceptanceCriteria, WorkItem.CompletionRule completionRule) {}
+    public record CreateWorkItem(String id, Optional<String> goalId, String title, WorkItem.Kind kind, String acceptanceCriteria, WorkItem.CompletionRule completionRule,
+            Optional<String> epicId) {}
 
     public record LinkWorkItem(long expectedRevision, GoalItemKind kind, String key) {}
 
     /** Every work item of the Goal, in the order the user wants them. */
     public record OrderWork(String goalId, List<String> ids) {}
+
+    /** Every work item of the Epic, in the order the user wants them. */
+    public record OrderEpicWork(String epicId, List<String> ids) {}
+
+    /** A source, task or pull request to put in the Epic. */
+    public record JoinEpic(String epicId, GoalItemKind kind, String key) {}
+
+    /** The work that stayed, without its Epic; empty when it existed only for the Epic and was deleted. */
+    public record RemovedFromEpic(Optional<WorkItemView> item) {}
 }

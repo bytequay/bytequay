@@ -151,7 +151,7 @@ class TestGoalSpecChecks
 
         when(work.list("workspace")).thenReturn(ImmutableList.of(new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows", WorkItem.Kind.DEVELOP,
                 "Passes", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.DONE, 3, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of())));
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0)));
         GoalGap done = specChecks.gaps("workspace", "goal-1").getFirst();
         assertThat(done.workItemId()).contains(id);
         assertThat(done.open()).as("a done gap lets the next spec check come").isFalse();
@@ -200,7 +200,7 @@ class TestGoalSpecChecks
         String id = UUID.nameUUIDFromBytes("gap:plugin/trino-delta-lake/:c-1".getBytes(UTF_8)).toString();
         WorkItemView created = new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows with deletion vectors", WorkItem.Kind.DEVELOP, "Fixed",
                 WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
         when(work.create(eq("workspace"), eq(id), any(), any(), any(), any(), any())).thenReturn(created);
         specChecks.adopt("workspace", "goal-1", "c-1");
         verify(work).link("workspace", id, 2, GoalItemKind.ISSUE, "trinodb/trino#31301");
@@ -209,7 +209,7 @@ class TestGoalSpecChecks
                 "Fixed", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 3, ImmutableList.of(new GoalItemView(GoalItemKind.ISSUE, "trinodb/trino#31301",
                 "#31301", "Checkpoint loses rows", GoalItemState.IDLE, "Open", false, Optional.empty(), Optional.empty(),
                 Optional.of(NOW), Optional.empty())), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of())));
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0)));
         assertThat(specChecks.gaps("workspace", "goal-1").getFirst().filed()).as("once linked, nothing is offered").isEmpty();
     }
 

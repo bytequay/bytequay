@@ -60,7 +60,7 @@ class TestSqliteWorkItemStore
         assertThat(store.findByIdentity(sourceIdentity)).contains(original);
         WorkItem updated = new WorkItem(original.id(), original.workspaceId(), Optional.empty(), original.title(), original.kind(), "New scope",
                 original.completionRule(), WorkItem.State.WORKING, 1, original.links(), original.history(), NOW, NOW.plusSeconds(1), WorkItem.Priority.HIGH, 2,
-                ImmutableList.of("blocker"));
+                ImmutableList.of("blocker"), Optional.empty(), 0);
         assertThat(store.update(updated, 0)).isTrue();
         assertThat(store.update(updated, 0)).isFalse();
         assertThat(store.find("work")).contains(updated);
@@ -78,11 +78,24 @@ class TestSqliteWorkItemStore
         assertThat(store.findByIdentity(sourceIdentity)).map(WorkItem::id).contains("owner");
     }
 
+    @Test
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    void deletingWorkFreesItsSourceForOtherWork()
+    {
+        WorkItem owner = item("deleted-owner", "workspace");
+        store.insert(owner);
+        store.delete(owner);
+        assertThat(store.find("deleted-owner")).isEmpty();
+        assertThat(store.findByIdentity(sourceIdentity)).isEmpty();
+        store.insert(item("next-owner", "workspace"));
+        assertThat(store.findByIdentity(sourceIdentity)).map(WorkItem::id).contains("next-owner");
+    }
+
     private WorkItem item(String id, String workspaceId)
     {
         WorkItemLink source = new WorkItemLink(sourceIdentity, new GoalItem(GoalItemKind.ISSUE, "org/repo#1", "#1", "Fix", NOW));
         return new WorkItem(id, workspaceId, Optional.of("goal"), "Fix", WorkItem.Kind.DEVELOP, "Covers the bug", WorkItem.CompletionRule.MERGED_DELIVERY,
                 WorkItem.State.PLANNED, 0, ImmutableList.of(source), ImmutableList.of(new WorkItemEvent("op", "input", "CREATED", "User accepted this item", NOW)), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of());
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
     }
 }

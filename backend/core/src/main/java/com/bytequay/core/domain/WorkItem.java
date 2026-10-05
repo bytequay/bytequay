@@ -25,10 +25,12 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 /**
- * One accepted outcome, independent of its source, execution attempts and Goal membership.
+ * One accepted outcome, independent of its source, execution attempts and Goal or Epic membership.
  *
  * @param rank its place in its Goal's order, lowest first; equal places keep creation order
- * @param blockedBy the work of the same Goal it waits on
+ * @param blockedBy the work of the same Goal or Epic it waits on
+ * @param epicId the canonical identity of the issue or ticket marked as the Epic the work belongs to
+ * @param epicRank its place in its Epic's order, lowest first; equal places keep creation order
  */
 public record WorkItem(
         String id,
@@ -46,7 +48,9 @@ public record WorkItem(
         Instant updatedAt,
         Priority priority,
         long rank,
-        List<String> blockedBy)
+        List<String> blockedBy,
+        Optional<String> epicId,
+        long epicRank)
 {
     public WorkItem
     {
@@ -71,6 +75,9 @@ public record WorkItem(
         blockedBy = blockedBy == null ? ImmutableList.of() : ImmutableList.copyOf(blockedBy);
         checkArgument(!blockedBy.contains(id), "work cannot wait on itself");
         checkArgument(blockedBy.stream().distinct().count() == blockedBy.size(), "duplicate blocker");
+        // Work saved before Epics held work belongs to none.
+        epicId = requireNonNullElse(epicId, Optional.empty());
+        epicId.ifPresent(value -> checkText(value, "epicId"));
     }
 
     public enum Kind { LEARN, INVESTIGATE, DEVELOP }

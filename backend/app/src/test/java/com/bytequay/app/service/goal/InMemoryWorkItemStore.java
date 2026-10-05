@@ -61,4 +61,10 @@ final class InMemoryWorkItemStore
         items.put(item.id(), item);
         return true;
     }
+
+    @Override
+    public void delete(WorkItem item)
+    {
+        items.remove(item.id());
+    }
 }

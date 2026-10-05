@@ -30,21 +30,22 @@ class TestWorkItemConverter
     private final WorkItemConverter converter = new WorkItemConverter();
 
     @Test
-    void keepsPriorityOrderAndBlockersAndReadsWorkSavedBeforeThem()
+    void keepsPriorityOrderBlockersAndEpicAndReadsWorkSavedBeforeThem()
     {
-        WorkItem ordered = item(WorkItem.Priority.HIGH, 3, ImmutableList.of("work-0"));
+        WorkItem ordered = item(WorkItem.Priority.HIGH, 3, ImmutableList.of("work-0"), Optional.of("ISSUE:github.com:1"), 2);
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(ordered))).isEqualTo(ordered);
 
-        String older = converter.convertToDatabaseColumn(item(WorkItem.Priority.NORMAL, 0, ImmutableList.of()))
-                .replace(",\"priority\":\"NORMAL\"", "").replace(",\"rank\":0", "").replace(",\"blockedBy\":[]", "");
-        assertThat(older).doesNotContain("priority", "rank", "blockedBy");
-        assertThat(converter.convertToEntityAttribute(older)).isEqualTo(item(WorkItem.Priority.NORMAL, 0, ImmutableList.of()));
+        String older = converter.convertToDatabaseColumn(item(WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0))
+                .replace(",\"priority\":\"NORMAL\"", "").replace(",\"rank\":0", "").replace(",\"blockedBy\":[]", "")
+                .replace(",\"epicId\":null", "").replace(",\"epicRank\":0", "");
+        assertThat(older).doesNotContain("priority", "rank", "blockedBy", "epicId", "epicRank");
+        assertThat(converter.convertToEntityAttribute(older)).isEqualTo(item(WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0));
     }
 
-    private static WorkItem item(WorkItem.Priority priority, long rank, ImmutableList<String> blockedBy)
+    private static WorkItem item(WorkItem.Priority priority, long rank, ImmutableList<String> blockedBy, Optional<String> epicId, long epicRank)
     {
         return new WorkItem("work-1", "workspace", Optional.of("goal"), "Fix", WorkItem.Kind.DEVELOP, "Covers the bug", WorkItem.CompletionRule.MERGED_DELIVERY,
                 WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(new WorkItemEvent("op", "input", "CREATED", "Accepted", NOW)), NOW, NOW,
-                priority, rank, blockedBy);
+                priority, rank, blockedBy, epicId, epicRank);
     }
 }

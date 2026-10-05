@@ -44,9 +44,9 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Follows the pull requests of the Goals' open work: the work picks up a pull request its task published, a linked one still open is
+ * Follows the pull requests of the Goals' and Epics' open work: the work picks up a pull request its task published, a linked one still open is
  * refreshed whenever the lists are, and a merge, or a review whose reviewer still requests changes, is recorded once on the work it concerns
- * and told to the goal's agent. Whether the work is done stays the user's decision.
+ * and told to the goal's agent when it has one. Whether the work is done stays the user's decision.
  */
 @Component
 public class GoalDeliveries
@@ -158,7 +158,7 @@ public class GoalDeliveries
         }
         try {
             work.getObject().receipt(item.workspaceId(), item.id(), operation, receipt);
-            conversations.getObject().tell(item.workspaceId(), item.goalId().orElseThrow(), operation + ":" + item.id(), event);
+            item.goalId().ifPresent(goalId -> conversations.getObject().tell(item.workspaceId(), goalId, operation + ":" + item.id(), event));
         }
         catch (RuntimeException failure) {
             log.warn("{} was not recorded on Goal work {}", operation, item.id(), failure);
@@ -179,7 +179,7 @@ public class GoalDeliveries
     private List<WorkItemView> open()
     {
         return workspaces.findAll().stream().map(Workspace::id).flatMap(workspaceId -> work.getObject().list(workspaceId).stream())
-                .filter(item -> item.goalId().isPresent() && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)
+                .filter(item -> (item.goalId().isPresent() || item.epicId().isPresent()) && item.state() != WorkItem.State.DONE && item.state() != WorkItem.State.DROPPED)
                 .collect(toImmutableList());
     }
 }

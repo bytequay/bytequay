@@ -16,6 +16,7 @@ package com.bytequay.app.service.goal;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalItem;
@@ -28,6 +29,8 @@ import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -42,6 +45,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
@@ -49,6 +53,8 @@ import static org.mockito.Mockito.withSettings;
 class TestWorkItemService
 {
     private static final Instant NOW = Instant.EPOCH;
+    private static final String EPIC = "ISSUE:github.com:1";
+    private static final String OTHER_EPIC = "JIRA:5:cloud:10";
     private final InMemoryWorkItemStore store = new InMemoryWorkItemStore();
     private final InMemoryGoalStore goals = new InMemoryGoalStore();
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
@@ -62,7 +68,8 @@ class TestWorkItemService
         }
     };
     private final List<Object> published = new ArrayList<>();
-    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, transactions, published::add, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final EpicSources epics = mock(EpicSources.class);
+    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, epics, transactions, published::add, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -301,6 +308,132 @@ class TestWorkItemService
         WorkItemView released = find(fixing.id());
         assertThat(released.blockedBy()).isEmpty();
         assertThat(released.history().getLast().detail()).isEqualTo("No longer waits on Read the checkpoint code, which was dropped: Not needed");
+    }
+
+    @Test
+    void epicWorkKeepsAnOrderOfItsOwnBesideItsGoalsAndOnlyAMarkedEpicTakesWork()
+    {
+        WorkItemView cache = epicWork(EPIC, "Cache table metadata");
+        WorkItemView invalidate = epicWork(EPIC, "Invalidate on DDL");
+        assertThat(ImmutableList.of(cache.epicRank(), invalidate.epicRank())).as("new work joins the end of the Epic").containsExactly(0L, 1L);
+        assertThat(cache.epicId()).contains(EPIC);
+        assertThat(cache.goalId()).isEmpty();
+        assertThat(cache.kind()).isEqualTo(WorkItem.Kind.DEVELOP);
+        assertThat(epicWork(EPIC, "Cache table metadata", cache.id())).as("a retried quick add creates nothing new").isEqualTo(cache);
+
+        assertThat(service.orderEpic("workspace", EPIC, ImmutableList.of(invalidate.id(), cache.id()))).extracting(WorkItemView::id, WorkItemView::epicRank)
+                .containsExactly(tuple(invalidate.id(), 0L), tuple(cache.id(), 1L));
+        assertThatThrownBy(() -> service.orderEpic("workspace", EPIC, ImmutableList.of(cache.id()))).hasMessageContaining("Order it again");
+
+        doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found")).when(epics).require("workspace", "ISSUE:github.com:7");
+        assertThatThrownBy(() -> epicWork("ISSUE:github.com:7", "Elsewhere")).hasMessageContaining("Epic not found");
+    }
+
+    @Test
+    void addingExistingWorkToAnEpicReusesItsItemAndMovesItFromAnotherEpic()
+    {
+        WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#5", "ISSUE:github.com:5");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#5")).thenReturn(issue);
+        WorkItemService.EpicJoin joined = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#5");
+        assertThat(joined.movedFrom()).isEmpty();
+        assertThat(joined.item().epicId()).contains(EPIC);
+        assertThat(joined.item().title()).as("new work takes its source's title").isEqualTo("Fix bug");
+        assertThat(service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#5")).as("joining again changes nothing").isEqualTo(joined);
+
+        WorkItemService.EpicJoin moved = service.joinEpic("workspace", OTHER_EPIC, GoalItemKind.ISSUE, "org/repo#5");
+        assertThat(moved.item().id()).isEqualTo(joined.item().id());
+        assertThat(moved.item().epicId()).contains(OTHER_EPIC);
+        assertThat(moved.movedFrom()).contains(EPIC);
+        assertThat(service.list("workspace")).hasSize(1);
+
+        WorkItemLink epicIssue = link(GoalItemKind.ISSUE, "org/repo#1", EPIC);
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#1")).thenReturn(epicIssue);
+        assertThatThrownBy(() -> service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#1")).hasMessageContaining("its own work");
+    }
+
+    @Test
+    void workWaitsOnWorkOfItsOwnEpicButNotOfAnother()
+    {
+        WorkItemView reading = epicWork(EPIC, "Read the reader");
+        WorkItemView fixing = epicWork(EPIC, "Fix the reader");
+        WorkItemView elsewhere = epicWork(OTHER_EPIC, "Another Epic's work");
+        assertThat(service.change("workspace", fixing.id(), arrange(fixing, WorkItemCommand.Action.BLOCK, Optional.empty(), reading.id())).blockedBy())
+                .containsExactly(reading.id());
+        assertThatThrownBy(() -> service.change("workspace", reading.id(), arrange(reading, WorkItemCommand.Action.BLOCK, Optional.empty(), elsewhere.id())))
+                .hasMessageContaining("its own Goal or Epic");
+    }
+
+    @Test
+    void takingWorkOutOfItsEpicDeletesWhatExistsOnlyForItAndKeepsGoalOrAttemptedWork()
+    {
+        WorkItemView planned = epicWork(EPIC, "Benchmark the cache");
+        WorkItemView waiting = epicWork(EPIC, "Publish the numbers");
+        service.change("workspace", waiting.id(), arrange(waiting, WorkItemCommand.Action.BLOCK, Optional.empty(), planned.id()));
+        assertThat(service.removeFromEpic("workspace", planned.id())).as("planning that existed only for the Epic goes").isEmpty();
+        assertThat(service.list("workspace")).extracting(WorkItemView::id).containsExactly(waiting.id());
+        WorkItemView released = find(waiting.id());
+        assertThat(released.blockedBy()).as("nothing waits on deleted work").isEmpty();
+        assertThat(released.history().getLast().detail()).isEqualTo("No longer waits on Benchmark the cache, which left the Epic");
+
+        WorkItemView goalWork = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Goal work", WorkItem.Kind.DEVELOP, "Done",
+                WorkItem.CompletionRule.MERGED_DELIVERY);
+        WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#9", "ISSUE:github.com:9");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#9")).thenReturn(issue);
+        when(references.related("workspace", issue)).thenReturn(ImmutableList.of(issue));
+        service.attach("workspace", "goal", GoalItemKind.ISSUE, "org/repo#9");
+        WorkItemView shared = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#9").item();
+        WorkItemView kept = service.removeFromEpic("workspace", shared.id()).orElseThrow();
+        assertThat(kept.goalId()).as("the Goal keeps its work").contains("goal");
+        assertThat(kept.epicId()).isEmpty();
+        assertThat(kept.history().getLast().action()).isEqualTo("LEFT_EPIC");
+        assertThat(service.list("workspace")).extracting(WorkItemView::id).contains(goalWork.id(), shared.id());
+    }
+
+    @Test
+    void unmarkingAnEpicDeletesItsOwnWorkKeepsAttemptedWorkAndEndsWaitingOnlyTheEpicAllowed()
+    {
+        WorkItemView quick = epicWork(EPIC, "Quick idea");
+        WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#3", "ISSUE:github.com:3");
+        WorkItemLink task = link(GoalItemKind.TASK, "task-3", "TASK:task-3");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#3")).thenReturn(issue);
+        when(references.related("workspace", issue)).thenReturn(ImmutableList.of(issue, task));
+        WorkItemView attempted = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#3").item();
+        service.change("workspace", attempted.id(), arrange(attempted, WorkItemCommand.Action.BLOCK, Optional.empty(), quick.id()));
+        WorkItemView unrelated = epicWork(OTHER_EPIC, "Another Epic's work");
+
+        service.releaseEpic("workspace", EPIC);
+
+        assertThat(service.list("workspace")).extracting(WorkItemView::id).containsExactlyInAnyOrder(attempted.id(), unrelated.id());
+        WorkItemView stayed = find(attempted.id());
+        assertThat(stayed.epicId()).isEmpty();
+        assertThat(stayed.blockedBy()).isEmpty();
+        assertThat(stayed.history().getLast().detail())
+                .isEqualTo("Left its Epic, which was unmarked; work and history retained\nNo longer waits on Quick idea, which left the Epic");
+        assertThat(find(unrelated.id()).epicId()).as("other Epics keep their work").contains(OTHER_EPIC);
+    }
+
+    @Test
+    void acceptingQuickAddedWorkSettlesItsCriteriaAndRuleInTheSameDecision()
+    {
+        WorkItemView quick = epicWork(EPIC, "Close the stale ticket");
+        WorkItemCommand accept = new WorkItemCommand(UUID.randomUUID().toString(), quick.revision(), WorkItemCommand.Action.ACCEPT, Optional.empty(),
+                Optional.of("Close the stale ticket"), Optional.of(WorkItem.CompletionRule.ACCEPTED_RESULT), Optional.empty(), "Closed in Jira as Done",
+                Optional.empty(), Optional.empty(), false);
+        WorkItemView done = service.change("workspace", quick.id(), accept);
+        assertThat(done.state()).isEqualTo(WorkItem.State.DONE);
+        assertThat(done.acceptanceCriteria()).isEqualTo("Close the stale ticket");
+        assertThat(done.completionRule()).isEqualTo(WorkItem.CompletionRule.ACCEPTED_RESULT);
+        assertThat(done.history().getLast().detail()).isEqualTo("User accepted all criteria: Close the stale ticket\nClosed in Jira as Done");
+    }
+
+    private WorkItemView epicWork(String epicId, String title)
+    {
+        return epicWork(epicId, title, UUID.randomUUID().toString());
+    }
+
+    private WorkItemView epicWork(String epicId, String title, String id)
+    {
+        return service.createInEpic("workspace", id, epicId, title, WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY);
     }
 
     private WorkItemView find(String id)

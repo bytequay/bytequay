@@ -38,7 +38,9 @@ public record WorkItemView(
         Instant updatedAt,
         WorkItem.Priority priority,
         long rank,
-        List<String> blockedBy)
+        List<String> blockedBy,
+        Optional<String> epicId,
+        long epicRank)
 {
     public WorkItemView
     {

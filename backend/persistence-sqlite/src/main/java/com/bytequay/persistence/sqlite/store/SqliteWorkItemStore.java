@@ -89,6 +89,14 @@ public class SqliteWorkItemStore
         return true;
     }
 
+    @Override
+    @Transactional
+    public void delete(WorkItem item)
+    {
+        identities.deleteByWorkItemId(item.id());
+        items.deleteById(item.id());
+    }
+
     private void reserve(WorkItem item)
     {
         for (WorkItemLink link : item.links()) {

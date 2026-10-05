@@ -1627,7 +1627,7 @@ class TestAgentHttpApi
         WorkItemEvent planned = new WorkItemEvent("planned", "", "CREATED", "Planned", now);
         workItems.insert(new WorkItem(UUID.randomUUID().toString(), ownerWorkspaceId, Optional.empty(), source.reference().title(), WorkItem.Kind.DEVELOP, "",
                 WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, ImmutableList.of(source), ImmutableList.of(planned), now, now, WorkItem.Priority.NORMAL, 0,
-                ImmutableList.of()));
+                ImmutableList.of(), Optional.empty(), 0));
     }
 
     private JsonNode startTurn(String taskId, String message, String idempotencyKey)

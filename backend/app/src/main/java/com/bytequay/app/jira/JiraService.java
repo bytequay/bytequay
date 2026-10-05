@@ -14,6 +14,7 @@
 package com.bytequay.app.jira;
 
 import com.bytequay.app.agent.JiraIssueLocks;
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceException;
@@ -72,11 +73,13 @@ public class JiraService
     private final JiraActivityLog activity;
     private final WorkItemStore workItems;
     private final RecentTouchRecorder recent;
+    // Work items depend on Jira tickets, so the service that releases an unmarked Epic's work is looked up when needed.
+    private final ObjectProvider<WorkItemService> work;
     private final ExecutorService reads = Executors.newVirtualThreadPerTaskExecutor();
     private final Map<Scope, FutureTask<JiraDtos.IssuePage>> refreshes = new ConcurrentHashMap<>();
 
     public JiraService(JiraConnections connections, JiraCache cache, JiraIssueTaskStore tasks, WorkspaceStore workspaces, ObjectProvider<AppSettingsService> appSettings,
-            JiraActivityLog activity, WorkItemStore workItems, RecentTouchRecorder recent)
+            JiraActivityLog activity, WorkItemStore workItems, RecentTouchRecorder recent, ObjectProvider<WorkItemService> work)
     {
         this.connections = requireNonNull(connections, "connections is null");
         this.cache = requireNonNull(cache, "cache is null");
@@ -87,6 +90,7 @@ public class JiraService
         this.activity = requireNonNull(activity, "activity is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.recent = requireNonNull(recent, "recent is null");
+        this.work = requireNonNull(work, "work is null");
     }
 
     public List<JiraDtos.Board> boards(String connectionId, String cloudId, boolean refresh)
@@ -340,6 +344,13 @@ public class JiraService
         return cache.read("goal." + segment(cloudId) + "." + segment(issueId), Boolean.class).orElse(false);
     }
 
+    /** The workspace a ticket belongs to: its development task's, or the one the user assigned. */
+    public Optional<String> assignedWorkspace(String cloudId, String issueId)
+    {
+        return tasks.findBySource(cloudId, issueId).map(link -> link.workspaceId())
+                .or(() -> cache.read("workspace." + segment(cloudId) + "." + segment(issueId), String.class));
+    }
+
     public JiraDtos.Detail epic(String connectionId, String cloudId, String issueId, boolean epic)
     {
         return JiraIssueLocks.withLock(cloudId, issueId, () -> {
@@ -349,6 +360,10 @@ public class JiraService
             }
             if (epic && issue.workspace().isEmpty()) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "Assign a ByteQuay workspace before marking this ticket as an Epic.");
+            }
+            if (!epic) {
+                // Unmarking removes the Epic's view first: a failure then leaves the ticket marked, and retrying unmarks it again.
+                issue.workspace().ifPresent(workspace -> work.getObject().releaseEpic(workspace.id(), WorkItemLink.jiraIdentity(cloudId, issueId)));
             }
             cache.write("goal." + segment(cloudId) + "." + segment(issueId), epic);
             return detail(connectionId, cloudId, issueId, false);

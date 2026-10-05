@@ -85,8 +85,9 @@ class TestIssueDevelopmentService
     private final AtomicReference<IssueEpic> epic = new AtomicReference<>();
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final TaskId taskId = TaskId.random();
+    private final WorkItemService workItems = mock(WorkItemService.class);
     private final IssueDevelopmentService service = new IssueDevelopmentService(sources, issues, workspaces, tasks, taskStore,
-            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, mock(WorkItemService.class));
+            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, workItems);
 
     @BeforeEach
     void setUp()
@@ -117,10 +118,12 @@ class TestIssueDevelopmentService
     }
 
     @Test
-    void markingAnEpicOnlyChangesItsLocalClassification()
+    void markingAnEpicChangesOnlyItsLocalClassificationAndUnmarkingRemovesItsEpicView()
     {
         assertThat(service.setEpic("workspace", 7, true).isEpic()).isTrue();
+        verifyNoInteractions(workItems);
         assertThat(service.setEpic("workspace", 7, false).isEpic()).isFalse();
+        verify(workItems).releaseEpic("workspace", "ISSUE:github.com:70");
         verifyNoInteractions(github, tasks, taskStore);
     }
 

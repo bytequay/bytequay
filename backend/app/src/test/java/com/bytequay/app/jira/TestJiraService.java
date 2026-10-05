@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.jira;
 
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.core.domain.JiraIssueSource;
@@ -81,7 +82,9 @@ class TestJiraService
     private final JiraCache cache = new JiraCache(settings, mapper);
     private final RecentTouchRecorder recent = mock(RecentTouchRecorder.class);
     private final WorkItemStore workItems = mock(WorkItemStore.class);
-    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, new JiraActivityLog(cache), workItems, recent);
+    private final WorkItemService workService = mock(WorkItemService.class);
+    private final ObjectProvider<WorkItemService> work = mock(ObjectProvider.class);
+    private final JiraService jira = new JiraService(remote, cache, tasks, workspaces, settingsProvider, new JiraActivityLog(cache), workItems, recent, work);
     private final Map<String, String> saved = new ConcurrentHashMap<>();
 
     @BeforeEach
@@ -89,6 +92,7 @@ class TestJiraService
             throws Exception
     {
         when(settingsProvider.getObject()).thenReturn(appSettings);
+        when(work.getObject()).thenReturn(workService);
         when(settings.get(anyString())).thenAnswer(call -> Optional.ofNullable(saved.get(call.getArgument(0))));
         doAnswer(call -> {
             saved.put(call.getArgument(0), call.getArgument(1));
@@ -192,11 +196,14 @@ class TestJiraService
         assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().workspace())
                 .contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         assertThat(jira.epic("connection", "cloud", "1001", true).issue().isEpic()).isTrue();
+        assertThat(jira.assignedWorkspace("cloud", "1001")).contains("workspace");
+        verifyNoInteractions(workService);
         assertThat(jira.epic("connection", "cloud", "1001", false).issue().isEpic()).isFalse();
+        verify(workService).releaseEpic("workspace", "JIRA:5:cloud:1001");
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         JiraCache reopenedCache = new JiraCache(settings, mapper);
-        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, new JiraActivityLog(reopenedCache), workItems, recent);
+        JiraService reopened = new JiraService(remote, reopenedCache, tasks, workspaces, settingsProvider, new JiraActivityLog(reopenedCache), workItems, recent, work);
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Renamed")));
         assertThat(reopened.issue("other", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "Renamed"));
@@ -231,7 +238,7 @@ class TestJiraService
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
         when(workspaces.findById("other-workspace")).thenReturn(Optional.of(workspace("other-workspace", "Other")));
         WorkItem owner = new WorkItem("work", "workspace", Optional.of("goal"), issue.title(), WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
-                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), UPDATED, UPDATED, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
+                WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), UPDATED, UPDATED, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
         when(workItems.findByIdentity(WorkItemLink.jiraIdentity("cloud", "1001"))).thenReturn(Optional.of(owner));
         // Launches there would be refused by the work item, and here by the assignment.
         assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "other-workspace")).hasMessageContaining("work item belongs to another workspace");

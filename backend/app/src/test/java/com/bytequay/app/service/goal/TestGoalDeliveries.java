@@ -137,10 +137,27 @@ class TestGoalDeliveries
         verify(conversation, never()).tell(any(), any(), any(), any());
     }
 
+    @Test
+    void epicWorkOutsideAGoalFollowsItsPullRequestsAndRecordsAMergeWithNoGoalToTell()
+    {
+        WorkItemView epicWork = item(Optional.empty(), Optional.of("ISSUE:github.com:1"), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.MERGED));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(epicWork));
+        when(work.linkRelated("workspace", "work-1")).thenReturn(epicWork);
+        deliveries.listsRefreshed(new PullRequestsRefreshed());
+        verify(work).linkRelated("workspace", "work-1");
+        verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
+        verify(conversation, never()).tell(any(), any(), any(), any());
+    }
+
     private static WorkItemView item(Optional<String> goalId, WorkItem.State state, List<WorkItemEvent> history, GoalItemView... links)
     {
+        return item(goalId, Optional.empty(), state, history, links);
+    }
+
+    private static WorkItemView item(Optional<String> goalId, Optional<String> epicId, WorkItem.State state, List<WorkItemEvent> history, GoalItemView... links)
+    {
         return new WorkItemView("work-1", "workspace", goalId, "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint", WorkItem.CompletionRule.MERGED_DELIVERY,
-                state, 3, ImmutableList.copyOf(links), history, NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of());
+                state, 3, ImmutableList.copyOf(links), history, NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), epicId, 0);
     }
 
     private static PrReviewState review(long id, String login, String state, int minutesAgo, String body)

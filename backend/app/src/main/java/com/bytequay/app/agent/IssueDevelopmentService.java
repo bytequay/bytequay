@@ -95,8 +95,13 @@ public class IssueDevelopmentService
         Lock lock = sourceLocks.get(issue.id());
         lock.lock();
         try {
-            sources.saveEpic(new IssueEpic(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, epic, clock.instant()));
-            return metadata(issue.id());
+            return unitOfWork.execute(() -> {
+                sources.saveEpic(new IssueEpic(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, epic, clock.instant()));
+                if (!epic) {
+                    workItems.releaseEpic(workspaceId, WorkItemLink.issueIdentity(HOST, issue.id()));
+                }
+                return metadata(issue.id());
+            });
         }
         finally {
             lock.unlock();

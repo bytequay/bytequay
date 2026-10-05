@@ -1083,7 +1083,7 @@ This finishes the clear-organization takeaway using the current surfaces.
   vague answer, research and a fitted course, a lesson in the Goal window, a
   Delta spec-check card reproducing a #31252-style gap, and a practice card that
   ends in a merged pull request recorded on the Goal.
-- [ ] Run `mvn verify`; frontend lint, `npx tsc --noEmit`, tests and packaging.
+- [x] Run `mvn verify`; frontend lint, `npx tsc --noEmit`, tests and packaging.
   Complete opt-in live planning/source handoff smoke checks for supported lanes
   and report live-service limits separately from fixture results.
 - [x] Update the canonical agent, architecture, issue and Jira design sections to
@@ -1106,6 +1106,22 @@ moves, resizes and reopening. Still partial: no journey shows the agent's
 recovery guidance after a failed turn, which `TestGoalPlanner` and
 `TestGoalConversationService` cover in the backend, and the visual hierarchy is
 checked only for fit.
+
+Live check, 2026-10-05, on the user's Lakekeeper Goal, apart from the fixture
+results above: the Goal's agent and its lessons on Claude Code (Opus, Max
+effort), research on Codex. The first research run saved 20 notes in about 20
+minutes. The agent's answer to it proposed a course of four parts and 16 lessons
+fitted to the first pull request the user had chosen, and a second research card
+for what the notes missed; accepting the course made 16 Learn items. The first
+lesson, with the course map before it, took about 24 minutes to write and came
+back with six sections, each with a diagram. Asked for practice while a card was
+shown, the agent kept to one card at a time; after the second run saved 19
+notes, it recommended issue #159 with what to do first, five done-when criteria
+and its uncertainty, and Start made the issue Develop work against those
+criteria. Every reply validated, and no task started. Limits seen: the agent
+reads notes by their topics only, so its course and card scopes rest on titles;
+a lesson at Max effort is slow; and the reference journey's spec check and
+merged pull request were not part of this run.
 
 Done when: the full Goal conversation → research → course → lesson → proposal →
 accepted work → task → verified result → summary → next proposal journey works,

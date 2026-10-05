@@ -2380,15 +2380,20 @@ capabilities.
 The Claude lane owns its provider home the same way. Every Claude process
 ByteQuay starts, the turn processes and the `--version`, `--help`,
 `auth status` and auto-mode probes, runs with `CLAUDE_CONFIG_DIR` set to
-`~/Library/Application Support/ByteQuay/claude-home`, created owner-only. The
-driver builds one environment and every process spec derives from it, so there
-is a single place where the home is chosen; an exported `CLAUDE_CONFIG_DIR` is
-filtered out of the inherited environment before ByteQuay's value is set, so a
-user's shell cannot redirect ByteQuay's processes.
+an owner-only ByteQuay profile. The default `claude` lane retains
+`~/Library/Application Support/ByteQuay/claude-home`. Each named account uses
+`claude-home/accounts/<account UUID>` and a stable `claude-account-<UUID>` lane.
+A driver builds one environment for its account and every process spec derives
+from it. An exported `CLAUDE_CONFIG_DIR` is filtered out before the profile path
+is set. Named accounts also exclude inherited `ANTHROPIC_API_KEY`,
+`ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_BASE_URL`, and `CLAUDE_CODE_OAUTH_TOKEN`, so
+ambient credentials cannot override the chosen login. The existing default lane
+retains its API-key environment behavior.
 
 The home carries the identity a sign-in establishes, not the secret. On macOS the credential
-itself is held by the login Keychain, so `CLAUDE_CONFIG_DIR` separates settings, transcripts,
-history and which account a process acts as, but not the OS credential store. A home with no
+itself is held by the login Keychain with an entry keyed to the configuration
+directory. `CLAUDE_CONFIG_DIR` therefore separates both the selected login and
+its settings, transcripts and history while the CLI continues to own secrets. A home with no
 sign-in of its own reports logged out even where the user's personal CLI is signed in, which is
 what makes the separate sign-in both necessary and sufficient.
 
@@ -2406,6 +2411,84 @@ mixing into the user's `~/.claude`, which ByteQuay must never delete from.
 Claude needs no seeded config file: unlike Codex there is no user layer left to
 neutralize.
 
+Settings → Models retains the CLI provider status list, including the default
+Claude account's sign-in and check actions. Named Claude accounts are excluded
+from that global provider list and its model choices. Each repository's Model
+overrides offers the **Claude accounts** section. **Add Claude account** takes
+a display name and login email; **Add and sign in** opens the existing sign-in
+terminal for that exact profile, passing the email through Claude's `--email`
+option to pre-fill the browser login. Named accounts
+are separate saved logins, rather than additional CLI installations. A name is
+only a label: readiness displays the email returned by `claude auth status
+--json`, when available. The UI does not infer an authenticated email from the
+name or input email. When a login email is configured, readiness requires the
+authenticated email to match it case-insensitively. A missing or different
+authenticated email reports `AUTHENTICATION_REQUIRED` with the same sign-in
+command and a diagnostic identifying the intended account.
+Each repository selects its account through its Development/Review model
+overrides; adding or signing in to an account does not change other repository
+selections.
+
+The automatic default-provider fallback excludes named Claude accounts. Even
+when a new account is the only ready provider, it becomes a repository or global
+default only through an explicit model selection.
+
+The named-profile sign-in command also clears inherited API-key, auth-token,
+endpoint, and OAuth-token variables after the login shell has started. This
+matches the account driver's credential filtering even if shell startup files
+export another login. Both sign-in and task execution explicitly select the
+same `CLAUDE_CONFIG_DIR`. `HOME`, Java discovery and fixed build-cache roots stay
+independent of the Claude profile; the task still runs in its own worktree.
+
+UUIDs, labels and login emails are stored in the application settings table;
+labels never become filesystem paths or command arguments. Email arguments are
+shell-quoted. New accounts require a nonblank, validated email. Duplicate names are rejected.
+The CLI owns login and refresh; ByteQuay never handles passwords or OAuth tokens.
+Each named account has **Remove** in repository settings. Confirmation explains
+that removal applies across repositories, prevents later turns using that lane,
+and retains Claude's login and session files on disk. It removes only the saved
+account entry; it neither logs out nor deletes CLI-owned credentials. Existing
+session handles remain available to finish or stop an in-flight turn. The default
+provider is built in and has no Remove action. Saved global, workspace and Goal
+selections remain explicit but unavailable until the user chooses another
+account; removal never redirects them to another login. Re-adding the same name
+creates a new UUID/profile. Renaming and credential deletion remain outside this
+addition.
+
+Named sign-in explicitly uses `auth login --claudeai`. Separate configuration
+directories isolate claude.ai logins; Claude Console OAuth profiles may live
+outside that directory and are not supported as named-account logins here.
+
+Account profiles are not filesystem sandboxes or alternate home directories.
+Task checkouts and provider sessions stay separate, but allowed build caches
+(`~/.m2`, `~/.gradle`, `~/.npm`) and temporary directories are shared by the host
+user. Referenced repositories are read at captured commits; a related-work
+handoff creates a destination-owned task/worktree using the destination's
+selected lane. Account choice does not add write access to the related checkout.
+Shared caches, reads, Git common metadata and approved unsandboxed commands mean
+ByteQuay does not promise complete filesystem isolation between accounts.
+Claude's Bash sandbox explicitly permits the resolved host `/tmp`, `/var/tmp`,
+JVM temporary directory and inherited `TMPDIR`, as well as the build caches.
+Its private scratch directory alone does not cover macOS Java temporary files
+or scripts that write directly to `/tmp`. These grants do not extend the file
+editing tool's automatic approvals outside the task worktree and build caches.
+
+Named accounts appear as separate groups in the repository model picker.
+Workspace Model overrides persist the selected account lane together with model
+and effort; repositories without an override follow their global model defaults.
+The selected account name remains
+visible next to the model. Task creation, helper calls, readiness, discussions,
+queued turns, retries and session resumption use that lane. The task's persisted
+lane and provider session reference keep the original profile even when a
+workspace default changes. A driver rejects a resume reference from a different
+account. An unknown or disabled account fails instead of using another login.
+Two repositories may run different account lanes concurrently. Changing the
+actual login inside a profile remains an explicit Claude sign-in action.
+
+Each account has independent readiness and a shared seeded Claude model catalog.
+Adding an account refreshes readiness without restarting ByteQuay. Account drivers
+are created once per account as needed and closed at application shutdown.
+
 Each task gets a fresh worktree and cleanup removes that worktree, so a
 transcript directory keyed to the dead path is never written to again. Nothing
 but age can retire one.
@@ -2415,7 +2498,8 @@ transcript directory goes once every file in it has gone untouched for
 `bytequay.agent.session-retention-days` (30 by default). Only the shape of the
 tree differs — Codex's day partitions sit three levels under `sessions`, Claude's
 per-path directories one level under `projects` — so the walk is shared and each
-home names its own root and depth. File times decide and directory names never
+home names its own root and depth. The sweep also visits each named Claude
+account home, preserving its login and settings. File times decide and directory names never
 do, because a thread resumed long after it started still appends to the
 transcript it first opened; a thread ByteQuay may still resume therefore survives
 the sweep, while one idle past the window stops being resumable. That is why the
@@ -4903,8 +4987,8 @@ machine-readable status rather than by parsing diagnostic text:
 - temporarily unavailable, including failed or empty Codex version reads.
 
 For Claude CLI, ByteQuay sets `CLAUDE_CONFIG_DIR` to its configured
-`…/ByteQuay/claude-home` for every probe, update, and turn, overriding any
-ambient value. The authentication portion runs `claude auth status --json`
+default or named account profile for every probe, update, and turn, overriding
+any ambient value. The authentication portion runs `claude auth status --json`
 with that same executable and allowlisted environment used for turns. Opening
 the interactive `claude` screen is not an authentication check. The CP11
 reference executable (2.1.259) returns one JSON object whose required
@@ -4956,9 +5040,10 @@ timestamps, and redacted diagnostics.
 The app-wide **Models** page sets the default models and provider credentials.
 The workspace **Model overrides** page changes those defaults only for its
 repository and contains a **Providers** section with one row for each
-configured CLI lane, initially Codex CLI and Claude CLI. Although CLI login is
-machine-user scoped, it is shown here because readiness determines whether the
-selected provider can work in this workspace.
+configured CLI lane, including each named Claude account. The account and model
+are chosen together in the existing Development and Review controls. Readiness
+is specific to that account, and changing these defaults applies to new tasks;
+existing tasks keep their selected account.
 
 | UI state | Display | Primary action |
 | --- | --- | --- |
@@ -4980,13 +5065,12 @@ catalog. The displayed check time comes from the backend refresh, not the page
 visit. This display snapshot never replaces the fresh readiness gate at task
 creation or turn start.
 
-The sign-in action is a direct user action. In the first release ByteQuay shows
-the provider-owned command (for Claude,
-`CLAUDE_CONFIG_DIR='<ByteQuay Claude home>' claude auth login`) for the user to run
-in a visible terminal; it does not launch, script, or infer completion of an
-interactive login. The row provides **Check again**, which invokes the shared
-typed readiness-refresh bridge operation and replaces the displayed status and
-last-checked time from that one result.
+The sign-in action is a direct user action. ByteQuay opens the provider-owned
+command from readiness (for Claude,
+`CLAUDE_CONFIG_DIR='<selected ByteQuay Claude profile>' claude auth login`) in a
+visible terminal. The user completes the interactive login; ByteQuay does not
+script it or handle its credentials. Completion refreshes readiness, and the
+row also provides **Check again** through the same typed refresh operation.
 
 Attempting to start a task while sign-in is required navigates or links to this
 settings section and explains that the task has not started. Raw messages such

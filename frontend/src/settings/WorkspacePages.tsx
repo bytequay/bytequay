@@ -22,7 +22,8 @@ import type {
 } from '../types';
 import RepoAvatar from '../RepoAvatar';
 import { RelatedWorkspaceSettings } from '../workspaces/RelatedWorkspaces';
-import { isDeepSeekKeyLane, providerStatusLabel } from './model';
+import { isClaudeLane, isDeepSeekKeyLane, providerStatusLabel } from './model';
+import ClaudeAccountsCard from './ClaudeAccountsCard';
 import { AgentModelControls, typeLabel, type ModelChoice } from './ModelsPage';
 import { AddAction, Badge, SettingsCard, SettingsRow, StatusDot, dotTone } from './primitives';
 
@@ -179,7 +180,7 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
 }
 
 export function WorkspaceAgentsPage({
-  workspace, settings, models, checking, checkedAt, error, onChoose, onUseGlobal, onCheck, onSignIn,
+  workspace, settings, models, checking, checkedAt, error, onChoose, onUseGlobal, onCheck, onSignIn, onAddClaudeAccount, onRemoveClaudeAccount,
 }: {
   workspace: WorkspaceDto;
   settings: WorkspaceSettingsDto | null;
@@ -192,6 +193,8 @@ export function WorkspaceAgentsPage({
   onCheck: () => void;
   /** Opens that lane's sign-in terminal; this is where a blocked composer sends the user. */
   onSignIn?: (providerId: string) => void;
+  onAddClaudeAccount?: (label: string, email: string) => Promise<void>;
+  onRemoveClaudeAccount?: (laneId: string) => Promise<void>;
 }) {
   return (
     <div className="setw-page">
@@ -204,7 +207,7 @@ export function WorkspaceAgentsPage({
         {settings === null || models === null
           ? <div className="setw-row-empty">Loading models…</div>
           : settings.agents.map(agent => (agent.explicit ? (
-            <SettingsRow key={agent.type} title={typeLabel(agent.type)} subtitle="Overridden for this workspace">
+            <SettingsRow key={agent.type} title={typeLabel(agent.type)} subtitle={`Overridden for this workspace · ${agent.label}`}>
               <AgentModelControls
                 agent={agent}
                 settings={models}
@@ -216,7 +219,7 @@ export function WorkspaceAgentsPage({
             <SettingsRow
               key={agent.type}
               title={typeLabel(agent.type)}
-              subtitle={`${agent.modelLabel}${agent.effort ? ` · ${agent.effort}` : ''}`}
+              subtitle={`${agent.label} · ${agent.modelLabel}${agent.effort ? ` · ${agent.effort}` : ''}`}
             >
               <Badge>global default</Badge>
               <button
@@ -244,7 +247,7 @@ export function WorkspaceAgentsPage({
           </button>
         </div>
       }>
-        {(models?.providers ?? []).filter(provider => !isDeepSeekKeyLane(provider.id)).map(provider => {
+        {(models?.providers ?? []).filter(provider => !isDeepSeekKeyLane(provider.id) && !isClaudeLane(provider.id)).map(provider => {
           const status = providerStatusLabel(provider.readiness, checking, provider.id);
           return (
             <SettingsRow
@@ -267,6 +270,8 @@ export function WorkspaceAgentsPage({
           );
         })}
       </SettingsCard>
+      <ClaudeAccountsCard providers={models?.providers ?? []} checking={checking} onCheck={onCheck}
+        onSignIn={onSignIn} onAdd={onAddClaudeAccount} onRemove={onRemoveClaudeAccount} />
     </div>
   );
 }

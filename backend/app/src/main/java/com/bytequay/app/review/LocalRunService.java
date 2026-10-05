@@ -28,7 +28,6 @@ import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
-import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.app.review.ReviewCodeService.WorkingCopySource;
@@ -327,7 +326,7 @@ public class LocalRunService
             Optional<AgentStart> start)
     {
         // Codex reports a declined or interrupted command as failed with no exit code: it never ran. Claude also gives none for a command that timed out, which did run.
-        if (!task.laneId().equals(AgentLaneId.CLAUDE_CLI) && command.state() == ActivityState.FAILED && command.exitCode().isEmpty()) {
+        if (!task.laneId().usesClaude() && command.state() == ActivityState.FAILED && command.exitCode().isEmpty()) {
             return;
         }
         Instant endedAt = envelope.occurredAt();

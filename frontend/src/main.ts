@@ -1316,6 +1316,17 @@ function registerIpc(): void {
   ipcMain.handle('settings:api-keys:add', (_event, provider: string, alias: string, key: string) =>
     backendJson(`${backendBase()}/api/settings/api-keys`, jsonInit('POST', { provider, alias, key }))
       .then(parseModelSettings));
+  ipcMain.handle('settings:claude-accounts:add', (_event, label: unknown, email: unknown) => {
+    if (typeof label !== 'string' || label.trim() === '' || label.length > 80) throw new Error('Invalid Claude account name');
+    if (typeof email !== 'string' || email.trim() === '' || email.length > 254) throw new Error('Invalid Claude account email');
+    return backendJson(`${backendBase()}/api/settings/claude-accounts`, jsonInit('POST', { label, email })).then(parseModelSettings);
+  });
+  ipcMain.handle('settings:claude-accounts:remove', (_event, laneId: unknown) => {
+    if (typeof laneId !== 'string' || !/^claude-account-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(laneId)) {
+      throw new Error('Invalid Claude account');
+    }
+    return backendJson(`${backendBase()}/api/settings/claude-accounts/${laneId.slice('claude-account-'.length)}`, { method: 'DELETE' }).then(parseModelSettings);
+  });
   ipcMain.handle('settings:api-keys:remove', (_event, alias: string) =>
     backendJson(`${backendBase()}/api/settings/api-keys/${encodeURIComponent(alias)}`, {
       method: 'DELETE',

@@ -13,7 +13,7 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { Bridge, ModelSettingsDto } from '../../types';
+import type { Bridge, ModelSettingsDto, WorkspaceDto, WorkspaceSettingsDto } from '../../types';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { assert, settle } from '../../fixtures/harness';
 import SettingsWindow from '../SettingsWindow';
@@ -30,6 +30,13 @@ const saved: ModelSettingsDto = {
   }],
   apiKeys: [], keyProviders: [],
 };
+const claude = {
+  ...saved.providers[0], id: 'claude', label: 'Claude Code',
+  models: [{ id: 'opus', name: 'Opus', description: '', efforts: ['High'], defaultEffort: 'High' }],
+  selectedModel: 'opus', selectedEffort: 'High', diagnostic: 'Signed in as default@example.com',
+};
+const account = { ...claude, id: 'claude-account-123', label: 'Claude · Work', diagnostic: '', readiness: 'AUTHENTICATION_REQUIRED' as const };
+const withAccount: ModelSettingsDto = { ...saved, providers: [...saved.providers, claude, account] };
 const latest: ModelSettingsDto = {
   ...saved,
   providers: [{ ...saved.providers[0], models: [...saved.providers[0].models,
@@ -58,29 +65,145 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(view.host.textContent?.includes('Provider temporarily unavailable') === true, 'Refresh errors stay visible');
       assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('GPT-6 Sol') === true, 'Failure retains the saved choice');
     },
+    async 'global providers expose only the default Claude account and its models'(view: View) {
+      await settle(); view.finish({ ...withAccount, providers: withAccount.providers.map(provider => provider.id === 'claude'
+        ? { ...provider, readiness: 'AUTHENTICATION_REQUIRED', diagnostic: '' } : provider) }); await settle();
+      assert(view.host.textContent?.includes('Claude Code CLI · Default account') === true, 'Default Claude stays in the global providers card');
+      assert(!view.host.textContent?.includes('Claude · Work'), 'Named accounts stay out of global provider rows');
+      assert(!view.host.textContent?.includes('Add Claude account'), 'Account setup is offered in repository settings');
+      const signIn = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Sign in');
+      assert(signIn !== undefined, 'The default account can authenticate'); signIn.click(); await settle();
+      assert(view.signIns[0] === 'claude', 'Global sign-in uses only the default profile');
+      view.host.querySelector<HTMLButtonElement>('.bq-signin-dialog__button')?.click(); await settle();
+      view.host.querySelector<HTMLButtonElement>('[aria-label="Development model"]')?.click(); await settle();
+      const options = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')];
+      assert(!options.some(button => button.textContent?.includes('Claude · Work')), 'Repository accounts cannot be picked as global defaults');
+      const choice = options.find(button => button.textContent?.includes('Opus') && button.textContent?.includes('Claude Code'));
+      assert(choice !== undefined, 'Default Claude models remain available'); choice.click(); await settle();
+      assert(view.chosen[0] === 'claude' && view.added.length === 0, 'Choosing the default never creates another account');
+    },
+    async 'repository setup uses a display name and login email and keeps repo choices separate'(view: View) {
+      await settle(); view.finish({ ...saved, providers: [...saved.providers, claude] }); await settle();
+      view.render('ws-agents', 'repo-a'); await settle();
+      view.finish({ ...saved, providers: [...saved.providers, claude] }); await settle();
+      assert(view.host.textContent?.includes('default@example.com') === true, 'The signed-in email comes from the CLI, separately from the name');
+      const add = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Add Claude account');
+      assert(add !== undefined, 'Account setup is available inside the repository'); add.click(); await settle();
+      const input = view.host.querySelector<HTMLInputElement>('[aria-label="Claude account name"]');
+      assert(input !== null, 'Repository setup asks for a name');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, 'Work');
+      input.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+      const signIn = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Add and sign in');
+      assert(signIn?.disabled === true, 'A name alone cannot start sign-in');
+      assert(!view.host.querySelector('[role="dialog"]')?.textContent?.includes('This name is a label'), 'The explanatory paragraph is removed');
+      const email = view.host.querySelector<HTMLInputElement>('[aria-label="Claude account email"]');
+      assert(email !== null && email.type === 'email', 'Repository setup asks for a login email');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(email, 'invalid');
+      email.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+      signIn.click(); await settle();
+      assert(view.added.length === 0 && view.signIns.length === 0, 'An invalid email cannot create an account');
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(email, 'work@example.com');
+      email.dispatchEvent(new Event('input', { bubbles: true })); await settle();
+      signIn.click(); await settle();
+      assert(view.added[0]?.join('/') === 'Work/work@example.com', 'The display name and login email are sent separately');
+      assert(view.signIns[0] === account.id, 'Repository login opens the new profile, never the default profile');
+      view.completeSignIn(); await settle();
+      view.host.querySelector<HTMLButtonElement>('.bq-signin-dialog__button')?.click(); await settle();
+      view.finish({ ...withAccount, providers: withAccount.providers.map(provider => provider.id === account.id
+        ? { ...provider, readiness: 'READY', diagnostic: 'Signed in as work@example.com' } : provider) }); await settle();
+      assert(view.host.textContent?.includes('work@example.com') === true, 'After sign-in the repository displays the actual email');
+      view.host.querySelector<HTMLButtonElement>('[aria-label="Development model"]')?.click(); await settle();
+      const choice = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')]
+        .find(button => button.textContent?.includes('Opus') && button.textContent?.includes('Claude · Work'));
+      assert(choice !== undefined, 'The account can be selected for this repository'); choice.click(); await settle();
+      assert(view.workspaceChoices[0]?.join('/') === `repo-a/${account.id}`, 'Only the current repository’s model is changed');
+      view.render('ws-agents', 'repo-b'); await settle();
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('GPT-6 Sol') === true, 'The second repository keeps its previous model');
+      view.render('ws-agents', 'repo-a'); await settle();
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Claude · Work') === true, 'The first repository keeps its account when revisited');
+      assert(view.chosen.length === 0, 'Repository account setup never changes global defaults');
+      view.render('models'); await settle(); view.finish(withAccount); await settle();
+      assert(!view.host.textContent?.includes('Claude · Work'), 'Repository setup does not add global provider rows');
+    },
     async 'leaving models ignores a late refresh error'(view: View) {
       await settle(); view.render('browser'); await settle();
       view.fail(new Error('Old page refresh failed')); await settle();
       assert(view.host.querySelector('h1')?.textContent === 'Browser', 'Navigation remains responsive');
       assert(!view.host.textContent?.includes('Old page refresh failed'), 'Old request does not affect the new page');
     },
+    async 'removing a named account explains its scope and handles failure without losing the row'(view: View) {
+      await settle(); view.finish(withAccount); await settle();
+      view.render('ws-agents', 'repo-a'); await settle(); view.finish(withAccount); await settle();
+      const click = (label: string) => {
+        const button = [...view.host.querySelectorAll('button')].find(value => value.textContent?.trim() === label);
+        assert(button !== undefined, `${label} is available`); button.click();
+      };
+      const defaultRow = [...view.host.querySelectorAll('.setw-row')].find(row => row.textContent?.includes('Default account'));
+      assert(defaultRow !== undefined && !defaultRow.textContent?.includes('Remove'), 'The built-in provider is not removable');
+      click('Remove'); await settle();
+      assert(view.removed.length === 0, 'Removal requires confirmation');
+      assert(view.host.querySelector('[role="dialog"]')?.textContent?.includes('every repository') === true, 'Global effect is explained');
+      click('Cancel'); await settle();
+      assert(view.removed.length === 0, 'Cancel keeps the account');
+      click('Remove'); await settle();
+      assert(view.host.querySelector('[role="dialog"]')?.textContent?.includes('does not sign out') === true, 'Credential retention is explicit');
+      click('Remove account'); await settle();
+      assert(view.host.querySelector('[role="alert"]')?.textContent?.includes('Removal failed') === true, 'Failure stays in the dialog');
+      assert(view.host.textContent?.includes('Claude · Work') === true, 'Failure keeps the account visible');
+      click('Remove account'); await settle();
+      assert(view.removed.join(',') === `${account.id},${account.id}`, 'Only the selected account is removed, including retry');
+      assert(view.host.querySelector('[role="dialog"]') === null && !view.host.textContent?.includes('Claude · Work'), 'Success closes the dialog and removes the row');
+      assert(view.host.textContent?.includes('Default account') === true, 'The other account remains');
+    },
   })) {
     const host = document.createElement('div'); document.body.append(host);
     const root = createRoot(host);
     const forces: boolean[] = [];
+    const added: string[][] = [];
+    const removed: string[] = [];
+    const chosen: string[] = [];
+    const signIns: string[] = [];
+    const workspaceChoices: string[][] = [];
+    let terminalEvent: Parameters<Bridge['onReviewTerminalEvent']>[0] = () => {};
+    const workspaceSettings = new Map<string, WorkspaceSettingsDto>();
     let finish: (value: ModelSettingsDto) => void = () => { throw new Error('No pending refresh'); };
     let fail: (error: Error) => void = () => { throw new Error('No pending refresh'); };
-    const bridge = {
+    const bridge: Partial<Bridge> = {
       getAppVersion: async () => ({ version: '0.4.0' }),
       getAppPreferences: async () => ({ theme: 'SYSTEM' as const, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 }),
       getModelSettings: async () => saved,
+      getWorkspaceSettings: async id => workspaceSettings.get(id) ?? { agents: saved.agents, remotes: [], commitsTarget: null },
+      setWorkspaceAgentModel: async (id, type, configId, model, effort) => {
+        workspaceChoices.push([id, configId]);
+        const value: WorkspaceSettingsDto = { agents: [{ type, explicit: true, configId, model, effort, label: account.label, modelLabel: 'Opus' }], remotes: [], commitsTarget: null };
+        workspaceSettings.set(id, value);
+        return value.agents[0];
+      },
+      openProviderSignIn: async laneId => { signIns.push(laneId); return { terminalId: laneId, scrollback: 'Choose an email in your browser' }; },
+      onReviewTerminalEvent: listener => { terminalEvent = listener; return () => {}; },
+      writeReviewTerminal: () => {},
+      resizeReviewTerminal: () => {},
+      addClaudeAccount: async (label, email) => { added.push([label, email]); return withAccount; },
+      removeClaudeAccount: async laneId => {
+        removed.push(laneId);
+        if (removed.length === 1) throw new Error('Removal failed; try again');
+        return { ...saved, providers: [...saved.providers, claude] };
+      },
+      setAgentModel: async (type, configId, model, effort) => {
+        chosen.push(configId);
+        return { ...withAccount, agents: [{ type, explicit: true, configId, model, effort, label: withAccount.providers.find(provider => provider.id === configId)?.label ?? configId, modelLabel: 'Opus' }] };
+      },
       refreshModelSettings: (force = false) => { forces.push(force); return new Promise<ModelSettingsDto>((resolve, reject) => { finish = resolve; fail = reject; }); },
-    } satisfies Partial<Bridge>;
+    };
     window.bridge = bridge as Bridge;
-    const render = (section: SettingsSection) => flushSync(() => root.render(<SettingsWindow section={section} workspace={null} onWorkspacesChanged={() => {}} />));
+    const render = (section: SettingsSection, id?: string) => {
+      const workspace = id === undefined ? null : { id, name: id, selectedOwner: 'owner', selectedRepo: id, localRepositoryPath: `/managed/${id}` } as WorkspaceDto;
+      flushSync(() => root.render(<SettingsWindow section={section} workspace={workspace} onWorkspacesChanged={() => {}} />));
+    };
     try {
       render('models');
-      await test({ host, forces, render, finish: value => finish(value), fail: error => fail(error) });
+      await test({ host, forces, added, removed, chosen, signIns, workspaceChoices, render,
+        completeSignIn: () => terminalEvent({ terminalId: signIns.at(-1) ?? '', exitCode: 0 }), finish: value => finish(value), fail: error => fail(error) });
       results.push({ name });
     }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
@@ -92,7 +215,13 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
 type View = {
   host: HTMLElement;
   forces: boolean[];
-  render: (section: SettingsSection) => void;
+  added: string[][];
+  removed: string[];
+  chosen: string[];
+  signIns: string[];
+  workspaceChoices: string[][];
+  completeSignIn: () => void;
+  render: (section: SettingsSection, workspaceId?: string) => void;
   finish: (value: ModelSettingsDto) => void;
   fail: (error: Error) => void;
 };

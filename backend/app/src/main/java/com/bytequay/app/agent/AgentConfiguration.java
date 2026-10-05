@@ -58,6 +58,7 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
@@ -84,6 +85,7 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalReceipts;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.ci.CiAutofixStore;
@@ -101,6 +103,7 @@ import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import java.io.IOException;
 import java.net.URI;
@@ -187,9 +190,32 @@ public class AgentConfiguration
                 ClaudeHome.prepare(properties.claudeHome()));
     }
 
-    @Bean
-    public AgentDriverRegistry agentDriverRegistry(
+    @Bean(destroyMethod = "close")
+    public ClaudeAccountDriverRegistry claudeAccountDriverRegistry(
             List<AgentDriver> drivers,
+            ClaudeAccounts accounts,
+            AgentProperties properties,
+            ObjectMapper objectMapper,
+            ProcessSupervisor supervisor,
+            PermissionBroker permissions,
+            @Value("${bytequay.agent.claude-enabled:false}") boolean enabled)
+    {
+        return new ClaudeAccountDriverRegistry(new StaticAgentDriverRegistry(drivers), accounts, enabled, account -> {
+            try {
+                return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor,
+                        ClaudeHome.prepare(properties.claudeHome().resolve("accounts").resolve(account.id())),
+                        account.laneId(), "Claude · " + account.label(), account.email());
+            }
+            catch (IOException failure) {
+                throw new AgentUnavailableException("Claude account home could not be prepared", failure);
+            }
+        });
+    }
+
+    @Bean
+    @Primary
+    public AgentDriverRegistry agentDriverRegistry(
+            ClaudeAccountDriverRegistry cliDrivers,
             ModelApiKeyStore keys,
             AgentProperties properties,
             ObjectMapper objectMapper,
@@ -197,7 +223,6 @@ public class AgentConfiguration
             PermissionBroker permissions,
             @Value("${bytequay.agent.codex-enabled:false}") boolean codexEnabled)
     {
-        AgentDriverRegistry cliDrivers = new StaticAgentDriverRegistry(drivers);
         if (!codexEnabled) {
             return cliDrivers;
         }

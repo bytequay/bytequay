@@ -14,6 +14,7 @@
 package com.bytequay.app.service.settings;
 
 import com.bytequay.agent.spi.AgentDriverRegistry;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -61,8 +62,8 @@ public class AgentCliUpdateJob
                 continue;
             }
             String lane = status.laneId().value();
-            if (lane.startsWith("deepseek-key-")) {
-                // One installed Codex binary is updated through its CLI lane, never once per saved key.
+            if (lane.startsWith("deepseek-key-") || lane.startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX)) {
+                // Update each installed binary through its default lane, never once per account or key.
                 continue;
             }
             try {

@@ -68,6 +68,37 @@ The backend writes its ready port into that session's temporary directory;
 to the frontend. When starting the backend and frontend separately, set that
 variable for `npm start` if the backend selected a port other than `9527`.
 
+## Claude accounts
+
+Settings → Models shows CLI status and the default Claude account, with Sign
+in when needed. Select a default Claude model there for repositories that use
+global settings.
+
+For a different account, in a repository's **Model overrides**, use **Claude accounts → Add Claude
+account**, enter a display name such as Work or Personal and the account's
+email, then choose **Add and sign in**. Claude pre-fills that email in its
+browser login. ByteQuay checks that the authenticated email matches before
+marking the account ready; the account row shows the email reported by Claude.
+Named-account setup and removal are available in repository settings, not the
+global provider list or global model choices.
+
+Each account uses its own ByteQuay profile and macOS Keychain entry, selected
+automatically during both sign-in and execution. No password or OAuth token is
+stored by ByteQuay. No manual profile path or shell configuration is needed.
+Profiles stay in ByteQuay's application data directory, outside repositories
+and their worktrees, so Git cannot accidentally commit or clean them.
+
+Override Development and Review as needed and choose a model under the intended
+Claude account. Account names are shown with the selection. New tasks use that choice; existing tasks keep the
+account they started with, including later turns and resumed sessions. Accounts
+can run concurrently across repositories. The default Claude profile remains
+available for existing tasks and settings.
+
+The login profile does not change the task's working directory or the user's
+`HOME`. Tasks still run in their own worktrees and use the usual build caches,
+including `~/.m2`; ByteQuay supplies `JAVA_HOME` for Java and Maven in Claude's
+macOS sandbox.
+
 ## Project layout
 
 ```text

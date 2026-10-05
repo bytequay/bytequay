@@ -28,6 +28,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCommandPolicy;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -819,11 +820,13 @@ class TestClaudeCliDriver
     {
         ScriptedProcessSupervisor loggedIn = new ScriptedProcessSupervisor();
         loggedIn.authentication(
-                "{\"loggedIn\":true,\"authMethod\":\"oauth\",\"apiProvider\":\"firstParty\"}",
+                "{\"loggedIn\":true,\"authMethod\":\"oauth\",\"apiProvider\":\"firstParty\",\"email\":\"work@example.com\"}",
                 "ignored diagnostic",
                 0);
         ClaudeCliDriver loggedInDriver = driver(loggedIn);
-        assertThat(loggedInDriver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+        AgentProviderStatus ready = loggedInDriver.probe();
+        assertThat(ready.readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+        assertThat(ready.diagnostic()).isEqualTo("Signed in as work@example.com");
         loggedInDriver.close();
 
         ScriptedProcessSupervisor loggedOut = new ScriptedProcessSupervisor();
@@ -913,6 +916,116 @@ class TestClaudeCliDriver
                 assertThat(await(session.start(command("profile-check"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
             }
             assertThat(supervisor.turns().getFirst().spec().environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString());
+        }
+    }
+
+    @Test
+    void namedAccountsKeepProbeTurnAndResumeInTheirOwnProfile()
+            throws Exception
+    {
+        AgentLaneId workLane = new AgentLaneId("claude-account-work");
+        AgentLaneId personalLane = new AgentLaneId("claude-account-personal");
+        Path workHome = worktree.resolve("work-profile");
+        Path personalHome = worktree.resolve("personal-profile");
+        Path buildHome = Files.createDirectories(worktree.resolve("user-home"));
+        ScriptedProcessSupervisor workSupervisor = new ScriptedProcessSupervisor();
+        ScriptedProcessSupervisor personalSupervisor = new ScriptedProcessSupervisor();
+        workSupervisor.authentication("{\"loggedIn\":false}", "", 1);
+        personalSupervisor.authentication("{\"loggedIn\":true,\"email\":\"personal@example.com\"}", "", 0);
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        Map<String, String> ambient = ImmutableMap.of(
+                "HOME", buildHome.toString(), "JAVA_HOME", System.getProperty("java.home"), "CLAUDE_CONFIG_DIR", "/ambient", "ANTHROPIC_API_KEY", "wrong-key",
+                "ANTHROPIC_AUTH_TOKEN", "wrong-token", "CLAUDE_CODE_OAUTH_TOKEN", "wrong-login", "ANTHROPIC_BASE_URL", "https://wrong.example");
+        try (ClaudeCliDriver work = new ClaudeCliDriver("/fake/claude", objectMapper, broker, workSupervisor, workHome,
+                workLane, "Claude · Work", Optional.of("work@example.com"), ambient);
+                ClaudeCliDriver personal = new ClaudeCliDriver("/fake/claude", objectMapper, broker, personalSupervisor, personalHome,
+                        personalLane, "Claude · Personal", Optional.of("personal@example.com"), ambient)) {
+            AgentProviderStatus status = work.probe();
+            assertThat(status.laneId()).isEqualTo(workLane);
+            assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+            assertThat(status.diagnostic()).isEqualTo("Sign in as work@example.com");
+            assertThat(status.signInCommand().orElseThrow()).contains("CLAUDE_CONFIG_DIR='" + workHome + "' /fake/claude auth login")
+                    .endsWith(" --claudeai --email 'work@example.com'")
+                    .startsWith("/usr/bin/env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CODE_OAUTH_TOKEN ");
+            assertThat(personal.probe().diagnostic()).isEqualTo("Signed in as personal@example.com");
+            workSupervisor.authentication("{\"loggedIn\":true,\"email\":\"personal@example.com\"}", "", 0);
+            assertThat(work.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+            assertThat(work.probe().diagnostic()).isEqualTo("Signed in as personal@example.com; sign in as work@example.com");
+            assertThat(work.probe().signInCommand().orElseThrow()).endsWith(" --email 'work@example.com'");
+            workSupervisor.authentication("{\"loggedIn\":true}", "", 0);
+            assertThat(work.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+            workSupervisor.authentication("{\"loggedIn\":true,\"email\":\"WORK@example.com\"}", "", 0);
+            assertThat(work.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            workSupervisor.authentication("{\"loggedIn\":true,\"email\":\"work@example.com\"}", "", 0);
+            assertThat(work.probe().diagnostic()).isEqualTo("Signed in as work@example.com");
+            AgentSessionRef reference;
+            try (AgentSession workSession = work.open(accountContext("repository-a", Optional.empty()), event -> {});
+                    AgentSession personalSession = personal.open(accountContext("repository-b", Optional.empty()), event -> {})) {
+                reference = workSession.reference();
+                assertThat(reference.laneId()).isEqualTo(workLane);
+                assertThat(personalSession.reference().laneId()).isEqualTo(personalLane);
+                var workTurn = workSession.start(command("profile-work"));
+                var personalTurn = personalSession.start(command("profile-personal"));
+                assertThat(await(workTurn).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+                assertThat(await(personalTurn).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            }
+            assertThatThrownBy(() -> personal.open(accountContext("repository-b", Optional.of(reference)), event -> {}))
+                    .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("session reference");
+            try (AgentSession resumed = work.open(accountContext("repository-a", Optional.of(reference)), event -> {})) {
+                assertThat(resumed.reference()).isEqualTo(reference);
+                assertThat(await(resumed.start(command("profile-resume"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            }
+            for (ScriptedProcessSupervisor supervisor : ImmutableList.of(workSupervisor, personalSupervisor)) {
+                Path expected = supervisor == workSupervisor ? workHome : personalHome;
+                assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec -> assertThat(spec.environment())
+                        .containsEntry("CLAUDE_CONFIG_DIR", expected.toString())
+                        .containsEntry("HOME", buildHome.toString())
+                        .containsEntry("JAVA_HOME", System.getProperty("java.home"))
+                        .doesNotContainKeys("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"));
+                for (String content : supervisor.sandboxSettings) {
+                    JsonNode settings = objectMapper.readTree(content);
+                    assertThat(settings.path("sandbox").path("filesystem").path("allowWrite"))
+                            .contains(objectMapper.getNodeFactory().textNode(buildHome.toRealPath().resolve(".m2").toString()));
+                }
+            }
+            assertThat(workSupervisor.turns()).allSatisfy(turn -> assertThat(turn.spec().workingDirectory()).isEqualTo(worktree.resolve("repository-a/task-worktree")));
+            assertThat(personalSupervisor.turns()).allSatisfy(turn -> assertThat(turn.spec().workingDirectory()).isEqualTo(worktree.resolve("repository-b/task-worktree")));
+            assertThat(workSupervisor.turns()).hasSize(2);
+            assertThat(personalSupervisor.turns()).hasSize(1);
+        }
+    }
+
+    @Test
+    void namedAccountSignInUsesItsQuotedProfileDespiteAmbientCredentials()
+            throws Exception
+    {
+        Path executable = Files.createDirectories(worktree.resolve("Claude CLI's bin")).resolve("claude");
+        Files.writeString(executable, """
+                #!/bin/sh
+                test "$1/$2" = auth/login || exit 2
+                test "$3" = --claudeai || exit 4
+                test "$4" = --email || exit 5
+                test "$5" = "o'connor+work@example.com" || exit 6
+                test "$#" = 5 || exit 7
+                test -z "${ANTHROPIC_API_KEY}${ANTHROPIC_AUTH_TOKEN}${ANTHROPIC_BASE_URL}${CLAUDE_CODE_OAUTH_TOKEN}" || exit 3
+                printf '%s' "$CLAUDE_CONFIG_DIR"
+                """);
+        Files.setPosixFilePermissions(executable, PosixFilePermissions.fromString("rwx------"));
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.authentication("{\"loggedIn\":false}", "", 1);
+        Path profile = worktree.resolve("Work account's profile");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        try (ClaudeCliDriver driver = new ClaudeCliDriver(executable.toString(), objectMapper, broker, supervisor, profile,
+                new AgentLaneId("claude-account-work"), "Claude · Work", Optional.of("o'connor+work@example.com"), ImmutableMap.of())) {
+            ProcessBuilder shell = new ProcessBuilder("/bin/sh", "-c", driver.probe().signInCommand().orElseThrow());
+            shell.environment().putAll(ImmutableMap.of("CLAUDE_CONFIG_DIR", "/wrong-profile", "ANTHROPIC_API_KEY", "wrong-key",
+                    "ANTHROPIC_AUTH_TOKEN", "wrong-token", "ANTHROPIC_BASE_URL", "https://wrong.example", "CLAUDE_CODE_OAUTH_TOKEN", "wrong-login"));
+            Process process = shell.start();
+            assertThat(process.waitFor(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(process.exitValue()).isZero();
+            assertThat(new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8)).isEqualTo(profile.toString());
         }
     }
 
@@ -1549,6 +1662,16 @@ class TestClaudeCliDriver
         }
     }
 
+    private AgentSessionContext accountContext(String repository, Optional<AgentSessionRef> reference)
+            throws IOException
+    {
+        AgentSessionContext base = context(reference);
+        Path checkout = Files.createDirectories(worktree.resolve(repository).resolve("task-worktree"));
+        Path runtime = Files.createDirectories(worktree.resolve(repository).resolve("runtime"));
+        return new AgentSessionContext(repository, checkout, runtime, runtime.resolve("provider"), base.permissionPolicy(), reference,
+                base.approvals(), base.model(), base.effort(), base.access(), base.codeGraph(), base.managedInstructions());
+    }
+
     private Path claudeHome()
     {
         return worktree.resolve("claude-home");
@@ -1669,6 +1792,7 @@ class TestClaudeCliDriver
     {
         private final List<ScriptedTurn> turns = new CopyOnWriteArrayList<>();
         private final List<ProcessSpec> specs = new CopyOnWriteArrayList<>();
+        private final List<String> sandboxSettings = new CopyOnWriteArrayList<>();
         private String versionOutput = "2.1.233 (Claude Code)";
         private String helpOutput = """
                 --output-format --include-partial-messages --include-hook-events
@@ -1701,6 +1825,15 @@ class TestClaudeCliDriver
         public PreparedProcess prepare(ProcessSpec spec)
         {
             specs.add(spec);
+            int settingsIndex = spec.argv().indexOf("--settings");
+            if (settingsIndex >= 0) {
+                try {
+                    sandboxSettings.add(Files.readString(Path.of(spec.argv().get(settingsIndex + 1))));
+                }
+                catch (IOException failure) {
+                    throw new AssertionError("Could not capture the turn's sandbox settings", failure);
+                }
+            }
             return new ScriptedLaunch(spec);
         }
 

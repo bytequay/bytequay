@@ -90,6 +90,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static com.bytequay.agent.cli.process.ProviderCli.failureMessage;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -97,7 +98,6 @@ public final class ClaudeCliDriver
         implements AgentDriver, AutoCloseable
 {
     private static final Logger log = LoggerFactory.getLogger(ClaudeCliDriver.class);
-    private static final AgentLaneId LANE_ID = new AgentLaneId("claude");
     private static final int CONTRACT_VERSION = 1;
     private static final Pattern RELEASE = Pattern.compile("\\d+\\.\\d+\\.\\d+");
     private static final Version MINIMUM_VERSION = Version.parse("2.1.200");
@@ -164,6 +164,9 @@ public final class ClaudeCliDriver
             "XDG_CONFIG_HOME");
 
     private final String executable;
+    private final AgentLaneId laneId;
+    private final String label;
+    private final Optional<String> loginEmail;
     private final Path claudeHome;
     private final ProcessSupervisor supervisor;
     private final Map<String, String> environment;
@@ -189,6 +192,19 @@ public final class ClaudeCliDriver
         this(executable, objectMapper, permissions, supervisor, claudeHome, inheritedEnvironment());
     }
 
+    public ClaudeCliDriver(
+            String executable,
+            ObjectMapper objectMapper,
+            PermissionBroker permissions,
+            ProcessSupervisor supervisor,
+            Path claudeHome,
+            AgentLaneId laneId,
+            String label,
+            Optional<String> loginEmail)
+    {
+        this(executable, objectMapper, permissions, supervisor, claudeHome, laneId, label, loginEmail, inheritedEnvironment());
+    }
+
     ClaudeCliDriver(
             String executable,
             ObjectMapper objectMapper,
@@ -197,13 +213,33 @@ public final class ClaudeCliDriver
             Path claudeHome,
             Map<String, String> environment)
     {
+        this(executable, objectMapper, permissions, supervisor, claudeHome, AgentLaneId.CLAUDE_CLI, "Claude Code", Optional.empty(), environment);
+    }
+
+    ClaudeCliDriver(
+            String executable,
+            ObjectMapper objectMapper,
+            PermissionBroker permissions,
+            ProcessSupervisor supervisor,
+            Path claudeHome,
+            AgentLaneId laneId,
+            String label,
+            Optional<String> loginEmail,
+            Map<String, String> environment)
+    {
         this.executable = requireNonNull(executable, "executable is null");
+        this.laneId = requireNonNull(laneId, "laneId is null");
+        checkArgument(laneId.usesClaude(), "not a Claude lane");
+        this.label = requireNonNull(label, "label is null");
+        this.loginEmail = requireNonNull(loginEmail, "loginEmail is null");
         this.claudeHome = requireNonNull(claudeHome, "claudeHome is null").toAbsolutePath().normalize();
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         // Overrides any inherited value: a shell that exports CLAUDE_CONFIG_DIR must not redirect
         // ByteQuay's processes into the user's own Claude setup.
         this.environment = ImmutableMap.<String, String>builder()
-                .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CLAUDE_CONFIG_DIR")))
+                .putAll(Maps.filterKeys(requireNonNull(environment, "environment is null"), name -> !name.equals("CLAUDE_CONFIG_DIR")
+                        // Named accounts must use their own login, even when the backend inherited API credentials.
+                        && (laneId.equals(AgentLaneId.CLAUDE_CLI) || (!name.startsWith("ANTHROPIC_") && !name.equals("CLAUDE_CODE_OAUTH_TOKEN")))))
                 .put("CLAUDE_CONFIG_DIR", this.claudeHome.toString())
                 .buildOrThrow();
         this.redactor = SecretRedactor.fromEnvironment(this.environment);
@@ -216,13 +252,13 @@ public final class ClaudeCliDriver
     @Override
     public AgentLaneId id()
     {
-        return LANE_ID;
+        return laneId;
     }
 
     @Override
     public String label()
     {
-        return "Claude Code";
+        return label;
     }
 
     @Override
@@ -357,8 +393,8 @@ public final class ClaudeCliDriver
                     forwardSubagentText ? AgentProviderStatus.Readiness.READY : AgentProviderStatus.Readiness.DEGRADED,
                     Optional.of(version.toString()),
                     forwardSubagentText
-                            ? "Claude CLI stream-json is available"
-                            : "Claude CLI subagent transcript forwarding is unavailable");
+                            ? authentication.diagnostic()
+                            : authentication.diagnostic() + "; subagent transcript forwarding is unavailable");
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -389,14 +425,14 @@ public final class ClaudeCliDriver
         Optional<AgentSessionRef> existing = context.sessionReference();
         if (existing.isPresent()) {
             AgentSessionRef reference = existing.orElseThrow();
-            if (!reference.laneId().equals(LANE_ID) || reference.contractVersion() != CONTRACT_VERSION) {
+            if (!reference.laneId().equals(laneId) || reference.contractVersion() != CONTRACT_VERSION) {
                 throw new AgentUnavailableException("Unsupported Claude session reference");
             }
         }
         String sessionId = existing.map(AgentSessionRef::providerValue)
                 .orElseGet(() -> UUID.randomUUID().toString());
         ClaudeSession session = new ClaudeSession(
-                new AgentSessionRef(LANE_ID, CONTRACT_VERSION, sessionId),
+                new AgentSessionRef(laneId, CONTRACT_VERSION, sessionId),
                 context,
                 events,
                 existing.isPresent());
@@ -523,14 +559,19 @@ public final class ClaudeCliDriver
     {
         String message = diagnostic == null || diagnostic.isBlank() ? readiness.name().toLowerCase() : diagnostic;
         String command = executable.matches("[A-Za-z0-9_./-]+") ? executable : shellQuote(executable);
+        // A login shell can export credentials again; named-profile sign-in must match the driver's environment.
+        String loginEnvironment = laneId.equals(AgentLaneId.CLAUDE_CLI) ? ""
+                : "/usr/bin/env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u ANTHROPIC_BASE_URL -u CLAUDE_CODE_OAUTH_TOKEN ";
         return new AgentProviderStatus(
-                LANE_ID,
+                laneId,
                 readiness,
                 version,
                 redactor.redact(message),
                 capabilities(),
                 readiness == AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED
-                        ? Optional.of("CLAUDE_CONFIG_DIR=" + shellQuote(claudeHome.toString()) + " " + command + " auth login")
+                        ? Optional.of(loginEnvironment + "CLAUDE_CONFIG_DIR=" + shellQuote(claudeHome.toString()) + " " + command + " auth login"
+                                + (laneId.equals(AgentLaneId.CLAUDE_CLI) ? "" : " --claudeai")
+                                + loginEmail.map(email -> " --email " + shellQuote(email)).orElse(""))
                         : Optional.empty());
     }
 
@@ -556,22 +597,31 @@ public final class ClaudeCliDriver
         if (result.truncated()) {
             return AuthenticationProbe.unavailable("Claude authentication status was truncated");
         }
-        Optional<Boolean> loggedIn = loggedIn(result.stdout());
-        if (loggedIn.isEmpty()) {
+        Optional<JsonNode> status = authenticationStatus(result.stdout());
+        if (status.isEmpty()) {
             return AuthenticationProbe.unavailable("Claude returned an invalid authentication status");
         }
-        if (!loggedIn.orElseThrow()) {
+        if (!status.orElseThrow().path("loggedIn").booleanValue()) {
             return new AuthenticationProbe(
                     AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
-                    "Claude sign-in required");
+                    loginEmail.map(email -> "Sign in as " + email).orElse("Claude sign-in required"));
         }
         if (result.exitCode() != 0) {
             return AuthenticationProbe.unavailable("Claude authentication status failed");
         }
-        return new AuthenticationProbe(AgentProviderStatus.Readiness.READY, "Claude authentication is ready");
+        Optional<String> authenticatedEmail = Optional.ofNullable(status.orElseThrow().get("email"))
+                .filter(JsonNode::isTextual)
+                .map(JsonNode::textValue)
+                .filter(email -> !email.isBlank() && email.length() <= 320 && email.chars().noneMatch(Character::isISOControl));
+        if (loginEmail.isPresent() && authenticatedEmail.filter(email -> email.equalsIgnoreCase(loginEmail.orElseThrow())).isEmpty()) {
+            return new AuthenticationProbe(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
+                    authenticatedEmail.map(email -> "Signed in as " + email + "; sign in as " + loginEmail.orElseThrow())
+                            .orElse("Claude did not report a login email; sign in as " + loginEmail.orElseThrow()));
+        }
+        return new AuthenticationProbe(AgentProviderStatus.Readiness.READY, authenticatedEmail.map(email -> "Signed in as " + email).orElse("Signed in"));
     }
 
-    private Optional<Boolean> loggedIn(String stdout)
+    private Optional<JsonNode> authenticationStatus(String stdout)
     {
         if (stdout == null || stdout.isBlank()) {
             return Optional.empty();
@@ -583,7 +633,7 @@ public final class ClaudeCliDriver
             }
             JsonNode loggedIn = status.get("loggedIn");
             return loggedIn != null && loggedIn.isBoolean()
-                    ? Optional.of(loggedIn.booleanValue())
+                    ? Optional.of(status)
                     : Optional.empty();
         }
         catch (IOException ignored) {

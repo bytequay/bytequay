@@ -206,6 +206,20 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
       .catch(report);
   };
 
+  const addClaudeAccount = async (label: string, email: string) => {
+    setError(null);
+    const updated = await window.bridge.addClaudeAccount(label, email);
+    setModels(updated);
+    const account = updated.providers.find(provider => provider.label === `Claude · ${label}`);
+    if (account !== undefined) setSigningIn({ laneId: account.id, providerName: account.label });
+  };
+
+  const removeClaudeAccount = async (laneId: string) => {
+    setError(null);
+    setModels(await window.bridge.removeClaudeAccount(laneId));
+    refreshWorkspaceSettings();
+  };
+
   const savePreferences = (next: AppPreferencesDto) => {
     setPreferences(next);
     window.bridge.saveAppPreferences(next).then(setPreferences).catch(report);
@@ -389,6 +403,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
           )}
           {section === 'ws-agents' && workspace !== null && (
             <WorkspaceAgentsPage
+              key={workspace.id}
               workspace={workspace}
               settings={wsSettings}
               models={models}
@@ -404,6 +419,8 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
                 laneId: providerId,
                 providerName: models?.providers.find(provider => provider.id === providerId)?.label ?? providerId,
               })}
+              onAddClaudeAccount={addClaudeAccount}
+              onRemoveClaudeAccount={removeClaudeAccount}
             />
           )}
           {section === 'ws-token' && workspace !== null && (

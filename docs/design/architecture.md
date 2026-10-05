@@ -770,8 +770,16 @@ renderer crashes detach the native surface and expose a reload action.
   read, copied, or linked, and the variable is set on ByteQuay's processes
   only, so the user's own Codex sessions are unaffected.
 - Every Claude CLI process ByteQuay starts uses `CLAUDE_CONFIG_DIR` pointing
-  to `claude-home` under that same application-support directory. The sign-in
-  command shown by readiness uses the same path; the CLI owns the credentials.
+  to an app-owned profile under that same application-support directory. The
+  default uses `claude-home`; named accounts use `claude-home/accounts/<UUID>`.
+  Each account has a stable provider lane used by repository model overrides
+  and persisted tasks, so later turns retain their account when defaults change.
+  Account UUIDs, display names and login emails use the existing settings store;
+  the sign-in command pre-fills the saved email and readiness verifies it against
+  the selected profile's authenticated email. The CLI owns the credentials.
+  Global Models settings shows the default Claude provider; named-account setup
+  and selection live in repository Model overrides. Profiles remain outside Git
+  checkouts, and every task worktree uses its persisted account profile.
 - There is one Codex App Server process per active Codex turn, launched with
   the task ID as its owner and the task worktree as its working directory. Its
   loss interrupts only that task's turn; stored thread IDs remain resumable by

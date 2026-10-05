@@ -313,6 +313,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('git:squash', workspaceId, branch, baseSha, tipSha, message),
 
   getModelSettings: workspaceId => ipcRenderer.invoke('settings:models', workspaceId),
+  addClaudeAccount: (label, email) => ipcRenderer.invoke('settings:claude-accounts:add', label, email),
+  removeClaudeAccount: laneId => ipcRenderer.invoke('settings:claude-accounts:remove', laneId),
   refreshModelSettings: (force = false) => ipcRenderer.invoke('settings:models:refresh', force),
   setAgentModel: (type, configId, model, effort) =>
     ipcRenderer.invoke('settings:models:agent:set', type, configId, model, effort),

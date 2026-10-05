@@ -14,7 +14,7 @@
 import { useState } from 'react';
 import { LogIn, Plus, RefreshCw } from 'lucide-react';
 import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../types';
-import { isDeepSeekKeyLane, providerStatusLabel } from './model';
+import { isClaudeAccount, isDeepSeekKeyLane, providerStatusLabel } from './model';
 import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
 
 /** Chosen when Review should follow Development instead of naming its own model. */
@@ -120,7 +120,7 @@ export function AgentModelControls({ agent, settings, inheritLabel, onChoose, on
         wide
         ariaLabel={`${typeLabel(agent.type)} model`}
         value={inheriting ? INHERIT_VALUE : optionValue(agent.configId, agent.model)}
-        label={inheriting ? (inheritLabel ?? '') : agent.modelLabel}
+        label={inheriting ? (inheritLabel ?? '') : isClaudeAccount(agent.configId) ? `${agent.modelLabel} · ${agent.label}` : agent.modelLabel}
         options={pillOptions}
         footer={onAddKey === undefined ? undefined : (
           <button type="button" className="setw-card-foot-link setw-menu-item" onClick={onAddKey}>
@@ -182,6 +182,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
   onRemoveKey: (alias: string) => void;
 }) {
   const [addingKey, setAddingKey] = useState(false);
+  const globalSettings = { ...settings, providers: settings.providers.filter(provider => !isClaudeAccount(provider.id)) };
   const development = settings.agents.find(agent => agent.type === 'DEVELOPMENT');
   const review = settings.agents.find(agent => agent.type === 'REVIEW');
 
@@ -195,7 +196,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
         {development !== undefined && (
           <AgentModelRow
             agent={development}
-            settings={settings}
+            settings={globalSettings}
             subtitle="Task turns and CI Autofix"
             onChoose={choice => onChoose('DEVELOPMENT', choice)}
             onAddKey={() => setAddingKey(true)}
@@ -204,7 +205,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
         {review !== undefined && (
           <AgentModelRow
             agent={review}
-            settings={settings}
+            settings={globalSettings}
             subtitle="Pull-request reviews and discussions"
             inheritLabel="Same as Development"
             onChoose={choice => onChoose('REVIEW', choice)}
@@ -218,22 +219,24 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
 
       <div className="setw-section"><span className="setw-section-title">Providers</span></div>
       <SettingsCard footer={<AddAction label="Add API key" onClick={() => setAddingKey(true)} />}>
-        {settings.providers.length === 0 && (
+        {globalSettings.providers.length === 0 && (
           <SettingsRow title={checking ? 'Checking providers…' : 'Providers have not been checked yet'}>
             <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>Check</button>
           </SettingsRow>
         )}
-        {settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id)).map(provider => {
+        {globalSettings.providers.filter(provider => !isDeepSeekKeyLane(provider.id)).map(provider => {
           const status = providerStatusLabel(provider.readiness, checking, provider.id);
           return (
             <SettingsRow
               key={provider.id}
-              title={`${provider.label} CLI`}
+              title={provider.id === 'claude' ? 'Claude Code CLI · Default account' : `${provider.label} CLI`}
               subtitle={
                 <span className="setw-status">
                   <StatusDot tone={dotTone(status.tone)} />
                   <span>
                     {status.label}
+                    {provider.id === 'claude' && (provider.readiness === 'READY' || provider.readiness === 'DEGRADED') && provider.diagnostic
+                      ? ` · ${provider.diagnostic}` : ''}
                     {provider.version ? ` · v${provider.version}` : ''}
                   </span>
                 </span>
@@ -280,6 +283,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
       <div className="setw-footnote">
         Models and providers refresh automatically{checkedAt === null ? '' : ` · checked ${checkedAt}`}. Check fetches the latest available models.
       </div>
+      <div className="setw-footnote">Claude uses the default account here. To sign in with another account for a repository, open its Model overrides.</div>
 
       {addingKey && (
         <AddKeyDialog

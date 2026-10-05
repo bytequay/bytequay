@@ -17,6 +17,7 @@ import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
+import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.CodeGraphSetting;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelSettings;
@@ -43,15 +44,18 @@ public class SettingsController
 {
     private final ModelSettingsService models;
     private final AppSettingsService settings;
+    private final ClaudeAccounts claudeAccounts;
     private final Supplier<CodeGraphBaseline> baseline;
 
     public SettingsController(
             ModelSettingsService models,
             AppSettingsService settings,
+            ClaudeAccounts claudeAccounts,
             Supplier<CodeGraphBaseline> baseline)
     {
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
+        this.claudeAccounts = requireNonNull(claudeAccounts, "claudeAccounts is null");
         this.baseline = requireNonNull(baseline, "baseline is null");
     }
 
@@ -95,10 +99,28 @@ public class SettingsController
         return models.addApiKey(request.provider(), request.alias(), request.key());
     }
 
+    @PostMapping("/claude-accounts")
+    public ModelSettings addClaudeAccount(@RequestBody ClaudeAccountRequest request)
+    {
+        requireNotBlank(request.label(), "account name must not be blank");
+        requireNotBlank(request.email(), "account email must not be blank");
+        claudeAccounts.add(request.label(), request.email());
+        models.refreshCatalogs();
+        return models.get();
+    }
+
     @DeleteMapping("/api-keys/{alias}")
     public ModelSettings removeApiKey(@PathVariable String alias)
     {
         return models.removeApiKey(alias);
+    }
+
+    @DeleteMapping("/claude-accounts/{id}")
+    public ModelSettings removeClaudeAccount(@PathVariable String id)
+    {
+        claudeAccounts.remove(id);
+        models.refreshCatalogs();
+        return models.get();
     }
 
     @GetMapping("/codegraph")
@@ -158,4 +180,6 @@ public class SettingsController
     public record SelectionRequest(String configId, String model, String effort) {}
 
     public record ApiKeyRequest(String provider, String alias, String key) {}
+
+    public record ClaudeAccountRequest(String label, String email) {}
 }

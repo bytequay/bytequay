@@ -70,25 +70,25 @@ public class ProviderSessionRetentionJob
     {
         Instant deleteBefore = Instant.now().minus(retention);
         sweep("Codex", () -> CodexHome.pruneSessions(properties.codexHome(), deleteBefore));
-        sweepDeepSeekHomes(deleteBefore);
+        sweepHomes(properties.codexHome().resolve("deepseek"), "DeepSeek", home -> CodexHome.pruneSessions(home, deleteBefore));
         sweep("Claude", () -> ClaudeHome.pruneSessions(properties.claudeHome(), deleteBefore));
+        sweepHomes(properties.claudeHome().resolve("accounts"), "Claude", home -> ClaudeHome.pruneSessions(home, deleteBefore));
     }
 
-    private void sweepDeepSeekHomes(Instant deleteBefore)
+    private void sweepHomes(Path root, String lane, HomeSweep sweep)
     {
-        Path root = properties.codexHome().resolve("deepseek");
         if (!Files.isDirectory(root, LinkOption.NOFOLLOW_LINKS)) {
             return;
         }
         try (DirectoryStream<Path> homes = Files.newDirectoryStream(root)) {
             for (Path home : homes) {
                 if (Files.isDirectory(home, LinkOption.NOFOLLOW_LINKS)) {
-                    sweep("DeepSeek", () -> CodexHome.pruneSessions(home, deleteBefore));
+                    sweep(lane, () -> sweep.run(home));
                 }
             }
         }
         catch (IOException failure) {
-            log.warn("DeepSeek session retention sweep failed: {}", failure.getMessage());
+            log.warn("{} session retention sweep failed: {}", lane, failure.getMessage());
         }
     }
 
@@ -104,6 +104,13 @@ public class ProviderSessionRetentionJob
             // One unreadable home must not stop the other from being swept.
             log.warn("{} session retention sweep failed: {}", lane, failure.getMessage());
         }
+    }
+
+    @FunctionalInterface
+    private interface HomeSweep
+    {
+        int run(Path home)
+                throws IOException;
     }
 
     @FunctionalInterface

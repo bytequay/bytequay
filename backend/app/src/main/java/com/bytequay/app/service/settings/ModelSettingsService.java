@@ -229,7 +229,8 @@ public class ModelSettingsService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         List<Provider> providers = providerStatuses.stream()
-                .filter(status -> !status.laneId().value().startsWith(DEEPSEEK_LANE_PREFIX)
+                .filter(status -> (!status.laneId().value().startsWith(DEEPSEEK_LANE_PREFIX)
+                        && !status.laneId().value().startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX))
                         || cliCatalog(status.laneId().value()).isPresent())
                 .map(this::provider)
                 .collect(toImmutableList());
@@ -424,7 +425,8 @@ public class ModelSettingsService
      * <p>Falls back to the seeded Claude catalog when nothing is available, so
      * an install with no signed-in provider still answers with a model rather
      * than a blank row. Saved-key lanes are selected only for manual tasks,
-     * not for automatic Development or Review work.
+     * not for automatic Development or Review work. Named Claude accounts need
+     * an explicit choice: signing one in must not redirect unrelated repositories.
      */
     private String defaultLaneId()
     {
@@ -432,6 +434,7 @@ public class ModelSettingsService
                 .filter(AgentProviderStatus::available)
                 .map(status -> status.laneId().value())
                 .filter(laneId -> !laneId.startsWith(DEEPSEEK_LANE_PREFIX))
+                .filter(laneId -> !laneId.startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX))
                 .filter(laneId -> cliCatalog(laneId).filter(catalog -> !catalog.models().isEmpty()).isPresent())
                 .findFirst()
                 .orElse(CLAUDE_LANE);
@@ -444,7 +447,8 @@ public class ModelSettingsService
                 type,
                 explicit,
                 stored.configId(),
-                catalog.map(Catalog::label).orElse(stored.configId()),
+                catalog.map(Catalog::label).orElseGet(() -> stored.configId().startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX)
+                        ? "Claude account unavailable" : stored.configId()),
                 stored.model(),
                 catalog.map(value -> value.modelLabel(stored.model())).orElse(stored.model()),
                 Optional.ofNullable(stored.effort()));
@@ -553,6 +557,15 @@ public class ModelSettingsService
     /** The stored catalog row for a CLI lane; absent until seeded or probed. */
     private Optional<Catalog> cliCatalog(String laneId)
     {
+        if (laneId.startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX)) {
+            try {
+                String label = drivers.require(new AgentLaneId(laneId)).label();
+                return storedCatalog(CLAUDE_LANE).map(stored -> new Catalog(label, stored.models(), stored.defaultModelId()));
+            }
+            catch (RuntimeException unavailable) {
+                return Optional.empty();
+            }
+        }
         if (laneId.startsWith(DEEPSEEK_LANE_PREFIX)) {
             String keyId = laneId.substring(DEEPSEEK_LANE_PREFIX.length());
             return apiKeys.findById(keyId)

@@ -19,6 +19,7 @@ import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.AppTheme;
+import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.CodeGraphMode;
 import com.bytequay.app.service.settings.CodeGraphSetting;
 import com.bytequay.app.service.settings.ModelSettingsService;
@@ -38,7 +39,9 @@ import java.util.concurrent.atomic.AtomicReference;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -51,7 +54,8 @@ class TestSettingsController
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
     private final AtomicReference<CodeGraphBaseline> baseline = new AtomicReference<>(CodeGraphBaseline.NONE);
-    private final SettingsController controller = new SettingsController(models, settings, baseline::get);
+    private final ClaudeAccounts claudeAccounts = mock(ClaudeAccounts.class);
+    private final SettingsController controller = new SettingsController(models, settings, claudeAccounts, baseline::get);
 
     /** Boot's own serialization settings, so the test asserts the wire format the renderer parses. */
     private static ObjectMapper appMapper()
@@ -66,6 +70,37 @@ class TestSettingsController
         return standaloneSetup(controller)
                 .setMessageConverters(new MappingJackson2HttpMessageConverter(appMapper()))
                 .build();
+    }
+
+    @Test
+    void removingAClaudeAccountRefreshesItsChoices()
+            throws Exception
+    {
+        String id = "3fc79e41-f2c8-4d04-b4fc-bc6e658f4e56";
+        mvc().perform(delete("/api/settings/claude-accounts/" + id)).andExpect(status().isOk());
+        verify(claudeAccounts).remove(id);
+        verify(models).refreshCatalogs();
+        verify(models).get();
+    }
+
+    @Test
+    void addingAClaudeAccountRefreshesItsReadiness()
+            throws Exception
+    {
+        mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Work\",\"email\":\"work@example.com\"}"))
+                .andExpect(status().isOk());
+        verify(claudeAccounts).add("Work", "work@example.com");
+        verify(models).refreshCatalogs();
+        verify(models).get();
+    }
+
+    @Test
+    void addingAClaudeAccountRequiresAnEmail()
+            throws Exception
+    {
+        mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Work\"}"))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(claudeAccounts, models);
     }
 
     @Test

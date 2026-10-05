@@ -114,6 +114,21 @@ describe('code terminals', () => {
     expect(processes.map(process => process.killed)).toEqual([false, true]);
   });
 
+  it('keeps simultaneous Claude account sign-ins in different terminals', async () => {
+    const { terminals, processes, commands, cwd } = setup();
+    const sender = new FakeSender();
+    const workCommand = "CLAUDE_CONFIG_DIR='/profiles/work' claude auth login";
+    const personalCommand = "CLAUDE_CONFIG_DIR='/profiles/personal' claude auth login";
+    const work = await terminals.open(sender, 'provider:claude-account-work', 80, 24, cwd, workCommand);
+    const personal = await terminals.open(sender, 'provider:claude-account-personal', 80, 24, cwd, personalCommand);
+    expect(work.terminalId).not.toBe(personal.terminalId);
+    expect(commands).toEqual([workCommand, personalCommand]);
+    terminals.write(sender, work.terminalId, 'work login input');
+    expect(processes.map(process => process.written)).toEqual(['work login input', '']);
+    processes[0].exit({ exitCode: 0 });
+    expect((await terminals.open(sender, 'provider:claude-account-personal', 80, 24, cwd, personalCommand)).terminalId).toBe(personal.terminalId);
+  });
+
   it('drops the app variables and defaults the locale', () => {
     expect(terminalEnvironment({ PATH: '/bin', BYTEQUAY_SESSION: 'secret', TERM: 'dumb' })).toEqual({ PATH: '/bin', TERM: 'xterm-256color', LANG: 'en_US.UTF-8' });
     expect(terminalEnvironment({ LANG: 'de_DE.UTF-8' }).LANG).toBe('de_DE.UTF-8');

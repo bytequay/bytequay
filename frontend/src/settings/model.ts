@@ -39,8 +39,16 @@ export function isDeepSeekKeyLane(laneId: string): boolean {
   return laneId.startsWith('deepseek-key-');
 }
 
+export function isClaudeAccount(laneId: string): boolean {
+  return laneId.startsWith('claude-account-');
+}
+
+export function isClaudeLane(laneId: string): boolean {
+  return laneId === 'claude' || isClaudeAccount(laneId);
+}
+
 export function laneLabel(laneId: string): string {
-  return isDeepSeekKeyLane(laneId) ? 'DeepSeek' : LANE_LABELS[laneId] ?? laneId;
+  return isClaudeAccount(laneId) ? 'Claude' : isDeepSeekKeyLane(laneId) ? 'DeepSeek' : LANE_LABELS[laneId] ?? laneId;
 }
 
 /**
@@ -122,7 +130,7 @@ export function providerRemedy(readiness: AgentProviderReadiness, laneId = INTER
         kind: 'install',
         title: isDeepSeekKeyLane(laneId) ? 'Install Codex CLI' : 'Install the CLI',
         detail: 'ByteQuay runs the CLI you already manage; it does not install one for you.',
-        command: isDeepSeekKeyLane(laneId) ? INSTALL_COMMANDS.codex : INSTALL_COMMANDS[laneId] ?? null,
+        command: isClaudeAccount(laneId) ? INSTALL_COMMANDS.claude : isDeepSeekKeyLane(laneId) ? INSTALL_COMMANDS.codex : INSTALL_COMMANDS[laneId] ?? null,
       };
     case 'AUTHENTICATION_REQUIRED':
       return {

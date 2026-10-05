@@ -20,6 +20,7 @@ public record AgentLaneId(String value)
 {
     public static final AgentLaneId CODEX_CLI = new AgentLaneId("codex");
     public static final AgentLaneId CLAUDE_CLI = new AgentLaneId("claude");
+    public static final String CLAUDE_ACCOUNT_PREFIX = "claude-account-";
 
     public AgentLaneId
     {
@@ -31,5 +32,10 @@ public record AgentLaneId(String value)
     public String toString()
     {
         return value;
+    }
+
+    public boolean usesClaude()
+    {
+        return equals(CLAUDE_CLI) || value.startsWith(CLAUDE_ACCOUNT_PREFIX);
     }
 }

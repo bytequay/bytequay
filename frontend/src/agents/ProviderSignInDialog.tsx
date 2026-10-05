@@ -129,9 +129,9 @@ export default function ProviderSignInDialog({ laneId, providerName, bridge, onC
       <h2 id={`${id}-title`} className="bq-signin-dialog__title">Sign in to {providerName}</h2>
       <p className="bq-signin-dialog__lede" role="status">
         {status.kind === 'starting' && 'Starting the sign-in…'}
-        {status.kind === 'running' && 'Finish the sign-in in your browser. ByteQuay signs in to its own provider home, not your personal one.'}
-        {signedIn && `${providerName} is signed in to ByteQuay's provider home.`}
-        {status.kind === 'done' && status.exitCode !== 0 && `The sign-in ended with status ${status.exitCode}. Nothing was changed.`}
+        {status.kind === 'running' && `Choose the intended email in your browser. This signs in only to ${providerName}’s separate ByteQuay profile.`}
+        {signedIn && `${providerName} sign-in finished. Close this dialog to check the signed-in account.`}
+        {status.kind === 'done' && status.exitCode !== 0 && `The sign-in ended with status ${status.exitCode}. Check the account status before trying again.`}
         {status.kind === 'failed' && status.message}
       </p>
       <div className="bq-signin-dialog__screen" ref={screen} />

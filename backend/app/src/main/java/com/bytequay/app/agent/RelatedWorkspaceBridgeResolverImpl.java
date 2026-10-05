@@ -53,7 +53,7 @@ public class RelatedWorkspaceBridgeResolverImpl
     {
         return services.getObject().eligible(taskId)
                 // App Server cannot add dynamic root tools to a previously created thread.
-                .filter(task -> task.laneId().value().equals("claude") || task.sessionReference().stream().noneMatch(reference -> reference.contractVersion() == 1))
+                .filter(task -> task.laneId().usesClaude() || task.sessionReference().stream().noneMatch(reference -> reference.contractVersion() == 1))
                 .flatMap(task -> turns.findActive(TaskId.valueOf(taskId)))
                 .map(turn -> new RelatedWorkspaceBridge(json -> call(taskId, turn.id(), json)));
     }

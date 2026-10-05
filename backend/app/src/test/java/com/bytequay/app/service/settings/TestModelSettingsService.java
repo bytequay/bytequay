@@ -20,6 +20,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentProviderStatus.Readiness;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderModel;
 import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
@@ -98,6 +99,73 @@ class TestModelSettingsService
                 clock);
         service.seedCatalogs();
         service.refreshCatalogs();
+    }
+
+    @Test
+    void workspacesSelectDifferentClaudeAccountsAndKeepTheSameModelCatalog()
+    {
+        ClaudeAccounts accounts = new ClaudeAccounts(settingsStore, new ObjectMapper());
+        ClaudeAccount work = accounts.add("Work", "work@example.com");
+        ClaudeAccount personal = accounts.add("Personal", "personal@example.com");
+        for (ClaudeAccount account : accounts.list()) {
+            AgentDriver driver = mock(AgentDriver.class);
+            when(driver.label()).thenReturn("Claude · " + account.label());
+            when(drivers.require(account.laneId())).thenReturn(driver);
+        }
+        service.setWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.of("High"));
+        service.setWorkspaceOverride("repo-b", AgentModelType.DEVELOPMENT, personal.laneId().value(), "opus", Optional.of("High"));
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-a")).configId()).isEqualTo(work.laneId().value());
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-b")).configId()).isEqualTo(personal.laneId().value());
+        service.setWorkspaceOverride("repo-a", AgentModelType.REVIEW, work.laneId().value(), "sonnet", Optional.of("Medium"));
+        assertThat(service.agentModel(AgentModelType.REVIEW, Optional.of("repo-a")).label()).isEqualTo("Claude · Work");
+        ModelSettingsService restarted = new ModelSettingsService(drivers, apiKeys, settingsStore, new ObjectMapper(), clock);
+        assertThat(restarted.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-a")).configId()).isEqualTo(work.laneId().value());
+        service.clearWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT);
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-b")).configId()).isEqualTo(personal.laneId().value());
+        assertThatThrownBy(() -> service.setWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT, "claude-account-missing", "opus", Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void removingANamedAccountLeavesSavedChoicesUnavailableInsteadOfChangingAccounts()
+    {
+        ClaudeAccounts accounts = new ClaudeAccounts(settingsStore, new ObjectMapper());
+        ClaudeAccount work = accounts.add("Work", "work@example.com");
+        AgentDriver driver = mock(AgentDriver.class);
+        when(driver.label()).thenReturn("Claude · Work");
+        when(drivers.require(work.laneId())).thenReturn(driver);
+        service.refreshMissingCatalogs(ImmutableList.of(new AgentProviderStatus(work.laneId(), Readiness.READY,
+                Optional.empty(), "Ready", AgentCapabilities.none())));
+        service.setAgentModel(AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.empty());
+        service.setWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.empty());
+        accounts.remove(work.id());
+        when(drivers.require(work.laneId())).thenThrow(new AgentUnavailableException("Removed"));
+        // Even a status refresh racing removal must not reintroduce its model choices.
+        assertThat(service.get().providers()).isEmpty();
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo(work.laneId().value());
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-a")).label()).isEqualTo("Claude account unavailable");
+        assertThatThrownBy(() -> service.setWorkspaceOverride("repo-b", AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.empty()))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void signingInANamedClaudeAccountDoesNotChangeUnrelatedRepositoryDefaults()
+    {
+        ClaudeAccount work = new ClaudeAccounts(settingsStore, new ObjectMapper()).add("Work", "work@example.com");
+        AgentDriver driver = mock(AgentDriver.class);
+        when(driver.label()).thenReturn("Claude · Work");
+        when(drivers.require(work.laneId())).thenReturn(driver);
+        when(drivers.statuses()).thenReturn(ImmutableList.of(
+                new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, Readiness.AUTHENTICATION_REQUIRED, Optional.empty(), "sign in required", AgentCapabilities.none()),
+                new AgentProviderStatus(CODEX, Readiness.AUTHENTICATION_REQUIRED, Optional.empty(), "sign in required", AgentCapabilities.none()),
+                new AgentProviderStatus(work.laneId(), Readiness.READY, Optional.empty(), "Signed in as work@example.com", AgentCapabilities.none())));
+        service.refreshMissingCatalogs(drivers.statuses());
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo("claude");
+        service.setWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.of("High"));
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-a")).configId()).isEqualTo(work.laneId().value());
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-b")).configId()).isEqualTo("claude");
+        service.setAgentModel(AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.of("High"));
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-b")).configId()).isEqualTo(work.laneId().value());
     }
 
     @Test

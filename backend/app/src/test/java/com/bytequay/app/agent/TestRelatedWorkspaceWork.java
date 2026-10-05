@@ -47,6 +47,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSessionRef;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
 import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderTurnRef;
@@ -113,6 +114,7 @@ class TestRelatedWorkspaceWork
     private final AgentTaskService taskService = mock(AgentTaskService.class);
     private final AgentTurnService turnService = mock(AgentTurnService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
+    private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final AppSettingsService appSettings = mock(AppSettingsService.class);
     private final GitCommandRunner git = new GitCommandRunner();
     private final Map<String, AgentTurn> dispatched = new ConcurrentHashMap<>();
@@ -160,7 +162,6 @@ class TestRelatedWorkspaceWork
                 AgentModelType.DEVELOPMENT, true, "claude", "Claude", "destination-model", "Destination model", Optional.of("high")));
         when(appSettings.developmentAutomation()).thenReturn(new DevelopmentAutomation(true, true, true, Optional.empty(), true));
         var driver = mock(AgentDriver.class);
-        var drivers = mock(AgentDriverRegistry.class);
         when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
         var ready = new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY,
@@ -197,6 +198,33 @@ class TestRelatedWorkspaceWork
             dispatched.put(request.idempotencyKey(), turn);
             return turn;
         });
+    }
+
+    @Test
+    void relatedWorkUsesTheDestinationClaudeAccountAndItsOwnWorktree()
+    {
+        AgentLaneId sourceAccount = new AgentLaneId("claude-account-source");
+        AgentLaneId destinationAccount = new AgentLaneId("claude-account-destination");
+        source = AgentTask.created(source.id(), Optional.of("trino"), true, source.title(), sourceAccount,
+                source.repository(), repository, source.defaults(), Instant.EPOCH)
+                .withSessionReference(new AgentSessionRef(sourceAccount, 1, "source-session"), Instant.EPOCH);
+        taskData.put(source.id(), source);
+        when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
+                AgentModelType.DEVELOPMENT, true, destinationAccount.value(), "Claude · Destination", "destination-model", "Destination model", Optional.of("high")));
+        AgentDriver driver = drivers.require(AgentLaneId.CLAUDE_CLI);
+        when(drivers.require(destinationAccount)).thenReturn(driver);
+        var ready = new AgentProviderStatus(destinationAccount, AgentProviderStatus.Readiness.READY, Optional.empty(), "Ready", AgentCapabilities.none());
+        when(driver.probe()).thenReturn(ready);
+        when(driver.probe(any())).thenReturn(ready);
+        var view = service().start(source.id().toString(), sourceTurn.id(), request("different-account", oldCommit));
+        AgentTask target = taskData.get(TaskId.valueOf(view.targetTaskId()));
+        assertThat(target.laneId()).isEqualTo(destinationAccount);
+        assertThat(target.worktree()).isNotEqualTo(source.worktree());
+        assertThat(source.sessionReference().orElseThrow().laneId()).isEqualTo(sourceAccount);
+        verify(drivers).require(destinationAccount);
+        when(drivers.require(destinationAccount)).thenThrow(new AgentUnavailableException("Removed account"));
+        assertThat(service().start(source.id().toString(), sourceTurn.id(), request("removed-account", oldCommit)).state()).isEqualTo("UNAVAILABLE");
+        verify(drivers, never()).require(sourceAccount);
     }
 
     @Test

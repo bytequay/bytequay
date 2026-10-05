@@ -570,6 +570,7 @@
 .setw-dialog-body { padding: 16px 18px 18px; }
 
 .setw-field-label {
+  display: block;
   font-size: 12px;
   font-weight: 600;
   color: #6e6e73;

@@ -119,6 +119,21 @@ class TestAgentCliUpdateJob
         verify(models).refreshCatalogs();
     }
 
+    @Test
+    void namedClaudeAccountsShareTheDefaultLanesBinaryUpdate()
+    {
+        AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
+        AgentLaneId account = new AgentLaneId("claude-account-work");
+        when(drivers.statuses()).thenReturn(ImmutableList.of(status(CLAUDE, Readiness.READY), status(account, Readiness.READY)));
+        AgentDriver claude = mock(AgentDriver.class);
+        when(drivers.require(CLAUDE)).thenReturn(claude);
+
+        new AgentCliUpdateJob(drivers, mock(ModelSettingsService.class)).runUpdates();
+
+        verify(claude).update();
+        verify(drivers, never()).require(account);
+    }
+
     private static AgentProviderStatus status(AgentLaneId lane, Readiness readiness)
     {
         return new AgentProviderStatus(

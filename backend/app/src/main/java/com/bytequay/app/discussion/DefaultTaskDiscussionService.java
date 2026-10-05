@@ -31,8 +31,6 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
@@ -544,8 +542,8 @@ public class DefaultTaskDiscussionService
                 if (envelope.payload() instanceof AgentEventPayload.UserMessage message) {
                     append(seed, "[user]", message.text());
                 }
-                else if (isRootAnswer(envelope)) {
-                    String answer = ((AgentEventPayload.AssistantMessage) envelope.payload()).text();
+                else if (envelope.rootAnswer().isPresent()) {
+                    String answer = envelope.rootAnswer().orElseThrow();
                     append(seed, "[agent]", answer);
                     if (upTo.isEmpty()) {
                         // The history only grows, so a cut that is already over budget stays over it.
@@ -580,15 +578,6 @@ public class DefaultTaskDiscussionService
         if (seed.length() > TaskDiscussion.MAX_SEED_CHARACTERS) {
             throw new AgentConflictException(reason);
         }
-    }
-
-    /** A subagent's answer is its own; only the root thread answers for the task. */
-    private static boolean isRootAnswer(AgentEventEnvelope envelope)
-    {
-        return envelope.source().parentProviderThreadId().isEmpty()
-                && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
-                && message.messageKind() == MessageKind.ANSWER
-                && message.phase() == MessagePhase.FINAL;
     }
 
     private static void append(StringBuilder seed, String label, String body)

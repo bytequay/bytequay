@@ -13,6 +13,9 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
+
 import java.time.Instant;
 import java.util.Optional;
 
@@ -47,5 +50,16 @@ public record AgentEventEnvelope(
     public AgentEventPayload.Kind type()
     {
         return payload.kind();
+    }
+
+    /** The text of the task's own final answer; a subagent's answer is its own and never the task's. */
+    public Optional<String> rootAnswer()
+    {
+        return source.parentProviderThreadId().isEmpty()
+                && payload instanceof AgentEventPayload.AssistantMessage message
+                && message.messageKind() == MessageKind.ANSWER
+                && message.phase() == MessagePhase.FINAL
+                ? Optional.of(message.text())
+                : Optional.empty();
     }
 }

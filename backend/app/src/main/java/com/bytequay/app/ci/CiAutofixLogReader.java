@@ -13,16 +13,13 @@
  */
 package com.bytequay.app.ci;
 
-import com.bytequay.agent.core.AgentEventEnvelope;
-import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentAttachment;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttempt.LogReference;
 import com.google.common.collect.ImmutableList;
@@ -36,6 +33,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
 
@@ -52,7 +50,6 @@ final class CiAutofixLogReader
     private static final int MAXIMUM_FAILURES = 50;
     private static final int LOG_DOWNLOAD_CONCURRENCY = 4;
     private static final int MAXIMUM_LOG_BYTES = 1024 * 1024;
-    private static final int EVENT_PAGE_SIZE = 1000;
     private static final int MAXIMUM_EVENT_PAGES = 10;
     private static final int MAXIMUM_NOTE_CHARACTERS = 16 * 1024;
 
@@ -75,22 +72,20 @@ final class CiAutofixLogReader
         requireNonNull(taskId, "taskId is null");
         requireNonNull(turnId, "turnId is null");
         String result = null;
-        long after = 0;
+        // Newest first: the turn just ended, so its answer sits at the end of a log that can be far longer than the bound.
+        OptionalLong before = OptionalLong.empty();
         try {
-            for (int pageNumber = 0; pageNumber < MAXIMUM_EVENT_PAGES; pageNumber++) {
-                List<AgentEventEnvelope> page = eventService.readAfter(taskId, after, EVENT_PAGE_SIZE);
-                for (AgentEventEnvelope envelope : page) {
-                    if (envelope.turnId().filter(turnId::equals).isPresent()
-                            && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
-                            && message.messageKind() == MessageKind.ANSWER
-                            && message.phase() == MessagePhase.FINAL) {
-                        result = message.text();
-                    }
-                }
-                if (page.size() < EVENT_PAGE_SIZE) {
+            for (int pageNumber = 0; pageNumber < MAXIMUM_EVENT_PAGES && result == null; pageNumber++) {
+                AgentHistoryPage page = eventService.readHistory(taskId, before, OptionalLong.empty());
+                result = page.events().reversed().stream()
+                        .filter(envelope -> envelope.turnId().filter(turnId::equals).isPresent())
+                        .flatMap(envelope -> envelope.rootAnswer().stream())
+                        .findFirst()
+                        .orElse(null);
+                if (page.beforeCursor().isEmpty()) {
                     break;
                 }
-                after = page.getLast().sequence();
+                before = page.beforeCursor();
             }
         }
         catch (RuntimeException ignored) {

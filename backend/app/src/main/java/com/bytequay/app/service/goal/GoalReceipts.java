@@ -15,7 +15,6 @@ package com.bytequay.app.service.goal;
 
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
-import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTurn;
@@ -25,8 +24,6 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.app.context.ContextText;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
@@ -236,18 +233,11 @@ public class GoalReceipts
     private Optional<String> finalAnswer(AgentTask task, AgentTurn turn)
     {
         try {
-            return logs.findLatest(task.id(), event -> answers(event, turn), MAX_RECORDS)
-                    .map(event -> ((AgentEventPayload.AssistantMessage) event.payload()).text());
+            return logs.findLatest(task.id(), event -> event.turnId().equals(Optional.of(turn.id())) && event.rootAnswer().isPresent(), MAX_RECORDS)
+                    .flatMap(AgentEventEnvelope::rootAnswer);
         }
         catch (AgentStorageException unreadable) {
             return Optional.empty();
         }
-    }
-
-    private static boolean answers(AgentEventEnvelope event, AgentTurn turn)
-    {
-        return event.turnId().equals(Optional.of(turn.id())) && event.source().parentProviderThreadId().isEmpty()
-                && event.payload() instanceof AgentEventPayload.AssistantMessage message && message.messageKind() == MessageKind.ANSWER
-                && message.phase() == MessagePhase.FINAL;
     }
 }

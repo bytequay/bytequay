@@ -58,13 +58,7 @@ final class AgentFinalResponseReader
             List<AgentEventEnvelope> page = logStore.readAfter(taskId, afterSequence, EVENT_PAGE_SIZE);
             for (AgentEventEnvelope envelope : page) {
                 observeChild(children, envelope);
-                // A subagent's answer is its own; only the root thread answers for the task.
-                if (envelope.source().parentProviderThreadId().isEmpty()
-                        && envelope.payload() instanceof AgentEventPayload.AssistantMessage message
-                        && message.messageKind() == MessageKind.ANSWER
-                        && message.phase() == MessagePhase.FINAL) {
-                    response = message.text();
-                }
+                response = envelope.rootAnswer().orElse(response);
             }
             if (page.size() < EVENT_PAGE_SIZE) {
                 return new FinalResponse(response, children.values().stream().map(ChildFacts::summary).collect(toImmutableList()));

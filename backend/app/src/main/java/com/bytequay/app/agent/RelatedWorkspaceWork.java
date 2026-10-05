@@ -14,7 +14,7 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentEventPayload;
+import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
@@ -32,8 +32,6 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
-import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -296,10 +294,8 @@ public class RelatedWorkspaceWork
             default -> "FAILED";
         }).orElse(link.failure().isPresent() ? "UNAVAILABLE" : "STARTING");
         Optional<String> result = turn.filter(value -> value.state() == TurnState.COMPLETED).flatMap(value -> logs.findLatest(value.taskId(), event ->
-                        event.turnId().equals(Optional.of(value.id())) && event.source().parentProviderThreadId().isEmpty()
-                                && event.payload() instanceof AgentEventPayload.AssistantMessage message
-                                && message.messageKind() == MessageKind.ANSWER && message.phase() == MessagePhase.FINAL, 10_000))
-                .map(event -> ((AgentEventPayload.AssistantMessage) event.payload()).text());
+                        event.turnId().equals(Optional.of(value.id())) && event.rootAnswer().isPresent(), 10_000))
+                .flatMap(AgentEventEnvelope::rootAnswer);
         Optional<String> limitation = link.failure().or(() -> turn.flatMap(AgentTurn::terminalReason));
         if (turn.isEmpty() && source.flatMap(task -> turns.findActive(task.id()))
                 .filter(value -> value.id().toString().equals(link.sourceTurnId())).isEmpty()) {

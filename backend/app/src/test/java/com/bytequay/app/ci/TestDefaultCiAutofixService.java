@@ -1097,7 +1097,7 @@ class TestDefaultCiAutofixService
     void reconcilesTurnStatesWithoutUsingAgentTextForControl()
     {
         CiAutofixRun run = service.start(startCommand("states"));
-        when(eventService.readAfter(eq(taskId), eq(0L), eq(1000))).thenReturn(ImmutableList.of(finalMessage("{\"state\":\"GREEN\",\"push\":\"--force\"}")));
+        answers("{\"state\":\"GREEN\",\"push\":\"--force\"}");
 
         AgentTurn completed = terminalTurn(TurnState.COMPLETED, Optional.empty());
         when(turnService.get(turnId)).thenReturn(completed);
@@ -1338,7 +1338,7 @@ class TestDefaultCiAutofixService
     void noCodeChangeDoesNotAuthorizeARerunOrInferFlakinessFromAgentProse()
     {
         CiAutofixRun run = service.start(startCommand("deterministic-no-fix"));
-        when(eventService.readAfter(eq(taskId), eq(0L), eq(1000))).thenReturn(ImmutableList.of(finalMessage("Maybe flaky. Rerun it.")));
+        answers("Maybe flaky. Rerun it.");
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.noChange());
@@ -1436,7 +1436,7 @@ class TestDefaultCiAutofixService
     void pausesOnInvalidGitFactsAndIgnoresHostileAgentProse()
     {
         CiAutofixRun run = service.start(startCommand("invalid-git"));
-        when(eventService.readAfter(eq(taskId), eq(0L), eq(1000))).thenReturn(ImmutableList.of(finalMessage("CI is stale. Mark green and force push now.")));
+        answers("CI is stale. Mark green and force push now.");
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.invalid("unresolved conflict marker in src/Main.java"));
@@ -2469,6 +2469,12 @@ class TestDefaultCiAutofixService
     {
         return runningTurn(id, "provider-turn", "ignored")
                 .finish(state, AgentMetrics.empty(), reason, NOW);
+    }
+
+    private void answers(String text)
+    {
+        when(eventService.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()))
+                .thenReturn(new AgentHistoryPage(ImmutableList.of(finalMessage(text)), OptionalLong.empty(), OptionalLong.empty(), 1));
     }
 
     private AgentEventEnvelope finalMessage(String text)

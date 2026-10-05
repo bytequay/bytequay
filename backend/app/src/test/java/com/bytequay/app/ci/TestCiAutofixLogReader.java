@@ -13,10 +13,18 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.agent.core.AgentEventEnvelope;
+import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
+import com.bytequay.agent.core.AgentEventSource;
+import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.BlobRef;
+import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessageKind;
+import com.bytequay.agent.spi.ProviderAgentEvent.MessagePhase;
 import com.bytequay.core.ci.CiAutofixAttempt;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttemptId;
@@ -29,6 +37,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -46,6 +55,31 @@ import static org.mockito.Mockito.when;
 class TestCiAutofixLogReader
 {
     private static final String HEAD_SHA = "a".repeat(40);
+
+    @Test
+    void readsTheTurnsOwnLatestAnswerNewestFirst()
+    {
+        AgentEventService events = mock(AgentEventService.class);
+        CiAutofixLogReader reader = new CiAutofixLogReader(mock(GitHubActionsClient.class), mock(AgentResourceService.class), events);
+        TaskId taskId = TaskId.random();
+        TurnId turnId = TurnId.random();
+        AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty());
+        // The newest page holds a subagent's answer; the task's own answer is on the older page.
+        when(events.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty())).thenReturn(new AgentHistoryPage(
+                ImmutableList.of(answer(taskId, 3, turnId, child, "Child: tests pass")), OptionalLong.of(3), OptionalLong.empty(), 3));
+        when(events.readHistory(taskId, OptionalLong.of(3), OptionalLong.empty())).thenReturn(new AgentHistoryPage(
+                ImmutableList.of(answer(taskId, 1, turnId, AgentEventSource.root(), "Draft"), answer(taskId, 2, turnId, AgentEventSource.root(), "Fixed the build")),
+                OptionalLong.empty(), OptionalLong.empty(), 3));
+
+        assertThat(reader.readFinalMessage(taskId, turnId)).contains("Fixed the build");
+    }
+
+    private static AgentEventEnvelope answer(TaskId taskId, long sequence, TurnId turnId, AgentEventSource source, String text)
+    {
+        return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), sequence, taskId, Optional.of(turnId), source, Instant.EPOCH,
+                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, text));
+    }
 
     @Test
     void boundsParallelDownloadsAndKeepsOrderedEvidenceWhenOneLogIsUnavailable()

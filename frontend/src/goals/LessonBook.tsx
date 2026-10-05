@@ -385,6 +385,7 @@ export function CourseOverview({ goal, onLesson }: { goal: GoalDto; onLesson: (l
         <h1 className="goal-chapter__title">{goal.title}</h1>
         <div className="goal-lesson__outcome" title={`${done} of ${order.length} chapters done`}>✓ {done}/{order.length} chapters</div>
       </header>
+      {goal.course !== null && goal.course.map !== null && <LessonDiagram diagram={goal.course.map} />}
       {next !== undefined && <div><button type="button" className="goal-add is-primary" onClick={() => onLesson(next.id)}>
         {done === 0 ? 'Start' : 'Continue'}: {next.title}</button></div>}
       {(goal.course?.parts ?? []).map((part, index) => <section key={part.title} className="goal-overview__part" aria-label={part.title}>

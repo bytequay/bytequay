@@ -28,8 +28,9 @@ import static java.util.Objects.requireNonNull;
  * user can do afterward; its part is the item's milestone.
  *
  * @param exchangeId the exchange whose proposal was accepted
+ * @param map the concepts the course teaches and how they connect, drawn before its first chapter is written; every chapter names things by it
  */
-public record GoalCourse(String exchangeId, List<Part> parts, Instant acceptedAt)
+public record GoalCourse(String exchangeId, List<Part> parts, Instant acceptedAt, Optional<GoalLesson.Diagram> map)
 {
     public static final int MAX_PARTS = 4;
     public static final int MAX_LESSONS = 16;
@@ -40,6 +41,13 @@ public record GoalCourse(String exchangeId, List<Part> parts, Instant acceptedAt
         parts = ImmutableList.copyOf(parts);
         checkArgument(!parts.isEmpty() && parts.size() <= MAX_PARTS, "a course has one to %s parts", MAX_PARTS);
         requireNonNull(acceptedAt, "acceptedAt is null");
+        requireNonNull(map, "map is null");
+        checkArgument(map.filter(drawn -> drawn.kind() != GoalLesson.Diagram.Kind.COMPONENTS).isEmpty(), "a course map is a components diagram");
+    }
+
+    public GoalCourse withMap(GoalLesson.Diagram drawn)
+    {
+        return new GoalCourse(exchangeId, parts, acceptedAt, Optional.of(drawn));
     }
 
     /**

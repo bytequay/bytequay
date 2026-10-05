@@ -15,7 +15,7 @@ import React, { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { GoalPanel, type GoalPanelView } from '../GoalPanel';
-import type { GoalDto, GoalExchangeDto, GoalLessonDto, WorkItemDto } from '../contracts';
+import type { GoalDto, GoalExchangeDto, GoalLessonDto, LessonDiagramDto, WorkItemDto } from '../contracts';
 import type { GoalConversation } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -62,13 +62,20 @@ async function until(condition: () => boolean, message: string): Promise<void> {
   assert(condition(), message);
 }
 
+const COURSE_MAP: LessonDiagramDto = { kind: 'COMPONENTS', caption: 'The concepts of an Iceberg table', nodes: [
+  { id: 'table', label: 'TableMetadata', note: 'The current state', parent: null, group: 'Metadata' },
+  { id: 'snapshot', label: 'Snapshot', note: null, parent: null, group: 'Metadata' },
+  { id: 'scan', label: 'TableScan', note: 'Plans the files', parent: null, group: 'Engine' }],
+edges: [{ from: 'table', to: 'snapshot', label: 'points to' }, { from: 'scan', to: 'snapshot', label: 'reads' }] };
+
 function Fixture(): React.JSX.Element {
   const [item, setItem] = useState(LESSON);
   const [lesson, setLesson] = useState<string | null>(null);
   const [view, setView] = useState<GoalPanelView>('guide');
   const [exchanges, setExchanges] = useState<GoalExchangeDto[]>([]);
   const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg connector expert', description: '', pinned: true, paused: false, source: null, definition: null,
-    revision: 1, course: { exchangeId: 'op-0', parts: [{ title: 'Iceberg tables', lessons: ['lesson-1', 'lesson-2'] }], acceptedAt: NOW }, items: [item, NEXT],
+    revision: 1, course: { exchangeId: 'op-0', parts: [{ title: 'Iceberg tables', lessons: ['lesson-1', 'lesson-2'] }], acceptedAt: NOW, map: COURSE_MAP },
+    items: [item, NEXT],
     recommendations: [], topics: [],
     createdAt: NOW, updatedAt: NOW };
   // The app keeps these the same across renders, so an open lesson is not opened again.
@@ -151,6 +158,8 @@ export async function run(): Promise<boolean> {
     button('All chapters').click(); await settle();
     assert(document.querySelector('.goal-overview__chapter.is-done')?.textContent?.includes('What a table is') === true
       && button('Continue: Follow a snapshot') !== undefined, 'All chapters shows the course, the finished chapter checked and where to continue');
+    assert(document.querySelector('.goal-overview .goal-diagram.is-components figcaption')?.textContent === 'The concepts of an Iceberg table'
+      && document.querySelectorAll('.goal-overview .goal-diagram__edge').length === 2, 'The course opens with its map');
     button('Guide').click(); await settle();
     assert(document.querySelector('.goal-course__lessons li.is-done') !== null, 'The guide shows the lesson done in the course');
     button('Lessons').click(); await settle();

@@ -59,8 +59,11 @@ export type GoalDto = {
   definition: GoalDefinitionDto | null;
   /** Counts changes to the title, objective and definition; a proposal built from an older revision cannot be accepted. */
   revision: number;
-  /** The learning path the user accepted: parts of ordered lessons, each a Learn work item of the goal. */
-  course: { exchangeId: string; parts: { title: string; lessons: string[] }[]; acceptedAt: string } | null;
+  /**
+   * The learning path the user accepted: parts of ordered lessons, each a Learn work item of the goal, and the map of the concepts it
+   * teaches, drawn before its first chapter.
+   */
+  course: { exchangeId: string; parts: { title: string; lessons: string[] }[]; acceptedAt: string; map: LessonDiagramDto | null } | null;
   /** While paused, the goal's agent hears no automatic events; the user's own messages still reach it. */
   paused: boolean;
   items: WorkItemDto[];
@@ -128,6 +131,7 @@ export function parseGoal(value: unknown): GoalDto {
         return { title: text(part.title, 'goal course part title'), lessons: parseList(part.lessons, (lesson) => text(lesson, 'goal lesson'), 'goal lessons') };
       }, 'goal course parts'),
       acceptedAt: text(course.acceptedAt, 'goal course time'),
+      map: course.map === null || course.map === undefined ? null : parseLessonDiagram(course.map),
     },
     paused: goal.paused,
     items: goal.items.map(parseWorkItem),

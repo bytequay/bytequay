@@ -58,6 +58,10 @@ import static org.mockito.Mockito.withSettings;
 class TestGoalPlanner
 {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
+    private static final GoalLesson.Diagram MAP = new GoalLesson.Diagram(GoalLesson.Diagram.Kind.COMPONENTS, "Iceberg reads", ImmutableList.of(
+            new GoalLesson.Node("scan", "TableScan", Optional.of("Plans the files"), Optional.empty(), Optional.of("Engine")),
+            new GoalLesson.Node("manifest", "ManifestFile", Optional.empty(), Optional.empty(), Optional.of("Metadata"))),
+            ImmutableList.of(new GoalLesson.Edge("scan", "manifest", Optional.of("reads"))));
     private static final GoalRecommendation.Card CARD = new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
             "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
@@ -236,7 +240,7 @@ class TestGoalPlanner
 
         GoalView goal = new GoalView("goal-1", "workspace", "Iceberg connector expert", "", true, Optional.empty(),
                 Optional.of(new GoalDefinition("Explain a scan", "Knows the specification", "Five hours a week", "op-0", NOW)), 1,
-                Optional.of(new GoalCourse("op-5", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)), false,
+                Optional.of(new GoalCourse("op-5", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW, Optional.of(MAP))), false,
                 ImmutableList.of(new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain metadata",
                         WorkItem.CompletionRule.ACCEPTED_RESULT, WorkItem.State.DONE, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
                         WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0)),
@@ -291,6 +295,20 @@ class TestGoalPlanner
                 .contains("\"codeMap\" : {", "\"commit\" : \"" + "c".repeat(40) + "\"", "`TableMetadata` (core/src/main/java/org/apache/iceberg/TableMetadata.java:52)",
                         "https://github.com/<repository>/blob/<commit>/<path>", "never invent a class, method or file");
         assertThat(planner.lessonPrompt(goal, goal.items().getFirst(), "Iceberg tables", notes.list("goal-1"), Optional.empty())).doesNotContain("\"codeMap\" :");
+        assertThat(lesson).as("every chapter names things by the course map")
+                .contains("\"courseMap\" : {", "\"label\" : \"TableScan\"", "it is the map of the course's concepts and how they connect");
+        String map = planner.mapPrompt(goal, notes.list("goal-1"), Optional.of(new PinnedCodeGraphService.BaselineResult("c".repeat(40), "`TableScan`")));
+        assertThat(map.indexOf("untrusted reference data")).isLessThan(map.indexOf("<map-data>"));
+        assertThat(map).contains("\"title\" : \"What a table is\"", "\"topic\" : \"Manifest lists\"", "\"found\" : \"`TableScan`\"", "label a box after the class it finds")
+                .doesNotContain("\"thisChapter\"");
+        assertThat(GoalPlanner.map("""
+                {"kind": "COMPONENTS", "caption": "Iceberg reads", "nodes": [{"id": "scan", "label": "TableScan", "note": "Plans the files", "parent": null,
+                "group": "Engine"}, {"id": "manifest", "label": "ManifestFile", "note": null, "parent": null, "group": "Metadata"}],
+                "edges": [{"from": "scan", "to": "manifest", "label": "reads"}]}""")).isEqualTo(MAP);
+        assertThatThrownBy(() -> GoalPlanner.map("""
+                {"kind": "FLOW", "caption": "Steps", "nodes": [{"id": "a", "label": "Plan", "note": null, "parent": null}, {"id": "b", "label": "Read",
+                "note": null, "parent": null}]}"""))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("a course map is a COMPONENTS diagram");
         assertThat(lesson).as("diagrams follow the drawing rules")
                 .contains("Every box is one real thing", "every arrow is a real call, message or data flow", "Keep each diagram at one zoom level",
                         "Commands and steps to follow belong in the");

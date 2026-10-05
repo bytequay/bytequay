@@ -42,10 +42,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -58,6 +60,10 @@ class TestGoalLessonService
                     "Table metadata", ImmutableList.of(new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty(), Optional.empty()),
                             new GoalLesson.Node("snapshot", "Snapshot", Optional.of("Never changes"), Optional.of("table"), Optional.empty())), ImmutableList.of())))),
             Optional.empty(), "Run one test.", "It passes.", "What is a snapshot?");
+    private static final GoalLesson.Diagram MAP = new GoalLesson.Diagram(GoalLesson.Diagram.Kind.COMPONENTS, "Iceberg reads", ImmutableList.of(
+            new GoalLesson.Node("scan", "TableScan", Optional.of("Plans the files"), Optional.empty(), Optional.of("Engine")),
+            new GoalLesson.Node("manifest", "ManifestFile", Optional.empty(), Optional.empty(), Optional.of("Metadata"))),
+            ImmutableList.of(new GoalLesson.Edge("scan", "manifest", Optional.of("reads"))));
 
     private final GoalService goals = mock(GoalService.class);
     private final WorkItemService work = mock(WorkItemService.class);
@@ -132,6 +138,38 @@ class TestGoalLessonService
     }
 
     @Test
+    void theFirstChapterDrawsTheCourseMapAndIsWrittenWithIt()
+    {
+        service.open("workspace", "goal-1", "lesson-1");
+        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.empty())),
+                ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.of(MAP))));
+        doReturn(MAP).when(planner).courseMap(any(), any(), any());
+        doReturn(CONTENT).when(planner).lesson(any(), any(), any(), anyString(), any());
+        queued.removeFirst().run();
+        verify(goals).mapCourse("workspace", "goal-1", "op-0", MAP);
+        verify(planner).lesson(any(), argThat(goal -> goal.course().flatMap(GoalCourse::map).isPresent()), any(), anyString(), any());
+        assertThat(lessons.find("lesson-1")).flatMap(GoalLesson::content).contains(CONTENT);
+    }
+
+    @Test
+    void aMappedCourseIsNotDrawnAgainAndAFailedMapStillWritesTheChapter()
+    {
+        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(WorkItem.State.PLANNED, Optional.of(MAP))));
+        service.open("workspace", "goal-1", "lesson-1");
+        doReturn(CONTENT).when(planner).lesson(any(), any(), any(), anyString(), any());
+        queued.removeFirst().run();
+        verify(planner, never()).courseMap(any(), any(), any());
+
+        goal(WorkItem.State.PLANNED);
+        lessons.save(lessons.find("lesson-1").orElseThrow().failed(Optional.empty(), "Write it again", NOW));
+        service.open("workspace", "goal-1", "lesson-1");
+        doThrow(new IllegalStateException("Codex is not signed in")).when(planner).courseMap(any(), any(), any());
+        queued.removeFirst().run();
+        verify(goals, never()).mapCourse(any(), any(), any(), any());
+        assertThat(lessons.find("lesson-1")).flatMap(GoalLesson::content).contains(CONTENT);
+    }
+
+    @Test
     void finishingAcceptsTheLessonCompletesItsCardAndTellsTheAgentOnce()
     {
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.LESSON, "What a table is",
@@ -161,7 +199,7 @@ class TestGoalLessonService
                 ImmutableList.of(), Optional.empty(), 0);
         when(goals.list("workspace")).thenReturn(ImmutableList.of(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
                 Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1")),
-                        new GoalCourse.Part("The connector", ImmutableList.of("lesson-2"))), NOW)), false,
+                        new GoalCourse.Part("The connector", ImmutableList.of("lesson-2"))), NOW, Optional.empty())), false,
                 ImmutableList.of(lesson, next), ImmutableList.of(), ImmutableList.of(), NOW, NOW)));
         service.finish("workspace", "goal-1", "lesson-1", "op-done");
         verify(conversation).tellDecision("workspace", "goal-1", "lesson:lesson-1",
@@ -170,12 +208,17 @@ class TestGoalLessonService
 
     private void goal(WorkItem.State state)
     {
+        when(goals.list("workspace")).thenReturn(ImmutableList.of(goalView(state, Optional.empty())));
+    }
+
+    private static GoalView goalView(WorkItem.State state, Optional<GoalLesson.Diagram> map)
+    {
         WorkItemView lesson = new WorkItemView("lesson-1", "workspace", Optional.of("goal-1"), "What a table is", WorkItem.Kind.LEARN, "Explain table metadata",
                 WorkItem.CompletionRule.ACCEPTED_RESULT, state, 1, ImmutableList.of(), ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, ImmutableList.of(),
                 Optional.empty(), 0);
-        when(goals.list("workspace")).thenReturn(ImmutableList.of(new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
-                Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW)), false,
-                ImmutableList.of(lesson), ImmutableList.of(), ImmutableList.of(), NOW, NOW)));
+        return new GoalView("goal-1", "workspace", "Iceberg", "", true, Optional.empty(), Optional.empty(), 1,
+                Optional.of(new GoalCourse("op-0", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), NOW, map)), false,
+                ImmutableList.of(lesson), ImmutableList.of(), ImmutableList.of(), NOW, NOW);
     }
 
     private static final class Lessons

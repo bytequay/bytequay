@@ -138,11 +138,11 @@ already know, the agent may set the first topic levels citing that definition.
 
 Once a course is accepted, the Goal window has a Lessons tab beside Guide and
 Work, and a lesson opens there as a chapter of a book, in the expanded window.
-Without an open chapter the tab shows the course: how many chapters are done,
-where to continue, and each part with its chapters and what each teaches. The
-first time a chapter opens, ByteQuay asks CodeGraph one bounded question, the
-lesson's title and outcome, against the baseline of the Goal's repository, the
-index of its monitored default branch, and a tool-free request writes the
+Without an open chapter the tab shows the course: its map, how many chapters are
+done, where to continue, and each part with its chapters and what each teaches.
+The first time a chapter opens, ByteQuay asks CodeGraph one bounded question,
+the lesson's title and outcome, against the baseline of the Goal's repository,
+the index of its monitored default branch, and a tool-free request writes the
 chapter from the Goal's notes and the classes, methods and relationships found
 at that commit as a concise engineering handbook chapter, diagrams first: a
 short summary, up to six invariants to remember, two to six sections, each with
@@ -155,22 +155,27 @@ in order; or TREE, a hierarchy. ByteQuay validates its boxes and arrows and
 draws it; the model never writes markup. Every box is one real thing, every
 group a real boundary and every arrow a real call or flow labelled with what
 moves; a diagram keeps one zoom level, named in its caption, and commands belong
-to the exercise. The writer sees the whole course in order, so a chapter builds
-on the ones before it; it names boxes and arrows after the symbols CodeGraph
-found and links files at that commit, and without CodeGraph or a baseline it
-writes from the notes alone. Reopening a chapter needs no model call, a failed
-or interrupted write is retried on opening, and a lesson written before chapters
-is written again. The expanded window shows the course's contents at the left,
-its parts and chapters with the open chapter's sections to jump to, the chapter
-in the middle with its previous and next chapters and All chapters back to the
-course, and the Goal's conversation at the right when the user asks; a message
-sent there while the lesson is open carries it to the agent. Restored to the
-floating window, the chapter shows alone with its own question field. The user
-answers the check in a field under it, which opens the conversation; the answer
-goes to the agent as the answer to the open lesson's check, and the agent says
-whether it shows what the lesson promises. Mark lesson done accepts the Learn
-work item and tells the agent, which may recommend the next lesson as a card;
-Start on a lesson card opens the lesson.
+to the exercise. The first chapter written for an accepted course first draws
+the course map, one COMPONENTS diagram of the concepts the course teaches and
+how they connect, from the notes, the course and what CodeGraph finds for the
+Goal; it is saved with the course, every chapter names things by it, and a
+revised course draws a new one, while a map that fails leaves the chapter to be
+written without it. The writer sees the whole course in order, so a chapter
+builds on the ones before it; it names boxes and arrows after the symbols
+CodeGraph found and links files at that commit, and without CodeGraph or a
+baseline it writes from the notes alone. Reopening a chapter needs no model
+call, a failed or interrupted write is retried on opening, and a lesson written
+before chapters is written again. The expanded window shows the course's
+contents at the left, its parts and chapters with the open chapter's sections to
+jump to, the chapter in the middle with its previous and next chapters and All
+chapters back to the course, and the Goal's conversation at the right when the
+user asks; a message sent there while the lesson is open carries it to the
+agent. Restored to the floating window, the chapter shows alone with its own
+question field. The user answers the check in a field under it, which opens the
+conversation; the answer goes to the agent as the answer to the open lesson's
+check, and the agent says whether it shows what the lesson promises. Mark lesson
+done accepts the Learn work item and tells the agent, which may recommend the
+next lesson as a card; Start on a lesson card opens the lesson.
 
 Once the Goal is defined, the agent also sees up to 100 practice candidates from
 the local stores: the workspace's open issues, the 500 updated last, and the
@@ -500,7 +505,7 @@ shows the saved current assessment immediately; panel reads stay local.
 | --- | --- | --- |
 | Objective | Outcome, constraints, accepted success definition | Edit, discuss, pause guidance |
 | Path | Ordered accepted work items and explicit dependencies | Accept proposed changes, reorder, remove from scope |
-| Course | Parts and ordered lessons, each with what it teaches | Open a lesson, mark it done, ask to change the course |
+| Course | Its map, then parts and ordered lessons, each with what it teaches | Open a lesson, mark it done, ask to change the course |
 | Current guidance | One question or recommendation with why, evidence and uncertainty | Answer, accept, adjust, skip, ask why |
 | Work | Planned, Working and Done; blocked or waiting details | Start, open task, review result |
 | Results | Outcome, supporting evidence and what remains | Accept a result, reopen, inspect PR or artifact |

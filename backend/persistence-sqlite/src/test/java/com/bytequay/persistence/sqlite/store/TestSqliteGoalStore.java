@@ -18,7 +18,9 @@ import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalSource;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -74,8 +76,12 @@ class TestSqliteGoalStore
         store.save(defined);
         assertThat(store.find("goal-1")).contains(defined);
         assertThat(defined.revision()).isEqualTo(2);
+        GoalLesson.Diagram map = new GoalLesson.Diagram(GoalLesson.Diagram.Kind.COMPONENTS, "Iceberg reads", ImmutableList.of(
+                new GoalLesson.Node("scan", "TableScan", Optional.of("Plans the files"), Optional.empty(), Optional.of("Engine")),
+                new GoalLesson.Node("manifest", "ManifestFile", Optional.empty(), Optional.empty(), Optional.of("Metadata"))),
+                ImmutableList.of(new GoalLesson.Edge("scan", "manifest", Optional.of("reads"))));
         Goal planned = defined.withCourse(new GoalCourse("exchange-2", ImmutableList.of(new GoalCourse.Part("Read the specification",
-                ImmutableList.of("work-1", "work-2"))), NOW), NOW.plusSeconds(9));
+                ImmutableList.of("work-1", "work-2"))), NOW, Optional.of(map)), NOW.plusSeconds(9));
         store.save(planned);
         assertThat(store.find("goal-1")).contains(planned);
         assertThat(planned.revision()).as("a course leaves the revision definitions are checked against").isEqualTo(2);
@@ -87,5 +93,15 @@ class TestSqliteGoalStore
         store.delete("goal-1");
         assertThat(store.list("workspace-1")).containsExactly(other);
         assertThat(store.find("goal-1")).isEmpty();
+    }
+
+    @Test
+    void aCourseSavedBeforeMapsReadsWithoutOne()
+            throws Exception
+    {
+        GoalCourse course = JsonColumns.mapper().readValue("""
+                {"exchangeId": "exchange-2", "parts": [{"title": "Read the specification", "lessons": ["work-1"]}], "acceptedAt": "2026-10-03T10:00:00Z"}""",
+                GoalCourse.class);
+        assertThat(course.map()).isEmpty();
     }
 }

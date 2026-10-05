@@ -337,8 +337,13 @@ describe('goal guidance', () => {
 
   it('reads a proposed and an accepted course, and offers the course only until one is accepted', () => {
     expect(parseGoalExchange(JSON.parse(JSON.stringify(COURSE))).reply.course).toEqual(COURSE.reply.course);
-    const course = { exchangeId: 'op-3', parts: [{ title: 'Iceberg tables', lessons: ['work-0', 'work-1'] }], acceptedAt: '2026-10-03T10:00:00Z' };
+    const course: NonNullable<GoalDto['course']> = { exchangeId: 'op-3', parts: [{ title: 'Iceberg tables', lessons: ['work-0', 'work-1'] }], acceptedAt: '2026-10-03T10:00:00Z',
+      map: null };
     expect(parseGoal(JSON.parse(JSON.stringify({ ...GOAL, course }))).course).toEqual(course);
+    const mapped: NonNullable<GoalDto['course']> = { ...course, map: { kind: 'COMPONENTS', caption: 'The concepts', nodes: [
+      { id: 'table', label: 'TableMetadata', note: null, parent: null, group: 'Metadata' }, { id: 'scan', label: 'TableScan', note: null, parent: null, group: 'Engine' }],
+    edges: [{ from: 'scan', to: 'table', label: 'reads' }] } };
+    expect(parseGoal(JSON.parse(JSON.stringify({ ...GOAL, course: mapped }))).course).toEqual(mapped);
     expect(openCourse(GOAL, [ASKED, COURSE])).toEqual({ exchangeId: 'op-3', course: COURSE.reply.course });
     expect(openCourse({ ...GOAL, course }, [ASKED, COURSE])).toBeNull();
 
@@ -354,7 +359,8 @@ describe('goal guidance', () => {
     expect(accepted).toContain('<button type="button" class="goal-course__open">#30925 title</button>');
 
     // A later course revises the accepted one: it keeps a lesson by id, adds one and leaves an unfinished one out.
-    const started = { exchangeId: 'op-3', parts: [{ title: 'Iceberg tables', lessons: ['work-0', 'work-2'] }], acceptedAt: '2026-10-03T10:00:00Z' };
+    const started: NonNullable<GoalDto['course']> = { exchangeId: 'op-3', parts: [{ title: 'Iceberg tables', lessons: ['work-0', 'work-2'] }], acceptedAt: '2026-10-03T10:00:00Z',
+      map: null };
     const revision: GoalExchangeDto = { ...COURSE, id: 'op-4', reply: { ...COURSE.reply, course: { reason: 'You know tables already.', parts: [{ title: 'The connector',
       lessons: [{ title: 'Tables', outcome: 'Tables', lessonId: 'work-0' }, { title: 'Plan a scan', outcome: 'Explain splits', lessonId: null }] }] } } };
     expect(openCourse({ ...GOAL, course: started }, [ASKED, COURSE, revision])).toEqual({ exchangeId: 'op-4', course: revision.reply.course });

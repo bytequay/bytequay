@@ -460,7 +460,7 @@ public class GoalConversationService
             }
             parts.add(new GoalCourse.Part(part.title(), lessons.build()));
         }
-        GoalCourse course = new GoalCourse(exchangeId, parts.build(), clock.instant());
+        GoalCourse course = new GoalCourse(exchangeId, parts.build(), clock.instant(), Optional.empty());
         goals.planCourse(workspaceId, goalId, course);
         Set<String> kept = course.parts().stream().flatMap(part -> part.lessons().stream()).collect(toImmutableSet());
         for (WorkItemView left : goal.items()) {

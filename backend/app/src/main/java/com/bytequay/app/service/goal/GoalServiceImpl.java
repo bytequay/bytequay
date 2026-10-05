@@ -17,6 +17,7 @@ import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.GoalTopic;
 import com.bytequay.core.store.GoalRecommendationStore;
@@ -166,6 +167,18 @@ public class GoalServiceImpl
             Goal planned = goal.withCourse(course, clock.instant());
             goals.save(planned);
             return view(planned);
+        }
+    }
+
+    @Override
+    public void mapCourse(String workspaceId, String goalId, String exchangeId, GoalLesson.Diagram map)
+    {
+        requireNonNull(map, "map is null");
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            goal.course().filter(course -> course.exchangeId().equals(exchangeId) && course.map().isEmpty())
+                    .ifPresent(course -> goals.save(goal.withCourse(course.withMap(map), clock.instant())));
         }
     }
 

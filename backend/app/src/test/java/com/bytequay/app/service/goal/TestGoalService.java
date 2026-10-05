@@ -17,6 +17,7 @@ import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalLesson;
 import com.bytequay.core.domain.GoalSource;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalTopicStore;
@@ -80,12 +81,37 @@ class TestGoalService
     void anAcceptedRevisionReplacesTheCourseWithoutChangingTheRevision()
     {
         GoalView goal = service.create("workspace", "Iceberg", "");
-        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH);
+        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH,
+                Optional.empty());
         assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
         assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
-        GoalCourse revised = new GoalCourse("exchange-2", ImmutableList.of(new GoalCourse.Part("The connector", ImmutableList.of("lesson-1", "lesson-2"))), Instant.EPOCH);
+        GoalCourse revised = new GoalCourse("exchange-2", ImmutableList.of(new GoalCourse.Part("The connector", ImmutableList.of("lesson-1", "lesson-2"))), Instant.EPOCH,
+                Optional.empty());
         assertThat(service.planCourse("workspace", goal.id(), revised).course()).contains(revised);
         assertThat(store.find(goal.id()).orElseThrow().revision()).isZero();
+    }
+
+    @Test
+    void aMapIsSavedOnTheCourseItWasDrawnForAndOnlyOnce()
+    {
+        GoalView goal = service.create("workspace", "Iceberg", "");
+        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH,
+                Optional.empty());
+        service.planCourse("workspace", goal.id(), course);
+        GoalLesson.Diagram map = new GoalLesson.Diagram(GoalLesson.Diagram.Kind.COMPONENTS, "Iceberg reads", ImmutableList.of(
+                new GoalLesson.Node("scan", "TableScan", Optional.of("Plans the files"), Optional.empty(), Optional.of("Engine")),
+                new GoalLesson.Node("manifest", "ManifestFile", Optional.empty(), Optional.empty(), Optional.of("Metadata"))),
+                ImmutableList.of(new GoalLesson.Edge("scan", "manifest", Optional.of("reads"))));
+        service.mapCourse("workspace", goal.id(), "exchange-0", map);
+        assertThat(store.find(goal.id()).orElseThrow().course().orElseThrow().map()).as("drawn for a course revised since").isEmpty();
+
+        service.mapCourse("workspace", goal.id(), "exchange-1", map);
+        assertThat(store.find(goal.id()).orElseThrow().course()).contains(course.withMap(map));
+        GoalLesson.Diagram other = new GoalLesson.Diagram(GoalLesson.Diagram.Kind.COMPONENTS, "Other", map.nodes(), map.edges());
+        service.mapCourse("workspace", goal.id(), "exchange-1", other);
+        assertThat(store.find(goal.id()).orElseThrow().course().orElseThrow().map()).as("a mapped course keeps its map").contains(map);
+        assertThatThrownBy(() -> course.withMap(new GoalLesson.Diagram(GoalLesson.Diagram.Kind.FLOW, "Steps", map.nodes(), ImmutableList.of())))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("a course map is a components diagram");
     }
 
     @Test

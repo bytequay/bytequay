@@ -16,6 +16,7 @@ package com.bytequay.app.service.goal;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.GoalLesson;
 
 import java.util.List;
 import java.util.Optional;
@@ -55,6 +56,9 @@ public interface GoalService
 
     /** Saves the course the user accepted, in place of an earlier one it revises; accepting it again changes nothing. */
     GoalView planCourse(String workspaceId, String goalId, GoalCourse course);
+
+    /** Saves the map drawn for the accepted course of that exchange; a course revised since, or one already mapped, keeps its own. */
+    void mapCourse(String workspaceId, String goalId, String exchangeId, GoalLesson.Diagram map);
 
     /** Archives the goal and retains its work; the oldest active goal inherits its pin. */
     void delete(String workspaceId, String goalId);

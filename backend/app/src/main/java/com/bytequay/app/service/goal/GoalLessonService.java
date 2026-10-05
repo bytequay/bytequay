@@ -45,8 +45,9 @@ import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
 
 /**
- * The lessons of a goal's course. A lesson is written once, by a tool-free request from the goal's knowledge notes, the first time the user
- * opens it, so reopening it needs no model call. Finishing it accepts its Learn work item and tells the goal's agent.
+ * The lessons of a goal's course. A lesson is written once, by a tool-free request from the goal's knowledge notes, its course map and what the
+ * code graph finds for it, the first time the user opens it, so reopening it needs no model call; the course's first chapter draws its map
+ * first. Finishing it accepts its Learn work item and tells the goal's agent.
  */
 @Service
 public class GoalLessonService
@@ -200,7 +201,7 @@ public class GoalLessonService
                     .map(GoalCourse.Part::title).findFirst().orElseThrow();
             AgentModelSetting setting = models.goalModel(goal.id(), lesson.workspaceId());
             model = Optional.of(setting.configId() + "/" + setting.model());
-            settled = lesson.written(model.orElseThrow(), planner.lesson(setting, goal, item, part, notes.list(goal.id())), clock.instant());
+            settled = lesson.written(model.orElseThrow(), planner.lesson(setting, mapped(goal, setting), item, part, notes.list(goal.id())), clock.instant());
         }
         catch (RuntimeException failure) {
             log.debug("Lesson {} was not written", lesson.id(), failure);
@@ -212,6 +213,23 @@ public class GoalLessonService
             if (lessons.find(lesson.id()).filter(lesson::equals).isPresent()) {
                 lessons.save(settled);
             }
+        }
+    }
+
+    /** The goal with its course's map, drawn first when the course has none; a map that fails leaves the chapter to be written without it. */
+    private GoalView mapped(GoalView goal, AgentModelSetting setting)
+    {
+        GoalCourse course = goal.course().orElseThrow();
+        if (course.map().isPresent()) {
+            return goal;
+        }
+        try {
+            goals.mapCourse(goal.workspaceId(), goal.id(), course.exchangeId(), planner.courseMap(setting, goal, notes.list(goal.id())));
+            return goal(goal.workspaceId(), goal.id());
+        }
+        catch (RuntimeException failure) {
+            log.warn("The course map of goal {} was not drawn: {}", goal.id(), failure.toString());
+            return goal;
         }
     }
 

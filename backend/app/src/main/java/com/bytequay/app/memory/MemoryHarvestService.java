@@ -100,6 +100,17 @@ public class MemoryHarvestService
         }).orElse(HarvestState.EMPTY);
     }
 
+    /** The monitored repository's closed pull requests with the typed number or title words, to pick one to learn from; blank reads nothing. */
+    public List<ClosedPull> findPulls(String workspaceId, String typed)
+    {
+        checkArgument(typed.length() <= 200, "Type at most 200 characters to find a pull request");
+        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+        if (typed.isBlank()) {
+            return ImmutableList.of();
+        }
+        return github.findClosedPulls(credentials.resolveGitHubCredential().token(), workspace.monitoredRepository(), typed);
+    }
+
     /**
      * Reads the user's own and reviewed pull requests closed after the cursor, newest first, or the one chosen pull request, and starts a
      * harvest run over their new maintainer threads. With none, no run starts and the cursor still moves past what was read.

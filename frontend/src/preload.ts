@@ -385,6 +385,7 @@ const bridge: Bridge = {
   undoRememberedMemory: (workspaceId, memoryId) => ipcRenderer.invoke('memory:undo-remember', workspaceId, memoryId),
   saveMemorySwitches: (workspaceId, switches) => ipcRenderer.invoke('memory:switches', workspaceId, switches),
   startMemoryHarvest: (workspaceId, request) => ipcRenderer.invoke('memory:harvest', workspaceId, request),
+  searchMemoryPulls: (workspaceId, query) => ipcRenderer.invoke('memory:pulls', workspaceId, query),
   listReviewReplays: workspaceId => ipcRenderer.invoke('replay:list', workspaceId),
   startReviewReplay: (workspaceId, request) => ipcRenderer.invoke('replay:start', workspaceId, request),
   markReviewReplay: (workspaceId, replayId, request) => ipcRenderer.invoke('replay:mark', workspaceId, replayId, request),

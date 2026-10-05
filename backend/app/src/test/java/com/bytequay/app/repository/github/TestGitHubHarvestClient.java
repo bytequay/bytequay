@@ -16,6 +16,7 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.RepoRef;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
@@ -31,6 +32,7 @@ import static org.hamcrest.Matchers.allOf;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.header;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubHarvestClient
@@ -60,6 +62,36 @@ class TestGitHubHarvestClient
                 new GitHubHarvestClient.ClosedPull(101, "Mine", Instant.parse("2026-09-01T00:00:00Z"), true));
         fixture.rest().verify();
         assertThatThrownBy(() -> fixture.client().closedPulls("pat", REPOSITORY, "alice bob")).hasMessageContaining("Invalid GitHub login");
+    }
+
+    @Test
+    void findsAClosedPullRequestByNumberOrByEveryWordInItsTitle()
+    {
+        Fixture fixture = fixture();
+        fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31354")).andRespond(withSuccess("""
+                {"id":1,"number":31354,"title":"Fix checkpoint write","closed_at":"2026-09-20T00:00:00Z","pull_request":{"merged_at":"2026-09-20T00:00:00Z"}}
+                """, MediaType.APPLICATION_JSON));
+        fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/31355")).andRespond(withSuccess("""
+                {"id":2,"number":31355,"title":"Still open","closed_at":null,"pull_request":{"merged_at":null}}
+                """, MediaType.APPLICATION_JSON));
+        fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/9")).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        fixture.rest().expect(requestTo(allOf(containsString("/search/issues"), containsString("trinodb"),
+                        containsString("%20is%3Apr%20is%3Aclosed%20in%3Atitle%20%22checkpoint%22%20%22is%22%20%22open%22%20%22null%22"), containsString("per_page=10"))))
+                .andRespond(withSuccess("""
+                        {"total_count":2,"incomplete_results":false,"items":[
+                          {"id":3,"number":31200,"title":"Checkpoint null counts","closed_at":"2026-09-01T00:00:00Z","pull_request":{"merged_at":null}},
+                          {"id":4,"number":8,"title":"An issue about checkpoints","closed_at":"2026-09-02T00:00:00Z"}]}
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, " #31354 "))
+                .containsExactly(new GitHubHarvestClient.ClosedPull(31354, "Fix checkpoint write", Instant.parse("2026-09-20T00:00:00Z"), true));
+        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "31355")).isEmpty();
+        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "9")).isEmpty();
+        // Search syntax in the typed words is split into quoted words, so the repository and state qualifiers cannot be replaced.
+        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "checkpoint \"is:open\" (null)"))
+                .containsExactly(new GitHubHarvestClient.ClosedPull(31200, "Checkpoint null counts", Instant.parse("2026-09-01T00:00:00Z"), false));
+        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, " :: ")).isEmpty();
+        fixture.rest().verify();
     }
 
     @Test

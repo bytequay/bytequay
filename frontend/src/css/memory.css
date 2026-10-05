@@ -122,6 +122,8 @@
   cursor: pointer; white-space: normal; overflow-wrap: anywhere; }
 .mem-learn__delete { flex: none; color: #cf222e; }
 .mem-new { color: #1a7f37; }
+.mem-pull-search { display: flex; flex-direction: column; gap: 8px; margin-top: 18px; max-width: 640px; font-size: 13px; }
+.mem-pull__title { flex: 1; min-width: 0; line-height: 1.45; color: #1f2328; overflow-wrap: anywhere; }
 
 /* Learn from this PR, beside the pull request page's icon buttons. */
 .pr-overview__branches .pr-learn { display: inline-flex; width: auto; gap: 4px; align-items: center; padding: 0 8px; color: #59636e; font-size: 12px; }

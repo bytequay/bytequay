@@ -82,6 +82,18 @@ class TestMemoryHarvestService
     }
 
     @Test
+    void findsPullRequestsToLearnFromInTheMonitoredRepositoryAndReadsNothingForABlankQuery()
+    {
+        ClosedPull found = new ClosedPull(31354, "Fix checkpoint write", at(1), true);
+        when(github.findClosedPulls("token", REPOSITORY, "checkpoint")).thenReturn(ImmutableList.of(found));
+
+        assertThat(harvests.findPulls("workspace", "checkpoint")).containsExactly(found);
+        assertThat(harvests.findPulls("workspace", "  ")).isEmpty();
+        verify(github, never()).findClosedPulls("token", REPOSITORY, "  ");
+        assertThatThrownBy(() -> harvests.findPulls("workspace", "x".repeat(201))).hasMessageContaining("at most 200 characters");
+    }
+
+    @Test
     void keepsTheThreadsAMaintainerSpokeInAndSkipsBotsUnexplainedClosesAndThreadsReadBefore()
     {
         PullDiscussion merged = new PullDiscussion(31201, "Add a property", url(31201), true, at(1), ImmutableList.of(

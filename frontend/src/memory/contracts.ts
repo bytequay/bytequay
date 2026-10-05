@@ -48,6 +48,8 @@ export type MemoryPageDto = { memories: MemoryDto[]; switches: MemorySwitchesDto
 export type StartMemoryHarvestRequest = { requestKey: string; expectedBuildSequence: number; pull: number | null; repo: string | null };
 /** Whether a run started, and how many pull requests and new maintainer threads it found. */
 export type MemoryHarvestStartedDto = { started: boolean; pulls: number; threads: number; view: ContextBuildViewDto };
+/** A closed pull request of the monitored repository that a typed number or title words named, to learn from. */
+export type MemoryPullDto = { number: number; title: string; closedAt: string; merged: boolean };
 
 export function flag(value: unknown, what: string): boolean {
   if (typeof value !== 'boolean') throw new Error(`Malformed ${what}`);
@@ -141,6 +143,19 @@ export function parseMemoryHarvestStarted(value: unknown, workspaceId: string): 
   const item = object(value, 'harvest start');
   return { started: flag(item.started, 'harvest start'), pulls: count(item.pulls, 'harvest pulls'), threads: count(item.threads, 'harvest threads'),
     view: parseContextBuildView(item.view, workspaceId) };
+}
+
+export function parseMemoryPulls(value: unknown): MemoryPullDto[] {
+  return list(value, 'pull requests', item => {
+    const found = object(item, 'pull request');
+    return { number: count(found.number, 'pull request number'), title: text(found.title, 'pull request title'),
+      closedAt: text(found.closedAt, 'pull request close time'), merged: flag(found.merged, 'pull request merge') };
+  });
+}
+
+export function parseMemoryPullQuery(value: unknown): string {
+  if (typeof value !== 'string' || value.length > 200) throw new Error('Malformed pull request search');
+  return value;
 }
 
 export function parseStartMemoryHarvestRequest(value: unknown): StartMemoryHarvestRequest {

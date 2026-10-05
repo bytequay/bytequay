@@ -17,6 +17,7 @@ import com.bytequay.app.memory.MemoryHarvestService;
 import com.bytequay.app.memory.MemoryPageReader;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.memory.MemorySwitches;
+import com.bytequay.app.repository.github.GitHubHarvestClient.ClosedPull;
 import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemorySource;
 import com.google.common.collect.ImmutableList;
@@ -105,5 +106,17 @@ class TestMemoryController
         mvc.perform(put("/api/workspaces/workspace/memory/switches").contentType(MediaType.APPLICATION_JSON).content("{\"reviews\":false,\"development\":true}"))
                 .andExpect(status().isOk());
         verify(memories).saveSwitches("workspace", new MemorySwitches(false, true));
+    }
+
+    @Test
+    void findsClosedPullRequestsToLearnFrom()
+            throws Exception
+    {
+        when(harvests.findPulls("workspace", "checkpoint null")).thenReturn(ImmutableList.of(new ClosedPull(31354, "Fix checkpoint write", NOW, true)));
+        mvc.perform(get("/api/workspaces/workspace/memory/pulls").param("q", "checkpoint null"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].number").value(31354))
+                .andExpect(jsonPath("$[0].title").value("Fix checkpoint write"))
+                .andExpect(jsonPath("$[0].merged").value(true));
     }
 }

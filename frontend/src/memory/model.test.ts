@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseStartMemoryHarvestRequest } from './contracts';
+import { parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseMemoryPullQuery, parseMemoryPulls, parseStartMemoryHarvestRequest } from './contracts';
 import type { MemoryDto, MemorySourceDto } from './contracts';
 import { age, flagged, kilobytes, matches, memoryFlags, pageLabel, sourceChip, sourceHead, titleRepeated } from './model';
 
@@ -113,6 +113,14 @@ describe('memory contracts', () => {
     expect(() => parseMemoryPage({ ...page, memories: [{ memory: { ...stored, title: null }, missingScope: [] }] })).toThrow('Malformed memory title');
     expect(() => parseMemoryId('m0')).toThrow('Malformed memory id');
     expect(parseMemoryId('m12')).toBe('m12');
+  });
+
+  it('reads the pull requests a search found and checks the typed words before they leave the renderer', () => {
+    const pull = { number: 31354, title: 'Fix checkpoint write', closedAt: '2026-09-20T00:00:00Z', merged: false };
+    expect(parseMemoryPulls([pull])).toEqual([pull]);
+    expect(() => parseMemoryPulls([{ ...pull, merged: undefined }])).toThrow('Malformed pull request merge');
+    expect(parseMemoryPullQuery('#31354')).toBe('#31354');
+    expect(() => parseMemoryPullQuery('x'.repeat(201))).toThrow('Malformed pull request search');
   });
 
   it('checks a harvest request before it leaves the renderer and reads what started', () => {

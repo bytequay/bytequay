@@ -20,6 +20,13 @@ it('switches memory sections without stacking content or losing filters', async 
   expect(results).toEqual([{ name: 'Memory section navigation, filters, scrolling and spec entry' }]);
 }, 30_000);
 
+it('finds one closed pull request by number or title words and learns from it only on Learn', async () => {
+  const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-memory-learn-one-',
+    entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 750,
+    body: 'const results = await window.webContents.executeJavaScript("MemoryPageTests.runLearnOne()");' });
+  expect(results).toEqual([{ name: 'Find one closed pull request by number or title words and learn from it' }]);
+}, 30_000);
+
 it('shows confirmed findings on the page and opens GitHub only on an explicit click', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-spec-findings-',
     entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 900,

@@ -27,8 +27,8 @@ export function assert(condition: boolean, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
 
-/** Sets a controlled textarea the way a user would, so React sees the change. */
-export function changeInput(input: HTMLTextAreaElement, value: string): void {
-  Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, value);
+/** Sets a controlled textarea or input the way a user would, so React sees the change. */
+export function changeInput(input: HTMLTextAreaElement | HTMLInputElement, value: string): void {
+  Object.getOwnPropertyDescriptor(Object.getPrototypeOf(input), 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
 }

@@ -62,7 +62,8 @@ import {
   parseStartContextSpecCheckRequest,
 } from './repository-context/contracts';
 import {
-  parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseMemorySwitches, parseMemoryText, parseMemoryTitle, parseMemoryVersion, parseStartMemoryHarvestRequest,
+  parseMemoryHarvestStarted, parseMemoryId, parseMemoryPage, parseMemoryPullQuery, parseMemoryPulls, parseMemorySwitches, parseMemoryText, parseMemoryTitle,
+  parseMemoryVersion, parseStartMemoryHarvestRequest,
 } from './memory/contracts';
 import { parseMarkReplayRequest, parseReplay, parseReplayId, parseReplays, parseStartReplayRequest } from './memory/replays';
 import {
@@ -1449,6 +1450,8 @@ function registerIpc(): void {
     backendJson(memoryUrl(workspaceId, '/switches'), jsonInit('PUT', parseMemorySwitches(switches))).then(parseMemoryPage));
   ipcMain.handle('memory:harvest', (_event, workspaceId: string, request: unknown) =>
     backendJson(memoryUrl(workspaceId, '/harvest'), jsonInit('POST', parseStartMemoryHarvestRequest(request))).then(value => parseMemoryHarvestStarted(value, workspaceId)));
+  ipcMain.handle('memory:pulls', (_event, workspaceId: string, query: unknown) =>
+    backendJson(memoryUrl(workspaceId, `/pulls?${new URLSearchParams({ q: parseMemoryPullQuery(query) })}`)).then(parseMemoryPulls));
   const replayUrl = (path = '') => `${backendBase()}/api/agent-review/replays${path}`;
   ipcMain.handle('replay:list', (_event, workspaceId: string) =>
     backendJson(`${replayUrl()}?workspaceId=${encodeURIComponent(workspaceId)}`, { headers: agentHeaders() }).then(parseReplays));

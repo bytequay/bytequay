@@ -19,6 +19,7 @@ import com.bytequay.app.memory.MemoryPageReader;
 import com.bytequay.app.memory.MemoryPageReader.MemoryPage;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.memory.MemorySwitches;
+import com.bytequay.app.repository.github.GitHubHarvestClient.ClosedPull;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -27,8 +28,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -120,6 +123,13 @@ public class MemoryController
         checkArgument(request.pull() == null || request.pull() > 0, "pull must be a pull request number");
         return harvests.start(workspaceId, new ContextBuildService.Request(request.requestKey(), request.expectedBuildSequence()), Optional.ofNullable(request.pull()),
                 Optional.ofNullable(request.repo()));
+    }
+
+    /** The closed pull requests a typed number or title words name, to pick one to learn from. GitHub is only read. */
+    @GetMapping("/pulls")
+    public List<ClosedPull> pulls(@PathVariable String workspaceId, @RequestParam(defaultValue = "") String q)
+    {
+        return harvests.findPulls(workspaceId, q);
     }
 
     public record EditRequest(Long expectedVersion, String title, String text) {}

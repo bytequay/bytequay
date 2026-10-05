@@ -430,7 +430,12 @@ it('routes memory reads and the user’s changes, refusing a forged memory id be
   await expect(desktop.handlers.get('memory:harvest')?.({}, 'workspace/one', harvest))
     .resolves.toEqual({ started: true, pulls: 1, threads: 3, view: { buildRequestSequence: 5, canStart: false, build: null } });
   expect(fetch).toHaveBeenLastCalledWith(base + '/harvest', expect.objectContaining({ method: 'POST', body: JSON.stringify(harvest) }));
+  const pull = { number: 31354, title: 'Fix checkpoint write', closedAt: '2026-09-20T00:00:00Z', merged: true };
+  fetch.mockImplementation(async () => new Response(JSON.stringify([pull])));
+  await expect(desktop.handlers.get('memory:pulls')?.({}, 'workspace/one', 'checkpoint & null')).resolves.toEqual([pull]);
+  expect(fetch).toHaveBeenLastCalledWith(base + '/pulls?q=checkpoint+%26+null', expect.anything());
   fetch.mockClear();
+  expect(() => desktop.handlers.get('memory:pulls')?.({}, 'workspace/one', 'x'.repeat(201))).toThrow('Malformed pull request search');
   expect(() => desktop.handlers.get('memory:harvest')?.({}, 'workspace/one', { ...harvest, repo: null })).toThrow('Malformed harvest request');
   expect(() => desktop.handlers.get('memory:delete')?.({}, 'workspace/one', '../m12')).toThrow('Malformed memory id');
   expect(() => desktop.handlers.get('memory:edit')?.({}, 'workspace/one', 'm12', 0, 'Title', 'Text')).toThrow('Malformed memory version');

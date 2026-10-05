@@ -24,12 +24,15 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
@@ -42,15 +45,20 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
+import static java.util.stream.Collectors.joining;
 
 /**
- * Reads the closed pull requests a person wrote or reviewed, and one pull request's review discussion, for learning repository memory,
- * and a merged pull request's reviews and review threads, for replaying its review.
+ * Reads the closed pull requests a person wrote or reviewed, or names by number or title, and one pull request's review discussion, for
+ * learning repository memory, and a merged pull request's reviews and review threads, for replaying its review.
  */
 @Component
 public class GitHubHarvestClient
 {
     private static final int SEARCH_RESULTS = 100;
+    private static final int FOUND_RESULTS = 10;
+    // GitHub refuses search queries over 256 characters, so a long pasted title searches by its first words.
+    private static final int SEARCH_WORDS = 8;
+    private static final Pattern NUMBER = Pattern.compile("#?([1-9][0-9]{0,8})");
     private static final String NOTE_FIELDS = "id body url author { __typename login }";
     private static final String QUERY = """
             query($owner:String!,$repo:String!,$number:Int!) {
@@ -95,12 +103,51 @@ public class GitHubHarvestClient
                     .queryParam("sort", "updated").queryParam("order", "desc").queryParam("per_page", SEARCH_RESULTS).build(query))
                     .retrieve().body(GitHubSearchResponse.class), "Missing search response from GitHub"));
             for (GitHubSearchResponse.Item item : Optional.ofNullable(response.items()).orElse(ImmutableList.of())) {
-                if (item.pullRequest() != null && item.closedAt() != null) {
-                    pulls.putIfAbsent(item.number(), new ClosedPull(item.number(), item.title(), item.closedAt(), item.pullRequest().mergedAt() != null));
-                }
+                closed(item).ifPresent(pull -> pulls.putIfAbsent(pull.number(), pull));
             }
         }
         return pulls.values().stream().sorted(Comparator.comparing(ClosedPull::closedAt).reversed()).collect(toImmutableList());
+    }
+
+    /**
+     * The repository's closed pull requests a person names: the one with the typed number, or those whose titles have every typed word,
+     * most recently updated first. Characters GitHub search reads as syntax are dropped, so the repository and state stay fixed.
+     */
+    public List<ClosedPull> findClosedPulls(String pat, RepoRef repository, String typed)
+    {
+        requirePat(pat);
+        Matcher number = NUMBER.matcher(typed.strip());
+        if (number.matches()) {
+            try {
+                GitHubSearchResponse.Item item = translating(() -> requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repository.owner(),
+                        repository.repo(), Integer.parseInt(number.group(1))).retrieve().body(GitHubSearchResponse.Item.class), "GitHub returned no pull request"));
+                return closed(item).stream().collect(toImmutableList());
+            }
+            catch (ResponseStatusException missing) {
+                if (missing.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                    return ImmutableList.of();
+                }
+                throw missing;
+            }
+        }
+        String words = Arrays.stream(typed.replaceAll("[^\\p{L}\\p{N}_./-]+", " ").strip().split(" +")).filter(word -> !word.isEmpty()).limit(SEARCH_WORDS)
+                .map(word -> "\"" + word + "\"").collect(joining(" "));
+        if (words.isEmpty()) {
+            return ImmutableList.of();
+        }
+        String query = "repo:" + repository.fullName() + " is:pr is:closed in:title " + words;
+        GitHubSearchResponse response = translating(() -> requireBody(get(gitHubRestClient, pat, uri -> uri.path("/search/issues").queryParam("q", "{query}")
+                .queryParam("sort", "updated").queryParam("order", "desc").queryParam("per_page", FOUND_RESULTS).build(query))
+                .retrieve().body(GitHubSearchResponse.class), "Missing search response from GitHub"));
+        return Optional.ofNullable(response.items()).orElse(ImmutableList.of()).stream().map(GitHubHarvestClient::closed).flatMap(Optional::stream)
+                .collect(toImmutableList());
+    }
+
+    /** A search hit or an issue read as a closed pull request; an issue or an open pull request is none. */
+    private static Optional<ClosedPull> closed(GitHubSearchResponse.Item item)
+    {
+        return item.pullRequest() == null || item.closedAt() == null ? Optional.empty()
+                : Optional.of(new ClosedPull(item.number(), item.title(), item.closedAt(), item.pullRequest().mergedAt() != null));
     }
 
     /** One closed pull request's review threads, reviews and comments; empty when it is open or gone. */

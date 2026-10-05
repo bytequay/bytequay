@@ -35,7 +35,7 @@ const data = (build: ContextBuildViewDto): SpecCheckData => ({ workspaceId: 'w',
 const last = (outcome: HarvestLastRunDto['outcome']): HarvestLastRunDto => ({ harvestId: 'h', label: 'Learn from my PRs', startedAt: '2026-10-02T00:00:00Z',
   endedAt: null, pulls: 12, threads: 31, saved: ['m31'], seenAgain: 2, replaced: 1, outcome });
 const render = (value: MemoryPageDto, build: ContextBuildViewDto) => renderToStaticMarkup(<LearnCard page={value} data={data(build)} busy={false}
-  onLearn={() => {}} onStop={() => {}} onDelete={() => {}} onOpen={() => {}} />);
+  onLearn={() => {}} onSearch={async () => []} onStop={() => {}} onDelete={() => {}} onOpen={() => {}} />);
 
 describe('LearnCard', () => {
   it('offers Learn from my PRs and says how far earlier harvests read', () => {
@@ -44,6 +44,7 @@ describe('LearnCard', () => {
     expect(markup).toContain('Learned through #31201');
     expect(markup).toContain('Learn from my PRs</button>');
     expect(markup).toContain('Starts 1 run · reads the maintainer threads it finds and saves rules · Codex · Sol');
+    expect(markup).toContain('Learn from one closed pull request<input type="search"');
   });
 
   it('lists what the last harvest saved, with Delete, and its counts', () => {
@@ -67,5 +68,6 @@ describe('LearnCard', () => {
     expect(markup).toContain('Saved m31');
     expect(markup).toContain('>Stop</button>');
     expect(markup).not.toContain('Learn from my PRs</button>');
+    expect(markup).not.toContain('Learn from one closed pull request');
   });
 });

@@ -23,7 +23,7 @@ import { RunLine, SpecCheckDrawer, SpecFinding, type SpecCheckActions, type Spec
 import { Icon, Spinner } from '../repository-context/icons';
 import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, shortSha } from '../repository-context/model';
 import { CHECK_STATE, checkSummary, issueUrl, openFindings, type SpecCheckRequest } from '../repository-context/specChecks';
-import type { MemoryDto, MemoryKind, MemoryPageDto } from './contracts';
+import type { MemoryDto, MemoryKind, MemoryPageDto, MemoryPullDto } from './contracts';
 import { MemoryDrawer } from './MemoryDrawer';
 import { ReplayDrawer, ReplaysSection } from './ReplaysSection';
 import { replayRunning, type ReplayDto } from './replays';
@@ -87,6 +87,7 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   const panel = useRef<HTMLDivElement>(null);
 
   const say = useCallback((text: string, undo: string | null = null) => setToast({ id: Date.now(), text, undo }), []);
+  const searchPulls = useCallback((query: string) => window.bridge.searchMemoryPulls(workspaceId, query), [workspaceId]);
   const load = useCallback(async () => {
     // Replays sit behind the agent routes, which refuse until agent startup recovery ends; the rest of the page does not wait for them.
     const [nextPage, nextChecks, nextBuild, nextReplays] = await Promise.all([window.bridge.getMemoryPage(workspaceId),
@@ -209,14 +210,14 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   const count = (predicate: (memory: MemoryDto) => boolean) => memories.filter(predicate).length;
   const switches = page.switches;
   const fresh = new Set(page.harvest.last?.outcome === 'DONE' ? page.harvest.last.saved : []);
-  const learn = (): void => void perform(async () => {
+  const learn = (pull: number | null): void => void perform(async () => {
     const started = await window.bridge.startMemoryHarvest(workspaceId, { requestKey: crypto.randomUUID(), expectedBuildSequence: build.buildRequestSequence,
-      pull: null, repo: null });
+      pull, repo: pull === null ? null : repository });
     if (!mounted.current) return;
     setBuild(started.view);
     await load();
-    say(started.started ? `Learning from ${plural(started.pulls, 'pull request')} · ${plural(started.threads, 'maintainer thread')} to read`
-      : `No new maintainer threads in ${plural(started.pulls, 'pull request')}`);
+    const what = pull === null ? plural(started.pulls, 'pull request') : `#${pull}`;
+    say(started.started ? `Learning from ${what} · ${plural(started.threads, 'maintainer thread')} to read` : `No new maintainer threads in ${what}`);
   });
   const saveSwitches = (next: { reviews: boolean; development: boolean }) =>
     change(() => window.bridge.saveMemorySwitches(workspaceId, next), () => say(next.reviews || next.development ? 'Memory switches saved' : 'Agents get no memory now'));
@@ -279,7 +280,7 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
         <div className="rcp-inner mem-inner mem-panel" id={`mem-panel-${tab}`} role="tabpanel" aria-labelledby={`mem-tab-${tab}`} tabIndex={0}>
           {actionError !== null && <div className="rcp-error" role="alert">{actionError}
             <button type="button" className="rcp-link" onClick={() => setActionError(null)}>Dismiss</button></div>}
-          {tab === 'learn' && <LearnCard page={page} data={data} busy={busy} onLearn={learn} onStop={actions.stop}
+          {tab === 'learn' && <LearnCard page={page} data={data} busy={busy} onLearn={learn} onSearch={searchPulls} onStop={actions.stop}
             onDelete={id => change(() => window.bridge.deleteMemory(workspaceId, id), () => say('Memory deleted', id))}
             onOpen={id => open({ kind: 'memory', id })} />}
           {tab === 'specs' && run !== null && run.kind === 'CHECK' && run.outcome === 'RUNNING' && <div className="rcp-status" role="status" aria-live="polite"><div className="rcp-status__row">
@@ -483,10 +484,13 @@ function MemoryRow({ memory, now, fresh, selected, onOpen }: { memory: MemoryDto
   </button>;
 }
 
-/** Learn from pull requests: how far the harvest has read, the run that reads it, and what the last run saved. */
-export function LearnCard({ page, data, busy, onLearn, onStop, onDelete, onOpen }: {
-  page: MemoryPageDto; data: SpecCheckData; busy: boolean; onLearn: () => void; onStop: (taskId: string) => void; onDelete: (id: string) => void;
-  onOpen: (id: string) => void;
+/**
+ * Learn from pull requests: how far the harvest has read, the run that reads it, what the last run saved, and a search for one closed pull
+ * request to learn from.
+ */
+export function LearnCard({ page, data, busy, onLearn, onSearch, onStop, onDelete, onOpen }: {
+  page: MemoryPageDto; data: SpecCheckData; busy: boolean; onLearn: (pull: number | null) => void; onSearch: (query: string) => Promise<MemoryPullDto[]>;
+  onStop: (taskId: string) => void; onDelete: (id: string) => void; onOpen: (id: string) => void;
 }) {
   const run = data.build.build;
   const last = page.harvest.last;
@@ -510,13 +514,48 @@ export function LearnCard({ page, data, busy, onLearn, onStop, onDelete, onOpen 
           ? 'Reads the newest closed pull requests you wrote or reviewed, up to 30, and saves the rules their maintainers asked for.'
           : `Learned through #${cursor.number}. The next run reads the pull requests you wrote or reviewed that closed after it, up to 30.`}</div>
         {last !== null && last.outcome !== 'RUNNING' && <LastRun last={last} saved={saved} busy={busy} onDelete={onDelete} onOpen={onOpen} />}
-        <div className="rcp-actions"><button type="button" className="rcp-btn rcp-btn--primary" disabled={busy || !data.build.canStart || blocked} onClick={onLearn}>
-          <Icon name="bolt" size={13} />Learn from my PRs</button></div>
+        <div className="rcp-actions"><button type="button" className="rcp-btn rcp-btn--primary" disabled={busy || !data.build.canStart || blocked}
+          onClick={() => onLearn(null)}><Icon name="bolt" size={13} />Learn from my PRs</button></div>
         <RunLine workspaceId={data.workspaceId} blocked={blocked}>{data.model.blocker
           ?? `Starts 1 run · reads the maintainer threads it finds and saves rules · ${data.model.label}`}</RunLine>
+        <PullSearch disabled={busy || !data.build.canStart || blocked} onSearch={onSearch} onLearn={onLearn} />
       </>}
     </div>
   </section>;
+}
+
+/** Learn from one pull request: the closed ones a typed number or title words name, each with Learn. */
+function PullSearch({ disabled, onSearch, onLearn }: {
+  disabled: boolean; onSearch: (query: string) => Promise<MemoryPullDto[]>; onLearn: (pull: number) => void;
+}) {
+  const [query, setQuery] = useState('');
+  const [found, setFound] = useState<{ query: string; pulls: MemoryPullDto[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    const typed = query.trim();
+    if (typed === '') {
+      setFound(null);
+      setError(null);
+      return;
+    }
+    let current = true;
+    // Each search reads GitHub, so it waits for typing to pause.
+    const timer = setTimeout(() => void onSearch(typed).then(pulls => { if (current) { setFound({ query: typed, pulls }); setError(null); } },
+      cause => { if (current) setError(remoteErrorMessage(cause)); }), 400);
+    return () => { current = false; clearTimeout(timer); };
+  }, [onSearch, query]);
+  return <div className="mem-pull-search">
+    <label className="mem-edit">Learn from one closed pull request
+      <input type="search" value={query} placeholder="Number or title words" onChange={event => setQuery(event.target.value)} />
+    </label>
+    {error !== null && <div className="mem-warn">{error}</div>}
+    {found !== null && found.pulls.length === 0 && <div className="mem-muted">No closed pull request matches “{found.query}”.</div>}
+    {found !== null && found.pulls.length > 0 && <div className="mem-box">{found.pulls.map(pull => <div className="mem-learn__item" key={pull.number}>
+      <span className="mem-pull__title"><span className="mem-muted">#{pull.number}</span> {pull.title}</span>
+      <span className="mem-muted">{pull.merged ? 'merged' : 'closed'}</span>
+      <button type="button" className="rcp-link" disabled={disabled} onClick={() => onLearn(pull.number)}>Learn</button>
+    </div>)}</div>}
+  </div>;
 }
 
 function LastRun({ last, saved, busy, onDelete, onOpen }: {

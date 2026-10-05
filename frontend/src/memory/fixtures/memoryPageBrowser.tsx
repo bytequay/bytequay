@@ -13,9 +13,9 @@
  */
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 import type { WorkspaceDto } from '../../types';
-import type { MemoryDto, MemoryPageDto } from '../contracts';
+import type { MemoryDto, MemoryPageDto, MemoryPullDto, StartMemoryHarvestRequest } from '../contracts';
 import type { ContextSpecCandidateDto, ContextSpecCheckDto } from '../../repository-context/contracts';
 import MemoryPage from '../MemoryPage';
 import '../../css/base.css';
@@ -59,10 +59,14 @@ const completedCheck: ContextSpecCheckDto = {
   startedAt: '2026-01-01T00:00:00Z', endedAt: '2026-01-01T01:00:00Z',
 };
 
+const found: MemoryPullDto = { number: 31354, title: 'Fix checkpoint write for struct null counts', closedAt: '2026-09-20T00:00:00Z', merged: true };
+
 export function mount(withFindings = false) {
   const calls: string[] = [];
   const opened: string[] = [];
   const copied: string[] = [];
+  const searches: string[] = [];
+  const harvests: StartMemoryHarvestRequest[] = [];
   let checks: ContextSpecCheckDto[] = withFindings ? [completedCheck] : [];
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (text: string) => { copied.push(text); } } });
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
@@ -80,7 +84,12 @@ export function mount(withFindings = false) {
         candidates: check.candidates.map(candidate => candidate.id !== candidateId ? candidate : { ...candidate, dismissed: request.reason }) });
       return checks[0];
     },
-    startMemoryHarvest: async () => { calls.push('harvest'); throw new Error('Unexpected run'); },
+    startMemoryHarvest: async (_workspace, request) => {
+      calls.push('harvest');
+      harvests.push(request);
+      return { started: true, pulls: 1, threads: 3, view: { buildRequestSequence: 1, canStart: true, build: null } };
+    },
+    searchMemoryPulls: async (_workspace, query) => { searches.push(query); return query === '#31354' ? [found] : []; },
     startRepositoryContextSpecCheck: async () => { calls.push('check'); throw new Error('Unexpected run'); },
   } satisfies Partial<typeof window.bridge> });
   const host = document.createElement('main');
@@ -88,8 +97,35 @@ export function mount(withFindings = false) {
   document.body.append(host);
   const root = createRoot(host);
   flushSync(() => root.render(<MemoryPage workspace={workspace} />));
-  return { host, calls, opened, copied, showSpec: () => flushSync(() => root.render(<MemoryPage workspace={workspace} spec={{ directory: null }} />)),
+  return { host, calls, opened, copied, searches, harvests,
+    showSpec: () => flushSync(() => root.render(<MemoryPage workspace={workspace} spec={{ directory: null }} />)),
     close: () => { flushSync(() => root.unmount()); host.remove(); } };
+}
+
+export async function runLearnOne() {
+  const view = mount();
+  // Longer than the search's pause after typing.
+  const paused = () => new Promise(resolve => setTimeout(resolve, 600));
+  try {
+    await settle();
+    view.host.querySelector<HTMLButtonElement>('#mem-tab-learn')?.click(); await settle();
+    const input = view.host.querySelector<HTMLInputElement>('.mem-pull-search input');
+    assert(input !== null, 'The Learn tab has a box to find one pull request');
+    changeInput(input, 'check');
+    changeInput(input, 'checkpoint'); await paused();
+    assert(view.searches.length === 1 && view.searches[0] === 'checkpoint', 'Typing searches once, after it pauses');
+    assert(view.host.textContent?.includes('No closed pull request matches “checkpoint”.') === true, 'An empty search says so');
+    changeInput(input, ' #31354 '); await paused(); await settle();
+    const row = view.host.querySelector<HTMLElement>('.mem-pull-search .mem-learn__item');
+    assert(row !== null && row.textContent?.includes('#31354 Fix checkpoint write for struct null counts') === true && row.textContent.includes('merged'),
+      'A number finds that pull request with its title');
+    assert(view.calls.filter(call => call === 'harvest').length === 0, 'Finding a pull request starts nothing');
+    [...row.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Learn')?.click(); await settle(); await settle();
+    assert(view.harvests.length === 1 && view.harvests[0].pull === 31354 && view.harvests[0].repo === 'trinodb/trino',
+      'Learn starts one run for that pull request in the monitored repository');
+    assert(document.body.textContent?.includes('Learning from #31354 · 3 maintainer threads to read') === true, 'The toast says what started');
+    return [{ name: 'Find one closed pull request by number or title words and learn from it' }];
+  } finally { view.close(); }
 }
 
 export async function runFindings() {

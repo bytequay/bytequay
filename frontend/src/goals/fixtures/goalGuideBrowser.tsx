@@ -423,7 +423,7 @@ export async function run(): Promise<boolean> {
     changeInput(composer(), 'What should come first?'); await settle();
     button('Send').click(); await settle(); await settle();
     answer({ assessment: 'Prove the fix first.', question: null, proposal: null, course: null, recommendation: null, plan: { changes: [{ workItemId: 'work-2',
-      priority: 'HIGH', waitsOn: null }], order: ['work-2', 'work-1'], reason: 'The test proves the fix before anything builds on it' } });
+      priority: 'HIGH', waitsOn: null, acceptanceCriteria: null }], order: ['work-2', 'work-1'], reason: 'The test proves the fix before anything builds on it' } });
     await nextRead(); await settle();
     assert(text().includes('Proposed plan change') && text().includes('Add a regression test: High priority')
       && text().includes('New order: Add a regression test → Fix #31252'), 'A plan change shows the differences it makes and why');

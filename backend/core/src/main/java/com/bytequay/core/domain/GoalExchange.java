@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkOptionalText;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -173,19 +174,24 @@ public record GoalExchange(
     }
 
     /**
-     * One work item's new priority, the whole list of the open work it should wait on, or both.
+     * One work item's new priority, the whole list of the open work it should wait on, its new acceptance criteria, or several of them.
      *
      * @param waitsOn the open work it waits on afterward, none for an empty list
+     * @param acceptanceCriteria what the work must achieve afterward, when its scope should change
      */
-    public record WorkChange(String workItemId, Optional<WorkItem.Priority> priority, Optional<List<String>> waitsOn)
+    public record WorkChange(String workItemId, Optional<WorkItem.Priority> priority, Optional<List<String>> waitsOn, Optional<String> acceptanceCriteria)
     {
+        public static final int MAX_CRITERIA = 2_000;
+
         public WorkChange
         {
             checkText(workItemId, "workItemId", 200);
             requireNonNull(priority, "priority is null");
             requireNonNull(waitsOn, "waitsOn is null");
             waitsOn = waitsOn.map(ImmutableList::copyOf);
-            checkArgument(priority.isPresent() || waitsOn.isPresent(), "a work change sets a priority or what the work waits on");
+            checkOptionalText(acceptanceCriteria, "acceptanceCriteria", MAX_CRITERIA);
+            checkArgument(priority.isPresent() || waitsOn.isPresent() || acceptanceCriteria.isPresent(),
+                    "a work change sets a priority, what the work waits on or its criteria");
             waitsOn.ifPresent(ids -> checkArgument(ids.size() <= PlanChange.MAX_CHANGES && ids.stream().distinct().count() == ids.size() && !ids.contains(workItemId),
                     "work waits on other work, each once"));
         }

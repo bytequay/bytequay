@@ -262,14 +262,15 @@ describe('goal guidance', () => {
       ({ ...GOAL.items[0], id, title, state, rank, blockedBy, priority: 'NORMAL', links: [], history: [] });
     const items = [work('w-1', 'Fix #31252', 'DONE', 0), work('w-2', 'Add a regression test', 'PLANNED', 1, ['w-3']), work('w-3', 'Backport the fix', 'PLANNED', 2),
       work('w-4', 'Write the release note', 'WORKING', 3)];
-    const plan: GoalPlanChangeDto = { changes: [{ workItemId: 'w-2', priority: 'HIGH', waitsOn: [] }, { workItemId: 'w-3', priority: null, waitsOn: ['w-2'] }],
+    const plan: GoalPlanChangeDto = { changes: [{ workItemId: 'w-2', priority: 'HIGH', waitsOn: [], acceptanceCriteria: null },
+      { workItemId: 'w-3', priority: null, waitsOn: ['w-2'], acceptanceCriteria: 'The backport keeps the test' }],
       order: ['w-4', 'w-2', 'w-3'], reason: 'The test proves the fix before it is backported' };
     const proposed: GoalExchangeDto = { ...ASKED, id: 'op-9', reply: { ...ASKED.reply, question: null, plan } };
     expect(parseGoalExchange(JSON.parse(JSON.stringify(proposed))).reply?.plan).toEqual(plan);
     const goal: GoalDto = { ...GOAL, items };
     expect(openPlan(goal, [ASKED, proposed])).toEqual({ exchangeId: 'op-9', reason: 'The test proves the fix before it is backported', differences: [
       'Add a regression test: High priority', 'Add a regression test no longer waits on Backport the fix', 'Backport the fix waits on Add a regression test',
-      'New order: Write the release note → Add a regression test → Backport the fix'] });
+      'Backport the fix: criteria become "The backport keeps the test"', 'New order: Write the release note → Add a regression test → Backport the fix'] });
     expect(situation(goal, [ASKED, proposed], [])).toEqual({ text: 'Your decision: the proposed plan change', decisions: 1 });
     const markup = panel({ view: 'guide', goal, conversation: conversation([ASKED, proposed]) });
     expect(markup).toContain('Proposed plan change');
@@ -277,7 +278,7 @@ describe('goal guidance', () => {
     expect(markup).toContain('>Accept plan change</button>');
     // Accepted, or made by the user's own hand, the change leaves nothing to accept.
     const applied: GoalDto = { ...goal, items: [items[0], { ...items[3], rank: 1 }, { ...items[1], priority: 'HIGH', blockedBy: [], rank: 2 },
-      { ...items[2], blockedBy: ['w-2'], rank: 3 }] };
+      { ...items[2], blockedBy: ['w-2'], rank: 3, acceptanceCriteria: 'The backport keeps the test' }] };
     expect(openPlan(applied, [ASKED, proposed])).toBeNull();
   });
 

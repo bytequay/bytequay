@@ -50,8 +50,8 @@ class TestGoalExchangeConverter
     void keepsAPlanChangeAndReadsRepliesSavedBeforePlanChanges()
     {
         GoalExchange.PlanChange plan = new GoalExchange.PlanChange(ImmutableList.of(
-                new GoalExchange.WorkChange("work-2", Optional.of(WorkItem.Priority.HIGH), Optional.of(ImmutableList.of())),
-                new GoalExchange.WorkChange("work-3", Optional.empty(), Optional.of(ImmutableList.of("work-2")))),
+                new GoalExchange.WorkChange("work-2", Optional.of(WorkItem.Priority.HIGH), Optional.of(ImmutableList.of()), Optional.empty()),
+                new GoalExchange.WorkChange("work-3", Optional.empty(), Optional.of(ImmutableList.of("work-2")), Optional.of("The backport keeps the test"))),
                 Optional.of(ImmutableList.of("work-2", "work-3")), "The test proves the fix before the backport");
         GoalExchange planned = GoalExchange.ask("op-2", "goal-1", "workspace-1", "Backport first?", 1, NOW).answered("codex/gpt",
                 new GoalExchange.Reply("Test first.", Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty(),

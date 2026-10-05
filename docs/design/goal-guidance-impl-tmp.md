@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first eighteen implementation slices are complete. The later items
+Status: The first nineteen implementation slices are complete. The later items
 of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -733,6 +733,11 @@ Goal's work are waiting on, and may propose new criteria for a work item.
    acceptance criteria, shown as the difference it makes and applied as the
    user's scope change when accepted.
 
+Progress: the nineteenth slice is complete. A receipt still moves its work to
+the next revision, so a decision the user makes while one lands is sent again
+once at the new revision when nothing it rests on changed. A criteria change is
+the user's scope edit when accepted, recorded in the item's history.
+
 Done when: an approval and failing checks reach the agent once each, the
 History view names them, and a plan change can rewrite a work item's criteria.
 
@@ -935,7 +940,7 @@ already-started source cannot slip through stale recommendations.
   waiting for review, result ready or milestone delivered. Prefer recovery and
   outstanding user decisions over fresh discovery. A meaningful change updates
   guidance without “what next?” or manual refresh.
-- [ ] Propose specific plan differences when scope/order/dependencies should
+- [x] Propose specific plan differences when scope/order/dependencies should
   change, with their reason. Refresh recommendations within accepted constraints
   automatically; preserve accepted decisions until the user changes them.
 - [ ] Reconsider after meaningful linked work/source changes. Persist the input
@@ -954,10 +959,10 @@ Evidence for the checked items: the spec-check and blocked-lesson card tests in
 reviews, failing checks and pull requests waiting for review. Still partial:
 task deletion and runtime cleanup do not wait for a receipt; a task start
 reaches the agent only with its first finished turn; plan differences cover the
-course and the open work's priorities, order and dependencies, not a work item's
-scope or criteria; the persisted input fingerprint covers only discovery; there
-is no Remember action; and task deletion, log expiry and uncertain provider
-cleanup are not exercised.
+course and the open work's priorities, order, dependencies and criteria, not a
+work item's title or completion rule; the persisted input fingerprint covers
+only discovery; there is no Remember action; and task deletion, log expiry and
+uncertain provider cleanup are not exercised.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

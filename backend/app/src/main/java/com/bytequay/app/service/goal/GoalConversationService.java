@@ -492,9 +492,9 @@ public class GoalConversationService
     }
 
     /**
-     * Accepts the plan change an answer proposed: each work item it names takes its new priority and waits on the open work it names, and the
-     * open work takes its new order. Only what still differs from the work as it stands is applied, each as the user's decision in its item's
-     * history, so accepting again changes nothing. A newer proposal replaces it.
+     * Accepts the plan change an answer proposed: each work item it names takes its new priority and criteria and waits on the open work it
+     * names, and the open work takes its new order. Only what still differs from the work as it stands is applied, each as the user's
+     * decision in its item's history, so accepting again changes nothing. A newer proposal replaces it.
      */
     public GoalView acceptPlan(String workspaceId, String goalId, String exchangeId)
     {
@@ -521,7 +521,7 @@ public class GoalConversationService
             for (String blocker : item.blockedBy()) {
                 if (change.waitsOn().filter(waits -> !waits.contains(blocker)).isPresent()) {
                     decide(workspaceId, item.id(), revisions, step + item.id() + ":unblock:" + blocker, WorkItemCommand.Action.UNBLOCK, Optional.empty(),
-                            Optional.of(blocker));
+                            Optional.empty(), Optional.of(blocker));
                 }
             }
         }
@@ -530,11 +530,16 @@ public class GoalConversationService
             for (String blocker : change.waitsOn().orElse(ImmutableList.of())) {
                 if (!item.blockedBy().contains(blocker)) {
                     decide(workspaceId, item.id(), revisions, step + item.id() + ":block:" + blocker, WorkItemCommand.Action.BLOCK, Optional.empty(),
-                            Optional.of(blocker));
+                            Optional.empty(), Optional.of(blocker));
                 }
             }
             if (change.priority().filter(priority -> priority != item.priority()).isPresent()) {
-                decide(workspaceId, item.id(), revisions, step + item.id() + ":priority", WorkItemCommand.Action.PRIORITIZE, change.priority(), Optional.empty());
+                decide(workspaceId, item.id(), revisions, step + item.id() + ":priority", WorkItemCommand.Action.PRIORITIZE, Optional.empty(), change.priority(),
+                        Optional.empty());
+            }
+            if (change.acceptanceCriteria().filter(criteria -> !criteria.strip().equals(item.acceptanceCriteria())).isPresent()) {
+                decide(workspaceId, item.id(), revisions, step + item.id() + ":criteria", WorkItemCommand.Action.EDIT, change.acceptanceCriteria(), Optional.empty(),
+                        Optional.empty());
             }
         }
         if (plan.order().isPresent()) {
@@ -555,10 +560,10 @@ public class GoalConversationService
         return goal(workspaceId, goalId);
     }
 
-    private void decide(String workspaceId, String id, Map<String, Long> revisions, String operationId, WorkItemCommand.Action action,
+    private void decide(String workspaceId, String id, Map<String, Long> revisions, String operationId, WorkItemCommand.Action action, Optional<String> criteria,
             Optional<WorkItem.Priority> priority, Optional<String> blocker)
     {
-        WorkItemView changed = work.change(workspaceId, id, new WorkItemCommand(operationId, revisions.get(id), action, Optional.empty(), Optional.empty(),
+        WorkItemView changed = work.change(workspaceId, id, new WorkItemCommand(operationId, revisions.get(id), action, Optional.empty(), criteria,
                 Optional.empty(), Optional.empty(), "Accepted the agent's plan change.", priority, blocker, false));
         revisions.put(id, changed.revision());
     }

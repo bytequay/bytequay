@@ -372,7 +372,7 @@ export function parseGoalKnowledgeNote(value: unknown): GoalKnowledgeNoteDto {
  * open item, with its reason. A field left null keeps what the work has.
  */
 export type GoalPlanChangeDto = {
-  changes: { workItemId: string; priority: WorkItemPriority | null; waitsOn: string[] | null }[];
+  changes: { workItemId: string; priority: WorkItemPriority | null; waitsOn: string[] | null; acceptanceCriteria: string | null }[];
   order: string[] | null;
   reason: string;
 };
@@ -457,6 +457,7 @@ function parsePlanChange(value: unknown): GoalPlanChangeDto {
         workItemId: text(change.workItemId, 'goal plan work item'),
         priority: change.priority === null || change.priority === undefined ? null : oneOf(change.priority, ['HIGH', 'NORMAL', 'LOW'] as const, 'goal plan priority'),
         waitsOn: ids(change.waitsOn),
+        acceptanceCriteria: optionalText(change.acceptanceCriteria),
       };
     }, 'goal plan changes'),
     order: ids(plan.order),

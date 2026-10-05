@@ -928,7 +928,8 @@ class TestGoalConversationService
 
         // Backporting before the test that waits on the backport would make each wait on the other.
         service.ask("workspace", goal.id(), "op-1", "Should the backport wait for the test?");
-        doReturn(planned(new GoalExchange.PlanChange(ImmutableList.of(new GoalExchange.WorkChange("work-3", Optional.empty(), Optional.of(ImmutableList.of("work-2")))),
+        doReturn(planned(new GoalExchange.PlanChange(ImmutableList.of(
+                new GoalExchange.WorkChange("work-3", Optional.empty(), Optional.of(ImmutableList.of("work-2")), Optional.empty())),
                 Optional.empty(), "Backport after the test"))).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(exchanges.list(goal.id())).singleElement().satisfies(exchange -> {
@@ -936,15 +937,16 @@ class TestGoalConversationService
             assertThat(exchange.failure()).hasValueSatisfying(reason -> assertThat(reason).contains("wait on itself through other work"));
         });
         service.retry("workspace", goal.id(), "op-1");
-        doReturn(planned(new GoalExchange.PlanChange(ImmutableList.of(new GoalExchange.WorkChange("work-1", Optional.of(WorkItem.Priority.HIGH), Optional.empty())),
+        doReturn(planned(new GoalExchange.PlanChange(ImmutableList.of(
+                new GoalExchange.WorkChange("work-1", Optional.of(WorkItem.Priority.HIGH), Optional.empty(), Optional.empty())),
                 Optional.empty(), "Finished work"))).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThat(exchanges.list(goal.id()).getLast().failure()).as("concluded work is not planned")
                 .hasValueSatisfying(reason -> assertThat(reason).contains("names work the goal does not hold open"));
 
         GoalExchange.PlanChange plan = new GoalExchange.PlanChange(ImmutableList.of(
-                new GoalExchange.WorkChange("work-2", Optional.of(WorkItem.Priority.HIGH), Optional.of(ImmutableList.of())),
-                new GoalExchange.WorkChange("work-3", Optional.empty(), Optional.of(ImmutableList.of("work-2")))),
+                new GoalExchange.WorkChange("work-2", Optional.of(WorkItem.Priority.HIGH), Optional.of(ImmutableList.of()), Optional.empty()),
+                new GoalExchange.WorkChange("work-3", Optional.empty(), Optional.of(ImmutableList.of("work-2")), Optional.empty())),
                 Optional.of(ImmutableList.of("work-4", "work-2", "work-3")), "The test proves the fix before it is backported");
         service.retry("workspace", goal.id(), "op-1");
         doReturn(planned(plan)).when(planner).answer(any(), any(), anyList(), any());
@@ -985,12 +987,29 @@ class TestGoalConversationService
         queued.removeFirst().run();
         clock.advance(Duration.ofMinutes(1));
         service.ask("workspace", goal.id(), "op-2", "And the priorities?");
-        doReturn(planned(new GoalExchange.PlanChange(ImmutableList.of(new GoalExchange.WorkChange("work-1", Optional.of(WorkItem.Priority.HIGH), Optional.empty())),
+        doReturn(planned(new GoalExchange.PlanChange(ImmutableList.of(
+                new GoalExchange.WorkChange("work-1", Optional.of(WorkItem.Priority.HIGH), Optional.empty(), Optional.empty())),
                 Optional.empty(), "The fix is urgent"))).when(planner).answer(any(), any(), anyList(), any());
         queued.removeFirst().run();
         assertThatThrownBy(() -> service.acceptPlan("workspace", goal.id(), "op-1")).isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("A newer plan change was proposed");
         verify(work, never()).order(any(), any(), any());
+    }
+
+    @Test
+    void aPlanChangeCanGiveOpenWorkNewCriteria()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        when(work.list("workspace")).thenReturn(ImmutableList.of(ranked("work-1", goal.id(), WorkItem.State.PLANNED, 0, WorkItem.Priority.NORMAL)));
+        when(work.change(eq("workspace"), any(), any())).thenAnswer(invocation -> ranked("work-1", goal.id(), WorkItem.State.PLANNED, 0, WorkItem.Priority.NORMAL));
+        service.ask("workspace", goal.id(), "op-1", "Should the fix cover deletion vectors?");
+        doReturn(planned(new GoalExchange.PlanChange(ImmutableList.of(new GoalExchange.WorkChange("work-1", Optional.empty(), Optional.empty(),
+                Optional.of("Rows with deletion vectors survive a checkpoint"))), Optional.empty(), "The issue's reporter hit it with deletion vectors")))
+                .when(planner).answer(any(), any(), anyList(), any());
+        queued.removeFirst().run();
+        service.acceptPlan("workspace", goal.id(), "op-1");
+        verify(work).change(eq("workspace"), eq("work-1"), argThat(command -> command.operationId().equals("plan:op-1:work-1:criteria")
+                && command.action() == WorkItemCommand.Action.EDIT && command.acceptanceCriteria().equals(Optional.of("Rows with deletion vectors survive a checkpoint"))));
     }
 
     private static GoalExchange.Reply planned(GoalExchange.PlanChange plan)

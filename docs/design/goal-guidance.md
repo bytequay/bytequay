@@ -241,14 +241,15 @@ decision and verified event of the Goal's work, newest first. The agent reads
 the work in that order with its priorities and blockers, prefers ready work that
 unblocks other work, and a lesson card naming a lesson that waits on open work
 is dropped. It may also propose a plan change with a reason: new priorities, the
-whole list of open work an item waits on, and a new order of the open work. The
-Guide view shows it as the differences it makes to the work as it stands, with
-Accept, Adjust and Skip; Accept applies those differences as the user's own
-decisions, each in its item's history, and once nothing differs the proposal is
-gone. A change that names work the Goal does not hold open, makes work wait on
-itself through other work or orders anything but the open work fails the reply,
-and a newer proposal replaces an older one. Changing a work item's scope or
-criteria stays with the user.
+whole list of open work an item waits on, new acceptance criteria for an open
+item, and a new order of the open work. The Guide view shows it as the
+differences it makes to the work as it stands, with Accept, Adjust and Skip;
+Accept applies those differences as the user's own decisions, each in its item's
+history, and once nothing differs the proposal is gone. A change that names work
+the Goal does not hold open, makes work wait on itself through other work or
+orders anything but the open work fails the reply, and a newer proposal replaces
+an older one. Changing a work item's title or completion rule stays with the
+user.
 
 When a question needs evidence nobody has gathered, such as whether the code
 supports a specification feature, and neither research nor a spec check fits

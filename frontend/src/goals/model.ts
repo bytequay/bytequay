@@ -279,6 +279,8 @@ export function openPlan(goal: GoalDto | null, exchanges: GoalExchangeDto[]): { 
       waitsOn.filter((id) => !item.blockedBy.includes(id)).forEach((id) => differences.push(`${item.title} waits on ${title(id)}`));
       item.blockedBy.filter((id) => !waitsOn.includes(id)).forEach((id) => differences.push(`${item.title} no longer waits on ${title(id)}`));
     }
+    const criteria = change.acceptanceCriteria?.trim() ?? null;
+    if (criteria !== null && criteria !== item.acceptanceCriteria) differences.push(`${item.title}: criteria become "${criteria}"`);
   }
   const order = plan.order;
   if (order !== null && order.join('\n') !== inOrder(goal.items).filter(isOpen).map((item) => item.id).join('\n')) {

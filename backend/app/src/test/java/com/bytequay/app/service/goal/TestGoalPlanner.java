@@ -191,7 +191,7 @@ class TestGoalPlanner
         String prompt = planner.prompt(goal, ImmutableList.of(), GoalExchange.ask("op", "goal-1", "workspace", "What next?", 1, NOW));
         assertThat(prompt.indexOf("\"id\" : \"work-1\"")).as("the work comes in the user's order").isLessThan(prompt.indexOf("\"id\" : \"work-2\""));
         assertThat(prompt).contains("\"priority\" : \"HIGH\"", "\"waitsOn\" : [ \"work-1\" ]", "never recommend it");
-        assertThat(prompt).as("the agent may propose a new order").contains("propose a plan change with a", "An unchanged plan needs no proposal");
+        assertThat(prompt).as("the agent may propose a new order").contains("propose a plan", "waitsOn or acceptanceCriteria should", "An unchanged plan");
         assertThat(prompt).as("failing checks are recovery").contains("or that checks failed on it", "say what is left before it can merge");
     }
 
@@ -200,13 +200,15 @@ class TestGoalPlanner
     {
         GoalExchange.Reply reply = GoalPlanner.parse("""
                 {"assessment": "Test first.", "question": null, "proposal": null, "course": null, "recommendation": null, "topics": [], "title": null,
-                "plan": {"changes": [{"workItemId": "work-2", "priority": "HIGH", "waitsOn": []}, {"workItemId": "work-3", "priority": null, "waitsOn": ["work-2"]}],
+                "plan": {"changes": [{"workItemId": "work-2", "priority": "HIGH", "waitsOn": []}, {"workItemId": "work-3", "priority": null, "waitsOn": ["work-2"],
+                "acceptanceCriteria": "The backport keeps the test"}],
                 "order": ["work-2", "work-3"], "reason": "The test proves the fix first"}}""");
         assertThat(reply.plan()).hasValueSatisfying(plan -> {
             assertThat(plan.changes()).extracting(GoalExchange.WorkChange::workItemId).containsExactly("work-2", "work-3");
             assertThat(plan.changes().getFirst().priority()).contains(WorkItem.Priority.HIGH);
             assertThat(plan.changes().getFirst().waitsOn()).contains(ImmutableList.of());
             assertThat(plan.changes().getLast().priority()).isEmpty();
+            assertThat(plan.changes().getLast().acceptanceCriteria()).contains("The backport keeps the test");
             assertThat(plan.order()).contains(ImmutableList.of("work-2", "work-3"));
         });
         assertThatThrownBy(() -> GoalPlanner.parse("""

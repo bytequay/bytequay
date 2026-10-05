@@ -303,7 +303,7 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 .jira-field-button > span { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
 .jira-field-button > svg:last-child { color: #57606a; }
 .jira-field-button.is-empty { border-style: dashed; border-color: #b6bcc4; color: #57606a; }
-.jira-sprint-menu { width: 100%; min-width: 220px; }
+.jira-sprint-menu { right: 0; left: auto; width: 100%; min-width: 220px; }
 .jira-side__note { margin: 10px 0 0; color: #8c959f; font-size: 12px; line-height: 1.5; }
 
 /* Edit fields replaces Details with a form whose save bar stays in view. */

@@ -278,7 +278,12 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(update?.args[1] === jiraIssue.updatedAt, 'Updates carry snapshot version');
       await until(() => document.querySelector('.jira-edit') === null);
       const sprint = document.querySelector<HTMLButtonElement>('.jira-side button[title="Move to sprint"]'); assert(sprint?.textContent === 'Connector reliability', 'Details name the sprint the page lists the ticket in');
-      sprint.click(); await settle(); menuItem('Backlog').click(); await until(() => calls.some(call => call.name === 'sprint')); assert(calls.find(call => call.name === 'sprint')?.args[0] === null, 'Backlog is explicit');
+      sprint.click(); await settle();
+      const sprintMenu = document.querySelector('.jira-sprint-menu'); const sidebar = document.querySelector('.jira-side');
+      assert(sprintMenu !== null && sidebar !== null, 'Sprint menu opens in the fields sidebar');
+      const menuBounds = sprintMenu.getBoundingClientRect(); const sidebarBounds = sidebar.getBoundingClientRect();
+      assert(menuBounds.left >= sidebarBounds.left && menuBounds.right <= sidebarBounds.right, 'Sprint options and state badges stay inside the sidebar without clipping');
+      menuItem('Backlog').click(); await until(() => calls.some(call => call.name === 'sprint')); assert(calls.find(call => call.name === 'sprint')?.args[0] === null, 'Backlog is explicit');
     },
     async 'requires transition fields and retains a failed comment operation'() {
       await mountPreview();

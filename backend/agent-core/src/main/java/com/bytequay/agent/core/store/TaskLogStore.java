@@ -42,6 +42,19 @@ public interface TaskLogStore
     void append(AgentEventEnvelope envelope);
 
     /**
+     * Appends one display event without flushing it to disk. It reaches the operating system at once, so a backend
+     * crash keeps it; the next flushed append makes it durable together with everything before it. Only an
+     * operating-system crash before then can lose this unflushed tail.
+     *
+     * @param envelope sequenced display event to append
+     * @throws com.bytequay.agent.core.AgentStorageException when the append fails
+     */
+    default void appendWithoutFlush(AgentEventEnvelope envelope)
+    {
+        append(envelope);
+    }
+
+    /**
      * Reads a bounded page in ascending sequence order.
      *
      * <p>A partial final line left by a crash is ignored. Visited records are

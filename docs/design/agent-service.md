@@ -698,7 +698,10 @@ approval records and their lifecycle events are durable; only the live
 provider callback remains process-local. Startup closes all durable pending
 approvals, including rows owned by an already-terminal turn. Every state-coupled
 transition now commits its outbox row in the same SQLite transaction and drains
-it before publication; display-only provider events still append directly.
+it before publication; display-only provider events still append directly,
+without a disk flush of their own: the next state event's flush makes them
+durable, and a subscriber that is caught up receives each one without
+reading it back.
 Accepted turns commit their blob-backed user message through that outbox and
 drain it before provider delivery. Direct start does not duplicate the turn in a delivery
 table: `startedAt` is persisted immediately before the provider call, and the

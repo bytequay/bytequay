@@ -108,12 +108,24 @@ public final class FileTaskLogStore
         appendAll(ImmutableList.of(requireNonNull(envelope, "envelope is null")));
     }
 
+    /** A display event costs a write, not a disk flush: flushing each one serialized a turn's streamed output behind the disk. */
+    @Override
+    public void appendWithoutFlush(AgentEventEnvelope envelope)
+    {
+        append(ImmutableList.of(requireNonNull(envelope, "envelope is null")), false);
+    }
+
     /**
      * Appends a contiguous batch of records for one task under a single durable
      * sync. Tests that build long fixture logs use this instead of paying one
      * fsync per record through {@link #append}.
      */
     void appendAll(List<AgentEventEnvelope> envelopes)
+    {
+        append(envelopes, true);
+    }
+
+    private void append(List<AgentEventEnvelope> envelopes, boolean flush)
     {
         requireNonNull(envelopes, "envelopes is null");
         if (envelopes.isEmpty()) {
@@ -151,7 +163,9 @@ public final class FileTaskLogStore
                 while (lines.hasRemaining()) {
                     channel.write(lines);
                 }
-                channel.force(true);
+                if (flush) {
+                    channel.force(true);
+                }
                 lastSequences.put(taskId, lastSequence);
             }
             catch (IOException e) {

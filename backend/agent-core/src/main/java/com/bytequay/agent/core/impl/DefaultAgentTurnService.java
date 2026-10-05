@@ -157,8 +157,11 @@ public final class DefaultAgentTurnService
     private final BiConsumer<AgentTask, AgentTurn> developmentAccepted;
     private final Consumer<DevelopmentTurnCompletion> developmentCompletion;
     private final Consumer<TaskId> stopChildren;
-    /** The log sequence of each launched turn's first event, so counting its tools reads back no further. */
-    private final ConcurrentMap<TurnId, Long> turnLogStarts = new ConcurrentHashMap<>();
+    /**
+     * Each turn from its launch until its terminal state is saved, with the log sequence of its first event. A provider
+     * event for a turn missing here came too late, and counting a turn's tools reads back no further than its first event.
+     */
+    private final ConcurrentMap<TurnId, Long> launchedTurns = new ConcurrentHashMap<>();
 
     /** How long a closed process may take to report its turn interrupted before the stop is a failure. */
     private static final Duration STOP_TIMEOUT = Duration.ofSeconds(30);
@@ -771,7 +774,7 @@ public final class DefaultAgentTurnService
                 task = requireAcceptedLaunch(turn);
                 // The development baseline capture below takes seconds of Git and GitHub reads; publish
                 // the accepted message first so the transcript shows it while Send is still waiting.
-                turnLogStarts.put(turn.id(), eventService.drain(acceptance.deliveryEventId()).sequence());
+                launchedTurns.put(turn.id(), eventService.drain(acceptance.deliveryEventId()).sequence());
             }
             ReviewTurnInputResolver.Reference reference = reviewTurnInput.reference(task, turn);
             String message = reviewTurnInput.prepare(task, turn, reference.append(acceptance.message()));
@@ -1934,8 +1937,11 @@ public final class DefaultAgentTurnService
             }
             return;
         }
-        AgentTurn turn = requireActiveTurn(taskId);
-        eventService.append(new UnsequencedAgentEvent(taskId, Optional.of(turn.id()), event));
+        // Streamed display events check the in-memory launch record, not the database, once per event.
+        if (!launchedTurns.containsKey(boundTurnId)) {
+            throw new AgentConflictException("Task has no active turn: " + taskId);
+        }
+        eventService.append(new UnsequencedAgentEvent(taskId, Optional.of(boundTurnId), event));
     }
 
     private static String developmentInstructions(AgentTurnSettings settings)
@@ -2264,7 +2270,7 @@ public final class DefaultAgentTurnService
             boolean knownUnsent)
     {
         EventId eventId = EventId.random();
-        Long firstSequence = turnLogStarts.remove(turn.id());
+        Long firstSequence = launchedTurns.remove(turn.id());
         // Read before the unit of work opens: the log can be long, and the unit of work holds the database.
         ToolCounters counters = knownUnsent ? ToolCounters.ZERO
                 : metricsService.countTools(turn.taskId(), turn.id(), firstSequence == null ? OptionalLong.empty() : OptionalLong.of(firstSequence));

@@ -76,11 +76,14 @@ public final class DefaultAgentEventService
     public AgentEventEnvelope append(UnsequencedAgentEvent event)
     {
         requireNonNull(event, "event is null");
-        taskStore.require(event.taskId());
         TaskChannel channel = channel(event.taskId());
         AgentEventEnvelope envelope;
         List<EventSubscription> subscriptions;
         synchronized (channel) {
+            if (!channel.writerInitialized) {
+                // Once a channel serves writes its task is known; a streamed turn appends without asking the database.
+                taskStore.require(event.taskId());
+            }
             initializeForWrite(event.taskId(), channel);
             Optional<Long> existingSequence = channel.sequenceOf(event.eventId());
             if (existingSequence.isPresent()) {
@@ -96,7 +99,8 @@ public final class DefaultAgentEventService
                     event.source(),
                     Instant.now(clock),
                     event.payload());
-            logStore.append(envelope);
+            // A display event needs no flush of its own: the next state event's flush makes it durable too.
+            logStore.appendWithoutFlush(envelope);
             channel.appended(envelope);
             // Display events come only from a live turn, so none of them can settle a terminal task.
             subscriptions = handOver(channel, envelope);
@@ -218,14 +222,17 @@ public final class DefaultAgentEventService
         // lastSequence first: it validates the prefix and repairs a torn tail before anything new can be appended.
         long lastSequence = logStore.lastSequence(taskId);
         channel.sequences.clear();
-        long cursor = 0;
-        while (cursor < lastSequence) {
-            List<AgentEventEnvelope> page = logStore.readAfter(taskId, cursor, REPLAY_PAGE_SIZE);
-            if (page.isEmpty()) {
+        long indexed = 0;
+        OptionalLong after = OptionalLong.of(0);
+        // Byte-bounded pages: an index of a long log reopens the file a handful of times, not once per few events.
+        while (indexed < lastSequence) {
+            AgentHistoryPage page = logStore.readHistory(taskId, OptionalLong.empty(), after);
+            if (page.events().isEmpty()) {
                 throw new AgentStorageException("Task log ended before its last sequence: " + taskId);
             }
-            page.forEach(envelope -> channel.sequences.put(envelope.eventId(), envelope.sequence()));
-            cursor = page.getLast().sequence();
+            page.events().forEach(envelope -> channel.sequences.put(envelope.eventId(), envelope.sequence()));
+            indexed = page.events().getLast().sequence();
+            after = page.afterCursor();
         }
         channel.lastSequence = lastSequence;
         channel.writerInitialized = true;
@@ -309,11 +316,11 @@ public final class DefaultAgentEventService
         return task.state().terminal() && !outboxStore.hasPending(task.id());
     }
 
-    /** Advances each subscriber's durable watermark without retaining live payloads. */
+    /** Advances each subscriber's durable watermark; one that is caught up takes the event itself instead of rereading it. */
     private static List<EventSubscription> handOver(TaskChannel channel, AgentEventEnvelope envelope)
     {
         List<EventSubscription> subscriptions = ImmutableList.copyOf(channel.subscriptions);
-        subscriptions.forEach(subscription -> subscription.availableThrough(envelope.sequence()));
+        subscriptions.forEach(subscription -> subscription.appended(envelope));
         return subscriptions;
     }
 
@@ -433,11 +440,16 @@ public final class DefaultAgentEventService
             channel.remove(this);
         }
 
-        private synchronized void availableThrough(long sequence)
+        /** Holds at most the one next event, so a stalled subscriber retains no more than a single payload. */
+        private synchronized void appended(AgentEventEnvelope envelope)
         {
-            if (!cancelled) {
-                availableThrough = sequence;
+            if (cancelled) {
+                return;
             }
+            if (pending.isEmpty() && cursor == envelope.sequence() - 1) {
+                pending.addLast(envelope);
+            }
+            availableThrough = envelope.sequence();
         }
 
         /** Ends the subscription once its durable watermark has been delivered. */

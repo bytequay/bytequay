@@ -210,11 +210,28 @@ class TestDefaultAgentEventService
         assertThat(logStore.readLimits).isEmpty();
         assertThat(logStore.lastSequenceReads).isEqualTo(validations);
 
+        int historyReads = logStore.historyReads;
         AgentEventEnvelope live = restarted.append(event("new live event"));
         assertThat(live.sequence()).isEqualTo(5001);
         assertThat(subscriber.events()).containsExactly(live);
         assertThat(logStore.lastSequenceReads).isEqualTo(validations + 1);
-        assertThat(logStore.readLimits).isNotEmpty().allMatch(limit -> limit <= 8);
+        // The first write indexes the prefix in history pages, and the caught-up subscriber takes the event without a read.
+        assertThat(logStore.historyReads).isEqualTo(historyReads + 5);
+        assertThat(logStore.readLimits).isEmpty();
+    }
+
+    @Test
+    void handsALiveEventToACaughtUpSubscriberWithoutRereadingIt()
+    {
+        TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
+        service.subscribe(task.id(), 0).subscribe(subscriber);
+        subscriber.request(Long.MAX_VALUE);
+
+        AgentEventEnvelope first = service.append(event("first"));
+        AgentEventEnvelope second = service.append(event("second"));
+
+        assertThat(subscriber.events()).containsExactly(first, second);
+        assertThat(logStore.readLimits).isEmpty();
     }
 
     @Test
@@ -298,14 +315,16 @@ class TestDefaultAgentEventService
     {
         TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
         service.subscribe(task.id(), 0).subscribe(subscriber);
-        subscriber.request(1);
+        // The caught-up subscriber holds the first event as it is appended; the second it must read back.
+        AgentEventEnvelope handedOver = service.append(event("handed over"));
         logStore.failNextRead = true;
-
         AgentEventEnvelope persisted = service.append(event("persisted"));
 
-        assertThat(logStore.events).containsExactly(persisted);
+        subscriber.request(2);
+
+        assertThat(logStore.events).containsExactly(handedOver, persisted);
         assertThat(subscriber.failure).isInstanceOf(AgentStorageException.class).hasMessage("read failed");
-        assertThat(subscriber.events()).isEmpty();
+        assertThat(subscriber.events()).containsExactly(handedOver);
     }
 
     @Test
@@ -685,6 +704,7 @@ class TestDefaultAgentEventService
         private final List<Integer> readLimits = new ArrayList<>();
         private OptionalLong historyBefore = OptionalLong.empty();
         private OptionalLong historyAfter = OptionalLong.empty();
+        private int historyReads;
 
         @Override
         public void append(AgentEventEnvelope envelope)
@@ -716,8 +736,13 @@ class TestDefaultAgentEventService
         {
             historyBefore = before;
             historyAfter = after;
-            List<AgentEventEnvelope> page = events.subList(Math.max(0, events.size() - 1000), events.size());
-            return new AgentHistoryPage(page, OptionalLong.empty(), OptionalLong.empty(), events.size());
+            historyReads++;
+            // Cursors are opaque to callers; this store's are list positions. An unknown before cursor reads the latest page.
+            int end = after.isPresent() ? (int) Math.min(events.size(), after.getAsLong() + 1000) : (int) Math.min(events.size(), before.orElse(events.size()));
+            int start = after.isPresent() ? (int) Math.min(events.size(), after.getAsLong()) : Math.max(0, end - 1000);
+            List<AgentEventEnvelope> page = events.subList(start, end);
+            return new AgentHistoryPage(page, start > 0 ? OptionalLong.of(start) : OptionalLong.empty(),
+                    end < events.size() ? OptionalLong.of(end) : OptionalLong.empty(), events.size());
         }
 
         @Override

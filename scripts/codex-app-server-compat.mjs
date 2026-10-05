@@ -567,6 +567,13 @@ const referenceRecordBindings = [
       excludeTmpdirEnvVar: true,
       excludeSlashTmp: true,
     }),
+    component("additionalContext", "additionalContext", {
+      bytequay_instructions: { value: "value", kind: "application" },
+    }),
+  ]),
+  recordBinding("AdditionalContextEntry", "encode", [schemaSource("v2", "AdditionalContextEntry")], [
+    component("value"),
+    component("kind", "kind", "application"),
   ]),
   recordBinding("ThreadParams", "encode", [
     schemaSource("v2", "ThreadUnsubscribeParams"),

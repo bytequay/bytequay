@@ -3287,6 +3287,41 @@
             "excludeTmpdirEnvVar": true,
             "excludeSlashTmp": true
           }
+        },
+        {
+          "javaName": "additionalContext",
+          "wireName": "additionalContext",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "bytequay_instructions": {
+              "value": "value",
+              "kind": "application"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "javaType": "AdditionalContextEntry",
+      "mode": "encode",
+      "sources": [
+        "v2#AdditionalContextEntry"
+      ],
+      "components": [
+        {
+          "javaName": "value",
+          "wireName": "value",
+          "required": true,
+          "nullable": false,
+          "sample": "value"
+        },
+        {
+          "javaName": "kind",
+          "wireName": "kind",
+          "required": true,
+          "nullable": false,
+          "sample": "application"
         }
       ]
     },

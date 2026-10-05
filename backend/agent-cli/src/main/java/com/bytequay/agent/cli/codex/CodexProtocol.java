@@ -1517,7 +1517,9 @@ final class CodexProtocol
             String approvalPolicy,
             String approvalsReviewer,
             String cwd,
-            Map<String, Object> sandboxPolicy)
+            Map<String, Object> sandboxPolicy,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY)
+            Map<String, AdditionalContextEntry> additionalContext)
     {
         TurnStartParams
         {
@@ -1531,6 +1533,17 @@ final class CodexProtocol
             checkIdentifier(approvalsReviewer, "approvalsReviewer");
             checkIdentifier(cwd, "cwd");
             sandboxPolicy = ImmutableMap.copyOf(sandboxPolicy);
+            additionalContext = ImmutableMap.copyOf(additionalContext);
+        }
+    }
+
+    /** Context App Server adds to one turn; an {@code application} entry reaches the model as a developer message. */
+    record AdditionalContextEntry(String value, String kind)
+    {
+        AdditionalContextEntry
+        {
+            requireNonNull(value, "value is null");
+            checkIdentifier(kind, "kind");
         }
     }
 

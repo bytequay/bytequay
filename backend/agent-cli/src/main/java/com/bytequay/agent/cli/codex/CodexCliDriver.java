@@ -60,11 +60,13 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
+import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -146,6 +148,13 @@ public final class CodexCliDriver
             these updates in its Plan panel. Do not repeat the checklist in assistant messages; use brief progress
             messages only for meaningful results, blockers, or decisions. Skip a plan for a simple one-step request.
             """;
+    /**
+     * App Server keeps the instructions a thread started with and ignores new ones on resume, so a resumed thread whose
+     * instructions changed receives the current ones once, as context of its next turn.
+     */
+    private static final String INSTRUCTIONS_CONTEXT = "bytequay_instructions";
+    private static final String INSTRUCTIONS_UPDATE = "ByteQuay's current instructions for this conversation follow. "
+            + "They replace any earlier ByteQuay instructions and turn settings in it.\n\n";
     private static final Pattern VERSION = Pattern.compile("([0-9]+\\.[0-9]+\\.[0-9]+)(-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?(?:\\+[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?");
     private static final int[] REVIEW_CHILD_GATE_MINIMUM_RELEASE = {0, 156, 1};
     private static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(30);
@@ -866,6 +875,9 @@ public final class CodexCliDriver
         private final List<String> ciWritableRoots;
         private final AgentPermissionScope permissionScope;
         private final Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek;
+        private final String developerInstructions;
+        /** Current instructions a resumed thread has not seen; this session's turn carries them. */
+        private Optional<String> instructionUpdate = Optional.empty();
         /** Every thread this task's process has shown us, root and subagents alike. */
         private final Set<String> observedThreads = ConcurrentHashMap.newKeySet();
         /** Every subagent this process has named, by thread, with its parent and label. */
@@ -928,6 +940,14 @@ public final class CodexCliDriver
             this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
             this.permissionScope = requireNonNull(permissionScope, "permissionScope is null");
             this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
+            this.developerInstructions = Stream.of(
+                            AgentCommandPolicy.instructions(permissionScope),
+                            context.restricted() ? "" : PLAN_INSTRUCTION,
+                            context.managedInstructions(),
+                            codeQueries.flatMap(McpRegistration::instruction).orElse(""),
+                            permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "")
+                    .filter(instruction -> !instruction.isBlank())
+                    .collect(joining("\n\n"));
             this.eventMapper = new CodexEventMapper(context.worktree(), sessionRedactor, deepSeekSecret.isEmpty());
             this.isolation = new CodexIsolationGuard(
                     client,
@@ -949,6 +969,12 @@ public final class CodexCliDriver
             isolation.verify(worktree);
             String threadId = openThread(context, worktree);
             isolation.verifyThread(threadId, worktree);
+            if (context.sessionReference().isEmpty()) {
+                recordInstructions(threadId);
+            }
+            else if (!developerInstructions.isEmpty() && !instructionsDelivered(threadId)) {
+                instructionUpdate = Optional.of(developerInstructions);
+            }
             // A resumed thread keeps the contract it started with: root tools exist only from thread/start.
             this.reference = new AgentSessionRef(laneId, context.sessionReference().map(AgentSessionRef::contractVersion)
                     .orElse(guardedReviewTools.isPresent() ? REVIEW_DYNAMIC_CONTRACT_VERSION : CONTRACT_VERSION), threadId);
@@ -969,15 +995,7 @@ public final class CodexCliDriver
             Optional<AgentSessionRef> existing = context.sessionReference();
             String approvalPolicy = approvalPolicy();
             String sandbox = context.restricted() ? "read-only" : "workspace-write";
-            // Explicitly replace saved guidance on resume, including an empty value after a skill is removed.
-            String developerInstructions = Stream.of(
-                            AgentCommandPolicy.instructions(permissionScope),
-                            context.restricted() ? "" : PLAN_INSTRUCTION,
-                            context.managedInstructions(),
-                            codeQueries.flatMap(McpRegistration::instruction).orElse(""),
-                            permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "")
-                    .filter(instruction -> !instruction.isBlank())
-                    .collect(joining("\n\n"));
+
             Map<String, Object> config = CodexLaunchProfile.threadConfig(
                     childProfile,
                     codeQueries.isPresent(),
@@ -1039,6 +1057,38 @@ public final class CodexCliDriver
             return reference;
         }
 
+        /** Whether this task's record says the thread already has exactly the current instructions. */
+        private boolean instructionsDelivered(String threadId)
+        {
+            try {
+                return Files.readString(instructionsFile()).equals(instructionsReceipt(threadId));
+            }
+            catch (IOException | RuntimeException unreadable) {
+                return false;
+            }
+        }
+
+        private void recordInstructions(String threadId)
+        {
+            try {
+                Files.writeString(instructionsFile(), instructionsReceipt(threadId));
+            }
+            catch (IOException failure) {
+                // Unrecorded, the same instructions are only sent once more with the next turn.
+                log.debug("Cannot record the instructions Codex thread {} received", threadId, failure);
+            }
+        }
+
+        private Path instructionsFile()
+        {
+            return context.providerDirectory().resolve("codex-instructions");
+        }
+
+        private String instructionsReceipt(String threadId)
+        {
+            return threadId + "\n" + Hashing.sha256().hashString(developerInstructions, StandardCharsets.UTF_8);
+        }
+
         @Override
         public synchronized RunningTurn start(AgentTurnCommand command)
         {
@@ -1070,7 +1120,9 @@ public final class CodexCliDriver
             CodexProtocol.TurnStartParams params = new CodexProtocol.TurnStartParams(
                     reference.providerValue(), input, Optional.of(modelProfile.id()), effort,
                     command.serviceTier().orElse("default"), approvalPolicy(), "auto_review",
-                    worktree.toString(), sandboxPolicy(worktree));
+                    worktree.toString(), sandboxPolicy(worktree),
+                    instructionUpdate.map(update -> ImmutableMap.of(INSTRUCTIONS_CONTEXT,
+                            new CodexProtocol.AdditionalContextEntry(INSTRUCTIONS_UPDATE + update, "application"))).orElse(ImmutableMap.of()));
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
             try {
@@ -1084,6 +1136,10 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
+            if (instructionUpdate.isPresent()) {
+                recordInstructions(reference.providerValue());
+                instructionUpdate = Optional.empty();
+            }
             development = codeQueries.flatMap(McpRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, this::userInput);

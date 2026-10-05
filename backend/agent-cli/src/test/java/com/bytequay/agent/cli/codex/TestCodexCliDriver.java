@@ -74,6 +74,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -3065,6 +3066,36 @@ class TestCodexCliDriver
                 reference = Optional.of(session.reference());
             }
         }
+    }
+
+    @Test
+    void deliversChangedInstructionsOnceToAResumedThread()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        Files.createDirectories(worktree.resolve("provider"));
+        Optional<AgentSessionRef> reference = Optional.empty();
+        List<JsonNode> turnContexts = new ArrayList<>();
+        for (String skill : ImmutableList.of("Answer tersely.", "Answer tersely.", "Cite every file you read.", "Cite every file you read.")) {
+            AgentSessionContext context = new AgentSessionContext("task-1", worktree, worktree, worktree.resolve("provider"), AgentPermissionPolicy.AUTO,
+                    reference, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())),
+                    Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), skill);
+            try (AgentSession session = driver.open(context, event -> {})) {
+                session.start(command("Continue"));
+                turnContexts.add(supervisor.servers().getLast().turnRequests().getFirst().path("additionalContext"));
+                reference = Optional.of(session.reference());
+            }
+        }
+
+        // A new thread starts with its instructions, and an unchanged resume sends nothing more.
+        assertThat(turnContexts.get(0).isMissingNode()).isTrue();
+        assertThat(turnContexts.get(1).isMissingNode()).isTrue();
+        // App Server keeps a thread's first instructions, so a change reaches the model once, with the next turn.
+        JsonNode update = turnContexts.get(2).path("bytequay_instructions");
+        assertThat(update.path("kind").asText()).isEqualTo("application");
+        assertThat(update.path("value").asText()).contains("Cite every file you read.").doesNotContain("Answer tersely.");
+        assertThat(turnContexts.get(3).isMissingNode()).isTrue();
     }
 
     @Test

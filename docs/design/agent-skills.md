@@ -217,8 +217,12 @@ request and passes them to its text-only session on the Development lane. Its
 required rewrite-only format remains part of the composed task instruction.
 
 Codex composes system guidance and applicable enabled user skills with review/code-query guidance in
-`developerInstructions` on both `thread/start` and `thread/resume`, explicitly
-replacing the previous value. Claude supplies the composition through
+`developerInstructions` on `thread/start` and `thread/resume`. App Server keeps
+the instructions a thread started with and ignores the resumed value, so when
+the composition differs from what the thread last received, the next
+`turn/start` carries the current text once as `application` additional context,
+which reaches the model as a developer message. The task's provider directory
+records the thread and a digest of the instructions it received. Claude supplies the composition through
 `--append-system-prompt` on each invocation. An explicitly empty adapter
 input also clears adapter guidance; application resolution always supplies
 the internal system guidance and a current user-skill list or explicit empty

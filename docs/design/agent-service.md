@@ -3813,6 +3813,10 @@ The connection and task sequence is:
    Excluding turns suppresses history in the response, not in the resumed conversation.
    The caller needs only the thread ID; returning accumulated tool results can exceed
    the 4 MiB protocol-message limit before a new turn starts.
+   App Server keeps the developer instructions a thread started with and ignores
+   the resumed value. When the composed instructions differ from the digest the
+   task's provider directory records for the thread, the next `turn/start` sends
+   them once as `application` additional context, a developer message to the model.
 6. Start each user turn with `turn/start`. Its `input` is built only from the
    already-persisted user event: text plus model-gated
    `{"type": "localImage", "path": "<validated-task-blob>"}` items. App Server's `image`

@@ -180,12 +180,46 @@ export type GoalCardDto = {
 };
 
 /** A lesson of the goal's course, written once from its knowledge notes. */
+/** A small picture the app draws: FLOW for steps in order, TREE for a hierarchy whose first node is the root. */
+export type LessonDiagramDto = {
+  kind: 'FLOW' | 'TREE';
+  caption: string;
+  nodes: { id: string; label: string; note: string | null; parent: string | null }[];
+};
+
+export type LessonSectionDto = { title: string; body: string; diagram: LessonDiagramDto | null };
+
+/** A lesson is a chapter: a summary, the invariants to remember and short sections with diagrams, then its exercise and check. */
+export type LessonContentDto = {
+  summary: string | null;
+  invariants: string[];
+  sections: LessonSectionDto[];
+  /** The Markdown a lesson written before chapters has instead of a summary and sections. */
+  explanation: string | null;
+  exercise: string;
+  observe: string;
+  check: string;
+};
+
 export type GoalLessonDto = {
   id: string;
   state: 'WRITING' | 'READY' | 'FAILED';
-  content: { explanation: string; exercise: string; observe: string; check: string } | null;
+  content: LessonContentDto | null;
   failure: string | null;
 };
+
+function parseLessonDiagram(value: unknown): LessonDiagramDto {
+  const diagram = object(value, 'lesson diagram');
+  return {
+    kind: oneOf(diagram.kind, ['FLOW', 'TREE'] as const, 'lesson diagram kind'),
+    caption: text(diagram.caption, 'lesson diagram caption'),
+    nodes: parseList(diagram.nodes, (entry) => {
+      const node = object(entry, 'lesson diagram node');
+      return { id: text(node.id, 'lesson diagram node id'), label: text(node.label, 'lesson diagram node label'), note: optionalText(node.note),
+        parent: optionalText(node.parent) };
+    }, 'lesson diagram nodes'),
+  };
+}
 
 export function parseGoalLesson(value: unknown): GoalLessonDto {
   const lesson = object(value, 'goal lesson');
@@ -194,7 +228,14 @@ export function parseGoalLesson(value: unknown): GoalLessonDto {
     id: text(lesson.id, 'goal lesson id'),
     state: oneOf(lesson.state, ['WRITING', 'READY', 'FAILED'] as const, 'goal lesson state'),
     content: content === null ? null : {
-      explanation: text(content.explanation, 'goal lesson explanation'),
+      summary: optionalText(content.summary),
+      invariants: parseList(content.invariants, (entry) => text(entry, 'lesson invariant'), 'lesson invariants'),
+      sections: parseList(content.sections, (entry) => {
+        const section = object(entry, 'lesson section');
+        return { title: text(section.title, 'lesson section title'), body: text(section.body, 'lesson section body'),
+          diagram: section.diagram === null || section.diagram === undefined ? null : parseLessonDiagram(section.diagram) };
+      }, 'lesson sections'),
+      explanation: optionalText(content.explanation),
       exercise: text(content.exercise, 'goal lesson exercise'),
       observe: text(content.observe, 'goal lesson observation'),
       check: text(content.check, 'goal lesson check'),

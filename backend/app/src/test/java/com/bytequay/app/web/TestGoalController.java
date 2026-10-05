@@ -210,10 +210,17 @@ class TestGoalController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("WRITING"));
         when(lessons.find("workspace", "goal-1", "lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
-                new GoalLesson.Content("# Tables", "Run one test.", "It passes.", "What is a snapshot?"), NOW)));
+                new GoalLesson.Content(Optional.of("A table is a tree of metadata."), ImmutableList.of("A snapshot never changes once written."),
+                        ImmutableList.of(new GoalLesson.Section("Metadata", "Each snapshot lists its manifests.", Optional.of(new GoalLesson.Diagram(GoalLesson.Diagram.Kind.TREE,
+                                "Table metadata", ImmutableList.of(new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty()),
+                                        new GoalLesson.Node("snapshot", "Snapshot", Optional.of("Never changes"), Optional.of("table"))))))),
+                        Optional.empty(), "Run one test.", "It passes.", "What is a snapshot?"), NOW)));
         mvc.perform(get("/api/workspaces/workspace/goals/goal-1/lessons/lesson-1"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.content.check").value("What is a snapshot?"));
+                .andExpect(jsonPath("$.content.check").value("What is a snapshot?"))
+                .andExpect(jsonPath("$.content.summary").value("A table is a tree of metadata."))
+                .andExpect(jsonPath("$.content.sections[0].diagram.kind").value("TREE"))
+                .andExpect(jsonPath("$.content.sections[0].diagram.nodes[1].parent").value("table"));
         when(lessons.find("workspace", "goal-1", "lesson-2")).thenReturn(Optional.empty());
         mvc.perform(get("/api/workspaces/workspace/goals/goal-1/lessons/lesson-2")).andExpect(status().isNotFound());
         when(lessons.finish("workspace", "goal-1", "lesson-1", "op-9")).thenReturn(GOAL);

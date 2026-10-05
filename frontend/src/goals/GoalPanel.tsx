@@ -13,7 +13,7 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Ban, ChevronDown, Maximize2, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Ban, ChevronDown, Maximize2, MessageCircle, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
 import MarkdownBody, { linkIssueNumbers } from '../pulls/MarkdownBody';
@@ -32,6 +32,7 @@ import type { GoalConversation, GoalModel } from './useGoals';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { TOPIC_LEVELS } from './contracts';
+import { BookContents, ChapterBody, courseLessons } from './LessonBook';
 
 const GoalRepository = createContext<string | null>(null);
 
@@ -187,15 +188,8 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           {goal !== null && props.conversation.model !== null && <GoalModelPicker model={props.conversation.model} onChoose={props.conversation.chooseModel} />}
         </div>}
       </div>
-      {lessonItem !== undefined && goal !== null ? (mode === 'board'
-        // The expanded window teaches the lesson beside the conversation, where questions about it are asked.
-        ? <div className="goal-split">
-          <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository} conversation={props.conversation} beside
-            onBack={() => props.onLesson(null)} />
-          {guide(lessonItem.id)}
-        </div>
-        : <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository} conversation={props.conversation}
-          onBack={() => props.onLesson(null)} />)
+      {lessonItem !== undefined && goal !== null ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
+        conversation={props.conversation} ask={mode === 'board' ? guide(lessonItem.id) : undefined} onLesson={props.onLesson} onBack={() => props.onLesson(null)} />
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
         : view === 'guide' ? guide()
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
@@ -553,16 +547,18 @@ export function useNow(ticking: boolean): number {
 }
 
 /**
- * One lesson in the Goal window: written once from the goal's notes, its explanation, exercise and check, and questions about it that the
- * agent answers with the lesson in view. Done is the user's decision.
+ * One lesson, read as a chapter written once from the goal's notes: a summary, what to remember, short sections with diagrams, an exercise
+ * and a check. The expanded window shows it as a book, its contents at the left and the questions about it at the right on demand; the
+ * floating window shows the chapter alone with its questions under it. Done is the user's decision.
  */
-function LessonView({ goal, item, repository, conversation, beside = false, onBack }: {
+function LessonView({ goal, item, repository, conversation, ask, onLesson, onBack }: {
   goal: GoalDto;
   item: WorkItemDto;
   repository: string;
   conversation: GoalConversation;
-  /** Shown beside the conversation, which asks and answers the questions about it. */
-  beside?: boolean;
+  /** The conversation the expanded window opens beside the chapter, whose messages are then about it; the floating window has none. */
+  ask?: React.ReactNode;
+  onLesson: (lessonId: string) => void;
   onBack: () => void;
 }): React.JSX.Element {
   const { openLesson, readLesson, finishLesson } = conversation;
@@ -570,6 +566,8 @@ function LessonView({ goal, item, repository, conversation, beside = false, onBa
   const [error, setError] = useState<string | null>(null);
   const [operation] = useState(() => crypto.randomUUID());
   const [busy, setBusy] = useState(false);
+  const [asking, setAsking] = useState(false);
+  const page = useRef<HTMLDivElement>(null);
   const part = goal.course?.parts.find((candidate) => candidate.lessons.includes(item.id))?.title ?? '';
   const open = useCallback((): void => {
     setError(null);
@@ -584,39 +582,78 @@ function LessonView({ goal, item, repository, conversation, beside = false, onBa
   }, [item.id, readLesson, writing]);
   const questions = conversation.exchanges.filter((exchange) => exchange.lessonId === item.id);
   const answering = conversation.exchanges.at(-1)?.state === 'PENDING';
-  return (
-    <div className="goal-panel__body goal-lesson">
-      <button type="button" className="goal-link goal-lesson__back" onClick={onBack}>Back to guidance</button>
-      <div className="goal-lesson__part"><GoalText>{part}</GoalText></div>
-      <div className="goal-lesson__title"><GoalText>{item.title}</GoalText></div>
-      <div className="goal-lesson__outcome">After this lesson you can: <GoalText>{item.acceptanceCriteria}</GoalText></div>
+  const content = lesson?.content ?? null;
+  const order = courseLessons(goal);
+  const at = order.findIndex((candidate) => candidate.id === item.id);
+  const previous = at > 0 ? order[at - 1] : undefined;
+  const next = at >= 0 && at < order.length - 1 ? order[at + 1] : undefined;
+  const chapter = (
+    <article className="goal-chapter">
+      <header className="goal-chapter__head">
+        <div className="goal-chapter__bar">
+          <button type="button" className="goal-link goal-lesson__back" onClick={onBack}>Back to guidance</button>
+          {ask !== undefined && <button type="button" className={`goal-chapter__ask${asking ? ' is-active' : ''}`} aria-pressed={asking}
+            onClick={() => setAsking((value) => !value)}>
+            <MessageCircle size={14} strokeWidth={1.8} aria-hidden="true" />Ask{questions.length > 0 && <span className="goal-muted">{questions.length}</span>}
+          </button>}
+        </div>
+        <div className="goal-lesson__part"><GoalText>{part}</GoalText></div>
+        <h1 className="goal-chapter__title"><GoalText>{item.title}</GoalText></h1>
+        <div className="goal-lesson__outcome">After this chapter you can: <GoalText>{item.acceptanceCriteria}</GoalText></div>
+      </header>
       {lesson === null && error === null && <p className="goal-muted" role="status">Opening the lesson…</p>}
-      {writing && <p className="goal-muted" role="status">Writing the lesson from the goal’s notes…</p>}
+      {writing && <p className="goal-muted" role="status">Writing the chapter from the goal’s notes…</p>}
       {lesson?.state === 'FAILED' && <p className="goal-guide__error" role="alert">{lesson.failure}{' '}
         <button type="button" className="goal-link" onClick={open}>Write again</button></p>}
-      {lesson?.content != null && <>
-        <MarkdownBody className="goal-lesson__explanation" body={lesson.content.explanation} repository={repository} />
-        <section className="goal-lesson__section"><div className="goal-group">Exercise</div><MarkdownBody body={lesson.content.exercise} repository={repository} /></section>
-        <section className="goal-lesson__section"><div className="goal-group">What to observe</div><p><GoalText>{lesson.content.observe}</GoalText></p></section>
-        <section className="goal-lesson__section"><div className="goal-group">Check</div><p><GoalText>{lesson.content.check}</GoalText></p>
-          <Composer answering={answering} placeholder="Your answer" submitLabel="Answer"
-            onSend={(operationId, message) => conversation.ask(operationId, CHECK_ANSWER + message, item.id)} />
-        </section>
-      </>}
+      {content !== null && <ChapterBody content={content} repository={repository} />}
+      {content !== null && <section className="goal-chapter__check" aria-label="Check yourself">
+        <div className="goal-chapter__kicker">Check yourself</div>
+        <p><GoalText>{content.check}</GoalText></p>
+        <Composer answering={answering} placeholder="Your answer" submitLabel="Answer" onSend={(operationId, message) => {
+          // The agent's word on the answer shows with the questions.
+          setAsking(true);
+          return conversation.ask(operationId, CHECK_ANSWER + message, item.id);
+        }} />
+      </section>}
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
-      {item.state === 'DONE' ? <p className="goal-muted">Done</p> : <button type="button" className="goal-add goal-lesson__done" disabled={busy || lesson?.content == null}
-        onClick={() => {
-          setBusy(true); setError(null);
-          void finishLesson(item.id, operation).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson was not marked done'))
-            .finally(() => setBusy(false));
-        }}>{busy ? 'Saving…' : 'Mark lesson done'}</button>}
-      {!beside && questions.length > 0 && <ol className="goal-thread" aria-label="Questions about this lesson">{questions.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
-        <div className="goal-thread__user"><GoalText>{exchange.message}</GoalText></div>
-        {exchange.state === 'PENDING' && <Pending exchange={exchange} onStop={conversation.stop} />}
-        {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">{exchange.failure}</div>}
-        {exchange.reply !== null && <div className="goal-thread__agent"><p><GoalText>{exchange.reply.assessment}</GoalText></p></div>}
-      </li>)}</ol>}
-      {!beside && <Composer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />}
+      <footer className="goal-chapter__foot">
+        {item.state === 'DONE' ? <span className="goal-muted">Done</span> : <button type="button" className="goal-add goal-lesson__done" disabled={busy || content === null}
+          onClick={() => {
+            setBusy(true); setError(null);
+            void finishLesson(item.id, operation).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson was not marked done'))
+              .finally(() => setBusy(false));
+          }}>{busy ? 'Saving…' : 'Mark lesson done'}</button>}
+        <span className="goal-spacer" />
+        {previous !== undefined && <button type="button" className="goal-link" onClick={() => onLesson(previous.id)}>← {previous.title}</button>}
+        {next !== undefined && <button type="button" className="goal-add" onClick={() => onLesson(next.id)}>Next: {next.title} →</button>}
+      </footer>
+    </article>
+  );
+  if (ask === undefined) {
+    return (
+      <div className="goal-panel__body goal-lesson">
+        {chapter}
+        {questions.length > 0 && <ol className="goal-thread" aria-label="Questions about this lesson">{questions.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
+          <div className="goal-thread__user"><GoalText>{exchange.message}</GoalText></div>
+          {exchange.state === 'PENDING' && <Pending exchange={exchange} onStop={conversation.stop} />}
+          {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">{exchange.failure}</div>}
+          {exchange.reply !== null && <div className="goal-thread__agent"><p><GoalText>{exchange.reply.assessment}</GoalText></p></div>}
+        </li>)}</ol>}
+        <Composer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />
+      </div>
+    );
+  }
+  return (
+    <div className="goal-book">
+      <BookContents goal={goal} lessonId={item.id} sections={content?.sections.map((section) => section.title) ?? []} onLesson={onLesson}
+        onSection={(index) => {
+          const box = page.current;
+          const target = box?.querySelector(`[data-section="${index}"]`);
+          if (box == null || target == null) return;
+          box.scrollTop += target.getBoundingClientRect().top - box.getBoundingClientRect().top - TURN_MARGIN;
+        }} />
+      <div className="goal-book__page" ref={page}>{chapter}</div>
+      {asking && <aside className="goal-book__ask" aria-label="Questions about this chapter">{ask}</aside>}
     </div>
   );
 }

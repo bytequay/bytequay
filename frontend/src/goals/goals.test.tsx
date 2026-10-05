@@ -17,9 +17,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
-import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto, WorkItemDto } from './contracts';
+import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalRecommendationDto, LessonContentDto, WorkItemDto } from './contracts';
 import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
+import { ChapterBody, flowPlaces, treePlaces, wrap } from './LessonBook';
 import {
   addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, situation, sourceOf,
   sourceUrl,
@@ -198,6 +199,12 @@ const NOTE: GoalKnowledgeNoteDto = { id: 'note-1', topic: 'Manifest lists', body
   sources: [{ reference: 'https://iceberg.apache.org/spec/#manifest-lists', commit: null },
     { reference: 'apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java', commit: 'c'.repeat(40) }] };
 
+const CHAPTER: LessonContentDto = { summary: 'A table is a tree of metadata.', invariants: ['A snapshot never changes once written.'], explanation: null,
+  sections: [{ title: 'Table metadata', body: 'The metadata file names the **current snapshot**.', diagram: { kind: 'TREE', caption: 'What a table points to', nodes: [
+    { id: 'table', label: 'Table metadata', note: null, parent: null }, { id: 'snapshot', label: 'Snapshot', note: 'One per commit', parent: 'table' }] } },
+  { title: 'Writing a snapshot', body: 'A commit swaps the pointer.', diagram: null }],
+  exercise: 'Run `TestIcebergMetadata`.', observe: 'The test lists two snapshots.', check: 'What does a snapshot point to?' };
+
 function conversation(exchanges: GoalExchangeDto[]): GoalConversation {
   return { ...NO_CONVERSATION, exchanges };
 }
@@ -361,19 +368,23 @@ describe('goal guidance', () => {
 
     const lesson = panel({ view: 'guide', goal: { ...GOAL, course }, lesson: 'work-0' });
     expect(lesson).toContain('Back to guidance');
-    expect(lesson).toContain('After this lesson you can: Verified fix');
+    expect(lesson).toContain('After this chapter you can: Verified fix');
     expect(lesson).toContain('Opening the lesson…');
     expect(lesson).not.toContain('Proposed course');
-    // The floating window shows the lesson alone, with its own question field.
-    expect(lesson).not.toContain('goal-split');
+    // The floating window shows the chapter alone, with its own question field.
+    expect(lesson).not.toContain('goal-book');
     expect(lesson).toContain('placeholder="Ask about this lesson"');
-    // The expanded window teaches it beside the conversation, whose field then asks about the lesson.
-    const beside = panel({ mode: 'board', view: 'guide', goal: { ...GOAL, course }, lesson: 'work-0', conversation: conversation([ASKED, COURSE]) });
-    expect(beside).toMatch(/<div class="goal-split"><div class="goal-panel__body goal-lesson">.*<div class="goal-panel__body goal-guide">/);
-    expect(beside.match(/<textarea/g)).toHaveLength(1);
-    expect(beside).toContain('placeholder="Ask about this lesson"');
-    expect(parseGoalLesson({ id: 'work-0', state: 'READY', failure: null, model: 'codex/gpt',
-      content: { explanation: '# Tables', exercise: 'Run one test.', observe: 'It passes.', check: 'What is a snapshot?' } }).content?.check).toBe('What is a snapshot?');
+    // The expanded window reads as a book: its contents mark the open chapter, and the questions wait until asked for.
+    const book = panel({ mode: 'board', view: 'guide', goal: { ...GOAL, course }, lesson: 'work-0', conversation: conversation([ASKED, COURSE]) });
+    expect(book).toMatch(/^.*<div class="goal-book"><nav class="goal-book__contents" aria-label="Contents">.*Part 1 · Iceberg tables.*aria-current="page" class="goal-book__chapter is-current/);
+    expect(book).toContain('<button type="button" class="goal-chapter__ask" aria-pressed="false">');
+    expect(book).not.toContain('goal-book__ask');
+    expect(book).not.toContain('<textarea');
+    expect(parseGoalLesson({ id: 'work-0', state: 'READY', failure: null, model: 'codex/gpt', content: CHAPTER }).content?.sections[0].diagram?.nodes[1])
+      .toEqual({ id: 'snapshot', label: 'Snapshot', note: 'One per commit', parent: 'table' });
+    // A lesson written before chapters still reads, as its explanation, until opening writes it again.
+    expect(parseGoalLesson({ id: 'work-0', state: 'READY', failure: null, model: 'codex/gpt', content: { ...CHAPTER, summary: null, invariants: [], sections: [],
+      explanation: '# Tables' } }).content?.explanation).toBe('# Tables');
     expect(() => parseGoalLesson({ id: 'work-0', state: 'DRAFT' })).toThrow('Malformed goal lesson state');
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'LESSON', workItemId: 'work-0' } }).card.workItemId).toBe('work-0');
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'WORK', issue: 31252 } }).card.issue).toBe(31252);
@@ -505,5 +516,28 @@ describe('goal changes', () => {
     expect(touched).toEqual(['addGoalItem', 'removeGoalItem', 'addGoalItem', 'removeGoalItem']);
     // Every other view of the workspace's goals reads them again.
     expect(events).toEqual(['workspace-1', 'workspace-1', 'workspace-1', 'workspace-1']);
+  });
+});
+
+describe('lesson book', () => {
+  it('draws a chapter: its summary, what to remember, its sections with their diagrams and its exercise', () => {
+    const markup = renderToStaticMarkup(<ChapterBody content={CHAPTER} repository="trinodb/trino" />);
+    expect(markup).toContain('<p class="goal-chapter__summary">A table is a tree of metadata.</p>');
+    expect(markup).toContain('<aside class="goal-chapter__remember" aria-label="Remember"><div class="goal-chapter__kicker">Remember</div>'
+      + '<ul><li>A snapshot never changes once written.</li></ul></aside>');
+    expect(markup).toMatch(/<section class="goal-chapter__section" data-section="0"><h2>Table metadata<\/h2><figure class="goal-diagram"><svg [^>]*role="img" aria-label="What a table points to"/);
+    expect(markup.match(/<rect /g)).toHaveLength(2);
+    expect(markup).toContain('<figcaption>What a table points to</figcaption>');
+    expect(markup).toMatch(/<section class="goal-chapter__section" data-section="1"><h2>Writing a snapshot<\/h2><div/);
+    expect(markup).toContain('>Try it</div>');
+    expect(markup).toContain('The test lists two snapshots.');
+  });
+
+  it('lays a flow out four to a row and a tree with each parent over its children', () => {
+    expect(flowPlaces(5, 52).map(({ x, y }) => `${x},${y}`)).toEqual(['0,0', '220,0', '440,0', '660,0', '0,96']);
+    const node = (id: string, parent: string | null) => ({ id, label: id, note: null as string | null, parent });
+    expect(treePlaces([node('root', null), node('a', 'root'), node('b', 'root'), node('a1', 'a')], 52))
+      .toEqual([{ x: 110, y: 0 }, { x: 0, y: 96 }, { x: 220, y: 96 }, { x: 0, y: 192 }]);
+    expect(wrap('Swap the metadata pointer atomically in the catalog', 22)).toEqual(['Swap the metadata', 'pointer atomically in…']);
   });
 });

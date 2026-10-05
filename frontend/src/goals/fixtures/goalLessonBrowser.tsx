@@ -26,8 +26,16 @@ const LESSON: WorkItemDto = { id: 'lesson-1', workspaceId: 'workspace', goalId: 
   acceptanceCriteria: 'Explain metadata, snapshots and manifests', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0, priority: 'NORMAL', rank: 0,
   blockedBy: [], links: [], history: [],
   createdAt: NOW, updatedAt: NOW };
+const NEXT: WorkItemDto = { ...LESSON, id: 'lesson-2', title: 'Follow a snapshot', acceptanceCriteria: 'Trace a snapshot to its data files' };
 const server = { reads: 0, opened: 0, finished: [] as string[], asked: [] as (string | null | undefined)[], messages: [] as string[] };
-const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, content: { explanation: '## Table metadata\nA table is a tree of metadata files.',
+const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, content: {
+  summary: 'A table is a tree of metadata files.', invariants: ['A snapshot never changes once written.'], explanation: null,
+  sections: [
+    { title: 'Table metadata', body: 'The metadata file names the **current snapshot**.', diagram: { kind: 'TREE', caption: 'What a table points to', nodes: [
+      { id: 'table', label: 'Table metadata', note: null, parent: null }, { id: 'snapshot', label: 'Snapshot', note: 'One per commit', parent: 'table' },
+      { id: 'manifests', label: 'Manifest list', note: null, parent: 'snapshot' }] } },
+    { title: 'Writing a snapshot', body: 'A commit swaps the metadata pointer.', diagram: { kind: 'FLOW', caption: 'A commit', nodes: [
+      { id: 'write', label: 'Write data files', note: null, parent: null }, { id: 'swap', label: 'Swap the pointer', note: null, parent: null }] } }],
   exercise: 'Run `TestIcebergMetadata`.', observe: 'The test lists two snapshots.', check: 'What does a snapshot point to?' } };
 
 function text(): string {
@@ -48,7 +56,8 @@ function Fixture(): React.JSX.Element {
   const [lesson, setLesson] = useState<string | null>(null);
   const [exchanges, setExchanges] = useState<GoalExchangeDto[]>([]);
   const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg connector expert', description: '', pinned: true, paused: false, source: null, definition: null,
-    revision: 1, course: { exchangeId: 'op-0', parts: [{ title: 'Iceberg tables', lessons: ['lesson-1'] }], acceptedAt: NOW }, items: [item], recommendations: [], topics: [],
+    revision: 1, course: { exchangeId: 'op-0', parts: [{ title: 'Iceberg tables', lessons: ['lesson-1', 'lesson-2'] }], acceptedAt: NOW }, items: [item, NEXT],
+    recommendations: [], topics: [],
     createdAt: NOW, updatedAt: NOW };
   // The app keeps these the same across renders, so an open lesson is not opened again.
   const lessons = useMemo<Pick<GoalConversation, 'openLesson' | 'readLesson' | 'finishLesson'>>(() => ({
@@ -85,29 +94,41 @@ export async function run(): Promise<boolean> {
   try {
     flushSync(() => root.render(<Fixture />)); await settle();
     button('What a table is').click(); await settle();
-    await until(() => text().includes('Writing the lesson'), 'Opening a lesson for the first time writes it');
-    assert(server.opened === 1, 'The lesson is opened once');
-    await until(() => text().includes('A table is a tree of metadata files.'), 'The written lesson replaces the writing state');
-    assert(document.querySelector('.goal-lesson__explanation h2')?.textContent === 'Table metadata', 'The explanation renders as Markdown');
-    assert(text().includes('The test lists two snapshots.') && text().includes('What does a snapshot point to?'), 'The exercise and its check show');
+    await until(() => text().includes('Writing the chapter'), 'Opening a lesson for the first time writes it');
+    // Read through a function: an assertion narrows the server's fields for the rest of the run.
+    const opened = (): number => server.opened;
+    assert(opened() === 1, 'The lesson is opened once');
+    await until(() => text().includes('A table is a tree of metadata files.'), 'The written chapter replaces the writing state');
+    assert(document.querySelector('.goal-book__chapter[aria-current="page"]')?.textContent?.includes('What a table is') === true,
+      'The expanded window reads as a book whose contents mark the open chapter');
+    assert(document.querySelector('.goal-book__ask') === null, 'The questions open only on demand');
+    assert(document.querySelector('.goal-chapter__remember li')?.textContent === 'A snapshot never changes once written.', 'The chapter lists what to remember');
+    assert(document.querySelectorAll('.goal-diagram svg').length === 2 && document.querySelectorAll('.goal-diagram rect').length === 5
+      && document.querySelectorAll('.goal-diagram__edge').length === 3, 'Each diagram draws its boxes and arrows');
+    assert([...document.querySelectorAll('.goal-book__sections button')].map((section) => section.textContent).join('|') === 'Table metadata|Writing a snapshot',
+      'The contents list the chapter\'s sections');
+    assert(document.querySelector('.goal-chapter__section strong')?.textContent === 'current snapshot', 'A section reads as Markdown');
 
-    assert(document.querySelector('.goal-split > .goal-lesson') !== null && document.querySelector('.goal-split > .goal-guide') !== null,
-      'The expanded window teaches the lesson beside the conversation');
-
-    changeInput(document.querySelector<HTMLTextAreaElement>('.goal-lesson .goal-composer textarea'), 'The manifest list of its table state'); await settle();
+    changeInput(document.querySelector<HTMLTextAreaElement>('.goal-chapter__check .goal-composer textarea'), 'The manifest list of its table state'); await settle();
     button('Answer').click(); await settle();
     assert(server.asked[0] === 'lesson-1' && server.messages[0] === 'My answer to the check: The manifest list of its table state',
       'The check takes an answer, sent to the agent as the answer to the open lesson\'s check');
+    assert(document.querySelector('.goal-book__ask .goal-guide') !== null, 'Answering the check opens the questions, where the agent answers');
 
-    changeInput(document.querySelector<HTMLTextAreaElement>('.goal-guide .goal-composer textarea'), 'Why share manifests?'); await settle();
+    changeInput(document.querySelector<HTMLTextAreaElement>('.goal-book__ask .goal-composer textarea'), 'Why share manifests?'); await settle();
     button('Send').click(); await settle();
     assert(server.asked.length === 2 && server.asked[1] === 'lesson-1' && server.messages[1] === 'Why share manifests?',
-      'A question asked beside the lesson belongs to it');
-    await until(() => text().includes('Because each snapshot shares unchanged manifests.'), 'The answer shows beside the lesson');
+      'A question asked beside the chapter belongs to it');
+    await until(() => text().includes('Because each snapshot shares unchanged manifests.'), 'The answer shows beside the chapter');
 
     button('Mark lesson done').click(); await settle();
     await until(() => document.querySelector('.goal-lesson__done') === null, 'A finished lesson shows it is done');
     assert(server.finished.length === 1 && server.finished[0].startsWith('lesson-1:'), 'Done is recorded once for the lesson');
+    assert(document.querySelector('.goal-book__chapter.is-done')?.textContent?.includes('What a table is') === true, 'The contents check the finished chapter');
+    button('Next: Follow a snapshot →').click(); await settle();
+    await until(() => document.querySelector('.goal-book__chapter[aria-current="page"]')?.textContent?.includes('Follow a snapshot') === true,
+      'Next opens the following chapter');
+    assert(opened() === 2, 'The next chapter is opened, and written, as it is first read');
     button('Back to guidance').click(); await settle();
     assert(document.querySelector('.goal-course__lessons li.is-done') !== null, 'The course shows the lesson done');
     return true;

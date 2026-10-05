@@ -89,8 +89,8 @@ public class GoalLessonService
     }
 
     /**
-     * The lesson as it stands, written or being written; opening one for the first time, or after it failed, asks for it to be written.
-     * Opening a lesson is what Start means on its card.
+     * The lesson as it stands, written or being written; opening one for the first time, after it failed, or written before lessons were
+     * chapters asks for it to be written. Opening a lesson is what Start means on its card.
      */
     public GoalLesson open(String workspaceId, String goalId, String lessonId)
     {
@@ -98,7 +98,7 @@ public class GoalLessonService
         synchronized (writes) {
             lesson(goal(workspaceId, goalId), lessonId);
             Optional<GoalLesson> existing = lessons.find(lessonId);
-            if (existing.filter(found -> found.state() != GoalLesson.State.FAILED).isPresent()) {
+            if (existing.filter(found -> found.state() != GoalLesson.State.FAILED && found.content().filter(GoalLesson.Content::beforeChapters).isEmpty()).isPresent()) {
                 start(goalId, lessonId);
                 return existing.orElseThrow();
             }

@@ -52,7 +52,12 @@ import static org.mockito.Mockito.when;
 class TestGoalLessonService
 {
     private static final Instant NOW = Instant.parse("2026-10-03T10:00:00Z");
-    private static final GoalLesson.Content CONTENT = new GoalLesson.Content("# Tables", "Run one test.", "It passes.", "What is a snapshot?");
+    private static final GoalLesson.Content CONTENT = new GoalLesson.Content(Optional.of("A table is a tree of metadata."),
+            ImmutableList.of("A snapshot never changes once written."),
+            ImmutableList.of(new GoalLesson.Section("Metadata", "Each snapshot lists its manifests.", Optional.of(new GoalLesson.Diagram(GoalLesson.Diagram.Kind.TREE,
+                    "Table metadata", ImmutableList.of(new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty()),
+                            new GoalLesson.Node("snapshot", "Snapshot", Optional.of("Never changes"), Optional.of("table"))))))),
+            Optional.empty(), "Run one test.", "It passes.", "What is a snapshot?");
 
     private final GoalService goals = mock(GoalService.class);
     private final WorkItemService work = mock(WorkItemService.class);
@@ -113,6 +118,17 @@ class TestGoalLessonService
         service.settleInterrupted();
         assertThat(lessons.find("lesson-2")).map(GoalLesson::failure).contains(Optional.of(GoalLessonService.INTERRUPTED));
         assertThat(lessons.find("lesson-1")).map(GoalLesson::state).contains(GoalLesson.State.WRITING);
+    }
+
+    @Test
+    void aLessonWrittenBeforeChaptersIsWrittenAgainAsAChapterWhenOpened()
+    {
+        lessons.save(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt", new GoalLesson.Content(Optional.empty(), null, null,
+                Optional.of("# Tables"), "Run one test.", "It passes.", "What is a snapshot?"), NOW));
+        assertThat(service.open("workspace", "goal-1", "lesson-1").state()).isEqualTo(GoalLesson.State.WRITING);
+        doReturn(CONTENT).when(planner).lesson(any(), any(), any(), anyString(), any());
+        queued.removeFirst().run();
+        assertThat(lessons.find("lesson-1")).flatMap(GoalLesson::content).contains(CONTENT);
     }
 
     @Test

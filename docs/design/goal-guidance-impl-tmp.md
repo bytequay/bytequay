@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first eleven implementation slices are complete. The later items of
+Status: The first twelve implementation slices are complete. The later items of
 Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -517,6 +517,33 @@ Done when: an event told during the quiet hours waits until they end while a
 decision does not, and a normally finished turn starts no model call but reaches
 the agent with the next event or Update now.
 
+## Twelfth implementation slice
+
+Read lessons as a book: a lesson is an illustrated chapter, and the expanded
+Goal window reads the course like an e-book.
+
+1. A lesson is a chapter. The lesson writer returns a short summary, up to six
+   invariants to remember and two to six short sections, each with an optional
+   diagram, then the exercise, what to observe and the check. A diagram is a
+   FLOW of steps or a TREE whose nodes name their parents, two to ten short
+   boxes that ByteQuay validates and draws; the model never writes markup. An
+   answer with only an explanation is refused and written again, and a lesson
+   written before chapters is written again when next opened.
+2. The window is a book. The expanded window shows the course's contents at the
+   left, each part with its chapters, done ones checked, and the open chapter's
+   sections to jump to; the chapter in the middle with its summary, what to
+   remember, its sections with their diagrams, Try it and Check yourself, and
+   Previous and Next; and the conversation at the right only when the user asks
+   or answers the check. The floating window shows the chapter alone.
+
+Progress: the twelfth slice is complete. The chapter is a validated record with
+its sections and diagrams, the agent reads it as text when the user asks about
+it, and the frontend draws each diagram as SVG with boxes sized to their text.
+
+Done when: a lesson reads as a chapter with diagrams, the contents jump between
+chapters and sections, the conversation opens on demand, and an old lesson is
+written again as a chapter.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -637,7 +664,7 @@ work items. Closing and reopening the app retains the conversation and plan.
   through the existing capture policy.
 - [x] Propose a course of parts and lessons from the notes and the starting
   knowledge. Accepted lessons become ordered Learn items with a milestone; a
-  tool-free request writes and saves each lesson's explanation, exercise and check.
+  tool-free request writes and saves each lesson as an illustrated chapter.
 - [x] Show the open lesson in the expanded Goal window beside the conversation.
   Questions there belong to the lesson; Done stays the user's decision.
 - [x] Recommend spec checks as cards naming the module, pages and reproduction

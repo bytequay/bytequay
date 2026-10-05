@@ -210,7 +210,11 @@ class TestGoalPlanner
                         ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:plugin/trino-delta-lake/Checkpoint.java", Optional.of("b".repeat(40)))), "task", NOW)));
         GoalLessonStore lessons = mock(GoalLessonStore.class);
         when(lessons.find("lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
-                new GoalLesson.Content("A table is a tree of metadata.", "Read TableMetadata.", "Snapshots are listed.", "What does a snapshot point to?"), NOW)));
+                new GoalLesson.Content(Optional.of("A table is a tree of metadata."), ImmutableList.of("A snapshot never changes once written."),
+                        ImmutableList.of(new GoalLesson.Section("Metadata", "Each snapshot lists its manifests.", Optional.of(new GoalLesson.Diagram(
+                                GoalLesson.Diagram.Kind.TREE, "Table metadata", ImmutableList.of(new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty()),
+                                        new GoalLesson.Node("snapshot", "Snapshot", Optional.empty(), Optional.of("table"))))))),
+                        Optional.empty(), "Read TableMetadata.", "Snapshots are listed.", "What does a snapshot point to?"), NOW)));
         GoalQuestions questions = mock(GoalQuestions.class);
         when(questions.recent(GoalPlanner.MAX_QUESTIONS)).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
                 "Task Fix scan planning", NOW)));
@@ -266,7 +270,8 @@ class TestGoalPlanner
                 .add(GoalExchange.ask("op-why", "goal-1", "workspace", "Why a tree?", 1, NOW).about(Optional.of("lesson-1")).answered("codex/gpt", reply, NOW)).build();
         assertThat(planner.prompt(goal, asked, GoalExchange.ask("op-lesson", "goal-1", "workspace", "My answer to the check: its manifest list", 1, NOW)
                 .about(Optional.of("lesson-1"))))
-                .contains("\"openLesson\"", "\"explanation\" : \"A table is a tree of metadata.\"", "\"message\" : \"My answer to the check: its manifest list\"",
+                .contains("\"openLesson\"", "\"explanation\" : \"A table is a tree of metadata.\\n- A snapshot never changes once written.",
+                        "Table metadata: Table, Snapshot", "\"message\" : \"My answer to the check: its manifest list\"",
                         "\"id\" : \"definition:op-0\"", "citing the definition's id")
                 .contains("\"id\" : \"message:op-why\"", "\"aboutLesson\" : \"lesson-1\"", "\"messageId\" : \"message:op-lesson\"", "lesson's check, say whether the answer shows");
 
@@ -274,11 +279,24 @@ class TestGoalPlanner
         assertThat(lesson.indexOf("untrusted reference data")).isLessThan(lesson.indexOf("<lesson-data>"));
         assertThat(lesson).contains("\"part\" : \"Iceberg tables\"", "\"outcome\" : \"Explain metadata\"", "https://iceberg.apache.org/spec/#manifest-lists",
                 "\"startingKnowledge\" : \"Knows the specification\"");
-        assertThat(GoalPlanner.parse("""
-                {"explanation": "# Tables", "exercise": "Run one test.", "observe": "It passes.", "check": "What is a snapshot?"}""", GoalLesson.Content.class).check())
-                .isEqualTo("What is a snapshot?");
+        assertThat(GoalPlanner.chapter("""
+                {"summary": "Tables", "invariants": ["A snapshot never changes."], "sections": [{"title": "Metadata", "body": "Snapshots list manifests.",
+                "diagram": {"kind": "FLOW", "caption": "A write", "nodes": [{"id": "a", "label": "Write files", "note": null, "parent": null},
+                {"id": "b", "label": "Commit", "note": null, "parent": null}]}}], "exercise": "Run one test.", "observe": "It passes.", "check": "What is a snapshot?"}"""))
+                .satisfies(content -> {
+                    assertThat(content.check()).isEqualTo("What is a snapshot?");
+                    assertThat(content.sections().getFirst().diagram()).hasValueSatisfying(diagram -> assertThat(diagram.nodes()).hasSize(2));
+                });
+        assertThatThrownBy(() -> GoalPlanner.chapter("""
+                {"explanation": "# Tables", "exercise": "Run one test.", "observe": "It passes.", "check": "What is a snapshot?"}"""))
+                .as("a lesson is no longer one long explanation").isInstanceOf(AgentUnavailableException.class).hasMessageContaining("a lesson is a chapter");
+        assertThatThrownBy(() -> GoalPlanner.chapter("""
+                {"summary": "Tables", "invariants": [], "sections": [{"title": "Metadata", "body": "Snapshots list manifests.", "diagram": {"kind": "TREE",
+                "caption": "A table", "nodes": [{"id": "a", "label": "Table", "note": null, "parent": null}, {"id": "b", "label": "Snapshot", "note": null,
+                "parent": "missing"}]}}], "exercise": "Run one test.", "observe": "It passes.", "check": "What is a snapshot?"}"""))
+                .as("a tree names its parents").isInstanceOf(AgentUnavailableException.class).hasMessageContaining("parent");
         assertThatThrownBy(() -> GoalPlanner.parse("""
-                {"explanation": "# Tables", "exercise": "Run one test.", "observe": "It passes."}""", GoalLesson.Content.class))
+                {"summary": "Tables", "sections": [], "exercise": "Run one test.", "observe": "It passes.", "check": "What is a snapshot?"}""", GoalLesson.Content.class))
                 .isInstanceOf(AgentUnavailableException.class);
     }
 

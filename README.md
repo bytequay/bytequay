@@ -55,8 +55,8 @@ xattr -dr com.apple.quarantine /Applications/ByteQuay.app
 
 ## Develop
 
-Requirements: macOS 14+, JDK 25 LTS, Maven 3.9+, Node 24.18.1 LTS,
-and npm 11.16+. Run `nvm install` from the repository root to select the
+Requirements: macOS 14+, JDK 25 LTS (25.0.4.1+), Maven 3.9+, Node 24.21.0 LTS,
+and npm 11.19+. Run `nvm install` from the repository root to select the
 checked-in Node version.
 
 ```sh

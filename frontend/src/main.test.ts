@@ -21,11 +21,15 @@ import type { ContextBuildViewDto, ContextSpecCheckDto } from './repository-cont
 import type { AgentRuntimeStopImpactDto } from './types';
 import type { TeamActivitySnapshot, TeamDirectory } from './teams/types';
 import type { JiraIssuePage } from './jira/contracts';
+import { MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
   handlers: new Map<string, (...args: unknown[]) => Promise<unknown>>(),
   accountNotifications: [vi.fn(), vi.fn()],
+  clipboardRead: vi.fn(),
+  clipboardWriteText: vi.fn(),
+  createImage: vi.fn(),
 }));
 
 vi.mock('electron', () => ({
@@ -37,6 +41,8 @@ vi.mock('electron', () => ({
   },
   ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => Promise<unknown>) => desktop.handlers.set(channel, handler), on: vi.fn() },
   Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
+  clipboard: { read: desktop.clipboardRead, writeText: desktop.clipboardWriteText },
+  nativeImage: { createFromBuffer: desktop.createImage },
 }));
 
 vi.mock('./backendProcess', () => ({
@@ -47,10 +53,61 @@ vi.mock('./backendProcess', () => ({
 
 afterEach(() => {
   desktop.accountNotifications.forEach(send => send.mockClear());
+  desktop.clipboardRead.mockReset();
+  desktop.clipboardWriteText.mockReset();
+  desktop.createImage.mockReset();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it.each(['pat:copy', 'workspaces:token:copy'])('reports %s only after the asynchronous clipboard write succeeds', async channel => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ value: 'test-token' }))));
+  desktop.clipboardWriteText.mockResolvedValue(undefined);
+  await expect(desktop.handlers.get(channel)?.({}, 'workspace')).resolves.toBe(true);
+  expect(desktop.clipboardWriteText).toHaveBeenCalledWith('test-token');
+  desktop.clipboardWriteText.mockRejectedValue(new Error('Clipboard unavailable'));
+  await expect(desktop.handlers.get(channel)?.({}, 'workspace')).rejects.toThrow('Clipboard unavailable');
+});
+
+it.each([
+  ['agent:attachments:paste-drafts', 'image/png'],
+  ['agent:attachments:paste', 'image/png'],
+  ['agent:attachments:paste-drafts', 'image/jpeg'],
+  ['agent:attachments:paste', 'image/jpeg'],
+])('reads and validates asynchronous clipboard images for %s (%s)', async (channel, mediaType) => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const bytes = Buffer.from('png');
+  const attachment = { id: 'image', name: 'pasted-image.png', mediaType: 'image/png', byteSize: bytes.length, width: 1, height: 1 };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(attachment)));
+  vi.stubGlobal('fetch', fetch);
+  desktop.clipboardRead.mockResolvedValue([{ types: ['text/plain'] }]);
+  await expect(desktop.handlers.get(channel)?.({}, 'task', 'workspace')).resolves.toEqual([]);
+  expect(desktop.createImage).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
+
+  const getType = vi.fn(async () => new Blob(['png'], { type: mediaType }));
+  desktop.clipboardRead.mockResolvedValue([{ types: [mediaType], getType }]);
+  desktop.createImage.mockReturnValue({ isEmpty: () => false, getSize: () => ({ width: 1, height: 1 }), toPNG: () => bytes });
+  await expect(desktop.handlers.get(channel)?.({}, 'task', 'workspace')).resolves.toMatchObject([
+    { name: attachment.name, mediaType: attachment.mediaType },
+  ]);
+  expect(getType).toHaveBeenCalledWith(mediaType);
+  expect(desktop.createImage).toHaveBeenCalledWith(bytes);
+  if (channel === 'agent:attachments:paste') {
+    expect(fetch).toHaveBeenCalledWith(expect.any(URL), expect.objectContaining({ method: 'POST', body: new Uint8Array(bytes) }));
+  }
+
+  desktop.createImage.mockClear();
+  fetch.mockClear();
+  getType.mockResolvedValue(new Blob([new Uint8Array(MAX_ATTACHMENT_BYTES + 1)]));
+  await expect(desktop.handlers.get(channel)?.({}, 'task', 'workspace')).rejects.toThrow('10 MiB');
+  expect(desktop.createImage).not.toHaveBeenCalled();
+  expect(fetch).not.toHaveBeenCalled();
 });
 
 it.each(['pat:save', 'pat:delete', 'github:cli-import'])('invalidates every window after successful %s, preserving caches after failure', async channel => {

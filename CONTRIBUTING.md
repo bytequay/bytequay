@@ -16,10 +16,10 @@ service only through its canonical design.
 
 | Tool | Version | Notes |
 | --- | --- | --- |
-| JDK | 25 | Latest Java LTS; the Maven compiler targets Java 25. |
+| JDK | 25.0.4.1+ | Java 25 LTS; the Maven compiler targets Java 25 and CI selects the latest patch. |
 | Maven | 3.9+ | Used for the local backend. |
-| Node | 24.18.1 | Latest Node LTS; pinned in `.nvmrc` and used by CI. |
-| npm | 11.16+ | Node 24.18.1 ships with npm 11.16.0. |
+| Node | 24.21.0 | Latest Node LTS; pinned in `.nvmrc` and used by CI. |
+| npm | 11.19+ | Node 24.21.0 ships with npm 11.19.0. |
 | macOS | 14+ | Required for the packaged desktop app. |
 
 No Docker or PostgreSQL installation is required. Runtime data is stored in a
@@ -139,6 +139,9 @@ npx tsc --noEmit
 npm test
 npm run package
 ```
+
+Electron 44 requires a code-signed macOS app to display native PR notifications.
+Unsigned development and packaged builds still show PR updates inside ByteQuay.
 
 ## Code style
 

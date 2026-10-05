@@ -221,6 +221,15 @@ function retainDraftImages(images: Omit<AgentDraftAttachmentDto, 'id'>[]): Agent
   return drafts;
 }
 
+async function readClipboardImagePng(): Promise<Buffer | null> {
+  const items = await clipboard.read();
+  const item = items.find(item => item.types.includes('image/png')) ?? items.find(item => item.types.includes('image/jpeg'));
+  if (!item) return null;
+  const blob = await item.getType(item.types.includes('image/png') ? 'image/png' : 'image/jpeg');
+  if (blob.size > MAX_ATTACHMENT_BYTES) throw new Error('Clipboard image is larger than 10 MiB');
+  return clipboardImagePng(nativeImage.createFromBuffer(Buffer.from(await blob.arrayBuffer())));
+}
+
 async function uploadAgentImage(taskId: string, workspaceId: string, name: string, mediaType: string, bytes: Buffer): Promise<AgentAttachmentDto> {
   if (bytes.length > MAX_ATTACHMENT_BYTES) throw new Error(`${name} is larger than 10 MiB`);
   const url = new URL(taskUrl(taskId, '/attachments'));
@@ -807,12 +816,12 @@ function registerIpc(): void {
     }
     return retainDraftImages(drafts);
   });
-  ipcMain.handle('agent:attachments:paste-drafts', () => {
-    const bytes = clipboardImagePng(clipboard.readImage());
+  ipcMain.handle('agent:attachments:paste-drafts', async () => {
+    const bytes = await readClipboardImagePng();
     return bytes === null ? [] : retainDraftImages([{ name: 'pasted-image.png', mediaType: 'image/png', bytes }]);
   });
   ipcMain.handle('agent:attachments:paste', async (_event, taskId: string, workspaceId: string) => {
-    const bytes = clipboardImagePng(clipboard.readImage());
+    const bytes = await readClipboardImagePng();
     return bytes === null ? [] : [await uploadAgentImage(taskId, workspaceId, 'pasted-image.png', 'image/png', bytes)];
   });
   ipcMain.handle('agent:attachments:discard-drafts', (_event, attachmentIds: string[]) => {
@@ -1286,7 +1295,7 @@ function registerIpc(): void {
     const result = await backendJson<{ value: string }>(
       `${backendBase()}/api/auth/github/token/value`,
     );
-    clipboard.writeText(result.value);
+    await clipboard.writeText(result.value);
     return true;
   });
   ipcMain.handle('pat:delete', async () => {
@@ -1492,7 +1501,7 @@ function registerIpc(): void {
     const result = await backendJson<{ value: string }>(
       `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/github-token/value`,
     );
-    clipboard.writeText(result.value);
+    await clipboard.writeText(result.value);
     return true;
   });
 

@@ -35,6 +35,7 @@ import { jiraAttentionItem } from './attention';
 import { JIRA_CHANGED, jiraAccountLabel, jiraSiteDomain, jiraIssueKey, jiraIssueLocation, jiraLocation, jiraRoute, notifyJiraChanged, type JiraBoard, type JiraComment, type JiraConnection, type JiraField, type JiraIssue, type JiraIssueDetail, type JiraIssuePage, type JiraLinkType, type JiraLocation, type JiraRelatedIssue, type JiraSite, type JiraSprint, type JiraStatus, type JiraUser } from './contracts';
 import JiraIcon from './JiraIcon';
 import { completedGroups, JIRA_WORKFLOW_GROUPS, jiraCommentThreads, jiraPriorityLevel, jiraWorkflowGroup } from './presentation';
+import { EpicTabs, type EpicWorkTab } from '../workspaces/EpicTabs';
 import { ticketEpicId } from '../workspaces/epics';
 import { useUnmarkEpic } from '../workspaces/useUnmarkEpic';
 import './jira.css';
@@ -569,8 +570,10 @@ function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDe
  * A ticket a link opened over its page. It has no board, so moving between sprints stays on the Jira page. A start opens its development
  * composer, filled with the draft when one came with it.
  */
-export function JiraTicketLayer({ location, start = false, draft, replaces, onClose }: {
+export function JiraTicketLayer({ location, start = false, draft, replaces, onClose, epicWork }: {
   location: JiraLocation; start?: boolean; draft?: string; replaces?: string; onClose: () => void;
+  /** The ticket opened as an Epic: its Work tab beside the ticket, shown first. */
+  epicWork?: EpicWorkTab;
 }) {
   const [launch, setLaunch] = useState<{ issue: JiraIssue; draft?: string; replaces?: string; onChanged?: (detail: JiraIssueDetail) => void } | null>(null);
   useEffect(() => {
@@ -585,13 +588,16 @@ export function JiraTicketLayer({ location, start = false, draft, replaces, onCl
     return () => { active = false; };
   }, [draft, location, replaces, start]);
   return <>
-    <JiraDetail location={location} scope={null} boardId={null} sprints={[]} onClose={onClose} onChanged={notifyJiraChanged} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })} />
+    <JiraDetail location={location} scope={null} boardId={null} sprints={[]} onClose={onClose} onChanged={notifyJiraChanged} onStart={(issue, onChanged) => setLaunch({ issue, onChanged })}
+      epicWork={epicWork} />
     {launch && <JiraLaunch issue={launch.issue} draft={launch.draft} replaces={launch.replaces} onChanged={detail => { notifyJiraChanged(); launch.onChanged?.(detail); }} onClose={() => setLaunch(null)} />}
   </>;
 }
 
-function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onStart }: { location: JiraLocation; scope: JiraScope | null; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail, refresh?: boolean) => void; onStart: (issue: JiraIssue, onChanged: (detail: JiraIssueDetail) => void) => void }) {
+function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onStart, epicWork }: { location: JiraLocation; scope: JiraScope | null; sprints: JiraSprint[]; boardId: number | null; onClose: () => void; onChanged: (detail: JiraIssueDetail, refresh?: boolean) => void; onStart: (issue: JiraIssue, onChanged: (detail: JiraIssueDetail) => void) => void; epicWork?: EpicWorkTab }) {
   const dialog = useJiraDialog();
+  const [showWork, setShowWork] = useState(epicWork !== undefined);
+  const workShown = epicWork !== undefined && showWork;
   const [detail, setDetail] = useState<JiraIssueDetail | null>(null);
   const visit = useAttentionVisit(detail === null ? null : jiraAttentionItem(detail.issue));
   const close = () => {
@@ -713,12 +719,14 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
           <span className="jira-detail__crumb"><JiraTypeIcon type={issue.type} /><span className="jira-detail__key">{issue.key}</span></span>
           <CopyLinkButton value={issue.url} label="ticket link" />
         </nav>}
+        {/* The crumbs already name the ticket, so its tab says what it shows. */}
+        {issue && epicWork !== undefined && <EpicTabs source={<><JiraTypeIcon type={issue.type} /> Ticket</>} progress={epicWork.progress} work={showWork} onWork={setShowWork} />}
         <span className="jira-spacer" />
         {issue && <PinButton className="bq-iconbtn" item={{ key: `jira:${issue.cloudId}:${issue.id}`, title: issue.title, reference: issue.key, target: { kind: 'jira', ...jiraIssueLocation(issue) } }} />}
         <button type="button" className="bq-iconbtn" aria-label="Refresh ticket" title="Refresh ticket" disabled={busy || loading} onClick={refresh}><RefreshCw size={15} className={loading || refreshing ? 'jira-spin' : ''} /></button>
         <button type="button" className="bq-iconbtn" aria-label="Close ticket" title="Close (Esc)" disabled={busy} onClick={close}><X size={17} /></button>
       </div>
-      {issue && detail && <><h2>{issue.title}</h2>
+      {issue && detail && !workShown && <><h2>{issue.title}</h2>
         <div className="jira-detail__bar">
           <div className="jira-anchor">
             <button type="button" className={`jira-status-button is-${issue.status.category}`} title="Change status" aria-haspopup="dialog" aria-expanded={menu === 'status'} disabled={busy || loading || detail.transitions.length === 0}
@@ -741,7 +749,8 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
         </div></>}
     </header>
     {error && <div className="ws-error" role="alert">{error}</div>}
-    {!issue || !detail ? <div className="jira-empty">{loading ? 'Loading ticket…' : 'This ticket could not be loaded.'}</div> : <div className="jira-detail__body">
+    {!issue || !detail ? <div className="jira-empty">{loading ? 'Loading ticket…' : 'This ticket could not be loaded.'}</div> : workShown
+      ? <div className="jira-detail__body"><div className="jira-detail__main">{epicWork.render(() => setShowWork(false))}</div></div> : <div className="jira-detail__body">
       <div className="jira-detail__main">
         {issue.hasChildren && <p className="jira-notice">This ticket has children. Start development from an individual child ticket.</p>}
         <section className="jira-description" aria-label="Description"><h3>Description</h3><MarkdownBody body={issue.body || 'No description.'} /></section>

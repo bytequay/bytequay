@@ -60,6 +60,7 @@ import type {
   WorkspaceIssueTimelineEventDto,
   WorkspaceIssueTypeDto,
 } from '../types';
+import { EpicTabs, type EpicWorkTab } from './EpicTabs';
 import '../css/issues.css';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
@@ -86,7 +87,7 @@ export async function loadWorkspaceIssueDetail(
     : detail;
 }
 
-export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue, onStartDevelopment, onViewTask, onClose }: {
+export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue, onStartDevelopment, onViewTask, onClose, epicWork }: {
   workspaceId: string;
   repository: string;
   initialIssueNumber: number | null;
@@ -95,6 +96,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   onViewTask?: (link: IssueDevelopmentTaskDto) => void;
   /** Shows only initialIssueNumber over the current page, without the list or navigation. */
   onClose?: () => void;
+  /** The issue opened as an Epic: its Work tab beside the issue, shown first. */
+  epicWork?: EpicWorkTab;
 }) {
   const overlay = onClose !== undefined;
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -122,6 +125,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [changingEpic, setChangingEpic] = useState<number | null>(null);
   const [closedIssueId, setClosedIssueId] = useState<number | null>(null);
   const [startingIssue, setStartingIssue] = useState<number | null>(null);
+  const [showWork, setShowWork] = useState(epicWork !== undefined);
+  const workShown = epicWork !== undefined && showWork;
   const detailRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
   const openedInitialIssue = useRef<number | null>(null);
@@ -544,6 +549,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />}
           <header className="pull-detail__header pull-detail__header--tabs">
             <div className="pull-detail__toolbar">
+              {epicWork !== undefined && <EpicTabs source={<><IssueIcon /> Issue #{selected.number}</>} progress={epicWork.progress} work={showWork} onWork={setShowWork} />}
               <div className="pull-detail__header-actions">
                 <PinButton className="pull-detail__icon-action" item={{ key: `${repository}#${selected.number}`, title: selected.title,
                   reference: `${repository} #${selected.number}`, target: { kind: 'issue', repo: repository, number: selected.number, workspaceId } }} />
@@ -558,13 +564,14 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
               </div>
             </div>
           </header>
-          {detailError && (
+          {detailError && !workShown && (
             <div className="pull-detail__error" role="alert">
               Could not load issue details. {detailError}
             </div>
           )}
-          {mutationError && <div className="pull-detail__error" role="alert">Could not update issue. {mutationError}</div>}
-          <div className="pull-detail__body">
+          {mutationError && !workShown && <div className="pull-detail__error" role="alert">Could not update issue. {mutationError}</div>}
+          {workShown && <div className="pull-detail__body">{epicWork.render(() => setShowWork(false))}</div>}
+          <div className="pull-detail__body" hidden={workShown}>
             <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} readOnly={selected === previewIssue} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
               actions={selected === previewIssue ? undefined : <IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}

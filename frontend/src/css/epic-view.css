@@ -1,27 +1,42 @@
 /* ── Epic view ──
-   One Epic's work in a zoom card over workspace Home (workspaces/EpicView.tsx). Rows are cards.css item rows;
-   this sheet adds only the view's layout, its state icons and its controls. Nothing in a row is bold. */
+   One Epic's work, the Work tab beside its issue or ticket (workspaces/EpicView.tsx, EpicTabs.tsx). Rows are cards.css
+   item rows; this sheet adds only the view's layout, its state icons and its controls. Nothing in a row is bold. */
 
+/* Sized like the issue overview beside it; the Jira dialog's main column already pads it. */
 .epic-view {
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  min-height: 0;
-  background: #ffffff;
+  gap: 12px;
+  width: 100%;
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 24px 28px 40px;
   color: var(--text-1);
 }
 
-.epic-view__head {
-  flex: none;
+.jira-detail__main > .epic-view {
+  max-width: none;
+  margin: 0;
+  padding: 0;
+}
+
+.epic-view__title-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 14px 16px 12px;
-  border-bottom: 1px solid #f0f0f2;
 }
 
-.epic-view__head > .epic-drawer__glyph {
+.epic-view__title-row > .epic-drawer__glyph {
   width: 16px;
   height: 16px;
+}
+
+.epic-tabs__progress {
+  color: #57606a;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  font-weight: 400;
 }
 
 .epic-view__title {
@@ -35,7 +50,6 @@
   white-space: nowrap;
 }
 
-.epic-view__source,
 .epic-view__link,
 .epic-view__sync,
 .epic-row__accept {
@@ -46,26 +60,6 @@
   border-radius: 6px;
   font: inherit;
   cursor: pointer;
-}
-
-.epic-view__source {
-  padding: 2px 4px;
-  border: 0;
-  background: transparent;
-}
-
-.epic-view__source:hover {
-  background: rgba(31, 35, 40, 0.06);
-}
-
-.epic-view__body {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 14px 16px 20px;
-  overflow-y: auto;
 }
 
 .epic-progress {
@@ -336,7 +330,7 @@
   margin-top: 8px;
 }
 
-:is(.epic-view__source, .epic-view__link, .epic-view__sync, .epic-row__accept, .epic-row__wait, .epic-view__dropped > summary):focus-visible {
+:is(.epic-view__link, .epic-view__sync, .epic-row__accept, .epic-row__wait, .epic-view__dropped > summary):focus-visible {
   outline: 2px solid var(--control-strong);
   outline-offset: 1px;
 }

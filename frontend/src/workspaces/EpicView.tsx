@@ -22,10 +22,7 @@ import { openGoalItem, startTicket } from '../goals/GoalLayer';
 import { Candidate, useCandidates } from '../goals/GoalPanel';
 import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../goals/model';
 import type { Goals } from '../goals/useGoals';
-import { zoomReference } from '../githubReference';
-import { statusPill, type AttentionItem, type AttentionTone } from '../home/attention';
-import { jiraIssueLocation } from '../jira/contracts';
-import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
+import type { AttentionItem, AttentionTone } from '../home/attention';
 import { EpicGlyph } from './EpicDrawer';
 import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, useEpicRecord } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
@@ -48,10 +45,10 @@ function upstreamOf(item: WorkItemDto, record: EpicRecordDto | null): Upstream |
 }
 
 /**
- * One Epic's work over the page, the only place it is added, ordered and decided: quick add takes a title, Add existing finds an issue,
- * ticket, pull request or task, and each row says where the work stands in one short detail.
+ * One Epic's work, the only place it is added, ordered and decided; it is the Work tab beside the Epic's issue or ticket. Quick add takes a
+ * title, Add existing finds an issue, ticket, pull request or task, and each row says where the work stands in one short detail.
  */
-export default function EpicView({ epic, workspaceId, repository, work, needsYou, goals, epicTitle, onOpenTask, onStartIssue, onStartWork, onClose }: {
+export default function EpicView({ epic, workspaceId, repository, work, needsYou, goals, epicTitle, onOpenTask, onStartIssue, onStartWork, onShowSource }: {
   epic: AttentionItem;
   workspaceId: string;
   /** "owner/repo" the workspace's issue composer starts tasks in. */
@@ -67,9 +64,9 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   onStartIssue: (issue: number, instruction: string, replaces?: string) => void;
   /** Opens the task composer for work without an issue or ticket; the task it creates is the work's attempt. */
   onStartWork: (itemId: string, draft: string) => void;
-  onClose: () => void;
+  /** Shows the Epic's issue or ticket, in the tab beside this one. */
+  onShowSource: () => void;
 }): React.JSX.Element {
-  const zoom = useZoom(onClose);
   const epicId = epicIdentity(epic);
   const items = epicWork(work, epicId);
   const shown = items.filter((item) => item.state !== 'DROPPED');
@@ -129,162 +126,147 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
     if (ticket !== undefined) return () => startTicket(ticket.key, instruction, replaces);
     return () => onStartWork(item.id, item.title);
   };
-  const status = epic.jira ? statusPill(epic.jira.status) : { name: 'Open', tone: 'green' as const };
-  const sourceName = epic.jira ? epic.jira.key : `#${epic.number}`;
 
   return (
-    <>
-      {!zoom.full && <ZoomScrim onClose={zoom.close} />}
-      <section className={`${zoom.cardClass} epic-view`} aria-label={`Epic: ${epic.title}`}>
-        <header className="epic-view__head">
-          <EpicGlyph />
-          <h2 className="epic-view__title" title={epic.title}>{epic.title}</h2>
-          <button type="button" className="epic-view__source" title={`Open ${sourceName}`}
-            onClick={() => zoomReference(epic.jira ? { kind: 'jira', ...jiraIssueLocation(epic.jira) } : { kind: 'issue', repo: epic.repo, number: epic.number, workspaceId })}>
-            <LinkKey source={epic.jira ? 'jira' : 'issue'} name={sourceName} size={13} />
-          </button>
-          <Pill tone={status.tone}>{status.name}</Pill>
-          <ZoomActions {...zoom} label="Epic" className="card-iconbtn" />
-        </header>
-        <div className="epic-view__body">
-          <div className="epic-view__progress">
-            {summary.total > 0 && (
-              <div className="epic-progress" aria-hidden="true">
-                <span className="is-done" style={{ width: widths.finished }} />
-                <span className="is-working" style={{ width: widths.working }} />
-              </div>
-            )}
-            <div className="epic-view__counts">
-              {summary.total === 0 ? <span>No work yet</span>
-                : summary.finished === summary.total ? <span className="is-ready">All {summary.total} done{concludedAt === null ? ' · ready to conclude' : ''}</span>
-                  : <>
-                    <span className="is-strong">{summary.finished} of {summary.total} done</span>
-                    {summary.working > 0 && <span>{summary.working} working</span>}
-                    {summary.idle > 0 && <span>{summary.idle} planned</span>}
-                  </>}
-              {summary.dropped > 0 && <span className="is-muted">{summary.dropped} dropped</span>}
-              {ready && concludedAt === null && record !== null && (
-                <button type="button" className="epic-view__sync epic-view__conclude" disabled={busy} onClick={() => {
-                  setOutcome(`All ${summary.total} work items done:\n${items.filter((item) => item.state === 'DONE').map((item) => `- ${item.title}`).join('\n')}`);
-                  setConcluding(true);
-                }}>Conclude Epic</button>
-              )}
-            </div>
+    <section className="epic-view" aria-label={`Epic: ${epic.title}`}>
+      <div className="epic-view__title-row">
+        <EpicGlyph />
+        <h2 className="epic-view__title" title={epic.title}>{epic.title}</h2>
+      </div>
+      <div className="epic-view__progress">
+        {summary.total > 0 && (
+          <div className="epic-progress" aria-hidden="true">
+            <span className="is-done" style={{ width: widths.finished }} />
+            <span className="is-working" style={{ width: widths.working }} />
           </div>
-          {record !== null && concludedAt !== null && (
-            <section className="epic-view__concluded" aria-label="Concluded">
-              <div className="epic-view__concluded-head">
-                <CircleCheck size={14} aria-hidden="true" />
-                <span>Concluded</span>
-                <CardAge at={concludedAt} />
-                {epic.jira
-                  ? <button type="button" className="epic-view__link" onClick={() => { if (epic.jira) zoomReference({ kind: 'jira', ...jiraIssueLocation(epic.jira) }); }}>
-                    Open {epic.jira.key} to close it
-                  </button>
-                  : <button type="button" className="epic-view__link" disabled={busy} onClick={() => {
-                    void run(async () => {
-                      await window.bridge.closeWorkspaceIssue(workspaceId, epic.number);
-                      notifyIssueDevelopmentChanged();
-                    });
-                  }}>Close #{epic.number} on GitHub</button>}
-              </div>
-              <p className="epic-view__outcome">{record.outcome}</p>
-            </section>
-          )}
-          {record?.offered === true && (
-            <div className="epic-view__found">
-              <ListTree size={14} aria-hidden="true" />
-              <span className="epic-view__found-count" title={unsynced.map((child) => `${child.label} ${child.title}`).join('\n')}>
-                Found in {epic.jira ? 'Jira' : 'GitHub'} · {unsynced.length}
-              </span>
-              <button type="button" className="epic-view__sync" disabled={busy} onClick={() => { void run(children.sync); }}>Sync</button>
-              <button type="button" className="epic-view__link" disabled={busy} onClick={() => { void run(children.dismiss); }}>Not now</button>
-            </div>
-          )}
-          {notice !== null && <div className="epic-view__notice" role="status">{notice}</div>}
-          {error !== null && <div className="epic-view__error" role="alert">{error}</div>}
-          {shown.length > 0 && (
-            <div className="item-list" role="list" aria-label="Work">
-              {shown.map((item) => (
-                <div role="listitem" key={item.id}>
-                  <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={starter(item)}
-                    first={item === shown[0]}
-                    last={item === shown[shown.length - 1]} onOpenTask={onOpenTask} onDecide={(decision) => decide(item, decision)}
-                    onMove={(offset) => move(item, offset)} onDrop={() => { setReason(''); setDropping(item); }}
-                    onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
-                </div>
-              ))}
-            </div>
-          )}
-          {record !== null && (record.breakingDown || record.proposals.length > 0) && (
-            <section className="epic-view__proposals" aria-label="Proposed work">
-              <div className="epic-view__proposals-head">
-                <Sparkles size={13} aria-hidden="true" />
-                <span>{record.breakingDown ? 'Proposing work…' : `Proposed · ${record.proposals.length}`}</span>
-                {record.breakingDown && <LoaderCircle size={13} className="agt-spin" aria-hidden="true" />}
-              </div>
-              {record.proposals.map((proposal) => (
-                <div key={proposal.id} className="epic-proposal">
-                  <div className="epic-proposal__text">
-                    <span className="epic-proposal__title">{proposal.title}</span>
-                    <span className="epic-proposal__done">{proposal.doneWhen}</span>
-                  </div>
-                  <button type="button" className="epic-row__accept" disabled={busy} onClick={() => { void run(() => children.acceptProposal(proposal.id)); }}>Accept</button>
-                  <IconButton label={`Dismiss ${proposal.title}`} title="Dismiss" disabled={busy} onClick={() => { void run(() => children.dismissProposal(proposal.id)); }}>
-                    <X size={13} />
-                  </IconButton>
-                </div>
-              ))}
-            </section>
-          )}
-          {record?.breakdownError != null && <div className="epic-view__error" role="alert">{record.breakdownError}</div>}
-          <form className="epic-view__new" onSubmit={(event) => {
-            event.preventDefault();
-            const name = title.trim();
-            if (name === '' || busy) return;
-            void run(async () => {
-              await goals.createWork({ id: crypto.randomUUID(), goalId: null, epicId, title: name, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY' });
-              setTitle('');
-            });
-          }}>
-            <Plus size={14} aria-hidden="true" />
-            <input aria-label="New work item" placeholder="New work item" value={title} maxLength={500} onChange={(event) => setTitle(event.target.value)} />
-            <button type="button" className="epic-view__link" aria-expanded={adding} onClick={() => setAdding((value) => !value)}>
-              <Search size={13} aria-hidden="true" />Add existing
-            </button>
-            {record !== null && (
-              <button type="button" className="epic-view__link" disabled={busy || record.breakingDown} onClick={() => { void run(children.propose); }}>
-                <Sparkles size={13} aria-hidden="true" />Suggest work
-              </button>
-            )}
-          </form>
-          {adding && (
-            <div className="goal-search epic-view__search">
-              <label className="goal-search__field">
-                <Search size={14} aria-hidden="true" />
-                <input autoFocus aria-label="Find an issue, ticket, pull request or task" placeholder="Find an issue, ticket, pull request or task"
-                  value={candidates.query} onChange={(event) => candidates.setQuery(event.target.value)} />
-              </label>
-              {found.map((item) => <Candidate key={refKey(item)} item={item} onAdd={add} />)}
-            </div>
-          )}
-          {dropped.length > 0 && (
-            <details className="epic-view__dropped">
-              <summary>{dropped.length} dropped</summary>
-              <div className="item-list" role="list" aria-label="Dropped work">
-                {dropped.map((item) => (
-                  <div role="listitem" key={item.id}>
-                    <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={null}
-                      first last onOpenTask={onOpenTask}
-                      onDecide={(decision) => decide(item, decision)} onMove={() => {}} onDrop={() => {}}
-                      onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
-                  </div>
-                ))}
-              </div>
-            </details>
+        )}
+        <div className="epic-view__counts">
+          {summary.total === 0 ? <span>No work yet</span>
+            : summary.finished === summary.total ? <span className="is-ready">All {summary.total} done{concludedAt === null ? ' · ready to conclude' : ''}</span>
+              : <>
+                <span className="is-strong">{summary.finished} of {summary.total} done</span>
+                {summary.working > 0 && <span>{summary.working} working</span>}
+                {summary.idle > 0 && <span>{summary.idle} planned</span>}
+              </>}
+          {summary.dropped > 0 && <span className="is-muted">{summary.dropped} dropped</span>}
+          {ready && concludedAt === null && record !== null && (
+            <button type="button" className="epic-view__sync epic-view__conclude" disabled={busy} onClick={() => {
+              setOutcome(`All ${summary.total} work items done:\n${items.filter((item) => item.state === 'DONE').map((item) => `- ${item.title}`).join('\n')}`);
+              setConcluding(true);
+            }}>Conclude Epic</button>
           )}
         </div>
-      </section>
+      </div>
+      {record !== null && concludedAt !== null && (
+        <section className="epic-view__concluded" aria-label="Concluded">
+          <div className="epic-view__concluded-head">
+            <CircleCheck size={14} aria-hidden="true" />
+            <span>Concluded</span>
+            <CardAge at={concludedAt} />
+            {epic.jira
+              ? <button type="button" className="epic-view__link" onClick={onShowSource}>Close {epic.jira.key} from its ticket</button>
+              : <button type="button" className="epic-view__link" disabled={busy} onClick={() => {
+                void run(async () => {
+                  await window.bridge.closeWorkspaceIssue(workspaceId, epic.number);
+                  notifyIssueDevelopmentChanged();
+                });
+              }}>Close #{epic.number} on GitHub</button>}
+          </div>
+          <p className="epic-view__outcome">{record.outcome}</p>
+        </section>
+      )}
+      {record?.offered === true && (
+        <div className="epic-view__found">
+          <ListTree size={14} aria-hidden="true" />
+          <span className="epic-view__found-count" title={unsynced.map((child) => `${child.label} ${child.title}`).join('\n')}>
+            Found in {epic.jira ? 'Jira' : 'GitHub'} · {unsynced.length}
+          </span>
+          <button type="button" className="epic-view__sync" disabled={busy} onClick={() => { void run(children.sync); }}>Sync</button>
+          <button type="button" className="epic-view__link" disabled={busy} onClick={() => { void run(children.dismiss); }}>Not now</button>
+        </div>
+      )}
+      {notice !== null && <div className="epic-view__notice" role="status">{notice}</div>}
+      {error !== null && <div className="epic-view__error" role="alert">{error}</div>}
+      {shown.length > 0 && (
+        <div className="item-list" role="list" aria-label="Work">
+          {shown.map((item) => (
+            <div role="listitem" key={item.id}>
+              <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={starter(item)}
+                first={item === shown[0]}
+                last={item === shown[shown.length - 1]} onOpenTask={onOpenTask} onDecide={(decision) => decide(item, decision)}
+                onMove={(offset) => move(item, offset)} onDrop={() => { setReason(''); setDropping(item); }}
+                onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
+            </div>
+          ))}
+        </div>
+      )}
+      {record !== null && (record.breakingDown || record.proposals.length > 0) && (
+        <section className="epic-view__proposals" aria-label="Proposed work">
+          <div className="epic-view__proposals-head">
+            <Sparkles size={13} aria-hidden="true" />
+            <span>{record.breakingDown ? 'Proposing work…' : `Proposed · ${record.proposals.length}`}</span>
+            {record.breakingDown && <LoaderCircle size={13} className="agt-spin" aria-hidden="true" />}
+          </div>
+          {record.proposals.map((proposal) => (
+            <div key={proposal.id} className="epic-proposal">
+              <div className="epic-proposal__text">
+                <span className="epic-proposal__title">{proposal.title}</span>
+                <span className="epic-proposal__done">{proposal.doneWhen}</span>
+              </div>
+              <button type="button" className="epic-row__accept" disabled={busy} onClick={() => { void run(() => children.acceptProposal(proposal.id)); }}>Accept</button>
+              <IconButton label={`Dismiss ${proposal.title}`} title="Dismiss" disabled={busy} onClick={() => { void run(() => children.dismissProposal(proposal.id)); }}>
+                <X size={13} />
+              </IconButton>
+            </div>
+          ))}
+        </section>
+      )}
+      {record?.breakdownError != null && <div className="epic-view__error" role="alert">{record.breakdownError}</div>}
+      <form className="epic-view__new" onSubmit={(event) => {
+        event.preventDefault();
+        const name = title.trim();
+        if (name === '' || busy) return;
+        void run(async () => {
+          await goals.createWork({ id: crypto.randomUUID(), goalId: null, epicId, title: name, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY' });
+          setTitle('');
+        });
+      }}>
+        <Plus size={14} aria-hidden="true" />
+        <input aria-label="New work item" placeholder="New work item" value={title} maxLength={500} onChange={(event) => setTitle(event.target.value)} />
+        <button type="button" className="epic-view__link" aria-expanded={adding} onClick={() => setAdding((value) => !value)}>
+          <Search size={13} aria-hidden="true" />Add existing
+        </button>
+        {record !== null && (
+          <button type="button" className="epic-view__link" disabled={busy || record.breakingDown} onClick={() => { void run(children.propose); }}>
+            <Sparkles size={13} aria-hidden="true" />Suggest work
+          </button>
+        )}
+      </form>
+      {adding && (
+        <div className="goal-search epic-view__search">
+          <label className="goal-search__field">
+            <Search size={14} aria-hidden="true" />
+            <input autoFocus aria-label="Find an issue, ticket, pull request or task" placeholder="Find an issue, ticket, pull request or task"
+              value={candidates.query} onChange={(event) => candidates.setQuery(event.target.value)} />
+          </label>
+          {found.map((item) => <Candidate key={refKey(item)} item={item} onAdd={add} />)}
+        </div>
+      )}
+      {dropped.length > 0 && (
+        <details className="epic-view__dropped">
+          <summary>{dropped.length} dropped</summary>
+          <div className="item-list" role="list" aria-label="Dropped work">
+            {dropped.map((item) => (
+              <div role="listitem" key={item.id}>
+                <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={null}
+                  first last onOpenTask={onOpenTask}
+                  onDecide={(decision) => decide(item, decision)} onMove={() => {}} onDrop={() => {}}
+                  onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
       {dropping !== null && (
         <ConfirmDialog title={`Drop "${dropping.title}"?`} confirmLabel="Drop" destructive onCancel={() => setDropping(null)} onConfirm={() => {
           const item = dropping;
@@ -311,7 +293,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           </label>
         </ConfirmDialog>
       )}
-    </>
+    </section>
   );
 }
 

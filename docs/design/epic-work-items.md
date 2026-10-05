@@ -27,10 +27,11 @@ tasks and PRs, history, priority, order and blockers.
    with an Epic membership, one Epic per item. They link issues, tickets, tasks
    and PRs. One item can belong to a Goal and an Epic at the same time, with its
    own place in each. Organizing an Epic never writes to GitHub or Jira.
-2. **One entrance: the Epic view.** A drawer card opens an Epic view over the
-   page, the way an issue opens in its zoom layer. Adding, editing and ordering
-   items happen only there; there is no "Add to Epic" on other surfaces for now.
-   The view's header links to the source issue or ticket.
+2. **One entrance: the Epic view.** A drawer card opens the Epic's issue or
+   ticket over the page in its own layer, with tabs the way a pull request has
+   them: the issue or ticket, and Work, which it opens on. Adding, editing and
+   ordering items happen only in Work; there is no "Add to Epic" on other
+   surfaces for now, and the same issue opened anywhere else has no Work tab.
 3. **Quick add.** "New work item" takes a title and Return. The item is Develop
    work, done when its PR merges and the user accepts. Its done-when text and
    completion rule are edited afterwards.
@@ -96,7 +97,7 @@ tasks and PRs, history, priority, order and blockers.
 - Run is not offered for a GitHub sub-issue of another repository, because the
   workspace's issue composer starts tasks only in its own repository; the row
   opens the issue where it lives.
-- Closing a concluded Jira Epic opens the ticket, where its workflow's
+- Closing a concluded Jira Epic switches to its Ticket tab, where its workflow's
   transitions live, instead of choosing a transition for the user.
 - The breakdown runs one tool-free turn on the workspace's Development model.
   Its proposals stay on the Epic until each is accepted or dismissed; whether a

@@ -46,7 +46,7 @@ function button(label: string): HTMLButtonElement {
   return found;
 }
 function rows(): HTMLElement[] {
-  return [...document.querySelectorAll<HTMLElement>('.epic-view__body > .item-list .epic-row')];
+  return [...document.querySelectorAll<HTMLElement>('.epic-view > .item-list .epic-row')];
 }
 function row(title: string): HTMLElement {
   const found = [...document.querySelectorAll<HTMLElement>('.epic-row')].find(value => value.querySelector('.item-row__title')?.textContent?.startsWith(title));
@@ -77,7 +77,6 @@ export async function run(): Promise<boolean> {
   const root = createRoot(host);
   const calls: string[] = [];
   const details: string[] = [];
-  let closed = 0;
   let items = [
     work('a', 'Cache table metadata', 'DONE', 0, { links: [link('PULL_REQUEST', 'trinodb/trino#24950', '#24950', 'MERGED', 'Merged')] }),
     work('b', 'Invalidate on DDL', 'WORKING', 1, { links: [link('ISSUE', 'trinodb/trino#24931', '#24931', 'WORKING', 'Open'), link('TASK', 'task-1', 'Task', 'WORKING', 'Running')] }),
@@ -111,7 +110,7 @@ export async function run(): Promise<boolean> {
     }}
     epicTitle={id => (id === 'JIRA:4:site:10' ? 'Parquet lazy decode' : null)} onOpenTask={taskId => calls.push(`open task ${taskId}`)}
     onStartIssue={(number, instruction, replaces) => calls.push(`start issue ${number} [${instruction}] ${replaces}`)}
-    onStartWork={(itemId, draft) => calls.push(`start work ${itemId} [${draft}]`)} onClose={() => { closed++; }} />));
+    onStartWork={(itemId, draft) => calls.push(`start work ${itemId} [${draft}]`)} onShowSource={() => calls.push('show source')} />));
   window.bridge = {
     joinEpic: async (_workspaceId: string, epicId: string, kind: string, key: string) => {
       calls.push(`join ${epicId} ${kind} ${key}`);
@@ -136,7 +135,7 @@ export async function run(): Promise<boolean> {
   try {
     render(); await settle();
     const view = element('.epic-view');
-    assert(view.textContent?.includes('Iceberg REST catalog: cache metadata') === true && element('.epic-view__source').textContent === '#24918', 'The header names the Epic and its issue');
+    assert(element('.epic-view__title', view).textContent === 'Iceberg REST catalog: cache metadata', 'The view names the Epic');
     const counts = element('.epic-view__counts').textContent ?? '';
     assert(counts.includes('1 of 4 done') && counts.includes('2 working') && counts.includes('1 planned') && counts.includes('1 dropped'), `Counts: ${counts}`);
     const bar = element('.epic-progress');
@@ -197,8 +196,6 @@ export async function run(): Promise<boolean> {
     assert(calls.at(-1) === 'join ISSUE:github.com:24918 ISSUE trinodb/trino#24977', `Add existing joins the Epic: ${calls.at(-1)}`);
     assert(element('.epic-view__notice').textContent === 'Moved here from Parquet lazy decode', 'Work taken from another Epic says so');
 
-    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })); await settle();
-    assert(closed === 1, 'Escape closes the Epic view');
 
     // The source's children: read when the view opens, joined only on Sync, and labelled with where the source has them.
     let record: EpicRecordDto = {

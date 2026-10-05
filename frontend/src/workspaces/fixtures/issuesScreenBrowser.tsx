@@ -155,6 +155,52 @@ async function zoomsOneIssue(): Promise<void> {
   finally { flushSync(() => { root.unmount(); baseRoot.unmount(); }); host.remove(); baseHost.remove(); }
 }
 
+async function epicTabs(): Promise<void> {
+  const issues = [24].map((number): Issue => ({
+    id: 7000 + number, number, title: 'Migrate every connector to MemoryContext', body: 'Follows #23', author: 'alice', authorAvatarUrl: '',
+    htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
+    createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
+  }));
+  const repository = { owner: 'upstream', repo: 'app' };
+  window.bridge = {
+    fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
+    fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({
+      repositoryId: 40, repository, issues, page: 0, pageSize: 50, totalIssues: issues.length, hasMore: false, syncedAt: null,
+    }),
+    getWorkspaceMetadata: async (): Promise<RepositoryMetadataDto> => ({
+      repositoryId: 40, repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null,
+    }),
+    fetchWorkspaceIssueDetail: async (_workspace: string, number: number): Promise<WorkspaceIssueDetailDto> => ({
+      repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
+    }),
+    recordRecentTouch: async () => {},
+  } as unknown as Bridge;
+  let closed = 0;
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={24} onClose={() => { closed += 1; }}
+      epicWork={{ progress: '1/3', render: showSource => <div className="work-probe"><button type="button" onClick={showSource}>See the issue</button></div> }} />));
+    await settle();
+    const tabs = [...host.querySelectorAll<HTMLButtonElement>('.epic-tabs button')];
+    const labels = tabs.map(tab => tab.textContent?.trim()).join('|');
+    assert(labels === 'Issue #24|Work1/3', `The card's tabs name the issue and its work's progress: ${labels}`);
+    // Read again after each click, so an earlier assertion cannot narrow it.
+    const overviewHidden = (): boolean | undefined => host.querySelector<HTMLElement>('.issue-overview')?.closest<HTMLElement>('.pull-detail__body')?.hidden;
+    assert(tabs[1].getAttribute('aria-pressed') === 'true' && host.querySelector('.work-probe') !== null && overviewHidden() === true,
+      'An Epic opens on its work, with its issue waiting behind the other tab');
+    tabs[0].click(); await settle();
+    assert(host.querySelector('.work-probe') === null && overviewHidden() === false && tabs[0].getAttribute('aria-pressed') === 'true',
+      'The issue tab shows the issue in the same card');
+    tabs[1].click(); await settle();
+    host.querySelector<HTMLButtonElement>('.work-probe button').click(); await settle();
+    assert(tabs[0].getAttribute('aria-pressed') === 'true' && host.querySelector('.work-probe') === null, 'The work can switch to its issue');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await settle();
+    assert(closed === 1, 'Escape leaves the Epic from either tab');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
 async function filtersLoadedIssues(): Promise<void> {
   const issues: Issue[] = [
     { number: 7, title: 'Flaky connector', author: 'alice', labels: ['enhancement', 'ui'] },
@@ -276,6 +322,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const scenarios: [string, () => Promise<void>][] = [
     ['Closing an issue keeps it in view until the reader leaves', closeKeepsIssue],
     ['An issue reference zooms that issue over the page it came from', zoomsOneIssue],
+    ['An Epic switches between its issue and its work in one card', epicTabs],
     ['Search and clickable labels filter only the loaded issues', filtersLoadedIssues],
     ['A closed issue reminder opens the latest read-only preview', closedIssueReminder],
   ];

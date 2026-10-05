@@ -399,6 +399,27 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       }
       finally { zoomRoot.unmount(); zoomHost.remove(); }
     },
+    async 'opens an Epic ticket on its work and switches to the ticket in the same dialog'() {
+      await mountPreview(false, false);
+      const location = { connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id };
+      const epicHost = document.createElement('div'); document.body.append(epicHost);
+      const epicRoot = createRoot(epicHost);
+      try {
+        flushSync(() => epicRoot.render(<JiraTicketLayer location={location} onClose={() => {}}
+          epicWork={{ progress: '2/5', render: showSource => <button type="button" className="work-probe" onClick={showSource}>See the ticket</button> }} />));
+        await until(() => epicHost.querySelector('.epic-tabs') !== null);
+        const tabs = [...epicHost.querySelectorAll<HTMLButtonElement>('.epic-tabs button')];
+        const labels = tabs.map(tab => tab.textContent?.trim()).join('|');
+        assert(labels === 'Ticket|Work2/5', `The dialog's tabs name the ticket and its work's progress: ${labels}`);
+        assert(epicHost.querySelector('.work-probe') !== null && epicHost.querySelector('.jira-detail h2') === null, 'An Epic ticket opens on its work');
+        epicHost.querySelector<HTMLButtonElement>('.work-probe').click(); await settle();
+        assert(epicHost.querySelector('.work-probe') === null && epicHost.querySelector('.jira-detail h2')?.textContent === issue.title,
+          'The work switches to its ticket in the same dialog');
+        tabs[1].click(); await settle();
+        assert(epicHost.querySelector('.work-probe') !== null && tabs[1].getAttribute('aria-pressed') === 'true', 'The Work tab comes back');
+      }
+      finally { epicRoot.unmount(); epicHost.remove(); }
+    },
     async 'suspends Jira modals for the embedded browser without losing drafts or assignment'() {
       await mountPreview();
       const mounted = root; assert(mounted !== null, 'Screen is mounted');

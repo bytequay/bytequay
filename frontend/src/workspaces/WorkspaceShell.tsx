@@ -23,11 +23,12 @@ import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
 import { zoomReference } from '../githubReference';
 import { GoalLayer } from '../goals/GoalLayer';
-import { goalHas, goalRef, needsYouKeys, numberedKey } from '../goals/model';
+import { goalHas, goalRef, needsYouKeys, numberedKey, summarize } from '../goals/model';
 import { useGoals } from '../goals/useGoals';
 import type { GoalToggle } from '../home/AttentionList';
 import { visibleAttention, type AttentionItem } from '../home/attention';
-import JiraScreen from '../jira/JiraScreen';
+import JiraScreen, { JiraTicketLayer } from '../jira/JiraScreen';
+import { jiraIssueLocation } from '../jira/contracts';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -37,7 +38,8 @@ import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import EpicDrawer from './EpicDrawer';
 import EpicView from './EpicView';
-import { epicIdentity, useConcludedEpics } from './epics';
+import type { EpicWorkTab } from './EpicTabs';
+import { epicIdentity, epicWork, useConcludedEpics } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import { useWorkspaceAttention } from './workspaceAttention';
 import type { WorkspaceDto } from '../types';
@@ -359,18 +361,27 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       );
     }
     // The design's Home: the question, three starting points, the open tasks as windows.
+    // An open Epic shows over Home in its issue's or ticket's own layer, its Work tab first.
+    const summary = epic === undefined ? null : summarize({ items: epicWork(goals.workItems, epicIdentity(epic)) }, new Set());
+    const workTab: EpicWorkTab | undefined = epic === undefined ? undefined : {
+      progress: summary === null || summary.total === 0 ? null : `${summary.finished}/${summary.total}`,
+      render: (showSource) => <EpicView epic={epic} workspaceId={workspace.id} repository={monitoredRepository} work={goals.workItems} needsYou={needsYou}
+        goals={goals} epicTitle={id => epics.find(item => epicIdentity(item) === id)?.title ?? null}
+        onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')} onStartIssue={startIssue}
+        onStartWork={(itemId, draft) => {
+          setStartWork({ itemId, draft });
+          window.location.hash = workspaceRoute(workspace.id, 'tasks');
+        }}
+        onShowSource={showSource} />,
+    };
     // The Epic drawer comes first so its trigger is the next tab stop after the sidebar.
     return stage(<>
       {epic === undefined
         ? <EpicDrawer items={attention.candidates} concluded={concludedEpics} work={goals.workItems} onOpen={item => setOpenEpic(epicIdentity(item))} />
-        : <EpicView epic={epic} workspaceId={workspace.id} repository={monitoredRepository} work={goals.workItems} needsYou={needsYou} goals={goals}
-          epicTitle={id => epics.find(item => epicIdentity(item) === id)?.title ?? null}
-          onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')} onStartIssue={startIssue}
-          onStartWork={(itemId, draft) => {
-            setStartWork({ itemId, draft });
-            window.location.hash = workspaceRoute(workspace.id, 'tasks');
-          }}
-          onClose={() => setOpenEpic(null)} />}
+        : epic.jira
+          ? <JiraTicketLayer key={openEpic} location={jiraIssueLocation(epic.jira)} onClose={() => setOpenEpic(null)} epicWork={workTab} />
+          : <WorkspaceIssuesScreen key={openEpic} workspaceId={workspace.id} repository={epic.repo} initialIssueNumber={epic.number} onClose={() => setOpenEpic(null)}
+            epicWork={workTab} />}
       <AgentHome
         workspaceId={workspace.id}
         headerAction={overviewOpen ? undefined : overviewToggle}

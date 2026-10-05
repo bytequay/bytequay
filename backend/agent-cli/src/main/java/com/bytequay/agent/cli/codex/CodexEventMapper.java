@@ -339,7 +339,7 @@ final class CodexEventMapper
             case CodexProtocol.ImageViewItem view -> ImmutableList.of(builtIn(
                     "Image view", displayPath(view.path()), eventId, started, source));
             case CodexProtocol.ContextCompactionItem ignored -> ImmutableList.of(builtIn(
-                    "Context compaction", "", eventId, started, source));
+                    ProviderAgentEvent.Tool.CONTEXT_COMPACTION, "", eventId, started, source));
             case CodexProtocol.SubAgentActivityItem ignored -> ImmutableList.of();
             case CodexProtocol.UnknownThreadItem ignored -> ImmutableList.of();
         };

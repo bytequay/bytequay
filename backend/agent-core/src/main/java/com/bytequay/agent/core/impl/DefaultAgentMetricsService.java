@@ -29,6 +29,7 @@ import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.TaskLogStore;
+import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.agent.spi.ProviderAgentEvent.CommandActionKind;
 import com.bytequay.agent.spi.ProviderUsageSample;
@@ -235,6 +236,7 @@ public final class DefaultAgentMetricsService
     {
         long toolCalls = 0;
         long exploreActions = 0;
+        long compactions = 0;
         for (AgentEventEnvelope event : events) {
             if (!event.turnId().map(turnId::equals).orElse(false)) {
                 continue;
@@ -244,13 +246,17 @@ public final class DefaultAgentMetricsService
                 if (EXPLORE_TOOLS.contains(tool.name())) {
                     exploreActions++;
                 }
+                // A subagent compacting its own context leaves the task's conversation as it was.
+                if (tool.name().equals(ProviderAgentEvent.Tool.CONTEXT_COMPACTION) && event.source().parentProviderThreadId().isEmpty()) {
+                    compactions++;
+                }
             }
             else if (event.payload() instanceof AgentEventPayload.CommandActivity command && terminal(command.state())) {
                 toolCalls++;
                 exploreActions += command.actions().stream().filter(action -> EXPLORE_ACTIONS.contains(action.kind())).count();
             }
         }
-        return new ToolCounters(toolCalls, exploreActions);
+        return new ToolCounters(toolCalls, exploreActions, compactions);
     }
 
     private static boolean terminal(ActivityState state)

@@ -4393,6 +4393,7 @@ The driver normalizes at least these message classes:
 | `system/hook_started`, `hook_progress`, and `hook_response` | Hook lifecycle and bounded output |
 | `system/task_started`, `task_progress`, and `task_notification` | Subagent/background-task progress |
 | `system/api_retry` and rate-limit messages | Retry/rate-limit progress |
+| `system/compact_boundary` | The same `Context compaction` activity Codex's `contextCompaction` item produces; each turn counts the root conversation's compactions |
 | `result` | Terminal `ANSWER`/status, response, duration, usage, session ID, and cost estimate |
 
 Claude CLI 2.1.219+ forwards nested messages with `parent_tool_use_id` naming

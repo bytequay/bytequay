@@ -159,6 +159,9 @@ public class AgentTaskEntity
     @Column(name = "explore_actions")
     private Long exploreActions;
 
+    @Column(name = "context_compactions")
+    private Long contextCompactions;
+
     @Column(columnDefinition = "TEXT")
     private String summaryJson;
 
@@ -228,6 +231,7 @@ public class AgentTaskEntity
         elapsedMillis = task.metrics().elapsed().toMillis();
         toolCalls = task.metrics().counters().toolCalls();
         exploreActions = task.metrics().counters().exploreActions();
+        contextCompactions = task.metrics().counters().compactions();
         summaryJson = task.summary().map(AgentTaskSummaryJson::encode).orElse(null);
         worktreeRemovedAt = task.worktreeRemovedAt().orElse(null);
         cleanupState = task.cleanupState();
@@ -316,7 +320,7 @@ public class AgentTaskEntity
 
     private ToolCounters counters()
     {
-        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions));
+        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(contextCompactions));
     }
 
     private static long zeroIfNull(Long value)

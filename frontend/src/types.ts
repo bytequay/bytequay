@@ -565,6 +565,8 @@ export type AgentCapabilitiesDto = {
 export type ToolCountersDto = {
   toolCalls: number;
   exploreActions: number;
+  /** Times the provider compacted the task's own conversation. */
+  compactions: number;
 };
 
 /** Token and cost totals the backend reports for a task or turn. */

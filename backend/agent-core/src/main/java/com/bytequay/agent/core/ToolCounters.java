@@ -20,21 +20,23 @@ import static java.lang.Math.addExact;
  * What a turn did with tools, folded from its persisted events when it ended.
  *
  * <p>{@code toolCalls} counts every finished tool or command activity, {@code exploreActions} the
- * subset that read, listed, or searched source. Task totals are the sum over its turns.
+ * subset that read, listed, or searched source. {@code compactions} counts the times the provider compacted the task's own
+ * conversation; reference data a turn carried before one is sent again. Task totals are the sum over its turns.
  */
-public record ToolCounters(long toolCalls, long exploreActions)
+public record ToolCounters(long toolCalls, long exploreActions, long compactions)
 {
-    public static final ToolCounters ZERO = new ToolCounters(0, 0);
+    public static final ToolCounters ZERO = new ToolCounters(0, 0, 0);
 
     public ToolCounters
     {
-        checkArgument(toolCalls >= 0 && exploreActions >= 0, "counters must not be negative");
+        checkArgument(toolCalls >= 0 && exploreActions >= 0 && compactions >= 0, "counters must not be negative");
     }
 
     public ToolCounters plus(ToolCounters other)
     {
         return new ToolCounters(
                 addExact(toolCalls, other.toolCalls),
-                addExact(exploreActions, other.exploreActions));
+                addExact(exploreActions, other.exploreActions),
+                addExact(compactions, other.compactions));
     }
 }

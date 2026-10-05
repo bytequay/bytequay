@@ -597,6 +597,18 @@ class TestClaudeEventMapper
         assertThat(mapper.hasFinishedWork()).isFalse();
     }
 
+    @Test
+    void mapsACompactionBoundaryToTheSharedCompactionActivity()
+    {
+        ProviderAgentEvent.Tool compaction = only("""
+                {"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":180000},
+                "session_id":"session-1","uuid":"compacted"}
+                """, ProviderAgentEvent.Tool.class);
+        assertThat(compaction.name()).isEqualTo(ProviderAgentEvent.Tool.CONTEXT_COMPACTION);
+        assertThat(compaction.state()).isEqualTo(ProviderAgentEvent.ActivityState.COMPLETED);
+        assertThat(compaction.source().parentProviderThreadId()).isEmpty();
+    }
+
     @ParameterizedTest
     @ValueSource(strings = {"requesting", "compacting"})
     void requiresANewResultAfterRootWorkResumes(String status)

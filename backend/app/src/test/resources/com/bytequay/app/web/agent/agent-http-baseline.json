@@ -50,7 +50,8 @@
       "elapsed": "<duration>",
       "counters": {
         "toolCalls": 0,
-        "exploreActions": 0
+        "exploreActions": 0,
+        "compactions": 0
       }
     },
     "summary": null,
@@ -108,7 +109,8 @@
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
-            "exploreActions": 0
+            "exploreActions": 0,
+            "compactions": 0
           }
         },
         "developmentResult": {
@@ -156,7 +158,8 @@
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
-            "exploreActions": 0
+            "exploreActions": 0,
+            "compactions": 0
           }
         },
         "developmentResult": {
@@ -210,7 +213,8 @@
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
-            "exploreActions": 0
+            "exploreActions": 0,
+            "compactions": 0
           }
         },
         "developmentResult": {
@@ -258,7 +262,8 @@
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
-            "exploreActions": 0
+            "exploreActions": 0,
+            "compactions": 0
           }
         },
         "developmentResult": {
@@ -312,7 +317,8 @@
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
-            "exploreActions": 0
+            "exploreActions": 0,
+            "compactions": 0
           }
         },
         "developmentResult": {
@@ -360,7 +366,8 @@
           "elapsed": "<duration>",
           "counters": {
             "toolCalls": 0,
-            "exploreActions": 0
+            "exploreActions": 0,
+            "compactions": 0
           }
         },
         "developmentResult": {
@@ -826,7 +833,8 @@
         "elapsed": "<duration>",
         "counters": {
           "toolCalls": 0,
-          "exploreActions": 0
+          "exploreActions": 0,
+          "compactions": 0
         }
       },
       "notes": "ready for review",
@@ -869,7 +877,8 @@
       "elapsed": "<duration>",
       "counters": {
         "toolCalls": 0,
-        "exploreActions": 0
+        "exploreActions": 0,
+        "compactions": 0
       }
     },
     "summary": {
@@ -884,7 +893,8 @@
         "elapsed": "<duration>",
         "counters": {
           "toolCalls": 0,
-          "exploreActions": 0
+          "exploreActions": 0,
+          "compactions": 0
         }
       },
       "notes": "ready for review",

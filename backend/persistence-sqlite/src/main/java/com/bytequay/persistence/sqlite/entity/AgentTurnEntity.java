@@ -187,6 +187,9 @@ public class AgentTurnEntity
     @Column(name = "explore_actions")
     private Long exploreActions;
 
+    @Column(name = "context_compactions")
+    private Long contextCompactions;
+
     public AgentTurnEntity() {}
 
     public static AgentTurnEntity fromDomain(AgentTurn turn)
@@ -241,6 +244,7 @@ public class AgentTurnEntity
         elapsedMillis = turn.metrics().elapsed().toMillis();
         toolCalls = turn.metrics().counters().toolCalls();
         exploreActions = turn.metrics().counters().exploreActions();
+        contextCompactions = turn.metrics().counters().compactions();
     }
 
     public AgentTurn toDomain()
@@ -301,7 +305,7 @@ public class AgentTurnEntity
 
     private ToolCounters counters()
     {
-        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions));
+        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(contextCompactions));
     }
 
     private static long zeroIfNull(Long value)

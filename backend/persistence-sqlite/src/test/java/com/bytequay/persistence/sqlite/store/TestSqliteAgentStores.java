@@ -160,7 +160,7 @@ class TestSqliteAgentStores
                 5,
                 Optional.of(new BigDecimal("0.1873740")),
                 Duration.ofSeconds(3),
-                new ToolCounters(4, 2));
+                new ToolCounters(4, 2, 1));
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(
                 taskId,

@@ -162,6 +162,12 @@ final class ClaudeEventMapper
                         new TaskActivity(Optional.ofNullable(previous).flatMap(TaskActivity::toolUseId), task.taskType(), false)));
                 yield ImmutableList.of();
             }
+            case "compact_boundary" -> ImmutableList.of(new ProviderAgentEvent.Tool(
+                    message.uuid(),
+                    ProviderAgentEvent.Tool.CONTEXT_COMPACTION,
+                    ProviderAgentEvent.ActivityState.COMPLETED,
+                    "",
+                    ProviderAgentEventSource.item(message.uuid().orElseGet(() -> "claude-compaction-" + UUID.randomUUID()))));
             case "api_retry" -> ImmutableList.of(lifecycle(
                     message.uuid(),
                     ProviderAgentEvent.LifecyclePhase.RETRYING,

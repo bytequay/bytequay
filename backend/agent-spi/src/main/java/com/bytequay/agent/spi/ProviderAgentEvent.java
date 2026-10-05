@@ -121,6 +121,9 @@ public sealed interface ProviderAgentEvent
             Optional<String> description)
             implements ProviderAgentEvent
     {
+        /** The provider summarized the conversation's context, so earlier input may no longer be in it word for word. */
+        public static final String CONTEXT_COMPACTION = "Context compaction";
+
         public Tool(
                 Optional<String> providerEventId,
                 String name,

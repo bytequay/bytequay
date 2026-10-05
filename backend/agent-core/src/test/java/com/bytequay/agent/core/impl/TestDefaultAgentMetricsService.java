@@ -195,7 +195,7 @@ class TestDefaultAgentMetricsService
 
         AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED, service.countTools(task.id(), turn.id(), OptionalLong.empty()));
 
-        assertThat(result.counters()).isEqualTo(new ToolCounters(12, 12));
+        assertThat(result.counters()).isEqualTo(new ToolCounters(12, 12, 0));
     }
 
     @Test
@@ -209,8 +209,8 @@ class TestDefaultAgentMetricsService
                     new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())));
         }
 
-        assertThat(service.countTools(task.id(), turn, OptionalLong.of(21))).isEqualTo(new ToolCounters(10, 10));
-        assertThat(service.countTools(task.id(), turn, OptionalLong.empty())).isEqualTo(new ToolCounters(11, 11));
+        assertThat(service.countTools(task.id(), turn, OptionalLong.of(21))).isEqualTo(new ToolCounters(10, 10, 0));
+        assertThat(service.countTools(task.id(), turn, OptionalLong.empty())).isEqualTo(new ToolCounters(11, 11, 0));
     }
 
     private static AgentTurnSettings turnSettings()
@@ -304,7 +304,22 @@ class TestDefaultAgentMetricsService
 
         ToolCounters counters = DefaultAgentMetricsService.foldCounters(events, turn);
 
-        assertThat(counters).isEqualTo(new ToolCounters(4, 4));
+        assertThat(counters).isEqualTo(new ToolCounters(4, 4, 0));
+    }
+
+    @Test
+    void countsOnlyTheTasksOwnContextCompactions()
+    {
+        TurnId turn = TurnId.random();
+        AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(),
+                Optional.empty());
+        List<AgentEventEnvelope> events = ImmutableList.of(
+                event(1, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.STARTED, "", Optional.empty())),
+                event(2, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.COMPLETED, "", Optional.empty())),
+                new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 3, task.id(), Optional.of(turn), child, NOW,
+                        new AgentEventPayload.ToolActivity("Context compaction", ActivityState.COMPLETED, "", Optional.empty())));
+
+        assertThat(DefaultAgentMetricsService.foldCounters(events, turn).compactions()).isEqualTo(1);
     }
 
     private AgentEventEnvelope event(long sequence, TurnId turnId, AgentEventPayload payload)

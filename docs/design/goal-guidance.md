@@ -842,9 +842,12 @@ and a reason without importing another repository or constructing a global graph
 
 Both Needs attention views reuse the same backend work-item projection and open
 the same item. A goal recommendation and its linked issue must not become two
-cards for the same next action. Existing urgent approvals, failures and review
-requests keep priority. Preserve Ack and Snooze, and announce a new proposal only
-when it is materially new or requires a decision.
+cards for the same next action: while a card under the Goal control offers an
+issue or ticket as practice, both views fold that source's own card away unless
+it asks for an approval, a review or a recovery, and it returns once the card is
+started or set aside. Existing urgent approvals, failures and review requests
+keep priority. Preserve Ack and Snooze, and announce a new proposal only when it
+is materially new or requires a decision.
 
 Cycles, modules, custom workflow builders, arbitrary hierarchy, saved query
 languages, YAML synchronization and a public MCP/webhook platform are deferred.

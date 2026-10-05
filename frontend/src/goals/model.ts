@@ -51,6 +51,15 @@ export function goalHas(goal: GoalDto | null, ref: GoalRef | null): boolean {
   return goal !== null && ref !== null && goal.items.some((item) => item.links.some((link) => link.kind === ref.kind && link.key === ref.key));
 }
 
+/**
+ * Whether a card under the Goal control offers practice on this issue or ticket of the goal's repository, so the source's own attention card
+ * would only repeat the same next action.
+ */
+export function goalPicked(goal: GoalDto | null, repository: string, ref: GoalRef | null): boolean {
+  return goal !== null && ref !== null && goal.recommendations.some(({ state, card }) => state === 'SHOWN' && card.kind === 'WORK'
+    && (card.issue !== null ? ref.kind === 'ISSUE' && ref.key === numberedKey(repository, card.issue) : ref.kind === 'JIRA' && ref.key === card.ticket));
+}
+
 /** The items with activity the user has not acknowledged, snoozed or visited, whether or not Needs attention ranks them. */
 export function needsYouKeys(visibleAttention: AttentionItem[]): ReadonlySet<string> {
   return new Set(visibleAttention.map(goalRef).filter((ref): ref is GoalRef => ref !== null).map(refKey));

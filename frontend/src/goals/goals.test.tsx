@@ -27,7 +27,7 @@ import {
   addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openPlan, openProposal, outcomeOf, placePill, goalHistory, refKey, situation,
   sourceOf,
   sourceUrl,
-  preparedRequest, summarize, waitingOn, workIn,
+  goalPicked, preparedRequest, summarize, waitingOn, workIn,
 } from './model';
 import { decideOnCurrent, toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
@@ -119,6 +119,18 @@ describe('goal model', () => {
     expect(sent).toEqual([3, 4]);
     const rescoped = { ...bridge, listWorkItems: async (): Promise<WorkItemDto[]> => [{ ...item, revision: 4, acceptanceCriteria: 'Something else' }] };
     await expect(decideOnCurrent(rescoped, 'workspace-1', item, decision)).rejects.toBe(stale);
+  });
+
+  it('knows the sources a card under the Goal control offers as practice', () => {
+    const practice = (state: GoalRecommendationDto['state'], issue: number | null, ticket: string | null): GoalRecommendationDto => ({ ...CARD, state,
+      card: { ...CARD.card, kind: 'WORK', pages: [], issue, ticket } });
+    const goal: GoalDto = { ...GOAL, recommendations: [practice('SHOWN', 31252, null), practice('SHOWN', null, 'connection:cloud:10412'), practice('STARTED', 31300, null)] };
+    expect(goalPicked(goal, 'TrinoDB/Trino', { kind: 'ISSUE', key: 'trinodb/trino#31252' })).toBe(true);
+    expect(goalPicked(goal, 'trinodb/trino', { kind: 'JIRA', key: 'connection:cloud:10412' })).toBe(true);
+    // A started card is work already, and another repository's issue of the same number is another source.
+    expect(goalPicked(goal, 'trinodb/trino', { kind: 'ISSUE', key: 'trinodb/trino#31300' })).toBe(false);
+    expect(goalPicked(goal, 'apache/iceberg', { kind: 'ISSUE', key: 'trinodb/trino#31252' })).toBe(false);
+    expect(goalPicked(null, 'trinodb/trino', { kind: 'ISSUE', key: 'trinodb/trino#31252' })).toBe(false);
   });
 
   it('prepares the request Goal work opens the task composer with', () => {

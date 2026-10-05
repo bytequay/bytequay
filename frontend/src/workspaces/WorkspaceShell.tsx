@@ -23,7 +23,7 @@ import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
 import { zoomReference } from '../githubReference';
 import { GoalLayer } from '../goals/GoalLayer';
-import { goalHas, goalRef, needsYouKeys, numberedKey } from '../goals/model';
+import { goalHas, goalPicked, goalRef, needsYouKeys, numberedKey } from '../goals/model';
 import { useGoals } from '../goals/useGoals';
 import type { GoalToggle } from '../home/AttentionList';
 import { visibleAttention, type AttentionItem } from '../home/attention';
@@ -119,8 +119,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     const ref = goalRef(item);
     if (pinned === null || ref === null) return null;
     const inGoal = goalHas(pinned, ref);
-    return { inGoal, toggle: () => (inGoal ? goals.removeItem(pinned.id, ref.kind, ref.key) : goals.add(pinned.id, ref.kind, ref.key)) };
-  }, [goals]);
+    return { inGoal, toggle: () => (inGoal ? goals.removeItem(pinned.id, ref.kind, ref.key) : goals.add(pinned.id, ref.kind, ref.key)),
+      picked: goalPicked(pinned, monitoredRepository, ref) };
+  }, [goals, monitoredRepository]);
   // A task is in the goal itself, or through the pull request it works on.
   const itemInGoal = (item: TaskListItem): boolean => (item.task !== null && goalHas(goals.pinned, { kind: 'TASK', key: item.task.id }))
     || item.links.some((link) => link.source === 'pr' && goalHas(goals.pinned, { kind: 'PULL_REQUEST', key: numberedKey(monitoredRepository, Number(link.key.slice(1))) }));

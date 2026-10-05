@@ -808,6 +808,25 @@ Remember again.
 Done when: Remember on a spec note adds one SPEC memory and the note names it,
 and a code-only note cannot be remembered.
 
+## Twenty-third implementation slice
+
+One next action in Needs attention: the Goal's card and its source's card do not
+both ask for the same thing.
+
+1. Both views read the pinned Goal the same way. The global and workspace Needs
+   attention views already mark each card's place in the pinned Goal from the
+   Goal's work; they now also know which issue or ticket a card under the Goal
+   control offers as practice.
+2. One card per next action. While such a card is shown, the source's own card
+   folds away unless it asks for an approval, a review or a recovery; Ack and
+   Snooze keep working on it, and it returns once the Goal's card is started or
+   set aside.
+
+Progress: the twenty-third slice is complete.
+
+Done when: an issue the Goal offers as practice shows once, as the Goal's card,
+and a pull request waiting for the user's review still shows on its own.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -1048,7 +1067,7 @@ This finishes the clear-organization takeaway using the current surfaces.
   an explicit dependency decision.
 - [x] Extend the existing list/board with Next, Working, Blocked and Done views.
   Show source priority separately and explain the recommended ordering.
-- [ ] Feed global and workspace Needs attention from one work-item projection.
+- [x] Feed global and workspace Needs attention from one work-item projection.
   Deduplicate source/recommendation cards for the same action; preserve urgent
   execution attention, Ack and Snooze.
 - [x] Add results/history display with evidence links, scope changes, reopenings
@@ -1073,17 +1092,18 @@ This finishes the clear-organization takeaway using the current surfaces.
 
 Evidence for the checked items: `TestWorkItemService` for priority, order and
 blockers, and the `workItemsBrowser` journeys for the views, the results Done
-shows and All history. The `goalGuideBrowser` journeys clarify a vague goal,
-take questions that arrive on their own, keep a draft whose send failed and
-resend it as the same operation, start research and a prepared practice task,
-and accept a plan change; one of them guides an unsure user by suggested answers
-alone, by keyboard, in a window 380 pixels wide, where nothing scrolls sideways,
-opening the window asks no model and a read from before an answer, arriving
-after it, does not undo it. `goalWindowBrowser` keeps drafts through moves,
-resizes and reopening. Still partial: no journey shows the agent's recovery
-guidance after a failed turn, which `TestGoalPlanner` and
-`TestGoalConversationService` cover in the backend, and the visual hierarchy is
-checked only for fit.
+shows and All history. Both Needs attention views fold a source the Goal's card
+offers as practice, as `AttentionList.test.tsx` and `goals.test.tsx` show. The
+`goalGuideBrowser` journeys clarify a vague goal, take questions that arrive on
+their own, keep a draft whose send failed and resend it as the same operation,
+start research and a prepared practice task, and accept a plan change; one of
+them guides an unsure user by suggested answers alone, by keyboard, in a window
+380 pixels wide, where nothing scrolls sideways, opening the window asks no
+model and a read from before an answer, arriving after it, does not undo it.
+`goalWindowBrowser` keeps drafts through moves, resizes and reopening. Still
+partial: no journey shows the agent's recovery guidance after a failed turn,
+which `TestGoalPlanner` and `TestGoalConversationService` cover in the backend,
+and the visual hierarchy is checked only for fit.
 
 Done when: the full Goal conversation → research → course → lesson → proposal →
 accepted work → task → verified result → summary → next proposal journey works,

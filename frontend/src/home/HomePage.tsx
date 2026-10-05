@@ -20,7 +20,7 @@ import AddRepoModal from '../AddRepoModal';
 import ActivityRow from '../ActivityRow';
 import { groupRecentEvents } from '../activityNarrative';
 import AttentionList, { type GoalToggle } from './AttentionList';
-import { attentionWorkspace, goalHas, goalRef } from '../goals/model';
+import { attentionWorkspace, goalHas, goalPicked, goalRef } from '../goals/model';
 import { toggleGoalItem, usePinnedGoals } from '../goals/useGoals';
 import {
   ATTENTION_SEED,
@@ -269,9 +269,11 @@ function HomePage({
     const workspaceId = attentionWorkspace(item, workspaces);
     const goal = workspaceId === null ? undefined : pinnedGoals.get(workspaceId);
     const ref = goalRef(item);
-    if (workspaceId === null || goal === undefined || ref === null) return null;
+    const workspace = workspaces.find(candidate => candidate.id === workspaceId);
+    if (workspaceId === null || workspace === undefined || goal === undefined || ref === null) return null;
     const inGoal = goalHas(goal, ref);
-    return { inGoal, toggle: () => toggleGoalItem(workspaceId, goal.id, ref, inGoal) };
+    return { inGoal, toggle: () => toggleGoalItem(workspaceId, goal.id, ref, inGoal),
+      picked: goalPicked(goal, `${workspace.monitoredOwner}/${workspace.monitoredRepo}`, ref) };
   };
 
   const candidates = useMemo(

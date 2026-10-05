@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import AttentionList from './AttentionList';
+import AttentionList, { type GoalToggle } from './AttentionList';
 import { taskAttentionItem } from '../agents/attention';
 import { previewTask } from '../agents/fixtures/previewBridge';
 import { jiraAttentionItems } from '../jira/attention';
@@ -52,14 +52,24 @@ function issueItem(number: number): AttentionItem {
   };
 }
 
-function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home' | 'workspace' = 'home', jiraConnected = true): string {
+function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home' | 'workspace' = 'home', jiraConnected = true,
+  goal?: (item: AttentionItem) => GoalToggle | null): string {
   return renderToStaticMarkup(
     <AttentionList variant={variant} candidates={candidates} handled={handled} viewerLogin="viewer" jiraConnected={jiraConnected}
-      onHandledChange={() => {}} onOpen={() => {}} onStartIssue={() => {}} />);
+      onHandledChange={() => {}} onOpen={() => {}} onStartIssue={() => {}} goal={goal} />);
 }
 
 describe('AttentionList', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+
+  it('folds a source into the Goal card that offers it as practice, unless it needs the user for more', () => {
+    // The Goal's card offers every source here as practice; only the pull request still asks for a review.
+    const picked = (): GoalToggle => ({ inGoal: false, toggle: async () => {}, picked: true });
+    const markup = list([issueItem(31252), prItem(31260, 'review')], {}, 'workspace', true, picked);
+    expect(markup).not.toContain('Issue 31252');
+    expect(markup).toContain(prItem(31260).title);
+    expect(list([issueItem(31252)], {}, 'workspace', true, () => ({ inGoal: false, toggle: async () => {} }))).toContain('Issue 31252');
+  });
 
   it('shows a private-circle reason and keeps the Circles filter independent from the source tabs', () => {
     vi.spyOn(teamHooks, 'useTeams').mockReturnValue({ directory: { accountLogin: 'viewer', circles: [{

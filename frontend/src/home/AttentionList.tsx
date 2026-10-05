@@ -65,8 +65,15 @@ type Props = {
   jiraConnected?: boolean;
 };
 
-/** A card's place in a pinned goal, and the change that flips it. */
-export type GoalToggle = { inGoal: boolean; toggle: () => Promise<unknown> };
+/**
+ * A card's place in a pinned goal, and the change that flips it.
+ *
+ * picked: a card under the Goal control offers this same next action.
+ */
+export type GoalToggle = { inGoal: boolean; toggle: () => Promise<unknown>; picked?: boolean };
+
+// What still needs the user's own card while a Goal card offers its source as practice.
+const URGENT = new Set<AttentionItem['kind']>(['approval', 'review', 'changes', 'failed', 'ci']);
 
 type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
@@ -94,8 +101,10 @@ export default function AttentionList({
 
   // Handled items drop out before the cap, so the next eligible item takes a handled card's place.
   const reminders = useSnoozedAttention(candidates, handled, Math.max(now, Date.now()), scope);
+  // A source the Goal's card offers as practice folds into that card, unless it asks for an approval, a review or a recovery.
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
-    .filter(item => !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null));
+    .filter(item => !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null)
+      && (URGENT.has(item.kind) || goal?.(item)?.picked !== true));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
   const cards = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
   const sessionEntries = session

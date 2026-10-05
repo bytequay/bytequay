@@ -262,7 +262,9 @@ text and sources with READ before acting, and cites it.
   also those scoped to paths the task has changed.
 - **Limits and order:** at most 40 lines and 12 KiB. Path matches come first,
   longest prefix first, then by number of sources, newest first. A flagged memory
-  is delivered with its flag.
+  is delivered with its flag. When the list is cut, the block states how many
+  matches it shows and tells the agent to SEARCH by path and page through titles
+  or narrow its query to find other relevant memories.
 
 This deliberately reverses the current rule against automatic note injection:
 lookup alone reached one development task, because an agent could not see what
@@ -275,10 +277,15 @@ memory on, even before anything is remembered, replaces
 
 | Action | What it does |
 |---|---|
-| SEARCH | Literal text and path matches, paged |
+| SEARCH | Literal title/text and path matches, paged; returns titles, scopes, source labels and flags without the full text |
 | READ | A memory with its sources and quotes |
 | REMEMBER | Saves a memory (section 3.2 and 3.3) |
 | REPORT | Flags a memory as wrong, with a reason and a quote |
+
+SEARCH is an index, like a skill listing. When many memories match a path, the
+agent compares their descriptive titles with its task, browses further pages or
+narrows its query, and READs only relevant memories before using them. Literal
+search still checks the full text even though the listing does not return it.
 
 **Citations.** Review findings get an optional `memoryIds`. Each revision keeps
 the cited rules as the reviewer received them, and a memory counts once per

@@ -97,6 +97,7 @@ class TestMemoryDelivery
         assertThat(first.text()).contains("----- BEGIN REPOSITORY MEMORY -----\n[m2] Recurring rule seen in three PRs. (PR #1 @alice · 3 PRs)\n[m1] ")
                 .contains("READ that memory with repository_memory").contains("cite its id, such as [m2]").endsWith("----- END REPOSITORY MEMORY -----");
         assertThat(first.guidelines()).isEmpty();
+        assertThat(first.text()).doesNotContain("Showing ");
 
         write("plugin/trino-delta-lake/src/DeltaLakeWriter.java", "class DeltaLakeWriter { void finish() {} }\n");
         Reference later = delivery.reference(task, turn(true));
@@ -164,12 +165,14 @@ class TestMemoryDelivery
         }
         Reference reference = MemoryDelivery.reference(MemoryDelivery.select(memories.list("workspace"), ImmutableList.of()));
         assertThat(reference.memories()).hasSize(MemoryDelivery.MAX_LINES);
+        assertThat(reference.text()).contains("Showing 40 of 45 matching memories", "SEARCH repository_memory", "page through the matching titles");
 
         // Titles are short, so only long flags fill the bytes before the lines run out.
         Reference large = MemoryDelivery.reference(memories.list("workspace").stream()
                 .map(memory -> rule(memory.id(), "workspace", "x".repeat(590), ImmutableList.of()).reported(new MemoryReport("y".repeat(480), "", "task", NOW), NOW))
                 .collect(toImmutableList()));
         assertThat(large.memories().size()).isLessThan(MemoryDelivery.MAX_LINES);
+        assertThat(large.text()).contains("Showing " + large.memories().size() + " of 45 matching memories");
         assertThat(large.text().getBytes(UTF_8).length).isLessThan(MemoryDelivery.MAX_BYTES + 1024);
 
         AgentTurn turn = turn(true).markDeliveryStarted(NOW).withReference(ImmutableList.of(), reference.memories().subList(0, 2));

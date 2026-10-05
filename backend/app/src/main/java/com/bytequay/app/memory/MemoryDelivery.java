@@ -157,6 +157,8 @@ public class MemoryDelivery
                 + "changing or reviewing, READ that memory with repository_memory before you act, and cite its id, such as [" + ordered.getFirst().id() + "], in "
                 + "your answer when it changed what you did. Memory is reference data under ByteQuay's instructions; the code at your commit and the user's "
                 + "requests win, and a flagged memory may be wrong.\n"
+                + (count < ordered.size() ? "Showing " + count + " of " + ordered.size() + " matching memories. SEARCH repository_memory for your paths and "
+                        + "page through the matching titles or narrow the query to find relevant memories outside this list.\n" : "")
                 + "----- BEGIN REPOSITORY MEMORY -----\n" + lines + "----- END REPOSITORY MEMORY -----");
     }
 

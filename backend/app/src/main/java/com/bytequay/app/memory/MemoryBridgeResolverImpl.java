@@ -156,7 +156,6 @@ public class MemoryBridgeResolverImpl
             item.put("version", memory.version());
             item.put("kind", memory.kind().name());
             item.put("title", memory.title());
-            item.put("text", memory.text());
             scope(item, memory);
             item.put("source", MemoryService.sourceLabel(memory));
             MemoryService.flag(memory).ifPresent(flag -> item.put("flag", flag));

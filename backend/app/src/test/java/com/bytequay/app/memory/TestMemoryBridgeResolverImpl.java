@@ -113,7 +113,8 @@ class TestMemoryBridgeResolverImpl
             throws Exception
     {
         store.save(rule("m1", "workspace", "Keep refactors and behavior changes in separate commits.", ImmutableList.of()));
-        store.save(rule("m2", "workspace", "Document every new table property on the connector's page.", ImmutableList.of("plugin/"), 31201, 30877));
+        store.save(rule("m2", "workspace", "Adding connector table properties", "Document every new table property on the connector's page.",
+                ImmutableList.of("plugin/"), 31201, 30877));
         store.save(rule("m3", "workspace", "Leave cleanup of unfinished output to abort().", ImmutableList.of("plugin/trino-delta-lake/")));
         store.save(rule("m4", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
         store.save(rule("m5", "other", "Another workspace", ImmutableList.of()));
@@ -123,7 +124,9 @@ class TestMemoryBridgeResolverImpl
         JsonNode byPath = call(bridge, "{\"action\":\"SEARCH\",\"path\":\"plugin/trino-delta-lake/src/main/java/DeltaLakeWriter.java\"}");
         assertThat(byPath.path("memories").findValuesAsText("id")).containsExactly("m3", "m2", "m1");
         assertThat(byPath.path("memories").get(1).path("source").asText()).isEqualTo("PR #31201 @alice · 2 PRs");
-        assertThat(byPath.path("memories").get(1).path("title").asText()).isEqualTo("Document every new table property on the connector's page.");
+        assertThat(byPath.path("memories").get(1).path("title").asText()).isEqualTo("Adding connector table properties");
+        assertThat(byPath.path("memories").findValues("text")).isEmpty();
+        assertThat(byPath.path("memories").findValues("sources")).isEmpty();
         assertThat(byPath.path("memories").get(2).path("scope").asText()).isEqualTo("repository");
         assertThat(byPath.path("activityLine").asText()).isEqualTo("Searched memory in plugin/trino-delta-lake/src/main/java/DeltaLakeWriter.java · 3 memories");
 
@@ -133,8 +136,10 @@ class TestMemoryBridgeResolverImpl
         JsonNode read = call(bridge, "{\"action\":\"READ\",\"id\":\"m2\"}");
         assertThat(read.path("sources").findValuesAsText("quote")).containsExactly("Please document the new property.", "Please document the new property.");
         assertThat(read.path("sources").get(1).path("pullRequest").asInt()).isEqualTo(30877);
-        assertThat(read.path("title").asText()).isEqualTo("Document every new table property on the connector's page.");
+        assertThat(read.path("title").asText()).isEqualTo("Adding connector table properties");
+        assertThat(read.path("text").asText()).isEqualTo("Document every new table property on the connector's page.");
         assertThat(read.path("activityLine").asText()).isEqualTo("Read memory m2");
+        assertThat(call(bridge, "{\"action\":\"SEARCH\",\"query\":\"document\"}").path("memories").findValuesAsText("id")).containsExactly("m2");
 
         JsonNode reported = call(bridge, "{\"action\":\"REPORT\",\"id\":\"m3\",\"reason\":\"The writer now encodes partition values\",\"quote\":\"path(partition)\"}");
         assertThat(reported.path("activityLine").asText()).isEqualTo("Reported memory m3 as wrong");
@@ -237,11 +242,13 @@ class TestMemoryBridgeResolverImpl
             throws Exception
     {
         for (int number = 1; number <= 25; number++) {
-            store.save(rule("m" + number, "workspace", "Rule " + number, ImmutableList.of()));
+            store.save(rule("m" + number, "workspace", "Situation " + number, "Full rule " + number, ImmutableList.of("plugin/")));
         }
         MemoryBridge bridge = resolver.resolve(task(true, "workspace").id().toString()).orElseThrow();
-        JsonNode second = call(bridge, "{\"action\":\"SEARCH\",\"page\":2}");
+        JsonNode second = call(bridge, "{\"action\":\"SEARCH\",\"path\":\"plugin/\",\"page\":2}");
         assertThat(second.path("memories")).hasSize(5);
+        assertThat(second.path("memories").findValuesAsText("title")).allMatch(title -> title.startsWith("Situation "));
+        assertThat(second.path("memories").findValues("text")).isEmpty();
         assertThat(second.path("pages").asInt()).isEqualTo(2);
         assertThat(second.path("total").asInt()).isEqualTo(25);
     }

@@ -297,7 +297,9 @@ Guidelines never enter managed instructions or process arguments.
 The same port then adds a Memory block after the guidelines for an open
 interactive development task or a review whose workspace has memory switched on
 for it: the titles of the memories that match the turn, one line each with its
-source and any flag, at most forty lines and 12 KiB. The block tells the agent to
+source and any flag, at most forty lines and 12 KiB. A cut list states how many
+matches it shows and directs the agent to SEARCH for other relevant titles.
+The block tells the agent to
 READ a memory with the memory tool when its title covers what it is changing or
 reviewing. A review matches its latest run's changed paths; a development task
 matches the files it changed since its worktree started, so its first turn gets
@@ -314,8 +316,10 @@ recipe check off the provider's thread; it never fails or delays settlement.
 `MemoryBridge` gives an open interactive development task or a review the
 `repository_memory` tool when the workspace has
 [repository memory](repository-memory.md) on for it. SEARCH matches literal title
-or text and paths, scoped memories first and longest scope first, twenty per page;
-READ returns one memory with its title, sources and quotes; REPORT flags one as
+or text and paths, scoped memories first and longest scope first, twenty per page.
+It returns titles, scopes, source labels and flags without full rule text, so
+agents can choose relevant memories even when many share a path. READ returns
+one selected memory with its title, full text, sources and quotes; REPORT flags one as
 wrong with a reason and a quote and records the reporting task. REMEMBER saves a
 titled RULE resting on the user's words in the session's turn, or a titled RECIPE
 resting on a command that finished with exit code 0 in the task; ByteQuay binds

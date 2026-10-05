@@ -1,0 +1,21 @@
+{
+  "scope": "Production bundle smoke test with the same synthetic fixture. Compilation passed; TextMate runtime failed. This is not a packaged Electron test.",
+  "uiResults": {
+    "version": "37.3.3",
+    "checks": {
+      "initialized": true,
+      "editorModel": "file:///workspace/example.js",
+      "privateCard": true,
+      "activityBarHidden": true,
+      "debugState": 0,
+      "viewsMounted": true
+    },
+    "events": [],
+    "errors": [
+      "TypeError: Cannot destructure property 'applyStateStackDiff' of '(intermediate value)' as it is undefined.",
+      "TypeError: Cannot destructure property 'applyStateStackDiff' of '(intermediate value)' as it is undefined.",
+      "TypeError: Cannot destructure property 'applyStateStackDiff' of '(intermediate value)' as it is undefined.",
+      "TypeError: Cannot destructure property 'applyStateStackDiff' of '(intermediate value)' as it is undefined."
+    ]
+  }
+}

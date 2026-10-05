@@ -109,7 +109,9 @@ historical checkpoint evidence and explicitly deferred future work.
 - [Code & Tests](code-tests.md) specifies the task-bound WorkBench tab for reading whole
   files, following symbols, running tests, editing test source, and a terminal
   in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)
-  tracks the phased delivery.
+  tracks the phased delivery. The [IDE refactor plan](code-tests-ide-refactor.md)
+  records the verified modular-editor approach and migration gates for debugging,
+  Git history, Java/Rust/Go support, and retiring CodeGraph.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
   bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
   comment triage is outside that service; see [Review Triage](review-triage.md).

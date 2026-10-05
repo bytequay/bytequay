@@ -149,19 +149,23 @@ what to observe and a short check. A diagram is COMPONENTS, a system's parts in
 the columns of where they run with labelled arrows between them; SEQUENCE,
 participants and their numbered messages over time; FLOW, steps in order; or
 TREE, a hierarchy. ByteQuay validates its boxes and arrows and draws it; the
-model never writes markup. Reopening a chapter needs no model call, a failed or
-interrupted write is retried on opening, and a lesson written before chapters is
-written again. The expanded window shows the course's contents at the left, its
-parts and chapters with the open chapter's sections to jump to, the chapter in
-the middle with its previous and next chapters and All chapters back to the
-course, and the Goal's conversation at the right when the user asks; a message
-sent there while the lesson is open carries it to the agent. Restored to the
-floating window, the chapter shows alone with its own question field. The user
-answers the check in a field under it, which opens the conversation; the answer
-goes to the agent as the answer to the open lesson's check, and the agent says
-whether it shows what the lesson promises. Mark lesson done accepts the Learn
-work item and tells the agent, which may recommend the next lesson as a card;
-Start on a lesson card opens the lesson.
+model never writes markup. Every box is one real thing, every group a real
+boundary and every arrow a real call or flow labelled with what moves; a diagram
+keeps one zoom level, named in its caption, and commands belong to the exercise.
+The writer sees the whole course in order, so a chapter builds on the ones
+before it. Reopening a chapter needs no model call, a failed or interrupted
+write is retried on opening, and a lesson written before chapters is written
+again. The expanded window shows the course's contents at the left, its parts
+and chapters with the open chapter's sections to jump to, the chapter in the
+middle with its previous and next chapters and All chapters back to the course,
+and the Goal's conversation at the right when the user asks; a message sent
+there while the lesson is open carries it to the agent. Restored to the floating
+window, the chapter shows alone with its own question field. The user answers
+the check in a field under it, which opens the conversation; the answer goes to
+the agent as the answer to the open lesson's check, and the agent says whether
+it shows what the lesson promises. Mark lesson done accepts the Learn work item
+and tells the agent, which may recommend the next lesson as a card; Start on a
+lesson card opens the lesson.
 
 Once the Goal is defined, the agent also sees up to 100 practice candidates from
 the local stores: the workspace's open issues, the 500 updated last, and the

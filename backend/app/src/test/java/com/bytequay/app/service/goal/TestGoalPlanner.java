@@ -281,6 +281,11 @@ class TestGoalPlanner
         assertThat(lesson.indexOf("untrusted reference data")).isLessThan(lesson.indexOf("<lesson-data>"));
         assertThat(lesson).contains("\"part\" : \"Iceberg tables\"", "\"outcome\" : \"Explain metadata\"", "https://iceberg.apache.org/spec/#manifest-lists",
                 "\"startingKnowledge\" : \"Knows the specification\"");
+        assertThat(lesson).as("the chapter knows the course around it")
+                .contains("\"course\" : [ {", "\"chapters\" : [ {", "\"title\" : \"What a table is\"", "\"thisChapter\" : true", "build on the chapters before this one");
+        assertThat(lesson).as("diagrams follow the drawing rules")
+                .contains("Every box is one real thing", "every arrow is a real call, message or data flow", "Keep each diagram at one zoom level",
+                        "Commands and steps to follow belong in the");
         assertThat(GoalPlanner.chapter("""
                 {"summary": "Tables", "invariants": ["A snapshot never changes."], "sections": [{"title": "Metadata", "body": "Snapshots list manifests.",
                 "diagram": {"kind": "FLOW", "caption": "A write", "nodes": [{"id": "a", "label": "Write files", "note": null, "parent": null},

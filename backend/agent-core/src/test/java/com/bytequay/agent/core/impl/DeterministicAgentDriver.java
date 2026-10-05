@@ -14,6 +14,7 @@
 package com.bytequay.agent.core.impl;
 
 import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -74,6 +75,7 @@ final class DeterministicAgentDriver
     private RuntimeException nextTurnReferenceAndCancelFailure;
     private DeterministicSession currentSession;
     private boolean failNextStart;
+    private boolean failNextStartUncertainly;
     private boolean completeNextStart;
     private boolean failNextCloseVerification;
     private ProviderUsageSample usageOnOpen;
@@ -177,6 +179,12 @@ final class DeterministicAgentDriver
     synchronized void failNextStart()
     {
         failNextStart = true;
+    }
+
+    /** The next start fails the way a lost provider answer does: the turn may or may not have started. */
+    synchronized void failNextStartUncertainly()
+    {
+        failNextStartUncertainly = true;
     }
 
     synchronized void completeNextStart()
@@ -331,6 +339,10 @@ final class DeterministicAgentDriver
         {
             synchronized (DeterministicAgentDriver.this) {
                 checkState(!closed, "deterministic session is closed");
+                if (failNextStartUncertainly) {
+                    failNextStartUncertainly = false;
+                    throw new AgentDeliveryUncertainException("deterministic start was not acknowledged", null);
+                }
                 if (failNextStart) {
                     failNextStart = false;
                     throw new IllegalStateException("deterministic start failed");

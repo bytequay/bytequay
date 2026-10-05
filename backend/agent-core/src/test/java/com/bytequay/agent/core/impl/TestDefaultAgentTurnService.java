@@ -1716,7 +1716,8 @@ class TestDefaultAgentTurnService
         assertThat(completed).hasSize(2);
         AgentTurn failed = completed.getLast().turn();
         assertThat(failed.id()).isNotEqualTo(source.id());
-        assertThat(failed.state()).isEqualTo(TurnState.INTERRUPTED);
+        assertThat(failed.state()).isEqualTo(TurnState.FAILED);
+        assertThat(failed.knownUnsent()).isTrue();
         assertThat(service.ownsDevelopmentContinuation(task.id(), failed.id())).isTrue();
         assertThat(service.ownsDevelopmentContinuation(task.id(), source.id())).isFalse();
         assertThat(service.failDevelopmentContinuation(task.id(), failed.id(), "Queued development failed").state()).isEqualTo(TaskState.OPEN);
@@ -2107,21 +2108,17 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void stopSettlesATurnThatFailedBeforeReachingTheProvider()
+    void settlesATurnThatFailedBeforeReachingTheProvider()
     {
         driver.failNextStart();
         assertThatThrownBy(() -> service.start(command("first", "key-1"))).isInstanceOf(IllegalStateException.class);
-        AgentTurn stuck = stores.list(task.id()).getFirst();
-        assertThat(stuck.state()).isEqualTo(TurnState.ACCEPTED);
-        assertThat(stuck.startedAt()).isPresent();
-        // No provider run exists, so ordinary cancellation has nothing to signal.
-        assertThatThrownBy(() -> service.cancel(stuck.id())).isInstanceOf(AgentConflictException.class);
 
-        AgentTask stopped = service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
-
-        // The closed process was all there was, so the verified stop settles the turn and the task.
-        assertThat(stores.find(stuck.id()).orElseThrow().state()).isEqualTo(TurnState.INTERRUPTED);
-        assertThat(stopped.worktreeMutationClaim()).isEmpty();
+        // The provider refused the start, so the turn is known unsent and its stopped process releases the task.
+        AgentTurn failed = stores.list(task.id()).getFirst();
+        assertThat(failed.state()).isEqualTo(TurnState.FAILED);
+        assertThat(failed.knownUnsent()).isTrue();
+        assertThat(failed.startedAt()).isPresent();
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
         assertThat(service.start(command("second", "key-2"))).isNotNull();
         driver.complete("done");
     }
@@ -2534,7 +2531,7 @@ class TestDefaultAgentTurnService
                 .hasMessageContaining("start failed");
 
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
+                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
     }
 
     @Test
@@ -2622,15 +2619,16 @@ class TestDefaultAgentTurnService
                     approvalRequest("start-approval"),
                     NOW), Duration.ofMinutes(1));
             stores.failApprovalResolve(new AgentStorageException("blocked approval resolution"));
-            throw new IllegalStateException("start failed after approval");
+            // A provider that already asked for approval may have started the turn.
+            throw new AgentDeliveryUncertainException("start failed after approval", null);
         });
 
         assertThatThrownBy(() -> service.start(command("fail", "key-1")))
-                .isInstanceOf(IllegalStateException.class)
+                .isInstanceOf(AgentDeliveryUncertainException.class)
                 .hasMessage("start failed after approval");
 
         assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
+                assertThat(turn.state()).isEqualTo(TurnState.INTERRUPTED));
         assertThat(stores.find(approvalId).orElseThrow().pending()).isTrue();
 
         durableApprovals(new AgentRuntimeRegistry(ignored -> {})).denyAllPending();
@@ -2758,28 +2756,28 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void keepsUncertainStartActiveAndBlocksAnotherSend()
+    void stopsAnUncertainStartWithoutResendingIt()
     {
-        driver.failNextStart();
+        driver.failNextStartUncertainly();
 
         assertThatThrownBy(() -> service.start(command("fail", "key-1")))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("start failed");
+                .isInstanceOf(AgentDeliveryUncertainException.class)
+                .hasMessageContaining("not acknowledged");
+        // The provider may have taken the turn, so it ends interrupted rather than unsent, and its process is stopped.
         assertThat(stores.list(task.id())).singleElement().satisfies(turn -> {
-            assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED);
+            assertThat(turn.state()).isEqualTo(TurnState.INTERRUPTED);
+            assertThat(turn.knownUnsent()).isFalse();
             assertThat(turn.startedAt()).isPresent();
             assertThat(turn.providerTurnReference()).isEmpty();
-            assertThat(turn.terminalReason()).isEmpty();
+            assertThat(turn.terminalReason()).isPresent();
         });
         assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.OPEN);
-        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim())
-                .contains(WorktreeMutationClaim.turn(
-                        stores.findActive(task.id()).orElseThrow().id(),
-                        stores.findActive(task.id()).orElseThrow().createdAt()));
-        assertThat(stores.findActive(task.id())).isPresent();
-        assertThatThrownBy(() -> service.start(command("do not resend", "key-2")))
-                .isInstanceOf(AgentConflictException.class)
-                .hasMessageContaining("active turn");
+        assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
+        assertThat(stores.findActive(task.id())).isEmpty();
+        assertThat(driver.commands()).isEmpty();
+        // Nothing resends it; the user's next message is a turn of its own.
+        assertThat(service.start(command("next request", "key-2"))).isNotNull();
+        driver.complete("done");
     }
 
     @Test
@@ -3611,20 +3609,12 @@ class TestDefaultAgentTurnService
     {
         service.start(command("first", "key-1"));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
-        driver.failNextStart();
+        driver.failNextStartUncertainly();
 
         driver.complete("first response");
 
-        // Sent, never acknowledged: the turn holds the worktree and the input stays claimed.
-        assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.STARTING);
-        assertThat(stores.findActive(task.id())).hasValueSatisfying(turn -> {
-            assertThat(turn.startedAt()).isPresent();
-            assertThat(turn.providerTurnReference()).isEmpty();
-        });
-
-        service.stopRuntime(task.id(), service.stopImpact(task.id()).generation());
-
-        // Once the turn is settled, nobody can say whether the provider ran it; only the user may decide.
+        // Sent, never acknowledged: the session is stopped at once, and nobody can say whether the provider ran the
+        // input; only the user may decide.
         assertThat(stores.find(queued.id()).orElseThrow().state()).isEqualTo(QueuedAgentInput.State.UNCERTAIN);
         assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isEmpty();
         assertThatThrownBy(() -> service.resumeQueued(task.id()))

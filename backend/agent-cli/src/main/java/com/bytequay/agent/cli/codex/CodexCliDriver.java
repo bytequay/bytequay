@@ -1163,8 +1163,12 @@ public final class CodexCliDriver
                         CodexProtocol.TurnStartResponse.class,
                         REQUEST_TIMEOUT);
             }
+            catch (CodexAppServerClient.RequestNotSent | CodexAppServerClient.RequestRefused definite) {
+                throw appServerFailure("turn/start", definite);
+            }
             catch (RuntimeException failure) {
-                throw appServerFailure("turn/start", failure);
+                // The request left this process and no answer came back, so the turn may be running.
+                throw new AgentDeliveryUncertainException(appServerFailure("turn/start", failure).getMessage(), failure);
             }
             String turnId = response.turn().id();
             if (instructionUpdate.isPresent()) {

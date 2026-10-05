@@ -706,10 +706,13 @@ Accepted turns commit their blob-backed user message through that outbox and
 drain it before provider delivery. Direct start does not duplicate the turn in a delivery
 table: `startedAt` is persisted immediately before the provider call, and the
 provider reference confirms receipt. A failure before that marker is known
-unsent; a failure after it without a provider reference is uncertain and
-retains the blocking turn and mutation claim, so neither Send nor Complete can
-silently race or resend it. Startup derives the same facts from the turn; the
-task remains `OPEN`. Codex image inputs, steering, and the durable queue ship
+unsent, and so is a later one the provider reports as definite: it refused the
+start or never received it. When a provider cannot rule out that the turn
+started, as when `turn/start` times out, it reports the start as uncertain;
+ByteQuay then stops the session's process and ends the turn `INTERRUPTED`, so
+the input is never resent and nothing keeps running unobserved. Either way a
+claim that cannot be shown released stays held until a verified Stop. Startup
+derives the same facts from the turn; the task remains `OPEN`. Codex image inputs, steering, and the durable queue ship
 through the authenticated Electron bridge: a steer is its own delivery row and
 is never resent, and a queued input is claimed with its turn and the worktree
 in one unit of work. CP11 added the typed Claude readiness, event, approval,

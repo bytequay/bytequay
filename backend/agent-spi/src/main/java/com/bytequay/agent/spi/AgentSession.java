@@ -38,7 +38,8 @@ public interface AgentSession
      *
      * @param command provider-neutral prompt, attachments, and runtime bound
      * @return handle for completion and cancellation
-     * @throws AgentUnavailableException when the provider cannot start the turn
+     * @throws AgentDeliveryUncertainException when the provider may have started the turn
+     * @throws AgentUnavailableException when the provider did not start the turn
      */
     RunningTurn start(AgentTurnCommand command);
 

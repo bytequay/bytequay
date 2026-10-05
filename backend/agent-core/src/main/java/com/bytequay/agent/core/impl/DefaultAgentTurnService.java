@@ -873,10 +873,14 @@ public final class DefaultAgentTurnService
             return new Launch(accepted, started, Optional.empty());
         }
         catch (RuntimeException failure) {
-            if (!deliveryAttempted) {
+            // A started turn is observed and cancelled by the caller. Otherwise a provider reports a start it cannot rule out
+            // as uncertain, and any other failure means it did not start the turn.
+            if (started.isEmpty()) {
+                boolean uncertain = deliveryAttempted && failure instanceof AgentDeliveryUncertainException;
                 boolean providerQuiescent = runtimeRegistry.unverifiedClose(task.id()).isEmpty();
                 if (session != null) {
                     try {
+                        // Nothing observes this session's process once its start failed, so it is stopped either way.
                         runtimeRegistry.closeSession(task.id());
                     }
                     catch (RuntimeException closeFailure) {
@@ -886,7 +890,16 @@ public final class DefaultAgentTurnService
                         }
                     }
                 }
-                recordKnownUnsentFailure(accepted, failure, providerQuiescent);
+                if (!uncertain) {
+                    recordKnownUnsentFailure(accepted, failure, providerQuiescent);
+                }
+                else {
+                    AgentTurn current = turnStore.require(accepted.id());
+                    if (current.state().active()) {
+                        // The provider may have taken the turn, so it is never resent; its process is stopped, not left unobserved.
+                        persistTerminalTurn(current, TurnState.INTERRUPTED, Optional.of(failureMessage(failure)), providerQuiescent);
+                    }
+                }
             }
             if (developmentTurnEligible(task, accepted)) {
                 AgentTurn current = turnStore.require(accepted.id());

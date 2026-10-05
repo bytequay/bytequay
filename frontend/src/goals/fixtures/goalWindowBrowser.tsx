@@ -39,7 +39,7 @@ const goals: Goals = { goals: [goal], pinned: goal, workItems: [], error: null, 
   createWork: unexpected, decideWork: unexpected, linkWork: unexpected, orderWork: unexpected,
   start: unexpected, exchanges: async () => [], ask: unexpected, retry: unexpected, stop: unexpected, accept: unexpected,
   acceptPlan: async () => { throw new Error('No plan change'); },
-  acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], gaps: async () => [], addGap: unexpected,
+  acceptCourse: unexpected, startCard: unexpected, dismissCard: unexpected, knowledge: async () => [], rememberNote: unexpected, gaps: async () => [], addGap: unexpected,
   fileIssue: unexpected, refresh: () => {}, model: unexpected, chooseModel: unexpected, pause: unexpected, reassess: unexpected, summarize: unexpected,
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected, researchRun: unexpected, stopResearch: unexpected };
 

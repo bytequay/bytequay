@@ -29,8 +29,10 @@ import static java.util.Objects.requireNonNull;
  * What a research run learned for a goal, with the sources it rests on, for lessons, discovery and later research to reuse.
  *
  * @param taskId the research run that saved it
+ * @param memoryId the repository memory the user made of it with Remember
  */
-public record GoalKnowledgeNote(String id, String goalId, String workspaceId, String topic, String body, List<Source> sources, String taskId, Instant savedAt)
+public record GoalKnowledgeNote(String id, String goalId, String workspaceId, String topic, String body, List<Source> sources, String taskId, Instant savedAt,
+        Optional<String> memoryId)
 {
     public static final int MAX_SOURCES = 8;
 
@@ -45,6 +47,18 @@ public record GoalKnowledgeNote(String id, String goalId, String workspaceId, St
         checkArgument(!sources.isEmpty() && sources.size() <= MAX_SOURCES, "a note cites one to %s sources", MAX_SOURCES);
         checkText(taskId, "taskId");
         requireNonNull(savedAt, "savedAt is null");
+        requireNonNull(memoryId, "memoryId is null");
+    }
+
+    public GoalKnowledgeNote remembered(String memory)
+    {
+        return new GoalKnowledgeNote(id, goalId, workspaceId, topic, body, sources, taskId, savedAt, Optional.of(memory));
+    }
+
+    /** The pages it cites, which Remember keeps as a specification memory's sources. */
+    public List<Source> pages()
+    {
+        return sources.stream().filter(source -> source.commit().isEmpty()).collect(ImmutableList.toImmutableList());
     }
 
     /**

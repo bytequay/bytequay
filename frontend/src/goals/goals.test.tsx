@@ -334,6 +334,7 @@ describe('goal guidance', () => {
     expect(investigating).toContain('Investigating: Check deletion vector support');
     expect(investigating).toContain('>Open work</button>');
     expect(parseGoalKnowledgeNote(JSON.parse(JSON.stringify({ ...NOTE, goalId: 'goal-1', taskId: 'task-1' })))).toEqual(NOTE);
+    expect(parseGoalKnowledgeNote({ ...NOTE, memoryId: 'm7' }).memoryId).toBe('m7');
     expect(parseGoal(JSON.parse(JSON.stringify({ ...GOAL, recommendations: [CARD] }))).recommendations).toEqual([CARD]);
     expect(parseGoalRecommendation({ ...CARD, state: 'STARTED', workItemId: 'work-9' }).workItemId).toBe('work-9');
     expect(sourceUrl(NOTE.sources[0])).toBe('https://iceberg.apache.org/spec/#manifest-lists');
@@ -351,6 +352,12 @@ describe('goal guidance', () => {
     expect(markup).toContain('<summary>Manifest lists</summary>');
     const stale = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, notes: [{ ...NOTE, stale: true }], exchanges: [ASKED] } });
     expect(stale).toContain('Manifest lists<span class="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>');
+    // A note citing a specification page can be remembered, and then names the memory it became; one citing only code cannot.
+    const remembering = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, rememberNote: async () => {}, exchanges: [ASKED],
+      notes: [NOTE, { ...NOTE, id: 'note-2', topic: 'Split planning', sources: [NOTE.sources[1]] }, { ...NOTE, id: 'note-3', topic: 'Snapshots', memoryId: 'm7' }] } });
+    expect(remembering.split('>Remember</button>')).toHaveLength(2);
+    expect(remembering).toContain('Remembered as m7');
+    expect(markup).not.toContain('>Remember</button>');
     expect(markup).toContain(`ManifestLists.java @ ccccccc`);
     expect(markup).toContain('<div class="goal-thread__event" title="The research run saved 1 note: Manifest lists.">The research run saved 1 note: Manifest lists.</div>');
   });

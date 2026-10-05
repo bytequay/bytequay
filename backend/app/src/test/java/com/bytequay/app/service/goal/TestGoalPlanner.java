@@ -244,9 +244,10 @@ class TestGoalPlanner
         when(relationships.available("workspace", "iceberg")).thenReturn(Optional.of(iceberg));
         GoalKnowledgeNoteStore notes = mock(GoalKnowledgeNoteStore.class);
         when(notes.list("goal-1")).thenReturn(ImmutableList.of(new GoalKnowledgeNote("note-1", "goal-1", "workspace", "Manifest lists", "A snapshot lists its manifests.",
-                ImmutableList.of(new GoalKnowledgeNote.Source("https://iceberg.apache.org/spec/#manifest-lists", Optional.empty())), "task", NOW),
+                ImmutableList.of(new GoalKnowledgeNote.Source("https://iceberg.apache.org/spec/#manifest-lists", Optional.empty())), "task", NOW, Optional.empty()),
                 new GoalKnowledgeNote("note-2", "goal-1", "workspace", "Checkpoint actions", "Actions are keyed by path.",
-                        ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:plugin/trino-delta-lake/Checkpoint.java", Optional.of("b".repeat(40)))), "task", NOW)));
+                        ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:plugin/trino-delta-lake/Checkpoint.java", Optional.of("b".repeat(40)))), "task", NOW,
+                        Optional.empty())));
         GoalLessonStore lessons = mock(GoalLessonStore.class);
         when(lessons.find("lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
                 new GoalLesson.Content(Optional.of("A table is a tree of metadata."), ImmutableList.of("A snapshot never changes once written."),

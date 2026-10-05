@@ -195,14 +195,19 @@ class TestGoalController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.state").value("DISMISSED"));
 
-        when(research.notes("workspace", "goal-1")).thenReturn(ImmutableList.of(new GoalKnowledgeNoteView("note-1", "Manifest lists",
-                "A snapshot lists its manifests.", ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:core/A.java", Optional.of("a".repeat(40)))), "task-1", NOW,
-                true)));
+        GoalKnowledgeNoteView note = new GoalKnowledgeNoteView("note-1", "Manifest lists", "A snapshot lists its manifests.",
+                ImmutableList.of(new GoalKnowledgeNote.Source("trinodb/trino:core/A.java", Optional.of("a".repeat(40)))), "task-1", NOW, true, Optional.of("m7"));
+        when(research.notes("workspace", "goal-1")).thenReturn(ImmutableList.of(note));
         mvc.perform(get("/api/workspaces/workspace/goals/goal-1/knowledge"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].topic").value("Manifest lists"))
                 .andExpect(jsonPath("$[0].sources[0].commit").value("a".repeat(40)))
-                .andExpect(jsonPath("$[0].stale").value(true));
+                .andExpect(jsonPath("$[0].stale").value(true))
+                .andExpect(jsonPath("$[0].memoryId").value("m7"));
+        when(research.remember("workspace", "goal-1", "note-1")).thenReturn(note);
+        mvc.perform(post("/api/workspaces/workspace/goals/goal-1/knowledge/note-1/remember"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.memoryId").value("m7"));
     }
 
     @Test

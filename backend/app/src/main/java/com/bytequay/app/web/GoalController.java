@@ -268,6 +268,13 @@ public class GoalController
         return research.notes(workspaceId, goalId);
     }
 
+    /** Remember on a note citing a specification page: it becomes the user's SPEC memory of the workspace. */
+    @PostMapping("/{goalId}/knowledge/{noteId}/remember")
+    public GoalKnowledgeNoteView remember(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String noteId)
+    {
+        return research.remember(workspaceId, goalId, noteId);
+    }
+
     public record CreateGoalRequest(String title, String description) {}
 
     /**

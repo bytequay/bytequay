@@ -1538,10 +1538,12 @@ export type Bridge = JiraBridge & {
   /** Accepts a proposed course: each lesson becomes a Learn work item of the goal, and nothing starts. */
   acceptGoalCourse: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;
   acceptGoalPlan: (workspaceId: string, goalId: string, exchangeId: string) => Promise<GoalDto>;
-  /** Start on a card under the Goal control: the research it recommends begins as one read-only run. */
+  /** Start on a card under the Goal control: the research, check or work it recommends begins. */
   startGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   dismissGoalRecommendation: (workspaceId: string, goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   listGoalKnowledge: (workspaceId: string, goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
+  /** Remember on a note citing a specification page: it becomes the user's SPEC memory of the workspace. */
+  rememberGoalNote: (workspaceId: string, goalId: string, noteId: string) => Promise<GoalKnowledgeNoteDto>;
   listGoalGaps: (workspaceId: string, goalId: string) => Promise<GoalGapDto[]>;
   /** Adds a reproduced gap to the goal as work; answers with the goal's gaps. */
   addGoalGap: (workspaceId: string, goalId: string, candidateId: string) => Promise<GoalGapDto[]>;

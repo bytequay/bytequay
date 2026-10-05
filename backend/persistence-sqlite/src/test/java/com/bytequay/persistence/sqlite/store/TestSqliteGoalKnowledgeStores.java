@@ -70,6 +70,9 @@ class TestSqliteGoalKnowledgeStores
         notes.save(note);
         assertThat(notes.list("goal-1")).containsExactly(note, second);
         assertThat(notes.list("goal-2")).isEmpty();
+        // Remember saves the note again with the memory it became.
+        notes.save(note.remembered("m7"));
+        assertThat(notes.list("goal-1")).containsExactly(note.remembered("m7"), second);
     }
 
     private static GoalRecommendation card(String id, Instant at)
@@ -83,6 +86,7 @@ class TestSqliteGoalKnowledgeStores
     {
         return new GoalKnowledgeNote(id, "goal-1", "workspace-1", topic, "A snapshot lists its manifests.", ImmutableList.of(
                 new GoalKnowledgeNote.Source("https://iceberg.apache.org/spec/#manifest-lists", Optional.empty()),
-                new GoalKnowledgeNote.Source("apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java", Optional.of("c".repeat(40)))), "task-1", at);
+                new GoalKnowledgeNote.Source("apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java", Optional.of("c".repeat(40)))), "task-1", at,
+                Optional.empty());
     }
 }

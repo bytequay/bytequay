@@ -16,13 +16,17 @@ package com.bytequay.app.service.goal;
 import com.bytequay.app.context.ContextBuild;
 import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.memory.Memory;
+import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.bytequay.core.store.GoalRecommendationStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
@@ -48,11 +52,13 @@ import java.util.UUID;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Starts the research a Goal's card recommends, one read-only run that saves knowledge notes, and settles the card when the run ends.
- * Start on the card is the only way a run begins, and nothing here writes to GitHub.
+ * Starts the research a Goal's card recommends, one run in its own disposable worktree that saves knowledge notes, and settles the card when
+ * the run ends. Start on the card is the only way a run begins, and nothing here writes to GitHub. The run is confined by its instructions,
+ * not by a read-only tool policy, which the user declined so that research is never blocked from its normal work.
  */
 @Service
 public class GoalResearchService
@@ -70,11 +76,13 @@ public class GoalResearchService
     private final WorkspaceRepositoryService repositories;
     private final GitCommandRunner git;
     private final ObjectProvider<GoalConversationService> conversations;
+    private final MemoryService memories;
+    private final WorkspaceStore workspaces;
     private final Clock clock;
 
     public GoalResearchService(GoalService goals, GoalRecommendationStore recommendations, GoalKnowledgeNoteStore notes, ContextBuildService builds,
             WorkspaceRelationships relationships, WorkspaceRepositoryService repositories, GitCommandRunner git, ObjectProvider<GoalConversationService> conversations,
-            Clock clock)
+            MemoryService memories, WorkspaceStore workspaces, Clock clock)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
@@ -84,6 +92,8 @@ public class GoalResearchService
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.git = requireNonNull(git, "git is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
+        this.memories = requireNonNull(memories, "memories is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -122,7 +132,56 @@ public class GoalResearchService
         goal(workspaceId, goalId);
         List<GoalKnowledgeNote> saved = notes.list(goalId);
         Set<String> stale = stale(workspaceId, saved);
-        return saved.stream().map(note -> GoalKnowledgeNoteView.of(note, stale.contains(note.id()))).collect(toImmutableList());
+        Set<String> kept = memoryIds(workspaceId);
+        return saved.stream().map(note -> GoalKnowledgeNoteView.of(note, stale.contains(note.id()), kept)).collect(toImmutableList());
+    }
+
+    /**
+     * Remembers a note that cites a specification page as a SPEC memory of the workspace, the user's own, through the memory capture policy:
+     * its topic the title, its text cut to a memory's size, the pages it cites as sources and the files of this repository it cites as scope.
+     * A note citing no page is refused, since memory keeps no description of how code works. Asked again while its memory is kept, it changes
+     * nothing; once the user deleted that memory, it remembers again.
+     */
+    public synchronized GoalKnowledgeNoteView remember(String workspaceId, String goalId, String noteId)
+    {
+        goal(workspaceId, goalId);
+        GoalKnowledgeNote note = notes.list(goalId).stream().filter(found -> found.id().equals(noteId)).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Note not found"));
+        if (note.pages().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only a note that cites a specification page can be remembered");
+        }
+        Set<String> kept = memoryIds(workspaceId);
+        if (note.memoryId().filter(kept::contains).isPresent()) {
+            return GoalKnowledgeNoteView.of(note, false, kept);
+        }
+        String repository = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"))
+                .monitoredRepository().fullName() + ":";
+        List<String> scope = note.sources().stream().filter(source -> source.commit().isPresent() && source.reference().regionMatches(true, 0, repository, 0,
+                repository.length())).map(source -> source.reference().substring(repository.length())).distinct().limit(Memory.MAX_SCOPE).collect(toImmutableList());
+        Memory memory = memories.create(workspaceId, Memory.Kind.SPEC, Memory.titleFrom(note.topic()), memoryText(note.body()), scope,
+                note.pages().stream().map(page -> MemorySource.page(page.reference(), "", clock.instant(), Optional.empty())).collect(toImmutableList()),
+                new Memory.Origin(true, "Remembered from a Goal's research", Optional.empty()));
+        GoalKnowledgeNote remembered = note.remembered(memory.id());
+        notes.save(remembered);
+        return GoalKnowledgeNoteView.of(remembered, false, ImmutableSet.<String>builder().addAll(kept).add(memory.id()).build());
+    }
+
+    private Set<String> memoryIds(String workspaceId)
+    {
+        return memories.list(workspaceId).stream().map(Memory::id).collect(toImmutableSet());
+    }
+
+    /** A note's text as a memory keeps it: one paragraph of whole sentences within a memory's size, or of whole words when one sentence is longer. */
+    static String memoryText(String body)
+    {
+        String text = body.strip().replaceAll("\\s+", " ");
+        if (text.getBytes(UTF_8).length <= Memory.MAX_TEXT_BYTES) {
+            return text;
+        }
+        // Three bytes are left for the ellipsis; a character cut in half at the end is dropped.
+        String head = new String(text.getBytes(UTF_8), 0, Memory.MAX_TEXT_BYTES - 3, UTF_8).replaceAll("\uFFFD$", "");
+        int sentence = head.lastIndexOf(". ");
+        return sentence > 0 ? head.substring(0, sentence + 1) : head.substring(0, Math.max(head.lastIndexOf(' '), 1)) + "…";
     }
 
     /** Settles the card when its run ends, and tells the goal's agent what a finished run saved. Never throws: the run's cleanup follows. */

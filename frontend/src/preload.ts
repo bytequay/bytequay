@@ -205,6 +205,7 @@ const bridge: Bridge = {
   startGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:start', workspaceId, goalId, recommendationId),
   dismissGoalRecommendation: (workspaceId, goalId, recommendationId) => ipcRenderer.invoke('goals:recommendations:dismiss', workspaceId, goalId, recommendationId),
   listGoalKnowledge: (workspaceId, goalId) => ipcRenderer.invoke('goals:knowledge', workspaceId, goalId),
+  rememberGoalNote: (workspaceId, goalId, noteId) => ipcRenderer.invoke('goals:knowledge:remember', workspaceId, goalId, noteId),
   listGoalGaps: (workspaceId, goalId) => ipcRenderer.invoke('goals:gaps', workspaceId, goalId),
   addGoalGap: (workspaceId, goalId, candidateId) => ipcRenderer.invoke('goals:gaps:add', workspaceId, goalId, candidateId),
   setGoalTopic: (workspaceId, goalId, topic, level) => ipcRenderer.invoke('goals:topics', workspaceId, goalId, topic, level),

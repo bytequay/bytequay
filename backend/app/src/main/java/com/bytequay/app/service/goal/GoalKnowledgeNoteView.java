@@ -18,6 +18,8 @@ import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -25,8 +27,10 @@ import static java.util.Objects.requireNonNull;
  * A knowledge note as the Goal window reads it.
  *
  * @param stale whether a file it cites changed at the monitored head since the research read it
+ * @param memoryId the repository memory the user made of it, while that memory is kept
  */
-public record GoalKnowledgeNoteView(String id, String topic, String body, List<GoalKnowledgeNote.Source> sources, String taskId, Instant savedAt, boolean stale)
+public record GoalKnowledgeNoteView(String id, String topic, String body, List<GoalKnowledgeNote.Source> sources, String taskId, Instant savedAt, boolean stale,
+        Optional<String> memoryId)
 {
     public GoalKnowledgeNoteView
     {
@@ -36,10 +40,12 @@ public record GoalKnowledgeNoteView(String id, String topic, String body, List<G
         sources = ImmutableList.copyOf(sources);
         requireNonNull(taskId, "taskId is null");
         requireNonNull(savedAt, "savedAt is null");
+        requireNonNull(memoryId, "memoryId is null");
     }
 
-    static GoalKnowledgeNoteView of(GoalKnowledgeNote note, boolean stale)
+    static GoalKnowledgeNoteView of(GoalKnowledgeNote note, boolean stale, Set<String> memories)
     {
-        return new GoalKnowledgeNoteView(note.id(), note.topic(), note.body(), note.sources(), note.taskId(), note.savedAt(), stale);
+        return new GoalKnowledgeNoteView(note.id(), note.topic(), note.body(), note.sources(), note.taskId(), note.savedAt(), stale,
+                note.memoryId().filter(memories::contains));
     }
 }

@@ -110,7 +110,7 @@ public class GoalResearchTools
         checkArgument(saved < MAX_NOTES, "This run already saved %s notes; end the run", MAX_NOTES);
         List<GoalKnowledgeNote.Source> sources = strings(args).stream().map(value -> source(build, value)).collect(toImmutableList());
         GoalKnowledgeNote note = new GoalKnowledgeNote("note-" + UUID.randomUUID(), research.goalId(), build.workspaceId(), text(args, "topic"), text(args, "body"),
-                sources, build.taskId(), Instant.now(clock));
+                sources, build.taskId(), Instant.now(clock), Optional.empty());
         notes.save(note);
         String line = "Saved note · " + ContextText.excerpt(note.topic(), 120);
         WorkspaceOperationLocks.withLock(build.workspaceId(), () -> unitOfWork.execute(() -> {

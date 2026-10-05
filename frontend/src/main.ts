@@ -1980,6 +1980,9 @@ function registerIpc(): void {
       .then(gaps => parseList(gaps, parseGoalGap, 'goal gaps')));
   ipcMain.handle('goals:knowledge', (_event, workspaceId: string, goalId: string) =>
     backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/knowledge`)).then(notes => parseList(notes, parseGoalKnowledgeNote, 'goal notes')));
+  ipcMain.handle('goals:knowledge:remember', (_event, workspaceId: string, goalId: string, noteId: string) =>
+    backendJson(goalsUrl(workspaceId, `/${encodeURIComponent(goalId)}/knowledge/${encodeURIComponent(noteId)}/remember`), jsonInit('POST', {}))
+      .then(parseGoalKnowledgeNote));
   ipcMain.handle('workspaces:issues:refresh', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/refresh`, {
       method: 'POST',

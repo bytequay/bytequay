@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.context.ContextBuild;
 import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -26,7 +27,9 @@ import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.domain.GoalRecommendation;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.memory.Memory;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +41,7 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
 
@@ -45,6 +49,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
@@ -71,9 +76,11 @@ class TestGoalResearchService
     private final WorkspaceRepositoryService repositories = mock(WorkspaceRepositoryService.class);
     private final GitCommandRunner git = mock(GitCommandRunner.class);
     private final GoalConversationService conversation = mock(GoalConversationService.class);
+    private final MemoryService memories = mock(MemoryService.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final GoalResearchService service = new GoalResearchService(goals, cards, notes, builds, relationships, repositories, git,
-            beans.getBeanProvider(GoalConversationService.class), Clock.fixed(NOW, ZoneOffset.UTC));
+            beans.getBeanProvider(GoalConversationService.class), memories, workspaces, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -172,15 +179,50 @@ class TestGoalResearchService
                 "plugin/trino-delta-lake/Checkpoint.java", "plugin/trino-delta-lake/Scan.java")));
     }
 
+    @Test
+    void rememberKeepsANoteCitingASpecificationPageAsTheUsersSpecMemory()
+    {
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.monitoredRepository()).thenReturn(RepoRef.of("trinodb", "trino"));
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+        List<GoalKnowledgeNote.Source> cited = ImmutableList.of(new GoalKnowledgeNote.Source("https://iceberg.apache.org/spec/#manifest-lists", Optional.empty()),
+                new GoalKnowledgeNote.Source("trinodb/trino:plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSplitSource.java", Optional.of(HEAD)),
+                new GoalKnowledgeNote.Source("apache/iceberg:core/src/main/java/org/apache/iceberg/ManifestLists.java", Optional.of(ICEBERG)));
+        GoalKnowledgeNote spec = new GoalKnowledgeNote("note-1", "goal-1", "workspace", "Manifest lists", "A snapshot lists its manifests in one manifest list. "
+                + "x".repeat(700), cited, "task-1", NOW, Optional.empty());
+        GoalKnowledgeNote code = file("note-2", "trinodb/trino:plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergMetadata.java", HEAD);
+        when(notes.list("goal-1")).thenReturn(ImmutableList.of(spec, code));
+        Memory memory = mock(Memory.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(memory.id()).thenReturn("m7");
+        when(memories.create(any(), any(), any(), any(), anyList(), anyList(), any())).thenReturn(memory);
+
+        assertThat(service.remember("workspace", "goal-1", "note-1").memoryId()).contains("m7");
+        // The text keeps whole sentences within a memory's size, the scope this repository's cited files, the sources the pages.
+        verify(memories).create(eq("workspace"), eq(Memory.Kind.SPEC), eq("Manifest lists"), eq("A snapshot lists its manifests in one manifest list."),
+                eq(ImmutableList.of("plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSplitSource.java")),
+                argThat(sources -> sources.size() == 1 && sources.getFirst().url().equals(Optional.of("https://iceberg.apache.org/spec/#manifest-lists"))),
+                argThat(origin -> origin.user() && origin.taskId().isEmpty()));
+        verify(notes).save(spec.remembered("m7"));
+
+        // Asked again while its memory is kept, nothing changes; a note citing only code is refused.
+        when(notes.list("goal-1")).thenReturn(ImmutableList.of(spec.remembered("m7"), code));
+        when(memories.list("workspace")).thenReturn(ImmutableList.of(memory));
+        assertThat(service.remember("workspace", "goal-1", "note-1").memoryId()).contains("m7");
+        assertThat(service.notes("workspace", "goal-1")).extracting(GoalKnowledgeNoteView::memoryId).containsExactly(Optional.of("m7"), Optional.empty());
+        verify(memories, times(1)).create(any(), any(), any(), any(), anyList(), anyList(), any());
+        assertThatThrownBy(() -> service.remember("workspace", "goal-1", "note-2")).hasMessageContaining("cites a specification page");
+    }
+
     private static GoalKnowledgeNote file(String id, String reference, String commit)
     {
-        return new GoalKnowledgeNote(id, "goal-1", "workspace", id, "Body", ImmutableList.of(new GoalKnowledgeNote.Source(reference, Optional.of(commit))), "task-1", NOW);
+        return new GoalKnowledgeNote(id, "goal-1", "workspace", id, "Body", ImmutableList.of(new GoalKnowledgeNote.Source(reference, Optional.of(commit))), "task-1", NOW,
+                Optional.empty());
     }
 
     private static GoalKnowledgeNote note(String topic, String task)
     {
         return new GoalKnowledgeNote("note-" + topic, "goal-1", "workspace", topic, "Body", ImmutableList.of(new GoalKnowledgeNote.Source("https://iceberg.apache.org/spec/",
-                Optional.empty())), task, NOW);
+                Optional.empty())), task, NOW, Optional.empty());
     }
 
     private static ContextBuild build(String task)

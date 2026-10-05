@@ -302,6 +302,8 @@ export type GoalKnowledgeNoteDto = {
   savedAt: string;
   /** A file it cites changed at the monitored head since the research read it. */
   stale: boolean;
+  /** The repository memory the user made of it with Remember, while that memory is kept. */
+  memoryId?: string | null;
 };
 
 function parseCard(value: unknown): GoalCardDto {
@@ -370,6 +372,7 @@ export function parseGoalKnowledgeNote(value: unknown): GoalKnowledgeNoteDto {
     }, 'goal note sources'),
     savedAt: text(note.savedAt, 'goal note time'),
     stale: note.stale === true,
+    ...(typeof note.memoryId === 'string' ? { memoryId: note.memoryId } : {}),
   };
 }
 

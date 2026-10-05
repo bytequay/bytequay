@@ -362,7 +362,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
       <div className="goal-guide__scroll" ref={scroller}>
         {goal?.definition != null && <Definition definition={goal.definition} />}
         {goal?.course != null && <Course goal={goal} onLesson={onLesson} />}
-        {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
+        {conversation.notes.length > 0 && <Notes notes={conversation.notes} onRemember={conversation.rememberNote} />}
         {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
         {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
         {opening ? (
@@ -758,8 +758,20 @@ function Known({ topics, onCorrect }: { topics: GoalTopicDto[]; onCorrect: (topi
 
 const LEVEL_NAMES: Record<TopicLevel, string> = { NEW: 'New', LEARNING: 'Learning', PRACTICED: 'Practiced', STRONG: 'Strong' };
 
-/** What the goal's research saved, folded under its count, each note with the pages and files it rests on. */
-function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element {
+/**
+ * What the goal's research saved, folded under its count, each note with the pages and files it rests on. A note citing a specification
+ * page can be remembered as a SPEC memory of the workspace; memory keeps no notes on how code works.
+ */
+function Notes({ notes, onRemember }: { notes: GoalKnowledgeNoteDto[]; onRemember?: (noteId: string) => Promise<void> }): React.JSX.Element {
+  const [remembering, setRemembering] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const remember = (noteId: string): void => {
+    if (onRemember === undefined) return;
+    setRemembering(noteId);
+    setError(null);
+    void onRemember(noteId).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The note was not remembered'))
+      .finally(() => setRemembering(null));
+  };
   return (
     <details className="goal-notes goal-fold" aria-label="Knowledge notes">
       <summary>What the agent learned · {notes.length}</summary>
@@ -769,7 +781,11 @@ function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element 
         <ul>{note.sources.map((source) => <li key={source.reference + (source.commit ?? '')}>
           <a href={sourceUrl(source)} target="_blank" rel="noreferrer">{source.commit === null ? source.reference : `${source.reference} @ ${source.commit.slice(0, 7)}`}</a>
         </li>)}</ul>
+        {note.memoryId ? <p className="goal-muted">Remembered as {note.memoryId}</p>
+          : onRemember !== undefined && note.sources.some((source) => source.commit === null) && <button type="button" className="goal-link"
+            disabled={remembering !== null} title="Keep it as a specification memory of this workspace" onClick={() => remember(note.id)}>Remember</button>}
       </details>)}
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
     </details>
   );
 }

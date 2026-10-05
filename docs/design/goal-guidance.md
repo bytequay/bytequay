@@ -628,29 +628,35 @@ evidence to the user's profile and never blocks completion.
 
 ## Research and Goal knowledge
 
-A research run reads what the Goal needs and saves knowledge notes. It is a
-read-only agent task the user starts from a card. It reads the Goal's workspace
-at its monitored head, the managed checkouts of the workspaces it declares as a
-Dependency (Trino's Apache Iceberg workspace), and the specification and
-documentation pages the card names. It cannot edit files or write to GitHub. Its
-only output is a set of notes saved through one fixed task-bound tool, each with
-a topic, a short body that names the classes and methods behind it and how they
-connect, and its sources: a page with its section, or a repository path at a
-commit.
+A research run reads what the Goal needs and saves knowledge notes. It is an
+agent task the user starts from a card, in its own disposable worktree. It reads
+the Goal's workspace at its monitored head, the managed checkouts of the
+workspaces it declares as a Dependency (Trino's Apache Iceberg workspace), and
+the specification and documentation pages the card names. Its instructions
+confine it to reading, and its only output is a set of notes saved through one
+fixed task-bound tool, each with a topic, a short body that names the classes
+and methods behind it and how they connect, and its sources: a page with its
+section, or a repository path at a commit.
 
 Notes belong to the Goal and are reused by lessons, discovery and later
 research. A note becomes stale when its source moves on, such as a newer
 specification revision or a monitored head that changes a cited path. Stale
 notes stay readable and are marked, and the agent may recommend a refresh. A
-note that would help every task in the repository is offered to repository
-memory through its existing capture policy; the Goal never writes repository
-memory itself.
+note that cites a specification page can be remembered: Remember makes it a SPEC
+memory of the workspace, the user's own, through the existing capture policy,
+with its topic as the title, its text cut to a memory's size in whole sentences,
+its pages as sources and the files of the repository it cites as scope, and the
+note then names that memory. A note citing no page cannot be remembered, since
+repository memory keeps no description of how code works, and the Goal never
+writes repository memory without that click.
 
 A research run is the one new agent-task kind this design adds, and the user
-approved it. Like a spec check it is noninteractive, owns a read-only session
-and records its result before cleanup.
-Spec checks keep their existing task, drawer and contract; a Goal only proposes
-them.
+approved it. Like a spec check it is noninteractive, runs under the same
+automatic permission and records its result before cleanup. The user decided
+against a read-only tool policy for it: research must never be blocked from the
+commands its normal work needs, so its instructions and its disposable worktree
+confine it instead. Spec checks keep their existing task, drawer and contract; a
+Goal only proposes them.
 
 ## What the user knows
 
@@ -813,9 +819,9 @@ a Goal without deleting its work. Epic marking is independent: toggling a source
 marker never changes a Goal's plan, conversation, source reference or outcomes.
 
 Goal insights are attributed summaries of this work. They do not automatically
-become repository-wide rules. Remember an applicable insight uses the existing
-repository-memory capture policy and source evidence, rather than restoring the
-removed repository-learning system.
+become repository-wide rules. Remember on a knowledge note citing a
+specification page uses the existing repository-memory capture policy and source
+evidence, rather than restoring the removed repository-learning system.
 
 ## Clear organization
 
@@ -901,14 +907,15 @@ managed instructions, sandbox and process-supervision boundaries. Initial suppor
 must be verified for Codex and Claude; do not silently substitute another lane.
 
 A Goal request owns a scratch directory and a supervised helper identity. It
-creates no `agent_task`, execution turn, Git branch or managed Git worktree.
-It exposes no native tools, ByteQuay tools, external MCP server or approval cards.
-Research runs and spec checks are the separate read-only agent tasks described
-above; a Goal request recommends them and reads their saved results.
+creates no `agent_task`, execution turn, Git branch or managed Git worktree. It
+exposes no native tools, ByteQuay tools, external MCP server or approval cards.
+Research runs and spec checks are the separate noninteractive agent tasks
+described above; a Goal request recommends them and reads their saved results.
 The application supplies snapshots and validates a typed response containing an
-answer, optional proposed work changes, evidence references and a supported summary.
-Reject unknown IDs, cross-workspace references, invalid dependencies, oversized
-responses and unrecognized fields before recording any proposed mutation.
+answer, optional proposed work changes, evidence references and a supported
+summary. Reject unknown IDs, cross-workspace references, invalid dependencies,
+oversized responses and unrecognized fields before recording any proposed
+mutation.
 
 Persist the user message before dispatch and the complete validated response after
 completion. Failed JSON validation is a recoverable request failure; do not mine

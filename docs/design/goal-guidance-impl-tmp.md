@@ -785,6 +785,29 @@ changing the task's terminal facts.
 Done when: deleting a task or letting retention clean it up never loses a turn
 the Goal had not recorded, and a refused removal leaves the task whole.
 
+## Twenty-second implementation slice
+
+Remember what research found in a specification, and record how research is
+confined.
+
+1. Remember for spec notes. A knowledge note citing a specification page offers
+   Remember, which makes it a SPEC memory of the workspace, the user's own,
+   through the existing capture policy: its topic the title, its text cut to a
+   memory's size in whole sentences, its pages the sources and the files of the
+   repository it cites the scope. The note then names the memory. A note citing
+   no page offers nothing, since repository memory keeps no description of how
+   code works.
+2. Research stays unblocked. The user declined a read-only tool policy for
+   research runs, so the design records that instructions and a disposable
+   worktree confine them.
+
+Progress: the twenty-second slice is complete. Remembering again while the
+memory is kept changes nothing; once the user deleted it, the note offers
+Remember again.
+
+Done when: Remember on a spec note adds one SPEC memory and the note names it,
+and a code-only note cannot be remembered.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -897,9 +920,11 @@ work items. Closing and reopening the app retains the conversation and plan.
 
 ## Step 4 Research, teach and discover work
 
-- [ ] Add the approved research task kind: noninteractive, read-only, started
-  only from a card, reading the Goal's workspace, its Dependency workspaces and
-  the pages the card names, and saving notes through one fixed task-bound tool.
+- [x] Add the approved research task kind: noninteractive, confined to reading by
+  its instructions and its disposable worktree, as the user decided instead of a
+  read-only tool policy, started only from a card, reading the Goal's workspace,
+  its Dependency workspaces and the pages the card names, and saving notes
+  through one fixed task-bound tool.
 - [ ] Store knowledge notes with topic, sources and staleness. Mark notes stale
   when a cited specification or path moves; offer a repository-memory Remember
   through the existing capture policy.
@@ -940,17 +965,16 @@ work items. Closing and reopening the app retains the conversation and plan.
   work. Open an existing task when appropriate; preserve the draft on failure.
 
 Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
-`TestGoalCandidates`, `TestGoalResearchService`, `TestGoalDiscovery`, the card
-parsing in `TestGoalPlanner`, the investigation-card test in
-`TestGoalConversationService`, the prepared request in `goals.test.tsx` and the
-`goalGuideBrowser` journey. Still partial: a research run is confined by its
-prompt and its own disposable worktree, not by a read-only tool policy; cited
-pages are never checked for staleness and no Remember is offered; shortlisted
-sources record no duplicate read or revision, though a card whose source could
-not be read again says so; research pages accept any https address; conclusions
-are cached only for discovery, by the Goal's last exchange; new Jira tickets do
-not trigger discovery; and Start rechecks the source, its role, the work's state
-and its current task, but not the work item's revision.
+`TestGoalCandidates`, `TestGoalResearchService` for runs, stale notes and
+Remember, `TestGoalDiscovery`, the card parsing in `TestGoalPlanner`, the
+investigation-card test in `TestGoalConversationService`, the prepared request
+in `goals.test.tsx` and the `goalGuideBrowser` journey. Still partial: cited
+pages are never checked for staleness; shortlisted sources record no duplicate
+read or revision, though a card whose source could not be read again says so;
+research pages accept any https address; conclusions are cached only for
+discovery, by the Goal's last exchange; new Jira tickets do not trigger
+discovery; and Start rechecks the source, its role, the work's state and its
+current task, but not the work item's revision.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed
@@ -992,7 +1016,7 @@ already-started source cannot slip through stale recommendations.
   limits. Add Pause guidance and Update now; panel polling remains local.
 - [x] Use request and input revision checks to discard stale proposed changes.
   An interrupted request stays retryable; do not launch or resend work on startup.
-- [ ] Save Goal insights locally with citations. Route a user-selected Remember
+- [x] Save Goal insights locally with citations. Route a user-selected Remember
   action through the existing repository-memory policy, without a new memory engine.
 - [x] Exercise archived Goal, task deletion, log expiry, summary failure and
   uncertain provider cleanup. Preserve receipts and user decisions in every case.
@@ -1005,8 +1029,8 @@ and `TestDefaultAgentCompletionService` for receipts kept through cleanup and
 deletion, and the summary retry in `TestGoalConversationService`. Still partial:
 a task start reaches the agent only with its first finished turn; plan
 differences cover the course and the open work's priorities, order, dependencies
-and criteria, not a work item's title or completion rule; the persisted input
-fingerprint covers only discovery; and there is no Remember action.
+and criteria, not a work item's title or completion rule; and the persisted
+input fingerprint covers only discovery.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

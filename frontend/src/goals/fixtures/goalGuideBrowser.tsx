@@ -89,6 +89,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   },
   openLesson: unexpected, readLesson: unexpected, finishLesson: unexpected, setTopic: unexpected,
   knowledge: async () => server.notes,
+  rememberNote: unexpected,
   gaps: async () => [],
   addGap: unexpected,
   fileIssue: unexpected,

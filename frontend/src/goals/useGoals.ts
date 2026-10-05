@@ -35,7 +35,7 @@ export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'deci
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'summarizeGoalWork' | 'acceptGoalDefinition'
   | 'acceptGoalCourse' | 'acceptGoalPlan' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
   | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'
-  | 'getRepositoryContextBuild' | 'stopRepositoryContextBuild'>;
+  | 'getRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'rememberGoalNote'>;
 
 /** The model a goal's agent uses, with the configured models to choose from. */
 export type GoalModel = { setting: AgentModelSettingDto; settings: ModelSettingsDto };
@@ -85,6 +85,8 @@ export type Goals = {
   /** Not now on a card; the agent does not offer it again. */
   dismissCard: (goalId: string, recommendationId: string) => Promise<GoalRecommendationDto>;
   knowledge: (goalId: string) => Promise<GoalKnowledgeNoteDto[]>;
+  /** Remember on a note citing a specification page: it becomes the user's SPEC memory of the workspace. */
+  rememberNote: (goalId: string, noteId: string) => Promise<GoalKnowledgeNoteDto>;
   gaps: (goalId: string) => Promise<GoalGapDto[]>;
   addGap: (goalId: string, candidateId: string) => Promise<GoalGapDto[]>;
   model: (goalId: string) => Promise<GoalModel>;
@@ -136,6 +138,8 @@ export type GoalConversation = {
   chooseModel: (choice: ModelChoice | null) => Promise<void>;
   researchRun: Goals['researchRun'];
   stopResearch: Goals['stopResearch'];
+  /** Remember on a note; absent where the notes are only shown. */
+  rememberNote?: (noteId: string) => Promise<void>;
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
@@ -329,6 +333,7 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     startCard: (goalId, recommendationId) => bridge().startGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
     dismissCard: (goalId, recommendationId) => bridge().dismissGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
     knowledge,
+    rememberNote: (goalId, noteId) => bridge().rememberGoalNote(workspaceId, goalId, noteId),
     gaps,
     addGap: (goalId, candidateId) => bridge().addGoalGap(workspaceId, goalId, candidateId).then((found) => { announce(workspaceId); return found; }),
     model,
@@ -430,6 +435,9 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
       model: model !== null && model.goalId === goalId ? model : null,
       researchRun: goals.researchRun,
       stopResearch: goals.stopResearch,
+      rememberNote: (noteId) => (goalId === null ? Promise.resolve() : goals.rememberNote(goalId, noteId).then((note) => {
+        setRead((last) => (last === null || last.goalId !== goalId ? last : { ...last, notes: last.notes.map((found) => (found.id === note.id ? note : found)) }));
+      })),
       chooseModel: (choice) => (goalId === null ? Promise.resolve() : goals.chooseModel(goalId, choice).then((setting) => {
         setModel((last) => (last === null || last.goalId !== goalId ? last : { ...last, setting }));
       })),

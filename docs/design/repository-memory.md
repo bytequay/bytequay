@@ -192,7 +192,8 @@ deleted after the task's retention window.
   memory titled "Specification at" its address, with the paths that link it and
   the sections read. A
   development task or review that read a spec page may REMEMBER a SPEC with a
-  PAGE source.
+  PAGE source, and the user may Remember a Goal's knowledge note that cites a
+  specification page as a SPEC of their own, with the pages it cites as sources.
 - **Deviations.** A deviation kept on purpose is a RULE. It comes from a spec
   finding dismissed as "not a real gap" with Remember, or from a pull request
   thread.

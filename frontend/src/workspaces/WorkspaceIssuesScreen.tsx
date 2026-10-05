@@ -341,7 +341,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     void window.bridge.fetchWorkspaceIssue(workspaceId, initialIssueNumber)
       .catch((): null => null)
       .then(issue => issue ?? readPreview(initialIssueNumber))
-      .then(issue => {
+      // Named, so the preview's state survives: a cached issue and a preview of one would otherwise collapse into the cached type.
+      .then((issue: Issue | (Issue & { state: string })) => {
         if (cancelled) return;
         if ('state' in issue) {
           setPreviewIssue(issue);

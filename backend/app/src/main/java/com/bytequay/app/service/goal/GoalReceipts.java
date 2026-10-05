@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentStorageException;
@@ -114,8 +115,35 @@ public class GoalReceipts
 
     void record(AgentTask task, AgentTurn turn)
     {
-        receipt(task, turn).ifPresent(saved -> tell(saved.item(), "turn:" + turn.id(), turn.state() == TurnState.COMPLETED,
-                "A turn of the task for \"" + saved.item().title() + "\" " + saved.ended() + ": " + saved.answer()));
+        receipt(task, turn).ifPresent(saved -> {
+            try {
+                tell(saved.item(), "turn:" + turn.id(), turn.state() == TurnState.COMPLETED,
+                        "A turn of the task for \"" + saved.item().title() + "\" " + saved.ended() + ": " + saved.answer());
+            }
+            catch (RuntimeException failure) {
+                // The receipt is what lasts; an archived Goal has no agent left to tell.
+                log.debug("The Goal agent did not hear about turn {}: {}", turn.id(), failure.toString());
+            }
+        });
+    }
+
+    /**
+     * Records each turn of a task on a Goal's work that the work has not recorded yet, before cleanup or deletion removes the task's event
+     * log and rows. A failure stops the removal, so cleanup retries it later and a deletion is refused.
+     */
+    public void capture(AgentTask task)
+    {
+        Optional<WorkItem> item = items.findByIdentity(WorkItemLink.taskIdentity(task.id().toString())).filter(found -> found.goalId().isPresent());
+        if (item.isEmpty()) {
+            return;
+        }
+        Set<String> recorded = item.get().history().stream().map(WorkItemEvent::operationId).collect(toImmutableSet());
+        try {
+            turns.list(task.id()).stream().filter(turn -> !recorded.contains("turn:" + turn.id())).forEach(turn -> record(task, turn));
+        }
+        catch (RuntimeException failure) {
+            throw new AgentConflictException("The Goal has not recorded this task's results yet, so the task is kept: " + failure.getMessage());
+        }
     }
 
     /** A turn that finished normally is progress the agent hears with its next news; a failed or interrupted one is news itself. */

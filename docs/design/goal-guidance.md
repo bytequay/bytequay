@@ -313,7 +313,11 @@ request reads it, and a failed summary leaves Summary pending with Summarize to
 ask again. Turns that finished while ByteQuay was stopped, or whose receipt was
 lost, are recorded at startup, after the requests it was answering are settled
 and before the startup cleanup can remove their answers; the agent hears once
-per work item what it missed.
+per work item what it missed. Before runtime cleanup or deletion removes a
+task's event log or rows, its Goal work records the turns it has not recorded
+yet; when that fails, cleanup stays pending for its retry and the deletion is
+refused. A cancelled Goal's work still records them, though no agent hears of
+it.
 
 Background events, such as failed or interrupted turns, merges, reviews and
 finished research runs and checks, are held while the agent answers, until five

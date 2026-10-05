@@ -3740,6 +3740,7 @@ class TestDefaultAgentTurnService
                 metrics,
                 codeGraph,
                 () -> Duration.ofDays(7),
+                task -> {},
                 CLOCK);
     }
 

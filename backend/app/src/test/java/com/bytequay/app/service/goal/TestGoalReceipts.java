@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentMetrics;
@@ -52,9 +53,11 @@ import java.time.Instant;
 import java.util.Optional;
 
 import static com.bytequay.agent.core.AgentEventSource.root;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -156,6 +159,32 @@ class TestGoalReceipts
         receipts.recover();
         verify(conversation).report("workspace", "goal-1", "recovered:" + turnId, "work-1", "While ByteQuay was stopped, a turn of the task for \"Fix #31252\" ended. "
                 + "The last finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+    }
+
+    @Test
+    void aTaskGoesOnlyOnceItsGoalWorkRecordedEveryTurnEvenWhenTheGoalWasCancelled()
+    {
+        receipts.capture(task(true));
+        verifyNoInteractions(work);
+
+        TurnId earlier = TurnId.random();
+        WorkItem item = new WorkItem("work-1", "workspace", Optional.of("goal-1"), "Fix #31252", WorkItem.Kind.DEVELOP, "Rows survive a checkpoint",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 1, ImmutableList.of(),
+                ImmutableList.of(new WorkItemEvent("turn:" + earlier, "", "RECEIPT", "Task turn finished: the first test", NOW)), NOW, NOW, WorkItem.Priority.NORMAL, 0,
+                ImmutableList.of(), Optional.empty(), 0);
+        when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(turn(earlier, TurnState.COMPLETED), turn(turnId, TurnState.COMPLETED)));
+        // A cancelled Goal has no agent left to tell; its work still records the turn, and the task may go.
+        doThrow(new IllegalStateException("Goal not found")).when(conversation).report(any(), any(), any(), any(), any());
+        receipts.capture(task(true));
+        verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+        verify(work, never()).receipt(any(), any(), eq("turn:" + earlier), any());
+
+        // A receipt that cannot be saved keeps the task and its log for the next try.
+        doThrow(new IllegalStateException("database is locked")).when(work).receipt(any(), any(), any(), any());
+        assertThatThrownBy(() -> receipts.capture(task(true)))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("database is locked");
     }
 
     private AgentTask task(boolean interactive)

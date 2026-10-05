@@ -502,6 +502,7 @@ public class AgentConfiguration
             AgentMetricsService metricsService,
             CodeGraphService codeGraph,
             AppSettingsService appSettings,
+            GoalReceipts goalReceipts,
             Clock agentClock)
     {
         return new DefaultAgentCompletionService(
@@ -518,6 +519,7 @@ public class AgentConfiguration
                 metricsService,
                 codeGraph,
                 appSettings::taskRuntimeRetention,
+                goalReceipts::capture,
                 agentClock);
     }
 

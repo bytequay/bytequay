@@ -1,7 +1,7 @@
 # Agent Service Design
 
-[Agent guided goals](goal-guidance.md) adds a separate Goal conversation
-using bounded `TEXT_ONLY` helper sessions and work-item handoff into this existing
+[Agent guided goals](goal-guidance.md) adds a separate Goal conversation using
+bounded `TEXT_ONLY` helper sessions and work-item handoff into this existing
 task service. Planning creates no execution task or Git worktree and adds no
 execution, tool or publication authority. The one noninteractive research task
 kind the user approved starts only from a Goal card's Start; it runs in its own
@@ -15,9 +15,11 @@ composer with a request prepared from the work's accepted criteria, its card's
 scope and uncertainty, and the Goal's objective and constraints. What the user
 sends is the task's instruction, so the Goal context a task carries is the text
 the user accepted; nothing else is added to provider guidance. An issue or
-ticket keeps its current task until that task ends; another attempt then
-becomes the source's task. The [implementation plan](goal-guidance-impl-tmp.md)
-tracks what remains.
+ticket keeps its current task until that task ends; another attempt then becomes
+the source's task. Before cleanup or deletion removes a task's event log or
+rows, the Goal work it attempted records the turns it has not recorded yet; when
+that fails, cleanup stays pending for its retry and deletion is refused. The
+[implementation plan](goal-guidance-impl-tmp.md) tracks what remains.
 
 [WorkBench](workbench.md) owns the shared navigation, task-bound code access,
 and reviews of local development commits. Its source and hosting contracts

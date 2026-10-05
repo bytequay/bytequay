@@ -766,6 +766,25 @@ reviewed.
 Done when: a card shows what to do first, the work it becomes is accepted
 against its criteria, and Start opens a composer ready to send.
 
+## Twenty-first implementation slice
+
+Results that outlive their task: the Goal keeps what a task did after the task
+and its log are gone.
+
+1. Receipts before removal. Before runtime cleanup or deletion removes a task's
+   event log or rows, the Goal work it attempted records each of its turns not
+   recorded yet. When that fails, cleanup stays pending for its retry and the
+   deletion is refused, so the task and its log stay.
+2. The receipt outlives the agent. Telling the agent stays best effort: a
+   cancelled Goal's work still records the turn though no agent hears of it.
+
+Progress: the twenty-first slice is complete. Summaries that fail stay retryable
+with Summarize, and a cleanup that fails for any reason stays pending without
+changing the task's terminal facts.
+
+Done when: deleting a task or letting retention clean it up never loses a turn
+the Goal had not recorded, and a refused removal leaves the task whole.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -950,7 +969,7 @@ already-started source cannot slip through stale recommendations.
 - [x] Pace recommendations: practice an area until it is practiced, then advance
   the course; propose the next spec check only after the last one's gaps are
   resolved or dropped; put blockers, failures and reviews first.
-- [ ] Connect task settlement and existing source refresh to idempotent factual
+- [x] Connect task settlement and existing source refresh to idempotent factual
   receipts. Capture final result/check evidence before runtime retention removes
   it. Reconcile missed receipts after restart and guard linked-task retention or
   deletion until capture succeeds. Preserve missing-evidence and agent-reported
@@ -975,19 +994,19 @@ already-started source cannot slip through stale recommendations.
   An interrupted request stays retryable; do not launch or resend work on startup.
 - [ ] Save Goal insights locally with citations. Route a user-selected Remember
   action through the existing repository-memory policy, without a new memory engine.
-- [ ] Exercise archived Goal, task deletion, log expiry, summary failure and
+- [x] Exercise archived Goal, task deletion, log expiry, summary failure and
   uncertain provider cleanup. Preserve receipts and user decisions in every case.
 
 Evidence for the checked items: the spec-check and blocked-lesson card tests in
 `TestGoalConversationService`, the delivery tests in `TestWorkItemService` and
 `TestGoalQuestions` for questions on the Goal's topics, `TestGoalDeliveries` for
-reviews, failing checks and pull requests waiting for review. Still partial:
-task deletion and runtime cleanup do not wait for a receipt; a task start
-reaches the agent only with its first finished turn; plan differences cover the
-course and the open work's priorities, order, dependencies and criteria, not a
-work item's title or completion rule; the persisted input fingerprint covers
-only discovery; there is no Remember action; and task deletion, log expiry and
-uncertain provider cleanup are not exercised.
+reviews, failing checks and pull requests waiting for review, `TestGoalReceipts`
+and `TestDefaultAgentCompletionService` for receipts kept through cleanup and
+deletion, and the summary retry in `TestGoalConversationService`. Still partial:
+a task start reaches the agent only with its first finished turn; plan
+differences cover the course and the open work's priorities, order, dependencies
+and criteria, not a work item's title or completion rule; the persisted input
+fingerprint covers only discovery; and there is no Remember action.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

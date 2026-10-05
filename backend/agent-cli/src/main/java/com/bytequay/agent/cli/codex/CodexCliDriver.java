@@ -72,6 +72,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -982,6 +983,36 @@ public final class CodexCliDriver
             if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
                 v2AgentPaths.put(reference.providerValue(), "/root");
             }
+            if (context.sessionReference().isPresent() && childProfile != CodexLaunchProfile.ChildProfile.NONE) {
+                restoreChildren();
+            }
+        }
+
+        /**
+         * Learns the subagents earlier turns spawned in their own processes, before the model can address one again.
+         * Lineage comes only from App Server's parent-filtered inventory, and each was announced in its own turn.
+         */
+        private void restoreChildren()
+        {
+            ArrayDeque<String> parents = new ArrayDeque<>();
+            parents.add(reference.providerValue());
+            try {
+                while (!parents.isEmpty()) {
+                    String parent = parents.removeFirst();
+                    for (CodexProtocol.HistoryThread child : childThreadsOf(parent)) {
+                        if (childProfile == CodexLaunchProfile.ChildProfile.V2) {
+                            child.agentPath().ifPresent(path -> rememberV2AgentPath(child.id(), validateV2AgentPath(child.id(), parent, path, true)));
+                        }
+                        register(child.id(), parent, child.agentNickname().or(child::agentRole));
+                        announcedChildren.add(child.id());
+                        parents.addLast(child.id());
+                    }
+                }
+            }
+            catch (RuntimeException failure) {
+                // An agent missing here stays unknown, and addressing it ends the turn as it did before restoring.
+                log.warn("Cannot restore the subagents of Codex thread {}", reference.providerValue(), failure);
+            }
         }
 
         /**
@@ -1829,6 +1860,13 @@ public final class CodexCliDriver
         private Set<String> childThreads(String parentThreadId)
         {
             Set<String> childIds = new HashSet<>();
+            childThreadsOf(parentThreadId).forEach(child -> childIds.add(child.id()));
+            return childIds;
+        }
+
+        private List<CodexProtocol.HistoryThread> childThreadsOf(String parentThreadId)
+        {
+            ImmutableList.Builder<CodexProtocol.HistoryThread> childThreads = ImmutableList.builder();
             Optional<String> cursor = Optional.empty();
             do {
                 // Legacy turn history omits collaboration items. Ask the provider for direct
@@ -1842,12 +1880,12 @@ public final class CodexCliDriver
                     if (!child.parentThreadId().filter(parentThreadId::equals).isPresent()) {
                         throw new AgentUnavailableException("Codex returned a child with another parent for " + parentThreadId);
                     }
-                    childIds.add(child.id());
+                    childThreads.add(child);
                 }
                 cursor = page.nextCursor();
             }
             while (cursor.isPresent());
-            return childIds;
+            return childThreads.build();
         }
 
         private Optional<String> firstBackgroundTerminal(String thread, boolean stopBackgroundWork)

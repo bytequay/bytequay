@@ -2519,6 +2519,23 @@
           "required": false,
           "nullable": true,
           "sample": "value"
+        },
+        {
+          "javaName": "source",
+          "wireName": "source",
+          "required": false,
+          "nullable": true,
+          "sample": {
+            "subAgent": {
+              "thread_spawn": {
+                "parent_thread_id": "value",
+                "depth": 1,
+                "agent_path": "/root/value",
+                "agent_nickname": null,
+                "agent_role": null
+              }
+            }
+          }
         }
       ]
     },

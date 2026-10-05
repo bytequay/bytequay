@@ -1389,7 +1389,8 @@ final class CodexProtocol
             Optional<String> parentThreadId,
             ThreadStatus status,
             Optional<String> agentNickname,
-            Optional<String> agentRole)
+            Optional<String> agentRole,
+            Optional<JsonNode> source)
     {
         HistoryThread
         {
@@ -1399,6 +1400,15 @@ final class CodexProtocol
             requireNonNull(status, "status is null");
             requireNonNull(agentNickname, "agentNickname is null");
             requireNonNull(agentRole, "agentRole is null");
+            requireNonNull(source, "source is null");
+        }
+
+        /** The canonical V2 path App Server saved with a spawned agent's thread. */
+        Optional<String> agentPath()
+        {
+            return source.map(value -> value.path("subAgent").path("thread_spawn").path("agent_path"))
+                    .filter(JsonNode::isTextual)
+                    .map(JsonNode::textValue);
         }
     }
 

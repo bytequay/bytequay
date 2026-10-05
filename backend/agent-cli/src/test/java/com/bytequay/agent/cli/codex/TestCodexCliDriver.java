@@ -3069,6 +3069,63 @@ class TestCodexCliDriver
     }
 
     @Test
+    void addressesAV1SubagentFromAnEarlierTurn()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.persistedChildren.put("thread-1", ImmutableList.of("earlier-child"));
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionRef reference;
+        try (AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            reference = initial.reference();
+        }
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        try (AgentSession resumed = driver.open(context(Optional.of(reference), new AtomicReference<>()), events::add)) {
+            RunningTurn turn = resumed.start(command("Ask the earlier agent again"));
+            AppServerProcess server = supervisor.servers().getLast();
+            // The child ran in an earlier process; App Server sends no edge for it before the root addresses it.
+            server.emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+                    + "\"item\":{\"type\":\"collabAgentToolCall\",\"id\":\"send-input\",\"tool\":\"sendInput\",\"status\":\"completed\","
+                    + "\"senderThreadId\":\"thread-1\",\"receiverThreadIds\":[\"earlier-child\"],"
+                    + "\"agentsStates\":{\"earlier-child\":{\"status\":\"completed\",\"message\":null}},\"prompt\":\"look again\"}}}");
+            server.completeTurn();
+
+            AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            // It was announced in its own turn, so this one adds no second start.
+            assertThat(events).noneMatch(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
+                    && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED);
+        }
+    }
+
+    @Test
+    void addressesAV2SubagentFromAnEarlierTurnByItsSavedPath()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.reportModelVersion(Optional.of("v2"));
+        supervisor.persistedChildren.put("thread-1", ImmutableList.of("earlier-child"));
+        supervisor.persistedAgentPaths.put("earlier-child", "/root/explorer");
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionRef reference;
+        try (AgentSession initial = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            reference = initial.reference();
+        }
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        try (AgentSession resumed = driver.open(context(Optional.of(reference), new AtomicReference<>()), events::add)) {
+            RunningTurn turn = resumed.start(command("Follow up with the explorer"));
+            AppServerProcess server = supervisor.servers().getLast();
+            server.emit("{\"method\":\"item/completed\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
+                    + "\"item\":{\"type\":\"subAgentActivity\",\"id\":\"follow-up\",\"agentThreadId\":\"earlier-child\","
+                    + "\"agentPath\":\"/root/explorer\",\"kind\":\"interacted\"}}}");
+            server.completeTurn();
+
+            AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        }
+    }
+
+    @Test
     void deliversChangedInstructionsOnceToAResumedThread()
             throws Exception
     {
@@ -3482,6 +3539,9 @@ class TestCodexCliDriver
         private volatile ProcessExit.TreeTermination termination = ProcessExit.TreeTermination.VERIFIED_STOPPED;
         private volatile ProcessExit.TreeTermination probeTermination = ProcessExit.TreeTermination.VERIFIED_STOPPED;
         private final List<String> acknowledgements = new CopyOnWriteArrayList<>();
+        /** Subagents App Server saved in earlier processes, by parent, which every new process lists again. */
+        private final ConcurrentMap<String, List<String>> persistedChildren = new ConcurrentHashMap<>();
+        private final ConcurrentMap<String, String> persistedAgentPaths = new ConcurrentHashMap<>();
 
         /** Makes every App Server exit report a process tree that could not be observed gone. */
         private void leaveProcessTreeUnverifiable()
@@ -3831,6 +3891,8 @@ class TestCodexCliDriver
                     thread -> scriptedItems.getOrDefault(thread, "{\"data\":[],\"nextCursor\":null}"),
                     () -> models,
                     () -> catalog ? ProcessExit.TreeTermination.VERIFIED_STOPPED : termination);
+            server.inventoryChildren.putAll(persistedChildren);
+            server.agentPaths.putAll(persistedAgentPaths);
             if (!catalog) {
                 // The working directory and owner bind a task process to its sandbox root. Catalog
                 // processes are deliberately short-lived and are not task sessions.
@@ -3945,6 +4007,7 @@ class TestCodexCliDriver
         private final ConcurrentMap<String, String> turnStatuses = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, String> historyOverrides = new ConcurrentHashMap<>();
         private final ConcurrentMap<String, List<String>> inventoryChildren = new ConcurrentHashMap<>();
+        private final ConcurrentMap<String, String> agentPaths = new ConcurrentHashMap<>();
         private volatile int inventoryPageSize = Integer.MAX_VALUE;
         private final AtomicInteger finishedWorkStops = new AtomicInteger();
 
@@ -4241,6 +4304,9 @@ class TestCodexCliDriver
                         thread.put("parentThreadId", parent);
                         thread.putObject("status").put("type", "idle");
                         thread.putArray("turns");
+                        if (agentPaths.containsKey(child)) {
+                            thread.putObject("source").putObject("subAgent").putObject("thread_spawn").put("agent_path", agentPaths.get(child));
+                        }
                     }
                     if (end < childIds.size()) {
                         response.put("nextCursor", Integer.toString(end));

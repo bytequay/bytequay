@@ -418,6 +418,11 @@ const referenceRecordBindings = [
     component("status"),
     component("agentNickname"),
     component("agentRole"),
+    component("source", "source", {
+      subAgent: {
+        thread_spawn: { parent_thread_id: "value", depth: 1, agent_path: "/root/value", agent_nickname: null, agent_role: null },
+      },
+    }),
   ]),
   recordBinding("ThreadStatus", "decode", [
     mergedSchemaSource("v2", "ThreadStatus", "type"),

@@ -3957,8 +3957,12 @@ live-item keys. Final text comes from typed live activity or the current
 `turn/completed` payload, without a full-history fallback or manufactured
 transcript events. `thread/items/list` requires
 paginated mode and is not a production dependency. Experimental parent-filtered
-`thread/list` supplies completion inventory, not synthetic UI lineage or V2
-paths. Display and routing retain the explicit provider-identity rules above.
+`thread/list` supplies completion inventory, not synthetic UI lineage. The one
+exception is a resumed session: each turn runs in a new process, so the session
+walks that inventory from the root once and registers the subagents earlier
+turns spawned, with the V2 paths App Server saved in their thread source. The
+root can then address them again, and they are not announced a second time.
+Display and routing otherwise retain the explicit provider-identity rules above.
 
 There is no assumed App Server `quiesce` method. The Codex driver implements
 section 5.4's recursive rule using its existing registry. One

@@ -134,7 +134,7 @@ export function issueAttentionItem(issue: RepositoryIssueSnapshotDto['issues'][n
     repo, number: issue.number, title: issue.title, author: issue.author, authorAvatarUrl: issue.authorAvatarUrl,
     createdAt: issue.createdAt, updatedAt: issue.updatedAt, labels: issue.labels, pr: null,
     body: issue.body, commentCount: issue.commentCount, workspaceId,
-    canStartDevelopment: !issue.isGoal && issue.developmentTask == null, isEpic: issue.isGoal === true,
+    canStartDevelopment: !issue.isEpic && issue.developmentTask == null, isEpic: issue.isEpic === true,
   };
 }
 

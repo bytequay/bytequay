@@ -69,21 +69,21 @@ class TestWorkspaceIssueDevelopmentController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(70))
                 .andExpect(jsonPath("$.title").value("Fix selection"))
-                .andExpect(jsonPath("$.isGoal").value(false))
+                .andExpect(jsonPath("$.isEpic").value(false))
                 .andExpect(jsonPath("$.developmentTask.taskId").value("task-id"))
                 .andExpect(jsonPath("$.developmentTask.workspaceId").value("original-workspace"))
                 .andExpect(jsonPath("$.issue").doesNotExist());
     }
 
     @Test
-    void goalUpdatesUseLocalSourceService()
+    void epicUpdatesUseLocalSourceService()
             throws Exception
     {
-        when(development.setGoal("workspace", 7, true)).thenReturn(new IssueDevelopmentService.Metadata(true, Optional.empty()));
-        mvc.perform(patch("/api/workspaces/workspace/issues/7/goal").contentType(MediaType.APPLICATION_JSON).content("{\"isGoal\":true}"))
+        when(development.setEpic("workspace", 7, true)).thenReturn(new IssueDevelopmentService.Metadata(true, Optional.empty()));
+        mvc.perform(patch("/api/workspaces/workspace/issues/7/epic").contentType(MediaType.APPLICATION_JSON).content("{\"isEpic\":true}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.isGoal").value(true));
-        verify(development).setGoal("workspace", 7, true);
+                .andExpect(jsonPath("$.isEpic").value(true));
+        verify(development).setEpic("workspace", 7, true);
     }
 
     @Test

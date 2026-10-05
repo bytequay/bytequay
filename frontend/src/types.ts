@@ -358,7 +358,7 @@ export type RepositoryMetadataDto = {
 };
 
 export type IssueDevelopmentTaskDto = { taskId: string; workspaceId: string };
-export type IssueDevelopmentDto = { isGoal: boolean; developmentTask: IssueDevelopmentTaskDto | null };
+export type IssueDevelopmentDto = { isEpic: boolean; developmentTask: IssueDevelopmentTaskDto | null };
 export type IssueTaskSourceRequest = {
   issueId: number;
   number: number;
@@ -380,7 +380,7 @@ export type RepositoryIssueSnapshotDto = {
   repositoryId: number;
   repository: { owner: string; repo: string };
   issues: Array<{
-    isGoal?: boolean;
+    isEpic?: boolean;
     developmentTask?: IssueDevelopmentTaskDto | null;
     id: number;
     number: number;
@@ -1477,7 +1477,7 @@ export type Bridge = JiraBridge & {
   fetchWorkspaceIssues: (workspaceId: string, page: number, pageSize: number) => Promise<RepositoryIssueSnapshotDto>;
   fetchWorkspaceIssue: (workspaceId: string, issueNumber: number) => Promise<RepositoryIssueSnapshotDto['issues'][number]>;
   fetchWorkspaceIssueAttention: (workspaceId: string) => Promise<RepositoryIssueSnapshotDto>;
-  setWorkspaceIssueGoal: (workspaceId: string, issueNumber: number, isGoal: boolean) => Promise<IssueDevelopmentDto>;
+  setWorkspaceIssueEpic: (workspaceId: string, issueNumber: number, isEpic: boolean) => Promise<IssueDevelopmentDto>;
   /** The workspace's goals with every item read locally; nothing here writes to GitHub or Jira. */
   listWorkItems: (workspaceId: string) => Promise<WorkItemDto[]>;
   createWorkItem: (workspaceId: string, request: CreateWorkItem) => Promise<WorkItemDto>;

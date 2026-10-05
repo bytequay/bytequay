@@ -20,9 +20,9 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Local classification shared by every workspace displaying the same issue. */
-public record IssueGoal(String host, long issueId, String repo, int number, boolean isGoal, Instant updatedAt)
+public record IssueEpic(String host, long issueId, String repo, int number, boolean isEpic, Instant updatedAt)
 {
-    public IssueGoal
+    public IssueEpic
     {
         requireNonNull(host, "host is null");
         requireNonNull(repo, "repo is null");

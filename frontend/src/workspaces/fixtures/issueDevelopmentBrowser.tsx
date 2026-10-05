@@ -59,12 +59,12 @@ function fixture() {
   let issue: DevelopmentIssue = {
     id: 7001, number: 7, title: 'Fix upload timeout', body: 'Preserve the existing upload API.', author: 'alice', authorAvatarUrl: '',
     htmlUrl: 'https://github.com/upstream/app/issues/7', labels: [], assignees: ['me'], commentCount: 0,
-    createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', isGoal: false, developmentTask: null,
+    createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', isEpic: false, developmentTask: null,
   };
   const workspaceId = 'workspace-fork';
   const created: CreateAgentTaskRequest[] = [];
   const opened: string[] = [];
-  let goalWrites = 0;
+  let epicWrites = 0;
   const preview = createPreviewBridge(workspaceId);
   const snapshot = (): RepositoryIssueSnapshotDto => ({
     repositoryId: 40, repository: { owner: 'upstream', repo: 'app' }, issues: [{ ...issue }],
@@ -88,18 +88,18 @@ function fixture() {
     fetchWorkspaceIssueDetail: async () => detail(),
     refreshWorkspaceIssueDetail: async () => detail(),
     getWorkspaceMetadata: async () => ({ repositoryId: 40, repository: snapshot().repository, contributors: [], labels: [], topics: [], contributorsSyncedAt: null, labelsTopicsSyncedAt: null }),
-    setWorkspaceIssueGoal: async (workspace: string, number: number, isGoal: boolean) => {
-      assert(workspace === workspaceId && number === 7, 'Goal marker targets selected issue');
-      goalWrites++;
-      issue = { ...issue, isGoal };
-      return { isGoal, developmentTask: issue.developmentTask ?? null };
+    setWorkspaceIssueEpic: async (workspace: string, number: number, isEpic: boolean) => {
+      assert(workspace === workspaceId && number === 7, 'Epic marker targets selected issue');
+      epicWrites++;
+      issue = { ...issue, isEpic };
+      return { isEpic, developmentTask: issue.developmentTask ?? null };
     },
     openInAppBrowser: async (url: string) => { opened.push(url); },
     recordRecentTouch: async () => {},
     createAgentTask: async (request: CreateAgentTaskRequest) => { created.push(request); return previewTask(workspaceId, request.taskId); },
   } satisfies Partial<Bridge>;
   window.bridge = bridge as unknown as Bridge;
-  return { bridge, workspaceId, created, opened, get issue() { return issue; }, set issue(value: DevelopmentIssue) { issue = value; }, get goalWrites() { return goalWrites; } };
+  return { bridge, workspaceId, created, opened, get issue() { return issue; }, set issue(value: DevelopmentIssue) { issue = value; }, get epicWrites() { return epicWrites; } };
 }
 
 async function issueToTask(): Promise<void> {
@@ -114,12 +114,12 @@ async function issueToTask(): Promise<void> {
   try {
     showIssue(); await settle();
     setCached('home:issues', [{ title: 'stale suggestion' }]);
-    button(host, 'Mark as Goal').click(); await settle();
-    assert(f.goalWrites === 1 && host.querySelector('.issues-goal-badge') !== null, 'Mark must persist and display Goal');
-    assert(!host.querySelector('[aria-label="Start development"]') && f.created.length === 0, 'Goal must remove launch without creating a task');
-    assert((getCached<unknown[]>('home:issues') ?? []).length === 0, 'Goal invalidation must clear Home seeds');
-    button(host, 'Unmark as Goal').click(); await settle();
-    assert(Number(f.goalWrites) === 2, 'Unmark must use the same durable classification');
+    button(host, 'Mark as Epic').click(); await settle();
+    assert(f.epicWrites === 1 && host.querySelector('.issues-epic-badge') !== null, 'Mark must persist and display Epic');
+    assert(!host.querySelector('[aria-label="Start development"]') && f.created.length === 0, 'Epic must remove launch without creating a task');
+    assert((getCached<unknown[]>('home:issues') ?? []).length === 0, 'Epic invalidation must clear Home seeds');
+    button(host, 'Unmark as Epic').click(); await settle();
+    assert(Number(f.epicWrites) === 2, 'Unmark must use the same durable classification');
     button(host, 'Start development').click(); await settle();
     assert(dialogSelect(host, 'Agent provider').value === 'codex' && dialogSelect(host, 'Model').value === 'gpt-5.6-codex' && dialogSelect(host, 'Effort').value === 'high',
       'Launch must ask which provider, model and effort, offered on the workspace development agent');
@@ -166,9 +166,9 @@ async function issueToTask(): Promise<void> {
     assert(request.developmentAutomation?.autoDraftPr === true && request.developmentAutomation.autoCiFix === true, 'Automation defaults must survive');
     assert(window.location.hash === workspaceAgentTaskRoute('linked-workspace', request.taskId), 'Returned task workspace controls navigation');
     showIssue(); await settle();
-    button(host, 'Mark as Goal').click(); await settle();
+    button(host, 'Mark as Epic').click(); await settle();
     button(host, 'View task').click();
-    assert(window.location.hash === workspaceAgentTaskRoute('linked-workspace', request.taskId), 'Goal marking must retain access to existing task');
+    assert(window.location.hash === workspaceAgentTaskRoute('linked-workspace', request.taskId), 'Epic marking must retain access to existing task');
     assert(!host.querySelector('[aria-label="Start development"]'), 'Linked task must not offer a duplicate launch');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
@@ -206,9 +206,9 @@ async function refreshAndCancel(): Promise<void> {
     button(host, 'Preview issue: upstream/app#7').focus(); await settle();
     assert(input.value === 'Keep my additional instructions' && document.querySelector('.ref-card')?.textContent?.includes('Updated issue description') === true,
       'Source refresh must update the attachment without losing user instructions');
-    f.issue = { ...f.issue, isGoal: true };
+    f.issue = { ...f.issue, isEpic: true };
     button(host, 'Refresh issue').click(); await settle();
-    assert(button(host, 'Send — creates the task').disabled && host.textContent?.includes('Goals organize work') === true, 'Fresh Goal state blocks launch');
+    assert(button(host, 'Send — creates the task').disabled && host.textContent?.includes('Epics organize work') === true, 'Fresh Epic state blocks launch');
     assert(f.created.length === 0, 'Refresh and leaving the composer must never create a task');
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
@@ -362,8 +362,8 @@ async function anotherAttempt(): Promise<void> {
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Another attempt opens the composer over an ended task and names it', anotherAttempt],
-    ['Issue Goal actions, composer, replay and linked workspace navigation', issueToTask],
-    ['Source refresh preserves instructions and blocks Goals without launching', refreshAndCancel],
+    ['Issue Epic actions, composer, replay and linked workspace navigation', issueToTask],
+    ['Source refresh preserves instructions and blocks Epics without launching', refreshAndCancel],
     ['A Goal’s prepared instruction opens the issue composer without launching', preparedInstruction],
     ['Completed task retains source link after cache removal', retainedSource],
     ['Attention actions keep source navigation and launch separate', runAttentionActions],

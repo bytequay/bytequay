@@ -13,12 +13,12 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.core.domain.IssueGoal;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.store.IssueDevelopmentStore;
-import com.bytequay.persistence.sqlite.entity.IssueGoalEntity;
+import com.bytequay.persistence.sqlite.entity.IssueEpicEntity;
 import com.bytequay.persistence.sqlite.entity.IssueTaskEntity;
-import com.bytequay.persistence.sqlite.repository.IssueGoalJpaRepository;
+import com.bytequay.persistence.sqlite.repository.IssueEpicJpaRepository;
 import com.bytequay.persistence.sqlite.repository.IssueTaskJpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,29 +32,29 @@ import static java.util.Objects.requireNonNull;
 public class SqliteIssueDevelopmentStore
         implements IssueDevelopmentStore
 {
-    private final IssueGoalJpaRepository goals;
+    private final IssueEpicJpaRepository epics;
     private final IssueTaskJpaRepository tasks;
 
-    public SqliteIssueDevelopmentStore(IssueGoalJpaRepository goals, IssueTaskJpaRepository tasks)
+    public SqliteIssueDevelopmentStore(IssueEpicJpaRepository epics, IssueTaskJpaRepository tasks)
     {
-        this.goals = requireNonNull(goals, "goals is null");
+        this.epics = requireNonNull(epics, "epics is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
     @Override
     @Transactional(readOnly = true)
-    public Optional<IssueGoal> findGoal(String host, long issueId)
+    public Optional<IssueEpic> findEpic(String host, long issueId)
     {
-        return goals.findByHostAndIssueId(host.toLowerCase(Locale.ROOT), issueId).map(IssueGoalEntity::toDomain);
+        return epics.findByHostAndIssueId(host.toLowerCase(Locale.ROOT), issueId).map(IssueEpicEntity::toDomain);
     }
 
     @Override
     @Transactional
-    public void saveGoal(IssueGoal goal)
+    public void saveEpic(IssueEpic epic)
     {
-        IssueGoalEntity entity = goals.findByHostAndIssueId(goal.host(), goal.issueId()).orElseGet(() -> new IssueGoalEntity(goal));
-        entity.update(goal);
-        goals.saveAndFlush(entity);
+        IssueEpicEntity entity = epics.findByHostAndIssueId(epic.host(), epic.issueId()).orElseGet(() -> new IssueEpicEntity(epic));
+        entity.update(epic);
+        epics.saveAndFlush(entity);
     }
 
     @Override

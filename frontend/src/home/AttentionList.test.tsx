@@ -116,7 +116,7 @@ describe('AttentionList', () => {
     const ticket = jiraAttentionItems([jiraIssue])[0];
     const done = { ...ticket, jira: { ...jiraIssue, status: { id: 'done', name: 'Done', category: 'done' } } };
     for (const item of [closed, done, { ...issueItem(99), canStartDevelopment: false },
-      ...jiraAttentionItems([{ ...jiraIssue, isGoal: true }, { ...jiraIssue, hasChildren: true }, { ...jiraIssue, task: { id: 'task', workspaceId: 'ws' } }])]) {
+      ...jiraAttentionItems([{ ...jiraIssue, isEpic: true }, { ...jiraIssue, hasChildren: true }, { ...jiraIssue, task: { id: 'task', workspaceId: 'ws' } }])]) {
       const html = list([item]);
       expect(html).toContain(item.title);
       expect(html).not.toContain('aria-label="Start development');

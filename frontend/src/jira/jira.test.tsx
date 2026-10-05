@@ -37,18 +37,18 @@ describe('Jira development', () => {
     expect(jiraLocation('#/home')).toBeNull();
     expect(jiraRoute(source)).not.toContain('body=');
     expect(jiraRoute(source)).not.toContain('title=');
-    const items = jiraAttentionItems([jiraIssue, { ...jiraIssue, cloudId: 'other' }, { ...jiraIssue, id: 'goal', isGoal: true }, { ...jiraIssue, id: 'parent', hasChildren: true }, { ...jiraIssue, id: 'linked', task: { id: 'task', workspaceId: 'ws' } }]);
-    expect(items.map(item => item.key)).toEqual(['jira:site:1007', 'jira:other:1007', 'jira:site:goal', 'jira:site:parent', 'jira:site:linked']);
+    const items = jiraAttentionItems([jiraIssue, { ...jiraIssue, cloudId: 'other' }, { ...jiraIssue, id: 'epic', isEpic: true }, { ...jiraIssue, id: 'parent', hasChildren: true }, { ...jiraIssue, id: 'linked', task: { id: 'task', workspaceId: 'ws' } }]);
+    expect(items.map(item => item.key)).toEqual(['jira:site:1007', 'jira:other:1007', 'jira:site:epic', 'jira:site:parent', 'jira:site:linked']);
     expect(items.map(item => item.canStartDevelopment)).toEqual([true, true, false, false, false]);
     expect(items[0].reference).toBe('ENG-1007');
   });
-  it('uses a selected Goal icon and cannot run parents', () => {
-    const markup = renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, isGoal: true }} onGoal={() => {}} onStart={() => {}} />);
-    expect(markup).toContain('jira-goal-active');
+  it('uses a selected Epic icon and cannot run parents', () => {
+    const markup = renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, isEpic: true }} onEpic={() => {}} onStart={() => {}} />);
+    expect(markup).toContain('jira-epic-active');
     expect(markup).toContain('aria-pressed="true"');
     expect(markup).not.toContain('Use agent to develop');
-    expect(renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, status: { id: 'done', name: 'Done', category: 'done' } }} onGoal={() => {}} onStart={() => {}} />)).not.toContain('Use agent to develop');
-    expect(renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, hasChildren: true }} onGoal={() => {}} onStart={() => {}} />)).not.toContain('Use agent to develop');
+    expect(renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, status: { id: 'done', name: 'Done', category: 'done' } }} onEpic={() => {}} onStart={() => {}} />)).not.toContain('Use agent to develop');
+    expect(renderToStaticMarkup(<JiraIssueActions issue={{ ...jiraIssue, hasChildren: true }} onEpic={() => {}} onStart={() => {}} />)).not.toContain('Use agent to develop');
   });
   it('strips unknown task source data and displays a compact request', () => {
     const taskSource = { ...source, url: jiraIssue.url, initialTurnId: 'turn', instructions: 'Implement the ticket', internalSecret: 'not-for-renderer' };

@@ -197,13 +197,13 @@ public class WorkspaceController
         return WorkspaceIssueHttpContract.page(issueDevelopment.attention(workspaceId), issueDevelopment);
     }
 
-    @PatchMapping("/{workspaceId}/issues/{issueNumber}/goal")
-    public IssueDevelopmentService.Metadata updateIssueGoal(
+    @PatchMapping("/{workspaceId}/issues/{issueNumber}/epic")
+    public IssueDevelopmentService.Metadata updateIssueEpic(
             @PathVariable String workspaceId,
             @PathVariable int issueNumber,
-            @RequestBody IssueGoalRequest request)
+            @RequestBody IssueEpicRequest request)
     {
-        return issueDevelopment.setGoal(workspaceId, issueNumber, request.isGoal());
+        return issueDevelopment.setEpic(workspaceId, issueNumber, request.isEpic());
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}/detail")
@@ -413,7 +413,7 @@ public class WorkspaceController
 
     public record IssueTypeRequest(String type) {}
 
-    public record IssueGoalRequest(boolean isGoal) {}
+    public record IssueEpicRequest(boolean isEpic) {}
 
     public record IssueMetadataRequest(List<String> assignees, List<String> labels) {}
 

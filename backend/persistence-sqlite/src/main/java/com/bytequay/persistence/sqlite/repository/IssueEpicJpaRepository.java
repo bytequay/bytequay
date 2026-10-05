@@ -13,13 +13,13 @@
  */
 package com.bytequay.persistence.sqlite.repository;
 
-import com.bytequay.persistence.sqlite.entity.IssueGoalEntity;
+import com.bytequay.persistence.sqlite.entity.IssueEpicEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
 
-public interface IssueGoalJpaRepository
-        extends JpaRepository<IssueGoalEntity, String>
+public interface IssueEpicJpaRepository
+        extends JpaRepository<IssueEpicEntity, String>
 {
-    Optional<IssueGoalEntity> findByHostAndIssueId(String host, long issueId);
+    Optional<IssueEpicEntity> findByHostAndIssueId(String host, long issueId);
 }

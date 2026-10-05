@@ -166,7 +166,7 @@ class TestJiraService
         List<JiraIssue> attention = jira.attention();
         assertThat(attention).extracting(JiraIssue::id).containsExactly("2001");
         assertThat(attention.getLast().assignee().map(JiraDtos.Person::accountId)).contains("me");
-        assertThat(attention.getLast().isGoal()).isTrue();
+        assertThat(attention.getLast().isEpic()).isTrue();
         assertThat(attention.getLast().hasChildren()).isTrue();
         assertThat(attention.getLast().status().category()).isEqualTo("done");
         assertThat(attention.getLast().task()).contains(new JiraDtos.TaskLink("task", "workspace"));
@@ -192,16 +192,16 @@ class TestJiraService
         cache.write("connection.cloud.issue.1001", issue);
         cache.write("other.cloud.issue.1001", JiraMapping.issue("other", "cloud", "https://example.atlassian.net", ticket()));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
-        assertThatThrownBy(() -> jira.goal("connection", "cloud", "1001", true)).hasMessageContaining("Assign a ByteQuay workspace");
+        assertThatThrownBy(() -> jira.epic("connection", "cloud", "1001", true)).hasMessageContaining("Assign a ByteQuay workspace");
         assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "missing")).hasMessageContaining("missing");
         assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().workspace())
                 .contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         when(goalsProvider.getObject()).thenReturn(goals);
-        assertThat(jira.goal("connection", "cloud", "1001", true).issue().isGoal()).isTrue();
+        assertThat(jira.epic("connection", "cloud", "1001", true).issue().isEpic()).isTrue();
         // Marking seeds the ticket's workspace goal; unmarking unseeds it. Neither reaches Jira.
         GoalSource source = new GoalSource(GoalItemKind.JIRA, "connection:cloud:1001");
         verify(goals).seed("workspace", source, issue.title());
-        assertThat(jira.goal("connection", "cloud", "1001", false).issue().isGoal()).isFalse();
+        assertThat(jira.epic("connection", "cloud", "1001", false).issue().isEpic()).isFalse();
         verify(goals).unseed(source);
         verifyNoInteractions(remote);
         assertThat(jira.refreshIssue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));

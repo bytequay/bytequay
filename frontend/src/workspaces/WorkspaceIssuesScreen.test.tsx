@@ -59,14 +59,14 @@ const metadata: RepositoryMetadataDto = {
 };
 
 describe('WorkspaceIssuesScreen', () => {
-  it('keeps View task available for a Goal with previous development and prevents another launch', () => {
-    const actions = (value: typeof issue & { isGoal?: boolean; developmentTask?: { taskId: string; workspaceId: string } }) => renderToStaticMarkup(
-      <IssueDevelopmentActions issue={value} onStart={() => {}} onViewTask={() => {}} onToggleGoal={() => {}} />);
+  it('keeps View task available for an Epic with previous development and prevents another launch', () => {
+    const actions = (value: typeof issue & { isEpic?: boolean; developmentTask?: { taskId: string; workspaceId: string } }) => renderToStaticMarkup(
+      <IssueDevelopmentActions issue={value} onStart={() => {}} onViewTask={() => {}} onToggleEpic={() => {}} />);
     expect(actions(issue)).toContain('Start development');
-    expect(actions({ ...issue, isGoal: true })).not.toContain('Start development');
-    const linked = actions({ ...issue, isGoal: true, developmentTask: { taskId: 'completed-task', workspaceId: 'fork-workspace' } });
+    expect(actions({ ...issue, isEpic: true })).not.toContain('Start development');
+    const linked = actions({ ...issue, isEpic: true, developmentTask: { taskId: 'completed-task', workspaceId: 'fork-workspace' } });
     expect(linked).toContain('View task');
-    expect(linked).toContain('Unmark as Goal');
+    expect(linked).toContain('Unmark as Epic');
     expect(linked).not.toContain('Start development');
   });
 

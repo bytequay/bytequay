@@ -92,27 +92,28 @@ function useJiraTasks(issues: JiraIssue[], version: string | null): Record<strin
   return tasks;
 }
 
-/** Goal and Start development: icons on a card, labelled buttons on a ticket. Without a workspace, Goal asks for one first. */
-export function JiraIssueActions({ issue, busy = false, labelled = false, onGoal, onStart, onAssigned }: { issue: JiraIssue; busy?: boolean; labelled?: boolean; onGoal: () => void; onStart: () => void; onAssigned?: (detail: JiraIssueDetail) => void }) {
+/** Epic and Start development: icons on a card, labelled buttons on a ticket. Without a workspace, Epic asks for one first. */
+export function JiraIssueActions({ issue, busy = false, labelled = false, onEpic, onStart, onAssigned }: { issue: JiraIssue; busy?: boolean; labelled?: boolean; onEpic: () => void; onStart: () => void; onAssigned?: (detail: JiraIssueDetail) => void }) {
   const [assigning, setAssigning] = useState(false);
   const task = issue.task;
   const done = issue.status.category === 'done';
-  const canStart = task === null && !issue.isGoal && !issue.hasChildren && !done;
-  const goalLabel = `${issue.isGoal ? 'Unmark' : 'Mark'} ${issue.key} as Goal`;
-  const goal = () => { if (!issue.isGoal && issue.workspace === null) setAssigning(true); else onGoal(); };
+  const canStart = task === null && !issue.isEpic && !issue.hasChildren && !done;
+  const epicLabel = `${issue.isEpic ? 'Unmark' : 'Mark'} ${issue.key} as Epic`;
+  const epicHint = `${epicLabel} in ByteQuay. Its Jira issue type stays unchanged.`;
+  const epic = () => { if (!issue.isEpic && issue.workspace === null) setAssigning(true); else onEpic(); };
   const viewTask = () => { if (task !== null) window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); };
-  const flag = <Flag size={13} fill={issue.isGoal ? 'currentColor' : 'none'} className={issue.isGoal ? 'jira-goal-active' : undefined} aria-hidden="true" />;
+  const flag = <Flag size={13} fill={issue.isEpic ? 'currentColor' : 'none'} className={issue.isEpic ? 'jira-epic-active' : undefined} aria-hidden="true" />;
   return <><span className="jira-actions" role="group" aria-label={`Actions for ${issue.key}`}>{labelled ? <>
-    {(!done || issue.isGoal) && <button type="button" className={`jira-btn${issue.isGoal ? ' is-goal' : ''}`} title={goalLabel} aria-pressed={issue.isGoal} disabled={busy} onClick={goal}>{flag}{issue.isGoal ? 'Goal' : 'Mark as goal'}</button>}
+    {(!done || issue.isEpic) && <button type="button" className={`jira-btn${issue.isEpic ? ' is-epic' : ''}`} title={epicHint} aria-pressed={issue.isEpic} disabled={busy} onClick={epic}>{flag}{issue.isEpic ? 'Epic' : 'Mark as Epic'}</button>}
     {task !== null ? <button type="button" className="jira-btn is-link" onClick={viewTask}><Play size={12} aria-hidden="true" />View task</button>
       : canStart && <button type="button" className="jira-btn is-primary" disabled={busy} onClick={onStart}><Play size={12} fill="currentColor" aria-hidden="true" />Start development</button>}
   </> : <>
-    {(!done || issue.isGoal) && <IconButton label={goalLabel} title={issue.isGoal ? 'Goal · click to unmark' : 'Mark as goal'} pressed={issue.isGoal} disabled={busy} onClick={goal}>{flag}</IconButton>}
+    {(!done || issue.isEpic) && <IconButton label={epicLabel} title={epicHint} pressed={issue.isEpic} disabled={busy} onClick={epic}>{flag}</IconButton>}
     {task !== null ? <IconButton tone="active" label={`View task for ${issue.key}`} title="View task" onClick={viewTask}><Play size={12} aria-hidden="true" /></IconButton>
       : canStart && <IconButton label={`Use agent to develop ${issue.key}`} title="Start development" disabled={busy} onClick={onStart}><Play size={12} aria-hidden="true" /></IconButton>}
   </>}</span>
   {/* The chooser renders inside a card, whose click would otherwise open the ticket too. */}
-  {assigning && <span className="jira-contents" onClick={event => event.stopPropagation()}><JiraWorkspaceDialog issue={issue} onClose={() => setAssigning(false)} onAssigned={detail => { setAssigning(false); onAssigned?.(detail); onGoal(); }} /></span>}</>;
+  {assigning && <span className="jira-contents" onClick={event => event.stopPropagation()}><JiraWorkspaceDialog issue={issue} onClose={() => setAssigning(false)} onAssigned={detail => { setAssigning(false); onAssigned?.(detail); onEpic(); }} /></span>}</>;
 }
 
 export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDto, 'id' | 'name'> }) {
@@ -266,8 +267,8 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
     notifyJiraChanged();
     void reload(refresh);
   };
-  const toggleGoal = async (issue: JiraIssue) => {
-    try { update(await window.bridge.setJiraGoal(jiraIssueLocation(issue), !issue.isGoal)); }
+  const toggleEpic = async (issue: JiraIssue) => {
+    try { update(await window.bridge.setJiraEpic(jiraIssueLocation(issue), !issue.isEpic)); }
     catch (cause) { setError(message(cause)); }
   };
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -311,7 +312,7 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
       </span>}
       {issue.task !== null && <JiraTaskLine task={tasks[issue.task.id]} />}
       <span className="jira-card__foot"><JiraTypeIcon type={issue.type} /><span className="card-key">{issue.key}</span><JiraPriority priority={issue.priority} /><span className="jira-spacer" />
-        <JiraIssueActions issue={issue} onAssigned={detail => update(detail, false)} onGoal={() => { void toggleGoal(issue); }} onStart={() => setLaunch({ issue })} />
+        <JiraIssueActions issue={issue} onAssigned={detail => update(detail, false)} onEpic={() => { void toggleEpic(issue); }} onStart={() => setLaunch({ issue })} />
         <JiraAvatar key={issue.assignee?.accountId ?? 'unassigned'} person={issue.assignee} label={`Assignee: ${issue.assignee?.displayName ?? 'Unassigned'}`} /></span>
     </Card>;
   };
@@ -571,7 +572,7 @@ export function JiraTicketLayer({ location, start = false, draft, replaces, onCl
     void window.bridge.getJiraIssue(location, true).then(({ issue }) => {
       if (!active) return;
       if (issue.task && issue.task.id !== replaces) window.location.hash = workspaceAgentTaskRoute(issue.task.workspaceId, issue.task.id);
-      else if (!issue.isGoal && !issue.hasChildren && issue.status.category !== 'done') setLaunch({ issue, draft, replaces });
+      else if (!issue.isEpic && !issue.hasChildren && issue.status.category !== 'done') setLaunch({ issue, draft, replaces });
     }).catch(() => { /* The ticket view reports its own refresh failure. */ });
     return () => { active = false; };
   }, [draft, location, replaces, start]);
@@ -727,7 +728,7 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
           </div>
           <span className="jira-muted jira-detail__updated">Updated {ago(issue.updatedAt)}</span>
           <span className="jira-spacer" />
-          <JiraIssueActions labelled issue={issue} busy={busy || loading} onAssigned={value => { setDetail(value); onChanged(value, false); }} onGoal={() => { void mutate(() => window.bridge.setJiraGoal(location, !issue.isGoal)); }} onStart={() => onStart(issue, setDetail)} />
+          <JiraIssueActions labelled issue={issue} busy={busy || loading} onAssigned={value => { setDetail(value); onChanged(value, false); }} onEpic={() => { void mutate(() => window.bridge.setJiraEpic(location, !issue.isEpic)); }} onStart={() => onStart(issue, setDetail)} />
           <button type="button" className="bq-iconbtn" aria-label={`Open ${issue.key} in Jira`} title="Open in Jira" onClick={() => { void window.bridge.openInAppBrowser(issue.url); }}><ExternalLink size={14} /></button>
         </div></>}
     </header>
@@ -795,9 +796,9 @@ function JiraDetail({ location, scope, sprints, boardId, onClose, onChanged, onS
               : <button type="button" className={`jira-field-button${issue.workspace ? '' : ' is-empty'}`} aria-label={issue.workspace ? `Change ByteQuay workspace: ${issue.workspace.name}` : undefined} aria-haspopup="dialog" disabled={busy || loading} onClick={() => { closeMenu(); setAssigningWorkspace(true); }}>
                 <FolderGit2 size={12} aria-hidden="true" /><span>{issue.workspace?.name ?? 'Assign workspace'}</span><ChevronDown size={11} strokeWidth={2.4} aria-hidden="true" /></button>}
             <span className="jira-fields__label">Task</span>{issue.task ? <JiraTaskLine task={tasks[issue.task.id]} /> : <span className="jira-dim">Not started</span>}
-            <span className="jira-fields__label">Goal</span>{issue.isGoal ? <span className="jira-fields__goal">Yes{issue.workspace ? ` · ${issue.workspace.name}` : ''}</span> : <span className="jira-dim">No</span>}
+            <span className="jira-fields__label">Epic</span>{issue.isEpic ? <span className="jira-fields__epic">Yes{issue.workspace ? ` · ${issue.workspace.name}` : ''}</span> : <span className="jira-dim">No</span>}
           </div>
-          {issue.workspace === null && !done && <p className="jira-side__note">Start development and Goal ask for a workspace first.</p>}
+          {issue.workspace === null && !done && <p className="jira-side__note">Start development and Epic ask for a workspace first.</p>}
         </section>
       </aside>
       {assigningWorkspace && <JiraWorkspaceDialog issue={issue} onClose={() => setAssigningWorkspace(false)} onAssigned={value => { setDetail(value); setError(value.error); setAssigningWorkspace(false); onChanged(value, false); }} />}

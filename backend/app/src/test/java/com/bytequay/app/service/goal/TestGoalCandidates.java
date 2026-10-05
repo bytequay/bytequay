@@ -79,7 +79,7 @@ class TestGoalCandidates
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
         when(items.findByIdentity(anyString())).thenReturn(Optional.empty());
         when(development.findTask(anyString(), anyLong())).thenReturn(Optional.empty());
-        when(development.findGoal(anyString(), anyLong())).thenReturn(Optional.empty());
+        when(development.findEpic(anyString(), anyLong())).thenReturn(Optional.empty());
         when(recommendations.list(any())).thenReturn(ImmutableList.of());
     }
 

@@ -167,11 +167,11 @@ class TestJiraDevelopmentService
     }
 
     @Test
-    void rejectsGoalParentAndDoneBeforeAnyFreshReadOrProvisioning()
+    void rejectsEpicParentAndDoneBeforeAnyFreshReadOrProvisioning()
     {
-        when(jira.isGoal("cloud", "10001")).thenReturn(true);
-        assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> task)).hasMessageContaining("Goal");
-        when(jira.isGoal("cloud", "10001")).thenReturn(false);
+        when(jira.isEpic("cloud", "10001")).thenReturn(true);
+        assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> task)).hasMessageContaining("Epic");
+        when(jira.isEpic("cloud", "10001")).thenReturn(false);
         when(jira.issue("connection", "cloud", "10001")).thenReturn(issue(SOURCE.title(), true, "indeterminate", NOW));
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> task)).hasMessageContaining("children");
         when(jira.issue("connection", "cloud", "10001")).thenReturn(issue(SOURCE.title(), false, "done", NOW));
@@ -194,13 +194,13 @@ class TestJiraDevelopmentService
     }
 
     @Test
-    void concurrentStartsAcrossWorkspacesReuseOneTaskAndGoalWaitsForAdmission()
+    void concurrentStartsAcrossWorkspacesReuseOneTaskAndEpicWaitsForAdmission()
             throws Exception
     {
         CountDownLatch admitted = new CountDownLatch(1);
         CountDownLatch finish = new CountDownLatch(1);
-        AtomicBoolean goalChanged = new AtomicBoolean();
-        when(jira.isGoal("cloud", "10001")).thenAnswer(ignored -> goalChanged.get());
+        AtomicBoolean epicChanged = new AtomicBoolean();
+        when(jira.isEpic("cloud", "10001")).thenAnswer(ignored -> epicChanged.get());
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(() -> service.start("workspace", taskId, INPUT, "Implement", accepted -> {
                 admitted.countDown();
@@ -216,15 +216,15 @@ class TestJiraDevelopmentService
             }));
             assertThat(admitted.await(5, TimeUnit.SECONDS)).isTrue();
             var second = executor.submit(() -> service.start("other-workspace", TaskId.random(), INPUT, "Implement", ignored -> { throw new AssertionError("duplicate task"); }));
-            var goal = executor.submit(() -> JiraIssueLocks.withLock("cloud", "10001", () -> {
-                goalChanged.set(true);
+            var epic = executor.submit(() -> JiraIssueLocks.withLock("cloud", "10001", () -> {
+                epicChanged.set(true);
                 return true;
             }));
-            assertThat(goalChanged).isFalse();
+            assertThat(epicChanged).isFalse();
             finish.countDown();
             assertThat(first.get(5, TimeUnit.SECONDS)).isSameAs(task);
             assertThat(second.get(5, TimeUnit.SECONDS)).isSameAs(task);
-            assertThat(goal.get(5, TimeUnit.SECONDS)).isTrue();
+            assertThat(epic.get(5, TimeUnit.SECONDS)).isTrue();
             verify(taskStore).insert(task);
         }
         finally {

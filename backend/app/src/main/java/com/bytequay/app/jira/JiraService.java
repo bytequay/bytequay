@@ -341,12 +341,12 @@ public class JiraService
         return detail;
     }
 
-    public boolean isGoal(String cloudId, String issueId)
+    public boolean isEpic(String cloudId, String issueId)
     {
         return cache.read("goal." + segment(cloudId) + "." + segment(issueId), Boolean.class).orElse(false);
     }
 
-    public JiraDtos.Detail goal(String connectionId, String cloudId, String issueId, boolean goal)
+    public JiraDtos.Detail epic(String connectionId, String cloudId, String issueId, boolean goal)
     {
         return JiraIssueLocks.withLock(cloudId, issueId, () -> {
             JiraIssue issue = issue(connectionId, cloudId, issueId);
@@ -354,7 +354,7 @@ public class JiraService
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "This ticket already has a development task.");
             }
             if (goal && issue.workspace().isEmpty()) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT, "Assign a ByteQuay workspace before marking this ticket as a Goal.");
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Assign a ByteQuay workspace before marking this ticket as an Epic.");
             }
             cache.write("goal." + segment(cloudId) + "." + segment(issueId), goal);
             // The marked ticket gets its own workspace goal, named after it; unmarking keeps that goal only while it holds work.
@@ -761,7 +761,7 @@ public class JiraService
         Optional<JiraDtos.WorkspaceLink> workspace = task.map(JiraDtos.TaskLink::workspaceId)
                 .or(() -> cache.read("workspace." + segment(issue.cloudId()) + "." + segment(issue.id()), String.class))
                 .flatMap(workspaces::findById).map(value -> new JiraDtos.WorkspaceLink(value.id(), value.name()));
-        return issue.withMetadata(isGoal(issue.cloudId(), issue.id()), task, workspace);
+        return issue.withMetadata(isEpic(issue.cloudId(), issue.id()), task, workspace);
     }
 
     private JiraDtos.IssuePage page(Scope scope)

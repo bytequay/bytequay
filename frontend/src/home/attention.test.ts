@@ -155,16 +155,16 @@ describe('attentionKind', () => {
     expect(attentionSummary(item).tag.label).toBe('Open');
   });
 
-  it('keeps Goal and linked-task issue updates while preventing a new development launch', () => {
+  it('keeps Epic and linked-task issue updates while preventing a new development launch', () => {
     const source = snapshot();
     source.issues.push(
-      { ...source.issues[0], id: 10, number: 8, isGoal: true },
+      { ...source.issues[0], id: 10, number: 8, isEpic: true },
       { ...source.issues[0], id: 11, number: 9, developmentTask: { taskId: 'finished-task', workspaceId: 'other-workspace' } },
     );
     expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7, 8, 9]);
     expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, false, false]);
     expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.isEpic)).toEqual([false, true, false]);
-    source.issues[1].isGoal = false;
+    source.issues[1].isEpic = false;
     expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, true, false]);
   });
 
@@ -178,13 +178,13 @@ describe('attentionKind', () => {
     expect(attentionCandidates([], [...first, { ...second[0], sourceKey: 'another-host:issue:9' }])).toHaveLength(2);
   });
 
-  it('keeps acknowledgement after Goal classification changes', () => {
+  it('keeps acknowledgement after Epic classification changes', () => {
     const source = snapshot();
     const original = issueAttentionItems(source, 'workspace-id', 'jack')[0];
     const handled = { [original.key]: handledEntry(original, 'ack', null, 'acknowledged') };
-    source.issues[0].isGoal = true;
+    source.issues[0].isEpic = true;
     expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
-    source.issues[0].isGoal = false;
+    source.issues[0].isEpic = false;
     expect(visibleAttention(issueAttentionItems(source, 'workspace-id', 'jack'), handled, Date.now())).toEqual([]);
   });
 });

@@ -122,7 +122,7 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     recordJiraRecentTouch: async () => {},
     getJiraIssue: async (location, refresh, automatic) => { if (offline && refresh) throw new Error('Jira is offline'); record('detail', location, refresh, automatic); return { ...detail, issue }; },
     assignJiraWorkspace: async (location, workspaceId) => { record('assign', location, workspaceId); if (assignmentFails) { assignmentFails = false; throw new Error('Workspace assignment failed'); } const workspace = workspaces.find(value => value.id === workspaceId); assert(workspace !== undefined, 'Selected workspace exists'); issue = { ...issue, workspace: { id: workspace.id, name: workspace.name } }; return { ...detail, issue }; },
-    setJiraGoal: async (_location, isGoal) => { record('goal', isGoal); assert(!isGoal || issue.workspace !== null, 'Goal requires a saved workspace'); issue = { ...issue, isGoal }; return { ...detail, issue }; },
+    setJiraEpic: async (_location, isEpic) => { record('epic', isEpic); assert(!isEpic || issue.workspace !== null, 'Epic requires a saved workspace'); issue = { ...issue, isEpic }; return { ...detail, issue }; },
     updateJiraIssue: async (_location, fields, expectedUpdatedAt) => { record('fields', fields, expectedUpdatedAt); issue = { ...issue, labels: fields.labels as string[] }; return { ...detail, issue }; },
     transitionJiraIssue: async (_location, id, fields, expectedUpdatedAt) => { record('transition', id, fields, expectedUpdatedAt); const transition = detail.transitions.find(value => value.id === id); assert(transition !== undefined, 'Known transition required'); issue = { ...issue, status: transition.to }; return { ...detail, issue }; },
     commentJiraIssue: async (_location, body, operationId, parentId) => { record('comment', body, operationId, parentId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: `posted-${detail.comments.length}`, parentId: parentId ?? null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt, mine: true, editableText: body }] }; return { ...detail, issue }; },
@@ -318,7 +318,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       await until(() => assignment() === null && button('Change ByteQuay workspace: Connectors', pane).textContent?.includes('Connectors') === true);
       assert(issue.workspace?.id === 'other-workspace' && reply.value === 'Keep my unsent reply.', 'Changing workspace preserves the ticket and comment draft');
       assert(calls.filter(call => call.name === 'assign').map(call => call.args[1]).join('|') === 'workspace|workspace|other-workspace', 'Only explicit assignment submissions save the chosen workspace');
-      assert(!issue.isGoal && taskRequest === null && calls.every(call => call.name === 'assign' || (call.name === 'issues' && call.args[1] !== true)), 'Local assignment creates no Goal, task, Jira write or remote board refresh');
+      assert(!issue.isEpic && taskRequest === null && calls.every(call => call.name === 'assign' || (call.name === 'issues' && call.args[1] !== true)), 'Local assignment creates no Epic, task, Jira write or remote board refresh');
     },
     async 'handles missing workspaces and keeps a linked task workspace read-only'() {
       await mountPreview();
@@ -334,28 +334,28 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(fields.querySelector('.jira-field-button') === null && !calls.some(call => call.name === 'assign'), 'A linked development task owns its read-only workspace');
       await until(() => fields.querySelector('.jira-task-line')?.textContent === 'PR #42· open', 'Details name the linked task and its pull request');
     },
-    async 'assigns a workspace before Goal marking and preserves cancellation and failures'() {
+    async 'assigns a workspace before Epic marking and preserves cancellation and failures'() {
       await mountPreview(false, false);
       const card = document.querySelector('.jira-card'); assert(card !== null, 'Card exists');
       const assignment = () => document.querySelector<HTMLDialogElement>('dialog[aria-label="Assign workspace for ENG-1007"][open]');
-      button('Mark ENG-1007 as Goal', card).click(); await until(() => assignment() !== null);
-      assert(document.querySelector('.jira-detail') === null, 'Goal action does not also open ticket details');
+      button('Mark ENG-1007 as Epic', card).click(); await until(() => assignment() !== null);
+      assert(document.querySelector('.jira-detail') === null, 'Epic action does not also open ticket details');
       assert(select('Workspace').value === '' && assignButton().disabled, 'Workspace is not inferred and confirmation requires a selection');
       await keyPress('Escape'); await until(() => assignment() === null);
-      assert(issue.workspace === null && !issue.isGoal && !calls.some(call => call.name === 'assign' || call.name === 'goal'), 'Cancel leaves assignment and Goal untouched');
-      button('Mark ENG-1007 as Goal', card).click(); await until(() => assignment() !== null);
+      assert(issue.workspace === null && !issue.isEpic && !calls.some(call => call.name === 'assign' || call.name === 'epic'), 'Cancel leaves assignment and Epic untouched');
+      button('Mark ENG-1007 as Epic', card).click(); await until(() => assignment() !== null);
       choose(select('Workspace'), 'workspace'); await settle();
-      assert(!calls.some(call => call.name === 'assign' || call.name === 'goal'), 'Selecting a workspace waits for explicit confirmation');
+      assert(!calls.some(call => call.name === 'assign' || call.name === 'epic'), 'Selecting a workspace waits for explicit confirmation');
       assignmentFails = true; assignButton().click(); await until(() => assignment()?.textContent?.includes('Workspace assignment failed') ?? false);
-      assert(select('Workspace').value === 'workspace' && issue.workspace === null && !issue.isGoal && !calls.some(call => call.name === 'goal'), 'Failed assignment retains the choice without marking Goal');
-      assignButton().click(); await until(() => card.querySelector('.jira-goal-active') !== null && assignment() === null);
+      assert(select('Workspace').value === 'workspace' && issue.workspace === null && !issue.isEpic && !calls.some(call => call.name === 'epic'), 'Failed assignment retains the choice without marking Epic');
+      assignButton().click(); await until(() => card.querySelector('.jira-epic-active') !== null && assignment() === null);
       const workspace = card.querySelector('.jira-workspace'); assert(workspace?.textContent?.includes('Trino') ?? false, 'Assigned workspace appears on the card');
       const workspaceBounds = workspace?.getBoundingClientRect(); assert(workspaceBounds !== undefined, 'Workspace badge is visible');
       assert(workspace?.contains(document.elementFromPoint(workspaceBounds.left + workspaceBounds.width / 2, workspaceBounds.top + workspaceBounds.height / 2)) ?? false, 'Workspace hover tooltip remains reachable');
-      assert(card.querySelector('[aria-label="Use agent to develop ENG-1007"]') === null && document.querySelector('.jira-detail') === null, 'Goal cannot start, and choosing a workspace never opened the ticket');
-      button('Unmark ENG-1007 as Goal', card).click(); await until(() => card.querySelector('.jira-goal-active') === null);
-      button('Mark ENG-1007 as Goal', card).click(); await until(() => card.querySelector('.jira-goal-active') !== null);
-      assert(assignment() === null && calls.filter(call => call.name === 'assign').length === 2, 'Saved workspace is reused for later Goal actions');
+      assert(card.querySelector('[aria-label="Use agent to develop ENG-1007"]') === null && document.querySelector('.jira-detail') === null, 'Epic cannot start, and choosing a workspace never opened the ticket');
+      button('Unmark ENG-1007 as Epic', card).click(); await until(() => card.querySelector('.jira-epic-active') === null);
+      button('Mark ENG-1007 as Epic', card).click(); await until(() => card.querySelector('.jira-epic-active') !== null);
+      assert(assignment() === null && calls.filter(call => call.name === 'assign').length === 2, 'Saved workspace is reused for later Epic actions');
     },
     async 'retains development workspace on cancellation and launches with the saved assignment'() {
       await mountPreview(); const pane = document.querySelector('.jira-detail'); assert(pane !== null, 'Details exist');
@@ -411,15 +411,15 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       assert(!pane.open && !pane.matches(':modal') && document.querySelector('dialog:modal') === null, 'Embedded browser is not blocked by the ticket modal');
       await browserOpen(false);
       assert(pane.matches(':modal') && document.querySelector('dialog.jira-detail') === pane && reply.value === 'Keep this reply while I check Jira.', 'Returning restores the same ticket and unsent reply');
-      button('Mark as goal', pane).click(); await until(() => document.querySelector('dialog[aria-label="Assign workspace for ENG-1007"][open]') !== null);
+      button('Mark as Epic', pane).click(); await until(() => document.querySelector('dialog[aria-label="Assign workspace for ENG-1007"][open]') !== null);
       choose(select('Workspace'), 'workspace'); await settle();
       await browserOpen(true); assert(document.querySelector('dialog:modal') === null, 'Workspace assignment also releases the embedded browser');
       await browserOpen(false); assert(select('Workspace').value === 'workspace', 'Returning retains the pending workspace choice');
       const assignment = document.querySelector('dialog[aria-label="Assign workspace for ENG-1007"]'); assert(assignment !== null, 'Workspace assignment remains mounted');
       const choiceBounds = select('Workspace').getBoundingClientRect();
       assert(assignment.contains(document.activeElement) && assignment.contains(document.elementFromPoint(choiceBounds.left + choiceBounds.width / 2, choiceBounds.top + choiceBounds.height / 2)), 'Restored workspace assignment stays above the underlying ticket');
-      assignButton().click(); await until(() => pane.querySelector('.jira-goal-active') !== null);
-      button('Goal', pane).click(); await until(() => pane.querySelector('.jira-goal-active') === null);
+      assignButton().click(); await until(() => pane.querySelector('.jira-epic-active') !== null);
+      button('Epic', pane).click(); await until(() => pane.querySelector('.jira-epic-active') === null);
       button('Start development', pane).click(); await until(() => document.querySelector('.agt-compose textarea') !== null);
       const launch = document.querySelector<HTMLDialogElement>('dialog[aria-label="Develop ENG-1007"]'); assert(launch !== null, 'Development dialog exists');
       const instructions = launch.querySelector<HTMLTextAreaElement>('.agt-compose textarea'); assert(instructions !== null, 'Development draft exists');

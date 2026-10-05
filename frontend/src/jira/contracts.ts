@@ -36,7 +36,7 @@ export type JiraIssue = {
   id: string; key: string; url: string; connectionId: string; cloudId: string; title: string; body: string;
   type: string; status: JiraStatus; assignee: JiraUser | null; labels: string[];
   priority: { id: string; name: string } | null; parent: { id: string; key: string; title: string; type: string | null } | null;
-  hasChildren: boolean; isGoal: boolean; updatedAt: string; completedAt: string | null; dueDate: string | null;
+  hasChildren: boolean; isEpic: boolean; updatedAt: string; completedAt: string | null; dueDate: string | null;
   task: { id: string; workspaceId: string } | null;
   workspace: { id: string; name: string } | null;
   /** Sent with Needs attention tickets only. */
@@ -94,7 +94,7 @@ export type JiraBridge = {
   moveJiraIssue: (location: JiraLocation, sprintId: number | null, boardId: number, expectedUpdatedAt: string) => Promise<JiraIssueDetail>;
   commentJiraIssue: (location: JiraLocation, body: string, operationId: string, parentId?: string) => Promise<JiraIssueDetail>;
   editJiraComment: (location: JiraLocation, commentId: string, body: string, expectedUpdated: string) => Promise<JiraIssueDetail>;
-  setJiraGoal: (location: JiraLocation, isGoal: boolean) => Promise<JiraIssueDetail>;
+  setJiraEpic: (location: JiraLocation, isEpic: boolean) => Promise<JiraIssueDetail>;
   assignJiraWorkspace: (location: JiraLocation, workspaceId: string) => Promise<JiraIssueDetail>;
   listJiraAttention: () => Promise<JiraIssue[]>;
   /** Work types a new child of the ticket can have; read from Jira when the create form opens. */

@@ -13,7 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.entity;
 
-import com.bytequay.core.domain.IssueGoal;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
@@ -25,9 +25,10 @@ import lombok.Getter;
 
 import java.time.Instant;
 
+// Keep the physical names so renaming the marker preserves saved Epic selections.
 @Entity
 @Table(name = "issue_goal", indexes = @Index(name = "idx_issue_goal_source", columnList = "host,issue_id"))
-public class IssueGoalEntity
+public class IssueEpicEntity
         extends AssignedIdEntity<String>
 {
     @Id
@@ -47,32 +48,32 @@ public class IssueGoalEntity
     private int number;
 
     @Column(name = "is_goal", nullable = false)
-    private boolean goal;
+    private boolean epic;
 
     @Column(name = "updated_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant updatedAt;
 
-    protected IssueGoalEntity() {}
+    protected IssueEpicEntity() {}
 
-    public IssueGoalEntity(IssueGoal goal)
+    public IssueEpicEntity(IssueEpic epic)
     {
-        id = goal.host() + ":" + goal.issueId();
-        host = goal.host();
-        issueId = goal.issueId();
-        update(goal);
+        id = epic.host() + ":" + epic.issueId();
+        host = epic.host();
+        issueId = epic.issueId();
+        update(epic);
     }
 
-    public void update(IssueGoal goal)
+    public void update(IssueEpic epic)
     {
-        repo = goal.repo();
-        number = goal.number();
-        this.goal = goal.isGoal();
-        updatedAt = goal.updatedAt();
+        repo = epic.repo();
+        number = epic.number();
+        this.epic = epic.isEpic();
+        updatedAt = epic.updatedAt();
     }
 
-    public IssueGoal toDomain()
+    public IssueEpic toDomain()
     {
-        return new IssueGoal(host, issueId, repo, number, goal, updatedAt);
+        return new IssueEpic(host, issueId, repo, number, epic, updatedAt);
     }
 }

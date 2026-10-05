@@ -36,8 +36,8 @@
 .jira-btn.is-primary:not(:disabled) { border-color: rgba(31, 35, 40, 0.15); background: #1f883d; color: #ffffff; }
 .jira-btn.is-primary:hover:not(:disabled) { background: #1a7f37; }
 .jira-btn.is-link { color: #0969da; }
-.jira-btn.is-goal { border-color: #eac54f; background: #fff8c5; color: #9a6700; }
-.jira-btn.is-goal:hover:not(:disabled) { background: #fff3a3; }
+.jira-btn.is-epic { border-color: #eac54f; background: #fff8c5; color: #9a6700; }
+.jira-btn.is-epic:hover:not(:disabled) { background: #fff3a3; }
 :is(.jira-screen, .jira-detail, .jira-launch) .bq-iconbtn { display: inline-flex; flex: none; align-items: center; justify-content: center; width: 28px; height: 28px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #57606a; cursor: pointer; }
 :is(.jira-screen, .jira-detail, .jira-launch) .bq-iconbtn:hover:not(:disabled) { background: #eff1f3; color: var(--text-1); }
 :is(.jira-screen, .jira-detail, .jira-launch) .bq-iconbtn:disabled { opacity: 0.45; cursor: default; }
@@ -47,7 +47,7 @@
 .jira-add { flex: none; height: 26px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: #0969da; font: inherit; font-size: 12.5px; font-weight: 600; white-space: nowrap; cursor: pointer; }
 .jira-add:hover:not(:disabled) { background: #ddf4ff; }
 .jira-add:disabled { color: #8c959f; cursor: default; }
-.jira-goal-active { color: #9a6700; }
+.jira-epic-active { color: #9a6700; }
 .jira-actions { display: inline-flex; flex: none; align-items: center; gap: 2px; }
 .jira-detail__bar .jira-actions { gap: 10px; }
 
@@ -294,7 +294,7 @@ textarea.jira-field { width: 100%; height: auto; padding: 6px 8px; line-height: 
 .jira-fields > .jira-parent { justify-self: start; max-width: 100%; font-size: 12px; line-height: 20px; }
 .jira-fields__labels .jira-label { font-size: 11.5px; }
 .jira-fields__stack { display: grid; gap: 3px; min-width: 0; }
-.jira-fields__goal { color: #9a6700; }
+.jira-fields__epic { color: #9a6700; }
 .jira-fields .jira-priority { font-size: 13px; gap: 6px; }
 .jira-fields .jira-priority__word { margin-left: 0; }
 .jira-field-button { display: flex; align-items: center; gap: 6px; width: 100%; height: 28px; padding: 0 8px; border: 1px solid #d0d7de; border-radius: 6px; box-sizing: border-box; background: #ffffff; color: var(--text-1); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer; }

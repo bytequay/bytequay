@@ -1803,8 +1803,8 @@ function registerIpc(): void {
     backendJson(`${jiraIssuePath(location)}/comments`, jsonInit('POST', { body, operationId, parentId: parentId ?? null }, agentHeaders())));
   ipcMain.handle('jira:comment:edit', (_event, location: JiraLocation, commentId: string, body: string, expectedUpdated: string) =>
     backendJson(`${jiraIssuePath(location)}/comments/${encodeURIComponent(commentId)}`, jsonInit('PUT', { body, expectedUpdated }, agentHeaders())));
-  ipcMain.handle('jira:issue:goal', (_event, location: JiraLocation, isGoal: boolean) =>
-    backendJson(`${jiraIssuePath(location)}/goal`, jsonInit('PUT', { isGoal }, agentHeaders())));
+  ipcMain.handle('jira:issue:epic', (_event, location: JiraLocation, isEpic: boolean) =>
+    backendJson(`${jiraIssuePath(location)}/epic`, jsonInit('PUT', { isEpic }, agentHeaders())));
   ipcMain.handle('jira:issue:workspace', (_event, location: JiraLocation, workspaceId: string) =>
     backendJson(`${jiraIssuePath(location)}/workspace`, jsonInit('PUT', { workspaceId }, agentHeaders())));
   ipcMain.handle('jira:attention', () => backendJson(`${backendBase()}/api/jira/attention`, { headers: agentHeaders() }));
@@ -1832,9 +1832,9 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}`));
   ipcMain.handle('workspaces:issues:attention', (_event, workspaceId: string) =>
     backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/attention`));
-  ipcMain.handle('workspaces:issues:goal', (_event, workspaceId: string, issueNumber: number, isGoal: boolean) =>
-    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/goal`,
-      jsonInit('PATCH', { isGoal })));
+  ipcMain.handle('workspaces:issues:epic', (_event, workspaceId: string, issueNumber: number, isEpic: boolean) =>
+    backendJson(`${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/issues/${encodeURIComponent(issueNumber)}/epic`,
+      jsonInit('PATCH', { isEpic })));
   const goalsUrl = (workspaceId: string, path = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/goals${path}`;
   const workItemsUrl = (workspaceId: string, suffix = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/work-items${suffix}`;
   ipcMain.handle('work-items:list', (_event, workspaceId: string) =>

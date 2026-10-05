@@ -128,8 +128,8 @@ public class JiraDevelopmentService
         if (!issue.workspace().orElseThrow().id().equals(workspaceId)) {
             throw new AgentConflictException("This Jira ticket is assigned to another workspace. Refresh it before starting development.");
         }
-        if (issue.isGoal() || jira.isGoal(input.cloudId(), input.issueId())) {
-            throw new AgentConflictException("This Jira issue is a Goal. Unmark it before starting development.");
+        if (issue.isEpic() || jira.isEpic(input.cloudId(), input.issueId())) {
+            throw new AgentConflictException("This Jira issue is an Epic. Unmark it before starting development.");
         }
         if (issue.hasChildren()) {
             throw new AgentConflictException("This Jira issue has children. Start development from a leaf issue.");

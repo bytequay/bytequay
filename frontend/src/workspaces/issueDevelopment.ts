@@ -26,5 +26,5 @@ export function notifyIssueDevelopmentChanged(issueId?: number): void {
 
 export function issueDevelopmentAction(issue: DevelopmentIssue): 'view' | 'start' | null {
   if (issue.developmentTask != null) return 'view';
-  return issue.isGoal ? null : 'start';
+  return issue.isEpic ? null : 'start';
 }

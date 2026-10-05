@@ -364,8 +364,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const imagesAccepted = !deepSeek && acceptsImages(models, selection?.model, provider?.capabilities ?? null);
   const blocker = (sourceLoading ? 'Loading issue…' : sourceError)
     ?? (sourceJira?.status.category === 'done' ? 'This ticket is done. Reopen it in Jira before starting new development.' : null)
-    ?? (sourceJira?.isGoal || sourceJira?.hasChildren ? 'Choose a leaf ticket to start development.' : null)
-    ?? (issue?.isGoal ? 'Goals organize work and cannot start development. Unmark this issue as a Goal to run it.' : null)
+    ?? (sourceJira?.isEpic || sourceJira?.hasChildren ? 'Choose a leaf ticket to start development.' : null)
+    ?? (issue?.isEpic ? 'Epics organize work and cannot start development. Unmark this issue as an Epic to run it.' : null)
     ?? creationBlocker(catalog, laneId, selection)
     ?? automationError
     ?? (taskAutomation === null ? 'Loading automation settings…' : null)

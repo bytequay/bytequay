@@ -200,7 +200,7 @@ class TestJiraController
     }
 
     @Test
-    void bindsSprintCommentAndGoalCommandsWithoutLosingNullBacklog()
+    void bindsSprintCommentAndEpicCommandsWithoutLosingNullBacklog()
             throws Exception
     {
         when(jira.move("connection", "cloud", "10001", UPDATED, Optional.empty())).thenReturn(detail());
@@ -228,10 +228,10 @@ class TestJiraController
                         .content(mapper.writeValueAsString(ImmutableMap.of("body", "Updated", "expectedUpdated", "2026-09-26T01:00:00.000+0000"))))
                 .andExpect(status().isOk());
         verify(jira).editComment("connection", "cloud", "10001", "5", "Updated", "2026-09-26T01:00:00.000+0000");
-        when(jira.goal("connection", "cloud", "10001", true)).thenReturn(detail());
-        mvc.perform(put(ISSUE + "/goal").contentType(MediaType.APPLICATION_JSON).content("{\"isGoal\":true}"))
+        when(jira.epic("connection", "cloud", "10001", true)).thenReturn(detail());
+        mvc.perform(put(ISSUE + "/epic").contentType(MediaType.APPLICATION_JSON).content("{\"isEpic\":true}"))
                 .andExpect(status().isOk());
-        verify(jira).goal("connection", "cloud", "10001", true);
+        verify(jira).epic("connection", "cloud", "10001", true);
         when(jira.assignWorkspace("connection", "cloud", "10001", "workspace")).thenReturn(detail());
         mvc.perform(put(ISSUE + "/workspace").contentType(MediaType.APPLICATION_JSON).content("{\"workspaceId\":\"workspace\"}"))
                 .andExpect(status().isOk());

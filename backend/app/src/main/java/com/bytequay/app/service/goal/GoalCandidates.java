@@ -248,12 +248,12 @@ public class GoalCandidates
     private boolean workable(RepositoryIssue issue)
     {
         return items.findByIdentity(WorkItemLink.issueIdentity(HOST, issue.id())).isEmpty() && development.findTask(HOST, issue.id()).isEmpty()
-                && development.findGoal(HOST, issue.id()).isEmpty();
+                && development.findEpic(HOST, issue.id()).isEmpty();
     }
 
     private boolean workable(JiraIssue ticket)
     {
-        return !ticket.isGoal() && !ticket.hasChildren() && ticket.task().isEmpty() && !"done".equals(ticket.status().category())
+        return !ticket.isEpic() && !ticket.hasChildren() && ticket.task().isEmpty() && !"done".equals(ticket.status().category())
                 && items.findByIdentity(WorkItemLink.jiraIdentity(ticket.cloudId(), ticket.id())).isEmpty();
     }
 

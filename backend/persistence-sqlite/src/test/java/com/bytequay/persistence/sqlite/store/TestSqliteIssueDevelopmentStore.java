@@ -19,7 +19,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.core.domain.GitHubIssueSource;
-import com.bytequay.core.domain.IssueGoal;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -91,47 +91,47 @@ class TestSqliteIssueDevelopmentStore
     {
         RepositoryIssue issue = issue(42, "alice");
         issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue), "sync-1");
-        IssueGoal goal = new IssueGoal("GitHub.COM", issue.id(), "Owner/Repo", issue.number(), true, NOW);
+        IssueEpic epic = new IssueEpic("GitHub.COM", issue.id(), "Owner/Repo", issue.number(), true, NOW);
         GitHubIssueSource source = source(issue);
         IssueTask task = new IssueTask("task-1", "workspace-1", source, Optional.of("Accepted instructions"), NOW);
-        store.saveGoal(goal);
+        store.saveEpic(epic);
         store.insertTask(task);
         issues.delete(REPOSITORY_ID, issue.number());
         entityManager.flush();
         entityManager.clear();
 
         assertThat(issues.find(REPOSITORY_ID, issue.number())).isEmpty();
-        assertThat(store.findGoal("GITHUB.COM", issue.id())).contains(goal);
+        assertThat(store.findEpic("GITHUB.COM", issue.id())).contains(epic);
         assertThat(store.findTask("GITHUB.COM", issue.id())).contains(task);
         assertThat(store.findByTaskId(task.taskId())).contains(task);
         assertThat(task.source().host()).isEqualTo("github.com");
         assertThat(task.source().repo()).isEqualTo("owner/repo");
 
-        IssueGoal ordinary = new IssueGoal(goal.host(), goal.issueId(), goal.repo(), goal.number(), false, NOW.plusSeconds(1));
-        store.saveGoal(ordinary);
+        IssueEpic ordinary = new IssueEpic(epic.host(), epic.issueId(), epic.repo(), epic.number(), false, NOW.plusSeconds(1));
+        store.saveEpic(ordinary);
         issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(issue), "sync-2");
         issues.completeSync(REPOSITORY_ID, "sync-3", NOW.plusSeconds(2));
         entityManager.flush();
         entityManager.clear();
 
         assertThat(issues.find(REPOSITORY_ID, issue.number())).isEmpty();
-        assertThat(store.findGoal("github.com", issue.id())).contains(ordinary);
+        assertThat(store.findEpic("github.com", issue.id())).contains(ordinary);
         assertThat(store.findByTaskId(task.taskId())).contains(task);
     }
 
     @Test
-    void attentionIncludesEveryCachedRepositoryIssueRegardlessOfAssignmentGoalOrLinkedTask()
+    void attentionIncludesEveryCachedRepositoryIssueRegardlessOfAssignmentEpicOrLinkedTask()
     {
         List<RepositoryIssue> firstPage = IntStream.rangeClosed(1, 100).mapToObj(number -> issue(number, "bob")).collect(ImmutableList.toImmutableList());
         issues.saveSyncPage(REPOSITORY_ID, firstPage, "sync-1");
-        RepositoryIssue goal = issue(101, "alice");
+        RepositoryIssue epic = issue(101, "alice");
         RepositoryIssue linked = issue(102, "alice");
         RepositoryIssue eligible = issue(103, "ALICE");
         RepositoryIssue unrelated = issue(104, "alice-other");
         RepositoryIssue next = issue(105, "alice");
-        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(goal, linked, eligible, unrelated, next), "sync-1");
-        store.saveGoal(new IssueGoal("github.com", goal.id(), "owner/repo", goal.number(), true, NOW));
-        store.saveGoal(new IssueGoal("github.com", next.id(), "owner/repo", next.number(), false, NOW));
+        issues.saveSyncPage(REPOSITORY_ID, ImmutableList.of(epic, linked, eligible, unrelated, next), "sync-1");
+        store.saveEpic(new IssueEpic("github.com", epic.id(), "owner/repo", epic.number(), true, NOW));
+        store.saveEpic(new IssueEpic("github.com", next.id(), "owner/repo", next.number(), false, NOW));
         store.insertTask(new IssueTask("linked-task", "another-workspace", source(linked), Optional.of("Accepted context"), NOW));
         issues.saveSyncPage(200, ImmutableList.of(issue(106, "alice")), "sync-1");
         entityManager.flush();
@@ -139,7 +139,7 @@ class TestSqliteIssueDevelopmentStore
 
         assertThat(issues.findPage(REPOSITORY_ID, RepoRef.of("owner", "repo"), 0, 100).issues()).doesNotContain(eligible);
         assertThat(issues.findPage(REPOSITORY_ID, RepoRef.of("owner", "repo"), 0, Integer.MAX_VALUE).issues())
-                .hasSize(105).containsAll(firstPage).contains(goal, linked, eligible, unrelated, next).doesNotContain(issue(106, "alice"));
+                .hasSize(105).containsAll(firstPage).contains(epic, linked, eligible, unrelated, next).doesNotContain(issue(106, "alice"));
     }
 
     @Test
@@ -205,14 +205,14 @@ class TestSqliteIssueDevelopmentStore
     }
 
     @Test
-    void deletesTheIssueLinkWithItsTaskWhileRetainingGoalClassification()
+    void deletesTheIssueLinkWithItsTaskWhileRetainingEpicClassification()
     {
         AgentTask task = agentTask();
         GitHubIssueSource source = source(issue(42, "alice"));
-        IssueGoal goal = new IssueGoal(source.host(), source.issueId(), source.repo(), source.number(), true, NOW);
+        IssueEpic epic = new IssueEpic(source.host(), source.issueId(), source.repo(), source.number(), true, NOW);
         tasks.insert(task);
         store.insertTask(new IssueTask(task.id().toString(), "workspace-1", source, Optional.of("Accepted context"), NOW));
-        store.saveGoal(goal);
+        store.saveEpic(epic);
         entityManager.clear();
 
         tasks.delete(task.id());
@@ -221,7 +221,7 @@ class TestSqliteIssueDevelopmentStore
         assertThat(tasks.find(task.id())).isEmpty();
         assertThat(store.findByTaskId(task.id().toString())).isEmpty();
         assertThat(store.findTask(source.host(), source.issueId())).isEmpty();
-        assertThat(store.findGoal(source.host(), source.issueId())).contains(goal);
+        assertThat(store.findEpic(source.host(), source.issueId())).contains(epic);
     }
 
     @Test

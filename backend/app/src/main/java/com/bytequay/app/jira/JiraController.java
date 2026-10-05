@@ -207,10 +207,10 @@ public class JiraController
         return jira.editComment(connectionId, cloudId, issueId, commentId, request.body(), request.expectedUpdated());
     }
 
-    @PutMapping(ISSUE + "/goal")
-    public JiraDtos.Detail goal(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Goal request)
+    @PutMapping(ISSUE + "/epic")
+    public JiraDtos.Detail epic(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Epic request)
     {
-        return jira.goal(connectionId, cloudId, issueId, request.isGoal());
+        return jira.epic(connectionId, cloudId, issueId, request.isEpic());
     }
 
     /** Each ticket with the last change ByteQuay saw on it, which its card names. */
@@ -276,7 +276,7 @@ public class JiraController
 
     public record CommentEdit(String body, String expectedUpdated) {}
 
-    public record Goal(boolean isGoal) {}
+    public record Epic(boolean isEpic) {}
 
     public record Workspace(String workspaceId) {}
 

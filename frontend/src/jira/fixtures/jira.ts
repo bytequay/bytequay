@@ -18,7 +18,7 @@ export const jiraIssue: JiraIssue = {
   title: 'Preserve predicate pushdown for partition columns', body: 'Keep partition filters in the remote query.\n\n- Verify null values.\n- Preserve case-sensitive column names.',
   type: 'Story', status: { id: 'todo', name: 'To do', category: 'new' },
   assignee: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, labels: ['connectors'], priority: { id: '2', name: 'High' },
-  parent: { id: '1000', key: 'ENG-1000', title: 'Connector reliability', type: 'Epic' }, hasChildren: false, isGoal: false,
+  parent: { id: '1000', key: 'ENG-1000', title: 'Connector reliability', type: 'Epic' }, hasChildren: false, isEpic: false,
   updatedAt: '2026-09-26T08:00:00Z', completedAt: null, dueDate: null, task: null, workspace: null,
 };
 export function jiraDetail(issue: JiraIssue = jiraIssue): JiraIssueDetail {

@@ -31,7 +31,7 @@ import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
-import com.bytequay.core.domain.IssueGoal;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
@@ -92,18 +92,18 @@ public class IssueDevelopmentService
 
     public Metadata metadata(long issueId)
     {
-        return new Metadata(sources.findGoal(HOST, issueId).map(IssueGoal::isGoal).orElse(false),
+        return new Metadata(sources.findEpic(HOST, issueId).map(IssueEpic::isEpic).orElse(false),
                 sources.findTask(HOST, issueId).map(link -> new TaskLink(link.taskId(), link.workspaceId())));
     }
 
-    public Metadata setGoal(String workspaceId, int number, boolean goal)
+    public Metadata setEpic(String workspaceId, int number, boolean goal)
     {
         Workspace workspace = workspace(workspaceId);
         RepositoryIssue issue = issue(workspace, number);
         Lock lock = sourceLocks.get(issue.id());
         lock.lock();
         try {
-            sources.saveGoal(new IssueGoal(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, goal, clock.instant()));
+            sources.saveEpic(new IssueEpic(HOST, issue.id(), workspace.monitoredRepository().fullName(), number, goal, clock.instant()));
             // Unmarking keeps the issue's goal only while it holds work.
             GoalSource source = new GoalSource(GoalItemKind.ISSUE, GoalItem.numberedKey(workspace.monitoredRepository().fullName(), number));
             if (goal) {
@@ -139,7 +139,7 @@ public class IssueDevelopmentService
         }
     }
 
-    /** Holds the same canonical issue lock as Goal changes through task creation and initial-turn admission. */
+    /** Holds the same canonical issue lock as Epic changes through task creation and initial-turn admission. */
     public AgentTask start(String workspaceId, TaskId taskId, IssueSourceInput input, String instructions, Function<GitHubIssueSource, AgentTask> create)
     {
         Workspace workspace = workspace(workspaceId);
@@ -153,7 +153,7 @@ public class IssueDevelopmentService
                         && link.source().repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()), "Issue does not belong to this workspace");
                 boolean another = input.replaces().filter(link.taskId()::equals).isPresent() && !link.taskId().equals(taskId.toString());
                 if (!another) {
-                    if (!link.taskId().equals(taskId.toString()) || metadata(input.issueId()).isGoal()) {
+                    if (!link.taskId().equals(taskId.toString()) || metadata(input.issueId()).isEpic()) {
                         return tasks.getInteractive(link.workspaceId(), TaskId.valueOf(link.taskId()));
                     }
                     checkArgument(link.workspaceId().equals(workspaceId), "Task belongs to another workspace");
@@ -171,8 +171,8 @@ public class IssueDevelopmentService
             }
             RepositoryIssue cached = issue(workspace, input.number());
             checkArgument(cached.id() == input.issueId(), "Issue identity changed");
-            if (metadata(input.issueId()).isGoal()) {
-                throw new AgentConflictException("This issue is a Goal. Unmark it before starting development.");
+            if (metadata(input.issueId()).isEpic()) {
+                throw new AgentConflictException("This issue is an Epic. Unmark it before starting development.");
             }
             workItems.requireStartable(workspaceId, WorkItemLink.issueIdentity(HOST, input.issueId()));
             if (!cached.updatedAt().equals(input.updatedAt())) {
@@ -232,5 +232,5 @@ public class IssueDevelopmentService
 
     public record TaskLink(String taskId, String workspaceId) {}
 
-    public record Metadata(boolean isGoal, Optional<TaskLink> developmentTask) {}
+    public record Metadata(boolean isEpic, Optional<TaskLink> developmentTask) {}
 }

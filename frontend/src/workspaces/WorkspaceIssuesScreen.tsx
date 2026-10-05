@@ -117,7 +117,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [error, setError] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [mutationError, setMutationError] = useState<string | null>(null);
-  const [changingGoal, setChangingGoal] = useState<number | null>(null);
+  const [changingEpic, setChangingEpic] = useState<number | null>(null);
   const [closedIssueId, setClosedIssueId] = useState<number | null>(null);
   const [startingIssue, setStartingIssue] = useState<number | null>(null);
   const detailRequest = useRef(0);
@@ -229,11 +229,11 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     }
   }, [workspaceId, repository, refreshIssueRow]);
 
-  const toggleGoal = useCallback(async (issue: Issue) => {
-    setChangingGoal(issue.id);
+  const toggleEpic = useCallback(async (issue: Issue) => {
+    setChangingEpic(issue.id);
     setMutationError(null);
     try {
-      const development = await window.bridge.setWorkspaceIssueGoal(workspaceId, issue.number, !issue.isGoal);
+      const development = await window.bridge.setWorkspaceIssueEpic(workspaceId, issue.number, !issue.isEpic);
       recordAttentionAction(`${repository}#${issue.number}`, 'update');
       setSnapshot(current => current === null ? null : {
         ...current,
@@ -244,7 +244,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
     catch (failure) {
       setMutationError(remoteErrorMessage(failure));
     }
-    finally { setChangingGoal(null); }
+    finally { setChangingEpic(null); }
   }, [workspaceId, repository]);
 
   const closeIssue = useCallback(async (issue: Issue) => {
@@ -503,7 +503,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <IssueRow key={issue.id} issue={issue} repository={repository} labelColors={labelColors}
               labelFilter={labelFilter} onFilterLabel={label => setLabelFilter(current => current === label ? '' : label)}
               actions={<IssueDevelopmentActions issue={issue} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
-                onToggleGoal={() => { void toggleGoal(issue); }} changingGoal={changingGoal !== null} />}
+                onToggleEpic={() => { void toggleEpic(issue); }} changingEpic={changingEpic !== null} />}
               selected={issue.id === selectedId} onPick={() => {
                 onSelectIssue?.(issue.number, 'push');
                 setSelectedId(issue.id);
@@ -560,7 +560,7 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} readOnly={selected === previewIssue} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}
               actions={selected === previewIssue ? undefined : <IssueDevelopmentActions issue={selected} onStart={onStartDevelopment === undefined ? undefined : setStartingIssue} onViewTask={onViewTask}
-                onToggleGoal={() => { void toggleGoal(selected); }} changingGoal={changingGoal !== null} />}
+                onToggleEpic={() => { void toggleEpic(selected); }} changingEpic={changingEpic !== null} />}
               timelineLoading={detailLoading} onTypeChange={type => updateIssueType(selected.number, type)}
               onMetadataChange={(assignees, labels) => updateIssueMetadata(selected.number, assignees, labels)}
               onClose={() => closeIssue(selected)}
@@ -594,29 +594,29 @@ export function appendIssuePage(
   return { ...next, issues: [...current.issues, ...next.issues.filter(issue => !loaded.has(issue.id))] };
 }
 
-export function IssueDevelopmentActions({ issue, onStart, onViewTask, onToggleGoal, changingGoal = false }: {
+export function IssueDevelopmentActions({ issue, onStart, onViewTask, onToggleEpic, changingEpic = false }: {
   issue: Issue;
   onStart?: (number: number) => void;
   onViewTask?: (link: IssueDevelopmentTaskDto) => void;
-  onToggleGoal?: () => void;
-  changingGoal?: boolean;
+  onToggleEpic?: () => void;
+  changingEpic?: boolean;
 }) {
   const action = issueDevelopmentAction(issue);
   return <span className="issues-development-actions">
     {action === 'view' && onViewTask !== undefined && <button className="pulls-toolbar-button" type="button" title="View task" aria-label="View task"
       onClick={() => { if (issue.developmentTask != null) onViewTask(issue.developmentTask); }}><ListTodo size={16} aria-hidden="true" /></button>}
-    {action === 'start' && onStart !== undefined && <button className="pulls-toolbar-button" type="button" disabled={changingGoal}
+    {action === 'start' && onStart !== undefined && <button className="pulls-toolbar-button" type="button" disabled={changingEpic}
       title="Use agent to develop" aria-label="Start development" onClick={() => onStart(issue.number)}><Play size={16} aria-hidden="true" /></button>}
-    {onToggleGoal !== undefined && <button className={`pulls-toolbar-button${issue.isGoal ? ' is-active' : ''}`} type="button"
-      disabled={changingGoal} onClick={onToggleGoal} aria-pressed={issue.isGoal === true}
-      title={issue.isGoal ? 'Unmark as Goal' : 'Mark as Goal'} aria-label={issue.isGoal ? 'Unmark as Goal' : 'Mark as Goal'}>
+    {onToggleEpic !== undefined && <button className={`pulls-toolbar-button${issue.isEpic ? ' is-active' : ''}`} type="button"
+      disabled={changingEpic} onClick={onToggleEpic} aria-pressed={issue.isEpic === true}
+      title={issue.isEpic ? 'Unmark as Epic' : 'Mark as Epic'} aria-label={issue.isEpic ? 'Unmark as Epic' : 'Mark as Epic'}>
       <Flag size={16} aria-hidden="true" />
     </button>}
   </span>;
 }
 
-function GoalBadge() {
-  return <span className="issues-goal-badge"><Flag size={12} aria-hidden="true" />Goal</span>;
+function EpicBadge() {
+  return <span className="issues-epic-badge"><Flag size={12} aria-hidden="true" />Epic</span>;
 }
 
 function IssueRow({ issue, repository, labelColors, labelFilter, onFilterLabel, selected, onPick, actions }: {
@@ -635,7 +635,7 @@ function IssueRow({ issue, repository, labelColors, labelFilter, onFilterLabel, 
       <button type="button" className="issues-row__select" aria-pressed={selected} onClick={onPick}>
       <span className="pull-row__title">
         <span className="pull-row__state issues-row__state" aria-hidden="true"><IssueIcon /></span>
-        <span>{issue.title} <small>#{issue.number}</small> {issue.isGoal && <GoalBadge />}</span>
+        <span>{issue.title} <small>#{issue.number}</small> {issue.isEpic && <EpicBadge />}</span>
       </span>
       </button>
       {issue.labels.length > 0 && (
@@ -791,7 +791,7 @@ export function IssueOverview({
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
           <h1>{linkIssueNumbers(issue.title, repository, true)} <span>#{issue.number}</span></h1>
-          {issue.isGoal && <GoalBadge />}
+          {issue.isEpic && <EpicBadge />}
           <CopyLinkButton value={issue.htmlUrl} label="issue link" />
         </div>
         <div className="pr-overview__branches">

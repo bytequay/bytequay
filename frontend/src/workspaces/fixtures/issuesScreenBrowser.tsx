@@ -87,8 +87,8 @@ async function closeKeepsIssue(): Promise<void> {
     assert(host.querySelector('.issues-detail h1')?.textContent?.trim() === 'Issue 7 #7' && host.querySelector('.pr-state')?.textContent?.trim() === 'Closed',
       'The closed issue stays open and shows its new state');
     assert(composer().value === '' && host.querySelector('.pr-composer__close') === null, 'The posted draft clears and a closed issue offers no close');
-    assert(host.querySelector('.attention-visit-status')?.textContent === 'Updated state · Posted 1 comment',
-      'Only completed issue actions appear in the visit status');
+    assert(host.querySelector('.attention-visit-status') === null,
+      'Completed issue actions do not add a visit label to the toolbar');
     open(8); await settle();
     assert(loadHandled()['upstream/app#7']?.label === 'Updated state · Posted 1 comment', 'Leaving the issue acknowledges the completed visit');
     assert(row(7) === undefined && host.querySelector('.issues-list__count')?.textContent === '2', 'Leaving the closed issue drops it from the open list');
@@ -189,7 +189,7 @@ async function filtersLoadedIssues(): Promise<void> {
     commentWorkspaceIssue: async () => { writes++; },
     updateWorkspaceIssueMetadata: async () => { writes++; },
     updateWorkspaceIssueType: async () => { writes++; },
-    setWorkspaceIssueGoal: async () => { writes++; },
+    setWorkspaceIssueEpic: async () => { writes++; },
   } as unknown as Bridge;
   const host = document.createElement('div'); document.body.append(host);
   host.style.cssText = 'width: 1400px; height: 900px';
@@ -320,7 +320,7 @@ async function closedIssueReminder(): Promise<void> {
       'The closed issue displays the latest title and description');
     assert(host.querySelector('.pr-state.is-closed')?.textContent?.includes('Closed') && host.textContent?.includes('fixed'),
       'The preview preserves the latest source state and labels');
-    assert(host.querySelector('.pr-composer, [aria-label="Start development"], [aria-label="Mark as Goal"], [aria-label="Issue type"]') === null,
+    assert(host.querySelector('.pr-composer, [aria-label="Start development"], [aria-label="Mark as Epic"], [aria-label="Issue type"]') === null,
       'The read-only preview offers no source mutations or development');
     assert(host.querySelector('[aria-label="Pin Closed issue title"]') !== null && host.querySelector('.attention-visit-status') === null,
       'Closed issue previews retain pinning without a visit label');

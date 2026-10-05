@@ -30,7 +30,7 @@ import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalSource;
-import com.bytequay.core.domain.IssueGoal;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
@@ -86,7 +86,7 @@ class TestIssueDevelopmentService
     private final GitHubRepoClient github = mock(GitHubRepoClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final AtomicReference<IssueTask> linked = new AtomicReference<>();
-    private final AtomicReference<IssueGoal> goal = new AtomicReference<>();
+    private final AtomicReference<IssueEpic> goal = new AtomicReference<>();
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final TaskId taskId = TaskId.random();
     private final GoalService goals = mock(GoalService.class);
@@ -104,13 +104,13 @@ class TestIssueDevelopmentService
         when(workspaces.findById(anyString())).thenReturn(Optional.of(workspace));
         when(issues.find(2, 7)).thenReturn(Optional.of(new RepositoryIssue(70, 7, SOURCE.title(), SOURCE.body(), "alice", "", SOURCE.url(),
                 ImmutableList.of(), ImmutableList.of("alice"), 0, NOW, NOW)));
-        when(sources.findGoal("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(goal.get()));
+        when(sources.findEpic("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(goal.get()));
         when(sources.findTask("github.com", 70)).thenAnswer(ignored -> Optional.ofNullable(linked.get()));
         when(sources.findByTaskId(taskId.toString())).thenAnswer(ignored -> Optional.ofNullable(linked.get()));
         doAnswer(invocation -> {
             goal.set(invocation.getArgument(0));
             return null;
-        }).when(sources).saveGoal(any());
+        }).when(sources).saveEpic(any());
         doAnswer(invocation -> {
             linked.set(invocation.getArgument(0));
             return null;
@@ -128,9 +128,9 @@ class TestIssueDevelopmentService
     void markingAnIssueSeedsItsWorkspaceGoalAndUnmarkingRemovesIt()
     {
         GoalSource source = new GoalSource(GoalItemKind.ISSUE, "upstream/repo#7");
-        assertThat(service.setGoal("workspace", 7, true).isGoal()).isTrue();
+        assertThat(service.setEpic("workspace", 7, true).isEpic()).isTrue();
         verify(goals).seed("workspace", source, SOURCE.title());
-        assertThat(service.setGoal("workspace", 7, false).isGoal()).isFalse();
+        assertThat(service.setEpic("workspace", 7, false).isEpic()).isFalse();
         verify(goals).unseed(source);
         verifyNoInteractions(github);
     }
@@ -164,10 +164,10 @@ class TestIssueDevelopmentService
     @Test
     void goalRefusesStartBeforeRemoteReadOrTaskCreation()
     {
-        service.setGoal("other-workspace", 7, true);
+        service.setEpic("other-workspace", 7, true);
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> {
             throw new AssertionError("must not create");
-        })).isInstanceOf(AgentConflictException.class).hasMessageContaining("Goal");
+        })).isInstanceOf(AgentConflictException.class).hasMessageContaining("Epic");
         verifyNoInteractions(github, taskStore, tasks);
         verify(credentials, never()).resolveGitHubToken();
     }
@@ -328,10 +328,10 @@ class TestIssueDevelopmentService
                 return task;
             }));
             assertThat(creating.await(5, TimeUnit.SECONDS)).isTrue();
-            var mark = executor.submit(() -> service.setGoal("another-workspace", 7, true));
+            var mark = executor.submit(() -> service.setEpic("another-workspace", 7, true));
             finish.countDown();
             first.get(5, TimeUnit.SECONDS);
-            assertThat(mark.get(5, TimeUnit.SECONDS).isGoal()).isTrue();
+            assertThat(mark.get(5, TimeUnit.SECONDS).isEpic()).isTrue();
         }
         assertThat(service.start("workspace", taskId, INPUT, "Implement", ignored -> {
             throw new AssertionError("Goal must not admit a new turn");

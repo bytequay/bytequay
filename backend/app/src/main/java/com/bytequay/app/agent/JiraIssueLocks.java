@@ -18,7 +18,7 @@ import com.google.common.util.concurrent.Striped;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Supplier;
 
-/** Orders local Goal changes and source launch admission across workspaces and Jira connections. */
+/** Orders local Epic changes and source launch admission across workspaces and Jira connections. */
 public final class JiraIssueLocks
 {
     private static final Striped<Lock> LOCKS = Striped.lock(64);

@@ -13,16 +13,16 @@
  */
 package com.bytequay.core.store;
 
-import com.bytequay.core.domain.IssueGoal;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 
 import java.util.Optional;
 
 public interface IssueDevelopmentStore
 {
-    Optional<IssueGoal> findGoal(String host, long issueId);
+    Optional<IssueEpic> findEpic(String host, long issueId);
 
-    void saveGoal(IssueGoal goal);
+    void saveEpic(IssueEpic epic);
 
     /** The issue's current attempt; an attempt another one replaced is found only by its task. */
     Optional<IssueTask> findTask(String host, long issueId);

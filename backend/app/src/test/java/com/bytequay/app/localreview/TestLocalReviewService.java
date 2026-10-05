@@ -173,6 +173,7 @@ class TestLocalReviewService
             return value;
         });
         when(turnStore.findByIdempotencyKey(eq(taskId), anyString())).thenAnswer(call -> Optional.ofNullable(accepted.get(call.getArgument(1))));
+        when(turns.findTurnByIdempotencyKey(eq(taskId), anyString())).thenAnswer(call -> Optional.ofNullable(accepted.get(call.getArgument(1))));
         when(turns.start(any())).thenAnswer(call -> {
             StartAgentTurnCommand command = call.getArgument(0);
             assertThat(stored).containsKey("thread");
@@ -288,6 +289,7 @@ class TestLocalReviewService
                 "Please fix this", turn.settings().orElseThrow(), Instant.EPOCH).starting(turn.id(), EventId.random(), Instant.EPOCH).started(Instant.EPOCH);
         when(turns.enqueue(any())).thenAnswer(call -> {
             when(queueStore.findQueuedByIdempotencyKey(eq(taskId), anyString())).thenReturn(Optional.of(queued));
+            when(turns.findQueuedByIdempotencyKey(eq(taskId), anyString())).thenReturn(Optional.of(queued));
             return queued;
         });
         LocalReviewView saved = create(0);

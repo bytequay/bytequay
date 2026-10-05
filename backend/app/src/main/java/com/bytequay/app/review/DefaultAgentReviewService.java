@@ -26,7 +26,6 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
-import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.StartAgentTurnCommand;
@@ -45,6 +44,7 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderUnavailableException;
+import com.bytequay.app.agent.TaskInput;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
@@ -580,22 +580,12 @@ public class DefaultAgentReviewService
                     0,
                     Instant.now(clock)));
             String requestKey = "review-ask:" + messageId;
-            boolean queued = !idle(task);
             try {
-                if (queued) {
-                    QueuedAgentInput input = turns.enqueue(new QueueAgentInputCommand(taskId, task.version(), prompt, ImmutableList.of(), requestKey));
-                    return attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString()));
-                }
-                AgentTurn turn = turns.start(new StartAgentTurnCommand(taskId, prompt, ImmutableList.of(), requestKey));
-                return attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty());
+                return attachQuestionDelivery(question, TaskInput.send(turns, taskId, task.version(), prompt, requestKey, !idle(task), Optional.empty()));
             }
             catch (RuntimeException failure) {
                 try {
-                    Optional<ReviewMessage> attached = queued
-                            ? turns.findQueuedByIdempotencyKey(taskId, requestKey)
-                                    .map(input -> attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString())))
-                            : turns.findTurnByIdempotencyKey(taskId, requestKey)
-                                    .map(turn -> attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty()));
+                    Optional<ReviewMessage> attached = TaskInput.accepted(turns, taskId, requestKey).map(accepted -> attachQuestionDelivery(question, accepted));
                     if (attached.isEmpty()) {
                         // Nothing accepted it, so no answer can come; kept, it would look sent forever. The caller sees why and can ask again.
                         store.deleteMessage(question.id());
@@ -611,8 +601,10 @@ public class DefaultAgentReviewService
         });
     }
 
-    private ReviewMessage attachQuestionDelivery(ReviewMessage question, Optional<String> turnId, Optional<String> queuedId)
+    private ReviewMessage attachQuestionDelivery(ReviewMessage question, TaskInput.Accepted accepted)
     {
+        Optional<String> turnId = accepted.turnId().map(Object::toString);
+        Optional<String> queuedId = accepted.queuedInputId().map(Object::toString);
         return store.updateMessage(new ReviewMessage(
                 question.id(),
                 question.reviewId(),
@@ -632,13 +624,7 @@ public class DefaultAgentReviewService
     public void sendMessage(String reviewId, long expectedTaskVersion, String message, String idempotencyKey, boolean queued)
     {
         locked(reviewId, () -> {
-            TaskId taskId = TaskId.valueOf(requireOpen(reviewId).taskId());
-            if (queued) {
-                turns.enqueue(new QueueAgentInputCommand(taskId, expectedTaskVersion, message, ImmutableList.of(), idempotencyKey));
-            }
-            else {
-                turns.start(new StartAgentTurnCommand(taskId, expectedTaskVersion, message, ImmutableList.of(), idempotencyKey));
-            }
+            TaskInput.send(turns, TaskId.valueOf(requireOpen(reviewId).taskId()), expectedTaskVersion, message, idempotencyKey, queued, Optional.empty());
             return null;
         });
     }

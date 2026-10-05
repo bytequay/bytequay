@@ -21,9 +21,7 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
-import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
-import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TurnState;
@@ -32,6 +30,7 @@ import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.app.agent.LocalReviewSessionService;
+import com.bytequay.app.agent.TaskInput;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.review.AgentReviewService;
 import com.bytequay.core.localreview.LocalReviewLearningAnchor;
@@ -297,7 +296,7 @@ public class LocalReviewService
         checkArgument(message.author() == Author.USER, "Only user messages are dispatched");
         String key = message.inputKey().orElseThrow();
         TaskId taskId = TaskId.valueOf(thread.taskId());
-        if (turnStore.findByIdempotencyKey(taskId, key).isPresent() || queueStore.findQueuedByIdempotencyKey(taskId, key).isPresent()) {
+        if (TaskInput.accepted(turns, taskId, key).isPresent()) {
             return view(thread);
         }
         Optional<String> failure = Optional.empty();
@@ -313,19 +312,15 @@ public class LocalReviewService
                 AgentReview review = reviews.findReviewByTask(thread.taskId()).orElseThrow();
                 reviewTasks.sendMessage(review.id(), expectedTaskVersion, prompt, key, message.routing().orElseThrow() == Routing.QUEUE);
             }
-            else if (message.routing().orElseThrow() == Routing.SEND) {
-                turns.start(new StartAgentTurnCommand(taskId, expectedTaskVersion, prompt, ImmutableList.of(), key).withDevelopmentAutomation(automation));
-            }
             else {
-                turns.enqueue(new QueueAgentInputCommand(taskId, expectedTaskVersion, prompt, ImmutableList.of(), key, automation));
+                TaskInput.send(turns, taskId, expectedTaskVersion, prompt, key, message.routing().orElseThrow() == Routing.QUEUE, automation);
             }
         }
         catch (RuntimeException error) {
             String diagnostic = Optional.ofNullable(error.getMessage()).orElse("Could not send local review feedback");
             failure = Optional.of(diagnostic.substring(0, Math.min(2000, diagnostic.length())));
             // Core conflicts are definite admission refusals. An uncertain transport failure must keep its original route.
-            if (error instanceof AgentConflictException && turnStore.findByIdempotencyKey(taskId, key).isEmpty()
-                    && queueStore.findQueuedByIdempotencyKey(taskId, key).isEmpty()) {
+            if (error instanceof AgentConflictException && TaskInput.accepted(turns, taskId, key).isEmpty()) {
                 Routing next = turnStore.findActive(taskId).isPresent() ? Routing.QUEUE : Routing.SEND;
                 LocalReviewThread current = requireThread(thread.taskId(), thread.id());
                 store.update(current.update(current.resolved(), current.messages().stream()

@@ -165,6 +165,13 @@ export type PullSearch = {
   text: string;
 };
 
+/** Only a complete #number can request an exact PR from GitHub. */
+export function exactPullNumber(query: string): number | null {
+  if (!/^#\d+$/.test(query.trim())) return null;
+  const number = Number(query.trim().slice(1));
+  return Number.isInteger(number) && number > 0 && number <= 2_147_483_647 ? number : null;
+}
+
 /**
  * Splits a search box value into an author term and free text, so `@alice` asks
  * for one author's pull requests and `@alice flaky` narrows those by title. The
@@ -191,6 +198,13 @@ export function pullRequestMatchesSearch(pr: Pick<PullRequestDto, 'author' | 'nu
 
 export function filterPullRequests(prs: PullRequestDto[], search: PullSearch | null): PullRequestDto[] {
   return search === null ? prs : prs.filter(pr => pullRequestMatchesSearch(pr, search));
+}
+
+export function rowsForPullSearch(prs: PullRequestDto[], tab: PullTab, query: string, viewerLogin?: string | null): PullRow[] {
+  const number = exactPullNumber(query);
+  return number === null
+    ? rowsForTab(filterPullRequests(prs, parsePullSearch(query)), tab, viewerLogin)
+    : prs.filter(pr => pr.number === number).map(pr => toRow(pr));
 }
 
 export function reconcilePullRequestDetail(

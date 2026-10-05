@@ -787,6 +787,10 @@ timestamps and add topology/provisioning/freshness information rather than repla
 - Show the monitored repository in the workspace tab header, especially when linked.
 - Keep existing PR actions and detail views; only the list scope differs from the global page.
 - Provide repository-specific loading, empty, stale, and error states.
+- A complete `#number` search matches exactly across PR tabs. In a workspace,
+  check loaded rows and then SQLite before fetching and caching that one PR
+  from GitHub. Searching does not mark it viewed or fetch its discussion.
+  Plain numbers, titles, and author searches remain local filters.
 
 ### Commits
 

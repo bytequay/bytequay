@@ -106,6 +106,12 @@ public class PullRequestController
         return pullRequests.findStored(repo, number);
     }
 
+    @GetMapping("/prs/lookup")
+    public PullRequest lookup(@RequestParam("repo") String repo, @RequestParam("number") int number)
+    {
+        return pullRequests.lookupPullRequest(repo, number);
+    }
+
     /** For a hover card, which must neither reach GitHub nor mark the pull request viewed the way opening its detail does. */
     @GetMapping("/prs/stored/description")
     public StoredDescription storedDescription(@RequestParam("repo") String repo, @RequestParam("number") int number)

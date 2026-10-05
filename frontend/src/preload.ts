@@ -109,6 +109,7 @@ const bridge: Bridge = {
   },
   fetchPullRequestDetail: prId => ipcRenderer.invoke('prs:detail', prId),
   fetchPullRequestDetailByRef: (repo, number) => ipcRenderer.invoke('prs:detail:by-ref', repo, number),
+  lookupPullRequest: (repo, number) => ipcRenderer.invoke('prs:lookup', repo, number),
   fetchRepoUsers: (repo, workspaceId) => ipcRenderer.invoke('prs:users', repo, workspaceId),
   fetchRepoLabels: repo => ipcRenderer.invoke('prs:labels', repo),
   updatePrMetadata: (repo, number, assignees, labels) =>

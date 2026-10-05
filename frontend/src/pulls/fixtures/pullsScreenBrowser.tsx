@@ -14,7 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullTimelinePayloadDto } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../../types';
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
@@ -570,9 +570,8 @@ export async function runReviewSheet(): Promise<string> {
 }
 
 /**
- * Searching narrows the open filter's already-loaded rows. It used to be sent to the backend as
- * `?search=`, which emptied the list on every keystroke and left `#number` and `@author` terms
- * matching nothing.
+ * Ordinary searches narrow loaded rows. Exact #numbers cross tabs and look up missing rows
+ * without reloading the list or letting a late response change a newer search.
  */
 export async function runListSearch(): Promise<string> {
   const detailFor = (number: number, title: string, author: string, state: string): PullRequestDetailDto => ({
@@ -590,6 +589,7 @@ export async function runListSearch(): Promise<string> {
     detailFor(31215, 'Closed work', 'lukasz', 'closed'),
   ];
   let listReads = 0;
+  const lookups: { repo: string; number: number; result: ReturnType<typeof Promise.withResolvers<PullRequestDto>> }[] = [];
   const originalBridge = window.bridge;
   const bridge = {
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
@@ -600,6 +600,11 @@ export async function runListSearch(): Promise<string> {
         page: 0, pageSize: 50, totalPullRequests: page.length, openPullRequests: 2, hasMore: false };
     },
     onPullRequestsSynced: () => () => {},
+    lookupPullRequest: (repo, number) => {
+      const result = Promise.withResolvers<PullRequestDto>();
+      lookups.push({ repo, number, result });
+      return result.promise;
+    },
     listWorkspaces: async () => [],
     fetchAttentionPrs: async () => [],
     fetchPullRequestDetailByRef: async (_repo, number) => page.find(detail => detail.number === number) ?? page[0],
@@ -608,7 +613,7 @@ export async function runListSearch(): Promise<string> {
     refreshAllPullRequestDetailByRef: async (_repo, number) => page.find(detail => detail.number === number) ?? page[0],
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'fetchAttentionPrs'
-    | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'recordRecentTouch'>;
+    | 'lookupPullRequest' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
   host.style.cssText = 'width: 1400px; height: 900px; display: flex';
@@ -650,19 +655,45 @@ export async function runListSearch(): Promise<string> {
     assert(titles().join('|') === 'Requested of bob', `Review must open on the requested pull request, not ${titles().join('|')}`);
     const reads = listReads;
 
-    await type('#30');
-    assert(titles().join('|') === 'Requested of bob', `A #number prefix must match 30682, not ${titles().join('|')}`);
+    await type('30');
+    assert(titles().join('|') === 'Requested of bob', `A plain number prefix must match 30682, not ${titles().join('|')}`);
     await type('@voon');
     assert(titles().join('|') === 'Requested of bob', `An @author prefix must match voonhous, not ${titles().join('|')}`);
     await type('requested');
     assert(titles().join('|') === 'Requested of bob', `A title term must still match, and found ${titles().join('|')}`);
     // The search narrows the open filter; bob's own #31206 is My work, not Review.
-    await type('#312');
+    await type('312');
     assert(titles().length === 0, `A search must stay inside the open filter, but found ${titles().join('|')}`);
 
     await pickTab('My work');
-    await type('#312');
+    await type('312');
     assert(titles().join('|') === 'Authored by bob', `My work must search its own rows, and found ${titles().join('|')}`);
+    await type('#30682');
+    assert(titles().join('|') === 'Requested of bob', 'An exact number must cross the selected tab');
+    await type('#31215');
+    assert(titles().join('|') === 'Closed work', 'An exact number must include closed PRs');
+    await type('@bob #28755');
+    assert(lookups.length === 0, 'Loaded numbers and ordinary searches must not request a lookup');
+
+    await type('#28755');
+    assert(Number(lookups.length) === 1 && lookups[0].repo === 'owner/repo' && lookups[0].number === 28755,
+      'A missing exact number must look up only the scoped repository');
+    assert(host.querySelector('[role="status"]')?.textContent === 'Looking up #28755…', 'Lookup progress must replace the empty state');
+    lookups[0].result.resolve(remotePullRequest(detailFor(28755, 'Older merged work', 'alice', 'merged'), 'bob'));
+    await until(() => titles().includes('Older merged work'));
+    assert(titles().join('|') === 'Older merged work', 'The fetched result must appear even when merged');
+    await type('#2875');
+    assert(Number(lookups.length) === 2 && titles().length === 0, 'A longer loaded number must not suppress an exact lookup');
+    lookups[1].result.reject(new Error('Pull request not found'));
+    await until(() => host.querySelector('.pulls-sync-error') !== null);
+    assert(host.querySelector('.pulls-sync-error')?.textContent?.includes('Pull request not found') === true, 'Lookup failures must be visible');
+
+    await type('#28756');
+    assert(Number(lookups.length) === 3, 'A new exact number must start a new lookup');
+    await type('');
+    lookups[2].result.resolve(remotePullRequest(detailFor(28756, 'Abandoned search', 'bob', 'open'), 'bob'));
+    await settle();
+    assert(!titles().includes('Abandoned search'), 'A late lookup must not populate the list after clearing the search');
     assert(listReads === reads, `Searching must not reload the list, but it read ${listReads - reads} more pages`);
 
     await type('');
@@ -681,7 +712,7 @@ export async function runListSearch(): Promise<string> {
       broadcast(); await settle();
       assert(listReads === afterDiscovery, 'Unchanged attention snapshots must not reload after a parent renders the same workspace');
     }
-    return 'Search filters loaded rows locally, and newly discovered PRs enter the visible list';
+    return 'Search resolves exact PR numbers, filters local text, and shows newly discovered PRs';
   }
   finally {
     flushSync(() => root.unmount());

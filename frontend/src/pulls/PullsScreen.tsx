@@ -51,7 +51,7 @@ import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
 import { useResizablePane } from '../useResizablePane';
 import '../css/review-tasks.css';
 import {
-  filterPullRequests,
+  exactPullNumber,
   keepSelectedPullRequest,
   parsePullSearch,
   PULL_TABS,
@@ -59,6 +59,7 @@ import {
   reconcilePullRequestDetail,
   reconcileSubmittedReview,
   rowsForTab,
+  rowsForPullSearch,
   tabForInitialPullRequest,
   visibleSelectedId,
   type PullRow,
@@ -409,8 +410,13 @@ export default function PullsScreen({
   const [toast, setToast] = useState<{ id: number; text: string } | null>(null);
   const [search, setSearch] = useState('');
   const [query, setQuery] = useState('');
-  /** The debounced query split into its author and text terms. Searching never reloads the list: it filters the loaded pages. */
+  /** Ordinary searches filter loaded pages; a complete #number can look beyond them. */
   const searchTerms = useMemo(() => parsePullSearch(query), [query]);
+  const exactNumber = exactPullNumber(query);
+  const [numberLookup, setNumberLookup] = useState<{ repo: string; number: number; loading: boolean; error: string | null } | null>(null);
+  const hasExactNumber = prs.some(pr => pr.number === exactNumber && pr.repo.toLowerCase() === scopedRepository?.toLowerCase());
+  const currentNumberLookup = numberLookup?.repo === scopedRepository && numberLookup?.number === exactNumber && !hasExactNumber
+    ? numberLookup : null;
   // The toolbar, not the window: it also renders inside the narrower split pane.
   const [toolbarWidth, setToolbarWidth] = useState(Number.POSITIVE_INFINITY);
   const toolbar = useRef<HTMLElement | null>(null);
@@ -573,6 +579,23 @@ export default function PullsScreen({
     return () => window.clearTimeout(timeout);
   }, [search]);
 
+  useEffect(() => {
+    if (singlePullRequest || loading || error !== null || scopedRepository === undefined || exactNumber === null
+      || search.trim() !== query || hasExactNumber) return;
+    let cancelled = false;
+    setNumberLookup({ repo: scopedRepository, number: exactNumber, loading: true, error: null });
+    void window.bridge.lookupPullRequest(scopedRepository, exactNumber)
+      .then(pr => {
+        if (cancelled) return;
+        setPrs(current => current.some(row => row.id === pr.id) ? current : [...current, pr]);
+        setNumberLookup(null);
+      })
+      .catch(failure => {
+        if (!cancelled) setNumberLookup({ repo: scopedRepository, number: exactNumber, loading: false, error: remoteErrorMessage(failure) });
+      });
+    return () => { cancelled = true; };
+  }, [singlePullRequest, loading, error, scopedRepository, exactNumber, search, query, hasExactNumber]);
+
   const selectTab = useCallback((next: PullTab) => {
     setTab(next);
     setSearch('');
@@ -676,11 +699,11 @@ export default function PullsScreen({
     });
   }, [initialPr, loading, prs, viewerLogin]);
 
-  // A search still respects the selected filter: `@alice` lists the pull
-  // requests alice authored within whichever tab is open, from the loaded page.
+  // Exact numbers cross tabs so a closed or unrelated PR is still reachable.
+  // Text and author searches keep filtering the loaded rows within the selected tab.
   const rows = useMemo(
-    () => rowsForTab(filterPullRequests(prs, searchTerms), tab, viewerLogin),
-    [prs, searchTerms, tab, viewerLogin],
+    () => rowsForPullSearch(prs, tab, query, viewerLogin),
+    [prs, tab, query, viewerLogin],
   );
   const compact = compactToolbar(toolbarWidth);
   // ponytail: one pass per tab over the loaded page; revisit only if the list
@@ -1026,12 +1049,16 @@ export default function PullsScreen({
             </div>
           )}
           {monitorError && <div className="pulls-sync-error" role="alert">{monitorError}</div>}
+          {!loading && currentNumberLookup?.loading && <div className="hp-loading" role="status">Looking up #{exactNumber}…</div>}
+          {!loading && currentNumberLookup?.error && (
+            <div className="pulls-sync-error" role="alert">Could not load #{exactNumber} from {scopedRepository}. {currentNumberLookup.error}</div>
+          )}
           {!loading && error && rows.length === 0 && (
             <div className="hp-empty" role="alert">
               Could not load pull requests{repositoryScope ? ` for ${repositoryScope.repository}` : ''}. {error}
             </div>
           )}
-          {!loading && !error && !syncError && rows.length === 0 && (
+          {!loading && !error && !syncError && !currentNumberLookup?.loading && !currentNumberLookup?.error && rows.length === 0 && (
             <div className="hp-empty">
               {query
                 ? `No pull requests match “${query}”.`

@@ -41,7 +41,7 @@ it('opens Changes in local and linked review workspaces while keeping Summary in
 }, 30_000);
 
 
-it('shows newly discovered PRs from the local attention broadcast without repeating list reads', async () => {
+it('looks up exact PR numbers and shows newly discovered PRs without repeating list reads', async () => {
   const result = await runBrowserFixture<string>({
     prefix: 'bytequay-pull-list-updates-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullAttentionTests', styles: true,
     body: "const results = await window.webContents.executeJavaScript('PullAttentionTests.runListSearch()');",

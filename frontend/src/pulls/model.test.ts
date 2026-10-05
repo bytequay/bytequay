@@ -13,12 +13,14 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  exactPullNumber,
   filterPullRequests,
   parsePullSearch,
   PULL_TABS,
   reconcilePostedComment,
   reconcilePullRequestDetail,
   rowsForTab,
+  rowsForPullSearch,
   tabForInitialPullRequest,
   visibleSelectedId,
 } from './model';
@@ -190,6 +192,22 @@ describe('rowsForTab', () => {
 });
 
 describe('pull search', () => {
+  it('only treats a complete positive #number as an exact lookup', () => {
+    expect(exactPullNumber(' #28755 ')).toBe(28755);
+    expect(exactPullNumber('#00042')).toBe(42);
+    for (const query of ['', '#', '28755', '#0', '#-1', '#1.5', '#42 text', '@alice #42', 'fix #42', '# 42', '#2147483648']) {
+      expect(exactPullNumber(query), query).toBeNull();
+    }
+  });
+
+  it('finds an exact number across tabs without treating longer numbers as matches', () => {
+    const closed = pr({ id: 1, number: 42, state: 'closed', origin: 'OTHER' });
+    const prefix = pr({ id: 2, number: 420, origin: 'REVIEW_REQUESTED' });
+    expect(rowsForPullSearch([closed, prefix], 'req', '#42').map(row => row.id)).toEqual([1]);
+    expect(rowsForPullSearch([closed, prefix], 'req', '42').map(row => row.id)).toEqual([2]);
+    expect(rowsForPullSearch([closed, prefix], 'req', '@jack #42').map(row => row.id)).toEqual([2]);
+  });
+
   it('reads an at-marked term as an author and keeps the rest as text', () => {
     expect(parsePullSearch('')).toBeNull();
     expect(parsePullSearch('   ')).toBeNull();

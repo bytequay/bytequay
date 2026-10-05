@@ -177,6 +177,48 @@ class TestPullRequestService
     }
 
     @Test
+    void exactLookupReadsTheCachedRowWithoutRemoteRequestsOrViewChanges()
+    {
+        PullRequest cached = storedPullRequest();
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(cached.id()));
+        when(store.findById(cached.id())).thenReturn(Optional.of(cached));
+
+        assertThat(service.lookupPullRequest("owner/repo", 7)).isEqualTo(cached);
+
+        verifyNoInteractions(gitHub, credentialService, viewStateStore, detailStore, diffStore);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"open", "closed", "merged"})
+    void exactLookupFetchesAndCachesOnlyTheMissingPullRequest(String state)
+    {
+        FetchedPullRequest fetched = pullRequest(state, REVIEWED_AT, null).withViewerOrigin("me");
+        PullRequest row = storedPullRequest(fetched);
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        when(gitHub.getPullRequest("pat", ref)).thenReturn(fetched);
+        when(store.saveObserved(fetched)).thenReturn(row);
+
+        assertThat(service.lookupPullRequest("owner/repo", 7)).isEqualTo(row);
+
+        verify(gitHub).getPullRequest("pat", ref);
+        verifyNoMoreInteractions(gitHub);
+        verify(store).saveObserved(fetched);
+        verifyNoInteractions(viewStateStore, detailStore, diffStore, summaries);
+    }
+
+    @Test
+    void exactLookupPreservesRemoteFailureWithoutCachingAMissingPullRequest()
+    {
+        ResponseStatusException missing = new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request not found");
+        when(gitHub.getPullRequest("pat", PullRequestRef.of("owner", "repo", 7))).thenThrow(missing);
+
+        assertThatThrownBy(() -> service.lookupPullRequest("owner/repo", 7)).isSameAs(missing);
+
+        verify(store, never()).saveObserved(any());
+        verifyNoInteractions(viewStateStore, detailStore, diffStore);
+    }
+
+    @Test
     void readsAttentionAvatarsFromTheCachedProjectionWithoutFetchingDetails()
     {
         String avatar = "https://avatars.githubusercontent.com/u/123?v=4";

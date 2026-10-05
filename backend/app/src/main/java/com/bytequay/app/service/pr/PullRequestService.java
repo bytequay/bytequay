@@ -204,6 +204,16 @@ public class PullRequestService
         return store.findIdByRepoAndNumber(repo, number).flatMap(store::findById);
     }
 
+    /** Resolves an exact search without fetching discussions or marking the pull request viewed. */
+    public PullRequest lookupPullRequest(String repo, int number)
+    {
+        PullRequestRef ref = parseRef(repo, number);
+        return findStored(ref.repoFullName(), ref.number()).orElseGet(() -> {
+            GitHubCredential credential = credentialService.resolveGitHubCredential();
+            return store.saveObserved(gitHub.getPullRequest(credential.token(), ref).withViewerOrigin(credential.profile().login()));
+        });
+    }
+
     /** Reads the cached description the same way, so it is empty until a detail read has stored the pull request once. */
     public Optional<String> findStoredDescription(String repo, int number)
     {

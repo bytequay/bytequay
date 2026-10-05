@@ -14,7 +14,7 @@
 import React, { useMemo, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import { GoalPanel } from '../GoalPanel';
+import { GoalPanel, type GoalPanelView } from '../GoalPanel';
 import type { GoalDto, GoalExchangeDto, GoalLessonDto, WorkItemDto } from '../contracts';
 import type { GoalConversation } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
@@ -32,10 +32,10 @@ const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, 
   summary: 'A table is a tree of metadata files.', invariants: ['A snapshot never changes once written.'], explanation: null,
   sections: [
     { title: 'Table metadata', body: 'The metadata file names the **current snapshot**.', diagram: { kind: 'TREE', caption: 'What a table points to', nodes: [
-      { id: 'table', label: 'Table metadata', note: null, parent: null }, { id: 'snapshot', label: 'Snapshot', note: 'One per commit', parent: 'table' },
-      { id: 'manifests', label: 'Manifest list', note: null, parent: 'snapshot' }] } },
+      { id: 'table', label: 'Table metadata', note: null, parent: null, group: null }, { id: 'snapshot', label: 'Snapshot', note: 'One per commit', parent: 'table', group: null },
+      { id: 'manifests', label: 'Manifest list', note: null, parent: 'snapshot', group: null }], edges: [] } },
     { title: 'Writing a snapshot', body: 'A commit swaps the metadata pointer.', diagram: { kind: 'FLOW', caption: 'A commit', nodes: [
-      { id: 'write', label: 'Write data files', note: null, parent: null }, { id: 'swap', label: 'Swap the pointer', note: null, parent: null }] } }],
+      { id: 'write', label: 'Write data files', note: null, parent: null, group: null }, { id: 'swap', label: 'Swap the pointer', note: null, parent: null, group: null }], edges: [] } }],
   exercise: 'Run `TestIcebergMetadata`.', observe: 'The test lists two snapshots.', check: 'What does a snapshot point to?' } };
 
 function text(): string {
@@ -54,6 +54,7 @@ async function until(condition: () => boolean, message: string): Promise<void> {
 function Fixture(): React.JSX.Element {
   const [item, setItem] = useState(LESSON);
   const [lesson, setLesson] = useState<string | null>(null);
+  const [view, setView] = useState<GoalPanelView>('guide');
   const [exchanges, setExchanges] = useState<GoalExchangeDto[]>([]);
   const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Iceberg connector expert', description: '', pinned: true, paused: false, source: null, definition: null,
     revision: 1, course: { exchangeId: 'op-0', parts: [{ title: 'Iceberg tables', lessons: ['lesson-1', 'lesson-2'] }], acceptedAt: NOW }, items: [item, NEXT],
@@ -79,7 +80,7 @@ function Fixture(): React.JSX.Element {
   };
   return (
     <div style={{ height: 800 }}>
-      <GoalPanel mode="board" view="guide" onView={() => {}} lesson={lesson} onLesson={setLesson} conversation={conversation} onStart={async () => {}}
+      <GoalPanel mode="board" view={view} onView={setView} lesson={lesson} onLesson={setLesson} conversation={conversation} onStart={async () => {}}
         onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false}
         onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} workItems={[item]} onCreateWork={async () => item} onDecide={async () => item}
         onOrder={async () => {}} onLink={async () => item} onOpenItem={() => {}} search={async () => []} />
@@ -93,7 +94,9 @@ export async function run(): Promise<boolean> {
   const root = createRoot(host);
   try {
     flushSync(() => root.render(<Fixture />)); await settle();
+    assert(button('Lessons') !== undefined, 'A goal with a course has a Lessons tab');
     button('What a table is').click(); await settle();
+    assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Lessons', 'Opening a chapter from the guide reads it under Lessons');
     await until(() => text().includes('Writing the chapter'), 'Opening a lesson for the first time writes it');
     // Read through a function: an assertion narrows the server's fields for the rest of the run.
     const opened = (): number => server.opened;
@@ -129,8 +132,13 @@ export async function run(): Promise<boolean> {
     await until(() => document.querySelector('.goal-book__chapter[aria-current="page"]')?.textContent?.includes('Follow a snapshot') === true,
       'Next opens the following chapter');
     assert(opened() === 2, 'The next chapter is opened, and written, as it is first read');
-    button('Back to guidance').click(); await settle();
-    assert(document.querySelector('.goal-course__lessons li.is-done') !== null, 'The course shows the lesson done');
+    button('All chapters').click(); await settle();
+    assert(document.querySelector('.goal-overview__chapter.is-done')?.textContent?.includes('What a table is') === true
+      && button('Continue: Follow a snapshot') !== undefined, 'All chapters shows the course, the finished chapter checked and where to continue');
+    button('Guide').click(); await settle();
+    assert(document.querySelector('.goal-course__lessons li.is-done') !== null, 'The guide shows the lesson done in the course');
+    button('Lessons').click(); await settle();
+    assert(document.querySelector('.goal-overview') !== null, 'The Lessons tab returns to the course');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

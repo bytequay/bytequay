@@ -32,7 +32,7 @@ import type { GoalConversation, GoalModel } from './useGoals';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { TOPIC_LEVELS } from './contracts';
-import { BookContents, ChapterBody, courseLessons } from './LessonBook';
+import { BookContents, ChapterBody, CourseOverview, courseLessons } from './LessonBook';
 
 const GoalRepository = createContext<string | null>(null);
 
@@ -57,7 +57,9 @@ function fraction(goal: GoalDto): string {
   return summary.total === 0 ? '' : `${summary.finished}/${summary.total}`;
 }
 
-export type GoalPanelView = 'guide' | 'work';
+export type GoalPanelView = 'guide' | 'lessons' | 'work';
+
+const VIEW_NAMES: Record<GoalPanelView, string> = { guide: 'Guide', lessons: 'Lessons', work: 'Work' };
 
 export type GoalPanelProps = {
   mode: 'window' | 'board';
@@ -136,8 +138,17 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
   };
   const answering = props.conversation.exchanges.some((exchange) => exchange.state === 'PENDING');
   const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
+  // A chapter opened anywhere in the panel reads in the Lessons view.
+  const openLesson = (lessonId: string | null): void => {
+    props.onLesson(lessonId);
+    if (lessonId !== null && view !== 'lessons') props.onView('lessons');
+  };
+  const reading = view === 'lessons' && goal !== null && goal.course != null;
+  // A goal without a course has no lessons to read, so its Lessons view is the guide.
+  const shown: GoalPanelView = view === 'lessons' && !reading ? 'guide' : view;
+  const views: GoalPanelView[] = goal?.course != null ? ['guide', 'lessons', 'work'] : ['guide', 'work'];
   const guide = (lessonId?: string): React.JSX.Element => <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation}
-    now={props.now} onStart={props.onStart} onOpenTask={props.onOpenTask} onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue}
+    now={props.now} onStart={props.onStart} onOpenTask={props.onOpenTask} onLesson={openLesson} onBack={props.onBack} onStartIssue={props.onStartIssue}
     onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck} onFileIssue={props.onFileIssue} onReview={setSelected} lessonId={lessonId} />;
   return (
     <GoalRepository value={props.repository}>
@@ -182,17 +193,22 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         )}
         {props.onBack === undefined && <div className="goal-panel__views">
           <div className="goal-tabs" role="tablist" aria-label="Goal views">
-            {(['guide', 'work'] as const).map((value) => <button type="button" role="tab" aria-selected={view === value} key={value}
-              className={`goal-tab${view === value ? ' is-active' : ''}`} onClick={() => { setSelected(null); props.onView(value); }}>{value === 'guide' ? 'Guide' : 'Work'}</button>)}
+            {views.map((value) => <button type="button" role="tab" aria-selected={shown === value} key={value}
+              className={`goal-tab${shown === value ? ' is-active' : ''}`} onClick={() => { setSelected(null); props.onView(value); }}>{VIEW_NAMES[value]}</button>)}
           </div>
           {goal !== null && props.conversation.model !== null && <GoalModelPicker model={props.conversation.model} onChoose={props.conversation.chooseModel} />}
         </div>}
       </div>
-      {lessonItem !== undefined && goal !== null ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
-        conversation={props.conversation} ask={mode === 'board' ? guide(lessonItem.id) : undefined} onLesson={props.onLesson} onBack={() => props.onLesson(null)} />
-        : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
-        : view === 'guide' ? guide()
-          : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
+      {item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
+        : reading ? (lessonItem !== undefined ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
+          conversation={props.conversation} ask={mode === 'board' ? guide(lessonItem.id) : undefined} onLesson={openLesson} />
+          : mode === 'board' ? <div className="goal-book">
+            <BookContents goal={goal} lessonId={null} sections={[]} onLesson={openLesson} onSection={() => {}} />
+            <div className="goal-book__page"><CourseOverview goal={goal} onLesson={openLesson} /></div>
+          </div>
+          : <div className="goal-panel__body goal-lesson"><CourseOverview goal={goal} onLesson={openLesson} /></div>)
+        : view === 'work' ? (goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />)
+        : guide()}
       {cancelling !== null && goal !== null && (
         <ConfirmDialog
           title="Cancel this goal?"
@@ -551,15 +567,15 @@ export function useNow(ticking: boolean): number {
  * and a check. The expanded window shows it as a book, its contents at the left and the questions about it at the right on demand; the
  * floating window shows the chapter alone with its questions under it. Done is the user's decision.
  */
-function LessonView({ goal, item, repository, conversation, ask, onLesson, onBack }: {
+function LessonView({ goal, item, repository, conversation, ask, onLesson }: {
   goal: GoalDto;
   item: WorkItemDto;
   repository: string;
   conversation: GoalConversation;
   /** The conversation the expanded window opens beside the chapter, whose messages are then about it; the floating window has none. */
   ask?: React.ReactNode;
-  onLesson: (lessonId: string) => void;
-  onBack: () => void;
+  /** Opens another chapter, or the course's overview for null. */
+  onLesson: (lessonId: string | null) => void;
 }): React.JSX.Element {
   const { openLesson, readLesson, finishLesson } = conversation;
   const [lesson, setLesson] = useState<GoalLessonDto | null>(null);
@@ -591,7 +607,7 @@ function LessonView({ goal, item, repository, conversation, ask, onLesson, onBac
     <article className="goal-chapter">
       <header className="goal-chapter__head">
         <div className="goal-chapter__bar">
-          <button type="button" className="goal-link goal-lesson__back" onClick={onBack}>Back to guidance</button>
+          <button type="button" className="goal-link goal-lesson__back" onClick={() => onLesson(null)}>All chapters</button>
           {ask !== undefined && <button type="button" className={`goal-chapter__ask${asking ? ' is-active' : ''}`} aria-pressed={asking}
             onClick={() => setAsking((value) => !value)}>
             <MessageCircle size={14} strokeWidth={1.8} aria-hidden="true" />Ask{questions.length > 0 && <span className="goal-muted">{questions.length}</span>}

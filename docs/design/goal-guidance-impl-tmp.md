@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first twelve implementation slices are complete. The later items of
-Steps 3 to 6 below remain as listed.
+Status: The first thirteen implementation slices are complete. The later items
+of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -543,6 +543,29 @@ it, and the frontend draws each diagram as SVG with boxes sized to their text.
 Done when: a lesson reads as a chapter with diagrams, the contents jump between
 chapters and sections, the conversation opens on demand, and an old lesson is
 written again as a chapter.
+
+## Thirteenth implementation slice
+
+Lessons read like an engineering handbook: diagrams carry the content, the text
+adds only key context, and lessons have their own tab.
+
+1. Diagrams first. The lesson writer is told to draw every structure, process or
+   interaction and to keep text to key invariants, context, names and edge
+   cases, in short declarative sentences or bullets. Two diagram kinds join FLOW
+   and TREE: COMPONENTS, a system's parts in the columns of their groups with
+   labelled arrows, and SEQUENCE, participants and their numbered messages.
+2. A Lessons tab. Once a course is accepted the Goal window shows Guide, Lessons
+   and Work; opening a chapter anywhere reads it under Lessons, and without an
+   open chapter the tab shows the course with where to continue.
+
+Progress: the thirteenth slice is complete. A diagram's edges join its own
+nodes, a components or sequence diagram needs them and a flow or tree has none;
+class names break at their camel-case humps, an arrow past the boxes of its
+column goes around the column, and arrow labels never cover each other.
+
+Done when: a chapter can show its components and a sequence of calls, the
+writer is told to prefer them to prose, and the Lessons tab opens the course or
+the open chapter.
 
 The following steps retain the full identity, source, recovery and verification
 requirements.

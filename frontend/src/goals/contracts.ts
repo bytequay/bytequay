@@ -180,11 +180,15 @@ export type GoalCardDto = {
 };
 
 /** A lesson of the goal's course, written once from its knowledge notes. */
-/** A small picture the app draws: FLOW for steps in order, TREE for a hierarchy whose first node is the root. */
+/**
+ * A small picture the app draws: FLOW for steps in order, TREE for a hierarchy whose first node is the root, COMPONENTS for the parts of a
+ * system in the columns of their groups and the arrows between them, SEQUENCE for messages between participants over time.
+ */
 export type LessonDiagramDto = {
-  kind: 'FLOW' | 'TREE';
+  kind: 'FLOW' | 'TREE' | 'COMPONENTS' | 'SEQUENCE';
   caption: string;
-  nodes: { id: string; label: string; note: string | null; parent: string | null }[];
+  nodes: { id: string; label: string; note: string | null; parent: string | null; group: string | null }[];
+  edges: { from: string; to: string; label: string | null }[];
 };
 
 export type LessonSectionDto = { title: string; body: string; diagram: LessonDiagramDto | null };
@@ -211,13 +215,17 @@ export type GoalLessonDto = {
 function parseLessonDiagram(value: unknown): LessonDiagramDto {
   const diagram = object(value, 'lesson diagram');
   return {
-    kind: oneOf(diagram.kind, ['FLOW', 'TREE'] as const, 'lesson diagram kind'),
+    kind: oneOf(diagram.kind, ['FLOW', 'TREE', 'COMPONENTS', 'SEQUENCE'] as const, 'lesson diagram kind'),
     caption: text(diagram.caption, 'lesson diagram caption'),
     nodes: parseList(diagram.nodes, (entry) => {
       const node = object(entry, 'lesson diagram node');
       return { id: text(node.id, 'lesson diagram node id'), label: text(node.label, 'lesson diagram node label'), note: optionalText(node.note),
-        parent: optionalText(node.parent) };
+        parent: optionalText(node.parent), group: optionalText(node.group) };
     }, 'lesson diagram nodes'),
+    edges: parseList(diagram.edges, (entry) => {
+      const edge = object(entry, 'lesson diagram edge');
+      return { from: text(edge.from, 'lesson diagram edge from'), to: text(edge.to, 'lesson diagram edge to'), label: optionalText(edge.label) };
+    }, 'lesson diagram edges'),
   };
 }
 

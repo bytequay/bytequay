@@ -303,7 +303,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
               onStart={() => (card.card.workItemId !== null ? goals.openLesson(goal.id, card.card.workItemId).then(() => {
                 // Start on a lesson card opens the lesson in the Goal window.
                 setLesson(card.card.workItemId);
-                setView('guide');
+                setView('lessons');
                 setDrafting(false);
                 open();
                 goals.refresh();

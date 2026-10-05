@@ -131,17 +131,23 @@ public record GoalLesson(
     }
 
     /**
-     * A small picture the app draws from its nodes: FLOW for steps in order, each node an arrow from the one before; TREE for a hierarchy,
-     * each node under its parent and the first node the root.
+     * A small picture the app draws: FLOW for steps in order, each node an arrow from the one before; TREE for a hierarchy, each node under
+     * its parent and the first node the root; COMPONENTS for the parts of a system and what connects them, each node in the column of its
+     * group, such as Coordinator or Worker; SEQUENCE for who calls whom over time, the nodes its participants and the edges its messages in
+     * order.
      */
-    public record Diagram(Kind kind, String caption, List<Node> nodes)
+    public record Diagram(Kind kind, String caption, List<Node> nodes, List<Edge> edges)
     {
-        public static final int MAX_NODES = 10;
+        public static final int MAX_NODES = 12;
+        public static final int MAX_EDGES = 16;
+        public static final int MAX_PARTICIPANTS = 6;
 
         public enum Kind
         {
             FLOW,
-            TREE
+            TREE,
+            COMPONENTS,
+            SEQUENCE
         }
 
         public Diagram
@@ -149,7 +155,8 @@ public record GoalLesson(
             requireNonNull(kind, "kind is null");
             checkText(caption, "diagram caption", 160);
             nodes = ImmutableList.copyOf(nodes);
-            checkArgument(nodes.size() >= 2 && nodes.size() <= MAX_NODES, "a diagram has two to %s nodes", MAX_NODES);
+            checkArgument(nodes.size() >= 2 && nodes.size() <= (kind == Kind.SEQUENCE ? MAX_PARTICIPANTS : MAX_NODES), "a %s diagram has two to %s nodes", kind,
+                    kind == Kind.SEQUENCE ? MAX_PARTICIPANTS : MAX_NODES);
             Set<String> earlier = new HashSet<>();
             for (Node node : nodes) {
                 if (kind == Kind.TREE) {
@@ -158,11 +165,33 @@ public record GoalLesson(
                 }
                 checkArgument(earlier.add(node.id()), "a diagram's node ids are unique: %s", node.id());
             }
+            // A diagram written before edges existed has none.
+            edges = edges == null ? ImmutableList.of() : ImmutableList.copyOf(edges);
+            boolean connected = kind == Kind.COMPONENTS || kind == Kind.SEQUENCE;
+            checkArgument(connected ? !edges.isEmpty() && edges.size() <= MAX_EDGES : edges.isEmpty(),
+                    "a components or sequence diagram has one to %s edges, and a flow or tree none", MAX_EDGES);
+            edges.forEach(edge -> checkArgument(earlier.contains(edge.from()) && earlier.contains(edge.to()), "an edge joins two of the diagram's nodes: %s -> %s",
+                    edge.from(), edge.to()));
         }
     }
 
-    /** One box of a diagram, with a short label and an optional note under it. */
-    public record Node(String id, String label, Optional<String> note, Optional<String> parent)
+    /** An arrow between two nodes: a connection between components, or a message in a sequence, with an optional short label. */
+    public record Edge(String from, String to, Optional<String> label)
+    {
+        public Edge
+        {
+            checkText(from, "edge from", 40);
+            checkText(to, "edge to", 40);
+            checkOptionalText(label, "edge label", 60);
+        }
+    }
+
+    /**
+     * One box of a diagram, with a short label and an optional note under it.
+     *
+     * @param group where a component runs or belongs, such as Coordinator, which gives it its column
+     */
+    public record Node(String id, String label, Optional<String> note, Optional<String> parent, Optional<String> group)
     {
         public Node
         {
@@ -170,6 +199,8 @@ public record GoalLesson(
             checkText(label, "node label", 60);
             checkOptionalText(note, "node note", 120);
             requireNonNull(parent, "parent is null");
+            // A node written before groups existed has none.
+            group = group == null ? Optional.empty() : checkOptionalText(group, "node group", 40);
         }
     }
 }

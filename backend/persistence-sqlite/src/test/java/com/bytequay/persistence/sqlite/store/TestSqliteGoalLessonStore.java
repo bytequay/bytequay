@@ -52,8 +52,8 @@ class TestSqliteGoalLessonStore
         assertThat(lessons.writing()).extracting(GoalLesson::id).containsExactlyInAnyOrder("lesson-1", "lesson-2");
 
         GoalLesson.Diagram diagram = new GoalLesson.Diagram(GoalLesson.Diagram.Kind.TREE, "Table metadata", ImmutableList.of(
-                new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty()),
-                new GoalLesson.Node("snapshot", "Snapshot", Optional.of("Never changes"), Optional.of("table"))));
+                new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty(), Optional.empty()),
+                new GoalLesson.Node("snapshot", "Snapshot", Optional.of("Never changes"), Optional.of("table"), Optional.empty())), ImmutableList.of());
         GoalLesson.Content chapter = new GoalLesson.Content(Optional.of("A table is a tree of metadata."), ImmutableList.of("A snapshot never changes once written."),
                 ImmutableList.of(new GoalLesson.Section("Metadata", "Each snapshot lists its manifests.", Optional.of(diagram))), Optional.empty(), "Run one test.",
                 "It passes.", "What is a snapshot?");

@@ -55,8 +55,8 @@ class TestGoalLessonService
     private static final GoalLesson.Content CONTENT = new GoalLesson.Content(Optional.of("A table is a tree of metadata."),
             ImmutableList.of("A snapshot never changes once written."),
             ImmutableList.of(new GoalLesson.Section("Metadata", "Each snapshot lists its manifests.", Optional.of(new GoalLesson.Diagram(GoalLesson.Diagram.Kind.TREE,
-                    "Table metadata", ImmutableList.of(new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty()),
-                            new GoalLesson.Node("snapshot", "Snapshot", Optional.of("Never changes"), Optional.of("table"))))))),
+                    "Table metadata", ImmutableList.of(new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty(), Optional.empty()),
+                            new GoalLesson.Node("snapshot", "Snapshot", Optional.of("Never changes"), Optional.of("table"), Optional.empty())), ImmutableList.of())))),
             Optional.empty(), "Run one test.", "It passes.", "What is a snapshot?");
 
     private final GoalService goals = mock(GoalService.class);

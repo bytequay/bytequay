@@ -136,16 +136,25 @@ the course with each lesson's state. A course proposed before the accepted one
 cannot replace it. Once the user accepts a definition that says what they
 already know, the agent may set the first topic levels citing that definition.
 
-A lesson opens in the expanded Goal window as a chapter of a book. The first
-time, a tool-free request writes it from the Goal's notes: a short summary, up
-to six invariants to remember, two to six short sections of Markdown that link
-the notes' sources, each with an optional diagram the app draws, a flow of steps
-or a tree, then one exercise, what to observe and a short check. Reopening it
-needs no model call, a failed or interrupted write is retried on opening, and a
-lesson written before chapters is written again. The expanded window shows the
-course's contents at the left, its parts and chapters with the open chapter's
-sections to jump to, the chapter in the middle with its previous and next
-chapters, and the Goal's conversation at the right when the user asks; a message
+Once a course is accepted, the Goal window has a Lessons tab beside Guide and
+Work, and a lesson opens there as a chapter of a book, in the expanded window.
+Without an open chapter the tab shows the course: how many chapters are done,
+where to continue, and each part with its chapters and what each teaches. The
+first time a chapter opens, a tool-free request writes it from the Goal's notes
+as a concise engineering handbook chapter, diagrams first: a short summary, up
+to six invariants to remember, two to six sections, each with a diagram wherever
+it shows a structure, a process or an interaction and a little Markdown that
+links the notes' sources for what the diagram cannot show, then one exercise,
+what to observe and a short check. A diagram is COMPONENTS, a system's parts in
+the columns of where they run with labelled arrows between them; SEQUENCE,
+participants and their numbered messages over time; FLOW, steps in order; or
+TREE, a hierarchy. ByteQuay validates its boxes and arrows and draws it; the
+model never writes markup. Reopening a chapter needs no model call, a failed or
+interrupted write is retried on opening, and a lesson written before chapters is
+written again. The expanded window shows the course's contents at the left, its
+parts and chapters with the open chapter's sections to jump to, the chapter in
+the middle with its previous and next chapters and All chapters back to the
+course, and the Goal's conversation at the right when the user asks; a message
 sent there while the lesson is open carries it to the agent. Restored to the
 floating window, the chapter shows alone with its own question field. The user
 answers the check in a field under it, which opens the conversation; the answer

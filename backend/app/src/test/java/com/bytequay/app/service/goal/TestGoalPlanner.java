@@ -212,8 +212,9 @@ class TestGoalPlanner
         when(lessons.find("lesson-1")).thenReturn(Optional.of(GoalLesson.writing("lesson-1", "goal-1", "workspace", NOW).written("codex/gpt",
                 new GoalLesson.Content(Optional.of("A table is a tree of metadata."), ImmutableList.of("A snapshot never changes once written."),
                         ImmutableList.of(new GoalLesson.Section("Metadata", "Each snapshot lists its manifests.", Optional.of(new GoalLesson.Diagram(
-                                GoalLesson.Diagram.Kind.TREE, "Table metadata", ImmutableList.of(new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty()),
-                                        new GoalLesson.Node("snapshot", "Snapshot", Optional.empty(), Optional.of("table"))))))),
+                                GoalLesson.Diagram.Kind.TREE, "Table metadata", ImmutableList.of(
+                                        new GoalLesson.Node("table", "Table", Optional.empty(), Optional.empty(), Optional.empty()),
+                                        new GoalLesson.Node("snapshot", "Snapshot", Optional.empty(), Optional.of("table"), Optional.empty())), ImmutableList.of())))),
                         Optional.empty(), "Read TableMetadata.", "Snapshots are listed.", "What does a snapshot point to?"), NOW)));
         GoalQuestions questions = mock(GoalQuestions.class);
         when(questions.recent(GoalPlanner.MAX_QUESTIONS)).thenReturn(ImmutableList.of(new GoalQuestions.Question("discussion:q-1", "What is a manifest list?",
@@ -298,6 +299,37 @@ class TestGoalPlanner
         assertThatThrownBy(() -> GoalPlanner.parse("""
                 {"summary": "Tables", "sections": [], "exercise": "Run one test.", "observe": "It passes.", "check": "What is a snapshot?"}""", GoalLesson.Content.class))
                 .isInstanceOf(AgentUnavailableException.class);
+
+        GoalLesson.Content parts = GoalPlanner.chapter(chapterWith("""
+                {"kind": "COMPONENTS", "caption": "Admission", "nodes": [{"id": "manager", "label": "InternalResourceGroupManager", "note": null, "parent": null,
+                "group": "Coordinator"}, {"id": "group", "label": "InternalResourceGroup", "note": null, "parent": null, "group": "Coordinator"}],
+                "edges": [{"from": "manager", "to": "group", "label": "run()"}]}""", """
+                {"kind": "SEQUENCE", "caption": "Admitting a query", "nodes": [{"id": "query", "label": "Query", "note": null, "parent": null, "group": null},
+                {"id": "group", "label": "Group", "note": null, "parent": null, "group": null}], "edges": [{"from": "query", "to": "group", "label": "submit"},
+                {"from": "group", "to": "query", "label": "start"}]}"""));
+        assertThat(parts.sections().getFirst().diagram()).hasValueSatisfying(diagram -> {
+            assertThat(diagram.nodes().getFirst().group()).contains("Coordinator");
+            assertThat(diagram.edges()).singleElement().satisfies(edge -> assertThat(edge.label()).contains("run()"));
+        });
+        assertThat(GoalPlanner.chapterText(parts)).as("the agent reads a diagram's arrows")
+                .contains("Admission: InternalResourceGroupManager -> InternalResourceGroup (run())", "Admitting a query: Query -> Group (submit); Group -> Query (start)");
+        assertThatThrownBy(() -> GoalPlanner.chapter(chapterWith("""
+                {"kind": "COMPONENTS", "caption": "Admission", "nodes": [{"id": "a", "label": "A", "note": null, "parent": null, "group": null},
+                {"id": "b", "label": "B", "note": null, "parent": null, "group": null}], "edges": []}""", "null")))
+                .as("components show what connects them").isInstanceOf(AgentUnavailableException.class).hasMessageContaining("edges");
+        assertThatThrownBy(() -> GoalPlanner.chapter(chapterWith("""
+                {"kind": "SEQUENCE", "caption": "Calls", "nodes": [{"id": "a", "label": "A", "note": null, "parent": null, "group": null},
+                {"id": "b", "label": "B", "note": null, "parent": null, "group": null}], "edges": [{"from": "a", "to": "missing", "label": null}]}""", "null")))
+                .as("an arrow joins the diagram's own boxes").isInstanceOf(AgentUnavailableException.class).hasMessageContaining("edge joins");
+    }
+
+    /** A chapter of two sections drawn with these diagrams, written as the agent answers. */
+    private static String chapterWith(String first, String second)
+    {
+        return """
+                {"summary": "Admission", "invariants": [], "sections": [{"title": "Parts", "body": "Who admits queries.", "diagram": %s},
+                {"title": "Order", "body": "One admission.", "diagram": %s}], "exercise": "Run one test.", "observe": "It passes.", "check": "Who admits a query?"}"""
+                .formatted(first.strip(), second.strip());
     }
 
     private static Workspace workspace(String owner, String repo)

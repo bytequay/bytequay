@@ -249,6 +249,54 @@ class TestCodexMessageDispatcher
     }
 
     @Test
+    void neverShedsAnApprovalRequest()
+            throws Exception
+    {
+        CountDownLatch blocked = new CountDownLatch(1);
+        CountDownLatch released = new CountDownLatch(1);
+        CountDownLatch answered = new CountDownLatch(1);
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        dispatcher.listen(listener(notification -> {
+            if (blocked.getCount() > 0) {
+                blocked.countDown();
+                try {
+                    released.await();
+                }
+                catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }));
+
+        dispatcher.dispatch(notification("thread-1", "turn-0"));
+        assertThat(blocked.await(5, TimeUnit.SECONDS)).isTrue();
+        for (int index = 0; index < 1_000; index++) {
+            dispatcher.dispatch(notification("thread-1", "turn-" + index));
+        }
+        dispatcher.dispatch(approval("thread-1"), new CodexMessageDispatcher.Replies()
+        {
+            @Override
+            public void respond(Object id, Object result)
+            {
+                answered.countDown();
+            }
+
+            @Override
+            public void fail(Object id, Throwable thrown)
+            {
+                failure.set(thrown);
+            }
+        });
+        released.countDown();
+
+        // A burst of streamed output is what fills the backlog; the approval behind it still
+        // reaches the session instead of being declined unseen.
+        assertThat(dispatcher.degraded()).isTrue();
+        assertThat(answered.await(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(failure.get()).isNull();
+    }
+
+    @Test
     void shedsMessagesWhenHandlingFallsTooFarBehind()
             throws Exception
     {

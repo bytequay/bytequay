@@ -37,8 +37,8 @@ import static java.util.Objects.requireNonNull;
  * <p>One task owns one App Server process, so a connection carries exactly one listener and nothing
  * has to be routed. Handlers run on a single consumer, which is what keeps them in arrival order.
  * Streamed text is shed once the backlog passes its bound, because that is what a slow handler
- * falls behind on; everything else is always queued, because dropping a turn's completion would
- * cost more than the memory it saves.
+ * falls behind on; everything else is always queued, because dropping a turn's completion or an
+ * approval request would cost more than the memory it saves.
  */
 final class CodexMessageDispatcher
         implements AutoCloseable
@@ -120,7 +120,8 @@ final class CodexMessageDispatcher
      * Hands one server request to the listener and answers when it decides.
      *
      * <p>The handler may take as long as it needs, including asking App Server something first,
-     * because it does not run on the reader.
+     * because it does not run on the reader. A request is never shed: a burst of streamed output
+     * must not decline an approval the user has not even seen.
      */
     void dispatch(CodexProtocol.ServerRequest request, Replies replies)
     {
@@ -129,7 +130,7 @@ final class CodexMessageDispatcher
             replies.fail(request.id(), new AgentUnavailableException("Codex request has no active session"));
             return;
         }
-        boolean submitted = submit(() -> {
+        boolean queued = execute(() -> {
             CompletionStage<?> result;
             try {
                 result = requireNonNull(target.onRequest(request), "request result is null");
@@ -147,10 +148,10 @@ final class CodexMessageDispatcher
                 }
             });
         });
-        if (!submitted) {
-            // A shed approval must be refused rather than left unanswered, or the turn would wait
-            // on a decision that is never coming.
-            replies.fail(request.id(), new AgentUnavailableException("Codex message handling is degraded"));
+        if (!queued) {
+            // The connection is closing; an unanswered request would leave the turn waiting on a
+            // decision that is never coming.
+            replies.fail(request.id(), new AgentUnavailableException("Codex connection is closed"));
         }
     }
 

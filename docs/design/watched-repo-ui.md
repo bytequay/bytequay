@@ -262,8 +262,11 @@ enhancement (or is dropped for the minimal implementation).
   and routes. A Markdown reference
   to an issue outside every watched repository stays a web page. Nested review/merge
   dialogs consume Escape, and returning from the embedded browser resumes the open details.
-- **Watch modal**: `Esc`/`✕` closes at any step without saving. Selecting a result loads
-  the preview (spinner replaces content area); Watch is disabled until the preview loads.
+- **Watch modal**: background clicks leave the search, selection, and pending preview intact.
+  Before confirmation, `✕` closes without saving and `Esc` steps back to search, then closes.
+  Selecting a result keeps its name visible while the preview loads with a spinner;
+  Watch is disabled until the preview loads. During the confirmed watch request, the modal
+  shows the save/fork progress and disables Back, Close, and Escape until it finishes.
   Watch posts the preview fingerprint; a `WatchPreviewChangedException` re-opens the
   confirm step with a notice. After success the modal closes and the Home grid inserts
   the new card at its saved position.

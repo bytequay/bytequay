@@ -16,6 +16,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import AddRepoModal, { WatchRepositoryConfirmation } from './AddRepoModal';
 import type { WatchRepositoryPreviewDto } from './types';
+import { runBrowserFixture } from './fixtures/browserFixture';
 
 const upstream = { owner: 'trinodb', repo: 'trino' };
 const fork = { owner: 'octocat', repo: 'trino' };
@@ -158,3 +159,14 @@ describe('watch repository fork consent', () => {
     expect(html).toContain('>Watching…</button>');
   });
 });
+
+it('preserves watch progress on background clicks and keeps explicit cancellation in Chromium', async () => {
+  const results = await runBrowserFixture<string[]>({
+    prefix: 'bytequay-watch-progress-',
+    entry: 'src/fixtures/watchRepositoryBrowser.tsx',
+    global: 'WatchRepositoryTests',
+    styles: true,
+    charset: true,
+  });
+  expect(results).toEqual(['background clicks preserve progress', 'explicit cancellation discards a late preview']);
+}, 30_000);

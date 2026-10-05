@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import Avatar from './Avatar';
 import type {
   RepoRefDto,
@@ -130,6 +131,12 @@ export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, 
               : preview.forkRequired ? 'Create fork and watch' : 'Watch repository'}
         </button>
       </div>
+      {adding && (
+        <div className="modal__progress" role="status">
+          <LoaderCircle size={16} className="modal__spinner" aria-hidden="true" />
+          <span>{preview.forkRequired ? `Creating ${fullName(preview.pushRepository)} and saving your workspace…` : 'Saving your workspace…'}</span>
+        </div>
+      )}
     </div>
   );
 }
@@ -144,6 +151,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const selectedRepositoryName = repos.find(repo => repo.id === selectedRepositoryId)?.fullName;
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -195,6 +203,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
 
   const pick = (repo: RepositorySearchResultDto) => {
     setSelectedRepositoryId(repo.id);
+    setPreviewLoading(true);
     setPreview(null);
     setError(null);
   };
@@ -228,13 +237,13 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
   };
 
   return (
-    <div className="modal-overlay" onClick={() => { if (!adding) onClose(); }}>
-      <div className="modal" onClick={event => event.stopPropagation()}>
+    <div className="modal-overlay">
+      <div className="modal" role="dialog" aria-modal="true" aria-label="Watch a repository">
         {selectedRepositoryId === null && (
           <>
             <div className="modal__header">
               <h2 className="modal__title">Watch a repository</h2>
-              <button className="modal__close" onClick={onClose} type="button">✕</button>
+              <button className="modal__close" aria-label="Close" onClick={onClose} type="button">✕</button>
             </div>
             <div className="modal__search-row">
               <input
@@ -247,7 +256,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
             </div>
             {error && <div className="modal__empty">{error}</div>}
             <div className="modal__list">
-              {loading ? <div className="modal__loading">Searching…</div> : repos.map(repo => (
+              {loading ? <div className="modal__loading" role="status">Searching…</div> : repos.map(repo => (
                 <div
                   className="modal-repo-row"
                   key={repo.id}
@@ -296,10 +305,18 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
           <>
             <div className="modal__header">
               <button className="modal__back" disabled={adding} onClick={back} type="button">‹ Search</button>
-              <button className="modal__close" disabled={adding} onClick={onClose} type="button">✕</button>
+              <button className="modal__close" aria-label="Close" disabled={adding} onClick={onClose} type="button">✕</button>
             </div>
-            {previewLoading && <div className="modal__loading">Checking repository routing…</div>}
-            {error && <div className="modal__empty">{error}</div>}
+            {previewLoading && (
+              <div className="modal__loading" role="status">
+                {selectedRepositoryName && <div className="modal__loading-repo">{selectedRepositoryName}</div>}
+                <div className="modal__progress">
+                  <LoaderCircle size={16} className="modal__spinner" aria-hidden="true" />
+                  <span>Checking repository routing…</span>
+                </div>
+              </div>
+            )}
+            {error && <div className="modal__empty" role="alert">{error}</div>}
             {preview && (
               <WatchRepositoryConfirmation
                 preview={preview}

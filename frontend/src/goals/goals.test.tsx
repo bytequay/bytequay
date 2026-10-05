@@ -312,6 +312,8 @@ describe('goal guidance', () => {
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, kind: 'INVESTIGATE', pages: [] } }).card.kind).toBe('INVESTIGATE');
     expect(parseGoalRecommendation({ ...CARD, card: { ...CARD.card, uncertainty: 'The writer was not read.' } }).card.uncertainty).toBe('The writer was not read.');
     expect(parseGoalRecommendation(CARD).card.uncertainty).toBeUndefined();
+    const ready = parseGoalRecommendation({ ...CARD, card: { ...CARD.card, prerequisites: 'Finish the checkpoint lesson', criteria: 'Rows survive a checkpoint' } });
+    expect([ready.card.prerequisites, ready.card.criteria]).toEqual(['Finish the checkpoint lesson', 'Rows survive a checkpoint']);
     // A started investigation is the goal's Investigate work, which the Goal window opens.
     const investigating = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED', workItemId: 'work-0',
       card: { ...CARD.card, kind: 'INVESTIGATE', title: 'Check deletion vector support', pages: [] } }] } });

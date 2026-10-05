@@ -273,7 +273,7 @@ public class GoalPlanner
             "plan": {"changes": [{"workItemId": "...", "priority": "HIGH", "waitsOn": ["..."], "acceptanceCriteria": null}], "order": null,
             "reason": "..."},
             "recommendation": {"kind": "RESEARCH", "title": "...", "reason": "...", "scope": "...", "pages": ["https://..."], "workItemId": null,
-            "issue": null, "ticket": null, "module": null, "reproductions": null, "uncertainty": null},
+            "issue": null, "ticket": null, "module": null, "reproductions": null, "uncertainty": null, "prerequisites": null, "criteria": null},
             "topics": [{"topic": "...", "level": "LEARNING", "evidence": ["discussion:..."]}],
             "title": "..."}
             - assessment: your answer and where the goal stands, in one to five sentences addressed to the user.
@@ -292,7 +292,9 @@ public class GoalPlanner
               or a ticket's key in ticket; a SPEC_CHECK card names its module and reproductions, and the other cards leave
               both null. An INVESTIGATE card names nothing in workItemId, issue or ticket. In uncertainty, say in at most
               300 characters what you are unsure of, such as code you have not read or a source that may already be fixed,
-              or null.
+              or null. In prerequisites, say in at most 500 characters what the user should know or have done first, such
+              as a lesson to finish, or null. In criteria, say in at most 2000 characters when a WORK or INVESTIGATE card's
+              work is done, which becomes its work item's acceptance criteria, or null to let its scope be them.
             - topics: an empty list, or up to eight topics whose level the evidence changed, each citing one to ten ids.
             - title: null, or the goal's name of at most 80 characters while it has no accepted definition.
             """;

@@ -63,7 +63,7 @@ class TestGoalPlanner
             new GoalLesson.Node("manifest", "ManifestFile", Optional.empty(), Optional.empty(), Optional.of("Metadata"))),
             ImmutableList.of(new GoalLesson.Edge("scan", "manifest", Optional.of("reads"))));
     private static final GoalRecommendation.Card CARD = new GoalRecommendation.Card(GoalRecommendation.Kind.RESEARCH, "Read the Iceberg specification",
-            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            "You start from the specification", "Table metadata, snapshots and manifests", ImmutableList.of("https://iceberg.apache.org/spec/"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
     @Test
     void acceptsOnlyAReplyInTheNamedShape()
@@ -104,7 +104,12 @@ class TestGoalPlanner
         assertThat(GoalPlanner.parse("""
                 {"assessment": "Practice on a real gap.", "question": null, "proposal": null, "course": null, "recommendation": {"kind": "WORK",
                 "title": "Fix #31252", "reason": "You learned checkpoints", "scope": "Key add and remove actions by path and deletion vector.", "pages": [],
-                "workItemId": null, "issue": 31252}}""").recommendation()).hasValueSatisfying(card -> assertThat(card.issue()).contains(31252));
+                "workItemId": null, "issue": 31252, "prerequisites": "Finish the checkpoint lesson", "criteria": " Rows survive a checkpoint "}}""").recommendation())
+                .hasValueSatisfying(card -> {
+                    assertThat(card.issue()).contains(31252);
+                    assertThat(card.prerequisites()).contains("Finish the checkpoint lesson");
+                    assertThat(card.criteria()).contains("Rows survive a checkpoint");
+                });
         assertThatThrownBy(() -> GoalPlanner.parse("""
                 {"assessment": "x", "question": null, "proposal": null, "course": null, "recommendation": {"kind": "WORK", "title": "t", "reason": "r",
                 "scope": "s", "pages": [], "workItemId": null, "issue": null}}"""))

@@ -128,9 +128,12 @@ public record GoalRecommendation(
      */
     /**
      * @param uncertainty what the agent is unsure of, such as code it has not read, and any doubt ByteQuay found reading the source again
+     * @param prerequisites what the user should know or have done before starting, such as a lesson to finish first
+     * @param criteria when the work is done; a work or investigation card's criteria become its work item's acceptance criteria
      */
     public record Card(Kind kind, String title, String reason, String scope, List<String> pages, Optional<String> workItemId, Optional<Integer> issue,
-            Optional<String> ticket, Optional<String> module, Optional<Integer> reproductions, Optional<String> uncertainty)
+            Optional<String> ticket, Optional<String> module, Optional<Integer> reproductions, Optional<String> uncertainty, Optional<String> prerequisites,
+            Optional<String> criteria)
     {
         public static final int MAX_PAGES = 8;
         public static final int MAX_REPRODUCTIONS = 8;
@@ -164,6 +167,10 @@ public record GoalRecommendation(
             reproductions.ifPresent(value -> checkArgument(value >= 1 && value <= MAX_REPRODUCTIONS, "a spec check reproduces 1 to %s gaps", MAX_REPRODUCTIONS));
             uncertainty = requireNonNull(uncertainty, "uncertainty is null").map(String::strip).filter(value -> !value.isEmpty());
             uncertainty.ifPresent(value -> checkArgument(value.length() <= 1_000, "the uncertainty is too long"));
+            prerequisites = requireNonNull(prerequisites, "prerequisites is null").map(String::strip).filter(value -> !value.isEmpty());
+            prerequisites.ifPresent(value -> checkArgument(value.length() <= 500, "the prerequisites are too long"));
+            criteria = requireNonNull(criteria, "criteria is null").map(String::strip).filter(value -> !value.isEmpty());
+            criteria.ifPresent(value -> checkArgument(value.length() <= 2_000, "the criteria are too long"));
         }
 
         /** The card carrying a doubt ByteQuay found, such as an open pull request linked to close its issue, before the agent's own. */
@@ -174,13 +181,13 @@ public record GoalRecommendation(
 
         public Card withUncertainty(Optional<String> value)
         {
-            return new Card(kind, title, reason, scope, pages, workItemId, issue, ticket, module, reproductions, value);
+            return new Card(kind, title, reason, scope, pages, workItemId, issue, ticket, module, reproductions, value, prerequisites, criteria);
         }
 
         /** The same card naming the ticket by its stable reference. */
         public Card withTicket(String reference)
         {
-            return new Card(kind, title, reason, scope, pages, workItemId, issue, Optional.of(reference), module, reproductions, uncertainty);
+            return new Card(kind, title, reason, scope, pages, workItemId, issue, Optional.of(reference), module, reproductions, uncertainty, prerequisites, criteria);
         }
     }
 }

@@ -33,14 +33,14 @@ class TestGoalRecommendationConverter
     {
         GoalRecommendation shown = new GoalRecommendation("card-1", "goal-1", "workspace-1", new GoalRecommendation.Card(GoalRecommendation.Kind.WORK, "Fix #31252",
                 "You learned how checkpoints reconcile actions", "Key checkpoint actions by path and deletion vector", ImmutableList.of(), Optional.empty(),
-                Optional.of(31252), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(),
-                Optional.empty(), "op-1", NOW, NOW);
+                Optional.of(31252), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()), GoalRecommendation.State.SHOWN,
+                Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW);
         GoalRecommendation started = shown.working("work-1", NOW.plusSeconds(1));
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(started))).isEqualTo(started);
 
-        // A card saved before work, check, ticket and module fields existed reads without them.
+        // A card saved before work, check, ticket, module, prerequisites and criteria fields existed reads without them.
         String older = converter.convertToDatabaseColumn(shown);
-        for (String field : new String[] {"workItemId", "checkId", "ticket", "module", "reproductions"}) {
+        for (String field : new String[] {"workItemId", "checkId", "ticket", "module", "reproductions", "prerequisites", "criteria"}) {
             older = older.replace(",\"" + field + "\":null", "");
             assertThat(older).doesNotContain(field);
         }

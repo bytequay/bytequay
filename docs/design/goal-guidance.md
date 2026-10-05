@@ -199,20 +199,22 @@ since its agent last looked, at most five, reach the agent as one background
 event, held with the others and through the quiet hours. When nothing new was
 opened nothing is told, so no model is asked. Cached Jira tickets do not say
 when they were opened, so a new ticket waits for the next exchange. A card may
-also say what the agent is unsure of, such as code it has not read, shown under
-its reason. Start reads the source again the same way and sets the card aside,
-telling the agent, when it is no longer open for practice. Otherwise Start makes
-the issue or ticket a Develop work item of the Goal, with the card's scope as
-its criteria under merged delivery, and opens its ordinary composer with the
-instruction filled in; the task and its source snapshot are created only when
-the user sends it, through the existing issue or ticket admission, as that work
-item's attempt. The card stays started, and no other Practice card floats, until
-the work is done or dropped; the agent hears each accept, drop or reopen of the
-Goal's work. Once the task of a Goal's issue or ticket work has ended and no
-delivery runs for it, the Work view offers Start another attempt: the issue or
-ticket composer opens over the ended task, and sending it creates a task that
-becomes the source's task, while the ended one keeps its source and stays the
-work item's earlier attempt.
+also say what the agent is unsure of, such as code it has not read, and what the
+user should know or have done first, such as a lesson to finish, each shown
+under its reason, and when its work is done, shown with its scope on hover.
+Start reads the source again the same way and sets the card aside, telling the
+agent, when it is no longer open for practice. Otherwise Start makes the issue
+or ticket a Develop work item of the Goal, with the card's criteria, or else its
+scope, as the work's acceptance criteria under merged delivery, and opens its
+ordinary composer with the instruction filled in; the task and its source
+snapshot are created only when the user sends it, through the existing issue or
+ticket admission, as that work item's attempt. The card stays started, and no
+other Practice card floats, until the work is done or dropped; the agent hears
+each accept, drop or reopen of the Goal's work. Once the task of a Goal's issue
+or ticket work has ended and no delivery runs for it, the Work view offers Start
+another attempt: the issue or ticket composer opens over the ended task, and
+sending it creates a task that becomes the source's task, while the ended one
+keeps its source and stays the work item's earlier attempt.
 
 Each work item of a Goal has a High, Normal or Low priority, Normal until the
 user sets one, and a place in the Goal's order: new work joins the end, and the
@@ -252,11 +254,12 @@ an older one. Changing a work item's title or completion rule stays with the
 user.
 
 When a question needs evidence nobody has gathered, such as whether the code
-supports a specification feature, and neither research nor a spec check fits
-it, the agent may recommend an investigation card naming what to find out.
-Start makes it one Investigate work item of the Goal under an accepted result,
-so starting it again finds the same item, and the Guide view opens that work,
-where the user links a task or accepts the result.
+supports a specification feature, and neither research nor a spec check fits it,
+the agent may recommend an investigation card naming what to find out. Start
+makes it one Investigate work item of the Goal under an accepted result, done by
+the card's criteria or else by what to find out, so starting it again finds the
+same item, and the Guide view opens that work, where the user links a task or
+accepts the result.
 
 The agent also sees the workspace's fifteen modules whose code cites a page in
 the most sections, read once per monitored head, and may recommend a Spec check

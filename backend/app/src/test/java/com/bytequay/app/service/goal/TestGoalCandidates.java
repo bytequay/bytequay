@@ -97,7 +97,7 @@ class TestGoalCandidates
         when(items.findByIdentity(WorkItemLink.issueIdentity("github.com", 4))).thenReturn(Optional.of(mock(WorkItem.class, withSettings().mockMaker(MockMakers.INLINE))));
         when(recommendations.list("goal")).thenReturn(ImmutableList.of(new GoalRecommendation("card-1", "goal", "workspace", new GoalRecommendation.Card(
                 GoalRecommendation.Kind.WORK, "Fix #105", "You learned checkpoints", "Fix it", ImmutableList.of(), Optional.empty(), Optional.of(105), Optional.empty(),
-                Optional.empty(), Optional.empty(), Optional.empty()),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
                 GoalRecommendation.State.DISMISSED, Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW)));
         when(jira.cachedIssues()).thenReturn(ImmutableList.of(ticket("10412", "TRINO-12", "Delta checkpoint loses deletion vectors", "indeterminate", "workspace"),
                 ticket("10413", "TRINO-13", "Delta checkpoint correctness in another workspace", "new", "other"),
@@ -185,7 +185,7 @@ class TestGoalCandidates
     private static GoalRecommendation.Card card(Optional<Integer> issue, Optional<String> ticket)
     {
         return new GoalRecommendation.Card(GoalRecommendation.Kind.WORK, "Fix it", "You learned checkpoints", "Fix it", ImmutableList.of(), Optional.empty(), issue, ticket,
-                Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private static GoalView goal(String title)

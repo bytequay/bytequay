@@ -91,7 +91,7 @@ class TestGoalLessonService
     {
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.LESSON, "What a table is",
                 "You are ready", "Table metadata", ImmutableList.of(), Optional.of("lesson-1"), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty()),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
                 GoalRecommendation.State.SHOWN,
                 Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW));
         assertThat(service.open("workspace", "goal-1", "lesson-1").state()).isEqualTo(GoalLesson.State.WRITING);
@@ -192,7 +192,7 @@ class TestGoalLessonService
     {
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.LESSON, "What a table is",
                 "You are ready", "Table metadata", ImmutableList.of(), Optional.of("lesson-1"), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty(), Optional.empty()),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
                 GoalRecommendation.State.STARTED,
                 Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW));
         service.finish("workspace", "goal-1", "lesson-1", "op-done");

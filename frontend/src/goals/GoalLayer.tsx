@@ -13,7 +13,7 @@
  */
 
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CircleAlert } from 'lucide-react';
+import { CircleAlert, ListChecks } from 'lucide-react';
 import { Card, Pill } from '../cards/Card';
 import { zoomReference } from '../githubReference';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
@@ -352,13 +352,16 @@ function RecommendationCard({ card, repository, onOpen, onStart, onAdjust, onDis
   };
   const kind = CARD_KINDS[card.card.kind];
   return (
-    <Card compact className="goal-rec" label={`${kind}: ${card.card.title}`} title={card.card.scope} onOpen={onOpen}>
+    <Card compact className="goal-rec" label={`${kind}: ${card.card.title}`}
+      title={card.card.criteria ? `${card.card.scope}\n\nDone when: ${card.card.criteria}` : card.card.scope} onOpen={onOpen}>
       <Pill>{kind}</Pill>
       <div className="goal-rec__title">{linkIssueNumbers(card.card.title, repository)}</div>
       {/* Both run long; each keeps a few lines and the whole text on hover. */}
       <div className="goal-rec__reason" title={card.card.reason}>{linkIssueNumbers(card.card.reason, repository)}</div>
       {card.card.uncertainty && <div className="goal-rec__doubt" title={card.card.uncertainty}>
         <CircleAlert size={13} aria-hidden="true" /><span>{linkIssueNumbers(card.card.uncertainty, repository)}</span></div>}
+      {card.card.prerequisites && <div className="goal-rec__first" title={`First: ${card.card.prerequisites}`}>
+        <ListChecks size={13} aria-hidden="true" /><span>{linkIssueNumbers(card.card.prerequisites, repository)}</span></div>}
       {error !== null && <div className="goal-rec__error" role="alert">{error}</div>}
       <div className="goal-rec__actions">
         <button type="button" className="goal-add" disabled={busy} onClick={(event) => act(event, onStart)}>Start</button>

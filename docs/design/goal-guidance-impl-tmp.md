@@ -741,6 +741,27 @@ the user's scope edit when accepted, recorded in the item's history.
 Done when: an approval and failing checks reach the agent once each, the
 History view names them, and a plan change can rewrite a work item's criteria.
 
+## Twentieth implementation slice
+
+Prepared starts: a card says what comes first and when its work is done, and
+Start opens a task the user only needs to review.
+
+1. What comes first and when it is done. A card may name what the user should
+   know or have done first, shown under its reason, and when its work is done,
+   shown with its scope on hover. A work or investigation card's criteria become
+   its work item's acceptance criteria; its scope stays the instruction.
+2. A prepared task. Start on a work card, Open the composer and Start another
+   attempt open the ordinary composer with a request prepared from the work's
+   accepted criteria, the card's scope and uncertainty, and the Goal's objective
+   and constraints, which the user reviews and sends. Source-free Goal work, such
+   as an investigation, starts its task the same way from its details, as that
+   work's attempt.
+
+Progress: the first item is done.
+
+Done when: a card shows what to do first, the work it becomes is accepted
+against its criteria, and Start opens a composer ready to send.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -878,7 +899,7 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [ ] Supply at most 100 compact candidates, inspect at most five selected sources
   and display at most three recommendations. Reject model-invented IDs and URLs.
   Cache conclusions by input revision; unchanged candidates need no new model call.
-- [ ] Include reason, scope, prerequisites, completion criteria and uncertainty
+- [x] Include reason, scope, prerequisites, completion criteria and uncertainty
   on each proposal. Allow source-free learning/investigation items.
 - [x] Trigger discovery as the next useful step of an active guidance request or
   meaningful source/work change. Users need not open search and formulate a new
@@ -896,17 +917,16 @@ work items. Closing and reopening the app retains the conversation and plan.
   work. Open an existing task when appropriate; preserve the draft on failure.
 
 Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
-`TestGoalCandidates`, `TestGoalResearchService`, `TestGoalDiscovery` and the
-investigation-card test in `TestGoalConversationService`. Still partial: a
-research run is confined by its prompt and its own disposable worktree, not by a
-read-only tool policy; cited pages are never checked for staleness and no
-Remember is offered; shortlisted sources record no duplicate read or revision,
-though a card whose source could not be read again says so; research pages
-accept any https address; conclusions are cached only for discovery, by the
-Goal's last exchange; cards carry uncertainty but no prerequisites or separate
-completion criteria; new Jira tickets do not trigger discovery; a task carries
-no explicit work-item reference or Goal context; and Start rechecks the source
-but not the work item's revision.
+`TestGoalCandidates`, `TestGoalResearchService`, `TestGoalDiscovery`, the card
+parsing in `TestGoalPlanner` and the investigation-card test in
+`TestGoalConversationService`. Still partial: a research run is confined by its
+prompt and its own disposable worktree, not by a read-only tool policy; cited
+pages are never checked for staleness and no Remember is offered; shortlisted
+sources record no duplicate read or revision, though a card whose source could
+not be read again says so; research pages accept any https address; conclusions
+are cached only for discovery, by the Goal's last exchange; new Jira tickets do
+not trigger discovery; a task carries no explicit work-item reference or Goal
+context; and Start rechecks the source but not the work item's revision.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed

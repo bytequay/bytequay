@@ -181,6 +181,10 @@ export type GoalCardDto = {
   reproductions: number | null;
   /** What the agent is unsure of, and any doubt ByteQuay found reading the source again. */
   uncertainty?: string | null;
+  /** What the user should know or have done first, such as a lesson to finish. */
+  prerequisites?: string | null;
+  /** When the work is done; a started work or investigation card's work is accepted against them, or else against its scope. */
+  criteria?: string | null;
 };
 
 /** A lesson of the goal's course, written once from its knowledge notes. */
@@ -314,6 +318,8 @@ function parseCard(value: unknown): GoalCardDto {
     module: optionalText(card.module),
     reproductions: Number.isSafeInteger(card.reproductions) && (card.reproductions as number) > 0 ? card.reproductions as number : null,
     ...(typeof card.uncertainty === 'string' ? { uncertainty: card.uncertainty } : {}),
+    ...(typeof card.prerequisites === 'string' ? { prerequisites: card.prerequisites } : {}),
+    ...(typeof card.criteria === 'string' ? { criteria: card.criteria } : {}),
   };
 }
 

@@ -82,8 +82,8 @@ class TestGoalSpecChecks
                 Optional.empty(), 0, Optional.empty(), false, NOW, NOW)));
         cards.save(new GoalRecommendation("card-1", "goal-1", "workspace", new GoalRecommendation.Card(GoalRecommendation.Kind.SPEC_CHECK,
                 "Check the Delta checkpoint writer", "You know how checkpoints reconcile actions", "Checkpoint action reconciliation", ImmutableList.of(PROTOCOL),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("plugin/trino-delta-lake/"), Optional.of(3), Optional.empty()), GoalRecommendation.State.SHOWN,
-                Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW));
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.of("plugin/trino-delta-lake/"), Optional.of(3), Optional.empty(), Optional.empty(),
+                Optional.empty()), GoalRecommendation.State.SHOWN, Optional.empty(), Optional.empty(), Optional.empty(), "op-1", NOW, NOW));
         when(builds.get("workspace")).thenReturn(new ContextBuildService.View(7, true, Optional.empty()));
     }
 

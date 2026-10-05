@@ -661,21 +661,24 @@ public class GoalConversationService
         }
     }
 
-    /** A practice card's issue or ticket becomes the Goal's Develop work, whose task the user sends from the composer. */
+    /** A practice card's issue or ticket becomes the Goal's Develop work, done by its criteria or else its scope, whose task the user sends from the composer. */
     private WorkItemView practice(String workspaceId, String goalId, GoalRecommendation card)
     {
         GoalItemKind kind = card.card().issue().isPresent() ? GoalItemKind.ISSUE : GoalItemKind.JIRA;
         String source = card.card().ticket().orElseGet(() -> GoalItem.numberedKey(workspaces.findById(workspaceId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found")).monitoredRepository().fullName(), card.card().issue().orElseThrow()));
         return work.adopt(workspaceId, goalId, UUID.nameUUIDFromBytes(("practice:" + card.id()).getBytes(UTF_8)).toString(), card.card().title(),
-                card.card().scope(), kind, source);
+                card.card().criteria().orElse(card.card().scope()), kind, source);
     }
 
-    /** An investigation card becomes one Investigate work item of the Goal, whose result the user accepts; starting it again finds the same item. */
+    /**
+     * An investigation card becomes one Investigate work item of the Goal, done by its criteria or else its scope, whose result the user accepts;
+     * starting it again finds the same item.
+     */
     private WorkItemView investigation(String workspaceId, String goalId, GoalRecommendation card)
     {
         return work.create(workspaceId, UUID.nameUUIDFromBytes(("investigate:" + card.id()).getBytes(UTF_8)).toString(), Optional.of(goalId), card.card().title(),
-                WorkItem.Kind.INVESTIGATE, card.card().scope(), WorkItem.CompletionRule.ACCEPTED_RESULT);
+                WorkItem.Kind.INVESTIGATE, card.card().criteria().orElse(card.card().scope()), WorkItem.CompletionRule.ACCEPTED_RESULT);
     }
 
     /**

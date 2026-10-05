@@ -542,10 +542,9 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
           style={overlay ? undefined : { width: detailWidth }}>
           {!overlay && <div className="pull-detail__resize" role="separator" aria-orientation="vertical"
             aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />}
-          <header className="pull-detail__header">
-            <div className="pull-detail__title-row">
+          <header className="pull-detail__header pull-detail__header--tabs">
+            <div className="pull-detail__toolbar">
               <div className="pull-detail__header-actions">
-                {visit.status && <span className="attention-visit-status" role="status">{visit.status}</span>}
                 <PinButton className="pull-detail__icon-action" item={{ key: `${repository}#${selected.number}`, title: selected.title,
                   reference: `${repository} #${selected.number}`, target: { kind: 'issue', repo: repository, number: selected.number, workspaceId } }} />
                 <button className="pull-detail__icon-action" type="button" title="Refresh" aria-label="Refresh" disabled={detailLoading}

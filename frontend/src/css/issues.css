@@ -25,8 +25,7 @@
 .issues-row__stats { justify-content: space-between; }
 .issues-row__assignees { min-width: 0; overflow: hidden; color: #8b949e; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 
-.issues-detail .pull-detail__header { padding: 15px 20px; }
-.issues-detail .pull-detail__title-row { justify-content: flex-end; }
+.issues-detail .pull-detail__toolbar { justify-content: flex-end; }
 .issue-overview { max-width: 1240px; }
 .issue-overview .pr-overview__branches strong { color: #24292f; font-weight: 500; }
 .issue-overview .pr-state svg { width: 15px; height: 15px; }

@@ -13,6 +13,7 @@
  */
 
 import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { CircleAlert } from 'lucide-react';
 import { Card, Pill } from '../cards/Card';
 import { zoomReference } from '../githubReference';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
@@ -339,8 +340,10 @@ function RecommendationCard({ card, onOpen, onStart, onAdjust, onDismiss }: {
     <Card compact className="goal-rec" label={`${kind}: ${card.card.title}`} title={card.card.scope} onOpen={onOpen}>
       <Pill>{kind}</Pill>
       <div className="goal-rec__title">{card.card.title}</div>
-      <div className="goal-rec__reason">{card.card.reason}</div>
-      {card.card.uncertainty && <div className="goal-rec__doubt">{card.card.uncertainty}</div>}
+      {/* Both run long; each keeps a few lines and the whole text on hover. */}
+      <div className="goal-rec__reason" title={card.card.reason}>{card.card.reason}</div>
+      {card.card.uncertainty && <div className="goal-rec__doubt" title={card.card.uncertainty}>
+        <CircleAlert size={13} aria-hidden="true" /><span>{card.card.uncertainty}</span></div>}
       {error !== null && <div className="goal-rec__error" role="alert">{error}</div>}
       <div className="goal-rec__actions">
         <button type="button" className="goal-add" disabled={busy} onClick={(event) => act(event, onStart)}>Start</button>

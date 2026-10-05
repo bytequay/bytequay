@@ -230,6 +230,8 @@ export async function run(): Promise<boolean> {
     const card = element('.goal-cards').getBoundingClientRect();
     assert(element('.goal-pill').getBoundingClientRect().left < page.left + 100, 'The pill sits near the page\'s left edge');
     assert(card.left >= page.left + 8 && card.right <= page.right - 8, `The card stays inside the page: ${JSON.stringify(card.toJSON())}`);
+    const title = element('.goal-rec__title').getBoundingClientRect();
+    assert(title.left - element('.goal-rec').getBoundingClientRect().left >= 12, 'The card keeps its text off its border');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

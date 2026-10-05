@@ -1001,13 +1001,20 @@ button.goal-tile:hover {
 .goal-note a { color: #0969da; overflow-wrap: anywhere; }
 .goal-note summary:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
 /* The cards hang from the pill's right edge, moved in from whichever page edge they would cross. */
-.goal-cards { position: absolute; z-index: 6; display: grid; gap: 8px; width: 280px; right: clamp(8px, var(--goal-pill-right), calc(100% - 288px)); }
-.goal-rec { display: grid; gap: 6px; justify-items: start; background: #ffffff; box-shadow: 0 6px 18px rgba(31, 35, 40, 0.12); }
-.goal-rec__title { font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
-.goal-rec__reason { font-size: 12px; line-height: 17px; color: #57606a; overflow-wrap: anywhere; }
-.goal-rec__doubt { font-size: 12px; line-height: 17px; color: #9a6700; overflow-wrap: anywhere; }
+.goal-cards { position: absolute; z-index: 6; display: grid; gap: 8px; width: 300px; right: clamp(8px, var(--goal-pill-right), calc(100% - 308px)); }
+.goal-rec { display: grid; gap: 8px; justify-items: start; padding: 12px 14px; background: #ffffff; box-shadow: 0 6px 18px rgba(31, 35, 40, 0.12); }
+.goal-rec__title { font-size: 13.5px; line-height: 19px; color: var(--text-1); overflow-wrap: anywhere; }
+.goal-rec__reason, .goal-rec__doubt > span {
+  display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; overflow-wrap: anywhere;
+}
+.goal-rec__reason { -webkit-line-clamp: 3; font-size: 12px; line-height: 17px; color: #57606a; }
+.goal-rec__doubt { display: flex; gap: 6px; align-items: flex-start; box-sizing: border-box; width: 100%; padding: 6px 8px; border-radius: 6px;
+  background: #fff8c5; color: #7d4e00; font-size: 12px; line-height: 17px; }
+.goal-rec__doubt > span { -webkit-line-clamp: 2; }
+.goal-rec__doubt > svg { flex: none; margin-top: 2px; }
 .goal-rec__error { font-size: 12px; color: #cf222e; }
-.goal-rec__actions { display: flex; align-items: center; gap: 8px; }
+.goal-rec__actions { display: flex; align-items: center; gap: 12px; margin-top: 2px; }
+.goal-rec__actions .goal-add { font-weight: 400; }
 
 .goal-course { display: grid; gap: 10px; }
 .goal-course__part { display: grid; gap: 4px; }

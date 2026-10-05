@@ -247,7 +247,7 @@ class TestCodexLaunchProfile
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
             assertThat(CodexLaunchProfile.arguments("codex", childProfile, Optional.of(launch), false, ImmutableList.of(), false, false))
                     .containsSequence("--disable", "memories");
-            assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false)).containsEntry("memories", false);
+            assertThat(CodexLaunchProfile.expectedFeatures(childProfile, false)).containsEntry("memories", false).containsEntry("goals", false);
             assertThat(CodexLaunchProfile.threadConfig(childProfile, false, false, ImmutableList.of(), false, false))
                     .containsEntry("features", CodexLaunchProfile.expectedFeatures(childProfile, false));
             assertThat(CodexLaunchProfile.threadConfig(childProfile, true, false, ImmutableList.of(), false, false))
@@ -364,7 +364,7 @@ class TestCodexLaunchProfile
         assertThat(arguments).contains(
                 "shell_environment_policy.include_only=[\"HOME\",\"LANG\",\"LC_ALL\",\"LOGNAME\","
                         + "\"PATH\",\"SHELL\",\"TERM\",\"TMPDIR\",\"USER\"]");
-        for (String feature : ImmutableList.of("apps", "hooks", "memories", "plugins", "computer_use", "browser_use", "network_proxy", "skill_search")) {
+        for (String feature : ImmutableList.of("apps", "goals", "hooks", "memories", "plugins", "computer_use", "browser_use", "network_proxy", "skill_search")) {
             assertThat(arguments).containsSequence("--disable", feature);
         }
     }

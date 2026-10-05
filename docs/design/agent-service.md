@@ -3749,7 +3749,8 @@ The connection and task sequence is:
    rejects a spawn call without interrupting the root. Saved MCP-only reviews,
    restricted sessions, CI, and text-only helpers retain their no-child profile.
    Every profile explicitly
-   disables apps, plugins, hooks, host skill discovery, the other
+   disables apps, plugins, hooks, host skill discovery, goals (whose
+   continuations would start turns ByteQuay did not send), the other
    multi-agent feature, and all other unapproved optional capabilities, and
    applies the same minimal command environment. Ordinary tasks enable native
    `web_search: "live"` for public documentation reads independently of shell

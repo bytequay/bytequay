@@ -45,6 +45,8 @@ final class CodexLaunchProfile
             "browser_use",
             "browser_use_external",
             "computer_use",
+            // A goal makes App Server start further turns itself, outside the one turn each process serves.
+            "goals",
             "guardian_ext",
             "guardianv2",
             "image_generation",

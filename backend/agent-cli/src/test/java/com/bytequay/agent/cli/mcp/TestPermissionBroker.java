@@ -14,6 +14,7 @@
 package com.bytequay.agent.cli.mcp;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.cli.process.TemporaryWriteRoots;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -1157,7 +1158,7 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isTrue();
         assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
         assertThat(settings.at("/sandbox/filesystem/allowWrite"))
-                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
+                .isEqualTo(objectMapper.valueToTree(temporaryRoots(ImmutableMap.of())));
         assertThat(settings.at("/permissions/allow").isMissingNode()).isTrue();
         assertThat(settings.at("/permissions/deny")).isEmpty();
         assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
@@ -1200,7 +1201,7 @@ class TestPermissionBroker
         Path external = Files.createDirectories(temporaryDirectory.resolve("external"));
         Path linkedHome = Files.createDirectories(temporaryDirectory.resolve("linked-build-home")).toRealPath();
         Files.createSymbolicLink(linkedHome.resolve(".m2"), external);
-        var environment = ImmutableMap.of("HOME", home.toString());
+        var environment = ImmutableMap.of("HOME", home.toString(), "TMPDIR", Files.createDirectory(temporaryDirectory.resolve("host-tmp")).toString());
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "");
@@ -1217,8 +1218,8 @@ class TestPermissionBroker
                     },
                     SecretRedactor.fromEnvironment(environment), Optional.empty(), environment)) {
                 JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
-                List<String> expected = ImmutableList.of(home.resolve(".m2").toString(), home.resolve(".gradle").toString(),
-                        home.resolve(".npm").toString(), "/var/tmp");
+                List<String> expected = ImmutableList.<String>builder().add(home.resolve(".m2").toString(), home.resolve(".gradle").toString(),
+                        home.resolve(".npm").toString()).addAll(temporaryRoots(environment)).build();
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                         .isEqualTo(objectMapper.valueToTree(expected));
                 assertThat(expected).doesNotContain(external.toString());
@@ -1248,8 +1249,8 @@ class TestPermissionBroker
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(linkedEnvironment), Optional.empty(), linkedEnvironment)) {
             JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
-            List<String> expected = ImmutableList.of(linkedHome.resolve(".gradle").toString(),
-                    linkedHome.resolve(".npm").toString(), "/var/tmp");
+            List<String> expected = ImmutableList.<String>builder().add(linkedHome.resolve(".gradle").toString(),
+                    linkedHome.resolve(".npm").toString()).addAll(temporaryRoots(linkedEnvironment)).build();
             assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                     .isEqualTo(objectMapper.valueToTree(expected));
             assertThat(expected).doesNotContain(linkedHome.resolve(".m2").toString(), external.toString());
@@ -1273,9 +1274,9 @@ class TestPermissionBroker
         Files.writeString(privateGit.resolve("HEAD"), "ref: refs/heads/bytequay/task\n");
         Path branch = common.resolve("refs/heads/bytequay/task");
         Path reflog = common.resolve("logs/refs/heads/bytequay/task");
-        List<String> expected = ImmutableList.of(
+        List<String> expected = ImmutableList.<String>builder().add(
                 privateGit.toString(), objects.toString(), branch.toString(), branch + ".lock",
-                reflog.toString(), reflog + ".lock", "/var/tmp");
+                reflog.toString(), reflog + ".lock").addAll(temporaryRoots(ImmutableMap.of())).build();
         Path runtime = Files.createDirectory(root.resolve("linked-runtime"));
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_context", "Read review context", ImmutableMap.of("type", "object"), input -> "context")), "Review only");
@@ -1301,7 +1302,7 @@ class TestPermissionBroker
                     SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), ImmutableMap.of())) {
                 JsonNode settings = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow()));
                 assertThat(settings.at("/sandbox/filesystem/allowWrite"))
-                        .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
+                        .isEqualTo(objectMapper.valueToTree(temporaryRoots(ImmutableMap.of())));
                 assertThat(settings.at("/sandbox/allowUnsandboxedCommands").asBoolean()).isEqualTo(access == SessionAccess.FULL);
                 assertThat(settings.at("/permissions/ask").isMissingNode()).isTrue();
             }
@@ -1382,7 +1383,7 @@ class TestPermissionBroker
                                 if (reviewSession) {
                                     assertThat(settings.at("/sandbox/autoAllowBashIfSandboxed").asBoolean()).isFalse();
                                     assertThat(settings.at("/sandbox/filesystem/allowWrite"))
-                                            .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/tmp")));
+                                            .isEqualTo(objectMapper.valueToTree(temporaryRoots(ImmutableMap.of())));
                                     assertThat(settings.at("/permissions/deny").toString()).contains("Bash(git commit:*)", "Bash(git update-ref:*)")
                                             .doesNotContain("Bash(git add", "Bash(git write-tree", "Bash(git update-index", "Bash(git symbolic-ref", "Bash(git reset");
                                     assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
@@ -1513,5 +1514,10 @@ class TestPermissionBroker
     {
         JsonNode config = objectMapper.readTree(Files.readString(registration.configFile().orElseThrow()));
         return config.at("/mcpServers/bytequay/headers/Authorization").asText().substring("Bearer ".length());
+    }
+
+    private static List<String> temporaryRoots(Map<String, String> environment)
+    {
+        return TemporaryWriteRoots.writableRoots(environment).stream().map(Path::toString).collect(ImmutableList.toImmutableList());
     }
 }

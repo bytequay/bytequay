@@ -18,6 +18,7 @@ import com.bytequay.agent.cli.process.AgentPermissionManager;
 import com.bytequay.agent.cli.process.BuildCacheRoots;
 import com.bytequay.agent.cli.process.GitWorktreeWriteRoots;
 import com.bytequay.agent.cli.process.SecretRedactor;
+import com.bytequay.agent.cli.process.TemporaryWriteRoots;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
@@ -1332,7 +1333,7 @@ public final class PermissionBroker
             List<String> gitRoots = GitWorktreeWriteRoots.writableRoots(worktree);
             allowWrite.addAll(gitRoots.subList(1, gitRoots.size()));
         }
-        allowWrite.add("/var/tmp");
+        allowWrite.addAll(TemporaryWriteRoots.writableRoots(environment).stream().map(Path::toString).collect(toImmutableList()));
         ImmutableMap.Builder<String, Object> sandbox = ImmutableMap.builder();
         sandbox.put("enabled", true)
                 .put("failIfUnavailable", true)
@@ -1341,10 +1342,8 @@ public final class PermissionBroker
                 .put("allowUnsandboxedCommands", allowUnsandboxedRetry)
                 .put("excludedCommands", ImmutableList.of())
                 .put("filesystem", ImmutableMap.of(
-                        // The sandbox otherwise permits only the worktree and TMPDIR, so a build
-                        // cannot populate its dependency cache.
+                        // Claude's private scratch allowance does not cover /tmp or macOS Java's host temp root.
                         // ponytail: add a vetted root in BuildCacheRoots when a task toolchain needs one.
-                        // Share Codex's fixed, validated cache roots. /var/tmp remains Claude's existing temp allowance.
                         "allowWrite", allowWrite.build(),
                         "denyRead", denyRead.build(),
                         // The task runtime directory holds the CI logs, the event log, and this

@@ -786,7 +786,8 @@ renderer crashes detach the native surface and expose a reload action.
   Full Codex development, review, and CI turns allow command network access.
   Codex, DeepSeek, and Claude select the same validated
   `$HOME/.m2`, `$HOME/.gradle`, and `$HOME/.npm`
-  writable cache roots; Claude also retains `/var/tmp` for temporary files.
+  writable cache roots; Claude also permits the resolved host `/tmp`, `/var/tmp`,
+  JVM temporary directory and inherited `TMPDIR` for build temporary files.
   Full development, CI, and cherry-pick turns use one validated selection of linked-worktree
   Git metadata roots for local commits; other Git refs and shared configuration
   retain their normal native protections.

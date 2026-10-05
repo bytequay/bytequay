@@ -4313,9 +4313,10 @@ Approval runs that entire command outside Claude's filesystem sandbox; it can
 reach host files, including credentials, and is not limited to the path that
 caused the original failure. Cherry-pick and restricted turns keep
 `allowUnsandboxedCommands=false`. Without an approved retry, the sandbox permits only the
-worktree and `TMPDIR`, which no build can populate a dependency cache from, so
+worktree and provider scratch directory, which no build can populate a dependency cache from, so
 `filesystem.allowWrite` names the validated `~/.m2`, `~/.gradle`, and
-`~/.npm` cache roots, plus `/var/tmp`. Maven builds can write `settings.xml`
+`~/.npm` cache roots, plus the resolved host `/tmp`, `/var/tmp`, JVM temporary
+directory and inherited `TMPDIR`. Maven builds can write `settings.xml`
 inside `~/.m2`; cache roots are shared across tasks. Full development, CI,
 and cherry-pick turns with a linked worktree also add only its verified private
 Git directory, shared objects, task branch ref and reflog, and their lock

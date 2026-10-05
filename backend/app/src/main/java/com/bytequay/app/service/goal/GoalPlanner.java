@@ -235,8 +235,9 @@ public class GoalPlanner
             user decided against. An unchanged plan needs no proposal.
 
             Recovery comes first. When ByteQuay reports that a turn of a task for the goal's work failed or was
-            interrupted, or that a reviewer requested changes on its pull request, say what went wrong and what the user
-            can do in that work's task, and recommend nothing new until that work recovers.
+            interrupted, that a reviewer requested changes on its pull request, or that checks failed on it, say what went
+            wrong and what the user can do in that work's task, and recommend nothing new until that work recovers. When a
+            reviewer approves the pull request, say what is left before it can merge.
 
             When a question needs evidence nobody has gathered, such as whether the code supports a specification
             feature, and neither a research run nor a spec check fits it, recommend an INVESTIGATE card: in scope, what to

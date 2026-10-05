@@ -17,6 +17,8 @@ import com.bytequay.app.review.PullRequestDetailRefreshed;
 import com.bytequay.app.review.PullRequestsRefreshed;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.PrCheckRunState;
+import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.WorkItem;
@@ -90,7 +92,7 @@ class TestGoalDeliveries
     }
 
     @Test
-    void aReviewWhoseReviewerStillRequestsChangesIsRecordedOnceAndToldToTheAgent()
+    void anOpenPullRequestWaitsForReviewAndEachReviewersVerdictIsRecordedOnceAndToldToTheAgent()
     {
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(), pull(31260, GoalItemState.WORKING))));
         when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31260)).thenReturn(Optional.of(7L));
@@ -101,16 +103,48 @@ class TestGoalDeliveries
         when(details.find(7L)).thenReturn(Optional.of(detail));
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
+        verify(work).receipt("workspace", "work-1", "opened:trinodb/trino#31260", "Pull request #31260 opened: Key actions by path and deletion vector");
+        verify(conversation).report("workspace", "goal-1", "opened:trinodb/trino#31260:work-1", "work-1",
+                "Pull request #31260 for \"Fix #31252\" is open and waits for review.");
         verify(work).receipt("workspace", "work-1", "changes:3", "@bob requested changes on #31260: Add a test for deletion vectors");
         verify(conversation).tell("workspace", "goal-1", "changes:3:work-1",
                 "@bob requested changes on pull request #31260 for \"Fix #31252\": Add a test for deletion vectors");
         verify(work, never()).receipt(anyString(), anyString(), eq("changes:1"), anyString());
+        verify(work).receipt("workspace", "work-1", "approved:2", "@alice approved #31260");
+        verify(conversation).tell("workspace", "goal-1", "approved:2:work-1", "@alice approved pull request #31260 for \"Fix #31252\".");
 
-        WorkItemEvent recorded = new WorkItemEvent("changes:3", "", "RECEIPT", "@bob requested changes on #31260", NOW);
-        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(recorded),
-                pull(31260, GoalItemState.WORKING))));
+        ImmutableList<WorkItemEvent> recorded = ImmutableList.of(new WorkItemEvent("changes:3", "", "RECEIPT", "@bob requested changes on #31260", NOW),
+                new WorkItemEvent("approved:2", "", "RECEIPT", "@alice approved #31260", NOW),
+                new WorkItemEvent("opened:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 opened", NOW));
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, recorded, pull(31260, GoalItemState.WORKING))));
         deliveries.restore();
+        verify(work, times(3)).receipt(anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void checksFailingOnAHeadCommitAreRecordedOnceForThatCommit()
+    {
+        when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING,
+                ImmutableList.of(new WorkItemEvent("opened:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 opened", NOW)), pull(31260, GoalItemState.WORKING))));
+        when(pullRequests.findIdByRepoAndNumber("trinodb/trino", 31260)).thenReturn(Optional.of(7L));
+        StoredPrDetail detail = mock(StoredPrDetail.class, withSettings().mockMaker(MockMakers.INLINE));
+        PrRawDetail raw = mock(PrRawDetail.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(raw.headSha()).thenReturn("abc123");
+        when(detail.raw()).thenReturn(raw);
+        when(detail.checkRunsComplete()).thenReturn(true);
+        when(detail.checkRuns()).thenReturn(ImmutableList.of(check("build", "FAILURE"), check("lint", "SUCCESS"), check("e2e", "CANCELLED"), check("build", "failure")));
+        when(details.find(7L)).thenReturn(Optional.of(detail));
+
+        deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
+        verify(work).receipt("workspace", "work-1", "checks:trinodb/trino#31260@abc123", "Checks failed on #31260: build");
+        verify(conversation).tell("workspace", "goal-1", "checks:trinodb/trino#31260@abc123:work-1",
+                "Checks failed on pull request #31260 for \"Fix #31252\": build.");
         verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
+    }
+
+    private static PrCheckRunState check(String name, String conclusion)
+    {
+        return new PrCheckRunState(1L, name, "COMPLETED", conclusion, "", "", NOW, NOW);
     }
 
     @Test

@@ -718,6 +718,24 @@ the next exchange.
 Done when: a defined Goal hears once about an issue opened near it, a quiet
 repository asks no model, and an unreadable source shows on its card.
 
+## Nineteenth implementation slice
+
+Guidance from real status: the agent hears what the pull requests of the
+Goal's work are waiting on, and may propose new criteria for a work item.
+
+1. Real status reaches the agent. Besides merges and reviews requesting
+   changes, a linked open pull request's approvals and the checks failing on
+   its head commit are recorded once on the work and told to the agent, which
+   treats failing checks as recovery; that the pull request is open and waits
+   for review is recorded once and goes with the agent's next event. The
+   History view names each receipt by what it records.
+2. Criteria in plan changes. A plan change may give an open work item new
+   acceptance criteria, shown as the difference it makes and applied as the
+   user's scope change when accepted.
+
+Done when: an approval and failing checks reach the agent once each, the
+History view names them, and a plan change can rewrite a work item's criteria.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -913,7 +931,7 @@ already-started source cannot slip through stale recommendations.
 - [x] Generate a concise summary from those receipts: what changed, evidence,
   insights, unresolved work and next recommendation. Saving a summary cannot
   change completion state or accepted scope.
-- [ ] Reassess the next intervention from real status: running, failed, blocked,
+- [x] Reassess the next intervention from real status: running, failed, blocked,
   waiting for review, result ready or milestone delivered. Prefer recovery and
   outstanding user decisions over fresh discovery. A meaningful change updates
   guidance without “what next?” or manual refresh.
@@ -932,13 +950,14 @@ already-started source cannot slip through stale recommendations.
 
 Evidence for the checked items: the spec-check and blocked-lesson card tests in
 `TestGoalConversationService`, the delivery tests in `TestWorkItemService` and
-`TestGoalQuestions` for questions on the Goal's topics. Still partial: task
-deletion and runtime cleanup do not wait for a receipt; a task start reaches the
-agent only with its first finished turn; plan differences cover the course and
-the open work's priorities, order and dependencies, not a work item's scope or
-criteria; the persisted input fingerprint covers only discovery; there is no
-Remember action; and task deletion, log expiry and uncertain provider cleanup
-are not exercised.
+`TestGoalQuestions` for questions on the Goal's topics, `TestGoalDeliveries` for
+reviews, failing checks and pull requests waiting for review. Still partial:
+task deletion and runtime cleanup do not wait for a receipt; a task start
+reaches the agent only with its first finished turn; plan differences cover the
+course and the open work's priorities, order and dependencies, not a work item's
+scope or criteria; the persisted input fingerprint covers only discovery; there
+is no Remember action; and task deletion, log expiry and uncertain provider
+cleanup are not exercised.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

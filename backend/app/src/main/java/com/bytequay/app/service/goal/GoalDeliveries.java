@@ -19,6 +19,7 @@ import com.bytequay.app.review.PullRequestsRefreshed;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.WorkItem;
@@ -27,6 +28,7 @@ import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -36,7 +38,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
@@ -45,14 +49,18 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Follows the pull requests of the Goals' and Epics' open work: the work picks up a pull request its task published, a linked one still open is
- * refreshed whenever the lists are, and a merge, or a review whose reviewer still requests changes, is recorded once on the work it concerns
- * and told to the goal's agent when it has one. Whether the work is done stays the user's decision.
+ * refreshed whenever the lists are, and each change in its real status is recorded once on the work it concerns and, when it has a goal,
+ * told to the goal's agent: a pull request open and waiting for review, a review approving it or still requesting changes, checks failing on
+ * its head commit, and its merge. Whether the work is done stays the user's decision.
  */
 @Component
 public class GoalDeliveries
 {
     private static final Logger log = LoggerFactory.getLogger(GoalDeliveries.class);
     private static final int MAX_REVIEW = 1_000;
+    private static final int MAX_CHECKS = 5;
+    // Conclusions that need the author; a cancelled or skipped run, or one waiting for approval, does not.
+    private static final Set<String> FAILED = ImmutableSet.of("failure", "timed_out", "startup_failure");
 
     private final WorkspaceStore workspaces;
     private final ObjectProvider<WorkItemService> work;
@@ -124,8 +132,9 @@ public class GoalDeliveries
     }
 
     /**
-     * Records each merge, and each review whose reviewer still requests changes, once per work item, as a receipt and a word to the goal's
-     * agent.
+     * Records each change in the real status of the work's pull requests once per work item, as a receipt and a word to the goal's agent: its
+     * merge; while it is open, that it waits for review, which goes with the agent's next event rather than asking it, each reviewer's latest
+     * verdict approving it or still requesting changes, and checks failing on its head commit.
      *
      * @param pullRequest the one pull request a detail refresh read, or every linked one
      */
@@ -136,42 +145,74 @@ public class GoalDeliveries
                 if (link.kind() != GoalItemKind.PULL_REQUEST || !pullRequest.map(link.key()::equals).orElse(true)) {
                     continue;
                 }
+                String about = "pull request " + link.label() + " for \"" + item.title() + "\"";
                 if (link.state() == GoalItemState.MERGED) {
                     recordOnce(item, "merged:" + link.key(), "Pull request " + link.label() + " merged: " + link.title(),
-                            "Pull request " + link.label() + " for \"" + item.title() + "\" merged. The user can now accept the result.");
+                            "Pull request " + link.label() + " for \"" + item.title() + "\" merged. The user can now accept the result.", false);
                 }
                 else if (link.state() == GoalItemState.WORKING) {
-                    for (PrReviewState review : changesRequested(link.key())) {
+                    recordOnce(item, "opened:" + link.key(), "Pull request " + link.label() + " opened: " + link.title(),
+                            "Pull request " + link.label() + " for \"" + item.title() + "\" is open and waits for review.", true);
+                    Optional<StoredPrDetail> detail = stored(link.key());
+                    for (PrReviewState review : verdicts(detail, "CHANGES_REQUESTED")) {
                         String said = review.body() == null || review.body().isBlank() ? "" : ": " + ContextText.excerpt(review.body(), MAX_REVIEW);
                         recordOnce(item, "changes:" + review.githubId(), "@" + review.login() + " requested changes on " + link.label() + said,
-                                "@" + review.login() + " requested changes on pull request " + link.label() + " for \"" + item.title() + "\"" + said);
+                                "@" + review.login() + " requested changes on " + about + said, false);
                     }
+                    for (PrReviewState review : verdicts(detail, "APPROVED")) {
+                        recordOnce(item, "approved:" + review.githubId(), "@" + review.login() + " approved " + link.label(),
+                                "@" + review.login() + " approved " + about + ".", false);
+                    }
+                    detail.filter(StoredPrDetail::checkRunsComplete).ifPresent(found -> {
+                        List<String> failed = found.checkRuns().stream()
+                                .filter(run -> run.conclusion() != null && FAILED.contains(run.conclusion().toLowerCase(Locale.ROOT)))
+                                .map(PrCheckRunState::name).distinct().limit(MAX_CHECKS).collect(toImmutableList());
+                        String head = found.raw() == null || found.raw().headSha() == null ? "" : found.raw().headSha();
+                        if (!failed.isEmpty()) {
+                            // Once per head commit: a new push may fail again, and that is news.
+                            recordOnce(item, "checks:" + link.key() + "@" + head, "Checks failed on " + link.label() + ": " + String.join(", ", failed),
+                                    "Checks failed on " + about + ": " + String.join(", ", failed) + ".", false);
+                        }
+                    });
                 }
             }
         }
     }
 
-    private void recordOnce(WorkItemView item, String operation, String receipt, String event)
+    private void recordOnce(WorkItemView item, String operation, String receipt, String event, boolean routine)
     {
         if (item.history().stream().anyMatch(recorded -> recorded.operationId().equals(operation))) {
             return;
         }
         try {
             work.getObject().receipt(item.workspaceId(), item.id(), operation, receipt);
-            item.goalId().ifPresent(goalId -> conversations.getObject().tell(item.workspaceId(), goalId, operation + ":" + item.id(), event));
+            item.goalId().ifPresent(goalId -> {
+                if (routine) {
+                    conversations.getObject().report(item.workspaceId(), goalId, operation + ":" + item.id(), item.id(), event);
+                }
+                else {
+                    conversations.getObject().tell(item.workspaceId(), goalId, operation + ":" + item.id(), event);
+                }
+            });
         }
         catch (RuntimeException failure) {
             log.warn("{} was not recorded on Goal work {}", operation, item.id(), failure);
         }
     }
 
-    /** The reviews of a stored pull request whose reviewer's latest verdict still requests changes. */
-    private List<PrReviewState> changesRequested(String key)
+    /** A pull request's stored detail, when ByteQuay holds one. */
+    private Optional<StoredPrDetail> stored(String key)
     {
         GoalReferenceReader.NumberedKey pull = GoalReferenceReader.NumberedKey.parse(key);
-        return pullRequests.findIdByRepoAndNumber(pull.repo(), pull.number()).flatMap(details::find).filter(StoredPrDetail::reviewsComplete)
-                .map(detail -> PrReviewState.latestVerdicts(detail.reviews()).stream()
-                        .filter(review -> "CHANGES_REQUESTED".equals(review.state()) && review.githubId() != null)
+        return pullRequests.findIdByRepoAndNumber(pull.repo(), pull.number()).flatMap(details::find);
+    }
+
+    /** The reviews whose reviewer's latest verdict is this one, once the stored reviews are complete. */
+    private static List<PrReviewState> verdicts(Optional<StoredPrDetail> detail, String verdict)
+    {
+        return detail.filter(StoredPrDetail::reviewsComplete)
+                .map(found -> PrReviewState.latestVerdicts(found.reviews()).stream()
+                        .filter(review -> verdict.equals(review.state()) && review.githubId() != null)
                         .collect(toImmutableList()))
                 .orElse(ImmutableList.of());
     }

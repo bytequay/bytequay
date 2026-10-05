@@ -192,6 +192,7 @@ class TestGoalPlanner
         assertThat(prompt.indexOf("\"id\" : \"work-1\"")).as("the work comes in the user's order").isLessThan(prompt.indexOf("\"id\" : \"work-2\""));
         assertThat(prompt).contains("\"priority\" : \"HIGH\"", "\"waitsOn\" : [ \"work-1\" ]", "never recommend it");
         assertThat(prompt).as("the agent may propose a new order").contains("propose a plan change with a", "An unchanged plan needs no proposal");
+        assertThat(prompt).as("failing checks are recovery").contains("or that checks failed on it", "say what is left before it can merge");
     }
 
     @Test

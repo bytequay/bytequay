@@ -281,24 +281,33 @@ item, the turn is recorded once in the item's history as a receipt, keyed by the
 turn: a completed turn's final answer, or why a failed or interrupted one
 stopped. The Goal's agent is told, so it can recommend what comes next; after a
 failure it leads with recovery and recommends nothing new until that work
-recovers. A turn the user stopped is not reported. Development's own automatic turns and noninteractive runs are not recorded,
-and the item's state stays the user's decision. The receipt also links the pull
-request the task published. A linked pull request that merges is recorded once
-on the open work it delivers and told to the agent, whether a detail refresh, a
-list refresh, which also refreshes each open linked pull request, or a restart
-shows it; the Goal window then offers Review result, and accepting stays the
-user's decision. A review whose reviewer's latest verdict on a linked open pull
-request requests changes is recorded and told the same way, once per review, and
-the agent leads with that recovery too. When Goal work other than a lesson is
-accepted, a tool-free request on the Goal's model writes a short summary from
-its history, what changed, the evidence, the insights it gave about the code or
-how it is built and reviewed, what is left open and the one follow-up the
-history points to, saved once in the item's history. The Work view shows it, the
-agent's next request reads it,
-and a failed summary leaves Summary pending with Summarize to ask again. Turns that finished while ByteQuay was stopped, or whose receipt
-was lost, are recorded at startup, after the requests it was answering are
-settled and before the startup cleanup can remove their answers; the agent hears
-once per work item what it missed.
+recovers. A turn the user stopped is not reported. Development's own automatic
+turns and noninteractive runs are not recorded, and the item's state stays the
+user's decision. The receipt also links the pull request the task published. A
+linked pull request that merges is recorded once on the open work it delivers
+and told to the agent, whether a detail refresh, a list refresh, which also
+refreshes each open linked pull request, or a restart shows it; the Goal window
+then offers Review result, and accepting stays the user's decision. A review
+whose reviewer's latest verdict on a linked open pull request requests changes
+is recorded and told the same way, once per review, and the agent leads with
+that recovery too. So is the rest of a linked open pull request's real status: a
+review whose reviewer's latest verdict approves it, once per review, and checks
+failing on its head commit, once per commit, which the agent treats as recovery
+as well; that it is open and waits for review is recorded once and reaches the
+agent with its next event, without asking it on its own. The History view names
+each such receipt by what it records. A receipt still moves its work to the next
+revision, so a decision the user makes while one lands is sent again once at the
+new revision when nothing it rests on changed: its state, scope, Goal, priority,
+order and what it waits on. When Goal work other than a lesson is accepted, a
+tool-free request on the Goal's model writes a short summary from its history,
+what changed, the evidence, the insights it gave about the code or how it is
+built and reviewed, what is left open and the one follow-up the history points
+to, saved once in the item's history. The Work view shows it, the agent's next
+request reads it, and a failed summary leaves Summary pending with Summarize to
+ask again. Turns that finished while ByteQuay was stopped, or whose receipt was
+lost, are recorded at startup, after the requests it was answering are settled
+and before the startup cleanup can remove their answers; the agent hears once
+per work item what it missed.
 
 Background events, such as failed or interrupted turns, merges, reviews and
 finished research runs and checks, are held while the agent answers, until five

@@ -159,12 +159,16 @@ export function itemNeedsYou(item: WorkItemDto, needsYou: ReadonlySet<string>): 
 /** Decisions remain visible even when the linked task or source is no longer stored. */
 /** How the Goal's history names each kind of event its work records. */
 const EVENT_KINDS: Record<string, string> = { CREATED: 'Added', BEGIN: 'Started', ACCEPT: 'Accepted', DROP: 'Dropped', REOPEN: 'Reopened', EDIT: 'Scope changed',
-  MOVE: 'Moved', PRIORITIZE: 'Priority', BLOCK: 'Waits on', UNBLOCK: 'Stopped waiting', RECEIPT: 'Task turn', LINKED: 'Linked', SUMMARY: 'Summary',
-  LEFT_EPIC: 'Left the Epic' };
+  MOVE: 'Moved', PRIORITIZE: 'Priority', BLOCK: 'Waits on', UNBLOCK: 'Stopped waiting', LINKED: 'Linked', SUMMARY: 'Summary', LEFT_EPIC: 'Left the Epic' };
+
+/** A receipt says what it records by its operation: a task's turn, or a change in the real status of the work's pull request. */
+const RECEIPT_KINDS: [string, string][] = [['turn:', 'Task turn'], ['merged:', 'Merged'], ['opened:', 'Opened'], ['approved:', 'Approved'],
+  ['changes:', 'Changes requested'], ['checks:', 'Checks failed']];
 
 /** Every decision and verified event of the goal's work, newest first, with its kind, its work and what it says. */
 export function goalHistory(goal: GoalDto): { item: WorkItemDto; kind: string; text: string; at: string }[] {
-  return goal.items.flatMap((item) => item.history.map((event) => ({ item, kind: EVENT_KINDS[event.action] ?? event.action.toLowerCase(),
+  return goal.items.flatMap((item) => item.history.map((event) => ({ item, kind: event.action === 'RECEIPT'
+    ? RECEIPT_KINDS.find(([prefix]) => event.operationId.startsWith(prefix))?.[1] ?? 'Receipt' : EVENT_KINDS[event.action] ?? event.action.toLowerCase(),
     // A summary is read in full on its work.
     text: event.action === 'SUMMARY' ? '' : event.action === 'ACCEPT' ? acceptedResult(event.detail) : event.detail, at: event.at })))
     .sort((left, right) => Date.parse(right.at) - Date.parse(left.at));

@@ -18,7 +18,7 @@ import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { AgentTaskDto } from '../types';
 import type {
-  GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalPlanChangeDto, GoalRecommendationDto, LessonContentDto, WorkItemDto,
+  GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalPlanChangeDto, GoalRecommendationDto, LessonContentDto, WorkItemDecision, WorkItemDto,
 } from './contracts';
 import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
@@ -29,7 +29,7 @@ import {
   sourceUrl,
   summarize, waitingOn, workIn,
 } from './model';
-import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
+import { decideOnCurrent, toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
 afterEach(() => { vi.unstubAllGlobals(); });
 
@@ -91,9 +91,34 @@ describe('goal model', () => {
     expect(outcomeOf(finished)).toBe('Rows with deletion vectors survive too Observed merged PRs: #31260');
     expect(outcomeOf(dropped)).toBe('Not needed for 482');
     expect(outcomeOf(GOAL.items[0])).toBeNull();
+    const receipts: WorkItemDto = { ...finished, id: 'w-3', history: [
+      { operationId: 'checks:trinodb/trino#31260@abc', action: 'RECEIPT', detail: 'Checks failed on #31260: build', at: at(6) },
+      { operationId: 'approved:7', action: 'RECEIPT', detail: '@alice approved #31260', at: at(7) },
+      { operationId: 'turn:t-1', action: 'RECEIPT', detail: 'Task turn completed: tests pass', at: at(8) }] };
+    expect(goalHistory({ ...GOAL, items: [receipts] }).map((entry) => entry.kind)).toEqual(['Task turn', 'Approved', 'Checks failed']);
     expect(goalHistory({ ...GOAL, items: [finished, dropped] }).map((entry) => `${entry.item.id} ${entry.kind}: ${entry.text}`)).toEqual([
       'w-2 Dropped: Not needed for 482', 'w-1 Summary: ', 'w-1 Accepted: Rows with deletion vectors survive too Observed merged PRs: #31260',
       'w-1 Reopened: Deletion vectors still drop rows', 'w-1 Accepted: All rows survive a checkpoint']);
+  });
+
+  it('sends a decision again once when only a receipt moved the work item on', async () => {
+    const item: WorkItemDto = { ...GOAL.items[0], revision: 3 };
+    const stale = new Error('Work item changed. Refresh before applying this decision.');
+    const sent: number[] = [];
+    const bridge = {
+      decideWorkItem: async (_workspaceId: string, _id: string, command: WorkItemDecision): Promise<WorkItemDto> => {
+        sent.push(command.expectedRevision);
+        if (command.expectedRevision === 3) throw stale;
+        return { ...item, revision: 5, state: 'DONE' };
+      },
+      listWorkItems: async (): Promise<WorkItemDto[]> => [{ ...item, revision: 4,
+        history: [...item.history, { operationId: 'approved:7', action: 'RECEIPT', detail: '@alice approved #31260', at: '2026-10-05T10:00:00Z' }] }],
+    };
+    const decision: WorkItemDecision = { operationId: 'op-accept', expectedRevision: 3, action: 'ACCEPT', detail: 'Rows survive' };
+    expect((await decideOnCurrent(bridge, 'workspace-1', item, decision)).revision).toBe(5);
+    expect(sent).toEqual([3, 4]);
+    const rescoped = { ...bridge, listWorkItems: async (): Promise<WorkItemDto[]> => [{ ...item, revision: 4, acceptanceCriteria: 'Something else' }] };
+    await expect(decideOnCurrent(rescoped, 'workspace-1', item, decision)).rejects.toBe(stale);
   });
 
   it('counts progress, pull requests, what needs you and what is blocked', () => {

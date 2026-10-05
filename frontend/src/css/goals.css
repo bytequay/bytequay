@@ -809,6 +809,20 @@ button.goal-tile:hover {
   text-wrap: pretty;
 }
 
+.goal-activity__kind {
+  flex: none;
+  width: 92px;
+  color: #57606a;
+}
+
+.goal-work-card__outcome {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  color: #57606a;
+}
+
 .goal-activity__age {
   flex: none;
   font-size: 12px;

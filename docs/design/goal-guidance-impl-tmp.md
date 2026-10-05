@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first sixteen implementation slices are complete. The later items
+Status: The first seventeen implementation slices are complete. The later items
 of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -686,6 +686,11 @@ the agent reads the user's questions on the Goal's topics first.
    summary, and the work it belongs to, which opens its details. All history
    lists every decision and verified event of the Goal's work, newest first.
 
+Progress: the seventeenth slice is complete. Questions rank by the words they
+share with the Goal, as practice candidates do, and the topic levels the agent
+saves may cite any question it was shown. A summary appears in the history by
+its kind alone, since its work shows it in full.
+
 Done when: the planner puts the questions on the Goal's topics first, a
 finished item shows its result and evidence in Done, and All history shows
 every event of the Goal's work with its kind and item.
@@ -931,7 +936,7 @@ This finishes the clear-organization takeaway using the current surfaces.
 - [ ] Feed global and workspace Needs attention from one work-item projection.
   Deduplicate source/recommendation cards for the same action; preserve urgent
   execution attention, Ack and Snooze.
-- [ ] Add results/history display with evidence links, scope changes, reopenings
+- [x] Add results/history display with evidence links, scope changes, reopenings
   and factual coverage. Do not count retries, comments or PRs as extra outcomes.
 - [ ] Run browser journeys at normal and narrow panel sizes, including keyboard
   use, background updates, preserved drafts, stale responses and offline recovery.
@@ -950,6 +955,10 @@ This finishes the clear-organization takeaway using the current surfaces.
 - [ ] Update the canonical agent, architecture, issue and Jira design sections to
   the implemented behavior and remove superseded descriptions. Mark checklist
   entries complete only with their actual evidence.
+
+Evidence for the checked items: `TestWorkItemService` for priority, order and
+blockers, and the `workItemsBrowser` journeys for the views, the results Done
+shows and All history.
 
 Done when: the full Goal conversation → research → course → lesson → proposal →
 accepted work → task → verified result → summary → next proposal journey works,

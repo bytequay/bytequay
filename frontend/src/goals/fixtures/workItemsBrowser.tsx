@@ -252,8 +252,13 @@ async function viewsPutReadyWorkFirst(): Promise<void> {
     priority: 'NORMAL', rank, blockedBy: [], ...extra });
   const ticket: WorkItemDto['links'][number] = { kind: 'JIRA', key: 'connection:cloud:10412', label: 'TRINO-412', title: 'Keep deletion vectors', state: 'IDLE',
     status: 'To Do', blocked: false, url: null, activity: null, addedAt: now, priority: 'Highest' };
-  const items = [work('a', 0), work('b', 1), work('c', 2, { priority: 'HIGH', links: [ticket] }), work('d', 3, { blockedBy: ['b'] }), work('f', 4, { state: 'WORKING' }),
-    work('g', 5, { state: 'DONE' })];
+  const event = (operationId: string, action: string, detail: string, hour: number): WorkItemDto['history'][number] =>
+    ({ operationId, action, detail, at: `2026-09-01T0${hour}:00:00Z` });
+  const items = [work('a', 0, { history: [event('op-a', 'CREATED', 'Added from Guide', 1), event('op-b', 'PRIORITIZE', 'Priority set to Normal', 2)] }), work('b', 1),
+    work('c', 2, { priority: 'HIGH', links: [ticket] }), work('d', 3, { blockedBy: ['b'] }), work('f', 4, { state: 'WORKING' }),
+    work('g', 5, { state: 'DONE', history: [event('op-1', 'ACCEPT', 'User accepted all criteria: Done\nThe first try', 3),
+      event('op-2', 'REOPEN', 'Deletion vectors still drop rows', 4), event('op-3', 'ACCEPT', 'User accepted all criteria: Done\nRows survive a checkpoint', 5),
+      event('op-4', 'SUMMARY', '**What changed** Actions keyed by path', 6)] })];
   const goal: GoalDto = { id: 'goal', workspaceId: 'workspace', title: 'Delta Lake correctness', description: '', pinned: true, paused: false, source: null,
     definition: null, revision: 0, course: null, items, recommendations: [], topics: [], createdAt: now, updatedAt: now };
   const cards = (): string[] => [...host.querySelectorAll('.goal-work-card .goal-work-card__title')].map((title) => title.textContent ?? '');
@@ -286,6 +291,15 @@ async function viewsPutReadyWorkFirst(): Promise<void> {
     const source = host.querySelector<HTMLSelectElement>('select[aria-label="Source"]'); assert(source !== null, 'Source filter missing');
     choose(source, 'none'); await settle();
     assert(JSON.stringify(cards()) === JSON.stringify(['Work b', 'Work a']), 'The source filter narrows the view');
+    choose(source, 'ANY');
+    tab('Done').click(); await settle();
+    const result = host.querySelector('.goal-work-card');
+    assert(result?.querySelector('.goal-work-card__outcome')?.textContent === 'Result: Rows survive a checkpoint' && result.textContent?.includes('Reopened once') === true,
+      'Done shows what the work achieved in the user\'s words and that it was reopened');
+    const rows = (): string[] => [...host.querySelectorAll('.goal-activity__row')].map((row) => row.querySelector('.goal-activity__kind')?.textContent ?? '');
+    assert(JSON.stringify(rows()) === JSON.stringify(['Summary', 'Accepted', 'Reopened', 'Accepted', 'Priority']), `The latest decisions name their kind: ${rows().join(', ')}`);
+    button(host, 'All history (6)').click(); await settle();
+    assert(rows().length === 6 && rows()[5] === 'Added', 'All history lists every event of the goal\'s work');
   }
   finally { root.unmount(); host.remove(); }
 }

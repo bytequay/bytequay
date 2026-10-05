@@ -157,9 +157,29 @@ export function itemNeedsYou(item: WorkItemDto, needsYou: ReadonlySet<string>): 
 }
 
 /** Decisions remain visible even when the linked task or source is no longer stored. */
-export function recentActivity(goal: GoalDto, limit = 5): { item: WorkItemDto; text: string; at: string }[] {
-  return goal.items.flatMap((item) => item.history.map((event) => ({ item, text: event.detail, at: event.at })))
-    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at)).slice(0, limit);
+/** How the Goal's history names each kind of event its work records. */
+const EVENT_KINDS: Record<string, string> = { CREATED: 'Added', BEGIN: 'Started', ACCEPT: 'Accepted', DROP: 'Dropped', REOPEN: 'Reopened', EDIT: 'Scope changed',
+  MOVE: 'Moved', PRIORITIZE: 'Priority', BLOCK: 'Waits on', UNBLOCK: 'Stopped waiting', RECEIPT: 'Task turn', LINKED: 'Linked', SUMMARY: 'Summary',
+  LEFT_EPIC: 'Left the Epic' };
+
+/** Every decision and verified event of the goal's work, newest first, with its kind, its work and what it says. */
+export function goalHistory(goal: GoalDto): { item: WorkItemDto; kind: string; text: string; at: string }[] {
+  return goal.items.flatMap((item) => item.history.map((event) => ({ item, kind: EVENT_KINDS[event.action] ?? event.action.toLowerCase(),
+    // A summary is read in full on its work.
+    text: event.action === 'SUMMARY' ? '' : event.action === 'ACCEPT' ? acceptedResult(event.detail) : event.detail, at: event.at })))
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at));
+}
+
+/** What concluded work achieved, in the user's words with the merged pull requests observed, or why it was dropped; nothing for open work. */
+export function outcomeOf(item: WorkItemDto): string | null {
+  const last = item.history.filter((event) => event.action === (item.state === 'DONE' ? 'ACCEPT' : 'DROP')).at(-1);
+  if (isOpen(item) || last === undefined) return null;
+  return item.state === 'DONE' ? acceptedResult(last.detail) : last.detail;
+}
+
+/** An accepted result without its first line, which repeats the criteria it was accepted against. */
+function acceptedResult(detail: string): string {
+  return detail.split('\n').slice(1).join(' ').trim() || detail;
 }
 
 /** Search results not already in the goal, at most a handful per query. */

@@ -23,7 +23,7 @@ import type {
   CreateWorkItem, CompletionRule, WorkItemKind, WorkItemPriority,
 } from './contracts';
 import {
-  GOAL_SOURCES, STARTED_LABELS, WORK_VIEWS, addable, goalDirections, inOrder, isOpen, openCourse, openPlan, openProposal, progressWidths, recentActivity, refKey, ringDash,
+  GOAL_SOURCES, STARTED_LABELS, WORK_VIEWS, addable, goalDirections, inOrder, isOpen, openCourse, openPlan, openProposal, progressWidths, goalHistory, outcomeOf, refKey, ringDash,
   situation, sourceOf, sourceUrl, summarize, itemNeedsYou, unblocks, waitingOn, workIn,
   type WorkSource, type WorkView,
 } from './model';
@@ -1007,6 +1007,9 @@ function Stats({ goal, needsYou, onNeeds, onBlocked }: { goal: GoalDto; needsYou
   );
 }
 
+// The work view shows the latest decisions; the rest of the history opens on demand.
+const RECENT_DECISIONS = 5;
+
 function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string) => void }): React.JSX.Element {
   const { goal, needsYou, mode, onSelect } = props;
   // It opens on the first view with work, Next when there is any.
@@ -1022,7 +1025,8 @@ function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string
     && (source === 'ANY' || sourceOf(item) === source));
   const views = WORK_VIEWS.map((entry) => ({ ...entry, rows: workIn(shown, entry.view, goal.items) }));
   const empty = goal.items.length === 0;
-  const activity = recentActivity(goal);
+  const history = goalHistory(goal);
+  const [allHistory, setAllHistory] = useState(false);
   return <div className={`goal-panel__body${mode === 'board' ? ' is-board' : ''}`}>
     {!empty && <Stats goal={goal} needsYou={needsYou} onNeeds={() => setNeedsOnly((value) => !value)} onBlocked={() => setView('blocked')} />}
     {empty && <div><div className="goal-guide__ask">No work yet</div>
@@ -1067,8 +1071,16 @@ function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string
         {entry.rows.map((item) => <WorkCard key={item.id} item={item} all={goal.items} needsYou={needsYou} onSelect={onSelect} />)}
       </div>)}
     </div>}
-    {activity.length > 0 && <div><div className="goal-group">Recent decisions</div>{activity.map(({ item, text, at }, index) =>
-      <div className="goal-activity__row" key={`${item.id}-${index}`}><span className="goal-activity__text"><GoalText>{text}</GoalText></span><span>{relativeTime(at, { now: props.now })}</span></div>)}</div>}
+    {history.length > 0 && <div><div className="goal-group">{allHistory ? 'History' : 'Recent decisions'}</div>
+      {(allHistory ? history : history.slice(0, RECENT_DECISIONS)).map(({ item, kind, text, at }, index) => <div className="goal-activity__row" key={`${item.id}-${index}`}>
+        <span className="goal-activity__kind">{kind}</span>
+        <span className="goal-activity__text"><button type="button" className="goal-link" onClick={() => onSelect(item.id)}>{item.title}</button>
+          {text !== '' && <> · <GoalText>{text}</GoalText></>}</span>
+        <span className="goal-activity__age">{relativeTime(at, { now: props.now })}</span>
+      </div>)}
+      {history.length > RECENT_DECISIONS && <button type="button" className="goal-link" onClick={() => setAllHistory((value) => !value)}>
+        {allHistory ? 'Recent decisions only' : `All history (${history.length})`}</button>}
+    </div>}
   </div>;
 }
 
@@ -1077,6 +1089,8 @@ function WorkCard({ item, all, needsYou, onSelect }: { item: WorkItemDto; all: W
   React.JSX.Element {
   const waiting = unblocks(item, all);
   const waits = isOpen(item) ? waitingOn(item, all) : [];
+  const outcome = outcomeOf(item);
+  const reopened = item.history.filter((event) => event.action === 'REOPEN').length;
   return <button type="button" className="goal-work-card" onClick={() => onSelect(item.id)}>
     <span className="goal-work-card__title">{item.title}</span>
     <span className="goal-muted">{item.kind.toLowerCase()} · {item.links.length} linked references{isOpen(item) ? '' : ` · ${item.state.toLowerCase()}`}</span>
@@ -1087,6 +1101,8 @@ function WorkCard({ item, all, needsYou, onSelect }: { item: WorkItemDto; all: W
       {waiting.length > 0 && <span className="goal-chip" title={`Waiting on it: ${waiting.map((other) => other.title).join(', ')}`}>{`Unblocks ${waiting.length}`}</span>}
     </span>}
     {waits.length > 0 && <span>{`Waits on ${waits.join(', ')}`}</span>}
+    {outcome !== null && <span className="goal-work-card__outcome" title={outcome}>{`${item.state === 'DONE' ? 'Result' : 'Dropped'}: ${outcome}`}</span>}
+    {reopened > 0 && <span className="goal-muted">{reopened === 1 ? 'Reopened once' : `Reopened ${reopened} times`}</span>}
     {isOpen(item) && item.links.some((link) => link.status === 'Failed') && <span>Attempt failed — outcome still open</span>}
     {item.links.some((link) => link.state === 'UNKNOWN') && <span>Some evidence is unavailable</span>}
     {itemNeedsYou(item, needsYou) && <span>Needs you</span>}

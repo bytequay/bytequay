@@ -24,7 +24,7 @@ import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, par
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import { ChapterBody, componentPlaces, flowPlaces, LessonDiagram, treePlaces, wrap } from './LessonBook';
 import {
-  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openPlan, openProposal, placePill, recentActivity, refKey, situation,
+  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openPlan, openProposal, outcomeOf, placePill, goalHistory, refKey, situation,
   sourceOf,
   sourceUrl,
   summarize, waitingOn, workIn,
@@ -79,13 +79,31 @@ describe('goal model', () => {
     expect(attentionWorkspace(attention({ repo: 'other/repo' }), workspaces)).toBeNull();
   });
 
+  it('shows what finished work achieved and every event of the goal\'s work', () => {
+    const at = (minute: number): string => `2026-10-05T10:0${minute}:00Z`;
+    const finished: WorkItemDto = { ...GOAL.items[0], id: 'w-1', title: 'Fix #31252', state: 'DONE', links: [], history: [
+      { operationId: 'op-1', action: 'ACCEPT', detail: 'User accepted all criteria: Rows survive\nAll rows survive a checkpoint', at: at(1) },
+      { operationId: 'op-2', action: 'REOPEN', detail: 'Deletion vectors still drop rows', at: at(2) },
+      { operationId: 'op-3', action: 'ACCEPT', detail: 'User accepted all criteria: Rows survive\nRows with deletion vectors survive too\nObserved merged PRs: #31260', at: at(3) },
+      { operationId: 'summary:op-3', action: 'SUMMARY', detail: '**What changed** Actions keyed by path', at: at(4) }] };
+    const dropped: WorkItemDto = { ...finished, id: 'w-2', title: 'Backport the fix', state: 'DROPPED', history: [
+      { operationId: 'op-4', action: 'DROP', detail: 'Not needed for 482', at: at(5) }] };
+    expect(outcomeOf(finished)).toBe('Rows with deletion vectors survive too Observed merged PRs: #31260');
+    expect(outcomeOf(dropped)).toBe('Not needed for 482');
+    expect(outcomeOf(GOAL.items[0])).toBeNull();
+    expect(goalHistory({ ...GOAL, items: [finished, dropped] }).map((entry) => `${entry.item.id} ${entry.kind}: ${entry.text}`)).toEqual([
+      'w-2 Dropped: Not needed for 482', 'w-1 Summary: ', 'w-1 Accepted: Rows with deletion vectors survive too Observed merged PRs: #31260',
+      'w-1 Reopened: Deletion vectors still drop rows', 'w-1 Accepted: All rows survive a checkpoint']);
+  });
+
   it('counts progress, pull requests, what needs you and what is blocked', () => {
     const needsYou = needsYouKeys([attention({}), attention({ type: 'issue', number: 31302 }), attention({ number: 1 })]);
     expect(summarize(GOAL, needsYou)).toEqual({ total: 5, finished: 1, working: 3, idle: 1, prsMerged: 1, prsOpen: 1, needs: 2, blocked: 1, dropped: 0 });
     expect(workIn(GOAL.items, 'blocked').map((entry) => entry.links[0].label)).toEqual(['TRINO-412']);
     expect(waitingOn(GOAL.items[3], GOAL.items)).toEqual(['TRINO-412 is Blocked']);
     expect(GOAL.items.map(sourceOf)).toEqual(['none', 'none', 'issue', 'jira', 'none']);
-    expect(recentActivity(GOAL).map((entry) => entry.text)).toEqual(['#30702 merged', '#30925 updated', 'TRINO-412 is Blocked']);
+    expect(goalHistory(GOAL).slice(0, 3).map((entry) => `${entry.kind}: ${entry.text}`))
+      .toEqual(['Accepted: #30702 merged', 'Accepted: #30925 updated', 'Accepted: TRINO-412 is Blocked']);
     expect(goalHas(GOAL, { kind: 'TASK', key: 'task-1' })).toBe(true);
     expect(goalHas(null, { kind: 'TASK', key: 'task-1' })).toBe(false);
     expect(addable([ITEMS[0], item('ISSUE', 'trinodb/trino#1', '#1', 'IDLE', 'Open')], GOAL).map(refKey)).toEqual(['ISSUE trinodb/trino#1']);

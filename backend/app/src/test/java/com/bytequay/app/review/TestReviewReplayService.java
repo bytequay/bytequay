@@ -246,7 +246,7 @@ class TestReviewReplayService
                 Optional.of(new AgentReview.Replay("replay", NUMBER, true, FIRST_REVIEW)));
         return new AgentReviewProjection(review, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 new AgentReviewProjection.TaskView("task-" + reviewId, WORKSPACE, "OPEN", 1, "codex", "Codex", Optional.empty(), Optional.empty(), false, false),
-                Optional.empty(), ImmutableList.of(), 0, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     private String commit(String path, String content)

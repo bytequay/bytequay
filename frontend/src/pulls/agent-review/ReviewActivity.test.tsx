@@ -37,6 +37,13 @@ describe('the unified review conversation', () => {
     expect(html).toMatch(/class="agt-queue__link"(?![^>]*disabled)[^>]*>Steer<\/button>/);
     expect(render({ review, onSteerQueued: () => {}, busy: true })).toMatch(/class="agt-queue__link"[^>]*disabled[^>]*>Steer<\/button>/);
   });
+  it('lets a queue paused by an unsuccessful turn be resumed', () => {
+    const review = { ...reviewFixture(), queuedInputIds: ['queued-1'], queuePause: 'The previous turn failed' };
+    const html = render({ review, onResumeQueue: () => {} });
+    expect(html).toContain('>Resume queue</button>');
+    expect(html).toContain('title="The previous turn failed"');
+    expect(render({ review: { ...review, queuePause: null }, onResumeQueue: () => {} })).not.toContain('Resume queue');
+  });
   it('renders saved local discussions in place of their generated context prompt', () => {
     const first = events[0];
     const html = render({ localReview: {

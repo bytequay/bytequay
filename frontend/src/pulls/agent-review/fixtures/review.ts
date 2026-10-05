@@ -234,6 +234,7 @@ export function reviewFixture(overrides: Partial<AgentReviewDto> = {}): AgentRev
     },
     activeTurn: null,
     queuedInputIds: [],
+    queuePause: null,
     pendingApprovals: 0,
     byteQuayTurnIds: ['turn-1'],
     draft: null,

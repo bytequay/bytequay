@@ -781,6 +781,9 @@ class TestReviewPublicationService
         public Optional<ReviewMessage> findMessage(String messageId) { throw new UnsupportedOperationException(); }
 
         @Override
+        public void deleteMessage(String messageId) { throw new UnsupportedOperationException(); }
+
+        @Override
         public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
                 int targetRevision, Instant createdAt, String messageId, int limit) { throw new UnsupportedOperationException(); }
 

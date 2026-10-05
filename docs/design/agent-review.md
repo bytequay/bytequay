@@ -1154,7 +1154,13 @@ appears in another card or run. Existing unscoped summary discussion belongs
 to the PR-purpose card for its recorded run.
 
 **Steer now** sends guidance to the matching active turn only when supported.
+The request names the turn the user saw; once that turn has ended it is refused
+rather than delivered to whatever turn runs next.
 **Run next** queues a later turn and is disabled between assignment turns.
+A queue that paused after an unsuccessful turn shows why, and **Resume queue**
+starts its next message. A question that no turn or queue row accepted is not
+kept looking sent: the error is shown with the question text still in its
+composer, so asking again is the retry.
 While a review appears busy, the owning view periodically re-reads its durable
 review, turn, and recent conversation state in case a stream update was missed.
 Rejected actions also refresh that state while preserving the draft and original

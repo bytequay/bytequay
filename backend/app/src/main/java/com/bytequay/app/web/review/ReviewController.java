@@ -238,10 +238,17 @@ public class ReviewController
         String delivery = Optional.ofNullable(request.delivery()).orElse("TURN").toUpperCase(Locale.ROOT);
         switch (delivery) {
             case "TURN" -> reviews.sendMessage(reviewId, task.version(), request.message(), idempotencyKey, false);
-            case "STEER" -> turns.steer(new SteerAgentTurnCommand(activeTurn(task).id(), request.message(), ImmutableList.of(), idempotencyKey));
+            case "STEER" -> turns.steer(new SteerAgentTurnCommand(steeredTurn(task, request.turnId()), request.message(), ImmutableList.of(), idempotencyKey));
             case "QUEUE" -> reviews.sendMessage(reviewId, task.version(), request.message(), idempotencyKey, true);
             default -> throw new ReviewInvalidRequestException("delivery must be TURN, STEER or QUEUE");
         }
+        return ReviewHttpModels.review(reviews.get(reviewId));
+    }
+
+    @PostMapping("/{reviewId}/queue/resume")
+    public ReviewHttpModels.ReviewResponse resumeQueue(@PathVariable String reviewId)
+    {
+        turns.resumeQueued(reviews.task(reviewId).id());
         return ReviewHttpModels.review(reviews.get(reviewId));
     }
 
@@ -484,13 +491,17 @@ public class ReviewController
         return publications.ineligible(repo, number);
     }
 
-    private AgentTurn activeTurn(AgentTask task)
+    /** The turn the user saw running; core refuses it once it has ended rather than steering whatever runs next. */
+    private TurnId steeredTurn(AgentTask task, String turnId)
     {
-        return task.worktreeMutationClaim()
-                .filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.TURN)
-                .map(claim -> turns.get(TurnId.valueOf(claim.ownerId())))
-                .filter(turn -> turn.state().active())
-                .orElseThrow(() -> new ReviewInvalidRequestException("The review agent is not running a turn to steer"));
+        if (turnId == null || turnId.isBlank()) {
+            throw new ReviewInvalidRequestException("turnId is required to steer");
+        }
+        AgentTurn turn = turns.get(TurnId.valueOf(turnId));
+        if (!turn.taskId().equals(task.id())) {
+            throw new ReviewInvalidRequestException("The turn does not belong to this review");
+        }
+        return turn.id();
     }
 
     private static String side(String side)

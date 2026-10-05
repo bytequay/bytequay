@@ -238,6 +238,13 @@ public class SqliteAgentReviewStore
     }
 
     @Override
+    @Transactional
+    public void deleteMessage(String messageId)
+    {
+        messages.deleteById(messageId);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<ReviewMessage> findMessage(String messageId)
     {

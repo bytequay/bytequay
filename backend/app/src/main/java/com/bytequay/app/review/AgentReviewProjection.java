@@ -33,6 +33,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param byteQuayTurnIds the turns ByteQuay started with review requests, whose input the transcript attributes to ByteQuay
  * @param queuedInputIds queue rows still waiting, so a question that names one is shown as queued
+ * @param queuePause why the queue stopped after a turn that did not succeed; it waits for the user to resume it
  * @param pullRequest the stored row for the reviewed pull request, which names it in lists; absent until ByteQuay has stored it
  */
 public record AgentReviewProjection(
@@ -43,6 +44,7 @@ public record AgentReviewProjection(
         TaskView task,
         Optional<TurnView> activeTurn,
         List<String> queuedInputIds,
+        Optional<String> queuePause,
         int pendingApprovals,
         List<String> byteQuayTurnIds,
         Optional<ReviewDraft> draft,
@@ -58,6 +60,7 @@ public record AgentReviewProjection(
         requireNonNull(task, "task is null");
         requireNonNull(activeTurn, "activeTurn is null");
         queuedInputIds = ImmutableList.copyOf(queuedInputIds);
+        requireNonNull(queuePause, "queuePause is null");
         byteQuayTurnIds = ImmutableList.copyOf(byteQuayTurnIds);
         requireNonNull(draft, "draft is null");
         requireNonNull(pullRequest, "pullRequest is null");

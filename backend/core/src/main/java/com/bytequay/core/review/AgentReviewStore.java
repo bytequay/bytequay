@@ -77,6 +77,9 @@ public interface AgentReviewStore
 
     ReviewMessage updateMessage(ReviewMessage message);
 
+    /** Removes a question that no turn or queue row ever accepted. */
+    void deleteMessage(String messageId);
+
     Optional<ReviewMessage> findMessage(String messageId);
 
     /** Reads only the preceding messages on one saved discussion target, newest first. */

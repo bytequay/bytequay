@@ -230,6 +230,8 @@ export type AgentReviewDto = {
   task: ReviewTaskDto;
   activeTurn: ReviewTurnDto | null;
   queuedInputIds: string[];
+  /** Why the queue stopped after a turn that did not succeed; it waits for the user to resume it. */
+  queuePause: string | null;
   pendingApprovals: number;
   byteQuayTurnIds: string[];
   draft: ReviewDraftDto | null;
@@ -532,6 +534,7 @@ export function parseAgentReview(value: unknown): AgentReviewDto {
       cancellationRequestedAt: optionalText(activeTurn.cancellationRequestedAt),
     },
     queuedInputIds: strings(review.queuedInputIds),
+    queuePause: optionalText(review.queuePause),
     pendingApprovals: count(review.pendingApprovals, 'pending approvals'),
     byteQuayTurnIds: strings(review.byteQuayTurnIds),
     draft: review.draft === null || review.draft === undefined ? null : parseReviewDraft(review.draft),

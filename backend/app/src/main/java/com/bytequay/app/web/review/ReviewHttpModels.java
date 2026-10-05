@@ -67,6 +67,7 @@ final class ReviewHttpModels
                 task(projection.task()),
                 projection.activeTurn().map(turn -> new TurnResponse(turn.id(), turn.state(), turn.startedAt(), turn.cancellationRequestedAt())),
                 projection.queuedInputIds(),
+                projection.queuePause(),
                 projection.pendingApprovals(),
                 projection.byteQuayTurnIds(),
                 projection.draft().map(ReviewHttpModels::draft),
@@ -239,6 +240,7 @@ final class ReviewHttpModels
             TaskResponse task,
             Optional<TurnResponse> activeTurn,
             List<String> queuedInputIds,
+            Optional<String> queuePause,
             int pendingApprovals,
             List<String> byteQuayTurnIds,
             Optional<DraftResponse> draft,
@@ -377,7 +379,10 @@ final class ReviewHttpModels
     record AskRequest(String findingId, String cardId, Integer targetRevision, String message) {}
 
     /** A free-form message to the review agent: TURN starts one, STEER joins the running one, QUEUE runs next. */
-    record MessageRequest(String message, String delivery) {}
+    /**
+     * @param turnId the running turn a STEER is for, as the user saw it
+     */
+    record MessageRequest(String message, String delivery, String turnId) {}
 
     /**
      * @param remember also save the reason as the user's rule for the finding's file

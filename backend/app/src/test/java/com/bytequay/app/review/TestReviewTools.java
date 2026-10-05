@@ -2622,6 +2622,12 @@ class TestReviewTools
         }
 
         @Override
+        public void deleteMessage(String messageId)
+        {
+            messages.remove(messageId);
+        }
+
+        @Override
         public Optional<ReviewMessage> findMessage(String messageId)
         {
             return Optional.ofNullable(messages.get(messageId));

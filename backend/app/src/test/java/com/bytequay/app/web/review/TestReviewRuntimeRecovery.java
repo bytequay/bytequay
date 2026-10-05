@@ -23,8 +23,11 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -50,6 +53,7 @@ import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
@@ -63,6 +67,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -185,8 +190,8 @@ class TestReviewRuntimeRecovery
     {
         when(reviews.task(REVIEW_ID)).thenReturn(task());
         when(reviews.get(REVIEW_ID)).thenReturn(projection());
-        controller.message(REVIEW_ID, "send", new ReviewHttpModels.MessageRequest("Explain the change", "TURN"));
-        controller.message(REVIEW_ID, "queue", new ReviewHttpModels.MessageRequest("Check the next line", "QUEUE"));
+        controller.message(REVIEW_ID, "send", new ReviewHttpModels.MessageRequest("Explain the change", "TURN", null));
+        controller.message(REVIEW_ID, "queue", new ReviewHttpModels.MessageRequest("Check the next line", "QUEUE", null));
         verify(reviews).sendMessage(REVIEW_ID, task().version(), "Explain the change", "send", false);
         verify(reviews).sendMessage(REVIEW_ID, task().version(), "Check the next line", "queue", true);
         verifyNoInteractions(turns);
@@ -260,6 +265,37 @@ class TestReviewRuntimeRecovery
     }
 
     @Test
+    void steersOnlyTheTurnTheUserSawRunning()
+    {
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        TurnId shown = TurnId.valueOf("22222222-2222-4222-8222-222222222222");
+        TurnId foreign = TurnId.valueOf("33333333-3333-4333-8333-333333333333");
+        when(reviews.task(REVIEW_ID)).thenReturn(task());
+        when(reviews.get(REVIEW_ID)).thenReturn(projection());
+        when(turns.get(shown)).thenReturn(AgentTurn.accepted(shown, TASK_ID, "shown", settings, NOW));
+        when(turns.get(foreign)).thenReturn(AgentTurn.accepted(foreign, TaskId.valueOf("44444444-4444-4444-8444-444444444444"), "foreign", settings, NOW));
+
+        controller.message(REVIEW_ID, "steer-1", new ReviewHttpModels.MessageRequest("Check cancellation too", "STEER", shown.toString()));
+
+        verify(turns).steer(new SteerAgentTurnCommand(shown, "Check cancellation too", ImmutableList.of(), "steer-1"));
+        assertThatThrownBy(() -> controller.message(REVIEW_ID, "steer-2", new ReviewHttpModels.MessageRequest("Elsewhere", "STEER", foreign.toString())))
+                .isInstanceOf(ReviewInvalidRequestException.class).hasMessageContaining("does not belong");
+        assertThatThrownBy(() -> controller.message(REVIEW_ID, "steer-3", new ReviewHttpModels.MessageRequest("Whichever", "STEER", null)))
+                .isInstanceOf(ReviewInvalidRequestException.class).hasMessageContaining("turnId");
+    }
+
+    @Test
+    void resumesTheReviewsPausedQueue()
+    {
+        when(reviews.task(REVIEW_ID)).thenReturn(task());
+        when(reviews.get(REVIEW_ID)).thenReturn(projection());
+
+        controller.resumeQueue(REVIEW_ID);
+
+        verify(turns).resumeQueued(TASK_ID);
+    }
+
+    @Test
     void preservesTheRuntimeServicesStaleGenerationRejection()
     {
         AgentTask blocked = task().claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW);
@@ -328,6 +364,6 @@ class TestReviewRuntimeRecovery
                                 "Explain this limitation", 1, "run-1", Optional.empty(), Optional.of("queue-1"), 0, NOW),
                         Optional.of("turn-2"), Optional.of("event-1"))),
                 new AgentReviewProjection.TaskView(TASK_ID.toString(), "workspace-1", "OPEN", 8, "claude", "Claude Code", Optional.empty(), Optional.empty(), false, false),
-                Optional.empty(), ImmutableList.of(), 0, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
+                Optional.empty(), ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

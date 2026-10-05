@@ -136,6 +136,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
@@ -869,7 +870,7 @@ class TestDefaultAgentReviewService
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})
-    void questionRemainsSavedWhenAdmissionFails(boolean queued)
+    void questionNothingAcceptedIsRemovedWhenAdmissionFails(boolean queued)
     {
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
@@ -888,19 +889,14 @@ class TestDefaultAgentReviewService
         assertThatThrownBy(() -> fixture.service.ask(reviewId, Optional.empty(), Optional.of(cardId), 1, "Explain the parser reset"))
                 .isSameAs(failure);
 
-        ReviewMessage saved = fixture.store.listMessages(reviewId).getFirst();
-        assertThat(saved.runId()).isEqualTo(run.id());
-        assertThat(saved.cardId()).contains(cardId);
-        assertThat(saved.targetRevision()).isEqualTo(1);
-        assertThat(saved.body()).isEqualTo("Explain the parser reset");
-        assertThat(saved.turnId()).isEmpty();
-        assertThat(saved.queuedInputId()).isEmpty();
-        assertThat(fixture.service.get(reviewId).messages()).extracting(AgentReviewProjection.MessageView::message).containsExactly(saved);
+        // No answer can come, so the question does not stay looking sent; the caller shows the error and keeps the text to ask again.
+        assertThat(fixture.store.listMessages(reviewId)).isEmpty();
+        assertThat(fixture.service.get(reviewId).messages()).isEmpty();
         if (queued) {
-            verify(fixture.turns).findQueuedByIdempotencyKey(TASK_ID, "review-ask:" + saved.id());
+            verify(fixture.turns).findQueuedByIdempotencyKey(eq(TASK_ID), startsWith("review-ask:"));
         }
         else {
-            verify(fixture.turns).findTurnByIdempotencyKey(TASK_ID, "review-ask:" + saved.id());
+            verify(fixture.turns).findTurnByIdempotencyKey(eq(TASK_ID), startsWith("review-ask:"));
         }
     }
 
@@ -3272,6 +3268,12 @@ class TestDefaultAgentReviewService
                     message.body(), message.targetRevision(), message.runId(), message.turnId(), message.queuedInputId(), message.version() + 1, message.createdAt());
             messages.put(next.id(), next);
             return next;
+        }
+
+        @Override
+        public void deleteMessage(String messageId)
+        {
+            messages.remove(messageId);
         }
 
         @Override

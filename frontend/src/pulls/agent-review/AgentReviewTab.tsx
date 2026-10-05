@@ -508,7 +508,8 @@ export default function AgentReviewTab({
     if (text === '') return;
     const key = `review-${delivery.toLowerCase()}:${review.id}:${text.length}:${Date.now()}`;
     if (delivery !== 'TURN') {
-      onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key));
+      // A steer is for the turn on screen; if that turn has ended, the backend refuses rather than steering the next one.
+      onReviewChange(await window.bridge.messageAgentReview(review.id, text, delivery, key, delivery === 'STEER' ? review.activeTurn?.id : undefined));
       recordReviewAttentionAction(review, 'prompt');
       setComposer('');
       return;
@@ -754,6 +755,9 @@ export default function AgentReviewTab({
               recordReviewAttentionAction(review, 'update');
               await refresh(review.id);
             });
+          }}
+          onResumeQueue={() => {
+            void run_(async () => { onReviewChange(await window.bridge.resumeAgentReviewQueue(review.id)); recordReviewAttentionAction(review, 'prompt'); });
           }}
           onRemoveQueued={queuedInputId => {
             void run_(async () => { onReviewChange(await window.bridge.removeAgentReviewQueued(review.id, queuedInputId)); recordReviewAttentionAction(review, 'update'); });

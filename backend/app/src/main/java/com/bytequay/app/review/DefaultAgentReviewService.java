@@ -591,13 +591,14 @@ public class DefaultAgentReviewService
             }
             catch (RuntimeException failure) {
                 try {
-                    if (queued) {
-                        turns.findQueuedByIdempotencyKey(taskId, requestKey)
-                                .ifPresent(input -> attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString())));
-                    }
-                    else {
-                        turns.findTurnByIdempotencyKey(taskId, requestKey)
-                                .ifPresent(turn -> attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty()));
+                    Optional<ReviewMessage> attached = queued
+                            ? turns.findQueuedByIdempotencyKey(taskId, requestKey)
+                                    .map(input -> attachQuestionDelivery(question, Optional.empty(), Optional.of(input.id().toString())))
+                            : turns.findTurnByIdempotencyKey(taskId, requestKey)
+                                    .map(turn -> attachQuestionDelivery(question, Optional.of(turn.id().toString()), Optional.empty()));
+                    if (attached.isEmpty()) {
+                        // Nothing accepted it, so no answer can come; kept, it would look sent forever. The caller sees why and can ask again.
+                        store.deleteMessage(question.id());
                     }
                 }
                 catch (RuntimeException recoveryFailure) {
@@ -1538,9 +1539,8 @@ public class DefaultAgentReviewService
         Optional<AgentTurn> active = activeTurn(task);
         AgentCapabilities capabilities = drivers.require(task.laneId()).capabilities();
         int pendingApprovals = active.map(turn -> approvals.listPending(turn.id()).size()).orElse(0);
-        List<String> queued = task.state() == TaskState.OPEN
-                ? turns.queued(taskId).stream().map(QueuedAgentInput::id).map(Object::toString).collect(toImmutableList())
-                : ImmutableList.of();
+        List<QueuedAgentInput> queuedInputs = task.state() == TaskState.OPEN ? turns.queued(taskId) : ImmutableList.of();
+        List<String> queued = queuedInputs.stream().map(QueuedAgentInput::id).map(Object::toString).collect(toImmutableList());
         return new AgentReviewProjection(
                 review,
                 runs,
@@ -1560,6 +1560,7 @@ public class DefaultAgentReviewService
                                 .reviewChildAgents(task.sessionReference(), task.defaults().model())),
                 active.map(turn -> new AgentReviewProjection.TurnView(turn.id().toString(), turn.state().name(), turn.startedAt(), turn.cancellationRequestedAt())),
                 queued,
+                queuedInputs.stream().findFirst().filter(input -> input.state() == QueuedAgentInput.State.PAUSED).flatMap(QueuedAgentInput::pauseReason),
                 pendingApprovals,
                 runs.stream().flatMap(run -> run.turnIds().stream()).collect(toImmutableList()),
                 review.number().stream().mapToObj(number -> drafts.find(review.repo(), number).map(ignored -> publications.draft(review.repo(), number)))

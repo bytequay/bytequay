@@ -1904,13 +1904,16 @@ export type Bridge = JiraBridge & {
     message: string,
     cardId?: string,
   ) => Promise<AgentReviewDto>;
-  /** A free-form message to the review agent: a turn, a steer into the running turn, or the queue. */
+  /** A free-form message to the review agent: a turn, a steer into the running turn it names, or the queue. */
   messageAgentReview: (
     reviewId: string,
     message: string,
     delivery: 'TURN' | 'STEER' | 'QUEUE',
     idempotencyKey: string,
+    turnId?: string,
   ) => Promise<AgentReviewDto>;
+  /** Starts the next message of a queue that paused after a turn did not succeed. */
+  resumeAgentReviewQueue: (reviewId: string) => Promise<AgentReviewDto>;
   removeAgentReviewQueued: (reviewId: string, queuedInputId: string) => Promise<AgentReviewDto>;
   steerAgentReviewQueued: (reviewId: string, queuedInputId: string, turnId: string) => Promise<AgentReviewDto>;
   resolveAgentReviewFinding: (

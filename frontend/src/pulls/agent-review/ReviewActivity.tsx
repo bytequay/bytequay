@@ -42,7 +42,7 @@ export default function ReviewActivity({
   localReview, onOpenReview, agentPanel, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   reviewSequence = lastSequence,
-  onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued, onSteerQueued,
+  onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued, onSteerQueued, onResumeQueue,
 }: {
   review: AgentReviewDto;
   localReview?: LocalReviewThreads;
@@ -69,6 +69,7 @@ export default function ReviewActivity({
   onDecide: ApprovalDecider;
   onRemoveQueued: (queuedInputId: string) => void;
   onSteerQueued?: (queuedInputId: string) => void;
+  onResumeQueue?: () => void;
 }) {
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
@@ -136,12 +137,14 @@ export default function ReviewActivity({
       <ConversationQueue
         queue={review.queuedInputIds.map((id): ConversationQueuedInput => {
           const message = review.messages.find(message => message.queuedInputId === id);
-          return { id, state: null, preview: message?.body ?? 'Queued message', turnId: message?.turnId };
+          // A turn that did not succeed pauses every waiting message, with one reason.
+          return { id, state: review.queuePause === null ? null : 'PAUSED', pauseReason: review.queuePause, preview: message?.body ?? 'Queued message', turnId: message?.turnId };
         })}
         running={running} idle={!running && !recovery} resumeBlocked={recovery}
         steerEnabled={!busy && !recovery && connection === 'open' && review.task.steering && review.activeTurn?.state === 'RUNNING'}
         onSteer={onSteerQueued}
-        onRemove={onRemoveQueued} />
+        onRemove={onRemoveQueued}
+        onResume={onResumeQueue} />
       {recovery && <div className="agt-notice" role="status">
         Recovery required. The last turn ended, but runtime cleanup is unverified. New messages wait until cleanup is verified.
       </div>}

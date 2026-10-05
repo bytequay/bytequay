@@ -1091,12 +1091,14 @@ function registerIpc(): void {
       method: 'POST',
       body: JSON.stringify({ findingId, targetRevision, message, cardId }),
     }));
-  ipcMain.handle('review:message', (_event, reviewId: string, message: string, delivery: string, idempotencyKey: string) =>
+  ipcMain.handle('review:message', (_event, reviewId: string, message: string, delivery: string, idempotencyKey: string, turnId?: string) =>
     backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/messages`), {
       method: 'POST',
       headers: { ...agentHeaders(true), 'Idempotency-Key': idempotencyKey },
-      body: JSON.stringify({ message, delivery }),
+      body: JSON.stringify({ message, delivery, turnId }),
     }).then(parseAgentReview));
+  ipcMain.handle('review:queue:resume', (_event, reviewId: string) =>
+    review(`/${encodeURIComponent(reviewId)}/queue/resume`, {}, { method: 'POST' }));
   ipcMain.handle('review:queue:remove', (_event, reviewId: string, queuedInputId: string) =>
     review(`/${encodeURIComponent(reviewId)}/queue/${encodeURIComponent(queuedInputId)}`, {}, { method: 'DELETE' }));
   ipcMain.handle('review:queue:steer', (_event, reviewId: string, queuedInputId: string, turnId: string) =>

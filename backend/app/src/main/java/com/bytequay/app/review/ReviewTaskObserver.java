@@ -19,6 +19,7 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
+import com.bytequay.app.agent.TaskEventWatcher;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -31,13 +32,9 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.util.EnumSet;
-import java.util.Map;
-import java.util.OptionalLong;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Flow;
 
 import static java.util.Objects.requireNonNull;
 
@@ -66,13 +63,12 @@ public class ReviewTaskObserver
             ActivityState.COMPLETED,
             ActivityState.FAILED);
 
-    private final AgentEventService events;
+    private final TaskEventWatcher watcher;
     private final AgentReviewStore store;
     private final AgentTurnStore turns;
     private final ObjectProvider<AgentReviewService> reviews;
     private final ObjectProvider<PullRequestRefreshService> refresh;
     private final ObjectProvider<LocalRunService> localRuns;
-    private final Map<String, Flow.Subscription> subscriptions = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("review-reconcile-", 0).factory());
 
     public ReviewTaskObserver(
@@ -83,7 +79,7 @@ public class ReviewTaskObserver
             ObjectProvider<PullRequestRefreshService> refresh,
             ObjectProvider<LocalRunService> localRuns)
     {
-        this.events = requireNonNull(events, "events is null");
+        this.watcher = new TaskEventWatcher(requireNonNull(events, "events is null"), "Review");
         this.store = requireNonNull(store, "store is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
@@ -135,32 +131,19 @@ public class ReviewTaskObserver
     public void watch(AgentReview review)
     {
         requireNonNull(review, "review is null");
-        if (subscriptions.containsKey(review.id())) {
-            return;
-        }
-        TaskId taskId = TaskId.valueOf(review.taskId());
-        long after;
-        try {
-            after = events.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty()).latestSequence();
-        }
-        catch (RuntimeException failure) {
-            log.warn("Review {} cannot read its task log; reconciling on demand only: {}", review.id(), failure.toString());
-            return;
-        }
-        try {
-            events.subscribe(taskId, after).subscribe(new Subscriber(review));
-        }
-        catch (RuntimeException failure) {
-            log.warn("Review {} cannot subscribe to its task: {}", review.id(), failure.toString());
-        }
+        watcher.watch(review.id(), TaskId.valueOf(review.taskId()), item -> {
+            if (mirrorsAgentCommand(item)) {
+                mirrorLater(review.id(), item);
+            }
+            if (item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())) {
+                reconcileLater(review.id());
+            }
+        }, () -> reconcileLater(review.id()));
     }
 
     public void unwatch(String reviewId)
     {
-        Flow.Subscription subscription = subscriptions.remove(reviewId);
-        if (subscription != null) {
-            subscription.cancel();
-        }
+        watcher.unwatch(reviewId);
     }
 
     public void reconcileLater(String reviewId)
@@ -211,55 +194,7 @@ public class ReviewTaskObserver
     @PreDestroy
     public void close()
     {
-        subscriptions.values().forEach(Flow.Subscription::cancel);
-        subscriptions.clear();
+        watcher.close();
         executor.shutdownNow();
-    }
-
-    private final class Subscriber
-            implements Flow.Subscriber<AgentEventEnvelope>
-    {
-        private final AgentReview review;
-
-        private Subscriber(AgentReview review)
-        {
-            this.review = review;
-        }
-
-        @Override
-        public void onSubscribe(Flow.Subscription subscription)
-        {
-            subscriptions.put(review.id(), subscription);
-            subscription.request(1);
-        }
-
-        @Override
-        public void onNext(AgentEventEnvelope item)
-        {
-            if (mirrorsAgentCommand(item)) {
-                mirrorLater(review.id(), item);
-            }
-            if (item.payload() instanceof AgentEventPayload.Lifecycle lifecycle && SETTLING.contains(lifecycle.phase())) {
-                reconcileLater(review.id());
-            }
-            Flow.Subscription subscription = subscriptions.get(review.id());
-            if (subscription != null) {
-                subscription.request(1);
-            }
-        }
-
-        @Override
-        public void onError(Throwable throwable)
-        {
-            subscriptions.remove(review.id());
-            log.warn("Review {} lost its task stream: {}", review.id(), throwable.toString());
-        }
-
-        @Override
-        public void onComplete()
-        {
-            subscriptions.remove(review.id());
-            reconcileLater(review.id());
-        }
     }
 }

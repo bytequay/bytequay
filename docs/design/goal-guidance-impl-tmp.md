@@ -918,7 +918,7 @@ intermediate reference-count percentage to maintain.
 - [x] Add explicit another-attempt admission to GitHub/Jira stores and both
   services. Keep opening the current task by default; require the previous attempt
   to be terminal with delivery settled before a new task can be admitted.
-- [ ] Add unique accepted-proposal mappings when Goal proposals arrive in Step 3.
+- [x] Add unique accepted-proposal mappings when Goal proposals arrive in Step 3.
 - [ ] Add explicit accepted deliverable/base/criteria mappings and automatic
   merged-delivery evaluation with outcome harvesting in Step 5. The current
   result-acceptance action always requires the user's scope confirmation.
@@ -932,7 +932,12 @@ SQLite-backed launch checks prove one work item per issue attempt and refusal of
 Dropped or other-workspace work before the source fetch; a Jira check proves
 reassignment is refused while a work item owns the ticket. A Chromium journey exercises a
 failed result save, the same-operation retry, reopening and detached history.
-The remaining unchecked items are not represented as implemented behavior.
+Accepted proposals map to work by identities derived from them: a definition by
+its exchange, a course's lessons, a practice or investigation card's work and a
+reproduced gap's work by their ids, and a plan change's decisions by their
+operations, so accepting or starting again finds the same work, as
+`TestGoalConversationService` and `TestGoalSpecChecks` show. The remaining
+unchecked item is not represented as implemented behavior.
 
 Verification on the committed tree: backend `mvn verify` (3,396 tests),
 frontend lint and TypeScript checks, all 1,421 frontend tests including the

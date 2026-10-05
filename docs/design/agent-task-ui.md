@@ -1050,7 +1050,10 @@ waits on commits or checks; an issue, or a ticket with nothing new, has none.
 While the pointer or focus is inside the row the age gives way to Pin, ◎ (add
 the item's work item to that goal or take it out, with the issue, task and pull
 request linked to it), Start development (issues and tickets that can start),
-Acknowledge, Snooze and Open.
+Acknowledge, Snooze and Open. While a card under the pinned goal's control
+offers an issue or ticket as practice, that item's own row folds away unless it
+asks for an approval, a review or a recovery, so the same next action shows
+once; it returns once the card is started or set aside.
 
 Resting the pointer on a row for two seconds opens the item's hover card, the
 shared reference card: the source's icon, key and where the item stands, the

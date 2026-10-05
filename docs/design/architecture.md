@@ -570,7 +570,16 @@ retry identities. Application-level source admission saves task, accepted source
 and work-item association in the same existing transaction. Goal reads project
 local reference activity; they never call a model or change outcome state.
 Explicit acceptance, reopening and Goal moves retain the item's identity and
-history. See [Goal guidance](goal-guidance.md) for current limits and later work.
+history. A Goal's conversation (`goal_exchange`) asks one tool-free model
+request at a time through scratch `TEXT_ONLY` helper sessions and records only a
+reply that validates as the expected JSON; its cards (`goal_recommendation`),
+knowledge notes, lessons and topic levels are local tables. A research run is
+the one agent task a Goal starts, a noninteractive context run sharing the
+spec-check slot. Background events, such as task-turn receipts, pull-request
+status and issues opened near a Goal, are held, coalesced and kept out of quiet
+hours before the agent hears them, and task cleanup or deletion first lets the
+Goal record every turn it has not. See [Goal guidance](goal-guidance.md) for
+current limits and later work.
 
 ### 6.3 Agent task flow
 

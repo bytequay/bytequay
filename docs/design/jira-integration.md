@@ -138,7 +138,8 @@ items and completed tickets cannot launch development; the admission refresh
 checks subtasks, hierarchy information and the Jira parent query. The
 association names the ticket's current task: once that task has ended and no
 delivery runs for it, Start another attempt in a Goal's work admits a new task
-in its place, and the ended task keeps its source.
+in its place, its composer prepared from that work, and the ended task keeps its
+source.
 
 Workspace assignment is keyed by the same cloud/issue identity and persists
 separately from remote ticket snapshots in the existing SQLite-backed Jira local

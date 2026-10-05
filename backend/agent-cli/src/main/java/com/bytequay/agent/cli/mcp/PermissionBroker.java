@@ -413,7 +413,10 @@ public final class PermissionBroker
         }
         Set<String> childTools = readable;
         List<ToolDefinition> all = tools(context);
-        List<String> mcpNames = all.stream().map(ToolDefinition::name).filter(childTools::contains).collect(toImmutableList());
+        // Memory reads use the shared MCP token; its mutating actions still require a root-bound dynamic call.
+        List<String> mcpNames = all.stream().map(ToolDefinition::name)
+                .filter(name -> childTools.contains(name) || (context.review().isPresent() && name.equals(MemoryBridge.TOOL_NAME)))
+                .collect(toImmutableList());
         List<Map<String, Object>> rootTools = all.stream().filter(tool -> !childTools.contains(tool.name()))
                 .map(tool -> ImmutableMap.<String, Object>of(
                         "type", "function", "name", tool.name(), "description", tool.description(), "inputSchema", tool.inputSchema()))
@@ -531,9 +534,19 @@ public final class PermissionBroker
                 case "ping" -> response(request.id(), ImmutableMap.of());
                 case "tools/list" -> response(request.id(), new ToolsResult(tools(context).stream()
                         .filter(tool -> guarded == null || guarded.mcpNames().contains(tool.name()))
+                        .map(tool -> guarded != null && context.review().isPresent() && tool.name().equals(MemoryBridge.TOOL_NAME) ? memoryTool(true) : tool)
                         .collect(toImmutableList())));
-                case "tools/call" -> guarded != null && !guarded.mcpNames().contains(request.params().path("name").asText(""))
-                        ? error(request.id(), -32602, "Unknown tool") : callTool(request, context);
+                case "tools/call" -> {
+                    String name = request.params().path("name").asText("");
+                    if (guarded != null && !guarded.mcpNames().contains(name)) {
+                        yield error(request.id(), -32602, "Unknown tool");
+                    }
+                    if (guarded != null && context.review().isPresent() && name.equals(MemoryBridge.TOOL_NAME)
+                            && !ImmutableSet.of("SEARCH", "READ").contains(request.params().path("arguments").path("action").asText(""))) {
+                        yield error(request.id(), -32602, "Review child memory access permits only SEARCH and READ");
+                    }
+                    yield callTool(request, context);
+                }
                 default -> error(request.id(), -32601, "Method not found");
             };
         }
@@ -1095,28 +1108,7 @@ public final class PermissionBroker
                         .put("destinations", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
                                 "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))).buildOrThrow(),
                         "required", ImmutableList.of("action", "operationKey"), "additionalProperties", false))));
-        context.memory().ifPresent(ignored -> tools.add(new ToolDefinition(
-                MemoryBridge.TOOL_NAME,
-                MemoryBridge.DESCRIPTION,
-                ImmutableMap.of(
-                        "type", "object",
-                        "properties", ImmutableMap.<String, Object>builder()
-                                .put("action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")))
-                                .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
-                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("RULE", "RECIPE")))
-                                .put("title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 80))
-                                .put("text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 600))
-                                .put("scope", ImmutableMap.of("type", "array", "maxItems", 8, "items", ImmutableMap.of("type", "string", "maxLength", 300)))
-                                .put("command", ImmutableMap.of("type", "string", "maxLength", 2000))
-                                .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
-                                .put("path", ImmutableMap.of("type", "string", "maxLength", 300))
-                                .put("page", ImmutableMap.of("type", "integer", "minimum", 1))
-                                .put("id", ImmutableMap.of("type", "string", "pattern", "^m[1-9][0-9]*$"))
-                                .put("reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 500))
-                                .put("quote", ImmutableMap.of("type", "string", "maxLength", 300))
-                                .buildOrThrow(),
-                        "required", ImmutableList.of("action"),
-                        "additionalProperties", false))));
+        context.memory().ifPresent(ignored -> tools.add(memoryTool(false)));
         context.pullRequestCi().ifPresent(ignored -> {
             tools.add(new ToolDefinition(
                     PullRequestCiBridge.TOOL_NAME,
@@ -1206,6 +1198,33 @@ public final class PermissionBroker
                             "additionalProperties", false)));
         }
         return tools.build();
+    }
+
+    private static ToolDefinition memoryTool(boolean readOnly)
+    {
+        return new ToolDefinition(
+                MemoryBridge.TOOL_NAME,
+                readOnly ? "Search or read repository memory and its sources. Only SEARCH and READ are available to review children." : MemoryBridge.DESCRIPTION,
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.<String, Object>builder()
+                                .put("action", ImmutableMap.of("type", "string", "enum", readOnly
+                                        ? ImmutableList.of("SEARCH", "READ") : ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")))
+                                .put("workspaceId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))
+                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("RULE", "RECIPE")))
+                                .put("title", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 80))
+                                .put("text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 600))
+                                .put("scope", ImmutableMap.of("type", "array", "maxItems", 8, "items", ImmutableMap.of("type", "string", "maxLength", 300)))
+                                .put("command", ImmutableMap.of("type", "string", "maxLength", 2000))
+                                .put("query", ImmutableMap.of("type", "string", "maxLength", 200))
+                                .put("path", ImmutableMap.of("type", "string", "maxLength", 300))
+                                .put("page", ImmutableMap.of("type", "integer", "minimum", 1))
+                                .put("id", ImmutableMap.of("type", "string", "pattern", "^m[1-9][0-9]*$"))
+                                .put("reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 500))
+                                .put("quote", ImmutableMap.of("type", "string", "maxLength", 300))
+                                .buildOrThrow(),
+                        "required", ImmutableList.of("action"),
+                        "additionalProperties", false));
     }
 
     private static PermissionResult sandboxedPermission(PermissionArguments arguments, PermissionContext context, boolean unsandboxed)

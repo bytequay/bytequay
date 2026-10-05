@@ -25,6 +25,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.event.Level;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -130,7 +131,15 @@ final class CodexAppServerClient
         this.diagnosticLines = new Utf8LineBuffer(
                 MAX_DIAGNOSTIC_LINE_BYTES,
                 false,
-                line -> log.warn("Codex App Server: {}", this.redactor.redact(line)));
+                line -> log.atLevel(diagnosticLevel(line)).log("Codex App Server: {}", this.redactor.redact(line)));
+    }
+
+    static Level diagnosticLevel(String line)
+    {
+        // A successful policy denial is expected; hook failures and other provider diagnostics remain visible.
+        String router = "codex_core::tools::router: error=";
+        String denial = " blocked by PreToolUse hook: ByteQuay review child scope:";
+        return line.contains(router + "Tool call" + denial) || line.contains(router + "Command" + denial) ? Level.DEBUG : Level.WARN;
     }
 
     <T> T request(String method, Object params, Class<T> responseType, Duration timeout)

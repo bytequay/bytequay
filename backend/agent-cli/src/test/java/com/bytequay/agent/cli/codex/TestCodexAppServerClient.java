@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.slf4j.event.Level;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -48,6 +49,28 @@ class TestCodexAppServerClient
 {
     @TempDir
     private Path worktree;
+
+    @ParameterizedTest
+    @ValueSource(strings = {"Tool call", "Command"})
+    void expectedReviewChildDenialsAreDebugDiagnostics(String call)
+    {
+        String line = "2026-10-05T01:39:19.940429Z ERROR codex_core::tools::router: error=" + call
+                + " blocked by PreToolUse hook: ByteQuay review child scope: use context, CodeGraph, memory SEARCH/READ, sandboxed source searches, or messages to the main agent.";
+        assertThat(CodexAppServerClient.diagnosticLevel(line)).isEqualTo(Level.DEBUG);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "codex_core::tools::router: error=Tool call blocked by PreToolUse hook: ByteQuay could not read this tool call, so it was refused.",
+            "codex_core::tools::router: error=PreToolUse hook failed: exit 1",
+            "codex_core::tools::router: error=PreToolUse hook timed out",
+            "codex_core::tools::router: error=Tool call blocked by PreToolUse hook: Some other policy denial",
+            "ByteQuay review child scope: use context, CodeGraph, memory SEARCH/READ",
+            "codex_core::tools::router: error=provider connection failed"})
+    void unexpectedDiagnosticsRemainWarnings(String line)
+    {
+        assertThat(CodexAppServerClient.diagnosticLevel(line)).isEqualTo(Level.WARN);
+    }
 
     @ParameterizedTest
     @ValueSource(booleans = {true, false})

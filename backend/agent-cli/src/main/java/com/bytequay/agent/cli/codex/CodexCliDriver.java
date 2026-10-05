@@ -967,7 +967,8 @@ public final class CodexCliDriver
                             AgentCommandPolicy.instructions(permissionScope),
                             context.restricted() ? "" : PLAN_INSTRUCTION,
                             context.managedInstructions(),
-                            codeGraph.flatMap(McpRegistration::instruction).orElse(""))
+                            codeGraph.flatMap(McpRegistration::instruction).orElse(""),
+                            permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "")
                     .filter(instruction -> !instruction.isBlank())
                     .collect(joining("\n\n"));
             Map<String, Object> config = CodexLaunchProfile.threadConfig(

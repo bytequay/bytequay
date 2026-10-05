@@ -147,6 +147,7 @@ class TestCodexCliDriver
 
         RunningTurn turn = resumed.start(command("complete"));
         JsonNode startedThread = supervisor.servers().getFirst().threadRequests().getFirst();
+        assertThat(startedThread.path("developerInstructions").asText()).doesNotContain(CodexReviewGate.INSTRUCTION);
         assertThat(startedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(startedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
         assertThat(startedThread.path("config").path("web_search").asText()).isEqualTo("live");
@@ -160,6 +161,7 @@ class TestCodexCliDriver
         assertThat(startedThread.path("config").path("sandbox_workspace_write").path("network_access").asBoolean()).isTrue();
 
         JsonNode resumedThread = resumedServer.threadRequests().getFirst();
+        assertThat(resumedThread.path("developerInstructions").asText()).doesNotContain(CodexReviewGate.INSTRUCTION);
         assertThat(resumedThread.path("excludeTurns").asBoolean()).isTrue();
         assertThat(resumedThread.path("model").asText()).isEqualTo("gpt-5");
         assertThat(resumedThread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
@@ -2843,7 +2845,8 @@ class TestCodexCliDriver
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode thread = server.threadRequests().getFirst();
                 assertThat(thread.path("developerInstructions").asText())
-                        .startsWith(AgentCommandPolicy.reviewInstructions()).contains("native update_plan").endsWith(review.instruction());
+                        .startsWith(AgentCommandPolicy.reviewInstructions()).contains("native update_plan").endsWith(review.instruction())
+                        .doesNotContain(CodexReviewGate.INSTRUCTION);
                 assertThat(thread.path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 assertThat(thread.path("config").has("auto_review")).isFalse();
                 assertThat(supervisor.serverArgv().getLast())
@@ -2945,6 +2948,10 @@ class TestCodexCliDriver
                         session.reference().laneId(), 1, session.reference().providerValue())), Optional.empty())).isFalse();
                 assertThat(driver.reviewChildAgents(Optional.of(session.reference()), Optional.of("unknown-model"))).isFalse();
                 JsonNode thread = supervisor.servers().getLast().threadRequests().getFirst();
+                assertThat(thread.path("developerInstructions").asText())
+                        .contains(review.instruction(), "repository_memory SEARCH/READ", "read-only source searches", "send_message",
+                                "in each child's self-contained assignment", "in your final answer", "must not edit files", "request broader permissions")
+                        .endsWith(CodexReviewGate.INSTRUCTION);
                 assertThat(thread.path("config").path("bypass_hook_trust").asBoolean()).isTrue();
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isTrue();
                 if (index == 0) {

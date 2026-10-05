@@ -30,6 +30,16 @@ import static java.util.Objects.requireNonNull;
 /** The one review hook ByteQuay permits inside its isolated Codex home. */
 final class CodexReviewGate
 {
+    static final String INSTRUCTION = """
+            In this Codex review, children may use review_get_context, codegraph_explore and repository_memory SEARCH/READ
+            when listed, native shell tools for read-only source searches, and send_message to share findings with the main agent.
+            Use the MCP repository_memory tool for reads; the unqualified dynamic tool belongs to the main agent.
+            Shell commands retain the native sandbox. Children must not edit files, run tests, commit, publish, save review
+            results, REPORT or REMEMBER repository memory, request broader permissions, or delegate further work.
+            Include this exploration scope in each child's self-contained assignment. Return conclusions, source references
+            and missing evidence in your final answer; it is also delivered to the main agent automatically.
+            If a call is denied, report the limitation instead of retrying it or working around the restriction.
+            """;
     private static final String SCRIPT = readScript();
     private static final String FILE_NAME = "bytequay-review-child-gate.sh";
 

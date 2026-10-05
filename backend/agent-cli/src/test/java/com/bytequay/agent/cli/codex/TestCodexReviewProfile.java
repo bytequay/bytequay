@@ -16,6 +16,7 @@ package com.bytequay.agent.cli.codex;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.slf4j.event.Level;
 
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
@@ -72,19 +73,48 @@ class TestCodexReviewProfile
     }
 
     @Test
-    void childCanOnlyUseTheTwoReviewReads()
+    void childCanExploreAndCommunicateWithoutSavingReviewOrMemoryChanges()
             throws Exception
     {
         Path gate = CodexReviewGate.install(codexHome);
         assertThat(runGate(gate, "{\"tool_name\":\"mcp__bytequay__review_save_finding\"}")).isZero();
         assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"mcp__bytequay__review_get_context\"}")).isZero();
         assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"mcp__bytequay__codegraph_explore\"}")).isZero();
-        for (String tool : ImmutableList.of("mcp__bytequay__review_save_finding", "Bash", "apply_patch", "Agent")) {
+        for (String tool : ImmutableList.of("Bash", "write_stdin")) {
+            assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"" + tool + "\",\"tool_input\":{\"command\":\"rg -n decimal src\"}}"))
+                    .as("child exploration tool %s", tool).isZero();
+        }
+        for (String target : ImmutableList.of("/root", "root-id", "/root/sibling", "unknown")) {
+            assertThat(runGate(gate, """
+                    {"session_id":"root-id","agent_id":"child","tool_name":"collaborationsend_message","tool_input":{"target":"%s","message":"Findings"}}
+                    """.formatted(target))).isEqualTo(target.equals("/root") || target.equals("root-id") ? 0 : 2);
+        }
+        for (String tool : ImmutableList.of("repository_memory", "mcp__bytequay__repository_memory")) {
+            for (String action : ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")) {
+                assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"" + tool + "\",\"tool_input\":{\"action\":\"" + action + "\"}}"))
+                        .as("child memory action %s", action).isEqualTo(action.equals("SEARCH") || action.equals("READ") ? 0 : 2);
+            }
+        }
+        for (String tool : ImmutableList.of(
+                "mcp__bytequay__review_save_finding", "repository_memory", "apply_patch", "Agent", "collaborationspawn_agent")) {
             assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"" + tool + "\"}"))
                     .as("child tool %s", tool)
                     .isEqualTo(2);
         }
         assertThat(runGate(gate, "{\"agent_id\":\"child\"}")).isEqualTo(2);
+    }
+
+    @Test
+    void childDenialExplainsHowToReturnResultsWithoutAnotherToolCall()
+            throws Exception
+    {
+        Process process = new ProcessBuilder(CodexReviewGate.install(codexHome).toString()).start();
+        process.getOutputStream().write("{\"agent_id\":\"child\",\"tool_name\":\"repository_memory\"}".getBytes(StandardCharsets.UTF_8));
+        process.getOutputStream().close();
+        String denial = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8).strip();
+        assertThat(process.waitFor()).isEqualTo(2);
+        assertThat(denial).contains("in your final answer", "memory SEARCH/READ", "messages to the main agent", "do not retry denied calls");
+        assertThat(CodexAppServerClient.diagnosticLevel("codex_core::tools::router: error=Tool call blocked by PreToolUse hook: " + denial)).isEqualTo(Level.DEBUG);
     }
 
     @Test

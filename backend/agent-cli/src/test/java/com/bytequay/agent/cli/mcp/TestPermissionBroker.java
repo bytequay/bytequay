@@ -778,6 +778,49 @@ class TestPermissionBroker
     }
 
     @Test
+    void codexReviewChildrenReadMemoryWhileOnlyRootDynamicCallsCanChangeIt()
+            throws Exception
+    {
+        List<String> calls = new ArrayList<>();
+        MemoryBridge memory = new MemoryBridge(arguments -> {
+            calls.add(arguments);
+            return "memory result";
+        });
+        ReviewBridge review = new ReviewBridge(ImmutableList.of(
+                new ReviewTool("review_get_context", "Read context", ImmutableMap.of("type", "object"), arguments -> "context", true)), "Review");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review),
+                BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), taskId -> Optional.of(memory));
+        try (McpRegistration registration = broker.registerTools(
+                "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
+            PermissionBroker.CodexRootTools guarded = broker.guardCodexRootTools(registration);
+            assertThat(guarded.mcpNames()).containsExactly("review_get_context", MemoryBridge.TOOL_NAME);
+            assertThat(guarded.rootNames()).containsExactly(MemoryBridge.TOOL_NAME);
+            JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
+                    {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                    """)).body().orElseThrow();
+            assertThat(listed.at("/result/tools/1/inputSchema/properties/action/enum")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("SEARCH", "READ")));
+            assertThat(objectMapper.valueToTree(guarded.rootTools()).at("/0/inputSchema/properties/action/enum"))
+                    .isEqualTo(objectMapper.valueToTree(ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")));
+            for (String action : ImmutableList.of("SEARCH", "READ")) {
+                assertThat(localReviewCall(broker, registration.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"" + action + "\"}")
+                        .at("/result/content/0/text").asText()).isEqualTo("memory result");
+            }
+            for (String arguments : ImmutableList.of("{}", "{\"action\":null}", "{\"action\":{}}", "{\"action\":\"REPORT\"}", "{\"action\":\"REMEMBER\"}")) {
+                assertThat(localReviewCall(broker, registration.token(), MemoryBridge.TOOL_NAME, arguments).at("/error/code").asInt()).isEqualTo(-32602);
+            }
+            assertThat(calls).containsExactly("{\"action\":\"SEARCH\"}", "{\"action\":\"READ\"}");
+            for (String action : ImmutableList.of("REPORT", "REMEMBER")) {
+                assertThat(broker.callCodexRootTool(registration.token(), MemoryBridge.TOOL_NAME, objectMapper.readTree("{\"action\":\"" + action + "\"}"))
+                        .body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("memory result");
+            }
+            assertThat(calls).hasSize(4);
+        }
+    }
+
+    @Test
     @EnabledOnOs(OS.MAC)
     void relatedWorkIsRootBoundOnBothProvidersWithoutRestrictingOrdinaryDevelopmentTools()
             throws Exception

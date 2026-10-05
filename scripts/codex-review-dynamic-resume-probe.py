@@ -2,7 +2,7 @@
 """Check review child read/write boundaries and root tools across a native resume.
 
 Run: python3 scripts/codex-review-dynamic-resume-probe.py
-Requires macOS, Python 3.9+, Codex 0.156.1+, and permission to bind a loopback socket.
+Requires macOS, Python 3.9+, Codex 0.159.3+, and permission to bind a loopback socket.
 Uses the production child gate with a keyless fake model and MCP server in a fresh profile.
 """
 
@@ -74,10 +74,16 @@ class Fixture:
                                   "serverInfo": {"name": "bytequay-fixture", "version": "1"}}
                     elif method == "tools/list":
                         result = {"tools": [{"name": "review_get_context", "description": "Read fixture context",
-                                             "inputSchema": {"type": "object", "properties": {}}}]}
+                                             "inputSchema": {"type": "object", "properties": {}}},
+                                            {"name": "repository_memory", "description": "Read fixture memory",
+                                             "inputSchema": {"type": "object", "properties": {
+                                                 "action": {"type": "string", "enum": ["SEARCH", "READ"]}}}}]}
                     elif method == "tools/call":
+                        name = body["params"]["name"]
+                        if name == "repository_memory":
+                            name += ":" + body["params"]["arguments"]["action"]
                         with fixture.lock:
-                            fixture.mcp_calls.append(body["params"]["name"])
+                            fixture.mcp_calls.append(name)
                         result = {"content": [{"type": "text", "text": "Fixture read"}], "isError": False}
                     elif method == "resources/list":
                         result = {"resources": []}
@@ -96,15 +102,22 @@ class Fixture:
                 calls = [item for item in body.get("input", []) if item.get("type") == "function_call"]
                 if resumed:
                     calls = [item for item in calls if item.get("call_id", "").startswith("resumed_")]
-                    sequence = [] if child else [(TOOL, {"finding": "resumed root"}, None)]
+                    sequence = [] if child else [(TOOL, {"finding": "resumed root"}, None),
+                                                  ("repository_memory", {"action": "REMEMBER"}, None)]
                 elif child:
                     sequence = [(TOOL, {"finding": "child attempt"}, None),
-                                ("exec_command", {"cmd": "touch child-wrote", "workdir": str(fixture.output / "workspace")}, None),
-                                ("review_get_context", {}, "mcp__bytequay")]
+                                ("exec_command", {"cmd": shlex.quote(shutil.which("rg")) + " -n decimal source.txt",
+                                                  "workdir": str(fixture.output / "workspace")}, None),
+                                ("review_get_context", {}, "mcp__bytequay"),
+                                ("repository_memory", {"action": "READ", "id": "m1"}, "mcp__bytequay"),
+                                ("repository_memory", {"action": "REMEMBER", "text": "child write"}, "mcp__bytequay"),
+                                ("spawn_agent", {"task_name": "forbidden_grandchild", "message": "Do not start"}, "collaboration"),
+                                ("send_message", {"target": "/root", "message": "Fixture source search and memory read completed."}, "collaboration")]
                 else:
                     sequence = [("spawn_agent", {"message": "Inspect the fixture", "task_name": "fixture_child",
                                                   "fork_turns": "none"}, "collaboration"),
-                                (TOOL, {"finding": "initial root"}, None)]
+                                (TOOL, {"finding": "initial root"}, None),
+                                ("repository_memory", {"action": "REMEMBER"}, None)]
                 stage = len(calls)
                 if stage < len(sequence):
                     name, arguments, namespace = sequence[stage]
@@ -150,13 +163,13 @@ def run_turn(app, thread_id, text, request_id, callback_text):
                 continue
             answered.add(event["id"])
             params = event["params"]
-            exact_root = params["threadId"] == thread_id and params["turnId"] == turn["id"] and params["tool"] == TOOL
+            exact_root = params["threadId"] == thread_id and params["turnId"] == turn["id"] and params["tool"] in (TOOL, "repository_memory")
             app.send({"id": event["id"], "result": {"contentItems": [{"type": "inputText", "text": callback_text}],
                                                    "success": exact_root}})
         completed = any(event.get("method") == "turn/completed" and
                         event.get("params", {}).get("threadId") == thread_id and
                         event["params"]["turn"]["id"] == turn["id"] for event in app.notifications)
-        if completed and len(answered) == 1:
+        if completed and len(answered) == 2:
             return turn["id"]
         time.sleep(0.02)
     raise RuntimeError("Root dynamic tool call or turn did not complete")
@@ -172,9 +185,14 @@ def main():
     print("Probe artifacts: " + str(output), flush=True)
     for name in ("home", "profile", "sqlite", "tmp", "workspace"):
         (output / name).mkdir(mode=0o700)
+    (output / "workspace" / "source.txt").write_text("decimal-sentinel\n")
     gate = output / "profile" / "review-child-gate.sh"
     shutil.copyfile(Path(__file__).resolve().parents[1] / "backend/agent-cli/src/main/resources/com/bytequay/agent/cli/codex/review-child-gate.sh", gate)
     gate.chmod(0o700)
+    hook = output / "profile" / "capture-hook.sh"
+    hook.write_text("#!/bin/sh\npayload=$(/bin/cat)\nprintf '%s\\n' \"$payload\" >> "
+                    + shlex.quote(str(output / "hook-inputs.jsonl")) + "\nprintf '%s' \"$payload\" | " + shlex.quote(str(gate)) + "\n")
+    hook.chmod(0o700)
     environment = {"HOME": str(output / "home"), "CODEX_HOME": str(output / "profile"),
                    "CODEX_SQLITE_HOME": str(output / "sqlite"), "TMPDIR": str(output / "tmp"),
                    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh", "LANG": "en_US.UTF-8"}
@@ -185,24 +203,27 @@ def main():
                      "--enable", "skip_host_skill_discovery", "--enable", "multi_agent_v2", "--disable", "multi_agent",
                      "--enable", "hooks", "--disable", "tool_call_mcp_elicitation", "--disable", "code_mode",
                      "--disable", "tool_search"]
-        config = {"model_provider": "fixture", "model": "fixture-model", "model_providers.fixture.name": "Local fixture",
+        config = {"model_provider": "fixture", "model": "gpt-6.1-sol", "model_providers.fixture.name": "Local fixture",
                   "model_providers.fixture.base_url": base + "/v1", "model_providers.fixture.wire_api": "responses",
                   "model_providers.fixture.requires_openai_auth": False, "model_providers.fixture.supports_websockets": False,
                   "model_providers.fixture.request_max_retries": 0, "approval_policy": "on-request",
                   "approvals_reviewer": "auto_review", "sandbox_mode": "workspace-write", "mcp_servers.bytequay.url": base + "/mcp",
                   "mcp_servers.bytequay.default_tools_approval_mode": "approve", "web_search": "disabled",
+                  "agents.enabled": True,
                   "shell_environment_policy.inherit": "none"}
         for key, value in config.items():
             arguments.extend(["-c", key + "=" + json.dumps(value)])
         arguments.extend(["-c", 'hooks.PreToolUse=[{matcher=".*",hooks=[{type="command",command='
-                          + json.dumps(shlex.quote(str(gate))) + ',timeout=5}]}]'])
+                          + json.dumps(shlex.quote(str(hook))) + ',timeout=5}]}]'])
         probe.write_json(output / "launch.json", {"arguments": arguments, "environment": environment})
-        initial = {"cwd": str(output / "workspace"), "model": "fixture-model", "modelProvider": "fixture",
+        initial = {"cwd": str(output / "workspace"), "model": "gpt-6.1-sol", "modelProvider": "fixture",
                    "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "sandbox": "workspace-write",
                    "ephemeral": False, "config": {"bypass_hook_trust": True,
                                                   "features": {"hooks": True, "multi_agent_v2": True, "multi_agent": False}},
                    "dynamicTools": [{"type": "function", "name": TOOL, "description": "Save a fixture finding",
-                                     "inputSchema": {"type": "object", "properties": {"finding": {"type": "string"}}}}]}
+                                     "inputSchema": {"type": "object", "properties": {"finding": {"type": "string"}}}},
+                                    {"type": "function", "name": "repository_memory", "description": "Root memory access",
+                                     "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}}}}]}
         with probe.AppServer(arguments, environment, output, "initial") as app:
             root = app.request("thread/start", initial, "start")["result"]["thread"]
             app.request("mcpServerStatus/list", {"threadId": root["id"]}, "mcp")
@@ -210,7 +231,9 @@ def main():
             deadline = time.monotonic() + 25
             while time.monotonic() < deadline:
                 with fixture.lock:
-                    child_rejected = rejected_child_call(fixture.requests) and "review_get_context" in fixture.mcp_calls
+                    child_rejected = rejected_child_call(fixture.requests) and any(child_request(request) and any(
+                        item.get("type") == "function_call_output" and item.get("call_id") == "child_6"
+                        for item in request.get("input", [])) for request in fixture.requests)
                 if child_rejected:
                     break
                 time.sleep(0.02)
@@ -231,26 +254,24 @@ def main():
             mcp_calls = list(fixture.mcp_calls)
         probe.require(any(child_request(request) for request in requests), "No native child provider request was observed")
         probe.require(rejected_child_call(requests), "Child's attempted root tool call had no rejection output")
-        probe.require(all(TOOL not in [tool.get("name") for tool in request.get("tools", [])]
-                          for request in requests if child_request(request)), "Child inherited the root dynamic tool")
-        probe.require(any(TOOL in [tool.get("name") for tool in request.get("tools", [])]
-                          for request in requests if not child_request(request) and
-                          any(part.get("text") == "Exercise restored dynamic tool." for item in request.get("input", [])
-                              for part in item.get("content", []) if isinstance(part, dict))),
-                      "Resumed root lost its saved dynamic tool")
         for name, turn_id in (("initial", first_turn), ("resumed", second_turn)):
             notifications = json.loads((output / (name + "-notifications.json")).read_text())
             callbacks = [event["params"] for event in notifications if event.get("method") == "item/tool/call"]
-            probe.require(len(callbacks) == 1 and callbacks[0]["threadId"] == root["id"] and
-                          callbacks[0]["turnId"] == turn_id and callbacks[0]["tool"] == TOOL,
+            probe.require(len(callbacks) == 2 and {call["tool"] for call in callbacks} == {TOOL, "repository_memory"} and
+                          all(call["threadId"] == root["id"] and call["turnId"] == turn_id for call in callbacks),
                           name + " callback was not bound to the exact root thread and turn")
-        probe.require(mcp_calls == ["review_get_context"], "Child read was denied or another tool reached the shared MCP endpoint")
-        probe.require(not (output / "workspace" / "child-wrote").exists(), "Child executed a shell write")
-        probe.require(any(child_request(request) and any(
-            item.get("type") == "function_call_output" and item.get("call_id") == "child_1" and
-            "PreToolUse" in item.get("output", "") for item in request.get("input", [])) for request in requests),
-            "Child shell call was not rejected by the production hook")
-        print("Native child read succeeded; root tool and child shell write were denied; resumed root retained its exact-turn write tool.", flush=True)
+        probe.require(mcp_calls == ["review_get_context", "repository_memory:READ"], "Child read was denied or a write reached the shared MCP endpoint")
+        outputs = {item["call_id"]: item.get("output", "") for request in requests if child_request(request)
+                   for item in request.get("input", []) if item.get("type") == "function_call_output"}
+        probe.require("decimal-sentinel" in outputs.get("child_1", ""), "Child source search did not run")
+        probe.require("PreToolUse" in outputs.get("child_4", ""), "Child memory write was not rejected by the production hook")
+        probe.require("PreToolUse" in outputs.get("child_5", ""), "Child further delegation was not rejected by the production hook")
+        notifications = json.loads((output / "initial-notifications.json").read_text())
+        probe.require(outputs.get("child_6") == "" and any(
+            event.get("method") == "item/completed" and event.get("params", {}).get("item", {}).get("id") == "child_6" and
+            event["params"]["item"].get("agentThreadId") == root["id"] and event["params"]["item"].get("kind") == "interacted"
+            for event in notifications), "Child message was not delivered to the root")
+        print("Native child search, memory read and message succeeded; memory writes and delegation were denied; resumed root retained its write tool.", flush=True)
     finally:
         fixture.close()
 

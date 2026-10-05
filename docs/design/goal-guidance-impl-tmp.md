@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first ten implementation slices are complete. The later items of
+Status: The first eleven implementation slices are complete. The later items of
 Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -491,6 +491,32 @@ by side and a question sent there belongs to the lesson; a check answer reaches
 the agent as an answer to the open lesson's check; and a level citing a message
 the user sent is kept, while one citing an invented or automatic message is not.
 
+## Eleventh implementation slice
+
+Ask the model less: background guidance waits out the quiet hours, and routine
+progress no longer asks the agent by itself.
+
+1. Quiet hours hold background events. During the app's quiet hours, the window
+   that already idles GitHub and Jira refresh, a Goal's background events wait
+   and go together in one exchange once the window ends. The user's own
+   messages, decisions and Update now are never held.
+2. A finished turn is reported, not asked about. A turn of a Goal work item's
+   task that finished normally is recorded and held without asking the agent; it
+   goes with the next event, decision or Update now, and a newer turn of the
+   same work replaces it. A failed or interrupted turn, a merge, a requested
+   change and a finished research run or check still ask. Turns recovered at
+   startup follow the same rule.
+
+Progress: the eleventh slice is complete. Held events wait for the later of the
+five-minute window and the end of the quiet hours, read from the app settings,
+unless a decision waits; a normally finished turn, or a recovery whose missed
+turns all finished, is a routine report that starts no exchange and is replaced
+by a newer report on the same work item.
+
+Done when: an event told during the quiet hours waits until they end while a
+decision does not, and a normally finished turn starts no model call but reaches
+the agent with the next event or Update now.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -710,7 +736,7 @@ Still partial: private cards are the twenty newest rather than those on the
 Goal's topics; task deletion and runtime cleanup do not wait for a receipt;
 summaries carry no insights or next recommendation; blocker changes, task starts
 and finished milestones are not reported to the agent; plan differences cover
-the course only; there is no persisted input fingerprint or quiet hours; there
+the course only; there is no persisted input fingerprint; there
 is no Remember action; and task deletion, log expiry and uncertain provider cleanup are
 not exercised.
 

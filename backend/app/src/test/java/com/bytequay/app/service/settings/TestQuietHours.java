@@ -15,6 +15,7 @@ package com.bytequay.app.service.settings;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
 import java.time.LocalTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -46,6 +47,16 @@ class TestQuietHours
         assertThat(hours.quietAt(LocalTime.of(23, 0))).isTrue();
         assertThat(hours.quietAt(LocalTime.of(3, 0))).isTrue();
         assertThat(hours.quietAt(LocalTime.of(12, 0))).isFalse();
+    }
+
+    @Test
+    void theWindowEndsAtItsNextEndMinute()
+    {
+        QuietHours hours = new QuietHours(true, 22 * 60, 6 * 60);
+        assertThat(hours.endAfter(LocalDateTime.of(2026, 10, 5, 23, 0))).contains(LocalDateTime.of(2026, 10, 6, 6, 0));
+        assertThat(hours.endAfter(LocalDateTime.of(2026, 10, 6, 3, 0))).contains(LocalDateTime.of(2026, 10, 6, 6, 0));
+        assertThat(hours.endAfter(LocalDateTime.of(2026, 10, 6, 12, 0))).isEmpty();
+        assertThat(new QuietHours(false, 60, 450).endAfter(LocalDateTime.of(2026, 10, 6, 2, 0))).isEmpty();
     }
 
     @Test

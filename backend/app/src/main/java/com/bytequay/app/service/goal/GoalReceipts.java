@@ -79,7 +79,13 @@ public class GoalReceipts
     private final ExecutorService executor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-receipts-", 0).factory());
 
     /** A receipt saved for a turn: the work it belongs to, how the turn ended and what it said or why it stopped. */
-    private record Saved(WorkItem item, TurnId turn, String ended, String answer) {}
+    private record Saved(WorkItem item, TurnId turn, TurnState state, String answer)
+    {
+        String ended()
+        {
+            return ENDINGS.get(state);
+        }
+    }
 
     public GoalReceipts(WorkItemStore items, WorkspaceStore workspaces, AgentTaskStore tasks, AgentTurnStore turns, TaskLogStore logs, ObjectProvider<WorkItemService> work,
             ObjectProvider<GoalConversationService> conversations)
@@ -108,8 +114,20 @@ public class GoalReceipts
 
     void record(AgentTask task, AgentTurn turn)
     {
-        receipt(task, turn).ifPresent(saved -> conversations.getObject().tell(saved.item().workspaceId(), saved.item().goalId().orElseThrow(), "turn:" + turn.id(),
+        receipt(task, turn).ifPresent(saved -> tell(saved.item(), "turn:" + turn.id(), turn.state() == TurnState.COMPLETED,
                 "A turn of the task for \"" + saved.item().title() + "\" " + saved.ended() + ": " + saved.answer()));
+    }
+
+    /** A turn that finished normally is progress the agent hears with its next news; a failed or interrupted one is news itself. */
+    private void tell(WorkItem item, String operationId, boolean finished, String event)
+    {
+        GoalConversationService conversation = conversations.getObject();
+        if (finished) {
+            conversation.report(item.workspaceId(), item.goalId().orElseThrow(), operationId, item.id(), event);
+        }
+        else {
+            conversation.tell(item.workspaceId(), item.goalId().orElseThrow(), operationId, event);
+        }
     }
 
     /**
@@ -156,7 +174,7 @@ public class GoalReceipts
             }
         }
         if (!missed.isEmpty()) {
-            conversations.getObject().tell(item.workspaceId(), item.goalId().orElseThrow(), "recovered:" + missed.getLast().turn(),
+            tell(item, "recovered:" + missed.getLast().turn(), missed.stream().allMatch(saved -> saved.state() == TurnState.COMPLETED),
                     "While ByteQuay was stopped, " + (missed.size() == 1 ? "a turn" : missed.size() + " turns") + " of the task for \"" + item.title()
                             + "\" ended. The last " + missed.getLast().ended() + ": " + missed.getLast().answer());
         }
@@ -184,7 +202,7 @@ public class GoalReceipts
         catch (RuntimeException failure) {
             log.debug("Goal work {} did not pick up its task's pull request: {}", item.get().id(), failure.toString());
         }
-        return Optional.of(new Saved(item.get(), turn.id(), ended, answer));
+        return Optional.of(new Saved(item.get(), turn.id(), turn.state(), answer));
     }
 
     private Optional<String> finalAnswer(AgentTask task, AgentTurn turn)

@@ -15,6 +15,7 @@ package com.bytequay.app.service.goal;
 
 import com.bytequay.app.context.ContextText;
 import com.bytequay.app.service.settings.AgentModelSetting;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
@@ -58,6 +59,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
+import java.util.stream.Stream;
 
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -97,6 +99,7 @@ public class GoalConversationService
     private final GoalTopicStore topics;
     private final ModelSettingsService models;
     private final GoalPlanner planner;
+    private final AppSettingsService settings;
     private final Clock clock;
     private final Executor executor;
     // The requests this process is answering; a pending exchange outside it was interrupted.
@@ -108,21 +111,32 @@ public class GoalConversationService
     private final Set<String> waking = new HashSet<>();
     private final Set<String> summarizing = new HashSet<>();
 
-    /** An event the goal's agent has not heard yet; a decision is told as soon as the agent is free. */
-    private record Held(String workspaceId, String operationId, String text, boolean decision) {}
+    /**
+     * An event the goal's agent has not heard yet; a decision is told as soon as the agent is free.
+     *
+     * @param reportOn the work a routine report is about, such as a turn that finished normally, which asks the agent nothing by itself
+     */
+    private record Held(String workspaceId, String operationId, String text, boolean decision, Optional<String> reportOn)
+    {
+        boolean routine()
+        {
+            return reportOn.isPresent();
+        }
+    }
 
     @Autowired
     public GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
             WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, ObjectProvider<GoalSpecChecks> specChecks,
-            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, Clock clock)
+            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, AppSettingsService settings, Clock clock)
     {
-        this(goals, work, exchanges, recommendations, workspaces, candidates, research, specChecks, questions, topics, models, planner, clock,
+        this(goals, work, exchanges, recommendations, workspaces, candidates, research, specChecks, questions, topics, models, planner, settings, clock,
                 Executors.newFixedThreadPool(2, Thread.ofVirtual().name("goal-agent-", 0).factory()));
     }
 
     GoalConversationService(GoalService goals, WorkItemService work, GoalExchangeStore exchanges, GoalRecommendationStore recommendations,
             WorkspaceStore workspaces, GoalCandidates candidates, ObjectProvider<GoalResearchService> research, ObjectProvider<GoalSpecChecks> specChecks,
-            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, Clock clock, Executor executor)
+            GoalQuestions questions, GoalTopicStore topics, ModelSettingsService models, GoalPlanner planner, AppSettingsService settings, Clock clock,
+            Executor executor)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.work = requireNonNull(work, "work is null");
@@ -136,6 +150,7 @@ public class GoalConversationService
         this.topics = requireNonNull(topics, "topics is null");
         this.models = requireNonNull(models, "models is null");
         this.planner = requireNonNull(planner, "planner is null");
+        this.settings = requireNonNull(settings, "settings is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
@@ -230,19 +245,28 @@ public class GoalConversationService
     }
 
     /**
-     * Tells the goal's agent about a background event, such as a finished turn, a merge or a finished run: held while the agent answers and
-     * until five minutes after the goal's last automatic exchange, then told with the others in one exchange. A paused goal hears nothing, and
-     * repeating an operation tells it once.
+     * Tells the goal's agent about a background event, such as a failed turn, a merge or a finished run: held while the agent answers, until
+     * five minutes after the goal's last automatic exchange and through the quiet hours, then told with the others in one exchange. A paused
+     * goal hears nothing, and repeating an operation tells it once.
      */
     public void tell(String workspaceId, String goalId, String operationId, String event)
     {
-        hold(goalId, new Held(workspaceId, operationId, event, false));
+        hold(goalId, new Held(workspaceId, operationId, event, false, Optional.empty()));
     }
 
     /** Tells the goal's agent about a decision, the user's or one that set its pick aside, as soon as it is free; held events go with it. */
     public void tellDecision(String workspaceId, String goalId, String operationId, String event)
     {
-        hold(goalId, new Held(workspaceId, operationId, event, true));
+        hold(goalId, new Held(workspaceId, operationId, event, true, Optional.empty()));
+    }
+
+    /**
+     * Reports routine progress on the goal's work, such as a turn that finished normally: held without asking the agent, it goes with the
+     * next event or decision the agent is told, or with Update now, and a newer report on the same work replaces it.
+     */
+    public void report(String workspaceId, String goalId, String operationId, String workItemId, String event)
+    {
+        hold(goalId, new Held(workspaceId, operationId, event, false, Optional.of(workItemId)));
     }
 
     private void hold(String goalId, Held event)
@@ -253,6 +277,9 @@ public class GoalConversationService
             }
             List<Held> waiting = held.computeIfAbsent(goalId, key -> new ArrayList<>());
             if (waiting.stream().noneMatch(earlier -> earlier.operationId().equals(event.operationId()))) {
+                if (event.routine()) {
+                    waiting.removeIf(earlier -> earlier.reportOn().equals(event.reportOn()));
+                }
                 waiting.add(event);
             }
         }
@@ -261,7 +288,7 @@ public class GoalConversationService
 
     /**
      * Tells a goal's held events in one exchange once its agent is free and, unless a decision waits, five minutes after its last automatic
-     * exchange; until then it wakes itself when the window ends.
+     * exchange and outside the quiet hours; until then it wakes itself when the wait ends. Routine reports alone wait for something else.
      */
     void flush(String goalId)
     {
@@ -282,13 +309,19 @@ public class GoalConversationService
                 return;
             }
             Instant now = clock.instant();
-            Optional<Instant> opens = conversation.stream().filter(GoalExchange::automatic).map(GoalExchange::askedAt).max(Comparator.naturalOrder())
-                    .map(last -> last.plus(EVENT_WINDOW)).filter(now::isBefore);
-            if (opens.isPresent() && waiting.stream().noneMatch(Held::decision)) {
-                if (waking.add(goalId)) {
-                    CompletableFuture.delayedExecutor(Duration.between(now, opens.orElseThrow()).toMillis(), TimeUnit.MILLISECONDS, executor).execute(() -> wake(goalId));
+            if (waiting.stream().noneMatch(Held::decision)) {
+                if (waiting.stream().allMatch(Held::routine)) {
+                    return;
                 }
-                return;
+                Optional<Instant> window = conversation.stream().filter(GoalExchange::automatic).map(GoalExchange::askedAt).max(Comparator.naturalOrder())
+                        .map(last -> last.plus(EVENT_WINDOW));
+                Optional<Instant> opens = Stream.of(window, settings.quietUntil()).flatMap(Optional::stream).filter(now::isBefore).max(Comparator.naturalOrder());
+                if (opens.isPresent()) {
+                    if (waking.add(goalId)) {
+                        CompletableFuture.delayedExecutor(Duration.between(now, opens.orElseThrow()).toMillis(), TimeUnit.MILLISECONDS, executor).execute(() -> wake(goalId));
+                    }
+                    return;
+                }
             }
             String first = waiting.getFirst().operationId();
             exchange = GoalExchange.told(first, goalId, waiting.getFirst().workspaceId(), events(release(goalId)), goal.orElseThrow().revision(), now);

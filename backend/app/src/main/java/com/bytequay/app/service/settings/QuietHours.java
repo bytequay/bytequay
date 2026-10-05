@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.service.settings;
 
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 
@@ -42,5 +44,15 @@ public record QuietHours(boolean enabled, int startMinute, int endMinute)
             return minute >= startMinute && minute < endMinute;
         }
         return minute >= startMinute || minute < endMinute;
+    }
+
+    /** When the window that holds this local time ends; empty outside the window. */
+    public Optional<LocalDateTime> endAfter(LocalDateTime now)
+    {
+        if (!quietAt(now.toLocalTime())) {
+            return Optional.empty();
+        }
+        LocalDateTime end = now.toLocalDate().atTime(endMinute / 60, endMinute % 60);
+        return Optional.of(end.isAfter(now) ? end : end.plusDays(1));
     }
 }

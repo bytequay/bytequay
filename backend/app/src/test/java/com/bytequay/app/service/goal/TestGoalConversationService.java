@@ -18,6 +18,7 @@ import com.bytequay.app.context.ContextSpecModule;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
+import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalExchange;
@@ -104,10 +105,11 @@ class TestGoalConversationService
     private final Exchanges exchanges = new Exchanges();
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final GoalPlanner planner = mock(GoalPlanner.class);
+    private final AppSettingsService settings = mock(AppSettingsService.class);
     private final List<Runnable> queued = new ArrayList<>();
     private final MutableClock clock = new MutableClock(Instant.parse("2026-10-03T10:00:00Z"));
     private final GoalConversationService service = new GoalConversationService(goals, work, exchanges, cards, workspaces, candidates,
-            beans.getBeanProvider(GoalResearchService.class), beans.getBeanProvider(GoalSpecChecks.class), questions, topics, models, planner, clock, queued::add);
+            beans.getBeanProvider(GoalResearchService.class), beans.getBeanProvider(GoalSpecChecks.class), questions, topics, models, planner, settings, clock, queued::add);
 
     @BeforeEach
     void setUp()
@@ -758,6 +760,55 @@ class TestGoalConversationService
         clock.advance(GoalConversationService.EVENT_WINDOW);
         service.tell("workspace", goal.id(), "turn:3", "A turn finished: three");
         assertThat(exchanges.list(goal.id())).as("an event is told once").hasSize(2);
+    }
+
+    @Test
+    void aFinishedTurnAsksNothingAndGoesWithTheNextEventOrUpdateNow()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        service.report("workspace", goal.id(), "turn:1", "work-1", "A turn of the task for \"Fix #31252\" finished: one");
+        service.report("workspace", goal.id(), "turn:2", "work-1", "A turn of the task for \"Fix #31252\" finished: two");
+        assertThat(exchanges.list(goal.id())).as("routine progress asks nothing").isEmpty();
+
+        service.tell("workspace", goal.id(), "merged:#5:work-1", "Pull request #5 for \"Fix #31252\" merged.");
+        assertThat(exchanges.list(goal.id())).singleElement().satisfies(told -> assertThat(told.message())
+                .as("the newer turn replaced the older one").isEqualTo("2 events since you last heard:\n1. A turn of the task for \"Fix #31252\" finished: two\n"
+                        + "2. Pull request #5 for \"Fix #31252\" merged."));
+        queued.removeFirst().run();
+
+        service.report("workspace", goal.id(), "turn:3", "work-1", "A turn of the task for \"Fix #31252\" finished: three");
+        clock.advance(GoalConversationService.EVENT_WINDOW);
+        service.flush(goal.id());
+        assertThat(exchanges.list(goal.id())).as("not even once the window passed").hasSize(1);
+        service.reassess("workspace", goal.id(), "op-update");
+        assertThat(exchanges.list(goal.id())).last().extracting(GoalExchange::message)
+                .isEqualTo(GoalConversationService.REASSESS + "\n\nA turn of the task for \"Fix #31252\" finished: three");
+    }
+
+    @Test
+    void backgroundEventsWaitOutTheQuietHoursButADecisionDoesNot()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        doReturn(QUESTION).when(planner).answer(any(), any(), anyList(), any());
+        when(settings.quietUntil()).thenReturn(Optional.of(clock.instant().plus(Duration.ofHours(6))));
+        service.tell("workspace", goal.id(), "check:1", "The spec check found 2 gaps.");
+        assertThat(exchanges.list(goal.id())).as("held through the quiet hours").isEmpty();
+
+        service.tellDecision("workspace", goal.id(), "lesson:lesson-1", "The user finished the lesson \"What a table is\".");
+        assertThat(exchanges.list(goal.id())).as("the user's decision goes at once, with what was held").singleElement().extracting(GoalExchange::message)
+                .isEqualTo("2 events since you last heard:\n1. The spec check found 2 gaps.\n2. The user finished the lesson \"What a table is\".");
+        queued.removeFirst().run();
+
+        service.tell("workspace", goal.id(), "check:2", "Another spec check finished.");
+        clock.advance(Duration.ofHours(1));
+        service.flush(goal.id());
+        assertThat(exchanges.list(goal.id())).as("the window passed, the quiet hours did not").hasSize(1);
+        clock.advance(Duration.ofHours(5));
+        when(settings.quietUntil()).thenReturn(Optional.empty());
+        service.flush(goal.id());
+        assertThat(exchanges.list(goal.id())).as("told once the quiet hours end").hasSize(2).last().extracting(GoalExchange::message)
+                .isEqualTo("Another spec check finished.");
     }
 
     @Test

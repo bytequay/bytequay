@@ -238,13 +238,16 @@ was lost, are recorded at startup, after the requests it was answering are
 settled and before the startup cleanup can remove their answers; the agent hears
 once per work item what it missed.
 
-Background events, such as finished turns, merges, reviews and finished research
-runs and checks, are held while the agent answers and until five minutes after
-the Goal's last automatic exchange, then told together in one exchange, each
-event once. The user's decisions, such as an accepted definition or course, a
-finished lesson or decided work, and a practice pick set aside are told as soon
-as the agent is free, with whatever is held. Held events live in memory; after a
-restart the next request still reads the recorded facts.
+Background events, such as failed or interrupted turns, merges, reviews and
+finished research runs and checks, are held while the agent answers, until five
+minutes after the Goal's last automatic exchange and through the app's quiet
+hours, then told together in one exchange, each event once. A turn that finished
+normally is only reported: it asks the agent nothing by itself and goes with the
+next event, decision or Update now, a newer turn of the same work replacing it.
+The user's decisions, such as an accepted definition or course, a finished
+lesson or decided work, and a practice pick set aside are told as soon as the
+agent is free, quiet hours or not, with whatever is held. Held events live in
+memory; after a restart the next request still reads the recorded facts.
 
 Pause guidance stops these messages: a paused Goal's agent hears no automatic
 event, the user's acceptances included, and the facts are still recorded. The

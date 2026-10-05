@@ -27,7 +27,10 @@ import org.springframework.stereotype.Service;
 
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -134,6 +137,13 @@ public class AppSettingsService
     public boolean inQuietHours()
     {
         return quietHours().quietAt(clock.instant().atZone(ZoneId.systemDefault()).toLocalTime());
+    }
+
+    /** When the quiet hours that hold now end; empty outside them. */
+    public Optional<Instant> quietUntil()
+    {
+        ZonedDateTime now = clock.instant().atZone(ZoneId.systemDefault());
+        return quietHours().endAfter(now.toLocalDateTime()).map(end -> end.atZone(now.getZone()).toInstant());
     }
 
     public AppPreferences preferences()

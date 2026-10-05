@@ -89,14 +89,15 @@ class TestGoalReceipts
     }
 
     @Test
-    void aFinishedTurnOfAGoalsTaskLeavesAReceiptAndTellsTheAgent()
+    void aFinishedTurnOfAGoalsTaskLeavesAReceiptAndIsReportedWithoutAskingTheAgent()
     {
         when(items.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item(Optional.of("goal-1"))));
         receipts.record(task(true), turn(TurnState.COMPLETED));
         verify(work).receipt("workspace", "work-1", "turn:" + turnId, "Task turn finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
         verify(work).linkRelated("workspace", "work-1");
-        verify(conversation).tell("workspace", "goal-1", "turn:" + turnId,
+        verify(conversation).report("workspace", "goal-1", "turn:" + turnId, "work-1",
                 "A turn of the task for \"Fix #31252\" finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
+        verify(conversation, never()).tell(any(), any(), any(), any());
     }
 
     @Test
@@ -149,6 +150,12 @@ class TestGoalReceipts
         verify(work).receipt("workspace", "work-1", "turn:" + failed, "Task turn failed: The provider stopped");
         verify(conversation).tell("workspace", "goal-1", "recovered:" + failed, "While ByteQuay was stopped, 2 turns of the task for \"Fix #31252\" ended. "
                 + "The last failed: The provider stopped");
+
+        // Missed turns that all finished normally are reported, not asked about.
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(turn(earlier, TurnState.COMPLETED), turn(turnId, TurnState.COMPLETED)));
+        receipts.recover();
+        verify(conversation).report("workspace", "goal-1", "recovered:" + turnId, "work-1", "While ByteQuay was stopped, a turn of the task for \"Fix #31252\" ended. "
+                + "The last finished: Keyed checkpoint actions by path and deletion vector; the new test passes.");
     }
 
     private AgentTask task(boolean interactive)

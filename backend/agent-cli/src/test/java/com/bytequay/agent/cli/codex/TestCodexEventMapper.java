@@ -535,6 +535,22 @@ class TestCodexEventMapper
         assertThat(command.toString()).doesNotContain("known-secret");
     }
 
+    @Test
+    void redactsACredentialSplitAcrossStreamedDeltas()
+    {
+        CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("GH_TOKEN", "ghp_secret-value")));
+        StringBuilder shown = new StringBuilder();
+        for (String delta : List.of("Using ghp_sec", "ret-va", "lue to push.", " Done")) {
+            ProviderAgentEvent.Command output = (ProviderAgentEvent.Command) redactingMapper.map(codec.decodeNotification("""
+                    {"method":"item/commandExecution/outputDelta","params":{"threadId":"thread-1","turnId":"turn-1",
+                    "itemId":"exec-1","delta":"%s"}}
+                    """.formatted(delta)), true, CodexEventMapper.ThreadLineage.NONE).getFirst();
+            output.output().ifPresent(shown::append);
+        }
+
+        assertThat(shown.toString()).isEqualTo("Using [REDACTED] to push. Done").doesNotContain("ghp_", "sec");
+    }
+
     private <T extends ProviderAgentEvent> T only(String json, Class<T> type)
     {
         List<ProviderAgentEvent> events = mapper.map(codec.decodeNotification(json), true, CodexEventMapper.ThreadLineage.NONE);

@@ -41,6 +41,8 @@ final class CodexEventMapper
     private final Path worktree;
     private final SecretRedactor redactor;
     private final boolean exposeReasoningSummaries;
+    /** Streamed text held back by item because it may begin a credential the item's next delta completes. */
+    private final Map<String, String> heldStreams = new HashMap<>();
     /** Each thread's last message with no phase label in its current turn, by thread. */
     private final Map<String, ProviderAgentEvent.Message> unlabelledMessages = new HashMap<>();
 
@@ -159,9 +161,12 @@ final class CodexEventMapper
             case CodexProtocol.ItemStartedNotification started ->
                 mapItem(started.params().item(), true, rootThread,
                         source(started, Optional.of(started.params().item().id()), lineage));
-            case CodexProtocol.ItemCompletedNotification completed ->
-                mapItem(completed.params().item(), false, rootThread,
+            case CodexProtocol.ItemCompletedNotification completed -> {
+                // The completed item carries the whole text, redacted; nothing held back for its stream is still needed.
+                heldStreams.remove(completed.params().item().id());
+                yield mapItem(completed.params().item(), false, rootThread,
                         source(completed, Optional.of(completed.params().item().id()), lineage));
+            }
             case CodexProtocol.AutoApprovalReviewStartedNotification started ->
                 ImmutableList.of(autoApprovalReview(started, started.params(), lineage));
             case CodexProtocol.AutoApprovalReviewCompletedNotification completed ->
@@ -175,7 +180,7 @@ final class CodexEventMapper
                             Optional.empty(),
                             ProviderAgentEvent.ActivityState.PROGRESS,
                             ImmutableList.of(),
-                            optionalText(redactor.redact(output.params().delta())),
+                            optionalText(streamed(output.params())),
                             Optional.empty(),
                             false,
                             source(output, Optional.of(output.params().itemId()), lineage)));
@@ -183,14 +188,14 @@ final class CodexEventMapper
                     new ProviderAgentEvent.Message(
                             Optional.empty(),
                             ProviderAgentEvent.MessagePhase.PARTIAL,
-                            redactor.redact(message.params().delta()),
+                            streamed(message.params()),
                             source(message, Optional.of(message.params().itemId()), lineage)));
             case CodexProtocol.PlanDeltaNotification plan -> ImmutableList.of(
                     new ProviderAgentEvent.Message(
                             Optional.empty(),
                             ProviderAgentEvent.MessageKind.PLAN_TEXT,
                             ProviderAgentEvent.MessagePhase.PARTIAL,
-                            redactor.redact(plan.params().delta()),
+                            streamed(plan.params()),
                             source(plan, Optional.of(plan.params().itemId()), lineage)));
             case CodexProtocol.PlanUpdatedNotification plan -> mapPlan(plan.params(), source(plan, Optional.empty(), lineage));
             case CodexProtocol.TokenUsageUpdatedNotification usage -> mapUsage(usage.params(), source(usage, Optional.empty(), lineage));
@@ -202,6 +207,19 @@ final class CodexEventMapper
                     source(error, Optional.empty(), lineage)));
             case CodexProtocol.UnknownNotification ignored -> ImmutableList.of();
         };
+    }
+
+    /** A delta's redacted text; a credential split across deltas is still replaced. */
+    private String streamed(CodexProtocol.ItemDeltaParams delta)
+    {
+        SecretRedactor.Chunk chunk = redactor.redactChunk(heldStreams.getOrDefault(delta.itemId(), ""), delta.delta());
+        if (chunk.held().isEmpty()) {
+            heldStreams.remove(delta.itemId());
+        }
+        else {
+            heldStreams.put(delta.itemId(), chunk.held());
+        }
+        return chunk.text();
     }
 
     private ProviderAgentEvent autoApprovalReview(

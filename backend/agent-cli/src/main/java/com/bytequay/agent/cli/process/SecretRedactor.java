@@ -85,6 +85,40 @@ public final class SecretRedactor
         return redacted;
     }
 
+    /**
+     * Redacts the next chunk of a stream as one text with what the stream held back, so a credential split across chunks
+     * is still replaced. Text that could begin a credential is held back until the next chunk shows whether it does.
+     *
+     * @param held what the previous chunk held back, empty for a new stream
+     * @param chunk the next chunk
+     * @return the redacted text that can be shown now, and the text held back
+     */
+    public Chunk redactChunk(String held, String chunk)
+    {
+        requireNonNull(held, "held is null");
+        requireNonNull(chunk, "chunk is null");
+        String redacted = redact(held + chunk);
+        int keep = 0;
+        for (String secret : secrets) {
+            for (int length = Math.min(secret.length() - 1, redacted.length()); length > keep; length--) {
+                if (redacted.regionMatches(redacted.length() - length, secret, 0, length)) {
+                    keep = length;
+                    break;
+                }
+            }
+        }
+        return new Chunk(redacted.substring(0, redacted.length() - keep), redacted.substring(redacted.length() - keep));
+    }
+
+    public record Chunk(String text, String held)
+    {
+        public Chunk
+        {
+            requireNonNull(text, "text is null");
+            requireNonNull(held, "held is null");
+        }
+    }
+
     private static boolean isCredentialName(String name)
     {
         String normalized = name.toUpperCase();

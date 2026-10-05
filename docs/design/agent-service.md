@@ -5030,6 +5030,8 @@ requires a separate explicit user action and design decision.
   limits, and addressed by opaque references. Renderer-supplied filesystem
   paths are rejected.
 - Known secrets are redacted before an event or diagnostic blob is persisted.
+  Streamed text is redacted across its deltas: text that could begin a secret
+  waits for the item's next delta, so a secret split between two is still replaced.
 - Approval timeout, turn termination, and provider disconnect resolve pending
   requests as denied and append a terminal approval event. A renderer/SSE
   disconnect alone leaves the card pending until that rule resolves it.

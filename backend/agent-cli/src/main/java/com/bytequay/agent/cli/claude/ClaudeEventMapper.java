@@ -189,11 +189,14 @@ final class ClaudeEventMapper
                     key,
                     ignored -> new TextStream(message.uuid().orElseGet(() -> "claude-message-" + UUID.randomUUID())));
             stream.append(text.text());
+            // A credential split across deltas is still replaced; text that may begin one waits for the next delta.
+            SecretRedactor.Chunk chunk = redactor.redactChunk(stream.held, text.text());
+            stream.held = chunk.held();
             return ImmutableList.of(new ProviderAgentEvent.Message(
                     Optional.empty(),
                     ProviderAgentEvent.MessageKind.COMMENTARY,
                     ProviderAgentEvent.MessagePhase.PARTIAL,
-                    bounded(text.text()),
+                    chunk.text().length() <= MAX_OUTPUT_CHARACTERS ? chunk.text() : chunk.text().substring(0, MAX_OUTPUT_CHARACTERS),
                     source(message.parentToolUseId(), Optional.of(stream.itemId()))));
         }
         return ImmutableList.of();
@@ -794,6 +797,7 @@ final class ClaudeEventMapper
     {
         private final String itemId;
         private final StringBuilder text = new StringBuilder();
+        private String held = "";
         private boolean exactContentAvailable = true;
 
         private TextStream(String itemId)

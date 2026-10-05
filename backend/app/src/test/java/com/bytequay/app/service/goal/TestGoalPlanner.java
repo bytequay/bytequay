@@ -200,8 +200,8 @@ class TestGoalPlanner
                 new GoalCandidates.Coverage(500, 900, Optional.of(NOW), 4)));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(trino));
         when(relationships.list("workspace")).thenReturn(ImmutableList.of(
-                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, ""),
-                new WorkspaceRelationships.Relationship("fork", WorkspaceRelationships.Kind.FORK, "")));
+                new WorkspaceRelationships.Relationship("iceberg", WorkspaceRelationships.Kind.DEPENDENCY, "", false),
+                new WorkspaceRelationships.Relationship("fork", WorkspaceRelationships.Kind.FORK, "", false)));
         Workspace iceberg = workspace("apache", "iceberg");
         when(relationships.available("workspace", "iceberg")).thenReturn(Optional.of(iceberg));
         GoalKnowledgeNoteStore notes = mock(GoalKnowledgeNoteStore.class);

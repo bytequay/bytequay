@@ -1752,6 +1752,50 @@ class TestCodexCliDriver
     }
 
     @Test
+    void waitsPastTheSettleBoundForASubagentStillWorking()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        AgentSession session = driver(supervisor, Duration.ofMillis(300)).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("long child"));
+        AppServerProcess server = supervisor.server();
+        server.inventoryChildren.put("thread-1", ImmutableList.of("busy-child"));
+        server.threadStatuses.put("busy-child", "active");
+        server.completeTurn();
+
+        // A subagent still building is work the root left running, not a check that cannot settle.
+        Thread.sleep(800);
+        assertThat(turn.completion().toCompletableFuture()).isNotDone();
+
+        server.threadStatuses.put("busy-child", "idle");
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.providerQuiescent()).isTrue();
+    }
+
+    @Test
+    void stopInterruptsASubagentTheFinishedRootLeftWorking()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), event -> {});
+        RunningTurn turn = session.start(command("stop the child"));
+        AppServerProcess server = supervisor.server();
+        server.inventoryChildren.put("thread-1", ImmutableList.of("busy-child"));
+        server.threadStatuses.put("busy-child", "active");
+        server.completeTurn();
+        awaitCondition(() -> server.historyRequests.stream().anyMatch(request -> request.path("threadId").asText().equals("busy-child")));
+
+        turn.cancel();
+
+        // The root has no turn left to interrupt, and refusing one must not end the turn unverified.
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        assertThat(result.providerQuiescent()).isTrue();
+        assertThat(server.interruptedThreads).containsExactly("busy-child");
+    }
+
+    @Test
     void neverRecordsFinishedWorkWhenAChildStatusIsMissingOrUnknown()
             throws Exception
     {
@@ -4053,6 +4097,7 @@ class TestCodexCliDriver
         }
         private final List<Boolean> experimentalApi = new CopyOnWriteArrayList<>();
         private final List<String> terminated = new CopyOnWriteArrayList<>();
+        private final List<String> interruptedThreads = new CopyOnWriteArrayList<>();
         private final List<String> backgroundTerminalThreads = new CopyOnWriteArrayList<>();
         private final List<JsonNode> historyRequests = new CopyOnWriteArrayList<>();
         private final ConcurrentMap<String, String> threadStatuses = new ConcurrentHashMap<>();
@@ -4459,6 +4504,14 @@ class TestCodexCliDriver
                     }
                 }
                 case "turn/interrupt" -> {
+                    String interruptedThread = message.path("params").path("threadId").asText();
+                    interruptedThreads.add(interruptedThread);
+                    if (!interruptedThread.equals("thread-1")) {
+                        // A subagent stops its own turn; the root's is untouched.
+                        threadStatuses.put(interruptedThread, "idle");
+                        respond(id, "{}");
+                        return;
+                    }
                     String interruptedTurn = activeTurn;
                     CompletableFuture<Void> completionGate = interruptCompletionGate;
                     Thread.ofVirtual().start(() -> {

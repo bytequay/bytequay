@@ -2589,6 +2589,14 @@ status and child inventory even if a live completion notification was missed;
 this does not recreate missing transcript events. Experimental capabilities are used for
 the parent-filtered child list and background-terminal methods.
 
+A subagent still working when the root finishes may take as long as the turn's
+runtime limit allows, and passes that find one active poll once a second.
+Anything else that keeps the check from settling fails it after two minutes.
+A cancelled turn stops its work instead of waiting for it, under the same
+two-minute bound: background terminals are terminated, and each subagent still
+working is interrupted, because a root that already finished has no turn left
+to interrupt.
+
 After this barrier succeeds, the driver durably records finished provider work
 and closes the per-turn App Server through section 5.6's cleanup path. Verified
 cleanup sets `providerQuiescent: true`; a failed cleanup preserves the provider

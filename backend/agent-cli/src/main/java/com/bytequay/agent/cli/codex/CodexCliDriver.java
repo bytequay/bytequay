@@ -164,6 +164,8 @@ public final class CodexCliDriver
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration DEFAULT_QUIESCENCE_TIMEOUT = Duration.ofMinutes(2);
     private static final Duration QUIESCENCE_POLL = Duration.ofMillis(100);
+    /** A subagent still working is not about to finish, and each pass rereads every agent. */
+    private static final Duration WORKING_POLL = Duration.ofSeconds(1);
     /** A settled answer needs a whole pass that changed nothing, so one clean pass is not enough. */
     private static final int QUIESCENCE_STABLE_PASSES = 2;
     private static final int MAX_PENDING_CHILD_NOTIFICATIONS = 128;
@@ -1729,11 +1731,9 @@ public final class CodexCliDriver
          */
         private void settle(CodexRunningTurn turn, CodexProtocol.Turn reported)
         {
-            // A cancelled turn is not waiting for its work, it is stopping it, so a yielded
-            // command is terminated rather than watched.
             Optional<String> unsettled;
             try {
-                unsettled = awaitQuiescence(turn.reference().value(), turn.cancellationRequested());
+                unsettled = awaitQuiescence(turn);
             }
             catch (RuntimeException failure) {
                 String message = Optional.ofNullable(failure.getMessage())
@@ -1782,13 +1782,17 @@ public final class CodexCliDriver
          * <p>The provider's turn status repairs missed completion notifications. Background commands have
          * their own inventory because they can outlive the turn that started them.
          *
-         * @param providerTurnId current root turn; older root history belongs to earlier processes
-         * @param stopBackgroundWork whether outstanding background processes should be terminated
+         * <p>A subagent still working may take as long as the turn may, which the turn's own timer bounds.
+         * Anything else that keeps the check from settling gets the shorter quiescence bound, and so does
+         * a cancelled turn, which stops the work instead of waiting for it.
+         *
+         * @param turn the turn whose root reported completion
          * @return empty when quiet, otherwise what was still outstanding
          */
-        private Optional<String> awaitQuiescence(String providerTurnId, boolean stopBackgroundWork)
+        private Optional<String> awaitQuiescence(CodexRunningTurn turn)
         {
             Instant deadline = Instant.now().plus(quiescenceTimeout);
+            boolean stopping = false;
             int stablePasses = 0;
             String lastSeen = "";
             while (stablePasses < QUIESCENCE_STABLE_PASSES) {
@@ -1796,16 +1800,26 @@ public final class CodexCliDriver
                     // The session is being released; its process is going with it.
                     return Optional.empty();
                 }
+                if (!stopping && turn.cancellationRequested()) {
+                    stopping = true;
+                    deadline = Instant.now().plus(quiescenceTimeout);
+                }
                 if (Instant.now().isAfter(deadline)) {
                     return Optional.of(lastSeen.isEmpty() ? "the check timed out" : lastSeen);
                 }
                 Set<String> threads = ImmutableSet.copyOf(observedThreads);
                 Set<String> visited = new HashSet<>();
-                Optional<String> unfinished = firstUnfinishedAgent(reference.providerValue(), providerTurnId, stopBackgroundWork, visited);
+                Set<String> working = new HashSet<>();
+                Optional<String> unfinished = firstUnfinishedAgent(reference.providerValue(), turn.reference().value(), stopping, visited, working);
                 if (unfinished.isPresent()) {
                     lastSeen = unfinished.orElseThrow();
                     stablePasses = 0;
-                    sleep(QUIESCENCE_POLL);
+                    boolean waitingOnWork = !working.isEmpty() && !stopping;
+                    sleep(waitingOnWork ? WORKING_POLL : QUIESCENCE_POLL);
+                    if (waitingOnWork) {
+                        // The bound is for a check that cannot settle, so finding an agent at work restarts it.
+                        deadline = Instant.now().plus(quiescenceTimeout);
+                    }
                     continue;
                 }
                 if (!visited.containsAll(observedThreads)) {
@@ -1830,8 +1844,13 @@ public final class CodexCliDriver
             return Optional.empty();
         }
 
-        /** A finished agent has terminal own work, no running tools, and only finished children. */
-        private Optional<String> firstUnfinishedAgent(String threadId, String providerTurnId, boolean stopBackgroundWork, Set<String> visited)
+        /**
+         * A finished agent has terminal own work, no running tools, and only finished children.
+         *
+         * @param stopBackgroundWork whether outstanding work should be stopped rather than watched
+         * @param working receives a subagent found still working
+         */
+        private Optional<String> firstUnfinishedAgent(String threadId, String providerTurnId, boolean stopBackgroundWork, Set<String> visited, Set<String> working)
         {
             if (!visited.add(threadId)) {
                 return Optional.of("the agent inventory contains a cycle or repeated parent for " + threadId);
@@ -1869,6 +1888,12 @@ public final class CodexCliDriver
             }
             boolean unloadedChild = !rootThread && thread.status().type().equals("notLoaded");
             if ((!thread.status().type().equals("idle") && !unloadedChild) || turns.stream().anyMatch(turn -> !turn.terminal())) {
+                if (!rootThread && thread.status().type().equals("active")) {
+                    working.add(threadId);
+                    if (stopBackgroundWork && !turns.isEmpty()) {
+                        interruptAgent(threadId, turns.getFirst().id());
+                    }
+                }
                 return Optional.of("agent " + threadId + " has not finished its turn");
             }
             // A closed child has no runtime, and its background API deliberately rejects reads.
@@ -1886,7 +1911,7 @@ public final class CodexCliDriver
                 }
             }
             for (String childId : childIds) {
-                Optional<String> childWork = firstUnfinishedAgent(childId, providerTurnId, stopBackgroundWork, visited);
+                Optional<String> childWork = firstUnfinishedAgent(childId, providerTurnId, stopBackgroundWork, visited, working);
                 if (childWork.isPresent()) {
                     return childWork;
                 }
@@ -1955,6 +1980,22 @@ public final class CodexCliDriver
             }
             while (cursor.isPresent());
             return Optional.empty();
+        }
+
+        /** Interrupting the root does not reach a subagent it left working, so a stopping turn interrupts each one. */
+        private void interruptAgent(String thread, String turnId)
+        {
+            try {
+                client.request(
+                        "turn/interrupt",
+                        new CodexProtocol.TurnParams(thread, turnId),
+                        CodexProtocol.EmptyResponse.class,
+                        REQUEST_TIMEOUT);
+            }
+            catch (RuntimeException failure) {
+                // Still reported as unfinished, so the bound on stopping decides the outcome.
+                log.debug("Unable to interrupt Codex subagent {} turn {}", thread, turnId, failure);
+            }
         }
 
         private void terminate(String thread, String processId)
@@ -2436,7 +2477,8 @@ public final class CodexCliDriver
         @Override
         public synchronized void cancel()
         {
-            if (!cancellationRequested.compareAndSet(false, true)) {
+            if (!cancellationRequested.compareAndSet(false, true) || settling.get()) {
+                // Once the root has finished, the quiescence wait sees the request and stops what still runs.
                 return;
             }
             Thread.ofVirtual().name("bytequay-codex-cancel").start(() -> {
@@ -2446,6 +2488,10 @@ public final class CodexCliDriver
                             new CodexProtocol.TurnParams(threadId, reference.value()),
                             CodexProtocol.EmptyResponse.class,
                             Duration.ofSeconds(10));
+                }
+                catch (CodexAppServerClient.RequestRefused refused) {
+                    // App Server answered that no turn is running: the root finished first, and its completion settles the turn.
+                    log.debug("Codex turn {} ended before its interrupt", reference.value(), refused);
                 }
                 catch (RuntimeException failure) {
                     // The interrupt never reached the process, so nothing says it stopped working.

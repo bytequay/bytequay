@@ -1,6 +1,6 @@
 # Agent guided goals implementation plan
 
-Status: The first seventeen implementation slices are complete. The later items
+Status: The first eighteen implementation slices are complete. The later items
 of Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
@@ -695,6 +695,29 @@ Done when: the planner puts the questions on the Goal's topics first, a
 finished item shows its result and evidence in Done, and All history shows
 every event of the Goal's work with its kind and item.
 
+## Eighteenth implementation slice
+
+Discovery follows the repository: the agent hears about issues opened near the
+Goal without being asked, and a card says when its source could not be read
+again.
+
+1. New issues near the Goal. Every half hour ByteQuay reads each defined,
+   guided Goal's candidates locally. The open issues that share words with the
+   Goal and were opened since its agent last looked, at most five, reach the
+   agent as one background event, held with the others and through the quiet
+   hours. When nothing new was opened nothing is told, so no model is asked.
+2. Cards say when they rest on the last sync. When a practice card's issue or
+   ticket cannot be read again, the card says so instead of floating silently
+   from the cache.
+
+Progress: the eighteenth slice is complete. The Goal's last exchange is the
+fingerprint: once the event is told, the same issues are no longer new. Cached
+Jira tickets do not say when they were opened, so a new ticket still waits for
+the next exchange.
+
+Done when: a defined Goal hears once about an issue opened near it, a quiet
+repository asks no model, and an unreadable source shows on its card.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -834,7 +857,7 @@ work items. Closing and reopening the app retains the conversation and plan.
   Cache conclusions by input revision; unchanged candidates need no new model call.
 - [ ] Include reason, scope, prerequisites, completion criteria and uncertainty
   on each proposal. Allow source-free learning/investigation items.
-- [ ] Trigger discovery as the next useful step of an active guidance request or
+- [x] Trigger discovery as the next useful step of an active guidance request or
   meaningful source/work change. Users need not open search and formulate a new
   query. Explain insufficient coverage instead of presenting arbitrary candidates.
 - [x] Where code has not been inspected, recommend a research run or an
@@ -850,18 +873,17 @@ work items. Closing and reopening the app retains the conversation and plan.
   work. Open an existing task when appropriate; preserve the draft on failure.
 
 Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
-`TestGoalCandidates`, `TestGoalResearchService` and the investigation-card test
-in `TestGoalConversationService`. Still partial: a research run is confined by
-its prompt and its own disposable worktree, not by a read-only tool policy;
-cited pages are never checked for staleness and no Remember is offered;
-shortlisted sources
-record no duplicate read,
-revision or skipped coverage; research pages accept any https address;
-conclusions are not cached by input revision, so each event costs a request;
-cards carry uncertainty but no prerequisites or separate completion criteria;
-source changes do not trigger discovery; a task carries no explicit work-item
-reference or Goal context; and Start rechecks the source but not the work
-item's revision.
+`TestGoalCandidates`, `TestGoalResearchService`, `TestGoalDiscovery` and the
+investigation-card test in `TestGoalConversationService`. Still partial: a
+research run is confined by its prompt and its own disposable worktree, not by a
+read-only tool policy; cited pages are never checked for staleness and no
+Remember is offered; shortlisted sources record no duplicate read or revision,
+though a card whose source could not be read again says so; research pages
+accept any https address; conclusions are cached only for discovery, by the
+Goal's last exchange; cards carry uncertainty but no prerequisites or separate
+completion criteria; new Jira tickets do not trigger discovery; a task carries
+no explicit work-item reference or Goal context; and Start rechecks the source
+but not the work item's revision.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed
@@ -914,8 +936,9 @@ Evidence for the checked items: the spec-check and blocked-lesson card tests in
 deletion and runtime cleanup do not wait for a receipt; a task start reaches the
 agent only with its first finished turn; plan differences cover the course and
 the open work's priorities, order and dependencies, not a work item's scope or
-criteria; there is no persisted input fingerprint; there is no Remember action;
-and task deletion, log expiry and uncertain provider cleanup are not exercised.
+criteria; the persisted input fingerprint covers only discovery; there is no
+Remember action; and task deletion, log expiry and uncertain provider cleanup
+are not exercised.
 
 Done when: completing or merging accepted work records one supported outcome,
 updates the panel and produces a useful next proposal without manual bookkeeping.

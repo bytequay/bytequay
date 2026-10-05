@@ -1052,7 +1052,7 @@ class TestGoalConversationService
     private static GoalCandidates.Pool pool(String... ids)
     {
         return new GoalCandidates.Pool(Arrays.stream(ids).map(id -> new GoalCandidates.Candidate(id, "Rows lost", ImmutableList.of(), Optional.empty(),
-                Optional.empty(), Instant.EPOCH)).collect(toImmutableList()), new GoalCandidates.Coverage(ids.length, ids.length, Optional.empty(), 0));
+                Optional.empty(), Instant.EPOCH, Optional.empty())).collect(toImmutableList()), new GoalCandidates.Coverage(ids.length, ids.length, Optional.empty(), 0));
     }
 
     private static GoalExchange.Reply work(int issue)

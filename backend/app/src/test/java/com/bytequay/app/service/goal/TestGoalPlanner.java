@@ -223,8 +223,10 @@ class TestGoalPlanner
         when(trino.monitoredRepositoryId()).thenReturn(1L);
         GoalCandidates candidates = mock(GoalCandidates.class);
         when(candidates.pool(any())).thenReturn(new GoalCandidates.Pool(ImmutableList.of(
-                new GoalCandidates.Candidate("#31252", "Checkpoint drops rows with deletion vectors", ImmutableList.of("delta-lake"), Optional.empty(), Optional.empty(), NOW),
-                new GoalCandidates.Candidate("TRINO-12", "Delta checkpoint loses rows", ImmutableList.of(), Optional.of("In progress"), Optional.of("High"), NOW)),
+                new GoalCandidates.Candidate("#31252", "Checkpoint drops rows with deletion vectors", ImmutableList.of("delta-lake"), Optional.empty(), Optional.empty(), NOW,
+                        Optional.of(NOW)),
+                new GoalCandidates.Candidate("TRINO-12", "Delta checkpoint loses rows", ImmutableList.of(), Optional.of("In progress"), Optional.of("High"), NOW,
+                        Optional.empty())),
                 new GoalCandidates.Coverage(500, 900, Optional.of(NOW), 4)));
         when(workspaces.findById("workspace")).thenReturn(Optional.of(trino));
         when(relationships.list("workspace")).thenReturn(ImmutableList.of(

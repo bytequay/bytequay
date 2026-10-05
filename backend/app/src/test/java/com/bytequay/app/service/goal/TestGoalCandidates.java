@@ -107,6 +107,8 @@ class TestGoalCandidates
         assertThat(pool.candidates()).extracting(GoalCandidates.Candidate::id).as("nearest the goal first; worked, dismissed and other sources left out")
                 .containsExactly("#101", "TRINO-12", "#102");
         assertThat(pool.candidates().get(1).status()).contains("In progress");
+        assertThat(pool.candidates()).extracting(GoalCandidates.Candidate::openedAt).as("an issue says when it was opened; a cached ticket does not")
+                .containsExactly(Optional.of(NOW), Optional.empty(), Optional.of(NOW));
         assertThat(pool.coverage()).isEqualTo(new GoalCandidates.Coverage(5, 900, Optional.of(NOW), 2));
         assertThat(pool.has("#103")).isFalse();
         assertThat(candidates.ticket("workspace", "trino-12")).map(GoalCandidates::reference).contains("connection:cloud:10412");
@@ -149,8 +151,9 @@ class TestGoalCandidates
         assertThat(candidates.read(goal("Delta"), card(Optional.of(31252), Optional.empty())).unready()).contains("Issue #31252 is closed.");
 
         when(gitHub.fetchIssueLinks("token", issue)).thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
-        assertThat(candidates.read(goal("Delta"), card(Optional.of(31252), Optional.empty()))).as("an unreadable source floats from the cache")
-                .isEqualTo(GoalCandidates.Read.NOTHING);
+        GoalCandidates.Read unread = candidates.read(goal("Delta"), card(Optional.of(31252), Optional.empty()));
+        assertThat(unread.unready()).as("an unreadable source floats from the cache").isEmpty();
+        assertThat(unread.doubt()).contains("Issue #31252 could not be read again just now, so this card rests on ByteQuay's last sync of it.");
 
         when(jira.refreshIssue("connection", "cloud", "10414")).thenReturn(ticket("10414", "TRINO-14", "Delta checkpoint", "done", "workspace"));
         assertThat(candidates.read(goal("Delta"), card(Optional.empty(), Optional.of("connection:cloud:10414"))).unready())

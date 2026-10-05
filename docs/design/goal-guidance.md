@@ -192,22 +192,27 @@ linked to close it, or the ticket through its refresh. A closed issue, one fixed
 by a merged linked pull request, or a ticket now done or claimed is set aside as
 dismissed and the agent is asked for another; an open linked pull request may
 fix the issue, so the card floats with that doubt instead. When the read fails,
-the card floats from the cached candidate. A card may also say what the agent is
-unsure of, such as code it has not read, shown under its reason. Start reads the
-source again the same way and sets the card aside, telling the agent, when it is
-no longer open for practice. Otherwise Start makes the
-issue or ticket a Develop work item of the Goal, with the card's scope as its
-criteria under merged delivery, and opens its ordinary composer with the
+the card floats from the cached candidate and says it rests on ByteQuay's last
+sync. Discovery also follows the repository: every half hour ByteQuay reads each
+defined Goal's candidates locally, and the open issues near the Goal opened
+since its agent last looked, at most five, reach the agent as one background
+event, held with the others and through the quiet hours. When nothing new was
+opened nothing is told, so no model is asked. Cached Jira tickets do not say
+when they were opened, so a new ticket waits for the next exchange. A card may
+also say what the agent is unsure of, such as code it has not read, shown under
+its reason. Start reads the source again the same way and sets the card aside,
+telling the agent, when it is no longer open for practice. Otherwise Start makes
+the issue or ticket a Develop work item of the Goal, with the card's scope as
+its criteria under merged delivery, and opens its ordinary composer with the
 instruction filled in; the task and its source snapshot are created only when
 the user sends it, through the existing issue or ticket admission, as that work
-item's attempt. The card
-stays started, and no other Practice card floats, until the work is done or
-dropped; the agent hears each accept, drop or reopen of the Goal's work. Once
-the task of a Goal's issue or ticket work has ended and no delivery runs for it,
-the Work view offers Start another attempt: the issue or ticket composer opens
-over the ended task, and sending it creates a task that becomes the source's
-task, while the ended one keeps its source and stays the work item's earlier
-attempt.
+item's attempt. The card stays started, and no other Practice card floats, until
+the work is done or dropped; the agent hears each accept, drop or reopen of the
+Goal's work. Once the task of a Goal's issue or ticket work has ended and no
+delivery runs for it, the Work view offers Start another attempt: the issue or
+ticket composer opens over the ended task, and sending it creates a task that
+becomes the source's task, while the ended one keeps its source and stays the
+work item's earlier attempt.
 
 Each work item of a Goal has a High, Normal or Low priority, Normal until the
 user sets one, and a place in the Goal's order: new work joins the end, and the

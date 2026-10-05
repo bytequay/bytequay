@@ -77,8 +77,10 @@ public class GoalCandidates
      * One open issue or mapped Jira ticket.
      *
      * @param id an issue's number after a hash, such as #31252, or a ticket's key, such as TRINO-12
+     * @param openedAt when an issue was opened; the cached tickets do not say
      */
-    public record Candidate(String id, String title, List<String> labels, Optional<String> status, Optional<String> priority, Instant updatedAt) {}
+    public record Candidate(String id, String title, List<String> labels, Optional<String> status, Optional<String> priority, Instant updatedAt,
+            Optional<Instant> openedAt) {}
 
     /** What reading a practice source again found: why it is no longer open for practice, or a doubt its card should carry. */
     public record Read(Optional<String> unready, Optional<String> doubt)
@@ -151,7 +153,7 @@ public class GoalCandidates
             for (RepositoryIssue issue : found.issues()) {
                 String id = "#" + issue.number();
                 if (!dismissed.contains(id) && workable(issue)) {
-                    eligible.add(new Candidate(id, issue.title(), issue.labels(), Optional.empty(), Optional.empty(), issue.updatedAt()));
+                    eligible.add(new Candidate(id, issue.title(), issue.labels(), Optional.empty(), Optional.empty(), issue.updatedAt(), Optional.of(issue.createdAt())));
                 }
             }
             if (!found.hasMore()) {
@@ -162,7 +164,7 @@ public class GoalCandidates
         for (JiraIssue ticket : tickets) {
             if (!dismissed.contains(ticket.key()) && workable(ticket)) {
                 eligible.add(new Candidate(ticket.key(), ticket.title(), ticket.labels(), Optional.of(ticket.status().name()), ticket.priority().map(JiraDtos.Choice::name),
-                        ticket.updatedAt()));
+                        ticket.updatedAt(), Optional.empty()));
             }
         }
         Set<String> words = words(context(goal));
@@ -188,7 +190,7 @@ public class GoalCandidates
     /**
      * Reads the source a practice card names again. A closed issue, an issue fixed by a merged pull request linked to close it, or a ticket now
      * done, claimed or worked is no longer open for practice; an open linked pull request may fix the issue, which is a doubt for the user to
-     * weigh, not a fix. Nothing when the read fails, since the card came from the cached candidates.
+     * weigh, not a fix. When the read fails, the card still floats from the cached candidate and says it was not read again.
      *
      * @param card a practice card whose ticket is its stable reference
      */
@@ -216,7 +218,8 @@ public class GoalCandidates
         }
         catch (RuntimeException failure) {
             log.debug("The practice source of goal {} was not read again: {}", goal.id(), failure.toString());
-            return Read.NOTHING;
+            return new Read(Optional.empty(), Optional.of(card.issue().map(number -> "Issue #" + number).orElse("The ticket")
+                    + " could not be read again just now, so this card rests on ByteQuay's last sync of it."));
         }
     }
 
@@ -257,7 +260,7 @@ public class GoalCandidates
                 && items.findByIdentity(WorkItemLink.jiraIdentity(ticket.cloudId(), ticket.id())).isEmpty();
     }
 
-    private static long shared(Set<String> words, Candidate candidate)
+    static long shared(Set<String> words, Candidate candidate)
     {
         Set<String> own = words(candidate.title() + " " + String.join(" ", candidate.labels()));
         return own.stream().filter(words::contains).count();

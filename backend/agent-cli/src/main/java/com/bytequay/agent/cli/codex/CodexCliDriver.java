@@ -969,7 +969,7 @@ public final class CodexCliDriver
             verifyCiWorktree(worktree);
             isolation.verify(worktree);
             String threadId = openThread(context, worktree);
-            isolation.verifyThread(threadId, worktree);
+            isolation.verifyThread(threadId);
             if (context.sessionReference().isEmpty()) {
                 recordInstructions(threadId);
             }

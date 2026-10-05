@@ -101,12 +101,14 @@ final class CodexIsolationGuard
         verifySkillOrigin(cwd);
     }
 
-    /** Verifies the thread-scoped inventory after start or resume, before the session is usable. */
-    void verifyThread(String threadId, Path cwd)
+    /**
+     * Verifies the thread-scoped inventory after start or resume, before the session is usable. The checks of {@link #verify}
+     * do not depend on the thread: the session runs them before opening it and again before each turn.
+     */
+    void verifyThread(String threadId)
     {
         requireNonNull(threadId, "threadId is null");
         verifyMcpServerStatus(threadId);
-        verify(cwd);
     }
 
     /**

@@ -3817,9 +3817,11 @@ The connection and task sequence is:
    per-thread config override, and
    legacy `sandbox: "workspace-write"`. No `environments` are selected: the
    process default is rooted at the process working directory, which is this
-   task's worktree. After start, page
-   `mcpServerStatus/list(threadId)`, app/plugin status, and `hooks/list`; every
-   external tool/hook must be absent or disabled before the session is usable.
+   task's worktree. The process and worktree checks (config layers,
+   requirements, account, `hooks/list`, skills) run before start, so nothing
+   they reject is loaded, and again before each turn. After start, page
+   `mcpServerStatus/list(threadId)`; every external tool/hook must be absent or
+   disabled before the session is usable.
    Persist the returned `thread.id` as the root provider value in
    `AgentSessionRef`.
 5. For every accepted turn, resolve that turn's immutable model snapshot and

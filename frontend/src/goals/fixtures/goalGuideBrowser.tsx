@@ -30,7 +30,7 @@ import '../../css/settings-window.css';
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
   started: [] as string[], cancelled: [] as string[], stopped: [] as string[], reassessed: [] as string[], planned: [] as string[], failNextAsk: false,
-  model: null as AgentModelSettingDto | null, researchStopped: false };
+  model: null as AgentModelSettingDto | null, researchStopped: false, slowNextRead: false, slowReadLeftAfter: -1 };
 /** The workspace's Development model, which a goal follows until it has its own. */
 const WORKSPACE_MODEL: AgentModelSettingDto = { type: 'DEVELOPMENT', explicit: false, configId: 'codex', label: 'Codex', model: 'sol', modelLabel: 'Sol', effort: 'high' };
 const MODELS: ModelSettingsDto = { agents: [], apiKeys: [], keyProviders: [], providers: [{ id: 'codex', label: 'Codex', readiness: 'READY', diagnostic: '',
@@ -135,7 +135,15 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     changed();
     return server.goal;
   },
-  exchanges: async () => server.exchanges,
+  exchanges: async () => {
+    if (!server.slowNextRead) return server.exchanges;
+    // A read that left before the user's next message and answers after it.
+    server.slowNextRead = false;
+    server.slowReadLeftAfter = server.asked.length;
+    const snapshot = server.exchanges;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return snapshot;
+  },
   ask: async (_goalId, operationId, message) => {
     server.asked.push(operationId);
     if (server.failNextAsk) {
@@ -259,9 +267,97 @@ export async function references(): Promise<boolean> {
 }
 
 /** Waits for the open conversation's next read while its agent answers. */
+declare global {
+  /** Real key presses, sent through the window's input pipeline as a keyboard user's would be. */
+  interface Window { goalKeys?: (keys: { keyCode: string; modifiers?: string[] }[]) => Promise<void> }
+}
+
+async function press(keyCode: string, modifiers: string[] = []): Promise<void> {
+  assert(window.goalKeys !== undefined, 'Keyboard input is not wired');
+  await window.goalKeys([{ keyCode, modifiers }]);
+  await settle();
+}
+
+/** Tabs forward until focus lands on what the user aims for, as a keyboard user would. */
+async function tabTo(aim: string, matches: (element: Element) => boolean): Promise<HTMLElement> {
+  for (let presses = 0; presses < 20; presses++) {
+    const focused = document.activeElement;
+    if (focused instanceof HTMLElement && matches(focused)) return focused;
+    await press('Tab');
+  }
+  throw new Error(`Tab never reaches ${aim}`);
+}
+
+/** The Goal window fits a narrow page: nothing scrolls sideways, and every control stays inside the window. */
+function fitsNarrow(stage: string): void {
+  const pane = document.querySelector<HTMLElement>('.goal-window');
+  assert(pane !== null && pane.getBoundingClientRect().right <= window.innerWidth + 1 && pane.getBoundingClientRect().left >= -1, `${stage}: the window fits the page`);
+  assert(document.documentElement.scrollWidth <= window.innerWidth + 1, `${stage}: the page does not scroll sideways`);
+  const right = pane.getBoundingClientRect().right;
+  assert([...pane.querySelectorAll('button, textarea, input')].every((control) => control.getBoundingClientRect().right <= right + 1),
+    `${stage}: every control stays inside the window`);
+}
+
 async function nextRead(): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, 1_700));
   await settle();
+}
+
+/**
+ * An unsure user in a narrow window, by keyboard alone: a suggested direction starts the goal, a suggested answer clarifies it and Accept
+ * takes the definition, without typing a word. Opening the window asks no model.
+ */
+export async function unsure(): Promise<boolean> {
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;inset:0';
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<Fixture />)); await settle();
+    await press('G', ['alt']);
+    assert(document.querySelector('.goal-window') !== null && document.activeElement === composer(), '⌥G opens the Goal window ready for an answer');
+    assert(asked() === 0, 'Opening the window asks no model');
+    fitsNarrow('The opening');
+
+    const direction = await tabTo('a suggested direction', (element) => element.classList.contains('goal-choice'));
+    const picked = direction.textContent ?? '';
+    await press('Space');
+    assert(direction.getAttribute('aria-pressed') === 'true', 'Space picks the direction');
+    await tabTo('the reply field', (element) => element === composer());
+    await press('Enter'); await settle();
+    assert(asked() === 1 && server.exchanges[0]?.message === picked, 'Enter sends the picked direction, which starts the goal');
+
+    answer({ assessment: 'Start where you are.', proposal: null, plan: null, recommendation: null, course: null,
+      question: { text: 'How well do you know table formats?', suggestions: ['Not at all yet', 'I read the Iceberg spec once', 'I use Iceberg tables daily'] } });
+    await nextRead();
+    assert(text().includes('How well do you know table formats?'), 'The question arrives on its own');
+    fitsNarrow('The question');
+    const suggestion = await tabTo('a suggested answer', (element) => element.classList.contains('goal-choice') && element.textContent === 'Not at all yet');
+    await press('Space');
+    assert(suggestion.getAttribute('aria-pressed') === 'true', 'Space picks the answer');
+    await tabTo('the reply field', (element) => element === composer());
+    // A card floats just before the answer is sent, and the read of the conversation it starts comes back after the answer.
+    server.slowNextRead = true;
+    setCards([{ id: 'card-1', goalId: 'goal', card: CARD, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]); changed(); await settle();
+    await press('Enter'); await settle();
+    assert(asked() === 2 && server.exchanges.at(-1)?.message === 'Not at all yet', 'Enter sends the picked answer alone');
+    await new Promise((resolve) => setTimeout(resolve, 1_000)); await settle();
+    const leftAfter = (): number => server.slowReadLeftAfter;
+    assert(leftAfter() === 1, 'The slow read left before the answer was sent');
+    assert(text().includes('Not at all yet') && text().includes('Thinking…'), 'A read from before the answer, arriving after it, does not undo it');
+
+    answer({ assessment: 'Begin with what a table is.', question: null, plan: null, recommendation: null, course: null, proposal: {
+      title: 'Iceberg tables from the start', objective: 'Understand Iceberg tables', successDefinition: 'Explain a snapshot', startingKnowledge: 'None yet',
+      constraints: '' } });
+    await nextRead();
+    fitsNarrow('The proposal');
+    await tabTo('Accept goal', (element) => element.textContent === 'Accept goal');
+    await press('Space'); await settle(); await settle();
+    assert(server.accepted.join() === 'Iceberg tables from the start' && asked() === 2, 'Space on Accept goal takes the proposed definition as it is');
+    assert(document.querySelector('.goal-panel__title')?.textContent === 'Iceberg tables from the start', 'The goal takes the accepted title');
+    return true;
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
 export async function run(): Promise<boolean> {

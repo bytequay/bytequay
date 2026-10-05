@@ -1053,9 +1053,9 @@ This finishes the clear-organization takeaway using the current surfaces.
   execution attention, Ack and Snooze.
 - [x] Add results/history display with evidence links, scope changes, reopenings
   and factual coverage. Do not count retries, comments or PRs as extra outcomes.
-- [ ] Run browser journeys at normal and narrow panel sizes, including keyboard
+- [x] Run browser journeys at normal and narrow panel sizes, including keyboard
   use, background updates, preserved drafts, stale responses and offline recovery.
-- [ ] Include an unsure-user journey using suggested answers only, a vague-title
+- [x] Include an unsure-user journey using suggested answers only, a vague-title
   clarification, prepared task launch with no new prompt, automatic failure
   recovery guidance and proposed replanning after a blocker changes. Check visual
   hierarchy in floating and expanded view; the next useful action must be readable
@@ -1073,7 +1073,17 @@ This finishes the clear-organization takeaway using the current surfaces.
 
 Evidence for the checked items: `TestWorkItemService` for priority, order and
 blockers, and the `workItemsBrowser` journeys for the views, the results Done
-shows and All history.
+shows and All history. The `goalGuideBrowser` journeys clarify a vague goal,
+take questions that arrive on their own, keep a draft whose send failed and
+resend it as the same operation, start research and a prepared practice task,
+and accept a plan change; one of them guides an unsure user by suggested answers
+alone, by keyboard, in a window 380 pixels wide, where nothing scrolls sideways,
+opening the window asks no model and a read from before an answer, arriving
+after it, does not undo it. `goalWindowBrowser` keeps drafts through moves,
+resizes and reopening. Still partial: no journey shows the agent's recovery
+guidance after a failed turn, which `TestGoalPlanner` and
+`TestGoalConversationService` cover in the backend, and the visual hierarchy is
+checked only for fit.
 
 Done when: the full Goal conversation → research → course → lesson → proposal →
 accepted work → task → verified result → summary → next proposal journey works,

@@ -26,3 +26,19 @@ it('clarifies a goal from free text and a suggested answer to an accepted defini
     prefix: 'bytequay-goal-guide-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 1200, height: 900,
   })).toBe(true);
 }, 30_000);
+
+it('guides an unsure user by suggested answers alone, by keyboard, in a narrow window', async () => {
+  expect(await runBrowserFixture<boolean>({
+    prefix: 'bytequay-goal-unsure-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 380, height: 760,
+    preload: `const { contextBridge, ipcRenderer } = require('electron');
+      contextBridge.exposeInMainWorld('goalKeys', (keys) => ipcRenderer.invoke('goal-keys', keys));`,
+    setup: `ipcMain.handle('goal-keys', (_event, keys) => {
+      for (const key of keys) {
+        window.webContents.sendInputEvent({ type: 'keyDown', keyCode: key.keyCode, modifiers: key.modifiers ?? [] });
+        if (key.keyCode === 'Enter') window.webContents.sendInputEvent({ type: 'char', keyCode: key.keyCode, modifiers: key.modifiers ?? [] });
+        window.webContents.sendInputEvent({ type: 'keyUp', keyCode: key.keyCode, modifiers: key.modifiers ?? [] });
+      }
+    });`,
+    body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.unsure()');",
+  })).toBe(true);
+}, 30_000);

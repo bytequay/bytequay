@@ -95,6 +95,24 @@ class TestGitHubHarvestClient
     }
 
     @Test
+    void findsAPullRequestByItsLinkOnlyInTheMonitoredRepository()
+    {
+        Fixture fixture = fixture();
+        for (int read = 0; read < 2; read++) {
+            fixture.rest().expect(requestTo("https://api.github.test/repos/trinodb/trino/issues/28755")).andRespond(withSuccess("""
+                    {"id":1,"number":28755,"title":"Add table credentials","closed_at":"2026-08-20T00:00:00Z","pull_request":{"merged_at":"2026-08-20T00:00:00Z"}}
+                    """, MediaType.APPLICATION_JSON));
+        }
+        GitHubHarvestClient.ClosedPull expected = new GitHubHarvestClient.ClosedPull(28755, "Add table credentials", Instant.parse("2026-08-20T00:00:00Z"), true);
+
+        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, "https://github.com/trinodb/trino/pull/28755")).containsExactly(expected);
+        assertThat(fixture.client().findClosedPulls("pat", REPOSITORY, " github.com/TrinoDB/Trino/pull/28755/files#diff-1 ")).containsExactly(expected);
+        assertThatThrownBy(() -> fixture.client().findClosedPulls("pat", REPOSITORY, "https://github.com/apache/iceberg/pull/28755"))
+                .hasMessage("Only a pull request of trinodb/trino, the repository this workspace learns from, can be learned from");
+        fixture.rest().verify();
+    }
+
+    @Test
     void readsAClosedPullRequestsThreadsReviewsAndCommentsWithTheirAuthorsRoles()
     {
         Fixture fixture = fixture();

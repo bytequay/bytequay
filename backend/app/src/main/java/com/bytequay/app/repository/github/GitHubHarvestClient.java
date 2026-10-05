@@ -48,8 +48,8 @@ import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
 /**
- * Reads the closed pull requests a person wrote or reviewed, or names by number or title, and one pull request's review discussion, for
- * learning repository memory, and a merged pull request's reviews and review threads, for replaying its review.
+ * Reads the closed pull requests a person wrote or reviewed, or names by number, link or title, and one pull request's review discussion,
+ * for learning repository memory, and a merged pull request's reviews and review threads, for replaying its review.
  */
 @Component
 public class GitHubHarvestClient
@@ -59,6 +59,8 @@ public class GitHubHarvestClient
     // GitHub refuses search queries over 256 characters, so a long pasted title searches by its first words.
     private static final int SEARCH_WORDS = 8;
     private static final Pattern NUMBER = Pattern.compile("#?([1-9][0-9]{0,8})");
+    private static final Pattern LINK = Pattern.compile("(?:https?://)?(?:www\\.)?github\\.com/([\\w.-]+)/([\\w.-]+)/pull/([1-9][0-9]{0,8})(?:[/?#].*)?",
+            Pattern.CASE_INSENSITIVE);
     private static final String NOTE_FIELDS = "id body url author { __typename login }";
     private static final String QUERY = """
             query($owner:String!,$repo:String!,$number:Int!) {
@@ -110,25 +112,21 @@ public class GitHubHarvestClient
     }
 
     /**
-     * The repository's closed pull requests a person names: the one with the typed number, or those whose titles have every typed word,
-     * most recently updated first. Characters GitHub search reads as syntax are dropped, so the repository and state stay fixed.
+     * The repository's closed pull requests a person names: the one with the typed number or link, or those whose titles have every
+     * typed word, most recently updated first. Characters GitHub search reads as syntax are dropped, so the repository and state stay fixed.
      */
     public List<ClosedPull> findClosedPulls(String pat, RepoRef repository, String typed)
     {
         requirePat(pat);
+        Matcher link = LINK.matcher(typed.strip());
+        if (link.matches()) {
+            checkArgument((link.group(1) + "/" + link.group(2)).equalsIgnoreCase(repository.fullName()),
+                    "Only a pull request of %s, the repository this workspace learns from, can be learned from", repository.fullName());
+            return closedPull(pat, repository, Integer.parseInt(link.group(3)));
+        }
         Matcher number = NUMBER.matcher(typed.strip());
         if (number.matches()) {
-            try {
-                GitHubSearchResponse.Item item = translating(() -> requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repository.owner(),
-                        repository.repo(), Integer.parseInt(number.group(1))).retrieve().body(GitHubSearchResponse.Item.class), "GitHub returned no pull request"));
-                return closed(item).stream().collect(toImmutableList());
-            }
-            catch (ResponseStatusException missing) {
-                if (missing.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
-                    return ImmutableList.of();
-                }
-                throw missing;
-            }
+            return closedPull(pat, repository, Integer.parseInt(number.group(1)));
         }
         String words = Arrays.stream(typed.replaceAll("[^\\p{L}\\p{N}_./-]+", " ").strip().split(" +")).filter(word -> !word.isEmpty()).limit(SEARCH_WORDS)
                 .map(word -> "\"" + word + "\"").collect(joining(" "));
@@ -141,6 +139,22 @@ public class GitHubHarvestClient
                 .retrieve().body(GitHubSearchResponse.class), "Missing search response from GitHub"));
         return Optional.ofNullable(response.items()).orElse(ImmutableList.of()).stream().map(GitHubHarvestClient::closed).flatMap(Optional::stream)
                 .collect(toImmutableList());
+    }
+
+    /** The pull request with this number while it is closed; an open one, an issue or a missing number is none. */
+    private List<ClosedPull> closedPull(String pat, RepoRef repository, int number)
+    {
+        try {
+            GitHubSearchResponse.Item item = translating(() -> requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repository.owner(),
+                    repository.repo(), number).retrieve().body(GitHubSearchResponse.Item.class), "GitHub returned no pull request"));
+            return closed(item).stream().collect(toImmutableList());
+        }
+        catch (ResponseStatusException missing) {
+            if (missing.getStatusCode().value() == HttpStatus.NOT_FOUND.value()) {
+                return ImmutableList.of();
+            }
+            throw missing;
+        }
     }
 
     /** A search hit or an issue read as a closed pull request; an issue or an open pull request is none. */

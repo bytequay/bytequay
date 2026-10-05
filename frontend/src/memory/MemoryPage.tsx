@@ -546,7 +546,7 @@ function PullSearch({ disabled, onSearch, onLearn }: {
   }, [onSearch, query]);
   return <div className="mem-pull-search">
     <label className="mem-edit">Learn from one closed pull request
-      <input type="search" value={query} placeholder="Number or title words" onChange={event => setQuery(event.target.value)} />
+      <input type="search" value={query} placeholder="Number, link or title words" onChange={event => setQuery(event.target.value)} />
     </label>
     {error !== null && <div className="mem-warn">{error}</div>}
     {found !== null && found.pulls.length === 0 && <div className="mem-muted">No closed pull request matches “{found.query}”.</div>}

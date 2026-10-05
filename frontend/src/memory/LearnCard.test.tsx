@@ -45,6 +45,7 @@ describe('LearnCard', () => {
     expect(markup).toContain('Learn from my PRs</button>');
     expect(markup).toContain('Starts 1 run · reads the maintainer threads it finds and saves rules · Codex · Sol');
     expect(markup).toContain('Learn from one closed pull request<input type="search"');
+    expect(markup).toContain('placeholder="Number, link or title words"');
   });
 
   it('lists what the last harvest saved, with Delete, and its counts', () => {

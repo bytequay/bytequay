@@ -93,11 +93,12 @@ code.
   one, when it belongs to the repository the workspace monitors. It never moves
   the cursor.
 - **Learn from one closed pull request** on the Memory page starts the same run
-  from a search. The user types a number, which reads that pull request, or
-  title words, which search the monitored repository's closed pull requests on
-  GitHub, at most 10, most recently updated first. The search waits for typing
-  to pause, keeps the repository and state fixed whatever is typed, and starts
-  nothing; each result's Learn does.
+  from a search. The user types or pastes a number or the pull request's GitHub
+  link, which reads that pull request, or title words, which search the
+  monitored repository's closed pull requests on GitHub, at most 10, most
+  recently updated first. A link to another repository is refused with the
+  reason. The search waits for typing to pause, keeps the repository and state
+  fixed whatever is typed, and starts nothing; each result's Learn does.
 
 **Fetch, without a model.** For each pull request ByteQuay reads its review
 threads with their resolved and outdated flags, review bodies, issue comments,
@@ -325,7 +326,7 @@ memories.
 - **Actions:** Learn from my PRs, showing how far the cursor is ("Learned
   through #31201"), with the last run's counts and the titles of the rules it
   saved, each with Delete; below it, the search for one closed pull request by
-  number or title words, each result with merged or closed and Learn; and Check
+  number, link or title words, each result with merged or closed and Learn; and Check
   against spec, with a directory picker. Opening the page reads no GitHub data,
   so the count of newer pull requests comes with the run, and only typing in the
   search reads GitHub.

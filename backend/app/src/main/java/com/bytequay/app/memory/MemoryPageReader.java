@@ -98,15 +98,15 @@ public class MemoryPageReader
         if (paths.isEmpty()) {
             return ImmutableSet.of();
         }
+        // Without -t, a directory drops out of the listing whenever another scope path, such as "dir/" or a file in it, makes ls-tree list its entries instead.
         GitCommandRunner.Result listing = git.runLocalBoundedStdout(workspace.repository(), TIMEOUT, LISTING_BYTES,
-                ImmutableList.<String>builder().add("--literal-pathspecs", "ls-tree", "-z", "--name-only", "--full-tree", head, "--").addAll(paths).build());
+                ImmutableList.<String>builder().add("--literal-pathspecs", "ls-tree", "-t", "-z", "--name-only", "--full-tree", head, "--").addAll(paths).build());
         if (!listing.successful() || listing.truncated()) {
             return ImmutableSet.of();
         }
-        List<String> found = ImmutableList.copyOf(listing.output().split("\0"));
+        Set<String> found = ImmutableSet.copyOf(listing.output().split("\0"));
         return paths.stream()
-                .filter(path -> found.stream().noneMatch(entry -> entry.equals(path.endsWith("/") ? path.substring(0, path.length() - 1) : path)
-                        || path.endsWith("/") && entry.startsWith(path)))
+                .filter(path -> !found.contains(path.endsWith("/") ? path.substring(0, path.length() - 1) : path))
                 .collect(ImmutableSet.toImmutableSet());
     }
 

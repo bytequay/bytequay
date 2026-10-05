@@ -79,14 +79,15 @@ class TestMemoryPageReader
         store.save(rule("m1", "workspace", "Delta rule", ImmutableList.of("plugin/trino-delta-lake/", "plugin/trino-gone/", "**/Test*.java")));
         store.save(rule("m2", "workspace", "Docs rule", ImmutableList.of("CONTRIBUTING.md", "docs/connector")));
         store.save(rule("m3", "workspace", "Repository rule", ImmutableList.of()));
+        store.save(rule("m4", "workspace", "Delta directory rule", ImmutableList.of("plugin/trino-delta-lake", "plugin/trino-gone")));
 
         MemoryPageReader.MemoryPage page = reader.page("workspace");
 
         assertThat(page.head()).contains(head);
         assertThat(page.switches()).isEqualTo(MemorySwitches.ON);
-        assertThat(page.memories()).extracting(entry -> entry.memory().id()).containsExactly("m3", "m2", "m1");
+        assertThat(page.memories()).extracting(entry -> entry.memory().id()).containsExactly("m4", "m3", "m2", "m1");
         assertThat(page.memories()).extracting(MemoryPageReader.Entry::missingScope)
-                .containsExactly(ImmutableList.of(), ImmutableList.of("docs/connector"), ImmutableList.of("plugin/trino-gone/"));
+                .containsExactly(ImmutableList.of("plugin/trino-gone"), ImmutableList.of(), ImmutableList.of("docs/connector"), ImmutableList.of("plugin/trino-gone/"));
         assertThat(page.guidelines()).containsExactly(
                 new MemoryPageReader.GuidelineView("CONTRIBUTING.md", 20 * 1024, true, "https://github.com/trinodb/trino/blob/" + head + "/CONTRIBUTING.md"),
                 new MemoryPageReader.GuidelineView(".github/DEVELOPMENT.md", 25, false, "https://github.com/trinodb/trino/blob/" + head + "/.github/DEVELOPMENT.md"));

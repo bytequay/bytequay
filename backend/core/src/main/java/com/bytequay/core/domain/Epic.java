@@ -16,7 +16,9 @@ package com.bytequay.core.domain;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -35,6 +37,7 @@ import static java.util.Objects.requireNonNullElse;
  * @param dismissed the unsynced children Not now hid; any other unsynced child offers syncing again
  * @param concludedAt when the user concluded the Epic with all its work done; a concluded Epic leaves the drawer
  * @param outcome what the user accepted the Epic delivered when concluding it
+ * @param proposals work the development model proposed, waiting until the user accepts or dismisses each
  */
 public record Epic(
         String id,
@@ -45,7 +48,8 @@ public record Epic(
         List<EpicChild> synced,
         List<String> dismissed,
         Optional<Instant> concludedAt,
-        String outcome)
+        String outcome,
+        List<EpicProposal> proposals)
 {
     public Epic
     {
@@ -57,11 +61,12 @@ public record Epic(
         dismissed = ImmutableList.copyOf(dismissed);
         concludedAt = requireNonNullElse(concludedAt, Optional.empty());
         outcome = requireNonNullElse(outcome, "");
+        proposals = proposals == null ? ImmutableList.of() : ImmutableList.copyOf(proposals);
     }
 
     public static Epic of(String id, String workspaceId)
     {
-        return new Epic(id, workspaceId, ImmutableList.of(), Optional.empty(), false, ImmutableList.of(), ImmutableList.of(), Optional.empty(), "");
+        return new Epic(id, workspaceId, ImmutableList.of(), Optional.empty(), false, ImmutableList.of(), ImmutableList.of(), Optional.empty(), "", ImmutableList.of());
     }
 
     /** Children the source reports that the user has not synced. */
@@ -86,7 +91,7 @@ public record Epic(
 
     public Epic withChildren(List<EpicChild> read, Instant at, boolean truncated)
     {
-        return new Epic(id, workspaceId, read, Optional.of(at), truncated, synced, dismissed, concludedAt, outcome);
+        return new Epic(id, workspaceId, read, Optional.of(at), truncated, synced, dismissed, concludedAt, outcome, proposals);
     }
 
     /** Records the children synced now; a later sync of the same child changes nothing. */
@@ -94,17 +99,32 @@ public record Epic(
     {
         Set<String> present = synced.stream().map(EpicChild::identity).collect(toImmutableSet());
         return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, ImmutableList.<EpicChild>builder().addAll(synced)
-                .addAll(added.stream().filter(child -> !present.contains(child.identity())).iterator()).build(), ImmutableList.of(), concludedAt, outcome);
+                .addAll(added.stream().filter(child -> !present.contains(child.identity())).iterator()).build(), ImmutableList.of(), concludedAt, outcome, proposals);
     }
 
     public Epic withDismissed()
     {
         return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, synced,
-                unsynced().stream().map(EpicChild::identity).collect(toImmutableList()), concludedAt, outcome);
+                unsynced().stream().map(EpicChild::identity).collect(toImmutableList()), concludedAt, outcome, proposals);
     }
 
     public Epic withConcluded(String accepted, Instant at)
     {
-        return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, synced, dismissed, Optional.of(at), checkText(accepted, "outcome").trim());
+        return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, synced, dismissed, Optional.of(at), checkText(accepted, "outcome").trim(), proposals);
+    }
+
+    /** Adds what the model proposed; a title already proposed is kept once. */
+    public Epic withProposals(List<EpicProposal> added)
+    {
+        LinkedHashMap<String, EpicProposal> all = new LinkedHashMap<>();
+        proposals.forEach(proposal -> all.put(proposal.title().toLowerCase(Locale.ROOT), proposal));
+        added.forEach(proposal -> all.putIfAbsent(proposal.title().toLowerCase(Locale.ROOT), proposal));
+        return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, synced, dismissed, concludedAt, outcome, ImmutableList.copyOf(all.values()));
+    }
+
+    public Epic withoutProposal(String proposalId)
+    {
+        return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, synced, dismissed, concludedAt, outcome,
+                proposals.stream().filter(proposal -> !proposal.id().equals(proposalId)).collect(toImmutableList()));
     }
 }

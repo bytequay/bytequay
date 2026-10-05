@@ -1504,6 +1504,11 @@ export type Bridge = JiraBridge & {
   concludeEpic: (workspaceId: string, epicId: string, outcome: string) => Promise<EpicRecordDto>;
   /** The workspace's concluded Epics, a local read. */
   listConcludedEpics: (workspaceId: string) => Promise<string[]>;
+  /** Asks the Development model to propose work from the Epic's issue or ticket; a Jira Epic needs the connection that shows it. */
+  proposeEpicWork: (workspaceId: string, epicId: string, connectionId: string | null) => Promise<EpicRecordDto>;
+  /** Makes a proposal the Epic's work. */
+  acceptEpicProposal: (workspaceId: string, epicId: string, proposalId: string) => Promise<EpicRecordDto>;
+  dismissEpicProposal: (workspaceId: string, epicId: string, proposalId: string) => Promise<EpicRecordDto>;
   listGoals: (workspaceId: string) => Promise<GoalDto[]>;
   createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
   updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;

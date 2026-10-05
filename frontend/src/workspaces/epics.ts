@@ -20,7 +20,10 @@ import type { JiraIssue } from '../jira/contracts';
 import type { Bridge } from '../types';
 
 export type EpicBridge = Pick<Bridge, 'joinEpic' | 'orderEpicWork' | 'removeFromEpic'>;
-export type EpicRecordBridge = Pick<Bridge, 'getEpic' | 'refreshEpicChildren' | 'syncEpicChildren' | 'dismissEpicChildren' | 'concludeEpic' | 'listConcludedEpics'>;
+export type EpicRecordBridge = Pick<Bridge, 'getEpic' | 'refreshEpicChildren' | 'syncEpicChildren' | 'dismissEpicChildren' | 'concludeEpic' | 'listConcludedEpics'
+  | 'proposeEpicWork' | 'acceptEpicProposal' | 'dismissEpicProposal'>;
+/** How often an Epic is read again while its model proposes work; the read is local. */
+const BREAKDOWN_POLL_MS = 1_000;
 // Stable, so the record's reads run once per Epic rather than on every render.
 const windowRecordBridge = (): EpicRecordBridge => window.bridge;
 
@@ -69,6 +72,9 @@ export function useEpicRecord(workspaceId: string, epicId: string, connectionId:
   sync: () => Promise<void>;
   dismiss: () => Promise<void>;
   conclude: (outcome: string) => Promise<void>;
+  propose: () => Promise<void>;
+  acceptProposal: (proposalId: string) => Promise<void>;
+  dismissProposal: (proposalId: string) => Promise<void>;
 } {
   const [record, setRecord] = useState<EpicRecordDto | null>(null);
   useEffect(() => {
@@ -89,7 +95,24 @@ export function useEpicRecord(workspaceId: string, epicId: string, connectionId:
     setRecord(await bridge().concludeEpic(workspaceId, epicId, outcome));
     changed(workspaceId);
   }, [bridge, epicId, workspaceId]);
-  return { record, sync, dismiss, conclude };
+  const breakingDown = record?.breakingDown === true;
+  useEffect(() => {
+    if (!breakingDown) return;
+    let active = true;
+    const timer = window.setInterval(() => {
+      void Promise.resolve().then(() => bridge().getEpic(workspaceId, epicId)).then((read) => { if (active) setRecord(read); }, () => {});
+    }, BREAKDOWN_POLL_MS);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [breakingDown, bridge, epicId, workspaceId]);
+  const propose = useCallback(async () => { setRecord(await bridge().proposeEpicWork(workspaceId, epicId, connectionId)); }, [bridge, connectionId, epicId, workspaceId]);
+  const acceptProposal = useCallback(async (proposalId: string) => {
+    setRecord(await bridge().acceptEpicProposal(workspaceId, epicId, proposalId));
+    changed(workspaceId);
+  }, [bridge, epicId, workspaceId]);
+  const dismissProposal = useCallback(async (proposalId: string) => {
+    setRecord(await bridge().dismissEpicProposal(workspaceId, epicId, proposalId));
+  }, [bridge, epicId, workspaceId]);
+  return { record, sync, dismiss, conclude, propose, acceptProposal, dismissProposal };
 }
 
 const NONE: ReadonlySet<string> = new Set();

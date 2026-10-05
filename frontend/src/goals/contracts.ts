@@ -420,6 +420,8 @@ export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'goalId' | 'title' | 'kind
 export type EpicJoinDto = { item: WorkItemDto; movedFrom: string | null };
 /** A GitHub sub-issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
 export type EpicChildDto = { identity: string; kind: 'ISSUE' | 'JIRA'; key: string; label: string; title: string; status: string; closed: boolean; url: string | null };
+/** Work the Development model proposed for an Epic, waiting until the user accepts or dismisses it. */
+export type EpicProposalDto = { id: string; title: string; doneWhen: string };
 /** An Epic's children: which were synced into work, which the source dropped since, and whether to offer syncing. */
 export type EpicRecordDto = {
   id: string;
@@ -435,6 +437,11 @@ export type EpicRecordDto = {
   concludedAt: string | null;
   /** What the user accepted the Epic delivered. */
   outcome: string;
+  proposals: EpicProposalDto[];
+  /** Whether the Development model is proposing work now. */
+  breakingDown: boolean;
+  /** Why the last breakdown failed, until the next one starts. */
+  breakdownError: string | null;
 };
 export type WorkItemDecision = {
   operationId: string;
@@ -506,6 +513,12 @@ export function parseEpicRecord(value: unknown): EpicRecordDto {
     offered: record.offered === true,
     concludedAt: optionalText(record.concludedAt),
     outcome: typeof record.outcome === 'string' ? record.outcome : '',
+    proposals: parseList(record.proposals, (value) => {
+      const proposal = object(value, 'Epic proposal');
+      return { id: text(proposal.id, 'Epic proposal id'), title: text(proposal.title, 'Epic proposal title'), doneWhen: text(proposal.doneWhen, 'Epic proposal done-when') };
+    }, 'Epic proposals'),
+    breakingDown: record.breakingDown === true,
+    breakdownError: optionalText(record.breakdownError),
   };
 }
 

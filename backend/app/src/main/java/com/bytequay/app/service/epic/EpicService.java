@@ -15,19 +15,25 @@ package com.bytequay.app.service.epic;
 
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraDtos;
+import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.EpicChild;
+import com.bytequay.core.domain.EpicProposal;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.RepositoryIssueStore;
+import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -59,10 +65,13 @@ public class EpicService
     // JiraService needs work items, so it is looked up when a Jira Epic's children are read.
     private final ObjectProvider<JiraService> jira;
     private final AgentUnitOfWork unitOfWork;
+    private final RepositoryIssueStore issues;
+    private final WorkspaceStore workspaces;
+    private final EpicBreakdowns breakdowns;
     private final Clock clock;
 
     public EpicService(EpicStore epics, EpicSources sources, WorkItemService work, IssueDevelopmentStore markers, GitHubRepoClient github, CredentialService credentials,
-            ObjectProvider<JiraService> jira, AgentUnitOfWork unitOfWork, Clock clock)
+            ObjectProvider<JiraService> jira, AgentUnitOfWork unitOfWork, RepositoryIssueStore issues, WorkspaceStore workspaces, EpicBreakdowns breakdowns, Clock clock)
     {
         this.epics = requireNonNull(epics, "epics is null");
         this.sources = requireNonNull(sources, "sources is null");
@@ -72,6 +81,9 @@ public class EpicService
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.jira = requireNonNull(jira, "jira is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
+        this.issues = requireNonNull(issues, "issues is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.breakdowns = requireNonNull(breakdowns, "breakdowns is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -139,6 +151,42 @@ public class EpicService
         }));
     }
 
+    /** Asks the development model to propose work from the Epic's issue or ticket; the proposals wait in its view. */
+    public EpicView propose(String workspaceId, String epicId, Optional<String> connectionId)
+    {
+        sources.require(workspaceId, epicId);
+        breakdowns.start(workspaceId, epicId, source(workspaceId, epicId, connectionId));
+        return view(current(workspaceId, epicId));
+    }
+
+    /** Makes a proposal the Epic's work, under the proposal's id, so accepting it again changes nothing. */
+    public EpicView acceptProposal(String workspaceId, String epicId, String proposalId)
+    {
+        sources.require(workspaceId, epicId);
+        return view(unitOfWork.execute(() -> {
+            Epic epic = current(workspaceId, epicId);
+            Optional<EpicProposal> proposal = epic.proposals().stream().filter(candidate -> candidate.id().equals(proposalId)).findFirst();
+            if (proposal.isEmpty()) {
+                return epic;
+            }
+            EpicProposal accepted = proposal.orElseThrow();
+            work.createInEpic(workspaceId, accepted.id(), epicId, accepted.title(), WorkItem.Kind.DEVELOP, accepted.doneWhen(), WorkItem.CompletionRule.MERGED_DELIVERY);
+            Epic next = epic.withoutProposal(proposalId);
+            epics.save(next);
+            return next;
+        }));
+    }
+
+    public EpicView dismissProposal(String workspaceId, String epicId, String proposalId)
+    {
+        sources.require(workspaceId, epicId);
+        return view(unitOfWork.execute(() -> {
+            Epic next = current(workspaceId, epicId).withoutProposal(proposalId);
+            epics.save(next);
+            return next;
+        }));
+    }
+
     /** The workspace's concluded Epics, which the drawer leaves out; a local read. */
     public List<String> concluded(String workspaceId)
     {
@@ -150,10 +198,28 @@ public class EpicService
         return epics.find(epicId).orElseGet(() -> Epic.of(epicId, workspaceId));
     }
 
-    private static EpicView view(Epic epic)
+    private EpicView view(Epic epic)
     {
         return new EpicView(epic.id(), epic.children(), epic.synced().stream().map(EpicChild::identity).collect(toImmutableList()), epic.former(),
-                epic.childrenReadAt(), epic.childrenTruncated(), epic.offered(), epic.concludedAt(), epic.outcome());
+                epic.childrenReadAt(), epic.childrenTruncated(), epic.offered(), epic.concludedAt(), epic.outcome(), epic.proposals(), breakdowns.running(epic.id()),
+                breakdowns.failure(epic.id()));
+    }
+
+    /** The issue or ticket a breakdown reads, from what ByteQuay keeps of it. */
+    private EpicBreakdowns.Source source(String workspaceId, String epicId, Optional<String> connectionId)
+    {
+        Optional<EpicSources.Ticket> ticket = EpicSources.ticket(epicId);
+        if (ticket.isPresent()) {
+            JiraIssue issue = jira.getObject().issue(connectionId.orElseThrow(() -> new IllegalArgumentException("A Jira Epic's connection is required")),
+                    ticket.orElseThrow().cloudId(), ticket.orElseThrow().issueId());
+            return new EpicBreakdowns.Source(issue.key(), issue.title(), issue.body());
+        }
+        IssueEpic marker = markers.findEpic(HOST, EpicSources.issueId(epicId)).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Epic not found"));
+        long repositoryId = workspaces.findById(workspaceId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Workspace not found"))
+                .monitoredRepositoryId();
+        RepositoryIssue issue = issues.find(repositoryId, marker.number())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "The Epic's issue is not available locally. Refresh issues first."));
+        return new EpicBreakdowns.Source("#" + issue.number(), issue.title(), issue.body());
     }
 
     private Read subIssues(String epicId)

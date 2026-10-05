@@ -1,7 +1,6 @@
 # Epic work items
 
-Status: approved for implementation. The Epic drawer below is implemented; the
-decisions after it are not yet built.
+Status: implemented. The Epic drawer and every decision below are built.
 
 This document decides how an Epic gets its work items and how their status and
 the Epic's progress show. It builds on the [work planning design](issue-development.md)
@@ -16,7 +15,7 @@ Workspace Home lists the workspace's Epics in the **Epic drawer**, tucked under
 the sidebar's right hairline: collapsed, one tick per Epic (up to four) peeks
 out; hover, click or the keyboard slides it out over the page without moving
 anything. Each card shows the source key, its status, a Jira Epic's child count
-from the saved ticket detail, and its age, and opens the issue or ticket.
+from the saved ticket detail, its progress and its age, and opens the Epic view.
 
 Work items already exist for Goals: identity, workspace, optional Goal, title,
 kind, acceptance criteria, completion rule, state, links to issues, tickets,
@@ -89,3 +88,16 @@ tasks and PRs, history, priority, order and blockers.
   runs on the drawer's render path.
 - Jira children come from the ticket detail read. GitHub sub-issues need a new
   read of GitHub's sub-issues API.
+
+## Implementation notes
+
+- The Epic view reads its source's children each time it opens; neither the
+  drawer nor Home reads them.
+- Run is not offered for a GitHub sub-issue of another repository, because the
+  workspace's issue composer starts tasks only in its own repository; the row
+  opens the issue where it lives.
+- Closing a concluded Jira Epic opens the ticket, where its workflow's
+  transitions live, instead of choosing a transition for the user.
+- The breakdown runs one tool-free turn on the workspace's Development model.
+  Its proposals stay on the Epic until each is accepted or dismissed; whether a
+  breakdown is running, and why the last one failed, are kept in memory only.

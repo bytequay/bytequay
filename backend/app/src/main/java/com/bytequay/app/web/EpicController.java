@@ -67,6 +67,29 @@ public class EpicController
         return epics.dismiss(workspaceId, request.epicId());
     }
 
+    @PostMapping("/propose")
+    public EpicView propose(@PathVariable String workspaceId, @RequestBody ReadChildren request)
+    {
+        checkArgument(request.epicId() != null, "Epic is required");
+        return epics.propose(workspaceId, request.epicId(), request.connectionId());
+    }
+
+    @PostMapping("/proposals/accept")
+    public EpicView acceptProposal(@PathVariable String workspaceId, @RequestBody ProposalRequest request)
+    {
+        checkArgument(request.epicId() != null && request.proposalId() != null, "Epic and proposal are required");
+        return epics.acceptProposal(workspaceId, request.epicId(), request.proposalId());
+    }
+
+    @PostMapping("/proposals/dismiss")
+    public EpicView dismissProposal(@PathVariable String workspaceId, @RequestBody ProposalRequest request)
+    {
+        checkArgument(request.epicId() != null && request.proposalId() != null, "Epic and proposal are required");
+        return epics.dismissProposal(workspaceId, request.epicId(), request.proposalId());
+    }
+
+    public record ProposalRequest(String epicId, String proposalId) {}
+
     @PostMapping("/conclude")
     public EpicView conclude(@PathVariable String workspaceId, @RequestBody Conclude request)
     {

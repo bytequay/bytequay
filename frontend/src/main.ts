@@ -1885,6 +1885,12 @@ function registerIpc(): void {
     backendJson(epicsUrl(workspaceId, '/conclude'), jsonInit('POST', { epicId, outcome })).then(parseEpicRecord));
   ipcMain.handle('epics:concluded', (_event, workspaceId: string) =>
     backendJson(epicsUrl(workspaceId, '/concluded')).then(parseConcludedEpics));
+  ipcMain.handle('epics:propose', (_event, workspaceId: string, epicId: string, connectionId: string | null) =>
+    backendJson(epicsUrl(workspaceId, '/propose'), jsonInit('POST', { epicId, connectionId })).then(parseEpicRecord));
+  ipcMain.handle('epics:accept-proposal', (_event, workspaceId: string, epicId: string, proposalId: string) =>
+    backendJson(epicsUrl(workspaceId, '/proposals/accept'), jsonInit('POST', { epicId, proposalId })).then(parseEpicRecord));
+  ipcMain.handle('epics:dismiss-proposal', (_event, workspaceId: string, epicId: string, proposalId: string) =>
+    backendJson(epicsUrl(workspaceId, '/proposals/dismiss'), jsonInit('POST', { epicId, proposalId })).then(parseEpicRecord));
   ipcMain.handle('work-items:leave-epic', (_event, workspaceId: string, itemId: string) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/epic`), { method: 'DELETE' })
       .then(value => { const item = (value as { item?: unknown } | null)?.item; return item == null ? null : parseWorkItem(item); }));

@@ -19,13 +19,20 @@ import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.EpicChild;
+import com.bytequay.core.domain.EpicProposal;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.RepositoryIssue;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
+import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.RepositoryIssueStore;
+import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -48,6 +55,7 @@ import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
@@ -76,7 +84,11 @@ class TestEpicService
             return work.run();
         }
     };
-    private final EpicService service = new EpicService(records, sources, work, markers, github, credentials, tickets, transactions, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final EpicBreakdowns breakdowns = mock(EpicBreakdowns.class);
+    private final EpicService service = new EpicService(records, sources, work, markers, github, credentials, tickets, transactions, issues, workspaces, breakdowns,
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -138,6 +150,27 @@ class TestEpicService
         assertThat(service.conclude("workspace", EPIC, "Another wording")).as("concluding again changes nothing").isEqualTo(concluded);
         service.dismiss("workspace", JIRA_EPIC);
         assertThat(service.concluded("workspace")).containsExactly(EPIC);
+    }
+
+    @Test
+    void proposingReadsTheEpicsIssueAndAnAcceptedProposalBecomesItsWorkOnce()
+    {
+        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(workspace.monitoredRepositoryId()).thenReturn(5L);
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
+        when(issues.find(5, 7)).thenReturn(Optional.of(new RepositoryIssue(1, 7, "Iceberg REST catalog", "Cache table metadata", "author", "",
+                "https://github.com/org/repo/issues/7", ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW)));
+        service.propose("workspace", EPIC, Optional.empty());
+        verify(breakdowns).start("workspace", EPIC, new EpicBreakdowns.Source("#7", "Iceberg REST catalog", "Cache table metadata"));
+
+        EpicProposal metrics = new EpicProposal("proposal-1", "Expose cache metrics", "Hits and misses are reported");
+        records.save(Epic.of(EPIC, "workspace").withProposals(ImmutableList.of(metrics, new EpicProposal("proposal-2", "Tune the cache", "Reads are faster"))));
+        EpicView accepted = service.acceptProposal("workspace", EPIC, "proposal-1");
+        assertThat(accepted.proposals()).extracting(EpicProposal::id).containsExactly("proposal-2");
+        assertThat(service.acceptProposal("workspace", EPIC, "proposal-1")).as("accepting again changes nothing").isEqualTo(accepted);
+        verify(work, times(1)).createInEpic("workspace", "proposal-1", EPIC, "Expose cache metrics", WorkItem.Kind.DEVELOP, "Hits and misses are reported",
+                WorkItem.CompletionRule.MERGED_DELIVERY);
+        assertThat(service.dismissProposal("workspace", EPIC, "proposal-2").proposals()).isEmpty();
     }
 
     @Test

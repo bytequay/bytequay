@@ -204,7 +204,7 @@ export async function run(): Promise<boolean> {
     let record: EpicRecordDto = {
       id: EPIC_ID, children: [child(24931, 'Invalidate on DDL', 'Open'), child(24960, 'Document the cache', 'Closed'), child(24961, 'Expose metrics', 'Open')],
       synced: ['ISSUE:github.com:24931', 'ISSUE:github.com:24970'], former: [child(24970, 'Old parent link', 'Open')], childrenReadAt: NOW, childrenTruncated: false,
-      offered: true, concludedAt: null, outcome: '',
+      offered: true, concludedAt: null, outcome: '', proposals: [], breakingDown: false, breakdownError: null,
     };
     items = [
       work('p', 'Invalidate on DDL', 'WORKING', 0, { links: [link('ISSUE', 'trinodb/trino#24931', '#24931', 'WORKING', 'Open')] }),
@@ -260,12 +260,55 @@ export async function run(): Promise<boolean> {
     assert(calls.at(-1) === 'decide r ACCEPT Document the cache ACCEPTED_RESULT' && details.at(-1) === 'Closed on GitHub',
       `Accepting a closed child settles it as an accepted result: ${calls.at(-1)} / ${details.at(-1)}`);
 
+    // Suggest work asks the Development model; what it proposes waits until each proposal is accepted or dismissed.
+    let polled = 0;
+    window.bridge = {
+      ...window.bridge,
+      proposeEpicWork: async (_workspaceId: string, epicId: string, connectionId: string | null) => {
+        calls.push(`propose ${epicId} ${connectionId}`);
+        record = { ...record, breakingDown: true };
+        return record;
+      },
+      getEpic: async (): Promise<EpicRecordDto> => {
+        polled++;
+        record = { ...record, breakingDown: false, proposals: [{ id: 'proposal-1', title: 'Expose cache metrics', doneWhen: 'Hits and misses are reported' },
+          { id: 'proposal-2', title: 'Tune the cache', doneWhen: 'Reads are faster' }] };
+        return record;
+      },
+      acceptEpicProposal: async (_workspaceId: string, _epicId: string, proposalId: string) => {
+        calls.push(`accept proposal ${proposalId}`);
+        record = { ...record, proposals: record.proposals.filter(proposal => proposal.id !== proposalId) };
+        return record;
+      },
+      dismissEpicProposal: async (_workspaceId: string, _epicId: string, proposalId: string) => {
+        calls.push(`dismiss proposal ${proposalId}`);
+        record = { ...record, proposals: record.proposals.filter(proposal => proposal.id !== proposalId) };
+        return record;
+      },
+    } as unknown as Bridge;
+    button('Suggest work').click(); await settle();
+    assert(calls.at(-1) === `propose ${EPIC_ID} null` && element('.epic-view__proposals').textContent?.includes('Proposing work…') === true,
+      `Suggest work starts the Epic's breakdown: ${calls.at(-1)}`);
+    await wait(1_150);
+    assert(polled > 0 && element('.epic-view__proposals-head').textContent === 'Proposed · 2', 'The proposals arrive while the view is open');
+    assert(rows().length === 5, 'Nothing becomes work before it is accepted');
+    const proposed = (title: string): HTMLElement => {
+      const found = [...document.querySelectorAll<HTMLElement>('.epic-proposal')].find(value => value.textContent?.includes(title));
+      assert(found !== undefined, `Missing proposal ${title}`);
+      return found;
+    };
+    element<HTMLButtonElement>('.epic-row__accept', proposed('Expose cache metrics')).click(); await settle();
+    assert(calls.at(-1) === 'accept proposal proposal-1', `Accept makes the proposal work: ${calls.at(-1)}`);
+    button('Dismiss Tune the cache').click(); await settle();
+    assert(calls.at(-1) === 'dismiss proposal proposal-2' && document.querySelector('.epic-view__proposals') === null, 'Dismissing the last proposal folds the list away');
+
     // With all its work done the Epic concludes, recording what it delivered, and offers closing its issue.
     assert(document.querySelector('.epic-view__conclude') === null, 'Unfinished work offers no Conclude');
     items = [work('p', 'Invalidate on DDL', 'DONE', 0), work('s', 'Expose metrics', 'DONE', 1), work('x', 'Old spike', 'DROPPED', 2)];
     record = { ...record, offered: false };
     window.bridge = {
       ...window.bridge,
+      getEpic: async (): Promise<EpicRecordDto> => record,
       concludeEpic: async (_workspaceId: string, epicId: string, outcome: string) => {
         calls.push(`conclude ${epicId}`);
         details.push(outcome);

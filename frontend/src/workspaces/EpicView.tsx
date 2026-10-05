@@ -13,7 +13,8 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowDown, ArrowUp, Circle, CircleCheck, CircleDotDashed, CircleSlash, ListTree, LoaderCircle, Play, Plus, RotateCcw, Search, SquareTerminal, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Circle, CircleCheck, CircleDotDashed, CircleSlash, ListTree, LoaderCircle, Play, Plus, RotateCcw, Search, Sparkles, SquareTerminal, X }
+  from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill } from '../cards/Card';
 import type { EpicChildDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
@@ -215,6 +216,28 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
               ))}
             </div>
           )}
+          {record !== null && (record.breakingDown || record.proposals.length > 0) && (
+            <section className="epic-view__proposals" aria-label="Proposed work">
+              <div className="epic-view__proposals-head">
+                <Sparkles size={13} aria-hidden="true" />
+                <span>{record.breakingDown ? 'Proposing work…' : `Proposed · ${record.proposals.length}`}</span>
+                {record.breakingDown && <LoaderCircle size={13} className="agt-spin" aria-hidden="true" />}
+              </div>
+              {record.proposals.map((proposal) => (
+                <div key={proposal.id} className="epic-proposal">
+                  <div className="epic-proposal__text">
+                    <span className="epic-proposal__title">{proposal.title}</span>
+                    <span className="epic-proposal__done">{proposal.doneWhen}</span>
+                  </div>
+                  <button type="button" className="epic-row__accept" disabled={busy} onClick={() => { void run(() => children.acceptProposal(proposal.id)); }}>Accept</button>
+                  <IconButton label={`Dismiss ${proposal.title}`} title="Dismiss" disabled={busy} onClick={() => { void run(() => children.dismissProposal(proposal.id)); }}>
+                    <X size={13} />
+                  </IconButton>
+                </div>
+              ))}
+            </section>
+          )}
+          {record?.breakdownError != null && <div className="epic-view__error" role="alert">{record.breakdownError}</div>}
           <form className="epic-view__new" onSubmit={(event) => {
             event.preventDefault();
             const name = title.trim();
@@ -229,6 +252,11 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
             <button type="button" className="epic-view__link" aria-expanded={adding} onClick={() => setAdding((value) => !value)}>
               <Search size={13} aria-hidden="true" />Add existing
             </button>
+            {record !== null && (
+              <button type="button" className="epic-view__link" disabled={busy || record.breakingDown} onClick={() => { void run(children.propose); }}>
+                <Sparkles size={13} aria-hidden="true" />Suggest work
+              </button>
+            )}
           </form>
           {adding && (
             <div className="goal-search epic-view__search">

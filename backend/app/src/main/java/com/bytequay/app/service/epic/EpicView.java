@@ -14,6 +14,7 @@
 package com.bytequay.app.service.epic;
 
 import com.bytequay.core.domain.EpicChild;
+import com.bytequay.core.domain.EpicProposal;
 import com.google.common.collect.ImmutableList;
 
 import java.time.Instant;
@@ -30,9 +31,12 @@ import static java.util.Objects.requireNonNull;
  * @param offered whether to offer syncing: an unsynced child exists that Not now did not hide
  * @param concludedAt when the user concluded the Epic with all its work done
  * @param outcome what the user accepted the Epic delivered
+ * @param proposals work the development model proposed, waiting until the user accepts or dismisses each
+ * @param breakingDown whether the development model is proposing work now
+ * @param breakdownError why the last breakdown failed, until the next one starts
  */
 public record EpicView(String id, List<EpicChild> children, List<String> synced, List<EpicChild> former, Optional<Instant> childrenReadAt, boolean childrenTruncated,
-        boolean offered, Optional<Instant> concludedAt, String outcome)
+        boolean offered, Optional<Instant> concludedAt, String outcome, List<EpicProposal> proposals, boolean breakingDown, Optional<String> breakdownError)
 {
     public EpicView
     {
@@ -43,5 +47,7 @@ public record EpicView(String id, List<EpicChild> children, List<String> synced,
         requireNonNull(childrenReadAt, "childrenReadAt is null");
         requireNonNull(concludedAt, "concludedAt is null");
         requireNonNull(outcome, "outcome is null");
+        proposals = ImmutableList.copyOf(proposals);
+        requireNonNull(breakdownError, "breakdownError is null");
     }
 }

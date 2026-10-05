@@ -170,6 +170,50 @@
   white-space: pre-wrap;
 }
 
+/* Work the Development model proposed; nothing in it is work until accepted. */
+.epic-view__proposals {
+  display: flex;
+  flex-direction: column;
+  padding: 8px 12px;
+  border: 1px solid #e6dcfb;
+  border-radius: 10px;
+  background: #fbf8ff;
+}
+
+.epic-view__proposals-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-bottom: 4px;
+  color: #8250df;
+  font-size: 12.5px;
+}
+
+.epic-proposal {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 0;
+  border-top: 1px solid #efe7fd;
+}
+
+.epic-proposal__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.epic-proposal__title {
+  font-size: 13px;
+}
+
+.epic-proposal__done {
+  color: #57606a;
+  font-size: 12px;
+}
+
 .epic-view__notice {
   color: #57606a;
   font-size: 12px;

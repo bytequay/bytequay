@@ -13,6 +13,8 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
+import com.bytequay.core.domain.Epic;
+import com.bytequay.core.domain.EpicChild;
 import com.bytequay.core.domain.GoalItem;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
@@ -44,6 +46,9 @@ class TestSqliteWorkItemStore
 
     @Autowired
     private SqliteWorkItemStore store;
+
+    @Autowired
+    private SqliteEpicStore epics;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -89,6 +94,23 @@ class TestSqliteWorkItemStore
         assertThat(store.findByIdentity(sourceIdentity)).isEmpty();
         store.insert(item("next-owner", "workspace"));
         assertThat(store.findByIdentity(sourceIdentity)).map(WorkItem::id).contains("next-owner");
+    }
+
+    @Test
+    void anEpicRoundTripsItsChildrenAndWhatTheUserDidWithThem()
+    {
+        EpicChild synced = new EpicChild("ISSUE:github.com:8", GoalItemKind.ISSUE, "org/repo#8", "#8", "Parse", "Open", false, Optional.of("https://github.com/org/repo/issues/8"));
+        EpicChild dismissed = new EpicChild("JIRA:5:cloud:11", GoalItemKind.JIRA, "connection:cloud:11", "ENG-11", "Docs", "In Progress", false, Optional.empty());
+        Epic epic = Epic.of("ISSUE:github.com:1", "workspace").withChildren(ImmutableList.of(synced, dismissed), NOW, true).withSynced(ImmutableList.of(synced))
+                .withDismissed();
+        epics.save(epic);
+        assertThat(epics.find(epic.id())).contains(epic);
+        Epic next = epic.withChildren(ImmutableList.of(dismissed), NOW.plusSeconds(1), false);
+        epics.save(next);
+        assertThat(epics.find(epic.id())).contains(next);
+        assertThat(next.former()).containsExactly(synced);
+        epics.delete(epic.id());
+        assertThat(epics.find(epic.id())).isEmpty();
     }
 
     private WorkItem item(String id, String workspaceId)

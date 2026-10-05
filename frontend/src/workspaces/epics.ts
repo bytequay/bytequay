@@ -12,13 +12,17 @@
  * limitations under the License.
  */
 
-import type { EpicJoinDto, GoalItemDto, WorkItemDto } from '../goals/contracts';
+import { useCallback, useEffect, useState } from 'react';
+import type { EpicJoinDto, EpicRecordDto, GoalItemDto, WorkItemDto } from '../goals/contracts';
 import { GOALS_CHANGED } from '../goals/useGoals';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { Bridge } from '../types';
 
 export type EpicBridge = Pick<Bridge, 'joinEpic' | 'orderEpicWork' | 'removeFromEpic'>;
+export type EpicRecordBridge = Pick<Bridge, 'getEpic' | 'refreshEpicChildren' | 'syncEpicChildren' | 'dismissEpicChildren'>;
+// Stable, so the record's reads run once per Epic rather than on every render.
+const windowRecordBridge = (): EpicRecordBridge => window.bridge;
 
 /** The identity work items name a GitHub issue Epic by: the canonical one the backend gives it, from its stable issue id. */
 export function issueEpicId(issueId: number | string): string {
@@ -54,6 +58,33 @@ export async function joinEpic(workspaceId: string, epicId: string, reference: G
 export async function orderEpic(workspaceId: string, epicId: string, ids: string[], bridge: EpicBridge = window.bridge): Promise<void> {
   await bridge.orderEpicWork(workspaceId, epicId, ids);
   changed(workspaceId);
+}
+
+/**
+ * An Epic's children: the last read at once, then a fresh read from its source each time the view opens, which stays quiet when it fails.
+ * Sync makes the unsynced ones work; Not now hides them until another child appears.
+ */
+export function useEpicRecord(workspaceId: string, epicId: string, connectionId: string | null, bridge: () => EpicRecordBridge = windowRecordBridge): {
+  record: EpicRecordDto | null;
+  sync: () => Promise<void>;
+  dismiss: () => Promise<void>;
+} {
+  const [record, setRecord] = useState<EpicRecordDto | null>(null);
+  useEffect(() => {
+    let active = true;
+    let refreshed = false;
+    // A bridge without these reads leaves the strip out instead of breaking the view.
+    void Promise.resolve().then(() => bridge().getEpic(workspaceId, epicId)).then((read) => { if (active && !refreshed) setRecord(read); }, () => {});
+    void Promise.resolve().then(() => bridge().refreshEpicChildren(workspaceId, epicId, connectionId))
+      .then((read) => { refreshed = true; if (active) setRecord(read); }, () => {});
+    return () => { active = false; };
+  }, [bridge, connectionId, epicId, workspaceId]);
+  const sync = useCallback(async () => {
+    setRecord(await bridge().syncEpicChildren(workspaceId, epicId));
+    changed(workspaceId);
+  }, [bridge, epicId, workspaceId]);
+  const dismiss = useCallback(async () => { setRecord(await bridge().dismissEpicChildren(workspaceId, epicId)); }, [bridge, epicId, workspaceId]);
+  return { record, sync, dismiss };
 }
 
 export async function removeFromEpic(workspaceId: string, itemId: string, bridge: EpicBridge = window.bridge): Promise<void> {

@@ -23,6 +23,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Locale;
+import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -59,22 +60,39 @@ public class EpicSources
 
     public boolean marked(String workspaceId, String epicId)
     {
-        requireNonNull(epicId, "epicId is null");
-        if (epicId.startsWith(ISSUE)) {
-            long issueId = Long.parseLong(epicId.substring(ISSUE.length()));
+        Optional<Ticket> ticket = ticket(epicId);
+        if (ticket.isEmpty()) {
             String repository = workspaces.findById(workspaceId).map(workspace -> workspace.monitoredRepository().fullName().toLowerCase(Locale.ROOT)).orElse("");
-            return markers.findEpic(HOST, issueId).filter(IssueEpic::isEpic).filter(epic -> epic.repo().equals(repository)).isPresent();
+            return markers.findEpic(HOST, issueId(epicId)).filter(IssueEpic::isEpic).filter(epic -> epic.repo().equals(repository)).isPresent();
         }
-        checkArgument(epicId.startsWith(JIRA), "Epic must be a GitHub issue or a Jira ticket");
+        JiraService tickets = jira.getObject();
+        String cloudId = ticket.orElseThrow().cloudId();
+        String issueId = ticket.orElseThrow().issueId();
+        return tickets.isEpic(cloudId, issueId) && tickets.assignedWorkspace(cloudId, issueId).filter(workspaceId::equals).isPresent();
+    }
+
+    /** The stable GitHub issue id of an issue Epic. */
+    public static long issueId(String epicId)
+    {
+        checkArgument(epicId.startsWith(ISSUE), "Epic must be a GitHub issue or a Jira ticket");
+        return Long.parseLong(epicId.substring(ISSUE.length()));
+    }
+
+    /** A Jira Epic's ticket; empty for an issue Epic. */
+    public static Optional<Ticket> ticket(String epicId)
+    {
+        requireNonNull(epicId, "epicId is null");
+        if (!epicId.startsWith(JIRA)) {
+            return Optional.empty();
+        }
         // The identity is JIRA:<length of the cloud id>:<cloud id>:<issue id>, so a cloud id may itself contain colons.
         String rest = epicId.substring(JIRA.length());
         int separator = rest.indexOf(':');
         checkArgument(separator > 0, "Invalid Jira Epic");
         int length = Integer.parseInt(rest.substring(0, separator));
         checkArgument(length > 0 && rest.length() > separator + length + 2 && rest.charAt(separator + 1 + length) == ':', "Invalid Jira Epic");
-        String cloudId = rest.substring(separator + 1, separator + 1 + length);
-        String issueId = rest.substring(separator + length + 2);
-        JiraService tickets = jira.getObject();
-        return tickets.isEpic(cloudId, issueId) && tickets.assignedWorkspace(cloudId, issueId).filter(workspaceId::equals).isPresent();
+        return Optional.of(new Ticket(rest.substring(separator + 1, separator + 1 + length), rest.substring(separator + length + 2)));
     }
+
+    public record Ticket(String cloudId, String issueId) {}
 }

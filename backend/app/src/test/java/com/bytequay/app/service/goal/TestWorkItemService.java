@@ -17,6 +17,8 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.service.epic.EpicSources;
+import com.bytequay.app.service.epic.InMemoryEpicStore;
+import com.bytequay.core.domain.Epic;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalItem;
@@ -69,7 +71,9 @@ class TestWorkItemService
     };
     private final List<Object> published = new ArrayList<>();
     private final EpicSources epics = mock(EpicSources.class);
-    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, epics, transactions, published::add, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final InMemoryEpicStore epicRecords = new InMemoryEpicStore();
+    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, epics, epicRecords, transactions, published::add,
+            Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -400,6 +404,7 @@ class TestWorkItemService
         WorkItemView attempted = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#3").item();
         service.change("workspace", attempted.id(), arrange(attempted, WorkItemCommand.Action.BLOCK, Optional.empty(), quick.id()));
         WorkItemView unrelated = epicWork(OTHER_EPIC, "Another Epic's work");
+        epicRecords.save(Epic.of(EPIC, "workspace"));
 
         service.releaseEpic("workspace", EPIC);
 
@@ -410,6 +415,26 @@ class TestWorkItemService
         assertThat(stayed.history().getLast().detail())
                 .isEqualTo("Left its Epic, which was unmarked; work and history retained\nNo longer waits on Quick idea, which left the Epic");
         assertThat(find(unrelated.id()).epicId()).as("other Epics keep their work").contains(OTHER_EPIC);
+        assertThat(epicRecords.find(EPIC)).as("its children and what the user did with them go too").isEmpty();
+    }
+
+    @Test
+    void aSyncedChildBecomesEpicWorkUnderItsTitleOrBringsTheWorkThatOwnsIt()
+    {
+        WorkItemLink child = new WorkItemLink("ISSUE:github.com:8", new GoalItem(GoalItemKind.ISSUE, "org/repo#8", "#8", "Parse the plan", NOW));
+        WorkItemView created = service.joinEpic("workspace", EPIC, child);
+        assertThat(created.title()).isEqualTo("Parse the plan");
+        assertThat(created.epicId()).contains(EPIC);
+        assertThat(service.joinEpic("workspace", EPIC, child)).as("syncing again changes nothing").isEqualTo(created);
+
+        WorkItemLink owned = link(GoalItemKind.ISSUE, "org/repo#9", "ISSUE:github.com:9");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#9")).thenReturn(owned);
+        WorkItemView goalWork = service.attach("workspace", "goal", GoalItemKind.ISSUE, "org/repo#9");
+        WorkItemView joined = service.joinEpic("workspace", EPIC, owned);
+        assertThat(joined.id()).isEqualTo(goalWork.id());
+        assertThat(joined.goalId()).as("it keeps its Goal").contains("goal");
+        assertThat(joined.epicId()).contains(EPIC);
+        assertThat(service.list("workspace")).hasSize(2);
     }
 
     @Test

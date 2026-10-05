@@ -16,7 +16,7 @@ import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import EpicView from '../EpicView';
 import { useUnmarkEpic } from '../useUnmarkEpic';
-import type { CreateWorkItem, GoalItemDto, WorkItemDecision, WorkItemDto } from '../../goals/contracts';
+import type { CreateWorkItem, EpicChildDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../../goals/contracts';
 import { issueAttentionItem } from '../../home/attention';
 import type { Bridge } from '../../types';
 import { assert, settle } from '../../fixtures/harness';
@@ -32,6 +32,8 @@ const work = (id: string, title: string, state: WorkItemDto['state'], epicRank: 
   id, workspaceId: 'workspace', goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links: [],
   history: [], createdAt: NOW, updatedAt: NOW, priority: 'NORMAL', rank: 0, blockedBy: [], epicId: EPIC_ID, epicRank, ...extra });
 const CANDIDATE = link('ISSUE', 'trinodb/trino#24977', '#24977', 'IDLE', 'Open');
+const child = (number: number, title: string, status: string): EpicChildDto => ({
+  identity: `ISSUE:github.com:${number}`, kind: 'ISSUE', key: `trinodb/trino#${number}`, label: `#${number}`, title, status, closed: status === 'Closed', url: null });
 
 function element<T extends HTMLElement = HTMLElement>(selector: string, root: ParentNode = document): T {
   const found = root.querySelector<T>(selector);
@@ -74,6 +76,7 @@ export async function run(): Promise<boolean> {
   document.body.append(host);
   const root = createRoot(host);
   const calls: string[] = [];
+  const details: string[] = [];
   let closed = 0;
   let items = [
     work('a', 'Cache table metadata', 'DONE', 0, { links: [link('PULL_REQUEST', 'trinodb/trino#24950', '#24950', 'MERGED', 'Merged')] }),
@@ -93,7 +96,9 @@ export async function run(): Promise<boolean> {
         return created;
       },
       decideWork: async (target: WorkItemDto, command: WorkItemDecision) => {
-        calls.push(['decide', target.id, command.action, command.acceptanceCriteria, command.blocker, command.releaseDependents].filter(part => part !== undefined).join(' '));
+        calls.push(['decide', target.id, command.action, command.acceptanceCriteria, command.completionRule, command.blocker, command.releaseDependents]
+          .filter(part => part !== undefined).join(' '));
+        details.push(command.detail);
         const state = command.action === 'ACCEPT' ? 'DONE' : command.action === 'DROP' ? 'DROPPED' : command.action === 'REOPEN' ? 'WORKING' : target.state;
         const blockedBy = command.action === 'UNBLOCK' ? target.blockedBy.filter(value => value !== command.blocker)
           : command.action === 'BLOCK' && command.blocker !== undefined ? [...target.blockedBy, command.blocker] : target.blockedBy;
@@ -138,6 +143,7 @@ export async function run(): Promise<boolean> {
     assert(JSON.stringify(rows().map(value => value.querySelector('.item-row__title > span')?.textContent)) ===
       JSON.stringify(['Cache table metadata', 'Invalidate on DDL', 'Coordinator broadcast', 'Benchmark warm cache']), 'Open and done work in the Epic\'s order; dropped and other Epics\' work apart');
     assert(element('.epic-view__dropped > summary').textContent === '1 dropped', 'Dropped work folds away');
+    assert(document.querySelector('.epic-view__found') === null && document.querySelector('.epic-row__upstream') === null, 'Without children read there is no strip');
     assert(row('Invalidate on DDL').querySelector('.pill')?.textContent === 'running' && row('Invalidate on DDL').querySelector('.epic-state.agt-spin') !== null, 'A running task spins');
     assert(row('Invalidate on DDL').querySelector('.card-key')?.textContent === '#24931', 'Work from an issue names it');
     assert(row('Benchmark warm cache').querySelector('.card-key') === null, 'Work without a source shows no reference');
@@ -184,6 +190,60 @@ export async function run(): Promise<boolean> {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', cancelable: true })); await settle();
     assert(closed === 1, 'Escape closes the Epic view');
 
+    // The source's children: read when the view opens, joined only on Sync, and labelled with where the source has them.
+    let record: EpicRecordDto = {
+      id: EPIC_ID, children: [child(24931, 'Invalidate on DDL', 'Open'), child(24960, 'Document the cache', 'Closed'), child(24961, 'Expose metrics', 'Open')],
+      synced: ['ISSUE:github.com:24931', 'ISSUE:github.com:24970'], former: [child(24970, 'Old parent link', 'Open')], childrenReadAt: NOW, childrenTruncated: false,
+      offered: true,
+    };
+    items = [
+      work('p', 'Invalidate on DDL', 'WORKING', 0, { links: [link('ISSUE', 'trinodb/trino#24931', '#24931', 'WORKING', 'Open')] }),
+      work('q', 'Old parent link', 'PLANNED', 1, { links: [link('ISSUE', 'trinodb/trino#24970', '#24970', 'IDLE', 'Open')] }),
+    ];
+    window.bridge = {
+      getEpic: async (): Promise<EpicRecordDto> => ({ ...record, children: [], former: [], offered: false }),
+      refreshEpicChildren: async (_workspaceId: string, epicId: string, connectionId: string | null) => {
+        calls.push(`children ${epicId} ${connectionId}`);
+        return record;
+      },
+      syncEpicChildren: async () => {
+        calls.push('sync');
+        items = [...items, work('r', 'Document the cache', 'PLANNED', 2, { links: [link('ISSUE', 'trinodb/trino#24960', '#24960', 'IDLE', 'Closed')] }),
+          work('s', 'Expose metrics', 'PLANNED', 3, { links: [link('ISSUE', 'trinodb/trino#24961', '#24961', 'IDLE', 'Open')] })];
+        record = { ...record, synced: [...record.synced, 'ISSUE:github.com:24960', 'ISSUE:github.com:24961'], offered: false };
+        render();
+        return record;
+      },
+      dismissEpicChildren: async () => {
+        calls.push('dismiss');
+        record = { ...record, offered: false };
+        return record;
+      },
+    } as unknown as Bridge;
+    const reopen = async (): Promise<void> => {
+      flushSync(() => root.render(<></>));
+      render(); await wait(20);
+    };
+    await reopen();
+    assert(calls.at(-1) === `children ${EPIC_ID} null`, `Opening the view reads the Epic's children: ${calls.at(-1)}`);
+    assert(element('.epic-view__found').textContent?.includes('Found in GitHub · 2') === true, `The strip counts the children not synced: ${element('.epic-view__found').textContent}`);
+    assert(row('Invalidate on DDL').querySelector('.epic-row__upstream')?.textContent === 'GitHub: Open', 'Synced work shows where the source has it');
+    assert(row('Old parent link').querySelector('.epic-row__upstream')?.textContent === 'no longer a child', 'Work whose child the source dropped stays, marked');
+    assert(rows().length === 2, 'Nothing joins on its own');
+    button('Not now').click(); await settle();
+    assert(calls.at(-1) === 'dismiss' && document.querySelector('.epic-view__found') === null, 'Not now hides the strip');
+
+    record = { ...record, offered: true };
+    await reopen();
+    button('Sync').click(); await wait(20);
+    assert(calls.at(-1) === 'sync' && document.querySelector('.epic-view__found') === null && rows().length === 4, 'Sync makes the children work and the strip goes');
+    const closedChild = row('Document the cache');
+    assert(closedChild.querySelector('.epic-row__upstream')?.textContent === 'GitHub: Closed', 'A child closed upstream says so');
+    assert(row('Expose metrics').querySelector('.epic-row__accept') === null, 'An open child offers no Accept');
+    element<HTMLButtonElement>('.epic-row__accept', closedChild).click(); await settle();
+    assert(calls.at(-1) === 'decide r ACCEPT Document the cache ACCEPTED_RESULT' && details.at(-1) === 'Closed on GitHub',
+      `Accepting a closed child settles it as an accepted result: ${calls.at(-1)} / ${details.at(-1)}`);
+
     // Unmarking an Epic with work asks first, naming what leaves and what goes.
     let unmarks = 0;
     const unmarked = (): number => unmarks;
@@ -193,7 +253,7 @@ export async function run(): Promise<boolean> {
     assert(unmarked() === 1 && document.querySelector('dialog.bq-confirm-dialog') === null, 'An Epic without work unmarks at once');
     button('Unmark the Epic').click(); await wait(20);
     const confirm = element<HTMLDialogElement>('dialog.bq-confirm-dialog');
-    assert(confirm.textContent?.includes('its 2 work items leave the Epic, and 1 that exist only there is deleted') === true, `Confirm says what goes: ${confirm.textContent}`);
+    assert(confirm.textContent?.includes('its 2 work items leave the Epic, and 1 that exists only there is deleted') === true, `Confirm says what goes: ${confirm.textContent}`);
     assert(unmarked() === 1, 'Nothing is unmarked before the user confirms');
     button('Unmark').click(); await settle();
     assert(unmarked() === 2, 'Confirming unmarks it');

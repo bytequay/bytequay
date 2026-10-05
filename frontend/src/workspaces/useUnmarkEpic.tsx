@@ -47,7 +47,7 @@ export function useUnmarkEpic(bridge: () => Pick<Bridge, 'listWorkItems'> = () =
         ? <p>Its Epic view goes with it. Work that exists only there is deleted; work in a Goal or with a task stays.</p>
         : <p>
           Its Epic view goes with it: {pending.leaving === 1 ? 'its work item leaves' : `its ${pending.leaving} work items leave`} the Epic
-          {pending.deleted > 0 && <>, and {pending.deleted === pending.leaving ? (pending.deleted === 1 ? 'it exists' : 'they exist') : `${pending.deleted} that exist`} only
+          {pending.deleted > 0 && <>, and {pending.deleted === pending.leaving ? (pending.deleted === 1 ? 'it exists' : 'they exist') : `${pending.deleted} that ${pending.deleted === 1 ? 'exists' : 'exist'}`} only
             there {pending.deleted === 1 ? 'is' : 'are'} deleted</>}. Work in a Goal or with a task stays.
         </p>}
     </ConfirmDialog>

@@ -13,10 +13,10 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowDown, ArrowUp, Circle, CircleCheck, CircleDotDashed, CircleSlash, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Circle, CircleCheck, CircleDotDashed, CircleSlash, ListTree, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill } from '../cards/Card';
-import type { GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
+import type { EpicChildDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
 import { openGoalItem } from '../goals/GoalLayer';
 import { Candidate, useCandidates } from '../goals/GoalPanel';
 import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../goals/model';
@@ -26,10 +26,24 @@ import { statusPill, type AttentionItem, type AttentionTone } from '../home/atte
 import { jiraIssueLocation } from '../jira/contracts';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import { EpicGlyph } from './EpicDrawer';
-import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic } from './epics';
+import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, useEpicRecord } from './epics';
 import '../css/epic-view.css';
 
 type Decision = Omit<WorkItemDecision, 'operationId' | 'expectedRevision'>;
+/** The Epic's child a row's work came from, as the source last reported it, or one the source no longer reports. */
+type Upstream = { child: EpicChildDto; former: boolean };
+
+const UPSTREAM: Record<EpicChildDto['kind'], string> = { ISSUE: 'GitHub', JIRA: 'Jira' };
+
+function upstreamOf(item: WorkItemDto, record: EpicRecordDto | null): Upstream | null {
+  if (record === null) return null;
+  const sources = new Set(item.links.map((link) => `${link.kind}:${link.key}`));
+  const matches = (child: EpicChildDto): boolean => sources.has(`${child.kind}:${child.key}`);
+  const child = record.children.find(matches);
+  if (child !== undefined) return { child, former: false };
+  const former = record.former.find(matches);
+  return former === undefined ? null : { child: former, former: true };
+}
 
 /**
  * One Epic's work over the page, the only place it is added, ordered and decided: quick add takes a title, Add existing finds an issue,
@@ -64,6 +78,9 @@ export default function EpicView({ epic, workspaceId, work, needsYou, goals, epi
   const own = goalRef(epic);
   const candidates = useCandidates({ items }, goals.search, adding);
   const found = candidates.results.filter((item) => own === null || refKey(item) !== refKey(own));
+  const children = useEpicRecord(workspaceId, epicId, epic.jira?.connectionId ?? null);
+  const record = children.record;
+  const unsynced = record === null ? [] : record.children.filter((child) => !record.synced.includes(child.identity));
 
   const run = (action: () => Promise<unknown>): Promise<void> => {
     setBusy(true);
@@ -121,13 +138,23 @@ export default function EpicView({ epic, workspaceId, work, needsYou, goals, epi
               {summary.dropped > 0 && <span className="is-muted">{summary.dropped} dropped</span>}
             </div>
           </div>
+          {record?.offered === true && (
+            <div className="epic-view__found">
+              <ListTree size={14} aria-hidden="true" />
+              <span className="epic-view__found-count" title={unsynced.map((child) => `${child.label} ${child.title}`).join('\n')}>
+                Found in {epic.jira ? 'Jira' : 'GitHub'} · {unsynced.length}
+              </span>
+              <button type="button" className="epic-view__sync" disabled={busy} onClick={() => { void run(children.sync); }}>Sync</button>
+              <button type="button" className="epic-view__link" disabled={busy} onClick={() => { void run(children.dismiss); }}>Not now</button>
+            </div>
+          )}
           {notice !== null && <div className="epic-view__notice" role="status">{notice}</div>}
           {error !== null && <div className="epic-view__error" role="alert">{error}</div>}
           {shown.length > 0 && (
             <div className="item-list" role="list" aria-label="Work">
               {shown.map((item) => (
                 <div role="listitem" key={item.id}>
-                  <WorkRow item={item} items={items} needsYou={needsYou} workspaceId={workspaceId} busy={busy} first={item === shown[0]}
+                  <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} first={item === shown[0]}
                     last={item === shown[shown.length - 1]} onOpenTask={onOpenTask} onDecide={(decision) => decide(item, decision)}
                     onMove={(offset) => move(item, offset)} onDrop={() => { setReason(''); setDropping(item); }}
                     onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
@@ -166,7 +193,8 @@ export default function EpicView({ epic, workspaceId, work, needsYou, goals, epi
               <div className="item-list" role="list" aria-label="Dropped work">
                 {dropped.map((item) => (
                   <div role="listitem" key={item.id}>
-                    <WorkRow item={item} items={items} needsYou={needsYou} workspaceId={workspaceId} busy={busy} first last onOpenTask={onOpenTask}
+                    <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} first last
+                      onOpenTask={onOpenTask}
                       onDecide={(decision) => decide(item, decision)} onMove={() => {}} onDrop={() => {}}
                       onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
                   </div>
@@ -207,9 +235,10 @@ export function workDetail(item: WorkItemDto, items: WorkItemDto[], needsYou: Re
 
 const STATE_WORDS: Record<WorkItemDto['state'], string> = { PLANNED: 'Planned', WORKING: 'Working', DONE: 'Done', DROPPED: 'Dropped' };
 
-function WorkRow({ item, items, needsYou, workspaceId, busy, first, last, onOpenTask, onDecide, onMove, onDrop, onRemove }: {
+function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, first, last, onOpenTask, onDecide, onMove, onDrop, onRemove }: {
   item: WorkItemDto;
   items: WorkItemDto[];
+  upstream: Upstream | null;
   needsYou: ReadonlySet<string>;
   workspaceId: string;
   busy: boolean;
@@ -226,7 +255,10 @@ function WorkRow({ item, items, needsYou, workspaceId, busy, first, last, onOpen
   const primary = source ?? item.links.find((link) => link.kind === 'TASK') ?? item.links.find((link) => link.kind === 'PULL_REQUEST');
   const mates = items.filter((other) => other.id !== item.id && other.state !== 'DROPPED' && !item.blockedBy.includes(other.id));
   const blockers = items.filter((other) => item.blockedBy.includes(other.id));
-  const words = [STATE_WORDS[item.state], detail?.text].filter((part) => part !== undefined).join(' · ');
+  const side = upstream === null ? undefined : upstream.former ? 'no longer a child' : `${UPSTREAM[upstream.child.kind]}: ${upstream.child.status}`;
+  // Closing upstream never makes work Done on its own; it offers the same one-click Accept a merged PR does.
+  const closed = upstream !== null && !upstream.former && upstream.child.closed && isOpen(item) && detail?.accept !== true ? upstream.child : null;
+  const words = [STATE_WORDS[item.state], detail?.text, side].filter((part) => part !== undefined).join(' · ');
   return (
     <ItemRow className={`epic-row is-${item.state.toLowerCase()}`} label={`${item.title}: ${words}`}
       onOpen={() => { if (primary !== undefined) openGoalItem(primary, workspaceId, onOpenTask); }}
@@ -236,6 +268,14 @@ function WorkRow({ item, items, needsYou, workspaceId, busy, first, last, onOpen
       meta={<>
         <span className="epic-row__state" title={words}>{STATE_WORDS[item.state]}</span>
         {detail !== null && <Pill tone={detail.tone} spinning={detail.spinning}>{detail.text}</Pill>}
+        {side !== undefined && <span className={`epic-row__upstream${upstream?.former === true ? ' is-former' : ''}`}>{side}</span>}
+        {closed !== null && (
+          <button type="button" className="epic-row__accept" disabled={busy} onClick={(event) => {
+            event.stopPropagation();
+            onDecide({ action: 'ACCEPT', detail: closed.kind === 'JIRA' ? `Closed in Jira as ${closed.status}` : 'Closed on GitHub', completionRule: 'ACCEPTED_RESULT',
+              acceptanceCriteria: item.acceptanceCriteria.trim() === '' ? item.title : undefined });
+          }}>Accept</button>
+        )}
         {detail?.accept === true && (
           <button type="button" className="epic-row__accept" disabled={busy} onClick={(event) => {
             event.stopPropagation();

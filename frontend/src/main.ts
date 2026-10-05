@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseEpicJoin, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseEpicJoin, parseEpicRecord, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1871,6 +1871,16 @@ function registerIpc(): void {
     backendJson(workItemsUrl(workspaceId, '/epic-order'), jsonInit('PUT', { epicId, ids })).then(items => parseList(items, parseWorkItem, 'work items')));
   ipcMain.handle('work-items:join-epic', (_event, workspaceId: string, epicId: string, kind: GoalItemKind, key: string) =>
     backendJson(workItemsUrl(workspaceId, '/epic'), jsonInit('POST', { epicId, kind, key })).then(parseEpicJoin));
+  const epicsUrl = (workspaceId: string, suffix = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/epics${suffix}`;
+  ipcMain.handle('epics:get', (_event, workspaceId: string, epicId: string) =>
+    backendJson(epicsUrl(workspaceId, `?epicId=${encodeURIComponent(epicId)}`)).then(parseEpicRecord));
+  // Reading a Jira Epic's children refreshes its ticket detail, which can take a while.
+  ipcMain.handle('epics:children', (_event, workspaceId: string, epicId: string, connectionId: string | null) =>
+    backendJson(epicsUrl(workspaceId, '/children'), { ...jsonInit('POST', { epicId, connectionId }), signal: AbortSignal.timeout(120_000) }).then(parseEpicRecord));
+  ipcMain.handle('epics:sync', (_event, workspaceId: string, epicId: string) =>
+    backendJson(epicsUrl(workspaceId, '/sync'), jsonInit('POST', { epicId })).then(parseEpicRecord));
+  ipcMain.handle('epics:dismiss', (_event, workspaceId: string, epicId: string) =>
+    backendJson(epicsUrl(workspaceId, '/dismiss'), jsonInit('POST', { epicId })).then(parseEpicRecord));
   ipcMain.handle('work-items:leave-epic', (_event, workspaceId: string, itemId: string) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/epic`), { method: 'DELETE' })
       .then(value => { const item = (value as { item?: unknown } | null)?.item; return item == null ? null : parseWorkItem(item); }));

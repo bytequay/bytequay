@@ -14,7 +14,7 @@
 
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
-import type { CreateWorkItem, EpicJoinDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
+import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
 import { AgentEventEnvelope } from './agents/events';
 import type { AskCommentDiscussionRequest, AskDiscussionRequest, DiscussionQuery, DraftDiscussionReplyRequest, OpenDiscussionRequest, ResolveDiscussionRequest, RetryDiscussionRequest, TaskDiscussionDto } from './agents/discussions/contracts';
 import type { CreateDevelopmentLearningCommentRequest, CreateLocalReviewRequest, LocalReviewQuery, ReplyLocalReviewRequest, ResolveLocalReviewRequest, RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1490,6 +1490,14 @@ export type Bridge = JiraBridge & {
   joinEpic: (workspaceId: string, epicId: string, kind: GoalItemKind, key: string) => Promise<EpicJoinDto>;
   /** Takes work out of its Epic; null when the work existed only for the Epic and was deleted. */
   removeFromEpic: (workspaceId: string, itemId: string) => Promise<WorkItemDto | null>;
+  /** An Epic's children as last read, a local read. */
+  getEpic: (workspaceId: string, epicId: string) => Promise<EpicRecordDto>;
+  /** Reads an Epic's children from its source; a Jira Epic needs the connection that shows it. */
+  refreshEpicChildren: (workspaceId: string, epicId: string, connectionId: string | null) => Promise<EpicRecordDto>;
+  /** Makes every unsynced child work of the Epic. */
+  syncEpicChildren: (workspaceId: string, epicId: string) => Promise<EpicRecordDto>;
+  /** Not now: hides the children unsynced now until another one appears. */
+  dismissEpicChildren: (workspaceId: string, epicId: string) => Promise<EpicRecordDto>;
   listGoals: (workspaceId: string) => Promise<GoalDto[]>;
   createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
   updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;

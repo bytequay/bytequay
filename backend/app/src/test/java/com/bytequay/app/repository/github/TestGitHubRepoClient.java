@@ -433,6 +433,24 @@ class TestGitHubRepoClient
         fixture.server().verify();
     }
 
+    @Test
+    void readsSubIssuesOfEveryRepositoryTheyLiveIn()
+    {
+        Fixture fixture = fixture();
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues/7/sub_issues?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":71,"number":8,"title":"Parse","state":"open","html_url":"https://github.com/owner/repo/issues/8",
+                          "repository_url":"https://api.github.test/repos/owner/repo"},
+                         {"id":72,"number":3,"title":"Docs","state":"closed","repository_url":"https://api.github.test/repos/other/docs"},
+                         {"id":73,"number":4,"title":null,"state":"open"}]
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchSubIssues("pat", REPOSITORY, 7)).containsExactly(
+                new GitHubRepoClient.SubIssue(71, 8, "Parse", false, Optional.of("https://github.com/owner/repo/issues/8"), REPOSITORY),
+                new GitHubRepoClient.SubIssue(72, 3, "Docs", true, Optional.empty(), RepoRef.of("other", "docs")));
+        fixture.server().verify();
+    }
+
     private static Fixture fixture()
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");

@@ -1,0 +1,139 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.epic;
+
+import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.app.jira.JiraDtos;
+import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.core.domain.EpicChild;
+import com.bytequay.core.domain.GoalItem;
+import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.IssueEpic;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.WorkItemLink;
+import com.bytequay.core.store.IssueDevelopmentStore;
+import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.MockMakers;
+import org.springframework.beans.factory.ObjectProvider;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
+
+class TestEpicService
+{
+    private static final Instant NOW = Instant.EPOCH;
+    private static final String EPIC = "ISSUE:github.com:1";
+    private static final String JIRA_EPIC = "JIRA:5:cloud:10";
+    private static final RepoRef REPOSITORY = RepoRef.of("org", "repo");
+
+    private final InMemoryEpicStore records = new InMemoryEpicStore();
+    private final EpicSources sources = mock(EpicSources.class);
+    private final WorkItemService work = mock(WorkItemService.class);
+    private final IssueDevelopmentStore markers = mock(IssueDevelopmentStore.class);
+    private final GitHubRepoClient github = mock(GitHubRepoClient.class);
+    private final CredentialService credentials = mock(CredentialService.class);
+    private final JiraService jira = mock(JiraService.class);
+    @SuppressWarnings("unchecked")
+    private final ObjectProvider<JiraService> tickets = mock(ObjectProvider.class);
+    private final AgentUnitOfWork transactions = new AgentUnitOfWork()
+    {
+        @Override
+        public <T> T execute(Work<T> work)
+        {
+            return work.run();
+        }
+    };
+    private final EpicService service = new EpicService(records, sources, work, markers, github, credentials, tickets, transactions, Clock.fixed(NOW, ZoneOffset.UTC));
+
+    @BeforeEach
+    void setUp()
+    {
+        when(markers.findEpic("github.com", 1)).thenReturn(Optional.of(new IssueEpic("github.com", 1, "org/repo", 7, true, NOW)));
+        when(credentials.resolveGitHubToken()).thenReturn("pat");
+        when(tickets.getObject()).thenReturn(jira);
+    }
+
+    @Test
+    void subIssuesJoinOnlyOnSyncOnceAndOneRemovedUpstreamIsNoLongerAChild()
+    {
+        GitHubRepoClient.SubIssue parse = new GitHubRepoClient.SubIssue(81, 8, "Parse", false, Optional.of("https://github.com/org/repo/issues/8"), REPOSITORY);
+        GitHubRepoClient.SubIssue docs = new GitHubRepoClient.SubIssue(82, 3, "Docs", true, Optional.empty(), RepoRef.of("Other", "Docs"));
+        when(github.fetchSubIssues("pat", REPOSITORY, 7)).thenReturn(ImmutableList.of(parse, docs));
+        assertThat(service.view("workspace", EPIC).offered()).as("nothing read yet").isFalse();
+
+        EpicView read = service.refreshChildren("workspace", EPIC, Optional.empty());
+        assertThat(read.children()).extracting(EpicChild::identity, EpicChild::key, EpicChild::label, EpicChild::status, EpicChild::closed).containsExactly(
+                tuple("ISSUE:github.com:81", "org/repo#8", "#8", "Open", false),
+                tuple("ISSUE:github.com:82", "other/docs#3", "Other/Docs#3", "Closed", true));
+        assertThat(read.childrenReadAt()).contains(NOW);
+        assertThat(read.offered()).isTrue();
+        verify(work, never()).joinEpic(anyString(), anyString(), any(WorkItemLink.class));
+
+        EpicView synced = service.sync("workspace", EPIC);
+        verify(work).joinEpic("workspace", EPIC, new WorkItemLink("ISSUE:github.com:81", new GoalItem(GoalItemKind.ISSUE, "org/repo#8", "#8", "Parse", NOW)));
+        verify(work).joinEpic("workspace", EPIC, new WorkItemLink("ISSUE:github.com:82", new GoalItem(GoalItemKind.ISSUE, "other/docs#3", "Other/Docs#3", "Docs", NOW)));
+        assertThat(synced.synced()).containsExactly("ISSUE:github.com:81", "ISSUE:github.com:82");
+        assertThat(synced.offered()).isFalse();
+        assertThat(service.sync("workspace", EPIC)).as("syncing again changes nothing").isEqualTo(synced);
+
+        GitHubRepoClient.SubIssue later = new GitHubRepoClient.SubIssue(83, 9, "Ship", false, Optional.empty(), REPOSITORY);
+        when(github.fetchSubIssues("pat", REPOSITORY, 7)).thenReturn(ImmutableList.of(docs, later));
+        EpicView changed = service.refreshChildren("workspace", EPIC, Optional.empty());
+        assertThat(changed.former()).extracting(EpicChild::identity).containsExactly("ISSUE:github.com:81");
+        assertThat(changed.synced()).as("its work stays").contains("ISSUE:github.com:81");
+        assertThat(changed.offered()).as("a child found later offers syncing again").isTrue();
+
+        assertThat(service.dismiss("workspace", EPIC).offered()).isFalse();
+        assertThat(service.refreshChildren("workspace", EPIC, Optional.empty()).offered()).as("Not now lasts while the children stay the same").isFalse();
+        when(github.fetchSubIssues("pat", REPOSITORY, 7)).thenReturn(ImmutableList.of(docs, later, new GitHubRepoClient.SubIssue(84, 10, "Tune", false, Optional.empty(),
+                REPOSITORY)));
+        assertThat(service.refreshChildren("workspace", EPIC, Optional.empty()).offered()).isTrue();
+    }
+
+    @Test
+    void aJiraEpicsChildTicketsAreReadThroughTheConnectionThatShowsIt()
+    {
+        JiraDtos.Detail detail = mock(JiraDtos.Detail.class, withSettings().mockMaker(MockMakers.INLINE));
+        when(detail.children()).thenReturn(ImmutableList.of(
+                new JiraDtos.RelatedIssue("11", "ENG-11", "Docs", "Story", new JiraDtos.Status("3", "In Progress", "indeterminate"), Optional.empty(), Optional.empty()),
+                new JiraDtos.RelatedIssue("12", "ENG-12", "Ship", "Task", new JiraDtos.Status("4", "Done", "done"), Optional.empty(), Optional.empty())));
+        when(detail.childrenTruncated()).thenReturn(true);
+        when(jira.refreshDetail("connection", "cloud", "10", false)).thenReturn(detail);
+
+        EpicView read = service.refreshChildren("workspace", JIRA_EPIC, Optional.of("connection"));
+        assertThat(read.children()).extracting(EpicChild::identity, EpicChild::key, EpicChild::label, EpicChild::status, EpicChild::closed).containsExactly(
+                tuple("JIRA:5:cloud:11", "connection:cloud:11", "ENG-11", "In Progress", false),
+                tuple("JIRA:5:cloud:12", "connection:cloud:12", "ENG-12", "Done", true));
+        assertThat(read.childrenTruncated()).isTrue();
+        assertThatThrownBy(() -> service.refreshChildren("workspace", JIRA_EPIC, Optional.empty())).hasMessageContaining("connection is required");
+    }
+}

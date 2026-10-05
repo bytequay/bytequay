@@ -418,6 +418,20 @@ export type WorkItemDto = {
 export type CreateWorkItem = Pick<WorkItemDto, 'id' | 'goalId' | 'title' | 'kind' | 'acceptanceCriteria' | 'completionRule' | 'epicId'>;
 /** Work an Epic took in, and the other Epic it left, if any. */
 export type EpicJoinDto = { item: WorkItemDto; movedFrom: string | null };
+/** A GitHub sub-issue or Jira child ticket an Epic's source reports, as ByteQuay last read it. */
+export type EpicChildDto = { identity: string; kind: 'ISSUE' | 'JIRA'; key: string; label: string; title: string; status: string; closed: boolean; url: string | null };
+/** An Epic's children: which were synced into work, which the source dropped since, and whether to offer syncing. */
+export type EpicRecordDto = {
+  id: string;
+  children: EpicChildDto[];
+  /** The identities of the children synced into work. */
+  synced: string[];
+  /** Synced children the source no longer reports. */
+  former: EpicChildDto[];
+  childrenReadAt: string | null;
+  childrenTruncated: boolean;
+  offered: boolean;
+};
 export type WorkItemDecision = {
   operationId: string;
   expectedRevision: number;
@@ -459,6 +473,33 @@ export function parseWorkItem(value: unknown): WorkItemDto {
     rank: item.rank as number,
     blockedBy: parseList(item.blockedBy, (value) => text(value, 'work item blocker'), 'work item blockers'),
     ...(item.epicId == null ? {} : { epicId: text(item.epicId, 'work item Epic'), epicRank: Number.isSafeInteger(item.epicRank) ? item.epicRank as number : 0 }),
+  };
+}
+
+function parseEpicChild(value: unknown): EpicChildDto {
+  const child = object(value, 'Epic child');
+  return {
+    identity: text(child.identity, 'Epic child identity'),
+    kind: oneOf(child.kind, ['ISSUE', 'JIRA'] as const, 'Epic child kind'),
+    key: text(child.key, 'Epic child key'),
+    label: text(child.label, 'Epic child label'),
+    title: typeof child.title === 'string' ? child.title : '',
+    status: typeof child.status === 'string' ? child.status : '',
+    closed: child.closed === true,
+    url: optionalText(child.url),
+  };
+}
+
+export function parseEpicRecord(value: unknown): EpicRecordDto {
+  const record = object(value, 'Epic');
+  return {
+    id: text(record.id, 'Epic id'),
+    children: parseList(record.children, parseEpicChild, 'Epic children'),
+    synced: parseList(record.synced, (identity) => text(identity, 'synced child'), 'synced children'),
+    former: parseList(record.former, parseEpicChild, 'former Epic children'),
+    childrenReadAt: optionalText(record.childrenReadAt),
+    childrenTruncated: record.childrenTruncated === true,
+    offered: record.offered === true,
   };
 }
 

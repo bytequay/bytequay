@@ -20,6 +20,7 @@ import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemEvent;
 import com.bytequay.core.domain.WorkItemLink;
+import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.GoalStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -61,18 +62,20 @@ public class WorkItemService
     private final WorkspaceStore workspaces;
     private final GoalReferenceReader references;
     private final EpicSources epics;
+    private final EpicStore epicRecords;
     private final AgentUnitOfWork unitOfWork;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     public WorkItemService(WorkItemStore items, GoalStore goals, WorkspaceStore workspaces, GoalReferenceReader references, EpicSources epics,
-            AgentUnitOfWork unitOfWork, ApplicationEventPublisher events, Clock clock)
+            EpicStore epicRecords, AgentUnitOfWork unitOfWork, ApplicationEventPublisher events, Clock clock)
     {
         this.items = requireNonNull(items, "items is null");
         this.goals = requireNonNull(goals, "goals is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.references = requireNonNull(references, "references is null");
         this.epics = requireNonNull(epics, "epics is null");
+        this.epicRecords = requireNonNull(epicRecords, "epicRecords is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -530,6 +533,17 @@ public class WorkItemService
         });
     }
 
+    /** Puts a child the Epic's source reported in the Epic: the work that already owns it joins, or new work takes its title. */
+    public WorkItemView joinEpic(String workspaceId, String epicId, WorkItemLink child)
+    {
+        epics.require(workspaceId, epicId);
+        return unitOfWork.execute(() -> {
+            WorkItem item = findOwner(workspaceId, ImmutableList.of(child)).orElseGet(() -> newLinked(workspaceId, child));
+            requireItemWorkspace(item, workspaceId);
+            return view(saveLinks(item, item.goalId(), Optional.of(epicId), ImmutableList.of(child), "Synced from the Epic's children"));
+        });
+    }
+
     /** Saves the order the user gave an Epic's work, which names each of its items once. */
     public List<WorkItemView> orderEpic(String workspaceId, String epicId, List<String> ids)
     {
@@ -572,12 +586,13 @@ public class WorkItemService
         });
     }
 
-    /** Removes an unmarked Epic's work the same way, in one transaction with the unmarking. */
+    /** Removes an unmarked Epic's work the same way, and its record of children, in one transaction with the unmarking. */
     public void releaseEpic(String workspaceId, String epicId)
     {
         unitOfWork.execute(() -> {
             release(workspaceId, items.list(workspaceId).stream().filter(item -> item.epicId().filter(epicId::equals).isPresent()).collect(toImmutableList()),
                     "Left its Epic, which was unmarked; work and history retained");
+            epicRecords.delete(epicId);
             return null;
         });
     }

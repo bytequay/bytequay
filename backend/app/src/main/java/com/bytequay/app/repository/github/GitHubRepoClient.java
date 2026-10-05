@@ -178,6 +178,29 @@ public class GitHubRepoClient
         return new IssuePage(issues, response.size() == GitHubPaginator.PAGE_SIZE);
     }
 
+    /** The sub-issues GitHub lists under an issue, open and closed; they may live in other repositories. */
+    public List<SubIssue> fetchSubIssues(String pat, RepoRef repo, int issueNumber)
+    {
+        checkArgument(issueNumber > 0, "issueNumber must be positive");
+        return paginator.paginate(pat, "/repos/{owner}/{repo}/issues/{number}/sub_issues", new ParameterizedTypeReference<List<SubIssueResponse>>() {},
+                        repo.owner(), repo.repo(), issueNumber).stream()
+                .filter(value -> value.id() > 0 && value.number() > 0 && value.title() != null)
+                .map(value -> new SubIssue(value.id(), value.number(), value.title(), "closed".equals(value.state()), Optional.ofNullable(value.htmlUrl()),
+                        repository(value.repositoryUrl()).orElse(repo)))
+                .collect(toImmutableList());
+    }
+
+    /** The repository a {@code repository_url} names, the last two segments of its path. */
+    private static Optional<RepoRef> repository(String url)
+    {
+        if (url == null) {
+            return Optional.empty();
+        }
+        String[] parts = url.split("/");
+        return parts.length < 2 || parts[parts.length - 1].isBlank() || parts[parts.length - 2].isBlank() ? Optional.empty()
+                : Optional.of(RepoRef.of(parts[parts.length - 2], parts[parts.length - 1]));
+    }
+
     /** One card read for a notification; closed issues are removed from the open projection. */
     public Optional<RepositoryIssue> fetchIssue(String pat, RepoRef repo, int issueNumber)
     {
@@ -412,6 +435,21 @@ public class GitHubRepoClient
             languages = ImmutableMap.copyOf(requireNonNull(languages, "languages is null"));
         }
     }
+
+    /** A sub-issue by its stable id, number and repository. */
+    public record SubIssue(long id, int number, String title, boolean closed, Optional<String> url, RepoRef repository)
+    {
+        public SubIssue
+        {
+            requireNonNull(title, "title is null");
+            requireNonNull(url, "url is null");
+            requireNonNull(repository, "repository is null");
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record SubIssueResponse(long id, int number, String title, String state, @JsonProperty("html_url") String htmlUrl,
+            @JsonProperty("repository_url") String repositoryUrl) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record LabelResponse(long id, String name, String color) {}

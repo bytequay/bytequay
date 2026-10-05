@@ -37,6 +37,7 @@
 
 .epic-view__source,
 .epic-view__link,
+.epic-view__sync,
 .epic-row__accept {
   display: inline-flex;
   flex: none;
@@ -104,6 +105,37 @@
   color: #8c959f;
 }
 
+/* Children the source reports that are not the Epic's work yet; nothing joins before Sync. */
+.epic-view__found {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 6px 12px;
+  border-radius: 10px;
+  background: #f6f8fa;
+  color: #57606a;
+  font-size: 12.5px;
+}
+
+.epic-view__found-count {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-1);
+}
+
+.epic-view__sync {
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid #d0d7de;
+  background: #ffffff;
+  color: var(--text-1);
+  font-size: 12px;
+}
+
+.epic-view__sync:hover:not(:disabled) {
+  background: #f3f4f6;
+}
+
 .epic-view__notice {
   color: #57606a;
   font-size: 12px;
@@ -137,6 +169,15 @@
 
 .epic-row__state {
   color: #57606a;
+}
+
+.epic-row__upstream {
+  color: #57606a;
+  white-space: nowrap;
+}
+
+.epic-row__upstream.is-former {
+  color: #9a6700;
 }
 
 .epic-row__accept {
@@ -217,7 +258,7 @@
   margin-top: 8px;
 }
 
-:is(.epic-view__source, .epic-view__link, .epic-row__accept, .epic-row__wait, .epic-view__dropped > summary):focus-visible {
+:is(.epic-view__source, .epic-view__link, .epic-view__sync, .epic-row__accept, .epic-row__wait, .epic-view__dropped > summary):focus-visible {
   outline: 2px solid var(--control-strong);
   outline-offset: 1px;
 }

@@ -1008,6 +1008,8 @@ button.goal-tile:hover {
 .goal-thread__agent.is-pending { display: flex; align-items: baseline; gap: 6px; color: #57606a; }
 .goal-thread__agent.is-failed { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; color: #cf222e; }
 .goal-thread__question { color: var(--text-1); }
+.goal-thread__coverage { display: flex; gap: 10px; font-size: 11px; line-height: 16px; color: #8c959f; }
+.goal-thread__coverage > span { display: inline-flex; align-items: center; gap: 3px; }
 .goal-definition { display: grid; grid-template-columns: max-content 1fr; gap: 4px 10px; margin: 0; font-size: 12.5px; line-height: 18px; }
 .goal-definition dt { color: #57606a; }
 .goal-definition dd { margin: 0; overflow-wrap: anywhere; }

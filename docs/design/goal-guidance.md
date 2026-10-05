@@ -101,6 +101,12 @@ lesson twenty; a pending reply shows how long the agent has worked, and Stop
 cancels the model's turn and leaves the message to ask again, its late answer
 never saved.
 
+The agent sees every saved note by its topic and reads the six nearest its
+message in full; a lesson reads them all. Under each answer, small counts say
+what it read: the notes in full out of all saved notes, the user's questions
+from private cards and the practice candidates out of the open issues, with the
+same in words on hover.
+
 Once a definition is accepted, ByteQuay tells the agent, and its answer may
 recommend a research card: a scope and up to eight https pages. The Goal
 control shows one count, the work needing the user and the decisions waiting

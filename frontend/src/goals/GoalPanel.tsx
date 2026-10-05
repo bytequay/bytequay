@@ -13,13 +13,13 @@
  */
 
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Ban, ChevronDown, Maximize2, MessageCircle, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
+import { Ban, ChevronDown, FileText, Maximize2, MessageCircle, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
 import MarkdownBody, { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import type {
-  GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
+  GoalCourseDraftDto, GoalCoverageDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
   CreateWorkItem, CompletionRule, WorkItemKind, WorkItemPriority,
 } from './contracts';
 import {
@@ -393,6 +393,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
                 <p><GoalText>{exchange.reply.assessment}</GoalText></p>
                 {/* The question on screen is asked above the reply field. */}
                 {exchange.reply.question !== null && exchange !== last && <p className="goal-thread__question"><GoalText>{exchange.reply.question.text}</GoalText></p>}
+                {exchange.coverage && <AnswerCoverage coverage={exchange.coverage} />}
               </div>}
             </li>)}
           </ol>
@@ -500,6 +501,23 @@ function Started({ goal, card, research, onOpenTask, onLesson, onStartIssue, onS
           if (card.card.issue !== null) onStartIssue(card.card.issue, preparedRequest(goal, work ?? null, card.card));
           else if (card.card.ticket !== null) onStartTicket(card.card.ticket, preparedRequest(goal, work ?? null, card.card));
         }}>Open the composer</button>)}
+    </div>
+  );
+}
+
+/** What an answer rested on, as counts, said in words on hover; a count of zero shows nothing. */
+function AnswerCoverage({ coverage }: { coverage: GoalCoverageDto }): React.JSX.Element | null {
+  const notes = coverage.notesInFull + coverage.notesByTopic;
+  const read = [notes === 0 ? null : `${coverage.notesInFull} of ${notes} notes in full${coverage.notesByTopic === 0 ? '' : ' and the rest by topic'}`,
+    coverage.questions === 0 ? null : `${coverage.questions} of your questions`,
+    coverage.candidates === 0 ? null : `${coverage.candidates} practice candidates from ${coverage.issuesOpen} open issues`].filter((part) => part !== null);
+  if (read.length === 0) return null;
+  const said = `This answer read ${read.join('; ')}.`;
+  return (
+    <div className="goal-thread__coverage" role="note" aria-label={said} title={said}>
+      {notes > 0 && <span aria-hidden="true"><FileText size={12} />{coverage.notesInFull}/{notes}</span>}
+      {coverage.questions > 0 && <span aria-hidden="true"><MessageCircle size={12} />{coverage.questions}</span>}
+      {coverage.candidates > 0 && <span aria-hidden="true"><Search size={12} />{coverage.candidates}</span>}
     </div>
   );
 }

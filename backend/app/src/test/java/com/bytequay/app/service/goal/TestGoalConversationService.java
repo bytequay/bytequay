@@ -1000,6 +1000,18 @@ class TestGoalConversationService
     }
 
     @Test
+    void anAnswerIsSavedWithWhatItsPromptHeld()
+    {
+        GoalView goal = goals.create("workspace", "Delta Lake", "");
+        service.ask("workspace", goal.id(), "op-1", "Where do I start?");
+        doReturn(named("Delta Lake checkpoints")).when(planner).answer(any(), any(), anyList(), any());
+        GoalExchange.Coverage coverage = new GoalExchange.Coverage(6, 14, 3, 100, 512);
+        when(planner.coverage("op-1")).thenReturn(Optional.of(coverage));
+        queued.removeFirst().run();
+        assertThat(exchanges.list(goal.id()).getFirst().coverage()).contains(coverage);
+    }
+
+    @Test
     void aPlanChangeCanGiveOpenWorkNewCriteria()
     {
         GoalView goal = goals.create("workspace", "Delta Lake", "");

@@ -836,7 +836,7 @@ public class GoalConversationService
             AgentModelSetting setting = models.goalModel(goal.id(), exchange.workspaceId());
             model = Optional.of(setting.configId() + "/" + setting.model());
             List<GoalExchange> earlier = exchanges.list(goal.id()).stream().takeWhile(candidate -> !candidate.id().equals(exchange.id())).collect(toImmutableList());
-            settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange), clock.instant());
+            settled = exchange.answered(model.orElseThrow(), planner.answer(setting, goal, earlier, exchange), clock.instant()).covering(planner.coverage(exchange.id()));
             // Invalid output leaves the accepted course and the plan intact and the message to ask again.
             Optional<GoalExchange.Reply> reply = settled.reply();
             Optional<String> invalid = reply.flatMap(GoalExchange.Reply::course).flatMap(course -> invalidRevision(goal, course))

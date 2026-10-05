@@ -47,7 +47,8 @@ public record GoalExchange(
         Optional<Reply> reply,
         Optional<String> failure,
         Instant askedAt,
-        Optional<Instant> answeredAt)
+        Optional<Instant> answeredAt,
+        Optional<GoalExchange.Coverage> coverage)
 {
     public static final int MAX_MESSAGE = 4_000;
     public static final int MAX_FIELD = 2_000;
@@ -76,43 +77,62 @@ public record GoalExchange(
         checkArgument(reply.isPresent() == (state == State.ANSWERED), "only an answered exchange has a reply");
         checkArgument(failure.isPresent() == (state == State.FAILED), "only a failed exchange has a failure");
         checkArgument(answeredAt.isPresent() == (state != State.PENDING), "only a settled exchange has an answer time");
+        requireNonNull(coverage, "coverage is null");
     }
 
     public static GoalExchange ask(String id, String goalId, String workspaceId, String message, long inputRevision, Instant at)
     {
         return new GoalExchange(id, goalId, workspaceId, message, false, Optional.empty(), inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
-                Optional.empty());
+                Optional.empty(), Optional.empty());
     }
 
     /** Reports an event to the agent, which answers it like a message. */
     public static GoalExchange told(String id, String goalId, String workspaceId, String event, long inputRevision, Instant at)
     {
         return new GoalExchange(id, goalId, workspaceId, event, true, Optional.empty(), inputRevision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), at,
-                Optional.empty());
+                Optional.empty(), Optional.empty());
     }
 
     public GoalExchange answered(String answeredBy, Reply answer, Instant at)
     {
         return new GoalExchange(id, goalId, workspaceId, message, automatic, lessonId, inputRevision, State.ANSWERED, Optional.of(answeredBy), Optional.of(answer),
-                Optional.empty(), askedAt, Optional.of(at));
+                Optional.empty(), askedAt, Optional.of(at), Optional.empty());
+    }
+
+    /** The answer with what it rested on. */
+    public GoalExchange covering(Optional<Coverage> value)
+    {
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, lessonId, inputRevision, state, model, reply, failure, askedAt, answeredAt, value);
     }
 
     public GoalExchange failed(Optional<String> triedBy, String reason, Instant at)
     {
         return new GoalExchange(id, goalId, workspaceId, message, automatic, lessonId, inputRevision, State.FAILED, triedBy, Optional.empty(), Optional.of(reason), askedAt,
-                Optional.of(at));
+                Optional.of(at), Optional.empty());
     }
 
     public GoalExchange about(Optional<String> lesson)
     {
-        return new GoalExchange(id, goalId, workspaceId, message, automatic, lesson, inputRevision, state, model, reply, failure, askedAt, answeredAt);
+        return new GoalExchange(id, goalId, workspaceId, message, automatic, lesson, inputRevision, state, model, reply, failure, askedAt, answeredAt, coverage);
     }
 
     /** Asks again, built from the goal as it now stands. */
     public GoalExchange retried(long revision)
     {
         return new GoalExchange(id, goalId, workspaceId, message, automatic, lessonId, revision, State.PENDING, Optional.empty(), Optional.empty(), Optional.empty(), askedAt,
-                Optional.empty());
+                Optional.empty(), Optional.empty());
+    }
+
+    /**
+     * What an answer rested on: the knowledge notes it read in full and those it saw by topic only, the user's questions from private cards,
+     * and the practice candidates it was offered out of the open issues.
+     */
+    public record Coverage(int notesInFull, int notesByTopic, int questions, int candidates, long issuesOpen)
+    {
+        public Coverage
+        {
+            checkArgument(notesInFull >= 0 && notesByTopic >= 0 && questions >= 0 && candidates >= 0 && issuesOpen >= 0, "an answer's coverage is not negative");
+        }
     }
 
     /**

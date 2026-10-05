@@ -827,6 +827,24 @@ Progress: the twenty-third slice is complete.
 Done when: an issue the Goal offers as practice shows once, as the Goal's card,
 and a pull request waiting for the user's review still shows on its own.
 
+## Twenty-fourth implementation slice
+
+What the agent reads: the live check showed the agent seeing notes by topic
+only, so its course and cards rested on titles.
+
+1. The nearest notes in full. The agent sees every saved note by its topic and
+   reads the six that share the most words with its message in full, then those
+   nearest the Goal, then the newest; a lesson still reads them all.
+2. Each answer keeps what it rested on. The notes in full out of all notes, the
+   user's questions from private cards and the practice candidates out of the
+   open issues are saved with the answer and shown under it as counts, with the
+   words on hover.
+
+Progress: the twenty-fourth slice is complete.
+
+Done when: an answer about a topic the notes cover reads those notes in full,
+and the Guide view says what each answer read.
+
 The following steps retain the full identity, source, recovery and verification
 requirements.
 
@@ -887,7 +905,7 @@ work-item and Goal window Chromium journeys, and desktop packaging passed.
 
 ## Step 3 Add the Goal conversation and proposals
 
-- [ ] Add durable Goal exchanges and versioned proposals beside the existing Goal
+- [x] Add durable Goal exchanges and versioned proposals beside the existing Goal
   records. Save user input, objective, constraints, acceptance decisions and
   response coverage; no task transcript is used as the Goal's database.
 - [x] Add a bounded Goal planner in `app` using the existing provider SPI and
@@ -928,7 +946,7 @@ never stack or repeat a dismissed one, course acceptance), `TestTextOnlyHelper`,
 `TestModelSettingsService` for the Goal's own model, the Codex and Claude driver
 text-only session tests, `TestGoalPlanner` and the `goalGuideBrowser` and
 `goalWindowBrowser` journeys, and for validation the plan-change tests in
-`TestGoalConversationService`. Still partial: response coverage is not saved.
+`TestGoalConversationService`, which also keeps each answer's coverage.
 
 Done when: opening an empty Goal or one named “Iceberg connector expertise” offers
 useful directions; a suggested answer can lead to a saved goal definition and

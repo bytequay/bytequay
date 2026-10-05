@@ -365,6 +365,13 @@ describe('goal guidance', () => {
     const stale = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, notes: [{ ...NOTE, stale: true }], exchanges: [ASKED] } });
     expect(stale).toContain('Manifest lists<span class="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>');
     // A note citing a specification page can be remembered, and then names the memory it became; one citing only code cannot.
+    // Each answer says what it read, in counts with the words on hover; an older answer without a record says nothing.
+    const covered = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, exchanges: [{ ...ASKED,
+      coverage: { notesInFull: 6, notesByTopic: 14, questions: 0, candidates: 100, issuesOpen: 512 } }] } });
+    expect(covered).toContain('title="This answer read 6 of 20 notes in full and the rest by topic; 100 practice candidates from 512 open issues."');
+    expect(covered).toContain('6/20');
+    expect(panel({ view: 'guide', conversation: { ...NO_CONVERSATION, exchanges: [ASKED] } })).not.toContain('goal-thread__coverage');
+    expect(parseGoalExchange({ ...ASKED, coverage: { notesInFull: 6, notesByTopic: 14, questions: 3, candidates: 100, issuesOpen: 512 } }).coverage?.questions).toBe(3);
     const remembering = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, rememberNote: async () => {}, exchanges: [ASKED],
       notes: [NOTE, { ...NOTE, id: 'note-2', topic: 'Split planning', sources: [NOTE.sources[1]] }, { ...NOTE, id: 'note-3', topic: 'Snapshots', memoryId: 'm7' }] } });
     expect(remembering.split('>Remember</button>')).toHaveLength(2);

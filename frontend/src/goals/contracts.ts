@@ -407,7 +407,12 @@ export type GoalExchangeDto = {
   } | null;
   failure: string | null;
   askedAt: string;
+  /** What the answer rested on; older answers lack it. */
+  coverage?: GoalCoverageDto | null;
 };
+
+/** What an answer rested on: notes read in full and by topic only, the user's questions, and the practice candidates out of the open issues. */
+export type GoalCoverageDto = { notesInFull: number; notesByTopic: number; questions: number; candidates: number; issuesOpen: number };
 
 export function parseGoalExchange(value: unknown): GoalExchangeDto {
   const exchange = object(value, 'goal exchange');
@@ -453,6 +458,18 @@ export function parseGoalExchange(value: unknown): GoalExchangeDto {
     },
     failure: optionalText(exchange.failure),
     askedAt: text(exchange.askedAt, 'goal exchange time'),
+    ...(exchange.coverage === null || exchange.coverage === undefined ? {} : { coverage: parseCoverage(exchange.coverage) }),
+  };
+}
+
+function parseCoverage(value: unknown): GoalCoverageDto {
+  const coverage = object(value, 'goal coverage');
+  return {
+    notesInFull: revision(coverage.notesInFull, 'goal coverage notes'),
+    notesByTopic: revision(coverage.notesByTopic, 'goal coverage topics'),
+    questions: revision(coverage.questions, 'goal coverage questions'),
+    candidates: revision(coverage.candidates, 'goal coverage candidates'),
+    issuesOpen: revision(coverage.issuesOpen, 'goal coverage issues'),
   };
 }
 

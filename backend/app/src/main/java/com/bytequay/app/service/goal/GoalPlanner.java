@@ -40,11 +40,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.Duration;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -52,6 +55,7 @@ import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Comparator.comparingLong;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
@@ -72,6 +76,7 @@ public class GoalPlanner
     private static final int MAX_WORK_ITEMS = 30;
     private static final int MAX_LINKS = 6;
     private static final int MAX_NOTES = 60;
+    static final int MAX_NOTES_IN_FULL = 6;
     private static final int MAX_LESSON_NOTES = 30;
     static final int MAX_QUESTIONS = 20;
     private static final int MAX_LESSON_EXCERPT = 3_000;
@@ -205,8 +210,10 @@ public class GoalPlanner
             You decide when to recommend the next step; the user starts or dismisses each card, and nothing starts by
             itself. Once a definition is accepted and the knowledge notes do not yet cover what the goal needs, recommend
             a research run: what to read in the repository and its dependencies, and up to eight specification or
-            documentation pages. A knowledge note marked (stale) cites a file that changed since the research read it;
-            before a lesson or practice relies on it, recommend a research run that reads it again. Recommend nothing
+            documentation pages. knowledgeNotes names every saved note by its topic, and the notes nearest the message carry
+            their body too: ground what you say in the bodies you have, and say when something rests only on a note's
+            topic. A note marked stale cites a file that changed since the research read it; before a lesson or practice
+            relies on it, recommend a research run that reads it again. Recommend nothing
             while a card is shown or a run is going, and never repeat a card the user dismissed. Once research saved notes
             and no course is accepted, propose a course from the notes: parts in order, each with lessons that name what
             the user can do afterward. Start where the user's starting knowledge
@@ -478,6 +485,9 @@ public class GoalPlanner
         return SUMMARY_INSTRUCTIONS + "\n<work-data>\n" + data.toPrettyString() + "\n</work-data>\n";
     }
 
+    // What each answer's prompt held, kept until the answer is saved with it.
+    private final Cache<String, GoalExchange.Coverage> covered = CacheBuilder.newBuilder().maximumSize(64).build();
+
     /** The agent's reply to {@code current}, given the goal and its earlier exchanges, oldest first. */
     public GoalExchange.Reply answer(AgentModelSetting model, GoalView goal, List<GoalExchange> earlier, GoalExchange current)
     {
@@ -489,6 +499,14 @@ public class GoalPlanner
     public void cancel(String exchangeId)
     {
         helper.cancel(exchangeId);
+    }
+
+    /** What the prompt of this exchange's answer held, given once. */
+    public Optional<GoalExchange.Coverage> coverage(String exchangeId)
+    {
+        Optional<GoalExchange.Coverage> found = Optional.ofNullable(covered.getIfPresent(exchangeId));
+        covered.invalidate(exchangeId);
+        return found;
     }
 
     String prompt(GoalView goal, List<GoalExchange> earlier, GoalExchange current)
@@ -514,8 +532,12 @@ public class GoalPlanner
                         .ifPresent(item -> entries.addObject().put("id", item.id()).put("title", item.title()).put("state", item.state().name())));
             });
         });
+        int offered = 0;
+        long issuesOpen = 0;
         if (goal.definition().isPresent()) {
             GoalCandidates.Pool pool = candidates.pool(goal);
+            offered = pool.candidates().size();
+            issuesOpen = pool.coverage().issuesOpen();
             ArrayNode practice = data.putArray("practiceCandidates");
             pool.candidates().forEach(candidate -> {
                 ObjectNode entry = practice.addObject().put("id", candidate.id()).put("title", candidate.title());
@@ -559,14 +581,25 @@ public class GoalPlanner
         ArrayNode known = data.putArray("topics");
         topics.list(goal.id()).forEach(topic -> known.addObject().put("topic", topic.topic()).put("level", topic.level().name()).put("setByUser", topic.userSet()));
         ArrayNode asked = data.putArray("recentQuestions");
-        questions.nearest(goal, MAX_QUESTIONS).forEach(question -> asked.addObject().put("id", question.id()).put("text", question.text()).put("where", question.where()));
+        List<GoalQuestions.Question> nearest = questions.nearest(goal, MAX_QUESTIONS);
+        nearest.forEach(question -> asked.addObject().put("id", question.id()).put("text", question.text()).put("where", question.where()));
         ArrayNode cards = data.putArray("cards");
         goal.recommendations().forEach(card -> cards.addObject().put("kind", card.card().kind().name()).put("title", card.card().title())
                 .put("state", card.state().name()));
         ArrayNode knowledge = data.putArray("knowledgeNotes");
         List<GoalKnowledgeNote> saved = notes.list(goal.id()).stream().limit(MAX_NOTES).collect(toImmutableList());
         Set<String> stale = research.stale(goal.workspaceId(), saved);
-        saved.forEach(note -> knowledge.add(stale.contains(note.id()) ? note.topic() + " (stale)" : note.topic()));
+        Set<String> inFull = nearestNotes(saved, current.message(), GoalCandidates.context(goal), MAX_NOTES_IN_FULL);
+        saved.forEach(note -> {
+            ObjectNode entry = knowledge.addObject().put("topic", note.topic());
+            if (stale.contains(note.id())) {
+                entry.put("stale", true);
+            }
+            if (inFull.contains(note.id())) {
+                entry.put("body", note.body());
+            }
+        });
+        covered.put(current.id(), new GoalExchange.Coverage(inFull.size(), saved.size() - inFull.size(), nearest.size(), offered, issuesOpen));
         int omitted = Math.max(0, earlier.size() - MAX_EARLIER);
         if (omitted > 0) {
             data.put("omittedEarlierExchanges", omitted);
@@ -591,6 +624,19 @@ public class GoalPlanner
         }
         data.put(current.automatic() ? "event" : "message", current.message());
         return INSTRUCTIONS + "\n<goal-data>\n" + data.toPrettyString() + "\n</goal-data>\n";
+    }
+
+    /** The notes sharing the most words with the message, then with the goal, then the newest: those the agent reads in full. */
+    static Set<String> nearestNotes(List<GoalKnowledgeNote> saved, String message, String context, int limit)
+    {
+        Set<String> asked = GoalCandidates.words(message);
+        Set<String> about = GoalCandidates.words(context);
+        Map<String, Set<String>> words = saved.stream().collect(toImmutableMap(GoalKnowledgeNote::id, note -> GoalCandidates.words(note.topic() + " " + note.body())));
+        return saved.stream()
+                .sorted(Comparator.comparingLong((GoalKnowledgeNote note) -> words.get(note.id()).stream().filter(asked::contains).count()).reversed()
+                        .thenComparing(Comparator.comparingLong((GoalKnowledgeNote note) -> words.get(note.id()).stream().filter(about::contains).count()).reversed())
+                        .thenComparing(GoalKnowledgeNote::savedAt, Comparator.reverseOrder()))
+                .limit(limit).map(GoalKnowledgeNote::id).collect(toImmutableSet());
     }
 
     /** What a topic level cites for something the user said to the goal; an event ByteQuay reported has none. */

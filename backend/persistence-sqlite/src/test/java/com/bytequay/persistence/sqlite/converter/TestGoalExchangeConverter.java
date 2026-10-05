@@ -47,7 +47,7 @@ class TestGoalExchangeConverter
     }
 
     @Test
-    void keepsAPlanChangeAndReadsRepliesSavedBeforePlanChanges()
+    void keepsAPlanChangeAndCoverageAndReadsRepliesSavedBeforeThem()
     {
         GoalExchange.PlanChange plan = new GoalExchange.PlanChange(ImmutableList.of(
                 new GoalExchange.WorkChange("work-2", Optional.of(WorkItem.Priority.HIGH), Optional.of(ImmutableList.of()), Optional.empty()),
@@ -58,11 +58,13 @@ class TestGoalExchangeConverter
                         Optional.of(plan)),
                 NOW);
         assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(planned))).isEqualTo(planned);
+        GoalExchange covered = planned.covering(Optional.of(new GoalExchange.Coverage(6, 14, 3, 100, 512)));
+        assertThat(converter.convertToEntityAttribute(converter.convertToDatabaseColumn(covered))).isEqualTo(covered);
 
         GoalCourse.Draft course = new GoalCourse.Draft(ImmutableList.of(new GoalCourse.DraftPart("Iceberg tables", ImmutableList.of(
                 new GoalCourse.DraftLesson("What a table is", "Explain metadata", Optional.empty())))), Optional.empty());
-        String older = converter.convertToDatabaseColumn(answered(course)).replace(",\"plan\":null", "");
-        assertThat(older).doesNotContain("\"plan\"");
+        String older = converter.convertToDatabaseColumn(answered(course)).replace(",\"plan\":null", "").replace(",\"coverage\":null", "");
+        assertThat(older).doesNotContain("\"plan\"", "\"coverage\"");
         assertThat(converter.convertToEntityAttribute(older)).isEqualTo(answered(course));
     }
 

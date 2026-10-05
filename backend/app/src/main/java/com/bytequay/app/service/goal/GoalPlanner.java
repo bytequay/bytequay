@@ -123,7 +123,9 @@ public class GoalPlanner
             Once you understand the scope, propose a definition: a short title in the same style, the objective, a success definition the
             user can check, what they already know, and their constraints. A reply may propose a definition and still
             ask a question. After the user accepted a definition, answer their questions about the goal and propose a
-            changed definition only when they ask for one.
+            changed definition only when they ask for one. The user accepts, adjusts or skips a proposed definition or
+            course with its own buttons, so never offer accepting, adjusting or skipping it as a suggested answer; suggest
+            concrete changes instead, such as another place to start.
 
             You decide when to recommend the next step; the user starts or dismisses each card, and nothing starts by
             itself. Once a definition is accepted and the knowledge notes do not yet cover what the goal needs, recommend

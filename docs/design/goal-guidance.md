@@ -80,11 +80,13 @@ agent the user passes on it; the next answer replaces the proposal either way.
 The question on screen, its suggested answers, an open proposal's Accept, Adjust
 and Skip and the reply field stay together under the conversation, which scrolls
 to the start of its newest turn; a picked answer shows a check, and an event
-ByteQuay told the agent shows two lines, the rest on hover. One exchange per
-Goal and two across the app run at a time; a request still pending at startup is
-marked interrupted. A reply may take ten minutes and a lesson twenty; a pending
-reply shows how long the agent has worked, and Stop cancels the model's turn and
-leaves the message to ask again, its late answer never saved.
+ByteQuay told the agent shows two lines, the rest on hover. Suggested answers
+never offer accepting, adjusting or skipping a proposal, which its buttons do.
+One exchange per Goal and two across the app run at a time; a request still
+pending at startup is marked interrupted. A reply may take ten minutes and a
+lesson twenty; a pending reply shows how long the agent has worked, and Stop
+cancels the model's turn and leaves the message to ask again, its late answer
+never saved.
 
 Once a definition is accepted, ByteQuay tells the agent, and its answer may
 recommend a research card: a scope and up to eight https pages. The Goal

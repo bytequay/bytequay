@@ -550,7 +550,7 @@ function PullSearch({ disabled, onSearch, onLearn }: {
     </label>
     {error !== null && <div className="mem-warn">{error}</div>}
     {found !== null && found.pulls.length === 0 && <div className="mem-muted">No closed pull request matches “{found.query}”.</div>}
-    {found !== null && found.pulls.length > 0 && <div className="mem-box">{found.pulls.map(pull => <div className="mem-learn__item" key={pull.number}>
+    {found !== null && found.pulls.length > 0 && <div className="mem-box">{found.pulls.map(pull => <div className="mem-learn__item mem-pull" key={pull.number}>
       <span className="mem-pull__title"><span className="mem-muted">#{pull.number}</span> {pull.title}</span>
       <span className="mem-muted">{pull.merged ? 'merged' : 'closed'}</span>
       <button type="button" className="rcp-link" disabled={disabled} onClick={() => onLearn(pull.number)}>Learn</button>

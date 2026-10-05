@@ -361,9 +361,26 @@ async function anotherAttempt(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
 }
 
+async function workAttempt(): Promise<void> {
+  const f = fixture();
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  window.location.hash = '';
+  try {
+    flushSync(() => root.render(<AgentTasksView workspaceId={f.workspaceId} bridge={f.bridge} workItemId="work-1" initialDraft="Profile the reader"
+      onOpenTask={() => {}} onOpenReview={() => {}} />));
+    await settle(); await settle();
+    button(host, 'Send — creates the task').click(); await settle();
+    assert(f.created.length === 1 && f.created[0].workItemId === 'work-1' && f.created[0].message === 'Profile the reader' && f.created[0].issueSource === undefined,
+      'The task for work without a source names the work and carries no source');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Another attempt opens the composer over an ended task and names it', anotherAttempt],
+    ['Work without a source opens the composer with its title and names the work', workAttempt],
     ['Issue Epic actions, composer, replay and linked workspace navigation', issueToTask],
     ['Source refresh preserves instructions and blocks Epics without launching', refreshAndCancel],
     ['A Goal’s prepared instruction opens the issue composer without launching', preparedInstruction],

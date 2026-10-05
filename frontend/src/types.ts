@@ -777,6 +777,8 @@ export type CiAutofixRunDto = {
 export type CreateAgentTaskRequest = {
   jiraSource?: JiraSourceRequest;
   issueSource?: IssueTaskSourceRequest;
+  /** The work item a task without a source is for; the task becomes its attempt. */
+  workItemId?: string;
   developmentAutomation?: DevelopmentAutomationDto;
   /** Client-generated identity makes task provisioning safe to replay after a lost response. */
   taskId: string;

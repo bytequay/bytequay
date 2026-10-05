@@ -676,6 +676,7 @@ export type TaskCreationTracker = {
     developmentAutomation?: DevelopmentAutomationDto,
     issueSource?: IssueTaskSourceRequest,
     jiraSource?: JiraSourceRequest,
+    workItemId?: string,
   ) => CreateAgentTaskRequest;
   settled: (taskId: string) => void;
 };
@@ -684,7 +685,7 @@ export type TaskCreationTracker = {
 export function createTaskCreationTracker(createKey: () => string = () => globalThis.crypto.randomUUID()): TaskCreationTracker {
   let retained: { signature: string; request: CreateAgentTaskRequest } | null = null;
   return {
-    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = [], developmentAutomation, issueSource, jiraSource) {
+    requestFor(workspaceId, message, laneId, defaults, draftAttachmentIds = [], developmentAutomation, issueSource, jiraSource, workItemId) {
       const signature = JSON.stringify([
         workspaceId,
         message.trim(),
@@ -698,6 +699,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
         draftAttachmentIds,
         issueSource ?? null,
         jiraSource ?? null,
+        workItemId ?? null,
       ]);
       if (retained?.signature !== signature) {
         retained = {
@@ -710,6 +712,7 @@ export function createTaskCreationTracker(createKey: () => string = () => global
             defaults,
             ...(jiraSource === undefined ? {} : { jiraSource: { ...jiraSource } }),
             ...(issueSource === undefined ? {} : { issueSource: { ...issueSource } }),
+            ...(workItemId === undefined ? {} : { workItemId }),
             ...(developmentAutomation === undefined ? {} : { developmentAutomation }),
             ...(draftAttachmentIds.length === 0 ? {} : { draftAttachmentIds: [...draftAttachmentIds] }),
             idempotencyKey: createKey(),

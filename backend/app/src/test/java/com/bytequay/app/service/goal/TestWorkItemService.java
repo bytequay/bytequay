@@ -15,6 +15,7 @@ package com.bytequay.app.service.goal;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.app.service.epic.InMemoryEpicStore;
@@ -49,6 +50,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
@@ -72,7 +75,8 @@ class TestWorkItemService
     private final List<Object> published = new ArrayList<>();
     private final EpicSources epics = mock(EpicSources.class);
     private final InMemoryEpicStore epicRecords = new InMemoryEpicStore();
-    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, epics, epicRecords, transactions, published::add,
+    private final AgentTaskStore tasks = mock(AgentTaskStore.class);
+    private final WorkItemService service = new WorkItemService(store, goals, workspaces, references, epics, epicRecords, tasks, transactions, published::add,
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
@@ -435,6 +439,31 @@ class TestWorkItemService
         assertThat(joined.goalId()).as("it keeps its Goal").contains("goal");
         assertThat(joined.epicId()).contains(EPIC);
         assertThat(service.list("workspace")).hasSize(2);
+    }
+
+    @Test
+    void aTaskStartedForWorkWithoutASourceBecomesItsAttemptAndSourcedOrConcludedWorkRefusesOne()
+    {
+        WorkItemView quick = epicWork(EPIC, "Profile the reader");
+        service.requireAttemptable("workspace", quick.id());
+        AgentTask task = task();
+        service.persistAttempt(task, quick.id());
+        verify(tasks).insert(task);
+        WorkItemView working = find(quick.id());
+        assertThat(working.state()).isEqualTo(WorkItem.State.WORKING);
+        assertThat(working.links()).extracting(GoalItemView::kind, GoalItemView::key).containsExactly(tuple(GoalItemKind.TASK, task.id().toString()));
+        assertThatThrownBy(() -> service.requireAttemptable("other", quick.id())).hasMessageContaining("belongs to workspace workspace");
+
+        WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#5", "ISSUE:github.com:5");
+        when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#5")).thenReturn(issue);
+        WorkItemView sourced = service.joinEpic("workspace", EPIC, GoalItemKind.ISSUE, "org/repo#5").item();
+        assertThatThrownBy(() -> service.requireAttemptable("workspace", sourced.id())).hasMessageContaining("from its source");
+
+        service.change("workspace", quick.id(), decision(working, WorkItemCommand.Action.DROP, "Not needed"));
+        assertThatThrownBy(() -> service.requireAttemptable("workspace", quick.id())).hasMessageContaining("Reopen the work item");
+        AgentTask late = task();
+        assertThatThrownBy(() -> service.persistAttempt(late, quick.id())).as("the transaction checks again").hasMessageContaining("Reopen the work item");
+        verify(tasks, never()).insert(late);
     }
 
     @Test

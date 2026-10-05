@@ -86,7 +86,7 @@ export async function run(): Promise<boolean> {
     work('e', 'Old spike', 'DROPPED', 4),
     work('elsewhere', 'Another Epic', 'PLANNED', 0, { epicId: 'JIRA:4:site:10' }),
   ];
-  const render = (): void => flushSync(() => root.render(<EpicView epic={epic} workspaceId="workspace" work={items} needsYou={new Set()}
+  const render = (): void => flushSync(() => root.render(<EpicView epic={epic} workspaceId="workspace" repository="trinodb/trino" work={items} needsYou={new Set()}
     goals={{
       createWork: async (request: CreateWorkItem) => {
         calls.push(`create ${request.title} ${request.epicId} ${request.goalId} ${request.kind} [${request.acceptanceCriteria}] ${request.completionRule}`);
@@ -109,7 +109,9 @@ export async function run(): Promise<boolean> {
       },
       search: async () => [CANDIDATE],
     }}
-    epicTitle={id => (id === 'JIRA:4:site:10' ? 'Parquet lazy decode' : null)} onOpenTask={() => {}} onClose={() => { closed++; }} />));
+    epicTitle={id => (id === 'JIRA:4:site:10' ? 'Parquet lazy decode' : null)} onOpenTask={taskId => calls.push(`open task ${taskId}`)}
+    onStartIssue={(number, instruction, replaces) => calls.push(`start issue ${number} [${instruction}] ${replaces}`)}
+    onStartWork={(itemId, draft) => calls.push(`start work ${itemId} [${draft}]`)} onClose={() => { closed++; }} />));
   window.bridge = {
     joinEpic: async (_workspaceId: string, epicId: string, kind: string, key: string) => {
       calls.push(`join ${epicId} ${kind} ${key}`);
@@ -149,6 +151,14 @@ export async function run(): Promise<boolean> {
     assert(row('Benchmark warm cache').querySelector('.card-key') === null, 'Work without a source shows no reference');
     assert(row('Benchmark warm cache').textContent?.includes('after Invalidate on DDL') === true, 'Blocked work says what it waits on');
     assert(row('Cache table metadata').querySelector('.epic-row__accept') === null && row('Cache table metadata').textContent?.includes('#24950 merged') === true, 'Done work keeps its merge');
+
+    // Run starts work where it starts; an attempt under way opens instead, and concluded work does not run.
+    assert(row('Invalidate on DDL').querySelector('[aria-label="Run Invalidate on DDL"]') === null, 'Work with a task under way offers no Run');
+    button('Open the task for Invalidate on DDL').click(); await settle();
+    assert(calls.at(-1) === 'open task task-1', `Open task opens the attempt under way: ${calls.at(-1)}`);
+    button('Run Benchmark warm cache').click(); await settle();
+    assert(calls.at(-1) === 'start work d [Benchmark warm cache]', `Work without a source opens the task composer with its title: ${calls.at(-1)}`);
+    assert(row('Cache table metadata').querySelector('[aria-label^="Run "]') === null, 'Done work does not run');
 
     element<HTMLButtonElement>('.epic-row__accept', row('Coordinator broadcast')).click(); await settle();
     assert(calls.at(-1) === 'decide c ACCEPT Coordinator broadcast', `Accept settles quick-added work against its title: ${calls.at(-1)}`);
@@ -198,7 +208,8 @@ export async function run(): Promise<boolean> {
     };
     items = [
       work('p', 'Invalidate on DDL', 'WORKING', 0, { links: [link('ISSUE', 'trinodb/trino#24931', '#24931', 'WORKING', 'Open')] }),
-      work('q', 'Old parent link', 'PLANNED', 1, { links: [link('ISSUE', 'trinodb/trino#24970', '#24970', 'IDLE', 'Open')] }),
+      work('q', 'Old parent link', 'PLANNED', 1, { links: [link('ISSUE', 'trinodb/trino#24970', '#24970', 'IDLE', 'Open'), link('TASK', 'task-9', 'Task', 'ENDED', 'Ended')] }),
+      work('o', 'Docs site update', 'PLANNED', 2, { links: [link('ISSUE', 'other/docs#3', 'other/docs#3', 'IDLE', 'Open')] }),
     ];
     window.bridge = {
       getEpic: async (): Promise<EpicRecordDto> => ({ ...record, children: [], former: [], offered: false }),
@@ -229,14 +240,19 @@ export async function run(): Promise<boolean> {
     assert(element('.epic-view__found').textContent?.includes('Found in GitHub · 2') === true, `The strip counts the children not synced: ${element('.epic-view__found').textContent}`);
     assert(row('Invalidate on DDL').querySelector('.epic-row__upstream')?.textContent === 'GitHub: Open', 'Synced work shows where the source has it');
     assert(row('Old parent link').querySelector('.epic-row__upstream')?.textContent === 'no longer a child', 'Work whose child the source dropped stays, marked');
-    assert(rows().length === 2, 'Nothing joins on its own');
+    assert(rows().length === 3, 'Nothing joins on its own');
+    button('Run Invalidate on DDL').click(); await settle();
+    assert(calls.at(-1) === 'start issue 24931 [Invalidate on DDL] undefined', `Work from an issue starts through the issue's composer: ${calls.at(-1)}`);
+    button('Run Old parent link').click(); await settle();
+    assert(calls.at(-1) === 'start issue 24970 [Old parent link] task-9', `Another attempt names the ended one: ${calls.at(-1)}`);
+    assert(row('Docs site update').querySelector('[aria-label^="Run "]') === null, 'An issue of another repository does not run from here');
     button('Not now').click(); await settle();
     assert(calls.at(-1) === 'dismiss' && document.querySelector('.epic-view__found') === null, 'Not now hides the strip');
 
     record = { ...record, offered: true };
     await reopen();
     button('Sync').click(); await wait(20);
-    assert(calls.at(-1) === 'sync' && document.querySelector('.epic-view__found') === null && rows().length === 4, 'Sync makes the children work and the strip goes');
+    assert(calls.at(-1) === 'sync' && document.querySelector('.epic-view__found') === null && rows().length === 5, 'Sync makes the children work and the strip goes');
     const closedChild = row('Document the cache');
     assert(closedChild.querySelector('.epic-row__upstream')?.textContent === 'GitHub: Closed', 'A child closed upstream says so');
     assert(row('Expose metrics').querySelector('.epic-row__accept') === null, 'An open child offers no Accept');

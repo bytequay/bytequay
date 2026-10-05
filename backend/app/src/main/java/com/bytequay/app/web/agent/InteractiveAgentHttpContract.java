@@ -249,18 +249,26 @@ final class InteractiveAgentHttpContract
             String idempotencyKey,
             Optional<DevelopmentAutomationDto> developmentAutomation,
             Optional<IssueSourceInput> issueSource,
-            Optional<JiraSourceInput> jiraSource)
+            Optional<JiraSourceInput> jiraSource,
+            Optional<String> workItemId)
     {
         CreateTaskRequest(String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey)
         {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), Optional.empty(), Optional.empty());
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         }
 
         CreateTaskRequest(
                 String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey,
                 Optional<DevelopmentAutomationDto> developmentAutomation, Optional<IssueSourceInput> issueSource)
         {
-            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, issueSource, Optional.empty());
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, issueSource, Optional.empty(), Optional.empty());
+        }
+
+        CreateTaskRequest(
+                String taskId, String workspaceId, String message, String laneId, TaskDefaults defaults, String idempotencyKey,
+                Optional<DevelopmentAutomationDto> developmentAutomation, Optional<IssueSourceInput> issueSource, Optional<JiraSourceInput> jiraSource)
+        {
+            this(taskId, workspaceId, message, laneId, defaults, idempotencyKey, developmentAutomation, issueSource, jiraSource, Optional.empty());
         }
 
         CreateTaskRequest
@@ -268,6 +276,9 @@ final class InteractiveAgentHttpContract
             requireNonNull(issueSource, "issueSource is null");
             requireNonNull(jiraSource, "jiraSource is null");
             checkArgument(issueSource.isEmpty() || jiraSource.isEmpty(), "Choose only one issue source");
+            requireNonNull(workItemId, "workItemId is null");
+            // Work with an issue or ticket becomes that source's attempt through its own admission.
+            checkArgument(workItemId.isEmpty() || issueSource.isEmpty() && jiraSource.isEmpty(), "Start work with an issue or ticket from its source");
             requireNonNull(developmentAutomation, "developmentAutomation is null");
             checkNotBlank(taskId, "taskId");
             checkNotBlank(workspaceId, "workspaceId");

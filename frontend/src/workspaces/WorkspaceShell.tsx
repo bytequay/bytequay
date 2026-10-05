@@ -82,6 +82,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   // The instruction a Goal's work card prepared for the issue's composer.
   const [startDraft, setStartDraft] = useState<string>();
   const [startReplaces, setStartReplaces] = useState<string>();
+  // Epic work without an issue or ticket: the task composer opens with its title, and the task it creates is the work's attempt.
+  const [startWork, setStartWork] = useState<{ itemId: string; draft: string }>();
   // A spec check a Goal card asked the Memory page to show.
   const [specCheck, setSpecCheck] = useState<SpecCheckRequest>();
   const specShown = useCallback(() => setSpecCheck(undefined), []);
@@ -180,7 +182,10 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   // next visit starts on that tab's default view again.
   useEffect(() => {
     if (tab !== 'commits') setInitialCommitsRepo(null);
-    if (tab !== 'tasks') setOpenCherryPick(null);
+    if (tab !== 'tasks') {
+      setOpenCherryPick(null);
+      setStartWork(undefined);
+    }
     if (tab !== 'home') setOpenEpic(null);
   }, [tab]);
 
@@ -194,6 +199,13 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return () => window.clearTimeout(timer);
   }, [workspace, onWorkspaceChanged]);
 
+  const startIssue = (number: number, instruction: string, replaces?: string): void => {
+    setStartLaunch(undefined);
+    setStartDraft(instruction);
+    setStartReplaces(replaces);
+    window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
+  };
+
   // Every page of the workspace carries the pinned goal; an open task or review keeps its own spot for the pill.
   return (
     <GoalLayer
@@ -203,12 +215,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       goals={goals}
       needsYou={needsYou}
       onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')}
-      onStartIssue={(number, instruction, replaces) => {
-        setStartLaunch(undefined);
-        setStartDraft(instruction);
-        setStartReplaces(replaces);
-        window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
-      }}
+      onStartIssue={startIssue}
       onSpecCheck={(spec) => {
         setSpecCheck(spec);
         window.location.hash = workspaceRoute(workspace.id, 'context');
@@ -300,14 +307,18 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       return stage(
         <>
           <AgentTasksView
-            key={sourceIssueNumber ?? 'new-task'}
+            key={sourceIssueNumber ?? startWork?.itemId ?? 'new-task'}
             workspaceId={workspace.id}
             repository={monitoredRepository}
             sourceIssueNumber={sourceIssueNumber}
             launch={sourceIssueNumber === null ? undefined : startLaunch}
-            initialDraft={sourceIssueNumber === null ? undefined : startDraft}
+            initialDraft={sourceIssueNumber === null ? startWork?.draft : startDraft}
             replaces={sourceIssueNumber === null ? undefined : startReplaces}
-            onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }}
+            workItemId={sourceIssueNumber === null ? startWork?.itemId : undefined}
+            onOpenCreatedTask={task => {
+              setStartWork(undefined);
+              window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id);
+            }}
             headerAction={overviewOpen || zoomedCherryPick ? undefined : overviewToggle}
             onOpenReview={review => review.number === null ? openReviewWorkspace(review) : setOpenReview({ id: review.id, repo: review.repo, number: review.number })}
             onOpenReviewWorkspace={openReviewWorkspace}
@@ -351,9 +362,14 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return stage(<>
       {epic === undefined
         ? <EpicDrawer items={attention.candidates} work={goals.workItems} onOpen={item => setOpenEpic(epicIdentity(item))} />
-        : <EpicView epic={epic} workspaceId={workspace.id} work={goals.workItems} needsYou={needsYou} goals={goals}
+        : <EpicView epic={epic} workspaceId={workspace.id} repository={monitoredRepository} work={goals.workItems} needsYou={needsYou} goals={goals}
           epicTitle={id => epics.find(item => epicIdentity(item) === id)?.title ?? null}
-          onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')} onClose={() => setOpenEpic(null)} />}
+          onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')} onStartIssue={startIssue}
+          onStartWork={(itemId, draft) => {
+            setStartWork({ itemId, draft });
+            window.location.hash = workspaceRoute(workspace.id, 'tasks');
+          }}
+          onClose={() => setOpenEpic(null)} />}
       <AgentHome
         workspaceId={workspace.id}
         headerAction={overviewOpen ? undefined : overviewToggle}

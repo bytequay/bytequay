@@ -90,7 +90,8 @@ class TestInteractiveAgentHttpContract
                 "create-key"));
 
         assertThat(request.fieldNames()).toIterable()
-                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation", "issueSource", "jiraSource");
+                .containsExactlyInAnyOrder("taskId", "workspaceId", "message", "laneId", "defaults", "idempotencyKey", "developmentAutomation", "issueSource", "jiraSource",
+                        "workItemId");
         assertThat(request.toString())
                 .doesNotContain("worktree")
                 .doesNotContain("repository")
@@ -130,6 +131,11 @@ class TestInteractiveAgentHttpContract
                 Optional.of(new JiraSourceInput("connection", "cloud", "10001", "APP-7", source.title(), source.body(), Instant.EPOCH,
                         Optional.empty()))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("only one issue source");
+        assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
+                TaskId.random().toString(), "workspace", "Implement", "codex",
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO"), "key", Optional.empty(),
+                Optional.of(new IssueSourceInput(7, 7, Instant.EPOCH, Optional.empty())), Optional.empty(), Optional.of("work-item")))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("from its source");
     }
 
     @Test

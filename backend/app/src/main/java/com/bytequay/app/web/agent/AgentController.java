@@ -60,6 +60,7 @@ import com.bytequay.app.agent.JiraDevelopmentService;
 import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -150,6 +151,7 @@ public class AgentController
     private final IssueDevelopmentService issueDevelopment;
     private final JiraDevelopmentService jiraDevelopment;
     private final TaskPullRequestOwnership ownership;
+    private final WorkItemService workItems;
 
     public AgentController(
             AgentTaskService taskService,
@@ -175,7 +177,8 @@ public class AgentController
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
             JiraDevelopmentService jiraDevelopment,
-            TaskPullRequestOwnership ownership)
+            TaskPullRequestOwnership ownership,
+            WorkItemService workItems)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.taskCreator = requireNonNull(taskCreator, "taskCreator is null");
@@ -201,6 +204,7 @@ public class AgentController
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.jiraDevelopment = requireNonNull(jiraDevelopment, "jiraDevelopment is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
+        this.workItems = requireNonNull(workItems, "workItems is null");
     }
 
     /**
@@ -259,6 +263,7 @@ public class AgentController
         if (request.jiraSource().isEmpty()) {
             jiraDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
         }
+        request.workItemId().ifPresent(id -> workItems.requireAttemptable(request.workspaceId(), id));
         AgentTask task = request.issueSource()
                 .map(source -> issueDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
                         accepted -> createTask(request, uploads, Optional.of(accepted), Optional.empty())))
@@ -302,7 +307,8 @@ public class AgentController
                     source,
                     jiraSource,
                     source.<Consumer<AgentTask>>map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message()))
-                            .or(() -> jiraSource.map(accepted -> prepared -> jiraDevelopment.persistTask(prepared, accepted, request.message()))));
+                            .or(() -> jiraSource.map(accepted -> prepared -> jiraDevelopment.persistTask(prepared, accepted, request.message())))
+                            .or(() -> request.workItemId().map(id -> prepared -> workItems.persistAttempt(prepared, id))));
             if (!replay && !uploads.isEmpty()) {
                 startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
             }

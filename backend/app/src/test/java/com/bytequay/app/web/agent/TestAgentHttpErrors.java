@@ -59,6 +59,7 @@ import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
@@ -173,7 +174,8 @@ class TestAgentHttpErrors
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class),
                 mock(JiraDevelopmentService.class),
-                mock(TaskPullRequestOwnership.class));
+                mock(TaskPullRequestOwnership.class),
+                mock(WorkItemService.class));
         mvc = standaloneSetup(controller)
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();

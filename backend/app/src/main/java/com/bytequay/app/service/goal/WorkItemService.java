@@ -14,6 +14,7 @@
 package com.bytequay.app.service.goal;
 
 import com.bytequay.agent.core.AgentTask;
+import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.service.epic.EpicSources;
 import com.bytequay.core.domain.GoalItemKind;
@@ -63,12 +64,13 @@ public class WorkItemService
     private final GoalReferenceReader references;
     private final EpicSources epics;
     private final EpicStore epicRecords;
+    private final AgentTaskStore tasks;
     private final AgentUnitOfWork unitOfWork;
     private final ApplicationEventPublisher events;
     private final Clock clock;
 
     public WorkItemService(WorkItemStore items, GoalStore goals, WorkspaceStore workspaces, GoalReferenceReader references, EpicSources epics,
-            EpicStore epicRecords, AgentUnitOfWork unitOfWork, ApplicationEventPublisher events, Clock clock)
+            EpicStore epicRecords, AgentTaskStore tasks, AgentUnitOfWork unitOfWork, ApplicationEventPublisher events, Clock clock)
     {
         this.items = requireNonNull(items, "items is null");
         this.goals = requireNonNull(goals, "goals is null");
@@ -76,6 +78,7 @@ public class WorkItemService
         this.references = requireNonNull(references, "references is null");
         this.epics = requireNonNull(epics, "epics is null");
         this.epicRecords = requireNonNull(epicRecords, "epicRecords is null");
+        this.tasks = requireNonNull(tasks, "tasks is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
         this.events = requireNonNull(events, "events is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -226,6 +229,35 @@ public class WorkItemService
     private static boolean concluded(WorkItem item)
     {
         return item.state() == WorkItem.State.DONE || item.state() == WorkItem.State.DROPPED;
+    }
+
+    /**
+     * Rejects a task for work that is concluded, belongs to another workspace, or has an issue or ticket, before task creation prepares a
+     * worktree. Work with a source starts from it, so its task becomes the source's attempt.
+     */
+    public void requireAttemptable(String workspaceId, String id)
+    {
+        requireAttemptable(requireItem(workspaceId, id), workspaceId);
+    }
+
+    /** Called only after worktree preparation: the task and the attempt it is for commit together. */
+    public void persistAttempt(AgentTask task, String id)
+    {
+        unitOfWork.execute(() -> {
+            String workspaceId = task.workspaceId().orElseThrow();
+            WorkItem item = requireItem(workspaceId, id);
+            requireAttemptable(item, workspaceId);
+            tasks.insert(task);
+            saveLinks(item, item.goalId(), item.epicId(), ImmutableList.of(GoalReferenceReader.taskLink(task)), "Execution attempt started");
+            return null;
+        });
+    }
+
+    private static void requireAttemptable(WorkItem item, String workspaceId)
+    {
+        requireStartable(item, workspaceId);
+        checkArgument(item.links().stream().noneMatch(link -> link.reference().kind() == GoalItemKind.ISSUE || link.reference().kind() == GoalItemKind.JIRA),
+                "Start work with an issue or ticket from its source");
     }
 
     /** Rejects a new attempt on concluded or another workspace's work before task creation prepares a worktree. */

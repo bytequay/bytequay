@@ -22,6 +22,7 @@ import { INTERACTIVE_LANE_ID, displayModelName, isDeepSeekKeyLane, laneLabel, pr
 import { settingsRoute } from '../settings/routes';
 import { getCached, setCached } from '../dataCache';
 import Toast from '../Toast';
+import { GOALS_CHANGED } from '../goals/useGoals';
 import { recordAttentionAction } from '../home/useAttentionVisit';
 import { notifyIssueDevelopmentChanged, type DevelopmentIssue } from '../workspaces/issueDevelopment';
 import { workspaceAgentTaskRoute } from '../workspaces/model';
@@ -89,6 +90,8 @@ interface AgentTasksViewProps {
   initialDraft?: string;
   /** The source issue's ended task this composer starts another attempt after; the issue's task opens otherwise. */
   replaces?: string;
+  /** The work item a task without a source is for; the task the composer creates becomes its attempt. */
+  workItemId?: string;
 }
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
@@ -185,7 +188,8 @@ export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumbe
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
-export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, initialDraft, replaces }: {
+export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, initialDraft, replaces,
+  workItemId }: {
   workspaceId: string;
   sourceJira?: JiraIssue | null;
   /** A launch the caller chose; without one the workspace's Development agent decides. */
@@ -198,6 +202,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   initialDraft?: string;
   /** The source's ended task a new attempt replaces, which the composer does not open. */
   replaces?: string;
+  /** The work item a task without a source is for. */
+  workItemId?: string;
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
@@ -434,7 +440,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     }, sourceJira === null ? undefined : {
       connectionId: sourceJira.connectionId, cloudId: sourceJira.cloudId, issueId: sourceJira.id,
       key: sourceJira.key, title: sourceJira.title, body: sourceJira.body, updatedAt: sourceJira.updatedAt, ...(replaces === undefined ? {} : { replaces }),
-    });
+    }, workItemId);
     // The create call blocks until the first turn is running; the backend names the step it is in meanwhile.
     let watching = true;
     const watch = setInterval(() => {
@@ -450,6 +456,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         notifyIssueDevelopmentChanged(issue.id);
       }
       if (sourceJira !== null) notifyJiraChanged();
+      // The work's new attempt shows wherever its work is read.
+      if (workItemId !== undefined) window.dispatchEvent(new CustomEvent(GOALS_CHANGED, { detail: workspaceId }));
       setDraft('');
       setLocalOnly(false);
       clearImages();
@@ -496,7 +504,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       setOperation(null);
     }
   }, [applyCatalog, blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
-    workspaceId]);
+    workItemId, workspaceId]);
 
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
@@ -712,10 +720,12 @@ export default function AgentTasksView({
   launch,
   initialDraft,
   replaces,
+  workItemId,
 }: AgentTasksViewProps): React.JSX.Element {
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
-  const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask, initialDraft, replaces });
+  const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask, initialDraft, replaces,
+    workItemId });
   const { setTasks } = creation;
   const tasks = useMemo(() => freshest(creation.tasks, taskAttention.tasks), [creation.tasks, taskAttention.tasks]);
   const tasksRef = useRef(tasks);

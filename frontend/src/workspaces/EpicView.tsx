@@ -13,11 +13,11 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowDown, ArrowUp, Circle, CircleCheck, CircleDotDashed, CircleSlash, ListTree, LoaderCircle, Plus, RotateCcw, Search, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, Circle, CircleCheck, CircleDotDashed, CircleSlash, ListTree, LoaderCircle, Play, Plus, RotateCcw, Search, SquareTerminal, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill } from '../cards/Card';
 import type { EpicChildDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
-import { openGoalItem } from '../goals/GoalLayer';
+import { openGoalItem, startTicket } from '../goals/GoalLayer';
 import { Candidate, useCandidates } from '../goals/GoalPanel';
 import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, summarize, waitingOn } from '../goals/model';
 import type { Goals } from '../goals/useGoals';
@@ -49,9 +49,11 @@ function upstreamOf(item: WorkItemDto, record: EpicRecordDto | null): Upstream |
  * One Epic's work over the page, the only place it is added, ordered and decided: quick add takes a title, Add existing finds an issue,
  * ticket, pull request or task, and each row says where the work stands in one short detail.
  */
-export default function EpicView({ epic, workspaceId, work, needsYou, goals, epicTitle, onOpenTask, onClose }: {
+export default function EpicView({ epic, workspaceId, repository, work, needsYou, goals, epicTitle, onOpenTask, onStartIssue, onStartWork, onClose }: {
   epic: AttentionItem;
   workspaceId: string;
+  /** "owner/repo" the workspace's issue composer starts tasks in. */
+  repository: string;
   /** Every work item of the workspace; the view shows the Epic's. */
   work: WorkItemDto[];
   needsYou: ReadonlySet<string>;
@@ -59,6 +61,10 @@ export default function EpicView({ epic, workspaceId, work, needsYou, goals, epi
   /** Names another Epic, for the notice when work moves here from it. */
   epicTitle: (epicId: string) => string | null;
   onOpenTask: (taskId: string) => void;
+  /** Opens the issue's task composer with an instruction the user reviews and sends; `replaces` names the ended attempt. */
+  onStartIssue: (issue: number, instruction: string, replaces?: string) => void;
+  /** Opens the task composer for work without an issue or ticket; the task it creates is the work's attempt. */
+  onStartWork: (itemId: string, draft: string) => void;
   onClose: () => void;
 }): React.JSX.Element {
   const zoom = useZoom(onClose);
@@ -102,6 +108,21 @@ export default function EpicView({ epic, workspaceId, work, needsYou, goals, epi
     const joined = await joinEpic(workspaceId, epicId, reference);
     setNotice(joined.movedFrom === null ? null : `Moved here from ${epicTitle(joined.movedFrom) ?? 'another Epic'}`);
   });
+  /** How the work starts: through its issue's or ticket's composer, or the task composer with its title; null when it cannot start here. */
+  const starter = (item: WorkItemDto): (() => void) | null => {
+    const last = item.links.filter((link) => link.kind === 'TASK').at(-1);
+    const replaces = last?.state === 'ENDED' ? last.key : undefined;
+    const instruction = item.acceptanceCriteria.trim() === '' ? item.title : item.acceptanceCriteria;
+    const issue = item.links.find((link) => link.kind === 'ISSUE');
+    if (issue !== undefined) {
+      const hash = issue.key.lastIndexOf('#');
+      // The issue composer starts tasks in the workspace's repository; a sub-issue elsewhere opens where it lives.
+      return issue.key.slice(0, hash) === repository.toLowerCase() ? () => onStartIssue(Number(issue.key.slice(hash + 1)), instruction, replaces) : null;
+    }
+    const ticket = item.links.find((link) => link.kind === 'JIRA');
+    if (ticket !== undefined) return () => startTicket(ticket.key, instruction, replaces);
+    return () => onStartWork(item.id, item.title);
+  };
   const status = epic.jira ? statusPill(epic.jira.status) : { name: 'Open', tone: 'green' as const };
   const sourceName = epic.jira ? epic.jira.key : `#${epic.number}`;
 
@@ -154,7 +175,8 @@ export default function EpicView({ epic, workspaceId, work, needsYou, goals, epi
             <div className="item-list" role="list" aria-label="Work">
               {shown.map((item) => (
                 <div role="listitem" key={item.id}>
-                  <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} first={item === shown[0]}
+                  <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={starter(item)}
+                    first={item === shown[0]}
                     last={item === shown[shown.length - 1]} onOpenTask={onOpenTask} onDecide={(decision) => decide(item, decision)}
                     onMove={(offset) => move(item, offset)} onDrop={() => { setReason(''); setDropping(item); }}
                     onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
@@ -193,8 +215,8 @@ export default function EpicView({ epic, workspaceId, work, needsYou, goals, epi
               <div className="item-list" role="list" aria-label="Dropped work">
                 {dropped.map((item) => (
                   <div role="listitem" key={item.id}>
-                    <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} first last
-                      onOpenTask={onOpenTask}
+                    <WorkRow item={item} items={items} upstream={upstreamOf(item, record)} needsYou={needsYou} workspaceId={workspaceId} busy={busy} onRun={null}
+                      first last onOpenTask={onOpenTask}
                       onDecide={(decision) => decide(item, decision)} onMove={() => {}} onDrop={() => {}}
                       onRemove={() => { void run(() => removeFromEpic(workspaceId, item.id)); }} />
                   </div>
@@ -235,13 +257,15 @@ export function workDetail(item: WorkItemDto, items: WorkItemDto[], needsYou: Re
 
 const STATE_WORDS: Record<WorkItemDto['state'], string> = { PLANNED: 'Planned', WORKING: 'Working', DONE: 'Done', DROPPED: 'Dropped' };
 
-function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, first, last, onOpenTask, onDecide, onMove, onDrop, onRemove }: {
+function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, first, last, onOpenTask, onDecide, onMove, onDrop, onRemove }: {
   item: WorkItemDto;
   items: WorkItemDto[];
   upstream: Upstream | null;
   needsYou: ReadonlySet<string>;
   workspaceId: string;
   busy: boolean;
+  /** Starts the work's next attempt; null when it cannot start from here. */
+  onRun: (() => void) | null;
   first: boolean;
   last: boolean;
   onOpenTask: (taskId: string) => void;
@@ -255,6 +279,9 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, first, la
   const primary = source ?? item.links.find((link) => link.kind === 'TASK') ?? item.links.find((link) => link.kind === 'PULL_REQUEST');
   const mates = items.filter((other) => other.id !== item.id && other.state !== 'DROPPED' && !item.blockedBy.includes(other.id));
   const blockers = items.filter((other) => item.blockedBy.includes(other.id));
+  // An attempt that has not ended is the work's task; another starts only once it ends.
+  const task = item.links.filter((link) => link.kind === 'TASK').at(-1);
+  const current = task !== undefined && task.state !== 'ENDED' ? task : null;
   const side = upstream === null ? undefined : upstream.former ? 'no longer a child' : `${UPSTREAM[upstream.child.kind]}: ${upstream.child.status}`;
   // Closing upstream never makes work Done on its own; it offers the same one-click Accept a merged PR does.
   const closed = upstream !== null && !upstream.former && upstream.child.closed && isOpen(item) && detail?.accept !== true ? upstream.child : null;
@@ -285,6 +312,12 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, first, la
       </>}
       actions={(
         <CardActions label={`Change ${item.title}`}>
+          {isOpen(item) && current !== null && (
+            <IconButton label={`Open the task for ${item.title}`} title="Open task" onClick={() => onOpenTask(current.key)}><SquareTerminal size={13} /></IconButton>
+          )}
+          {isOpen(item) && current === null && onRun !== null && (
+            <IconButton label={`Run ${item.title}`} title="Run" disabled={busy} onClick={onRun}><Play size={13} /></IconButton>
+          )}
           {isOpen(item) && (mates.length > 0 || blockers.length > 0) && (
             <select className="epic-row__wait" aria-label={`What ${item.title} waits on`} value="" disabled={busy} onClick={(event) => event.stopPropagation()}
               onChange={(event) => {

@@ -432,6 +432,23 @@ class TestAgentHttpApi
     }
 
     @Test
+    void aTaskForWorkWithoutASourceBecomesItsAttemptAndConcludedWorkRefusesOne()
+            throws Exception
+    {
+        String planned = workWithoutSource(WorkItem.State.PLANNED);
+        ResponseEntity<JsonNode> response = post("/agent/tasks", workLaunch(planned), null);
+        assertThat(response.getStatusCode()).as("create response: %s", response.getBody()).isEqualTo(HttpStatus.CREATED);
+        assertThat(workItems.findByIdentity(WorkItemLink.taskIdentity(response.getBody().required("id").asText()))).map(WorkItem::id).contains(planned);
+        assertThat(workItems.find(planned).orElseThrow().state()).isEqualTo(WorkItem.State.WORKING);
+
+        Map<String, Object> refusedLaunch = workLaunch(workWithoutSource(WorkItem.State.DONE));
+        ResponseEntity<JsonNode> refused = post("/agent/tasks", refusedLaunch, null);
+        assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
+        assertThat(refused.getBody().path("message").asText()).contains("Reopen the work item");
+        assertThat(get("/agent/tasks/" + refusedLaunch.get("taskId") + "?workspaceId=" + workspaceId).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    }
+
+    @Test
     void issueLaunchRecordsOneWorkItemAndRefusesConcludedOrForeignWorkBeforeFetching()
             throws Exception
     {
@@ -1619,6 +1636,21 @@ class TestAgentHttpApi
     {
         return ImmutableMap.<String, Object>builder().putAll(createTaskBody("codex", "test-model", "Implement " + source.title()))
                 .put("issueSource", ImmutableMap.of("issueId", source.issueId(), "number", source.number(), "updatedAt", source.updatedAt().toString())).buildOrThrow();
+    }
+
+    private Map<String, Object> workLaunch(String workItemId)
+    {
+        return ImmutableMap.<String, Object>builder().putAll(createTaskBody("codex", "test-model", "Profile the reader")).put("workItemId", workItemId).buildOrThrow();
+    }
+
+    private String workWithoutSource(WorkItem.State state)
+    {
+        Instant now = Instant.now();
+        String id = UUID.randomUUID().toString();
+        workItems.insert(new WorkItem(id, workspaceId, Optional.empty(), "Profile the reader", WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY, state, 0,
+                ImmutableList.of(), ImmutableList.of(new WorkItemEvent("planned", "", "CREATED", "Planned", now)), now, now, WorkItem.Priority.NORMAL, 0, ImmutableList.of(),
+                Optional.empty(), 0));
+        return id;
     }
 
     private void saveWorkItem(String ownerWorkspaceId, WorkItemLink source, WorkItem.State state)

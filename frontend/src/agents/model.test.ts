@@ -680,6 +680,17 @@ describe('steering and queueing', () => {
       .toMatchObject({ taskId: 'intent-5', idempotencyKey: 'intent-6' });
   });
 
+  it('names the work item a task without a source is for, and another item makes another request', () => {
+    let next = 0;
+    const submissions = createTaskCreationTracker(() => `intent-${++next}`);
+    const defaults = { model: 'm', effort: 'high', permissionPolicy: 'AUTO' };
+    const first = submissions.requestFor('workspace-1', 'Profile the reader', 'codex', defaults, [], undefined, undefined, undefined, 'work-1');
+    expect(first.workItemId).toBe('work-1');
+    expect(submissions.requestFor('workspace-1', 'Profile the reader', 'codex', defaults, [], undefined, undefined, undefined, 'work-1')).toBe(first);
+    expect(submissions.requestFor('workspace-1', 'Profile the reader', 'codex', defaults, [], undefined, undefined, undefined, 'work-2').taskId).not.toBe(first.taskId);
+    expect(submissions.requestFor('workspace-1', 'Profile the reader', 'codex', defaults).workItemId).toBeUndefined();
+  });
+
   it('keeps accepted issue provenance stable on replay and separates different source revisions', () => {
     let next = 0;
     const submissions = createTaskCreationTracker(() => `intent-${++next}`);

@@ -269,6 +269,61 @@ class TestCodexEventMapper
     }
 
     @Test
+    void answersWithTheLastUnlabelledMessageOnceItsTurnCompletes()
+    {
+        only("""
+                {"method":"item/completed","params":{"item":{"type":"agentMessage",
+                "id":"message-1","text":"Reading the failing test."},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Message.class);
+        ProviderAgentEvent.Message last = only("""
+                {"method":"item/completed","params":{"item":{"type":"agentMessage",
+                "id":"message-2","text":"The test passes now."},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Message.class);
+        assertThat(last.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL);
+
+        List<ProviderAgentEvent> completed = mapper.map(codec.decodeNotification("""
+                {"method":"turn/completed","params":{"threadId":"thread-1","turn":{
+                "id":"turn-1","status":"completed","error":null,"durationMs":5,"items":[]}}}
+                """), true, CodexEventMapper.ThreadLineage.NONE);
+
+        // A model that labels no phases answers with its last message, in that message's place.
+        assertThat(completed).hasSize(2);
+        ProviderAgentEvent.Message answer = (ProviderAgentEvent.Message) completed.getFirst();
+        assertThat(answer.messageKind()).isEqualTo(ProviderAgentEvent.MessageKind.ANSWER);
+        assertThat(answer.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.FINAL);
+        assertThat(answer.text()).isEqualTo("The test passes now.");
+        assertThat(answer.providerEventId()).contains("message-2:answer");
+        assertThat(answer.source()).isEqualTo(last.source());
+        assertThat(completed.getLast()).isInstanceOf(ProviderAgentEvent.Lifecycle.class);
+    }
+
+    @Test
+    void neverPromotesCommentaryOrTheLastMessageOfAnInterruptedTurn()
+    {
+        only("""
+                {"method":"item/completed","params":{"item":{"type":"agentMessage",
+                "id":"message-1","text":"Checking the build.","phase":"commentary"},
+                "threadId":"thread-1","turnId":"turn-1"}}
+                """, ProviderAgentEvent.Message.class);
+        only("""
+                {"method":"turn/completed","params":{"threadId":"thread-1","turn":{
+                "id":"turn-1","status":"completed","error":null,"durationMs":5,"items":[]}}}
+                """, ProviderAgentEvent.Lifecycle.class);
+
+        only("""
+                {"method":"item/completed","params":{"item":{"type":"agentMessage",
+                "id":"message-2","text":"Halfway there."},
+                "threadId":"thread-1","turnId":"turn-2"}}
+                """, ProviderAgentEvent.Message.class);
+        only("""
+                {"method":"turn/completed","params":{"threadId":"thread-1","turn":{
+                "id":"turn-2","status":"interrupted","error":null,"durationMs":5,"items":[]}}}
+                """, ProviderAgentEvent.Lifecycle.class);
+    }
+
+    @Test
     void mapsReadableReasoningSummariesAndPlanTextButNeverHiddenReasoning()
     {
         ProviderAgentEvent.Message summary = only("""

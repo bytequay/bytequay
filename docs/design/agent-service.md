@@ -3911,7 +3911,7 @@ The driver normalizes these App Server events:
 
 | App Server event | ByteQuay event |
 | --- | --- |
-| `item/agentMessage/delta` and completed `agentMessage` | Partial and final assistant message |
+| `item/agentMessage/delta` and completed `agentMessage` | Partial and final assistant message; a `final_answer` phase is the answer, and a turn whose messages carry no phase completes with its last message promoted to the answer |
 | completed reasoning items and supported summary deltas | Readable reasoning summary only |
 | `turn/plan/updated` | Structured checklist steps and status |
 | `item/plan/delta` and completed `plan` | Separate free-form Plan-mode text; completed item is authoritative |

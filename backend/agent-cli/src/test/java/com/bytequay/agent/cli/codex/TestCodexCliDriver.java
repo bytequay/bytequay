@@ -1944,6 +1944,31 @@ class TestCodexCliDriver
     }
 
     @Test
+    void answersWithTheLastMessageOfAModelThatLabelsNoPhases()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+        AgentSession session = driver(supervisor).open(context(Optional.empty(), new AtomicReference<>()), events::add);
+        RunningTurn turn = session.start(command("no phases"));
+        AppServerProcess server = supervisor.server();
+        for (String message : ImmutableList.of("Reading the failing test.", "The test passes now.")) {
+            server.emit("""
+                    {"method":"item/completed","params":{"item":{"type":"agentMessage","id":"%s","text":"%s"},
+                    "threadId":"thread-1","turnId":"%s"}}
+                    """.formatted("message-" + message.length(), message, server.activeTurn()));
+        }
+        server.completeTurnWithoutOutput();
+
+        AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        assertThat(result.finalResponse()).contains("The test passes now.");
+        assertThat(events)
+                .filteredOn(event -> event instanceof ProviderAgentEvent.Message message && message.phase() == ProviderAgentEvent.MessagePhase.FINAL)
+                .extracting(event -> ((ProviderAgentEvent.Message) event).text())
+                .containsExactly("The test passes now.");
+    }
+
+    @Test
     void recoversTheRootAnswerFromCompletionWithoutLoadingHistory()
             throws Exception
     {

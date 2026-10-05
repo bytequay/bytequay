@@ -2409,6 +2409,7 @@ public final class CodexCliDriver
         private final AtomicBoolean cancellationRequested = new AtomicBoolean();
         private final AtomicBoolean settling = new AtomicBoolean();
         private volatile Optional<String> finalResponse = Optional.empty();
+        private volatile boolean finalAnswerSeen;
         private volatile Optional<String> interruptionReason = Optional.empty();
 
         private CodexRunningTurn(
@@ -2532,11 +2533,15 @@ public final class CodexCliDriver
                     true));
         }
 
+        /** The final answer is the response; without one, such as from a model that labels no phases, the latest message is. */
         private void observeMessage(Optional<CodexProtocol.MessagePhase> phase, String text)
         {
-            if (phase.orElse(CodexProtocol.MessagePhase.UNKNOWN) == CodexProtocol.MessagePhase.FINAL_ANSWER
-                    || finalResponse.isEmpty()) {
+            if (phase.orElse(CodexProtocol.MessagePhase.UNKNOWN) == CodexProtocol.MessagePhase.FINAL_ANSWER) {
+                finalAnswerSeen = true;
                 finalResponse = text.isBlank() ? Optional.empty() : Optional.of(text);
+            }
+            else if (!finalAnswerSeen && !text.isBlank()) {
+                finalResponse = Optional.of(text);
             }
         }
 

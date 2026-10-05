@@ -25,7 +25,9 @@ import com.google.common.collect.ImmutableMap;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -39,6 +41,8 @@ final class CodexEventMapper
     private final Path worktree;
     private final SecretRedactor redactor;
     private final boolean exposeReasoningSummaries;
+    /** Each thread's last message with no phase label in its current turn, by thread. */
+    private final Map<String, ProviderAgentEvent.Message> unlabelledMessages = new HashMap<>();
 
     CodexEventMapper()
     {
@@ -125,21 +129,33 @@ final class CodexEventMapper
                             source(started, Optional.empty(), lineage)))
                     // A subagent's turn starting is not a task turn; its discovery already said it began.
                     : ImmutableList.of();
-            case CodexProtocol.TurnCompletedNotification completed -> ImmutableList.of(rootThread
-                    ? lifecycle(
-                            completed.params().turn().id() + ":completed",
-                            completed.params().turn().status() == CodexProtocol.TurnStatus.INTERRUPTED
-                                    ? ProviderAgentEvent.LifecyclePhase.INTERRUPTED
-                                    : ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
-                            "Codex turn " + statusText(completed.params().turn().status()),
-                            source(completed, Optional.empty(), lineage))
-                    : lifecycle(
-                            completed.params().turn().id() + ":agent-completed",
-                            completed.params().turn().status() == CodexProtocol.TurnStatus.COMPLETED
-                                    ? ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED
-                                    : ProviderAgentEvent.LifecyclePhase.AGENT_FAILED,
-                            "Agent " + statusText(completed.params().turn().status()),
-                            source(completed, Optional.empty(), lineage)));
+            case CodexProtocol.TurnCompletedNotification completed -> {
+                ProviderAgentEvent finished = rootThread
+                        ? lifecycle(
+                                completed.params().turn().id() + ":completed",
+                                completed.params().turn().status() == CodexProtocol.TurnStatus.INTERRUPTED
+                                        ? ProviderAgentEvent.LifecyclePhase.INTERRUPTED
+                                        : ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
+                                "Codex turn " + statusText(completed.params().turn().status()),
+                                source(completed, Optional.empty(), lineage))
+                        : lifecycle(
+                                completed.params().turn().id() + ":agent-completed",
+                                completed.params().turn().status() == CodexProtocol.TurnStatus.COMPLETED
+                                        ? ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED
+                                        : ProviderAgentEvent.LifecyclePhase.AGENT_FAILED,
+                                "Agent " + statusText(completed.params().turn().status()),
+                                source(completed, Optional.empty(), lineage));
+                // A model that labels no message as its final answer still answers with its last
+                // message; it takes the answer's place under the same item once the turn completes.
+                ProviderAgentEvent.Message unlabelled = unlabelledMessages.remove(completed.params().threadId());
+                yield unlabelled == null || completed.params().turn().status() != CodexProtocol.TurnStatus.COMPLETED
+                        ? ImmutableList.of(finished)
+                        : ImmutableList.of(new ProviderAgentEvent.Message(
+                                unlabelled.source().providerItemId().map(item -> item + ":answer"),
+                                ProviderAgentEvent.MessagePhase.FINAL,
+                                unlabelled.text(),
+                                unlabelled.source()), finished);
+            }
             case CodexProtocol.ItemStartedNotification started ->
                 mapItem(started.params().item(), true, rootThread,
                         source(started, Optional.of(started.params().item().id()), lineage));
@@ -229,18 +245,29 @@ final class CodexEventMapper
     {
         String eventId = item.id() + (started ? ":started" : ":completed");
         return switch (item) {
-            case CodexProtocol.AgentMessageItem message -> started
-                    ? ImmutableList.of()
-                    : ImmutableList.of(new ProviderAgentEvent.Message(
-                            Optional.of(eventId),
-                            // A subagent's final answer is FINAL for that agent; its source names
-                            // the parent, which is what keeps it from being read as the task's.
-                            message.phase().orElse(CodexProtocol.MessagePhase.UNKNOWN)
-                                    == CodexProtocol.MessagePhase.FINAL_ANSWER
-                                    ? ProviderAgentEvent.MessagePhase.FINAL
-                                    : ProviderAgentEvent.MessagePhase.PARTIAL,
-                            redactor.redact(message.text()),
-                            source));
+            case CodexProtocol.AgentMessageItem message -> {
+                if (started) {
+                    yield ImmutableList.of();
+                }
+                CodexProtocol.MessagePhase phase = message.phase().orElse(CodexProtocol.MessagePhase.UNKNOWN);
+                ProviderAgentEvent.Message mapped = new ProviderAgentEvent.Message(
+                        Optional.of(eventId),
+                        // A subagent's final answer is FINAL for that agent; its source names
+                        // the parent, which is what keeps it from being read as the task's.
+                        phase == CodexProtocol.MessagePhase.FINAL_ANSWER
+                                ? ProviderAgentEvent.MessagePhase.FINAL
+                                : ProviderAgentEvent.MessagePhase.PARTIAL,
+                        redactor.redact(message.text()),
+                        source);
+                String thread = source.providerThreadId().orElseThrow();
+                if (phase == CodexProtocol.MessagePhase.UNKNOWN && !mapped.text().isBlank()) {
+                    unlabelledMessages.put(thread, mapped);
+                }
+                else {
+                    unlabelledMessages.remove(thread);
+                }
+                yield ImmutableList.of(mapped);
+            }
             // The root's own prompt is already durable as the user's message; a subagent's prompt
             // is the only record of what its parent asked it to do.
             case CodexProtocol.UserMessageItem prompt -> started || rootThread || prompt.text().isBlank()

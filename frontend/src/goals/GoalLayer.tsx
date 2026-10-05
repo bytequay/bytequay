@@ -282,7 +282,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
         </button>
         {goal !== null && shown.length > 0 && (
           <div className="goal-cards" role="region" aria-label="Recommended next steps"
-            style={position.bottom > ROOM_BELOW ? { right: position.right, top: `calc(100% - ${position.bottom - 6}px)` } : { right: position.right, bottom: position.bottom + 44 }}>
+            style={{ ...({ '--goal-pill-right': `${position.right}px` } as React.CSSProperties),
+              ...(position.bottom > ROOM_BELOW ? { top: `calc(100% - ${position.bottom - 6}px)` } : { bottom: position.bottom + 44 }) }}>
             {shown.map((card) => <RecommendationCard key={card.id} card={card} onOpen={() => { setDrafting(false); open(); }}
               onStart={() => (card.card.workItemId !== null ? goals.openLesson(goal.id, card.card.workItemId).then(() => {
                 // Start on a lesson card opens the lesson in the Goal window.

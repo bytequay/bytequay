@@ -88,8 +88,8 @@ export async function run(): Promise<boolean> {
   document.body.append(host);
   localStorage.removeItem('bq.goal.pill.home');
   const root = createRoot(host);
-  const render = (page = 'home', covered = false): void => flushSync(() => root.render(<LayerCovered.Provider value={covered}>
-    <GoalLayer page={page} workspaceId="workspace" repository="trinodb/trino" goals={goals} needsYou={new Set()} onOpenTask={() => {}} onStartIssue={() => {}} onSpecCheck={() => {}}>
+  const render = (page = 'home', covered = false, shown: Goals = goals): void => flushSync(() => root.render(<LayerCovered.Provider value={covered}>
+    <GoalLayer page={page} workspaceId="workspace" repository="trinodb/trino" goals={shown} needsYou={new Set()} onOpenTask={() => {}} onStartIssue={() => {}} onSpecCheck={() => {}}>
       <main style={{ height: '100%', padding: 32 }}><h1>Workspace home</h1><p>The page stays in place while the goal is open.</p></main>
     </GoalLayer>
   </LayerCovered.Provider>));
@@ -218,6 +218,18 @@ export async function run(): Promise<boolean> {
     assert(!pane.hidden, 'Leaving during the opening animation also gets the delay');
     await wait(1_600);
     assert(pane.hidden, 'Staying outside during the opening animation dismisses Goal after the delay');
+
+    // A card hangs from the pill, but never past the page edge beside a pill dropped near it.
+    host.style.width = '900px'; host.style.height = '700px';
+    localStorage.setItem('bq.goal.pill.issues', JSON.stringify({ right: 680, bottom: 420 }));
+    const recommended: GoalDto = { ...goal, recommendations: [{ id: 'card-1', goalId: 'goal', state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: '',
+      card: { kind: 'RESEARCH', title: 'Read how Trino plans a query', reason: 'You want to know the engine before changing it', scope: 'The planner and optimizer',
+        pages: [], workItemId: null, issue: null, ticket: null, module: null, reproductions: null } }] };
+    render('issues', false, { ...goals, goals: [recommended], pinned: recommended }); await settle();
+    const page = element('.goal-layer__page').getBoundingClientRect();
+    const card = element('.goal-cards').getBoundingClientRect();
+    assert(element('.goal-pill').getBoundingClientRect().left < page.left + 100, 'The pill sits near the page\'s left edge');
+    assert(card.left >= page.left + 8 && card.right <= page.right - 8, `The card stays inside the page: ${JSON.stringify(card.toJSON())}`);
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

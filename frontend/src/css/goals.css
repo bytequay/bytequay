@@ -1000,7 +1000,8 @@ button.goal-tile:hover {
 .goal-note ul { margin: 0 0 6px; padding-left: 16px; font-size: 12px; line-height: 17px; }
 .goal-note a { color: #0969da; overflow-wrap: anywhere; }
 .goal-note summary:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
-.goal-cards { position: absolute; z-index: 6; display: grid; gap: 8px; width: 280px; }
+/* The cards hang from the pill's right edge, moved in from whichever page edge they would cross. */
+.goal-cards { position: absolute; z-index: 6; display: grid; gap: 8px; width: 280px; right: clamp(8px, var(--goal-pill-right), calc(100% - 288px)); }
 .goal-rec { display: grid; gap: 6px; justify-items: start; background: #ffffff; box-shadow: 0 6px 18px rgba(31, 35, 40, 0.12); }
 .goal-rec__title { font-size: 13px; line-height: 18px; overflow-wrap: anywhere; }
 .goal-rec__reason { font-size: 12px; line-height: 17px; color: #57606a; overflow-wrap: anywhere; }

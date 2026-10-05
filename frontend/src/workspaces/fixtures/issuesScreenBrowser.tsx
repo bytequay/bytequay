@@ -15,7 +15,7 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, RepositoryIssueSnapshotDto, RepositoryMetadataDto, WorkspaceIssueDetailDto } from '../../types';
-import type { WorkItemDto } from '../../goals/contracts';
+import type { WorkItemDecision, WorkItemDto } from '../../goals/contracts';
 import { issueEpicId, lendEpicWorkspace, takeEpicStart } from '../epics';
 import { workspaceRoute } from '../model';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
@@ -165,6 +165,8 @@ async function epicTabs(): Promise<void> {
     createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', isEpic: number === 24, developmentTask: null,
   }));
   const repository = { owner: 'upstream', repo: 'app' };
+  let received = 0;
+  const decisions: number[] = [];
   const work = (id: string, title: string, state: WorkItemDto['state'], links: WorkItemDto['links'] = []): WorkItemDto => ({
     id, workspaceId: 'workspace-1', goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links,
     history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId: issueEpicId(7024),
@@ -184,7 +186,16 @@ async function epicTabs(): Promise<void> {
     listWorkItems: async () => [work('a', 'Port the Hive reader', 'DONE'),
       work('b', 'Port the Delta reader', 'WORKING', [{ kind: 'TASK', key: 'task-9', label: 'Task', title: 'Port Delta', state: 'IDLE', status: 'Idle',
         blocked: false, url: null, activity: null, addedAt: null }]),
-      work('c', 'Port the Iceberg reader', 'PLANNED')],
+      { ...work('c', 'Port the Iceberg reader', 'PLANNED'), revision: received }],
+    decideWorkItem: async (_workspace: string, id: string, command: WorkItemDecision): Promise<WorkItemDto> => {
+      decisions.push(command.expectedRevision);
+      // A receipt lands while the user decides, so the first try names a revision that moved on.
+      if (decisions.length === 1) {
+        received = 1;
+        throw new Error(`Work item changed: ${id}`);
+      }
+      return { ...work(id, 'Port the Iceberg reader', 'DROPPED'), revision: 2 };
+    },
   } as unknown as Bridge;
   // The workspace on screen lends what needs the user; a task of this Epic waits on them.
   lendEpicWorkspace('workspace-1', { needsYou: new Set(['TASK task-9']), epicTitles: new Map(), repository: 'upstream/app' });
@@ -212,6 +223,11 @@ async function epicTabs(): Promise<void> {
     const start = takeEpicStart('workspace-1');
     assert(start !== null && 'itemId' in start && start.itemId === 'c' && start.draft === 'Port the Iceberg reader' && window.location.hash === workspaceRoute('workspace-1'),
       `Run hands work without a source to its workspace, opening the workspace when another page is on screen: ${JSON.stringify(start)} ${window.location.hash}`);
+    host.querySelector<HTMLButtonElement>('[aria-label="Drop Port the Iceberg reader"]').click(); await settle();
+    [...document.querySelectorAll<HTMLButtonElement>('dialog.bq-confirm-dialog button')].find(button => button.textContent === 'Drop').click();
+    await settle(); await settle();
+    assert(decisions.join(',') === '0,1' && host.querySelector('.epic-view__error') === null,
+      `A decision a receipt made stale goes again at the current revision: ${decisions.join(',')}`);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await settle();
     assert(closed === 1, 'Escape leaves the Epic from either tab');
 

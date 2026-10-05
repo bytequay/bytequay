@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
-import { GOALS_CHANGED } from '../goals/useGoals';
+import { decideOnCurrent, GOALS_CHANGED } from '../goals/useGoals';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { Bridge } from '../types';
@@ -176,7 +176,8 @@ export function useEpicGoals(workspaceId: string, bridge: () => WorkBridge = win
   // Kept the same across renders, so an open search is not repeated each time the work refreshes.
   return useMemo(() => ({
     createWork: (request) => bridge().createWorkItem(workspaceId, request).then((item) => { changed(workspaceId); return item; }),
-    decideWork: (item, command) => bridge().decideWorkItem(workspaceId, item.id, command).then((decided) => { changed(workspaceId); return decided; }),
+    // A receipt landing while the user decides only moves the revision; the decision goes again at the current one.
+    decideWork: (item, command) => decideOnCurrent(bridge(), workspaceId, item, command).then((decided) => { changed(workspaceId); return decided; }),
     search: (query) => bridge().searchGoalCandidates(workspaceId, query),
   }), [bridge, workspaceId]);
 }

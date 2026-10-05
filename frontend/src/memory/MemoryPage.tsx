@@ -35,6 +35,11 @@ import '../css/repository-context.css';
 import '../css/memory.css';
 
 const KINDS: MemoryKind[] = ['RULE', 'RECIPE', 'SPEC'];
+const TABS = [
+  ['memories', 'Memories'], ['learn', 'Learn from PRs'], ['needs', 'Needs you'],
+  ['specs', 'Spec checks'], ['replays', 'Replays'], ['guidelines', 'Guidelines'],
+] as const;
+type MemoryTab = typeof TABS[number][0];
 /** What the workspace's one restricted run is called where a message names it. */
 const RUN_NAMES: Record<NonNullable<ContextBuildViewDto['build']>['kind'], string> = { CHECK: 'check', HARVEST: 'harvest', RESEARCH: 'research run' };
 type Drawer = { kind: 'spec'; directory: string | null; prefill?: SpecCheckRequest['prefill'] } | { kind: 'memory'; id: string } | { kind: 'replay'; id: string };
@@ -62,8 +67,12 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ id: number; text: string; undo: string | null } | null>(null);
   const [drawer, setDrawer] = useState<Drawer | null>(null);
+  const [tab, setTab] = useState<MemoryTab>('memories');
+  const scroll = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (scroll.current !== null) scroll.current.scrollTop = 0; }, [tab]);
   useEffect(() => {
     if (spec === undefined) return;
+    setTab('specs');
     setDrawer({ kind: 'spec', directory: spec.directory, prefill: spec.prefill });
     onSpecShown?.();
   }, [onSpecShown, spec]);
@@ -176,6 +185,7 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   };
   const open = (next: Drawer) => {
     if (document.activeElement instanceof HTMLElement) opener.current = document.activeElement;
+    if (next.kind === 'spec') setTab('specs');
     setDrawer(next);
   };
   const onKeyDown = (event: KeyboardEvent) => {
@@ -210,9 +220,11 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
   });
   const saveSwitches = (next: { reviews: boolean; development: boolean }) =>
     change(() => window.bridge.saveMemorySwitches(workspaceId, next), () => say(next.reviews || next.development ? 'Memory switches saved' : 'Agents get no memory now'));
+  const counts: Partial<Record<MemoryTab, number>> = { memories: memories.length, needs: needs.length, specs: checks.length,
+    replays: replays.length, guidelines: page.guidelines.length };
   return <div className="rcp" onKeyDown={onKeyDown}>
     <div className="rcp-content" inert={drawer !== null}>
-      <div className="rcp-scroll">
+      <div className="mem-page-header">
         <div className="rcp-inner mem-inner">
           <div className="rcp-head">
             <div className="rcp-head__main">
@@ -242,12 +254,35 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
             <label><input type="checkbox" checked={switches.development} disabled={busy}
               onChange={event => saveSwitches({ reviews: switches.reviews, development: event.target.checked })} />Development tasks</label>
           </div>
+          <div className="mem-page-tabs" role="tablist" aria-label="Memory sections">
+            {TABS.map(([id, label], index) => <button type="button" key={id} id={`mem-tab-${id}`} role="tab"
+              aria-selected={tab === id} aria-controls={`mem-panel-${id}`} tabIndex={tab === id ? 0 : -1}
+              className={`mem-page-tab${tab === id ? ' is-active' : ''}`} onClick={() => setTab(id)}
+              onKeyDown={event => {
+                const next = event.key === 'ArrowRight' ? (index + 1) % TABS.length
+                  : event.key === 'ArrowLeft' ? (index + TABS.length - 1) % TABS.length
+                    : event.key === 'Home' ? 0 : event.key === 'End' ? TABS.length - 1 : null;
+                if (next === null) return;
+                event.preventDefault();
+                setTab(TABS[next][0]);
+                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+              }}>
+              {label}{counts[id] !== undefined && <span className="mem-page-tab__count">{counts[id]}</span>}
+              {((id === 'learn' && run?.kind === 'HARVEST' && run.outcome === 'RUNNING')
+                || (id === 'specs' && activeCheck(checks) !== null) || (id === 'replays' && replays.some(replayRunning)))
+                && <span aria-label="Running"><Spinner size={12} /></span>}
+            </button>)}
+          </div>
+        </div>
+      </div>
+      <div className="rcp-scroll mem-page-scroll" ref={scroll}>
+        <div className="rcp-inner mem-inner mem-panel" id={`mem-panel-${tab}`} role="tabpanel" aria-labelledby={`mem-tab-${tab}`} tabIndex={0}>
           {actionError !== null && <div className="rcp-error" role="alert">{actionError}
             <button type="button" className="rcp-link" onClick={() => setActionError(null)}>Dismiss</button></div>}
-          <LearnCard page={page} data={data} busy={busy} onLearn={learn} onStop={actions.stop}
+          {tab === 'learn' && <LearnCard page={page} data={data} busy={busy} onLearn={learn} onStop={actions.stop}
             onDelete={id => change(() => window.bridge.deleteMemory(workspaceId, id), () => say('Memory deleted', id))}
-            onOpen={id => open({ kind: 'memory', id })} />
-          {run !== null && run.kind === 'CHECK' && run.outcome === 'RUNNING' && <div className="rcp-status" role="status" aria-live="polite"><div className="rcp-status__row">
+            onOpen={id => open({ kind: 'memory', id })} />}
+          {tab === 'specs' && run !== null && run.kind === 'CHECK' && run.outcome === 'RUNNING' && <div className="rcp-status" role="status" aria-live="polite"><div className="rcp-status__row">
             <span className="rcp-status__icon rcp-tone--blue"><Spinner size={14} /></span>
             <div className="rcp-status__main">
               <div className="rcp-status__headline">Checking {checks.find(check => check.id === run.checkId)?.directory ?? 'a directory'}</div>
@@ -277,9 +312,9 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
             </div>
           </div>}
 
-          {needs.length > 0 && <section className="mem-section" aria-label="Needs you">
+          {tab === 'needs' && <section className="mem-section" aria-label="Needs you">
             <h2 className="mem-section__title">Needs you · {needs.length}</h2>
-            <div className="mem-box">{needs.map(memory => {
+            {needs.length === 0 ? <div className="rcp-empty">No memories need your attention.</div> : <div className="mem-box">{needs.map(memory => {
               const flag = memoryFlags(memory)[0];
               return <button type="button" key={memory.id} className="mem-need" onClick={() => open({ kind: 'memory', id: memory.id })}>
                 <span className="mem-need__icon"><TriangleAlert size={15} aria-hidden="true" /></span>
@@ -288,10 +323,10 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
                 <span className="rcp-age">{age(memory.reports.at(-1)?.at ?? memory.updatedAt, now)}</span>
                 <ChevronRight size={14} aria-hidden="true" className="mem-chevron" />
               </button>;
-            })}</div>
+            })}</div>}
           </section>}
 
-          <section className="mem-section" aria-label="Memories">
+          {tab === 'memories' && <section className="mem-section" aria-label="Memories">
             <div className="mem-section__bar">
               <h2 className="mem-section__title">Memories · {memories.length}</h2>
               <span className="rcp-spacer" />
@@ -324,9 +359,9 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
                       selected={selected?.id === memory.id} onOpen={() => open({ kind: 'memory', id: memory.id })} />)}</div>
                   </div>;
                 })}
-          </section>
+          </section>}
 
-          <section className="mem-section" aria-label="Spec checks">
+          {tab === 'specs' && <section className="mem-section" aria-label="Spec checks">
             <h2 className="mem-section__title">Spec checks · {ordered.length}</h2>
             {ordered.length === 0
               ? <div className="rcp-empty">No spec check yet. A check reads the pages a directory’s code links, decides which are specifications, and reproduces each
@@ -342,11 +377,11 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
                   <span className="rcp-age">{shortDate(check.endedAt ?? check.startedAt, now)}</span>
                 </button>;
               })}</div>}
-          </section>
+          </section>}
 
-          <ReplaysSection replays={replays} now={now} onOpen={id => open({ kind: 'replay', id })} />
+          {tab === 'replays' && <ReplaysSection replays={replays} now={now} onOpen={id => open({ kind: 'replay', id })} />}
 
-          <section className="mem-section" aria-label="Guidelines">
+          {tab === 'guidelines' && <section className="mem-section" aria-label="Guidelines">
             <h2 className="mem-section__title">Guidelines · {plural(page.guidelines.length, 'file')}</h2>
             <div className="mem-muted">Every agent turn gets these files as reference data, read from the commit it starts at; reviews read their base branch.
               Reviews also read the CLAUDE.md or AGENTS.md beside the paths they change.</div>
@@ -358,7 +393,7 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
                 <span className={file.cut ? 'mem-warn' : 'mem-muted'}>{kilobytes(file.bytes)}{file.cut ? ', cut at 16 KB' : ''}</span>
                 <button type="button" className="rcp-link" onClick={() => openUrl(file.url)}>Open</button>
               </div>)}</div>}
-          </section>
+          </section>}
         </div>
       </div>
     </div>

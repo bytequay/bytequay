@@ -310,6 +310,10 @@ offers no tool; guidelines stay on.
 memories.
 
 **Memory page:**
+- **Top tabs:** Memories (the default), Learn from PRs, Needs you, Spec checks,
+  Replays and Guidelines use the Tasks page's tab style. Only the selected
+  section is shown; the header and tabs stay visible while its content scrolls.
+  Filters survive switching tabs. Opening a spec check selects Spec checks.
 - **Header:** chips with an icon and a count, the sentence on hover, for recipes,
   rules and specs, and for memories from you, from pull requests and from tasks.
 - **Actions:** Learn from my PRs, showing how far the cursor is ("Learned

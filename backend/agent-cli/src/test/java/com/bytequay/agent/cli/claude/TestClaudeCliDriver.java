@@ -283,7 +283,7 @@ class TestClaudeCliDriver
                 assertThat(receipt.path("treeTermination").asText()).isEqualTo("VERIFIED_STOPPED");
             }
             assertThat(turnSpecs.getLast().argv()).containsSequence("--resume", session.reference().providerValue());
-            assertThat(turnSpecs.getLast().argv()).containsSequence("--append-system-prompt", ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
+            assertThat(turnSpecs.getLast().argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.reviewInstructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
             assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Command command
                             && command.state() == ProviderAgentEvent.ActivityState.COMPLETED)
                     .hasSize(2);
@@ -1252,7 +1252,7 @@ class TestClaudeCliDriver
                 List<String> argv = supervisor.turns().getLast().spec().argv();
                 assertThat(argv).contains("--disable-slash-commands");
                 assertThat(argv).containsSequence("--permission-mode", "auto");
-                assertThat(argv).containsSequence("--append-system-prompt", ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
+                assertThat(argv).containsSequence("--append-system-prompt", AgentCommandPolicy.reviewInstructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
                 assertThat(argv).doesNotContain("--allowedTools");
                 assertThat(argv.get(argv.indexOf("--tools") + 1).split(","))
                         .contains("Bash", "Read", "Edit", "Write")
@@ -1306,7 +1306,8 @@ class TestClaudeCliDriver
             List<String> argv = turn.spec().argv();
             assertThat(argv).contains("--disable-slash-commands");
             assertThat(argv).containsSequence("--permission-mode", "auto");
-            assertThat(argv).containsSequence("--append-system-prompt", ClaudeCliDriver.PLAN_INSTRUCTION + "\n\nKeep explanations concise\n\nReview this PR");
+            assertThat(argv).containsSequence("--append-system-prompt", AgentCommandPolicy.reviewInstructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION
+                    + "\n\nKeep explanations concise\n\nReview this PR");
             assertThat(argv.stream().filter("--append-system-prompt"::equals)).hasSize(1);
             String nativeTools = argv.get(argv.indexOf("--tools") + 1);
             assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")

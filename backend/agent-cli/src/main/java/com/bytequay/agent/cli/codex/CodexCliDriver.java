@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.codex;
 
+import com.bytequay.agent.cli.ProviderInstructions;
 import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.AgentPermissionManager;
@@ -26,7 +27,6 @@ import com.bytequay.agent.cli.process.ProviderCli;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
-import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
@@ -100,7 +100,6 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
-import static java.util.stream.Collectors.joining;
 
 /**
  * Runs Codex tasks, one App Server process per task.
@@ -945,14 +944,9 @@ public final class CodexCliDriver
             this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
             this.permissionScope = requireNonNull(permissionScope, "permissionScope is null");
             this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
-            this.developerInstructions = Stream.of(
-                            AgentCommandPolicy.instructions(permissionScope),
-                            context.restricted() ? "" : PLAN_INSTRUCTION,
-                            context.managedInstructions(),
-                            codeQueries.flatMap(McpRegistration::instruction).orElse(""),
-                            permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "")
-                    .filter(instruction -> !instruction.isBlank())
-                    .collect(joining("\n\n"));
+            this.developerInstructions = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(),
+                    codeQueries.flatMap(McpRegistration::instruction).orElse(""),
+                    permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "");
             this.eventMapper = new CodexEventMapper(context.worktree(), sessionRedactor, deepSeekSecret.isEmpty());
             this.isolation = new CodexIsolationGuard(
                     client,

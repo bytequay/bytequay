@@ -3660,8 +3660,10 @@ Codex-backed turns, including private review and CI, use native automatic
 review before any provider request reaches ByteQuay. Remaining private-review
 requests pass ByteQuay's review guard before any unresolved user approval.
 Claude supplies the instructions to its native permission mode and MCP
-permission callback. Both adapters translate the shared scope to provider
-settings. Interactive development permissions use
+permission callback. Both lanes also give them to the agent itself, composed
+the same way: command scope, plan guidance unless the session is read-only,
+managed instructions, then tool guidance. Both adapters translate the shared
+scope to provider settings. Interactive development permissions use
 no ByteQuay shell parser or second command approval engine.
 
 - Task-required local Git commands may operate wherever the existing

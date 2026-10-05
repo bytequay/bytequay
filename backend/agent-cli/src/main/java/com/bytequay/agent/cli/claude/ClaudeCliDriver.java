@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.cli.claude;
 
+import com.bytequay.agent.cli.ProviderInstructions;
 import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.GitCliEnvironment;
@@ -28,7 +29,6 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
-import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -511,14 +511,7 @@ public final class ClaudeCliDriver
                     .iterator());
         }
         registration.toolNames().forEach(name -> allowedTools.add("mcp__bytequay__" + name));
-        String instruction = Stream.of(
-                        permissionScope.githubCommands() || permissionScope.policy() == AgentPermissionPolicy.CI_AUTOFIX
-                                ? AgentCommandPolicy.instructions(permissionScope) : "",
-                        permissionScope.access().restricted() ? "" : PLAN_INSTRUCTION,
-                        managedInstructions,
-                        registration.instruction().orElse(""))
-                .filter(value -> !value.isBlank())
-                .collect(joining("\n\n"));
+        String instruction = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, managedInstructions, registration.instruction().orElse(""));
         if (instruction.isEmpty()) {
             argv.add("--append-system-prompt=");
         }

@@ -206,15 +206,17 @@ Start reads the source again the same way and sets the card aside, telling the
 agent, when it is no longer open for practice. Otherwise Start makes the issue
 or ticket a Develop work item of the Goal, with the card's criteria, or else its
 scope, as the work's acceptance criteria under merged delivery, and opens its
-ordinary composer with the instruction filled in; the task and its source
-snapshot are created only when the user sends it, through the existing issue or
-ticket admission, as that work item's attempt. The card stays started, and no
-other Practice card floats, until the work is done or dropped; the agent hears
-each accept, drop or reopen of the Goal's work. Once the task of a Goal's issue
-or ticket work has ended and no delivery runs for it, the Work view offers Start
-another attempt: the issue or ticket composer opens over the ended task, and
-sending it creates a task that becomes the source's task, while the ended one
-keeps its source and stays the work item's earlier attempt.
+ordinary composer with a request prepared from the work's criteria, the card's
+scope and uncertainty, and the Goal's objective and constraints, for the user to
+review; the task and its source snapshot are created only when the user sends
+it, through the existing issue or ticket admission, as that work item's attempt.
+The card stays started, and no other Practice card floats, until the work is
+done or dropped; the agent hears each accept, drop or reopen of the Goal's work.
+Once the task of a Goal's issue or ticket work has ended and no delivery runs
+for it, the Work view offers Start another attempt: the issue or ticket composer
+opens over the ended task, prepared the same way, and sending it creates a task
+that becomes the source's task, while the ended one keeps its source and stays
+the work item's earlier attempt.
 
 Each work item of a Goal has a High, Normal or Low priority, Normal until the
 user sets one, and a place in the Goal's order: new work joins the end, and the
@@ -258,8 +260,8 @@ supports a specification feature, and neither research nor a spec check fits it,
 the agent may recommend an investigation card naming what to find out. Start
 makes it one Investigate work item of the Goal under an accepted result, done by
 the card's criteria or else by what to find out, so starting it again finds the
-same item, and the Guide view opens that work, where the user links a task or
-accepts the result.
+same item, and the Guide view opens that work, where the user starts a task, its
+composer prepared the same way, links one or accepts the result.
 
 The agent also sees the workspace's fifteen modules whose code cites a page in
 the most sections, read once per monitored head, and may recommend a Spec check

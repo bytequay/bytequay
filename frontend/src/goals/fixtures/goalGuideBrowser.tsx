@@ -399,9 +399,13 @@ export async function run(): Promise<boolean> {
     [...practice.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
     assert(composers() === 1 && started[0].issue === 31252 && started[0].instruction.startsWith('Key checkpoint add and remove actions'),
       'Start opens the issue composer with the prepared instruction');
+    assert(started[0].instruction.includes('Check first: Pull request #31270 is open')
+      && started[0].instruction.includes(`My goal: ${server.goal.title} — Explain and change the Iceberg connector`),
+      'The prepared request carries what the agent was unsure of and the goal it serves');
     assert(text().includes('Practicing: Fix #31252') && !text().includes('Researching: Fix #31252'), 'The started practice shows as practice, not research');
     button('Open the composer').click(); await settle();
-    assert(composers() === 2 && started[1].issue === 31252, 'Until its task is sent, the practice leads back to the prepared composer');
+    assert(composers() === 2 && started[1].issue === 31252 && started[1].instruction === started[0].instruction,
+      'Until its task is sent, the practice leads back to the same prepared composer');
 
     // The task the user sent published a pull request, which merged; accepting the result stays the user's decision.
     const link = (kind: GoalItemDto['kind'], key: string, label: string, status: string): GoalItemDto => ({ kind, key, label, title: 'Key actions by path',

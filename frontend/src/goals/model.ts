@@ -186,6 +186,24 @@ function acceptedResult(detail: string): string {
   return detail.split('\n').slice(1).join(' ').trim() || detail;
 }
 
+/**
+ * The request Goal work opens the task composer with, for the user to review and send: what to do (its card's scope, or else the work's
+ * title), when it is done, what the agent was unsure of, and the goal it serves with the goal's constraints.
+ */
+export function preparedRequest(goal: GoalDto | null, item: WorkItemDto | null, card: GoalCardDto | null): string {
+  const instruction = (card?.scope ?? item?.title ?? '').trim();
+  const done = (item?.acceptanceCriteria ?? card?.criteria ?? '').trim();
+  const objective = goal?.description.trim() ?? '';
+  const constraints = goal?.definition?.constraints.trim() ?? '';
+  return [
+    instruction,
+    done === '' || done === instruction ? '' : `Done when: ${done}`,
+    card?.uncertainty ? `Check first: ${card.uncertainty}` : '',
+    goal === null ? '' : `My goal: ${goal.title}${objective === '' ? '' : ` — ${objective}`}`,
+    constraints === '' ? '' : `Constraints: ${constraints}`,
+  ].filter((part) => part !== '').join('\n\n');
+}
+
 /** Search results not already in the goal, at most a handful per query. */
 export function addable(candidates: GoalItemDto[], goal: Pick<GoalDto, 'items'>, limit = 6): GoalItemDto[] {
   const present = new Set(goal.items.flatMap((item) => item.links).map(refKey));

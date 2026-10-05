@@ -24,10 +24,11 @@ import type {
 } from './contracts';
 import {
   GOAL_SOURCES, STARTED_LABELS, WORK_VIEWS, addable, goalDirections, inOrder, isOpen, openCourse, openPlan, openProposal, progressWidths, goalHistory, outcomeOf, refKey, ringDash,
-  situation, sourceOf, sourceUrl, summarize, itemNeedsYou, unblocks, waitingOn, workIn,
+  preparedRequest, situation, sourceOf, sourceUrl, summarize, itemNeedsYou, unblocks, waitingOn, workIn,
   type WorkSource, type WorkView,
 } from './model';
 import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
+import { startEpicWork } from '../workspaces/epics';
 import type { GoalConversation, GoalModel } from './useGoals';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
@@ -496,8 +497,8 @@ function Started({ goal, card, research, onOpenTask, onLesson, onStartIssue, onS
       {card.card.kind === 'WORK' && (task !== undefined
         ? <button type="button" className="goal-link" onClick={() => onOpenTask(task.key)}>Open task</button>
         : <button type="button" className="goal-link" onClick={() => {
-          if (card.card.issue !== null) onStartIssue(card.card.issue, card.card.scope);
-          else if (card.card.ticket !== null) onStartTicket(card.card.ticket, card.card.scope);
+          if (card.card.issue !== null) onStartIssue(card.card.issue, preparedRequest(goal, work ?? null, card.card));
+          else if (card.card.ticket !== null) onStartTicket(card.card.ticket, preparedRequest(goal, work ?? null, card.card));
         }}>Open the composer</button>)}
     </div>
   );
@@ -1156,6 +1157,9 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
   const issueNumber = issue === undefined ? undefined : Number(issue.key.slice(issue.key.lastIndexOf('#') + 1));
   const ticket = item.links.find((link) => link.kind === 'JIRA');
   const lastTask = item.links.filter((link) => link.kind === 'TASK').at(-1);
+  // A task for this work opens with a request prepared from its accepted scope, the card it came from and its goal.
+  const goal = props.goal !== null && props.goal.id === item.goalId ? props.goal : null;
+  const request = (): string => preparedRequest(goal, item, goal?.recommendations.find((found) => found.workItemId === item.id)?.card ?? null);
   // The same Goal's work, in its order: what this item waits on, what waits on it and where it stands.
   const siblings = item.goalId === null ? [] : inOrder(props.workItems.filter((other) => other.goalId === item.goalId));
   const openSiblings = siblings.filter(isOpen);
@@ -1237,8 +1241,12 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
     </button>)}
     {/* An ended task no longer blocks its issue or ticket: another attempt becomes the source's task, and this work keeps both. */}
     {!concluded && (issueNumber !== undefined || ticket !== undefined) && lastTask?.state === 'ENDED' && <button type="button" className="goal-link"
-      onClick={() => issueNumber !== undefined ? props.onStartIssue(issueNumber, item.acceptanceCriteria, lastTask.key)
-        : props.onStartTicket(ticket.key, item.acceptanceCriteria, lastTask.key)}>Start another attempt</button>}
+      onClick={() => issueNumber !== undefined ? props.onStartIssue(issueNumber, request(), lastTask.key)
+        : props.onStartTicket(ticket.key, request(), lastTask.key)}>Start another attempt</button>}
+    {/* Work without an issue or ticket opens the task composer itself, the same hand-off an Epic's Work tab uses; its task is the work's attempt. */}
+    {!concluded && item.kind !== 'LEARN' && issue === undefined && ticket === undefined && (lastTask === undefined || lastTask.state === 'ENDED')
+      && <button type="button" className="goal-link" onClick={() => startEpicWork({ workspaceId: item.workspaceId, itemId: item.id, draft: request() })}>
+        {lastTask === undefined ? 'Start a task' : 'Start another attempt'}</button>}
     {!concluded && <button type="button" className="goal-link" onClick={() => setAdding((value) => !value)}>Link source, task or PR</button>}
     {adding && !concluded && <div><input aria-label="Search supporting work" value={candidates.query} onChange={(event) => candidates.setQuery(event.target.value)} />
       {candidates.results.map((reference) => <Candidate key={refKey(reference)} item={reference} onAdd={(link) => props.onLink(item, link).catch((failure: unknown) => {

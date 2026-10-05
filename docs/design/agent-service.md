@@ -2,16 +2,22 @@
 
 [Agent guided goals](goal-guidance.md) adds a separate Goal conversation
 using bounded `TEXT_ONLY` helper sessions and work-item handoff into this existing
-task service. Planning creates no execution task or Git worktree. The one
-noninteractive, read-only research task kind the user approved starts only from
-a Goal card's Start; it shares the workspace's single spec-check and harvest run
-slot and saves notes through its one task-bound tool. The proposal and its
-[implementation plan](goal-guidance-impl-tmp.md) distinguish the implemented
-conversation, cards and research from the pending courses and work handoff. Issue/Jira task creation
+task service. Planning creates no execution task or Git worktree and adds no
+execution, tool or publication authority. The one noninteractive research task
+kind the user approved starts only from a Goal card's Start; it runs in its own
+disposable worktree, shares the workspace's single spec-check and harvest run
+slot and saves notes through its one task-bound tool. Issue/Jira task creation
 reserves work-item source/task ownership in the existing transaction before the
-first turn; source snapshots remain available with work-item history. Planning
-adds no execution, tool or publication authority. Current-task reopening remains
-the admission default; explicit another-attempt launch is still pending.
+first turn; source snapshots remain available with work-item history. Task
+creation may instead name the source-less work item it attempts, checked before
+worktree preparation and recorded with the task. Goal work opens the ordinary
+composer with a request prepared from the work's accepted criteria, its card's
+scope and uncertainty, and the Goal's objective and constraints. What the user
+sends is the task's instruction, so the Goal context a task carries is the text
+the user accepted; nothing else is added to provider guidance. An issue or
+ticket keeps its current task until that task ends; another attempt then
+becomes the source's task. The [implementation plan](goal-guidance-impl-tmp.md)
+tracks what remains.
 
 [WorkBench](workbench.md) owns the shared navigation, task-bound code access,
 and reviews of local development commits. Its source and hosting contracts

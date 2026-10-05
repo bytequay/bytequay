@@ -27,7 +27,7 @@ import {
   addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openPlan, openProposal, outcomeOf, placePill, goalHistory, refKey, situation,
   sourceOf,
   sourceUrl,
-  summarize, waitingOn, workIn,
+  preparedRequest, summarize, waitingOn, workIn,
 } from './model';
 import { decideOnCurrent, toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
 
@@ -119,6 +119,20 @@ describe('goal model', () => {
     expect(sent).toEqual([3, 4]);
     const rescoped = { ...bridge, listWorkItems: async (): Promise<WorkItemDto[]> => [{ ...item, revision: 4, acceptanceCriteria: 'Something else' }] };
     await expect(decideOnCurrent(rescoped, 'workspace-1', item, decision)).rejects.toBe(stale);
+  });
+
+  it('prepares the request Goal work opens the task composer with', () => {
+    const defined: GoalDto = { ...GOAL, definition: { successDefinition: 'Both fixes merged', startingKnowledge: '', constraints: 'Keep the change in the Delta connector',
+      exchangeId: 'op-2', acceptedAt: '2026-10-03T10:00:00Z' } };
+    const card = { ...CARD.card, kind: 'WORK' as const, scope: 'Key checkpoint actions by path and deletion vector.', issue: 31252,
+      uncertainty: 'Pull request #31270 may already fix it.' };
+    const work = { ...GOAL.items[2], acceptanceCriteria: 'Rows with deletion vectors survive a checkpoint' };
+    expect(preparedRequest(defined, work, card)).toBe(['Key checkpoint actions by path and deletion vector.',
+      'Done when: Rows with deletion vectors survive a checkpoint', 'Check first: Pull request #31270 may already fix it.',
+      'My goal: Iceberg & Delta Lake correctness for 482 — Land the fixes before 482.', 'Constraints: Keep the change in the Delta connector'].join('\n\n'));
+    // Criteria the scope already states are not repeated; work without a card or a goal starts from its title and criteria.
+    expect(preparedRequest(null, { ...work, acceptanceCriteria: card.scope }, card)).toBe(`${card.scope}\n\nCheck first: Pull request #31270 may already fix it.`);
+    expect(preparedRequest(null, work, null)).toBe(`${work.title}\n\nDone when: Rows with deletion vectors survive a checkpoint`);
   });
 
   it('counts progress, pull requests, what needs you and what is blocked', () => {

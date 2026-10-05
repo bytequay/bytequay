@@ -22,7 +22,7 @@ import { LayerCovered } from '../Zoom';
 import type { GoalItemDto, GoalRecommendationDto } from './contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
 import { GoalWindow } from './GoalWindow';
-import { foldSide, placePill, situation, summarize, type PillPosition } from './model';
+import { foldSide, placePill, preparedRequest, situation, summarize, type PillPosition } from './model';
 import { useGoalConversation, type Goals } from './useGoals';
 import '../css/goals.css';
 
@@ -307,10 +307,12 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
                 setDrafting(false);
                 open();
                 goals.refresh();
-              }) : goals.startCard(goal.id, card.id).then(() => {
-                // A work card's task starts only when the user sends the composer it opens; an investigation shows in the Goal window.
-                if (card.card.issue !== null) onStartIssue(card.card.issue, card.card.scope);
-                else if (card.card.ticket !== null) startTicket(card.card.ticket, card.card.scope);
+              }) : goals.startCard(goal.id, card.id).then((started) => {
+                // A work card's task starts only when the user sends the composer it opens, prepared from the work the card became; an
+                // investigation shows in the Goal window.
+                const request = preparedRequest(goal, goal.items.find((item) => item.id === started.workItemId) ?? null, card.card);
+                if (card.card.issue !== null) onStartIssue(card.card.issue, request);
+                else if (card.card.ticket !== null) startTicket(card.card.ticket, request);
                 else if (card.card.kind === 'INVESTIGATE') {
                   setView('guide');
                   setDrafting(false);

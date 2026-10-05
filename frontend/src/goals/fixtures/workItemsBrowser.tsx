@@ -160,8 +160,9 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
     assert(![...host.querySelectorAll('button')].some((found) => found.textContent === 'Start another attempt'), 'An open task is still the attempt');
     flushSync(() => show(work('ENDED'))); await settle();
     button(host, 'Start another attempt').click(); await settle();
-    assert(started.length === 1 && started[0][0] === 31252 && started[0][1] === 'Key actions by path and deletion vector.' && started[0][2] === 'task-1',
-      'Another attempt opens the issue composer over the ended task');
+    assert(started.length === 1 && started[0][0] === 31252 && started[0][2] === 'task-1'
+      && started[0][1] === 'Fix #31252\n\nDone when: Key actions by path and deletion vector.\n\nMy goal: Delta Lake correctness',
+      'Another attempt opens the issue composer over the ended task, prepared from the work and its goal');
     flushSync(() => show(work('ENDED', link('JIRA', 'connection:cloud:10001', 'IDLE')))); await settle();
     button(host, 'Start another attempt').click(); await settle();
     assert(started.length === 1 && tickets.length === 1 && tickets[0][0] === 'connection:cloud:10001' && tickets[0][2] === 'task-1',

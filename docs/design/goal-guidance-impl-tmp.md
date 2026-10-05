@@ -757,7 +757,11 @@ Start opens a task the user only needs to review.
    as an investigation, starts its task the same way from its details, as that
    work's attempt.
 
-Progress: the first item is done.
+Progress: the twentieth slice is complete. The Goal context a task carries is
+the request the user sent; nothing hidden is added to the task's guidance. The
+request is prepared from the work as it stands when the composer opens, and a
+composer left open while the work's criteria change sends what the user
+reviewed.
 
 Done when: a card shows what to do first, the work it becomes is accepted
 against its criteria, and Start opens a composer ready to send.
@@ -907,10 +911,10 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [x] Where code has not been inspected, recommend a research run or an
   investigation card. Pass its result back to the Goal; never label a
   metadata-only assessment as code verification.
-- [ ] Extend canonical task creation with an optional work-item reference and the
+- [x] Extend canonical task creation with an optional work-item reference and the
   accepted Goal context. Preserve current composer defaults, source refresh,
   readiness, worktree selection, publication authority and replay behavior.
-- [ ] Prepare the execution request from accepted scope, evidence and constraints.
+- [x] Prepare the execution request from accepted scope, evidence and constraints.
   Start opens the existing composer ready for review and submission; the user
   need not rewrite the agent's proposed task in another input.
 - [ ] At Start, recheck source identity, role, state, work-item revision and linked
@@ -918,15 +922,16 @@ work items. Closing and reopening the app retains the conversation and plan.
 
 Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
 `TestGoalCandidates`, `TestGoalResearchService`, `TestGoalDiscovery`, the card
-parsing in `TestGoalPlanner` and the investigation-card test in
-`TestGoalConversationService`. Still partial: a research run is confined by its
+parsing in `TestGoalPlanner`, the investigation-card test in
+`TestGoalConversationService`, the prepared request in `goals.test.tsx` and the
+`goalGuideBrowser` journey. Still partial: a research run is confined by its
 prompt and its own disposable worktree, not by a read-only tool policy; cited
 pages are never checked for staleness and no Remember is offered; shortlisted
 sources record no duplicate read or revision, though a card whose source could
 not be read again says so; research pages accept any https address; conclusions
 are cached only for discovery, by the Goal's last exchange; new Jira tickets do
-not trigger discovery; a task carries no explicit work-item reference or Goal
-context; and Start rechecks the source but not the work item's revision.
+not trigger discovery; and Start rechecks the source, its role, the work's state
+and its current task, but not the work item's revision.
 
 Done when: a research card saves sourced notes, an accepted course opens a lesson
 in the Goal window, and a spec-check card turns a reproduced gap into a proposed

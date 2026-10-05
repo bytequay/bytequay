@@ -19,16 +19,14 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
+import com.bytequay.agent.core.OneShotSession;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
-import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -684,51 +682,13 @@ public class DefaultTaskDiscussionService
     /** One question in a disposable read-only session on the task's worktree; approvals are denied and events discarded. */
     private Answered converse(AgentTask task, Optional<String> model, Optional<DiscussionSession> resume, String prompt, Duration limit)
     {
-        TaskId scratchId = TaskId.random();
-        boolean processMayBeRunning = false;
-        AgentSession session = null;
-        try {
-            TaskResources scratch = resources.allocate(scratchId);
-            AgentSessionContext context = new AgentSessionContext(
-                    task.id().toString(),
-                    task.taskWorktree().orElseThrow().canonicalWorktree(),
-                    scratch.runtimeDirectory(),
-                    scratch.providerDirectory(),
-                    AgentPermissionPolicy.AUTO,
-                    resume.map(reference -> new AgentSessionRef(task.laneId(), reference.contractVersion(), reference.providerValue())),
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    model,
-                    Optional.empty(),
-                    SessionAccess.READ_ONLY,
-                    Optional.empty(),
-                    "");
-            processMayBeRunning = true;
-            session = drivers.require(task.laneId()).open(context, event -> {});
-            AgentTurnResult result = session.start(new AgentTurnCommand(
-                    UUID.randomUUID().toString(), prompt, ImmutableList.of(), limit))
-                    .completion().toCompletableFuture().join();
-            AgentSessionRef reference = session.reference();
-            session.close();
-            session = null;
-            processMayBeRunning = false;
-            return new Answered(result, reference);
-        }
-        finally {
-            if (session != null) {
-                processMayBeRunning = !closed(session, scratchId);
-            }
-            if (processMayBeRunning) {
-                log.warn("Retaining discussion resources because the provider may still be running for {}", scratchId);
-            }
-            else {
-                try {
-                    resources.delete(scratchId);
-                }
-                catch (RuntimeException failure) {
-                    log.warn("Could not remove discussion resources for {}", scratchId, failure);
-                }
-            }
-        }
+        OneShotSession.Answer answer = OneShotSession.run(resources, drivers.require(task.laneId()), (scratchId, scratch) -> new AgentSessionContext(
+                        task.id().toString(), task.taskWorktree().orElseThrow().canonicalWorktree(), scratch.runtimeDirectory(), scratch.providerDirectory(),
+                        AgentPermissionPolicy.AUTO, resume.map(reference -> new AgentSessionRef(task.laneId(), reference.contractVersion(), reference.providerValue())),
+                        (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                        model, Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), ""),
+                prompt, limit, turn -> {});
+        return new Answered(answer.result(), answer.reference());
     }
 
     /**
@@ -832,18 +792,6 @@ public class DefaultTaskDiscussionService
                     Optional.empty(),
                     clock.instant()));
         });
-    }
-
-    private static boolean closed(AgentSession session, TaskId scratchId)
-    {
-        try {
-            session.close();
-            return true;
-        }
-        catch (RuntimeException failure) {
-            log.warn("Could not verify the discussion provider stopped for {}", scratchId, failure);
-            return false;
-        }
     }
 
     /**

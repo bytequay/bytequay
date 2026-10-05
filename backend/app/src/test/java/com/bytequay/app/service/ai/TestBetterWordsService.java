@@ -23,6 +23,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
+import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -96,6 +97,7 @@ class TestBetterWordsService
         RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
+        when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
         when(session.start(any())).thenReturn(turn);
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(new AgentTurnResult(
                 AgentTurnResult.State.COMPLETED,
@@ -178,6 +180,7 @@ class TestBetterWordsService
         RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
+        when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
         when(session.start(any())).thenReturn(turn);
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(
                 new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("  Good catch, I will rename it.\n"), Optional.empty(), Duration.ofMillis(20), true)));
@@ -228,6 +231,7 @@ class TestBetterWordsService
         RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("deepseek-key-7"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
+        when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
         when(session.start(any())).thenReturn(turn);
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(
                 new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Could you explain this change?"), Optional.empty(), Duration.ofMillis(20), true)));
@@ -264,6 +268,7 @@ class TestBetterWordsService
         RunningTurn turn = mock(RunningTurn.class);
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
+        when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
         when(session.start(any())).thenReturn(turn);
         when(turn.completion()).thenReturn(CompletableFuture.completedFuture(new AgentTurnResult(
                 AgentTurnResult.State.COMPLETED,

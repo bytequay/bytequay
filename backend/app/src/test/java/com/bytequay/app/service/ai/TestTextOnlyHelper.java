@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentSession;
+import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.RunningTurn;
@@ -70,6 +71,7 @@ class TestTextOnlyHelper
         when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider")));
         when(drivers.require(new AgentLaneId("codex"))).thenReturn(driver);
         when(driver.open(any(), any())).thenReturn(session);
+        when(session.reference()).thenReturn(new AgentSessionRef(new AgentLaneId("codex"), 1, "session"));
         when(session.start(any())).thenReturn(turn);
         when(turn.completion()).thenReturn(completion);
         doAnswer(call -> completion.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("cancelled"), Duration.ZERO, true)))

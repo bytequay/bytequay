@@ -14,35 +14,24 @@
 package com.bytequay.app.service.ai;
 
 import com.bytequay.agent.core.AgentResourceService;
-import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
-import com.bytequay.agent.spi.AgentDriver;
+import com.bytequay.agent.core.OneShotSession;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
-import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.service.settings.AgentModelSetting;
-import com.google.common.collect.ImmutableList;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static java.util.Objects.requireNonNull;
@@ -51,7 +40,6 @@ import static java.util.Objects.requireNonNull;
 @Component
 public class TextOnlyHelper
 {
-    private static final Logger log = LoggerFactory.getLogger(TextOnlyHelper.class);
     private static final Duration MAXIMUM_RUNTIME = Duration.ofSeconds(45);
 
     private final AgentDriverRegistry drivers;
@@ -128,74 +116,21 @@ public class TextOnlyHelper
 
     private String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure, Duration maximumRuntime, Running current)
     {
-        TaskId taskId = TaskId.random();
-        boolean processMayBeRunning = false;
-        AgentSession session = null;
+        AgentTurnResult result;
         try {
-            TaskResources taskResources = resources.allocate(taskId);
-            Path worktree = Files.createDirectory(taskResources.runtimeDirectory().resolve("text-only-worktree"));
-            AgentDriver driver = drivers.require(new AgentLaneId(model.configId()));
-            AgentSessionContext context = new AgentSessionContext(
-                    taskId.toString(),
-                    worktree,
-                    taskResources.runtimeDirectory(),
-                    taskResources.providerDirectory(),
-                    AgentPermissionPolicy.AUTO,
-                    Optional.empty(),
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    Optional.of(model.model()),
-                    model.effort(),
-                    SessionAccess.TEXT_ONLY,
-                    Optional.empty(),
-                    managedInstructions);
-            processMayBeRunning = true;
-            session = driver.open(context, event -> {});
-            RunningTurn turn = session.start(new AgentTurnCommand(
-                    TaskId.random().toString(),
-                    prompt,
-                    ImmutableList.of(),
-                    maximumRuntime));
-            current.started(turn);
-            AgentTurnResult result = turn.completion().toCompletableFuture().join();
-            if (!closeSession(session, taskId)) {
-                session = null;
-                throw new AgentUnavailableException("The model provider could not be verified stopped.");
-            }
-            session = null;
-            processMayBeRunning = false;
-            if (result.state() != AgentTurnResult.State.COMPLETED) {
-                throw new AgentUnavailableException(failure + ": " + result.terminalReason().orElse(result.state().name().toLowerCase()));
-            }
-            return result.finalResponse().orElse("");
+            result = OneShotSession.run(resources, drivers.require(new AgentLaneId(model.configId())), (taskId, scratch) -> new AgentSessionContext(
+                            taskId.toString(), OneShotSession.scratchWorktree(scratch, "text-only-worktree"), scratch.runtimeDirectory(), scratch.providerDirectory(),
+                            AgentPermissionPolicy.AUTO, Optional.empty(),
+                            (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                            Optional.of(model.model()), model.effort(), SessionAccess.TEXT_ONLY, Optional.empty(), managedInstructions),
+                    prompt, maximumRuntime, current::started).result();
         }
-        catch (IOException e) {
-            throw new AgentUnavailableException("Could not prepare the model session.", e);
+        catch (AgentUnavailableException unavailable) {
+            throw new AgentUnavailableException(failure + ": " + unavailable.getMessage(), unavailable);
         }
-        catch (CompletionException e) {
-            throw new AgentUnavailableException(failure + ".", e.getCause());
+        if (result.state() != AgentTurnResult.State.COMPLETED) {
+            throw new AgentUnavailableException(failure + ": " + result.terminalReason().orElse(result.state().name().toLowerCase()));
         }
-        finally {
-            if (session != null && closeSession(session, taskId)) {
-                processMayBeRunning = false;
-            }
-            if (processMayBeRunning) {
-                log.warn("Retaining text-only helper resources because the provider may still be running for {}", taskId);
-            }
-            else {
-                resources.delete(taskId);
-            }
-        }
-    }
-
-    private static boolean closeSession(AgentSession session, TaskId taskId)
-    {
-        try {
-            session.close();
-            return true;
-        }
-        catch (RuntimeException failure) {
-            log.warn("Could not verify text-only helper shutdown for {}", taskId, failure);
-            return false;
-        }
+        return result.finalResponse().orElse("");
     }
 }

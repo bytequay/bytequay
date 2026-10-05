@@ -16,32 +16,22 @@ package com.bytequay.agent.core.impl;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskTitleService;
-import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.OneShotSession;
 import com.bytequay.agent.core.TaskNames;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
-import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
-import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.agent.spi.SessionAccess;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableList;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
@@ -105,35 +95,14 @@ public final class DefaultAgentTaskTitleService
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");
         checkNotBlank(context, "context");
-        TaskId helperId = TaskId.random();
-        boolean processMayBeRunning = false;
-        AgentSession session = null;
         try {
-            TaskResources scratch = resources.allocate(helperId);
-            Path worktree = Files.createDirectory(scratch.runtimeDirectory().resolve("naming-worktree"));
-            AgentSessionContext sessionContext = new AgentSessionContext(
-                    helperId.toString(), worktree, scratch.runtimeDirectory(), scratch.providerDirectory(),
-                    AgentPermissionPolicy.AUTO, Optional.empty(),
-                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                    defaults.model(), defaults.effort(), SessionAccess.TEXT_ONLY, Optional.empty(), managedInstructions.get());
-            processMayBeRunning = true;
-            session = drivers.require(laneId).open(sessionContext, event -> {});
-            RunningTurn running = session.start(new AgentTurnCommand(
-                    TaskId.random().toString(), INSTRUCTIONS + MAPPER.writeValueAsString(context), ImmutableList.of(), maximumRuntime));
-            AgentTurnResult result;
-            try {
-                result = running.completion().toCompletableFuture().get(maximumRuntime.toMillis(), TimeUnit.MILLISECONDS);
-            }
-            catch (TimeoutException timeout) {
-                running.cancel();
-                throw timeout;
-            }
-            if (!closeSession(session, helperId)) {
-                session = null;
-                return Optional.empty();
-            }
-            session = null;
-            processMayBeRunning = false;
+            String prompt = INSTRUCTIONS + MAPPER.writeValueAsString(context);
+            AgentTurnResult result = OneShotSession.run(resources, drivers.require(laneId), (helperId, scratch) -> new AgentSessionContext(
+                            helperId.toString(), OneShotSession.scratchWorktree(scratch, "naming-worktree"), scratch.runtimeDirectory(), scratch.providerDirectory(),
+                            AgentPermissionPolicy.AUTO, Optional.empty(),
+                            (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
+                            defaults.model(), defaults.effort(), SessionAccess.TEXT_ONLY, Optional.empty(), managedInstructions.get()),
+                    prompt, maximumRuntime, turn -> {}).result();
             if (result.state() != AgentTurnResult.State.COMPLETED) {
                 return Optional.empty();
             }
@@ -143,41 +112,9 @@ public final class DefaultAgentTaskTitleService
             }
             return Optional.of(new TaskNames(names.path("title").textValue(), names.path("branch").textValue()));
         }
-        catch (InterruptedException failure) {
-            Thread.currentThread().interrupt();
-            log.log(System.Logger.Level.DEBUG, "Task naming was interrupted", failure);
-        }
-        catch (IOException | ExecutionException | TimeoutException | RuntimeException failure) {
+        catch (IOException | RuntimeException failure) {
             log.log(System.Logger.Level.DEBUG, "Task naming failed", failure);
-        }
-        finally {
-            if (session != null && closeSession(session, helperId)) {
-                processMayBeRunning = false;
-            }
-            if (processMayBeRunning) {
-                log.log(System.Logger.Level.WARNING, "Retaining naming resources because the provider may still be running for " + helperId);
-            }
-            else {
-                try {
-                    resources.delete(helperId);
-                }
-                catch (RuntimeException failure) {
-                    log.log(System.Logger.Level.WARNING, "Could not remove naming resources for " + helperId, failure);
-                }
-            }
-        }
-        return Optional.empty();
-    }
-
-    private static boolean closeSession(AgentSession session, TaskId helperId)
-    {
-        try {
-            session.close();
-            return true;
-        }
-        catch (RuntimeException failure) {
-            log.log(System.Logger.Level.WARNING, "Could not verify naming provider shutdown for " + helperId, failure);
-            return false;
+            return Optional.empty();
         }
     }
 }

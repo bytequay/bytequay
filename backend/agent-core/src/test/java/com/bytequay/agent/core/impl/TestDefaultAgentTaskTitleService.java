@@ -24,6 +24,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
+import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.RunningTurn;
@@ -74,6 +75,7 @@ class TestDefaultAgentTaskTitleService
         when(resources.allocate(any())).thenReturn(new TaskResources(temporaryDirectory, temporaryDirectory.resolve("events.jsonl"),
                 temporaryDirectory.resolve("blobs"), temporaryDirectory.resolve("provider")));
         when(driver.open(any(), any())).thenReturn(session);
+        when(session.reference()).thenReturn(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "session"));
         when(session.start(any())).thenReturn(turn);
         complete(RESULT);
         service = new DefaultAgentTaskTitleService(resources, drivers, () -> "Common instructions", Duration.ofMillis(100));

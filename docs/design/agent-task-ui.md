@@ -1144,31 +1144,36 @@ restores it. A workspace's first goal is pinned, choosing another goal in the
 switcher pins that one, and archiving the pinned goal pins the oldest one left.
 An archived goal keeps its work items, which **Add existing** can still reach.
 
-Every workspace page but an open task or review carries the pinned goal as a
-pill: a progress ring, the goal's name, `done/total` with Dropped left out, and
-how many work items need you. It starts just above the composer's right edge,
-or in the page's bottom-right corner where there is no composer. It can be
-dragged anywhere, and keeps its spot per page (`bq.goal.pill.{page}`); wherever
-it would cover the composer it is lifted above it. A click that did not drag, or
-⌥G, zooms the goal out of the pill into a floating window over the page. Its
-header drags it, its bottom-right corner resizes it, and it keeps its size for
-the next opening and stays inside the page. Moving the pointer out of the pill
-and window closes it, except during a drag, a resize or a confirmation; Escape
-and × close it too, and drafts survive closing. ⤢ expands the same panel to a
-board and back. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
+Every workspace page, an open task or review included, carries the pinned goal
+as a pill: a progress ring, the goal's name, `done/total` with Dropped left out,
+and one count of the work needing you and the decisions waiting. It starts just
+above the composer's right edge, or in the page's bottom-right corner where
+there is no composer. It can be dragged anywhere, and keeps its spot per page
+(`bq.goal.pill.{page}`, an open task or review keeping one as `task`); wherever
+it would cover the composer it is lifted above it. Released against the left or
+right side of the page, it folds into that side as a tab with the ring and one
+count, which then also counts the cards the tab hides; the tab opens the goal on
+a click and unfolds when dragged out. A click that did not drag, or ⌥G, zooms
+the goal out of the pill into a floating window over the page. Its header drags
+it, its bottom-right corner resizes it, and it keeps its size for the next
+opening and stays inside the page. Moving the pointer out of the pill and window
+closes it, except during a drag, a resize or a confirmation; Escape and × close
+it too, and drafts survive closing. ⤢ expands the same panel to a board and
+back. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
 **New goal**, and **Archive this goal** for a goal no marker seeded), the title
 and description, a Done / Working / Planned bar with Dropped counted beside it,
 tiles for pull requests merged and open, what needs you and what is blocked,
-**All work · Needs you · Blocked** tabs, **New work item** (a title, a kind and
-what counts as success), **Add existing** searching the repository's stored pull
-requests and issues, cached Jira tickets, the workspace's tasks and work items
-outside the goal, the work items grouped Working, Planned, Done and Dropped, and
-recent decisions from their history. A work item opens its details: its scope,
-its linked sources, attempts and pull requests, Mark working, Accept result,
+**Next · Working · Blocked · Done** views with priority and source filters,
+**New work item** (a title, a kind and what counts as success), **Add existing**
+searching the repository's stored pull requests and issues, cached Jira tickets,
+the workspace's tasks and work items outside the goal, the work items of the
+chosen view, and recent decisions from their history. A work item opens its
+details: its scope, its priority, place in the goal's order and what it waits
+on, its linked sources, attempts and pull requests, Mark working, Accept result,
 Drop from scope, Reopen, a move to another goal, and its history. On the board
-the groups become columns. Task cards and rows on the Tasks page and open-task
-cards on Home show ◎ for a task in the pinned goal or one working on a pull
-request in it.
+the four views sit side by side. Task cards and rows on the Tasks page and
+open-task cards on Home show ◎ for a task in the pinned goal or one working on a
+pull request in it.
 
 The composer checks the same typed provider readiness returned by Workspace
 Settings before enabling its send control. Authentication-required, missing,

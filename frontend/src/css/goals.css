@@ -85,6 +85,24 @@
   box-shadow: 0 16px 36px rgba(31, 35, 40, 0.28);
 }
 
+/* Folded into a side of the page: a tab with the goal's ring and one count, flush with that side. */
+.goal-pill.is-folded {
+  gap: 6px;
+  padding: 0 8px;
+}
+
+.goal-pill.is-folded.is-left {
+  left: 0;
+  border-left: 0;
+  border-radius: 0 18px 18px 0;
+}
+
+.goal-pill.is-folded.is-right {
+  right: 0;
+  border-right: 0;
+  border-radius: 18px 0 0 18px;
+}
+
 .goal-pill__grip {
   flex: none;
   opacity: 0.5;

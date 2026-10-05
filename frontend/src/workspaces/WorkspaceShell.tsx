@@ -186,14 +186,10 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return () => window.clearTimeout(timer);
   }, [workspace, onWorkspaceChanged]);
 
-  if (tab === 'commits' && !workspaceHasReadableCode(workspace)) {
-    return <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />;
-  }
-  // An open task or review owns the page; every other page carries the pinned goal.
-  if (taskDetail) return renderPage();
+  // Every page of the workspace carries the pinned goal; an open task or review keeps its own spot for the pill.
   return (
     <GoalLayer
-      page={tab}
+      page={taskDetail ? 'task' : tab}
       workspaceId={workspace.id}
       repository={monitoredRepository}
       goals={goals}
@@ -210,7 +206,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         window.location.hash = workspaceRoute(workspace.id, 'context');
       }}
     >
-      {renderPage()}
+      {tab === 'commits' && !workspaceHasReadableCode(workspace)
+        ? <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />
+        : renderPage()}
     </GoalLayer>
   );
 

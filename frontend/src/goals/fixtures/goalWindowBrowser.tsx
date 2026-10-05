@@ -232,6 +232,28 @@ export async function run(): Promise<boolean> {
     assert(card.left >= page.left + 8 && card.right <= page.right - 8, `The card stays inside the page: ${JSON.stringify(card.toJSON())}`);
     const title = element('.goal-rec__title').getBoundingClientRect();
     assert(title.left - element('.goal-rec').getBoundingClientRect().left >= 12, 'The card keeps its text off its border');
+
+    // Dropped against a side of the page, the pill folds into it as a tab; a click still opens the goal, and dragging it out unfolds it.
+    const withCard: Goals = { ...goals, goals: [recommended], pinned: recommended };
+    render('jira', false, withCard); await settle();
+    const wide = element('.goal-pill').getBoundingClientRect();
+    await drag({ x: wide.left + 12, y: wide.top + wide.height / 2 }, page.left + 4 - wide.left - 12, 0);
+    let tab = element('.goal-pill');
+    assert(tab.classList.contains('is-folded') && tab.classList.contains('is-left') && Math.abs(tab.getBoundingClientRect().left - page.left) < 1,
+      'Dropped against the left side, the pill folds into it');
+    assert(tab.querySelector('.goal-pill__title') === null && document.querySelector('.goal-cards') === null
+      && tab.querySelector('.goal-pill__attention')?.textContent?.trim() === '1', 'The tab hides the name and the card, and counts the card');
+    render('issues', false, withCard); await settle();
+    render('jira', false, withCard); await settle();
+    tab = element('.goal-pill');
+    assert(tab.classList.contains('is-folded') && tab.classList.contains('is-left'), 'The page remembers its folded pill');
+    tab.click(); await settle();
+    assert(!element('.goal-window').hidden, 'A click on the tab opens the goal');
+    button('Close the goal').click(); await settle();
+    const folded = tab.getBoundingClientRect();
+    await drag({ x: folded.left + folded.width / 2, y: folded.top + folded.height / 2 }, 240, 0);
+    assert(!element('.goal-pill').classList.contains('is-folded') && document.querySelector('.goal-pill__title') !== null
+      && document.querySelector('.goal-cards') !== null, 'Dragged out of the side, the pill unfolds and its card floats again');
     return true;
   }
   finally { flushSync(() => root.unmount()); host.remove(); }

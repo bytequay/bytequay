@@ -21,7 +21,8 @@ import type { GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNo
 import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
 import {
-  addable, attentionWorkspace, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, situation, sourceOf, sourceUrl,
+  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openProposal, placePill, recentActivity, refKey, situation, sourceOf,
+  sourceUrl,
   summarize, waitingOn, workIn,
 } from './model';
 import { toggleGoalItem, useGoals, type GoalBridge, type GoalConversation, type Goals } from './useGoals';
@@ -111,6 +112,16 @@ describe('goal model', () => {
     // Kept inside the page, and in its corner where there is no composer.
     expect(placePill({ right: 5000, bottom: -20 }, pill, page, null)).toEqual({ right: 592, bottom: 8 });
     expect(placePill(null, pill, page, null)).toEqual({ right: 24, bottom: 24 });
+    // A folded tab keeps its side and height, even beside the composer.
+    expect(placePill({ right: 100, bottom: 40, fold: 'left' }, pill, page, composer)).toEqual({ right: 100, bottom: 40, fold: 'left' });
+  });
+
+  it('folds the pill into the side of the page it is dropped against', () => {
+    const page = { left: 240, right: 1240 };
+    expect(foldSide(250, page)).toBe('left');
+    expect(foldSide(100, page)).toBe('left');
+    expect(foldSide(1230, page)).toBe('right');
+    expect(foldSide(700, page)).toBeNull();
   });
 
   it('reads a goal the backend sends and refuses a malformed one', () => {

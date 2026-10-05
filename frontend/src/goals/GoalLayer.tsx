@@ -21,7 +21,7 @@ import { LayerCovered } from '../Zoom';
 import type { GoalItemDto, GoalRecommendationDto } from './contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
 import { GoalWindow } from './GoalWindow';
-import { placePill, situation, summarize, type PillPosition } from './model';
+import { foldSide, placePill, situation, summarize, type PillPosition } from './model';
 import { useGoalConversation, type Goals } from './useGoals';
 import '../css/goals.css';
 
@@ -41,8 +41,9 @@ function loadPosition(page: string): PillPosition | null {
   try {
     const parsed: unknown = JSON.parse(window.localStorage.getItem(pillKey(page)) ?? 'null');
     if (typeof parsed !== 'object' || parsed === null) return null;
-    const { right, bottom } = parsed as Record<string, unknown>;
-    return typeof right === 'number' && typeof bottom === 'number' ? { right, bottom } : null;
+    const { right, bottom, fold } = parsed as Record<string, unknown>;
+    if (typeof right !== 'number' || typeof bottom !== 'number') return null;
+    return fold === 'left' || fold === 'right' ? { right, bottom, fold } : { right, bottom };
   }
   catch {
     return null;
@@ -213,7 +214,10 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   // The pinned goal's own conversation, unless the window shows another goal's question; its decisions only count once it was read.
   const decisions = goal === null || drafting ? 0 : situation(goal, conversation.exchanges, conversation.gaps).decisions;
   const needs = summary?.needs ?? 0;
-  const attention = needs + decisions;
+  const folded = position.fold !== undefined;
+  // A folded tab hides the cards, so its count holds them too.
+  const hidden = folded && goal !== null ? shown.length : 0;
+  const attention = needs + decisions + hidden;
 
   return (
     <div className="goal-layer">
@@ -222,9 +226,9 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
         <button
           ref={pillRef}
           type="button"
-          className={`goal-pill${drag?.moved ? ' is-dragging' : ''}`}
-          style={{ right: position.right, bottom: position.bottom }}
-          title="Drag to pin anywhere · click to open · ⌥G"
+          className={`goal-pill${drag?.moved ? ' is-dragging' : ''}${folded ? ` is-folded is-${position.fold}` : ''}`}
+          style={folded ? { bottom: position.bottom } : { right: position.right, bottom: position.bottom }}
+          title={folded ? 'Drag out to unfold · click to open · ⌥G' : 'Drag to pin anywhere, or into a side to fold · click to open · ⌥G'}
           aria-label={goal === null ? 'Open goals' : `Open goal: ${goal.title}`}
           aria-expanded={opened}
           aria-haspopup="dialog"
@@ -249,14 +253,22 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
             };
             setPosition(dropped.current);
           }}
-          onPointerUp={() => {
+          onPointerUp={(event) => {
             const spot = dropped.current;
+            const element = pageRef.current;
             dropped.current = null;
-            if (drag?.moved && spot !== null) {
-              // The click that follows a drop is not an open.
+            if (drag?.moved && spot !== null && element !== null) {
+              // The click that follows a drop is not an open. A drop against a side leaves the pointer off the pill, where no click follows,
+              // so the guard lasts only until the events of this release are done.
               dragged.current = true;
-              saveLocal(pillKey(page), JSON.stringify(spot));
-              setSaved(spot);
+              window.setTimeout(() => { dragged.current = false; }, 0);
+              // Dropped against a side of the page, the pill folds into it there, and unfolds at that side when dragged out.
+              const side = foldSide(event.clientX, element.getBoundingClientRect());
+              const kept: PillPosition = side === null ? spot
+                : { right: side === 'left' ? element.clientWidth - event.currentTarget.offsetWidth - PILL_MARGIN : PILL_MARGIN, bottom: spot.bottom, fold: side };
+              saveLocal(pillKey(page), JSON.stringify(kept));
+              setSaved(kept);
+              setPosition(kept);
             }
             setDrag(null);
           }}
@@ -270,18 +282,19 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
             else open();
           }}
         >
-          <svg className="goal-pill__grip" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
+          {!folded && <svg className="goal-pill__grip" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
             {[3, 7, 11].flatMap((y) => [2, 6].map((x) => <circle key={`${x}.${y}`} cx={x} cy={y} r="1.1" />))}
-          </svg>
+          </svg>}
           <GoalRing goal={goal} />
-          <span className="goal-pill__title">{goal === null ? 'Goal' : goal.title}</span>
-          {summary !== null && summary.total > 0 && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
+          {!folded && <span className="goal-pill__title">{goal === null ? 'Goal' : goal.title}</span>}
+          {!folded && summary !== null && summary.total > 0 && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
           {/* One count asks for attention: the work needing the user and the decisions waiting, both named on hover. */}
           {attention > 0 && <span className="goal-pill__attention" title={[needs === 0 ? null : needs === 1 ? 'One item needs you' : `${needs} items need you`,
-            decisions === 0 ? null : decisions === 1 ? 'A decision waits for you' : `${decisions} decisions wait for you`].filter((part) => part !== null).join(' · ')}>
+            decisions === 0 ? null : decisions === 1 ? 'A decision waits for you' : `${decisions} decisions wait for you`,
+            hidden === 0 ? null : hidden === 1 ? 'A recommendation waits' : `${hidden} recommendations wait`].filter((part) => part !== null).join(' · ')}>
             {attention}</span>}
         </button>
-        {goal !== null && shown.length > 0 && (
+        {goal !== null && shown.length > 0 && !folded && (
           <div className="goal-cards" role="region" aria-label="Recommended next steps"
             style={{ ...({ '--goal-pill-right': `${position.right}px` } as React.CSSProperties),
               ...(position.bottom > ROOM_BELOW ? { top: `calc(100% - ${position.bottom - 6}px)` } : { bottom: position.bottom + 44 }) }}>

@@ -169,13 +169,23 @@ export function addable(candidates: GoalItemDto[], goal: Pick<GoalDto, 'items'>,
 }
 
 /** A pill's place in its page: its distance from the page's right and bottom edges. */
-export type PillPosition = { right: number; bottom: number };
+/** A side of the page the pill folds into. */
+export type PillFold = 'left' | 'right';
+/** Where the pill sits; folded, it is a tab on that side of the page at the same height. */
+export type PillPosition = { right: number; bottom: number; fold?: PillFold };
 
 type Box = { width: number; height: number };
 type Edges = { left: number; top: number; right: number; bottom: number };
 
 const PILL_MARGIN = 8;
 const PILL_GAP = 10;
+/** How close to a side of the page a drop folds the pill into it; a drop past the side does too. */
+const FOLD_EDGE = 16;
+
+export function foldSide(x: number, page: { left: number; right: number }): PillFold | null {
+  if (x <= page.left + FOLD_EDGE) return 'left';
+  return x >= page.right - FOLD_EDGE ? 'right' : null;
+}
 
 /**
  * Where the pill sits: the saved spot, or just above the composer's right edge, kept inside the page
@@ -189,6 +199,8 @@ export function placePill(saved: PillPosition | null, pill: Box, page: Box, comp
     right: clamp(start.right, page.width - pill.width - PILL_MARGIN),
     bottom: clamp(start.bottom, page.height - pill.height - PILL_MARGIN),
   };
+  // A folded tab sits on its side of the page, clear of a composer in the middle.
+  if (saved?.fold !== undefined) return { ...placed, fold: saved.fold };
   if (composer === null || above === null) return placed;
   const left = page.width - placed.right - pill.width;
   const top = page.height - placed.bottom - pill.height;

@@ -1301,8 +1301,8 @@ public final class CodexCliDriver
                     // Only the root thread speaks for the turn; a subagent's message is activity.
                     running.observeMessage(message.phase(), sessionRedactor.redact(message.text()));
                 }
-                eventMapper.map(notification, rootThread, lineage).forEach(events::emit);
-                eventMapper.developmentResult(notification, rootThread, running.reference().value(), development).ifPresent(events::emit);
+                eventMapper.map(notification, rootThread, lineage).forEach(this::emitRecorded);
+                eventMapper.developmentResult(notification, rootThread, running.reference().value(), development).ifPresent(this::emitRecorded);
                 if (rootThread && notification instanceof CodexProtocol.TurnCompletedNotification turnCompleted) {
                     // The root saying it is done is necessary but not sufficient: an item or a
                     // yielded command can still be running. The turn stays live until the process
@@ -1338,6 +1338,28 @@ public final class CodexCliDriver
                         failed.interrupt(failure, false);
                     }
                 });
+            }
+        }
+
+        /**
+         * An event the task cannot record is left out of its transcript, not allowed to stop the turn: the provider is
+         * still working, and lineage checks, not storage, decide whether this process can be trusted.
+         */
+        private void emitRecorded(ProviderAgentEvent event)
+        {
+            try {
+                events.emit(event);
+            }
+            catch (RuntimeException failure) {
+                log.warn("Codex task {} could not record a provider event", context.taskId(), failure);
+                try {
+                    events.emit(new ProviderAgentEvent.Error(Optional.empty(), "codex_stream",
+                            sessionRedactor.redact("An event could not be recorded: " + Optional.ofNullable(failure.getMessage()).orElse(failure.toString())),
+                            true, event.source()));
+                }
+                catch (RuntimeException ignored) {
+                    // The log already has the original failure; the task keeps running either way.
+                }
             }
         }
 

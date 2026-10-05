@@ -33,6 +33,9 @@ import static java.util.Objects.requireNonNull;
 
 final class CodexEventMapper
 {
+    /** The Claude lane's bound: a whole build log in one event would exceed the task log's record limit. */
+    private static final int MAX_OUTPUT_CHARACTERS = 64 * 1024;
+
     private final Path worktree;
     private final SecretRedactor redactor;
     private final boolean exposeReasoningSummaries;
@@ -319,19 +322,16 @@ final class CodexEventMapper
             boolean started,
             ProviderAgentEventSource source)
     {
+        Optional<String> output = started ? Optional.empty() : item.aggregatedOutput().map(redactor::redact);
         return new ProviderAgentEvent.Command(
                 Optional.of(eventId),
                 started
                         ? ProviderAgentEvent.ActivityState.STARTED
                         : activityState(item.status()),
                 ImmutableList.of(redactor.redact(item.command())),
-                started
-                        ? Optional.empty()
-                        : item.aggregatedOutput()
-                                .map(redactor::redact)
-                                .flatMap(CodexEventMapper::optionalText),
+                output.map(CodexEventMapper::bounded).flatMap(CodexEventMapper::optionalText),
                 item.exitCode(),
-                false,
+                output.filter(text -> text.length() > MAX_OUTPUT_CHARACTERS).isPresent(),
                 source,
                 relativeDirectory(item.cwd()),
                 item.durationMs().map(Duration::ofMillis),
@@ -431,11 +431,16 @@ final class CodexEventMapper
                         Optional.of(item.id() + ":completed:" + index),
                         relativePath.orElseThrow(),
                         kind.orElseThrow(),
-                        optionalText(redactor.redact(change.diff())),
+                        optionalText(bounded(redactor.redact(change.diff()))),
                         source.withItem(Optional.of(item.id() + ":" + index))));
             }
         }
         return events.build();
+    }
+
+    private static String bounded(String text)
+    {
+        return text.length() <= MAX_OUTPUT_CHARACTERS ? text : text.substring(0, MAX_OUTPUT_CHARACTERS);
     }
 
     private Optional<String> relativePath(CodexProtocol.FileUpdateChange change)

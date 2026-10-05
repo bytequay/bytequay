@@ -39,6 +39,20 @@ class TestCodexEventMapper
     private Path worktree;
 
     @Test
+    void boundsALargeCommandOutputAndMarksItTruncated()
+    {
+        String output = "x".repeat(70 * 1024);
+        ProviderAgentEvent.Command completed = only("""
+                {"method":"item/completed","params":{"item":{"type":"commandExecution","cwd":"/tmp/wt","commandActions":[],
+                "id":"exec-1","command":"mvn verify","status":"completed",
+                "aggregatedOutput":"%s","exitCode":0},"threadId":"thread-1","turnId":"turn-1"}}
+                """.formatted(output), ProviderAgentEvent.Command.class);
+
+        assertThat(completed.output().orElseThrow()).hasSize(64 * 1024);
+        assertThat(completed.truncated()).isTrue();
+    }
+
+    @Test
     void mapsRealAppServerCommandMessageUsageAndCompletionFixtures()
     {
         ProviderAgentEvent.Command started = only("""

@@ -3069,6 +3069,31 @@ class TestCodexCliDriver
     }
 
     @Test
+    void keepsTheTurnRunningWhenAnEventCannotBeRecorded()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        List<ProviderAgentEvent> recorded = new CopyOnWriteArrayList<>();
+        AtomicBoolean refused = new AtomicBoolean();
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {
+            if (event instanceof ProviderAgentEvent.Message && refused.compareAndSet(false, true)) {
+                throw new IllegalStateException("Event exceeds the configured size limit");
+            }
+            recorded.add(event);
+        })) {
+            RunningTurn turn = session.start(command("complete"));
+            supervisor.server().completeTurn();
+
+            AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            assertThat(refused).isTrue();
+            assertThat(recorded).anySatisfy(event -> assertThat(event).isInstanceOfSatisfying(ProviderAgentEvent.Error.class,
+                    error -> assertThat(error.code()).isEqualTo("codex_stream")));
+        }
+    }
+
+    @Test
     void addressesAV1SubagentFromAnEarlierTurn()
             throws Exception
     {

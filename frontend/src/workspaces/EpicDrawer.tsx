@@ -34,14 +34,16 @@ const MAX_TICKS = 4;
  * collapsed, and hover, click or the keyboard slides it out over the page without moving anything. A
  * workspace without Epics shows no cue at all.
  */
-export default function EpicDrawer({ items, work, onOpen }: {
+export default function EpicDrawer({ items, concluded, work, onOpen }: {
   items: AttentionItem[];
+  /** Concluded Epics, which leave the drawer. */
+  concluded: ReadonlySet<string>;
   /** Every work item of the workspace; each card draws its Epic's progress from them. */
   work: WorkItemDto[];
   /** Opens the Epic's view, where its work is added and decided. */
   onOpen: (epic: AttentionItem) => void;
 }): React.JSX.Element | null {
-  const epics = useMemo(() => items.filter(item => item.isEpic === true), [items]);
+  const epics = useMemo(() => items.filter(item => item.isEpic === true && !concluded.has(epicIdentity(item))), [concluded, items]);
   // Unmounting at zero closes it, so a first Epic marked later fades its tick in closed.
   return epics.length === 0 ? null : <Drawer epics={epics} work={work} onOpen={onOpen} />;
 }

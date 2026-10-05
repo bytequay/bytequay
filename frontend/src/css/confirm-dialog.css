@@ -67,7 +67,8 @@
 }
 
 .bq-confirm-dialog__choice select,
-.bq-confirm-dialog__choice input {
+.bq-confirm-dialog__choice input,
+.bq-confirm-dialog__choice textarea {
   width: 100%;
   box-sizing: border-box;
   padding: 8px 10px;

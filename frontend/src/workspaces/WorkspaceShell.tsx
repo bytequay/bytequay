@@ -37,7 +37,7 @@ import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import EpicDrawer from './EpicDrawer';
 import EpicView from './EpicView';
-import { epicIdentity } from './epics';
+import { epicIdentity, useConcludedEpics } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import { useWorkspaceAttention } from './workspaceAttention';
 import type { WorkspaceDto } from '../types';
@@ -100,6 +100,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const goals = useGoals(workspace.id);
   const needsYou = needsYouKeys(visibleAttention(attention.candidates, attention.handled, Date.now()));
   const epics = attention.candidates.filter(item => item.isEpic === true);
+  const concludedEpics = useConcludedEpics(workspace.id, epics.map(epicIdentity).join(' '));
   // Unmarked while open, the Epic's view closes with it.
   const epic = openEpic === null ? undefined : epics.find(item => epicIdentity(item) === openEpic);
   const goalToggle = useCallback((item: AttentionItem): GoalToggle | null => {
@@ -361,7 +362,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     // The Epic drawer comes first so its trigger is the next tab stop after the sidebar.
     return stage(<>
       {epic === undefined
-        ? <EpicDrawer items={attention.candidates} work={goals.workItems} onOpen={item => setOpenEpic(epicIdentity(item))} />
+        ? <EpicDrawer items={attention.candidates} concluded={concludedEpics} work={goals.workItems} onOpen={item => setOpenEpic(epicIdentity(item))} />
         : <EpicView epic={epic} workspaceId={workspace.id} repository={monitoredRepository} work={goals.workItems} needsYou={needsYou} goals={goals}
           epicTitle={id => epics.find(item => epicIdentity(item) === id)?.title ?? null}
           onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')} onStartIssue={startIssue}

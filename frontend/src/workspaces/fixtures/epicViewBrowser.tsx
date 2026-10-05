@@ -204,7 +204,7 @@ export async function run(): Promise<boolean> {
     let record: EpicRecordDto = {
       id: EPIC_ID, children: [child(24931, 'Invalidate on DDL', 'Open'), child(24960, 'Document the cache', 'Closed'), child(24961, 'Expose metrics', 'Open')],
       synced: ['ISSUE:github.com:24931', 'ISSUE:github.com:24970'], former: [child(24970, 'Old parent link', 'Open')], childrenReadAt: NOW, childrenTruncated: false,
-      offered: true,
+      offered: true, concludedAt: null, outcome: '',
     };
     items = [
       work('p', 'Invalidate on DDL', 'WORKING', 0, { links: [link('ISSUE', 'trinodb/trino#24931', '#24931', 'WORKING', 'Open')] }),
@@ -259,6 +259,35 @@ export async function run(): Promise<boolean> {
     element<HTMLButtonElement>('.epic-row__accept', closedChild).click(); await settle();
     assert(calls.at(-1) === 'decide r ACCEPT Document the cache ACCEPTED_RESULT' && details.at(-1) === 'Closed on GitHub',
       `Accepting a closed child settles it as an accepted result: ${calls.at(-1)} / ${details.at(-1)}`);
+
+    // With all its work done the Epic concludes, recording what it delivered, and offers closing its issue.
+    assert(document.querySelector('.epic-view__conclude') === null, 'Unfinished work offers no Conclude');
+    items = [work('p', 'Invalidate on DDL', 'DONE', 0), work('s', 'Expose metrics', 'DONE', 1), work('x', 'Old spike', 'DROPPED', 2)];
+    record = { ...record, offered: false };
+    window.bridge = {
+      ...window.bridge,
+      concludeEpic: async (_workspaceId: string, epicId: string, outcome: string) => {
+        calls.push(`conclude ${epicId}`);
+        details.push(outcome);
+        record = { ...record, concludedAt: NOW, outcome: outcome.trim() };
+        return record;
+      },
+      closeWorkspaceIssue: async (_workspaceId: string, number: number) => { calls.push(`close ${number}`); },
+    } as unknown as Bridge;
+    await reopen();
+    assert(element('.epic-view__counts').textContent?.includes('All 2 done · ready to conclude') === true, 'Dropped work does not hold the Epic open');
+    button('Conclude Epic').click(); await settle();
+    const concluding = element<HTMLDialogElement>('dialog.bq-confirm-dialog');
+    const outcome = element<HTMLTextAreaElement>('textarea', concluding);
+    assert(outcome.value === 'All 2 work items done:\n- Invalidate on DDL\n- Expose metrics', `The outcome starts from the done work: ${outcome.value}`);
+    button('Conclude').click(); await settle();
+    assert(calls.at(-1) === `conclude ${EPIC_ID}` && details.at(-1) === outcome.value, `Concluding records the outcome: ${calls.at(-1)}`);
+    const concluded = element('.epic-view__concluded');
+    assert(concluded.textContent?.includes('Concluded') === true && element('.epic-view__outcome').textContent === outcome.value.trim()
+      && document.querySelector('.epic-view__conclude') === null && element('.epic-view__counts').textContent === 'All 2 done1 dropped',
+      'The view shows the conclusion in place of Conclude');
+    button('Close #24918 on GitHub').click(); await settle();
+    assert(calls.at(-1) === 'close 24918', `Closing the issue is its own action: ${calls.at(-1)}`);
 
     // Unmarking an Epic with work asks first, naming what leaves and what goes.
     let unmarks = 0;

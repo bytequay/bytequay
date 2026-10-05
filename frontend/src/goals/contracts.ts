@@ -431,6 +431,10 @@ export type EpicRecordDto = {
   childrenReadAt: string | null;
   childrenTruncated: boolean;
   offered: boolean;
+  /** When the user concluded the Epic with all its work done; a concluded Epic leaves the drawer. */
+  concludedAt: string | null;
+  /** What the user accepted the Epic delivered. */
+  outcome: string;
 };
 export type WorkItemDecision = {
   operationId: string;
@@ -500,7 +504,13 @@ export function parseEpicRecord(value: unknown): EpicRecordDto {
     childrenReadAt: optionalText(record.childrenReadAt),
     childrenTruncated: record.childrenTruncated === true,
     offered: record.offered === true,
+    concludedAt: optionalText(record.concludedAt),
+    outcome: typeof record.outcome === 'string' ? record.outcome : '',
   };
+}
+
+export function parseConcludedEpics(value: unknown): string[] {
+  return parseList(value, (id) => text(id, 'concluded Epic'), 'concluded Epics');
 }
 
 export function parseEpicJoin(value: unknown): EpicJoinDto {

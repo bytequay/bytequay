@@ -16,7 +16,10 @@ package com.bytequay.persistence.sqlite.repository;
 import com.bytequay.persistence.sqlite.entity.EpicEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.List;
+
 public interface EpicJpaRepository
         extends JpaRepository<EpicEntity, String>
 {
+    List<EpicEntity> findByWorkspaceId(String workspaceId);
 }

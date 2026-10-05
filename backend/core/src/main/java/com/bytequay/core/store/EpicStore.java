@@ -15,11 +15,14 @@ package com.bytequay.core.store;
 
 import com.bytequay.core.domain.Epic;
 
+import java.util.List;
 import java.util.Optional;
 
 public interface EpicStore
 {
     Optional<Epic> find(String id);
+
+    List<Epic> list(String workspaceId);
 
     void save(Epic epic);
 

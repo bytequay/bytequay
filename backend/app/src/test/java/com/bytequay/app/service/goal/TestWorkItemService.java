@@ -480,6 +480,20 @@ class TestWorkItemService
         assertThat(done.history().getLast().detail()).isEqualTo("User accepted all criteria: Close the stale ticket\nClosed in Jira as Done");
     }
 
+    @Test
+    void anEpicIsDoneOnlyWithWorkAllDoneAndDroppedWorkCountedApart()
+    {
+        assertThatThrownBy(() -> service.requireEpicDone("workspace", EPIC)).as("no work yet").hasMessageContaining("all its work is done");
+        WorkItemView cache = epicWork(EPIC, "Cache metadata");
+        WorkItemView spike = epicWork(EPIC, "Old spike");
+        epicWork(OTHER_EPIC, "Another Epic's work");
+        service.change("workspace", spike.id(), decision(spike, WorkItemCommand.Action.DROP, "Not needed"));
+        assertThatThrownBy(() -> service.requireEpicDone("workspace", EPIC)).hasMessageContaining("all its work is done");
+        service.change("workspace", cache.id(), new WorkItemCommand(UUID.randomUUID().toString(), cache.revision(), WorkItemCommand.Action.ACCEPT, Optional.empty(),
+                Optional.of("Cache metadata"), Optional.of(WorkItem.CompletionRule.ACCEPTED_RESULT), Optional.empty(), "Shipped", Optional.empty(), Optional.empty(), false));
+        service.requireEpicDone("workspace", EPIC);
+    }
+
     private WorkItemView epicWork(String epicId, String title)
     {
         return epicWork(epicId, title, UUID.randomUUID().toString());

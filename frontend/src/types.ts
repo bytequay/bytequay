@@ -1500,6 +1500,10 @@ export type Bridge = JiraBridge & {
   syncEpicChildren: (workspaceId: string, epicId: string) => Promise<EpicRecordDto>;
   /** Not now: hides the children unsynced now until another one appears. */
   dismissEpicChildren: (workspaceId: string, epicId: string) => Promise<EpicRecordDto>;
+  /** Records what an Epic whose work is all done delivered; it then leaves the drawer. */
+  concludeEpic: (workspaceId: string, epicId: string, outcome: string) => Promise<EpicRecordDto>;
+  /** The workspace's concluded Epics, a local read. */
+  listConcludedEpics: (workspaceId: string) => Promise<string[]>;
   listGoals: (workspaceId: string) => Promise<GoalDto[]>;
   createGoal: (workspaceId: string, title: string, description: string) => Promise<GoalDto>;
   updateGoal: (workspaceId: string, goalId: string, patch: GoalPatch) => Promise<GoalDto>;

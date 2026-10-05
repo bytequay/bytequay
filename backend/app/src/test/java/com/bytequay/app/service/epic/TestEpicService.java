@@ -31,6 +31,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockMakers;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -42,6 +44,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -117,6 +121,23 @@ class TestEpicService
         when(github.fetchSubIssues("pat", REPOSITORY, 7)).thenReturn(ImmutableList.of(docs, later, new GitHubRepoClient.SubIssue(84, 10, "Tune", false, Optional.empty(),
                 REPOSITORY)));
         assertThat(service.refreshChildren("workspace", EPIC, Optional.empty()).offered()).isTrue();
+    }
+
+    @Test
+    void concludingRecordsTheOutcomeOnceAllItsWorkIsDoneAndOnlyConcludedEpicsLeaveTheDrawer()
+    {
+        doThrow(new ResponseStatusException(HttpStatus.CONFLICT, "Conclude the Epic once all its work is done.")).when(work).requireEpicDone("workspace", EPIC);
+        assertThatThrownBy(() -> service.conclude("workspace", EPIC, "Shipped")).hasMessageContaining("all its work is done");
+        assertThat(service.concluded("workspace")).isEmpty();
+
+        doNothing().when(work).requireEpicDone("workspace", EPIC);
+        assertThatThrownBy(() -> service.conclude("workspace", EPIC, " ")).isInstanceOf(IllegalArgumentException.class);
+        EpicView concluded = service.conclude("workspace", EPIC, "  Metadata caching shipped  ");
+        assertThat(concluded.concludedAt()).contains(NOW);
+        assertThat(concluded.outcome()).isEqualTo("Metadata caching shipped");
+        assertThat(service.conclude("workspace", EPIC, "Another wording")).as("concluding again changes nothing").isEqualTo(concluded);
+        service.dismiss("workspace", JIRA_EPIC);
+        assertThat(service.concluded("workspace")).containsExactly(EPIC);
     }
 
     @Test

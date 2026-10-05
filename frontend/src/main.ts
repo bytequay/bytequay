@@ -13,7 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
-import { parseEpicJoin, parseEpicRecord, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
+import { parseConcludedEpics, parseEpicJoin, parseEpicRecord, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -1881,6 +1881,10 @@ function registerIpc(): void {
     backendJson(epicsUrl(workspaceId, '/sync'), jsonInit('POST', { epicId })).then(parseEpicRecord));
   ipcMain.handle('epics:dismiss', (_event, workspaceId: string, epicId: string) =>
     backendJson(epicsUrl(workspaceId, '/dismiss'), jsonInit('POST', { epicId })).then(parseEpicRecord));
+  ipcMain.handle('epics:conclude', (_event, workspaceId: string, epicId: string, outcome: string) =>
+    backendJson(epicsUrl(workspaceId, '/conclude'), jsonInit('POST', { epicId, outcome })).then(parseEpicRecord));
+  ipcMain.handle('epics:concluded', (_event, workspaceId: string) =>
+    backendJson(epicsUrl(workspaceId, '/concluded')).then(parseConcludedEpics));
   ipcMain.handle('work-items:leave-epic', (_event, workspaceId: string, itemId: string) =>
     backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(itemId)}/epic`), { method: 'DELETE' })
       .then(value => { const item = (value as { item?: unknown } | null)?.item; return item == null ? null : parseWorkItem(item); }));

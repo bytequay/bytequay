@@ -136,6 +136,40 @@
   background: #f3f4f6;
 }
 
+.epic-view__counts > .epic-view__conclude {
+  margin-left: auto;
+}
+
+.epic-view__concluded {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #d1e7d6;
+  border-radius: 10px;
+  background: #f4fbf6;
+}
+
+.epic-view__concluded-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #1a7f37;
+  font-size: 12.5px;
+}
+
+.epic-view__concluded-head > .epic-view__link {
+  margin-left: auto;
+}
+
+.epic-view__outcome {
+  margin: 0;
+  color: var(--text-1);
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .epic-view__notice {
   color: #57606a;
   font-size: 12px;

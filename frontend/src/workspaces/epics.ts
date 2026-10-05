@@ -20,7 +20,7 @@ import type { JiraIssue } from '../jira/contracts';
 import type { Bridge } from '../types';
 
 export type EpicBridge = Pick<Bridge, 'joinEpic' | 'orderEpicWork' | 'removeFromEpic'>;
-export type EpicRecordBridge = Pick<Bridge, 'getEpic' | 'refreshEpicChildren' | 'syncEpicChildren' | 'dismissEpicChildren'>;
+export type EpicRecordBridge = Pick<Bridge, 'getEpic' | 'refreshEpicChildren' | 'syncEpicChildren' | 'dismissEpicChildren' | 'concludeEpic' | 'listConcludedEpics'>;
 // Stable, so the record's reads run once per Epic rather than on every render.
 const windowRecordBridge = (): EpicRecordBridge => window.bridge;
 
@@ -68,6 +68,7 @@ export function useEpicRecord(workspaceId: string, epicId: string, connectionId:
   record: EpicRecordDto | null;
   sync: () => Promise<void>;
   dismiss: () => Promise<void>;
+  conclude: (outcome: string) => Promise<void>;
 } {
   const [record, setRecord] = useState<EpicRecordDto | null>(null);
   useEffect(() => {
@@ -84,7 +85,32 @@ export function useEpicRecord(workspaceId: string, epicId: string, connectionId:
     changed(workspaceId);
   }, [bridge, epicId, workspaceId]);
   const dismiss = useCallback(async () => { setRecord(await bridge().dismissEpicChildren(workspaceId, epicId)); }, [bridge, epicId, workspaceId]);
-  return { record, sync, dismiss };
+  const conclude = useCallback(async (outcome: string) => {
+    setRecord(await bridge().concludeEpic(workspaceId, epicId, outcome));
+    changed(workspaceId);
+  }, [bridge, epicId, workspaceId]);
+  return { record, sync, dismiss, conclude };
+}
+
+const NONE: ReadonlySet<string> = new Set();
+
+/**
+ * The workspace's concluded Epics, which the drawer leaves out: read again when its work changes or another Epic is marked. A bridge
+ * without the read concludes none.
+ */
+export function useConcludedEpics(workspaceId: string, marked: string, bridge: () => EpicRecordBridge = windowRecordBridge): ReadonlySet<string> {
+  const [concluded, setConcluded] = useState<ReadonlySet<string>>(NONE);
+  useEffect(() => {
+    let active = true;
+    const read = (): void => {
+      void Promise.resolve().then(() => bridge().listConcludedEpics(workspaceId)).then((ids) => { if (active) setConcluded(new Set(ids)); }, () => {});
+    };
+    const onChange = (event: Event): void => { if ((event as CustomEvent<string>).detail === workspaceId) read(); };
+    read();
+    window.addEventListener(GOALS_CHANGED, onChange);
+    return () => { active = false; window.removeEventListener(GOALS_CHANGED, onChange); };
+  }, [bridge, marked, workspaceId]);
+  return concluded;
 }
 
 export async function removeFromEpic(workspaceId: string, itemId: string, bridge: EpicBridge = window.bridge): Promise<void> {

@@ -92,12 +92,13 @@ export async function run(): Promise<boolean> {
   window.bridge = {
     getJiraIssue: async ({ issueId }: { issueId: string }) => ({ ...jiraDetail(), children: issueId === '1184' ? children : [] }),
   } as unknown as Bridge;
-  const render = (items: AttentionItem[], covered = false, workItems: WorkItemDto[] = ICEBERG_WORK): void => flushSync(() => root.render(<LayerCovered.Provider value={covered}>
+  const render = (items: AttentionItem[], covered = false, workItems: WorkItemDto[] = ICEBERG_WORK, concluded: ReadonlySet<string> = new Set()): void =>
+    flushSync(() => root.render(<LayerCovered.Provider value={covered}>
     <div className="app-shell">
       <nav className="app-sidebar"><button type="button" id="sidebar-control">Workspace home</button><div className="app-sidebar__resize" /></nav>
       <main className="app-content">
         <div style={{ position: 'relative', height: '100%' }}>
-          <EpicDrawer items={items} work={workItems} onOpen={item => openedEpics.push(epicIdentity(item))} />
+          <EpicDrawer items={items} concluded={concluded} work={workItems} onOpen={item => openedEpics.push(epicIdentity(item))} />
           <div style={{ padding: '24px 32px' }}><h1>trinodb/trino</h1><button type="button" id="page-control">Composer</button></div>
         </div>
       </main>
@@ -236,6 +237,10 @@ export async function run(): Promise<boolean> {
     assert(document.querySelector('.epic-drawer') === null, 'Unmarking the last Epic removes the drawer');
     render(EPICS.slice(0, 1)); await settle();
     assert(!opened() && document.querySelectorAll('.epic-cue__tick').length === 1, 'A first Epic marked again shows one tick, closed');
+    render(EPICS.slice(0, 2), false, ICEBERG_WORK, new Set([epicIdentity(EPICS[0])])); await settle();
+    assert(document.querySelectorAll('.epic-cue__tick').length === 1 && element('.epic-cue').getAttribute('aria-label') === 'Epics · 1', 'A concluded Epic leaves the drawer');
+    render(EPICS.slice(0, 1), false, ICEBERG_WORK, new Set([epicIdentity(EPICS[0])])); await settle();
+    assert(document.querySelector('.epic-cue') === null, 'With every Epic concluded there is no cue');
 
     // Many Epics in a short, narrow window: the width clamps and the list scrolls under the header.
     const shell = element('.app-shell');

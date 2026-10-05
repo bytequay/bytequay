@@ -27,6 +27,7 @@ import { jiraIssueLocation } from '../jira/contracts';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import { EpicGlyph } from './EpicDrawer';
 import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, useEpicRecord } from './epics';
+import { notifyIssueDevelopmentChanged } from './issueDevelopment';
 import '../css/epic-view.css';
 
 type Decision = Omit<WorkItemDecision, 'operationId' | 'expectedRevision'>;
@@ -81,12 +82,16 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   const [adding, setAdding] = useState(false);
   const [dropping, setDropping] = useState<WorkItemDto | null>(null);
   const [reason, setReason] = useState('');
+  const [concluding, setConcluding] = useState(false);
+  const [outcome, setOutcome] = useState('');
   const own = goalRef(epic);
   const candidates = useCandidates({ items }, goals.search, adding);
   const found = candidates.results.filter((item) => own === null || refKey(item) !== refKey(own));
   const children = useEpicRecord(workspaceId, epicId, epic.jira?.connectionId ?? null);
   const record = children.record;
   const unsynced = record === null ? [] : record.children.filter((child) => !record.synced.includes(child.identity));
+  const concludedAt = record?.concludedAt ?? null;
+  const ready = summary.total > 0 && summary.finished === summary.total;
 
   const run = (action: () => Promise<unknown>): Promise<void> => {
     setBusy(true);
@@ -150,15 +155,41 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
             )}
             <div className="epic-view__counts">
               {summary.total === 0 ? <span>No work yet</span>
-                : summary.finished === summary.total ? <span className="is-ready">All {summary.total} done · ready to conclude</span>
+                : summary.finished === summary.total ? <span className="is-ready">All {summary.total} done{concludedAt === null ? ' · ready to conclude' : ''}</span>
                   : <>
                     <span className="is-strong">{summary.finished} of {summary.total} done</span>
                     {summary.working > 0 && <span>{summary.working} working</span>}
                     {summary.idle > 0 && <span>{summary.idle} planned</span>}
                   </>}
               {summary.dropped > 0 && <span className="is-muted">{summary.dropped} dropped</span>}
+              {ready && concludedAt === null && record !== null && (
+                <button type="button" className="epic-view__sync epic-view__conclude" disabled={busy} onClick={() => {
+                  setOutcome(`All ${summary.total} work items done:\n${items.filter((item) => item.state === 'DONE').map((item) => `- ${item.title}`).join('\n')}`);
+                  setConcluding(true);
+                }}>Conclude Epic</button>
+              )}
             </div>
           </div>
+          {record !== null && concludedAt !== null && (
+            <section className="epic-view__concluded" aria-label="Concluded">
+              <div className="epic-view__concluded-head">
+                <CircleCheck size={14} aria-hidden="true" />
+                <span>Concluded</span>
+                <CardAge at={concludedAt} />
+                {epic.jira
+                  ? <button type="button" className="epic-view__link" onClick={() => { if (epic.jira) zoomReference({ kind: 'jira', ...jiraIssueLocation(epic.jira) }); }}>
+                    Open {epic.jira.key} to close it
+                  </button>
+                  : <button type="button" className="epic-view__link" disabled={busy} onClick={() => {
+                    void run(async () => {
+                      await window.bridge.closeWorkspaceIssue(workspaceId, epic.number);
+                      notifyIssueDevelopmentChanged();
+                    });
+                  }}>Close #{epic.number} on GitHub</button>}
+              </div>
+              <p className="epic-view__outcome">{record.outcome}</p>
+            </section>
+          )}
           {record?.offered === true && (
             <div className="epic-view__found">
               <ListTree size={14} aria-hidden="true" />
@@ -233,7 +264,23 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
           decide(item, { action: 'DROP', detail: reason.trim() === '' ? 'Not needed' : reason.trim(), releaseDependents: true });
         }}>
           <p>Dropped work stays in the Epic, counted apart from its progress. Work waiting on it stops waiting.</p>
-          <input className="bq-confirm-dialog__choice" aria-label="Reason" placeholder="Reason (optional)" value={reason} onChange={(event) => setReason(event.target.value)} />
+          <label className="bq-confirm-dialog__choice">
+            <span>Reason (optional)</span>
+            <input value={reason} onChange={(event) => setReason(event.target.value)} />
+          </label>
+        </ConfirmDialog>
+      )}
+      {concluding && (
+        <ConfirmDialog title={`Conclude "${epic.title}"?`} confirmLabel="Conclude" confirmDisabled={outcome.trim() === ''} onCancel={() => setConcluding(false)}
+          onConfirm={() => {
+            setConcluding(false);
+            void run(() => children.conclude(outcome));
+          }}>
+          <p>All its work is done. Concluding records what the Epic delivered, and the Epic leaves the drawer.</p>
+          <label className="bq-confirm-dialog__choice">
+            <span>Outcome</span>
+            <textarea rows={5} value={outcome} onChange={(event) => setOutcome(event.target.value)} />
+          </label>
         </ConfirmDialog>
       )}
     </>

@@ -576,6 +576,16 @@ public class WorkItemService
         });
     }
 
+    /** Rejects concluding an Epic until it has work and all of it is done; dropped work is counted apart. */
+    public void requireEpicDone(String workspaceId, String epicId)
+    {
+        List<WorkItem> work = items.list(workspaceId).stream().filter(item -> item.epicId().filter(epicId::equals).isPresent())
+                .filter(item -> item.state() != WorkItem.State.DROPPED).collect(toImmutableList());
+        if (work.isEmpty() || work.stream().anyMatch(item -> item.state() != WorkItem.State.DONE)) {
+            throw conflict("Conclude the Epic once all its work is done.");
+        }
+    }
+
     /** Saves the order the user gave an Epic's work, which names each of its items once. */
     public List<WorkItemView> orderEpic(String workspaceId, String epicId, List<String> ids)
     {

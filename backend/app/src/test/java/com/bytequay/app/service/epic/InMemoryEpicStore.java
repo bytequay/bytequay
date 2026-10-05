@@ -17,8 +17,11 @@ import com.bytequay.core.domain.Epic;
 import com.bytequay.core.store.EpicStore;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
 
 public final class InMemoryEpicStore
         implements EpicStore
@@ -29,6 +32,12 @@ public final class InMemoryEpicStore
     public Optional<Epic> find(String id)
     {
         return Optional.ofNullable(epics.get(id));
+    }
+
+    @Override
+    public List<Epic> list(String workspaceId)
+    {
+        return epics.values().stream().filter(epic -> epic.workspaceId().equals(workspaceId)).collect(toImmutableList());
     }
 
     @Override

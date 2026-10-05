@@ -123,6 +123,28 @@ public class EpicService
         }));
     }
 
+    /** Records the outcome the user accepted once all the Epic's work is done; concluding it again changes nothing. */
+    public EpicView conclude(String workspaceId, String epicId, String outcome)
+    {
+        sources.require(workspaceId, epicId);
+        return view(unitOfWork.execute(() -> {
+            Epic epic = current(workspaceId, epicId);
+            if (epic.concludedAt().isPresent()) {
+                return epic;
+            }
+            work.requireEpicDone(workspaceId, epicId);
+            Epic next = epic.withConcluded(outcome, clock.instant());
+            epics.save(next);
+            return next;
+        }));
+    }
+
+    /** The workspace's concluded Epics, which the drawer leaves out; a local read. */
+    public List<String> concluded(String workspaceId)
+    {
+        return epics.list(workspaceId).stream().filter(epic -> epic.concludedAt().isPresent()).map(Epic::id).collect(toImmutableList());
+    }
+
     private Epic current(String workspaceId, String epicId)
     {
         return epics.find(epicId).orElseGet(() -> Epic.of(epicId, workspaceId));
@@ -131,7 +153,7 @@ public class EpicService
     private static EpicView view(Epic epic)
     {
         return new EpicView(epic.id(), epic.children(), epic.synced().stream().map(EpicChild::identity).collect(toImmutableList()), epic.former(),
-                epic.childrenReadAt(), epic.childrenTruncated(), epic.offered());
+                epic.childrenReadAt(), epic.childrenTruncated(), epic.offered(), epic.concludedAt(), epic.outcome());
     }
 
     private Read subIssues(String epicId)

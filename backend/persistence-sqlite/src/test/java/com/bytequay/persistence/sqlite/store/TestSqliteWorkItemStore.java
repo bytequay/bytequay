@@ -102,9 +102,11 @@ class TestSqliteWorkItemStore
         EpicChild synced = new EpicChild("ISSUE:github.com:8", GoalItemKind.ISSUE, "org/repo#8", "#8", "Parse", "Open", false, Optional.of("https://github.com/org/repo/issues/8"));
         EpicChild dismissed = new EpicChild("JIRA:5:cloud:11", GoalItemKind.JIRA, "connection:cloud:11", "ENG-11", "Docs", "In Progress", false, Optional.empty());
         Epic epic = Epic.of("ISSUE:github.com:1", "workspace").withChildren(ImmutableList.of(synced, dismissed), NOW, true).withSynced(ImmutableList.of(synced))
-                .withDismissed();
+                .withDismissed().withConcluded("Shipped", NOW);
         epics.save(epic);
         assertThat(epics.find(epic.id())).contains(epic);
+        assertThat(epics.list("workspace")).containsExactly(epic);
+        assertThat(epics.list("other")).isEmpty();
         Epic next = epic.withChildren(ImmutableList.of(dismissed), NOW.plusSeconds(1), false);
         epics.save(next);
         assertThat(epics.find(epic.id())).contains(next);

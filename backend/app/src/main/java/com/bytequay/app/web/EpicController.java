@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -65,6 +66,21 @@ public class EpicController
         checkArgument(request.epicId() != null, "Epic is required");
         return epics.dismiss(workspaceId, request.epicId());
     }
+
+    @PostMapping("/conclude")
+    public EpicView conclude(@PathVariable String workspaceId, @RequestBody Conclude request)
+    {
+        checkArgument(request.epicId() != null, "Epic is required");
+        return epics.conclude(workspaceId, request.epicId(), request.outcome());
+    }
+
+    @GetMapping("/concluded")
+    public List<String> concluded(@PathVariable String workspaceId)
+    {
+        return epics.concluded(workspaceId);
+    }
+
+    public record Conclude(String epicId, String outcome) {}
 
     /** A Jira Epic's children are read through the connection the view shows it with. */
     public record ReadChildren(String epicId, Optional<String> connectionId) {}

@@ -33,6 +33,8 @@ import static java.util.Objects.requireNonNullElse;
  * @param childrenTruncated whether the source had more children than one read returns
  * @param synced the children the user synced into work, as they were then; one later missing from {@code children} is no longer a child
  * @param dismissed the unsynced children Not now hid; any other unsynced child offers syncing again
+ * @param concludedAt when the user concluded the Epic with all its work done; a concluded Epic leaves the drawer
+ * @param outcome what the user accepted the Epic delivered when concluding it
  */
 public record Epic(
         String id,
@@ -41,7 +43,9 @@ public record Epic(
         Optional<Instant> childrenReadAt,
         boolean childrenTruncated,
         List<EpicChild> synced,
-        List<String> dismissed)
+        List<String> dismissed,
+        Optional<Instant> concludedAt,
+        String outcome)
 {
     public Epic
     {
@@ -51,11 +55,13 @@ public record Epic(
         childrenReadAt = requireNonNullElse(childrenReadAt, Optional.empty());
         synced = ImmutableList.copyOf(synced);
         dismissed = ImmutableList.copyOf(dismissed);
+        concludedAt = requireNonNullElse(concludedAt, Optional.empty());
+        outcome = requireNonNullElse(outcome, "");
     }
 
     public static Epic of(String id, String workspaceId)
     {
-        return new Epic(id, workspaceId, ImmutableList.of(), Optional.empty(), false, ImmutableList.of(), ImmutableList.of());
+        return new Epic(id, workspaceId, ImmutableList.of(), Optional.empty(), false, ImmutableList.of(), ImmutableList.of(), Optional.empty(), "");
     }
 
     /** Children the source reports that the user has not synced. */
@@ -80,7 +86,7 @@ public record Epic(
 
     public Epic withChildren(List<EpicChild> read, Instant at, boolean truncated)
     {
-        return new Epic(id, workspaceId, read, Optional.of(at), truncated, synced, dismissed);
+        return new Epic(id, workspaceId, read, Optional.of(at), truncated, synced, dismissed, concludedAt, outcome);
     }
 
     /** Records the children synced now; a later sync of the same child changes nothing. */
@@ -88,12 +94,17 @@ public record Epic(
     {
         Set<String> present = synced.stream().map(EpicChild::identity).collect(toImmutableSet());
         return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, ImmutableList.<EpicChild>builder().addAll(synced)
-                .addAll(added.stream().filter(child -> !present.contains(child.identity())).iterator()).build(), ImmutableList.of());
+                .addAll(added.stream().filter(child -> !present.contains(child.identity())).iterator()).build(), ImmutableList.of(), concludedAt, outcome);
     }
 
     public Epic withDismissed()
     {
         return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, synced,
-                unsynced().stream().map(EpicChild::identity).collect(toImmutableList()));
+                unsynced().stream().map(EpicChild::identity).collect(toImmutableList()), concludedAt, outcome);
+    }
+
+    public Epic withConcluded(String accepted, Instant at)
+    {
+        return new Epic(id, workspaceId, children, childrenReadAt, childrenTruncated, synced, dismissed, Optional.of(at), checkText(accepted, "outcome").trim());
     }
 }

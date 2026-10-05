@@ -28,9 +28,11 @@ import static java.util.Objects.requireNonNull;
  * @param synced the identities of the children the user synced into work
  * @param former the synced children the source no longer reports
  * @param offered whether to offer syncing: an unsynced child exists that Not now did not hide
+ * @param concludedAt when the user concluded the Epic with all its work done
+ * @param outcome what the user accepted the Epic delivered
  */
 public record EpicView(String id, List<EpicChild> children, List<String> synced, List<EpicChild> former, Optional<Instant> childrenReadAt, boolean childrenTruncated,
-        boolean offered)
+        boolean offered, Optional<Instant> concludedAt, String outcome)
 {
     public EpicView
     {
@@ -39,5 +41,7 @@ public record EpicView(String id, List<EpicChild> children, List<String> synced,
         synced = ImmutableList.copyOf(synced);
         former = ImmutableList.copyOf(former);
         requireNonNull(childrenReadAt, "childrenReadAt is null");
+        requireNonNull(concludedAt, "concludedAt is null");
+        requireNonNull(outcome, "outcome is null");
     }
 }

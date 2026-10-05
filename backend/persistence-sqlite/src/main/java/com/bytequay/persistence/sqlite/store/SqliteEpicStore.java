@@ -20,8 +20,10 @@ import com.bytequay.persistence.sqlite.repository.EpicJpaRepository;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -40,6 +42,13 @@ public class SqliteEpicStore
     public Optional<Epic> find(String id)
     {
         return epics.findById(id).map(EpicEntity::toDomain);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<Epic> list(String workspaceId)
+    {
+        return epics.findByWorkspaceId(workspaceId).stream().map(EpicEntity::toDomain).collect(toImmutableList());
     }
 
     @Override

@@ -400,7 +400,7 @@ function memberLabel(member: ActivityMember): string {
   return `${CHANGE_VERBS[member.change] ?? member.change} ${member.path}`;
 }
 
-export function PlanSteps({ steps, compact = false }: { steps: PlanStep[]; compact?: boolean }): React.JSX.Element {
+export function PlanSteps({ steps, compact = false, repository }: { steps: PlanStep[]; compact?: boolean; repository?: string | null }): React.JSX.Element {
   return (
     <div className={compact ? 'agt-plan__steps is-compact' : 'agt-plan__steps'}>
       {steps.map((step, index) => (
@@ -408,7 +408,7 @@ export function PlanSteps({ steps, compact = false }: { steps: PlanStep[]; compa
           {step.state === 'IN_PROGRESS'
             ? <span className="agt-icon is-running"><Spinner /></span>
             : <Glyph icon={step.state === 'COMPLETED' ? Check : Circle} className={step.state === 'COMPLETED' ? 'is-ok' : 'is-pending'} />}
-          <span className="agt-plan__text">{step.text}</span>
+          <span className="agt-plan__text">{linkIssueNumbers(step.text, repository)}</span>
         </div>
       ))}
     </div>
@@ -606,7 +606,7 @@ export function BlockView({ block, repository, activityChoice, agentLabels, onTo
             <span className="agt-label">Plan</span>
             <span className="agt-chip">{planChip(block.steps)}</span>
           </div>
-          <PlanSteps steps={block.steps} />
+          <PlanSteps steps={block.steps} repository={repository} />
         </div>
       );
     case 'activity': {
@@ -636,7 +636,7 @@ export function BlockView({ block, repository, activityChoice, agentLabels, onTo
     case 'error':
       return <div className="agt-error" role="alert"><Glyph icon={CircleAlert} className="is-failed" /><span>{block.message}{block.retryable ? ' — retrying' : ''}</span></div>;
     case 'note':
-      return <div className="agt-note"><Glyph icon={TriangleAlert} className="is-warn" /><span>{block.text}</span></div>;
+      return <div className="agt-note"><Glyph icon={TriangleAlert} className="is-warn" /><span>{linkIssueNumbers(block.text, repository)}</span></div>;
     default:
       return <></>;
   }

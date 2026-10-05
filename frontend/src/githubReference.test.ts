@@ -99,8 +99,9 @@ describe('GitHub references', () => {
     expect(zoomed(dispatchEvent)).toEqual([]);
   });
 
-  it.each([[], [{ id: 'workspace-1', monitoredOwner: 'trinodb', monitoredRepo: 'trino' }]])(
-    'loads an uncached issue independently of watched workspaces: %j', async workspaces => {
+  it.each([false, true])(
+    'zooms an uncached issue when its repository has a workspace: %s', async watched => {
+      const workspaces = watched ? [{ id: 'workspace-1', monitoredOwner: 'trinodb', monitoredRepo: 'trino' }] : [];
       const bridge = {
         listWorkspaces: vi.fn().mockResolvedValue(workspaces),
         fetchWorkspaceIssue: vi.fn().mockRejectedValue(new Error('Issue is not cached')),
@@ -114,15 +115,21 @@ describe('GitHub references', () => {
       if (!reference) throw new Error('Expected a GitHub reference');
 
       expect(await resolveGitHubReference(reference)).toEqual({
-        kind: 'issue', workspaceId: null, issue: issuePreview,
+        kind: 'issue', workspaceId: workspaces[0]?.id ?? null, issue: issuePreview,
       });
       expect(bridge.fetchGitHubIssuePreview).toHaveBeenCalledWith('trinodb', 'trino', 30611);
       expect(bridge.fetchPullRequestDetailByRef).not.toHaveBeenCalled();
 
       await openGitHubReference(reference);
 
-      expect(bridge.openInAppBrowser).toHaveBeenCalledWith(reference.href);
-      expect(zoomed(dispatchEvent)).toEqual([]);
+      if (workspaces.length > 0) {
+        expect(bridge.openInAppBrowser).not.toHaveBeenCalled();
+        expect(zoomed(dispatchEvent)).toEqual([{ kind: 'issue', repo: 'trinodb/trino', number: 30611, workspaceId: 'workspace-1' }]);
+      }
+      else {
+        expect(bridge.openInAppBrowser).toHaveBeenCalledWith(reference.href);
+        expect(zoomed(dispatchEvent)).toEqual([]);
+      }
     },
   );
 

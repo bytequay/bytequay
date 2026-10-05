@@ -203,6 +203,20 @@ function conversation(exchanges: GoalExchangeDto[]): GoalConversation {
 }
 
 describe('goal guidance', () => {
+  it('links references throughout goal conversation, output, notes and definitions in its repository', () => {
+    const markup = panel({ view: 'guide', goal: { ...GOAL, description: 'Resolve #41', definition: {
+      successDefinition: 'Fix #42', startingKnowledge: 'Read #43', constraints: 'Wait for #44', exchangeId: ASKED.id, acceptedAt: ASKED.askedAt,
+    } }, conversation: { ...conversation([{ ...ASKED, message: 'Explain #45', reply: { ...ASKED.reply,
+      assessment: 'Compare #46 with other/project#46', question: { text: 'Review #47?', suggestions: [] },
+    } }]), notes: [{ ...NOTE, body: 'Investigated #48' }] } });
+    for (let number = 41; number <= 48; number++) {
+      expect(markup).toContain(`href="https://github.com/trinodb/trino/issues/${number}"><svg`);
+      expect(markup).toContain(`</svg>#${number}</a>`);
+    }
+    expect(markup).toContain('href="https://github.com/other/project/issues/46"><svg');
+    expect(markup).toContain('</svg>other/project#46</a>');
+  });
+
   it('reads an exchange and a definition the backend sends and refuses a malformed one', () => {
     expect(parseGoalExchange(JSON.parse(JSON.stringify({ ...PROPOSED, workspaceId: 'workspace-1', model: 'codex/gpt', answeredAt: null })))).toEqual(PROPOSED);
     expect(parseGoalExchange({ ...ASKED, state: 'PENDING', reply: null })).toMatchObject({ state: 'PENDING', reply: null });
@@ -250,7 +264,7 @@ describe('goal guidance', () => {
     const practice: GoalRecommendationDto = { ...CARD, id: 'card-2', state: 'STARTED', workItemId: 'work-9',
       card: { ...CARD.card, kind: 'WORK', title: 'Fix #31252', pages: [], issue: 31252 } };
     const waiting = panel({ view: 'guide', goal: { ...GOAL, recommendations: [practice] } });
-    expect(waiting).toContain('Practicing: Fix #31252');
+    expect(waiting).toContain('Practicing: Fix <a class="md-reference is-issue" href="https://github.com/trinodb/trino/issues/31252"><svg');
     expect(waiting).not.toContain('Researching');
     expect(waiting).toContain('>Open the composer</button>');
     const sent = panel({ view: 'guide', goal: { ...GOAL, recommendations: [practice],
@@ -261,7 +275,7 @@ describe('goal guidance', () => {
     const merged = panel({ view: 'guide', goal: { ...GOAL, recommendations: [practice], items: [...GOAL.items, { ...GOAL.items[0], id: 'work-9',
       links: [{ ...GOAL.items[0].links[0], kind: 'TASK', key: 'task-31252' }, { ...GOAL.items[0].links[0], kind: 'PULL_REQUEST', key: 'trinodb/trino#31260', label: '#31260',
         state: 'MERGED', status: 'Merged' }] }] } });
-    expect(merged).toContain('#31260 merged');
+    expect(merged).toContain('#31260</a> merged');
     expect(merged).toContain('>Review result</button>');
     const ticket = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...practice, card: { ...practice.card, title: 'Fix TRINO-12', issue: null,
       ticket: 'connection:cloud:10412' } }] } });
@@ -340,7 +354,7 @@ describe('goal guidance', () => {
     const revised = panel({ view: 'guide', goal: { ...GOAL, course: started }, conversation: conversation([ASKED, COURSE, revision]) });
     expect(revised).toContain('Revised course');
     expect(revised).toContain('You know tables already.');
-    expect(revised).toContain('#30925 title</span>');
+    expect(revised).toContain('#30925</a> title</span>');
     expect(revised).toContain('Plan a scan<span class="goal-course__new">New</span>');
     expect(revised).toContain('Leaves the course');
     expect(revised).toContain('>Accept revision</button>');

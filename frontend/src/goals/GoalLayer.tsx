@@ -16,6 +16,7 @@ import React, { useCallback, useContext, useEffect, useLayoutEffect, useRef, use
 import { CircleAlert } from 'lucide-react';
 import { Card, Pill } from '../cards/Card';
 import { zoomReference } from '../githubReference';
+import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { LayerCovered } from '../Zoom';
 import type { GoalItemDto, GoalRecommendationDto } from './contracts';
@@ -298,7 +299,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           <div className="goal-cards" role="region" aria-label="Recommended next steps"
             style={{ ...({ '--goal-pill-right': `${position.right}px` } as React.CSSProperties),
               ...(position.bottom > ROOM_BELOW ? { top: `calc(100% - ${position.bottom - 6}px)` } : { bottom: position.bottom + 44 }) }}>
-            {shown.map((card) => <RecommendationCard key={card.id} card={card} onOpen={() => { setDrafting(false); open(); }}
+            {shown.map((card) => <RecommendationCard key={card.id} card={card} repository={repository} onOpen={() => { setDrafting(false); open(); }}
               onStart={() => (card.card.workItemId !== null ? goals.openLesson(goal.id, card.card.workItemId).then(() => {
                 // Start on a lesson card opens the lesson in the Goal window.
                 setLesson(card.card.workItemId);
@@ -333,8 +334,9 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
  * A next step the agent recommends; Start begins it and Not now dismisses it. Opening the card shows the goal's guidance. A spec check
  * can also be adjusted in the Spec check drawer before it starts.
  */
-function RecommendationCard({ card, onOpen, onStart, onAdjust, onDismiss }: {
+function RecommendationCard({ card, repository, onOpen, onStart, onAdjust, onDismiss }: {
   card: GoalRecommendationDto;
+  repository: string;
   onOpen: () => void;
   onStart: () => Promise<unknown>;
   onAdjust?: () => void;
@@ -352,11 +354,11 @@ function RecommendationCard({ card, onOpen, onStart, onAdjust, onDismiss }: {
   return (
     <Card compact className="goal-rec" label={`${kind}: ${card.card.title}`} title={card.card.scope} onOpen={onOpen}>
       <Pill>{kind}</Pill>
-      <div className="goal-rec__title">{card.card.title}</div>
+      <div className="goal-rec__title">{linkIssueNumbers(card.card.title, repository)}</div>
       {/* Both run long; each keeps a few lines and the whole text on hover. */}
-      <div className="goal-rec__reason" title={card.card.reason}>{card.card.reason}</div>
+      <div className="goal-rec__reason" title={card.card.reason}>{linkIssueNumbers(card.card.reason, repository)}</div>
       {card.card.uncertainty && <div className="goal-rec__doubt" title={card.card.uncertainty}>
-        <CircleAlert size={13} aria-hidden="true" /><span>{card.card.uncertainty}</span></div>}
+        <CircleAlert size={13} aria-hidden="true" /><span>{linkIssueNumbers(card.card.uncertainty, repository)}</span></div>}
       {error !== null && <div className="goal-rec__error" role="alert">{error}</div>}
       <div className="goal-rec__actions">
         <button type="button" className="goal-add" disabled={busy} onClick={(event) => act(event, onStart)}>Start</button>

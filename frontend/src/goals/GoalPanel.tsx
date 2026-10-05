@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Ban, ChevronDown, Maximize2, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
-import MarkdownBody from '../pulls/MarkdownBody';
+import MarkdownBody, { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { relativeTime } from '../relativeTime';
 import type {
   GoalCourseDraftDto, GoalDto, GoalExchangeDto, GoalGapDto, GoalItemDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalProposalDto, GoalRecommendationDto, GoalTopicDto, TopicLevel, WorkItemDto, WorkItemDecision,
@@ -32,6 +32,13 @@ import type { GoalConversation, GoalModel } from './useGoals';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { TOPIC_LEVELS } from './contracts';
+
+const GoalRepository = createContext<string | null>(null);
+
+/** Goal references resolve titles using the workspace repository. */
+function GoalText({ children }: { children: string }): React.JSX.Element {
+  return <>{linkIssueNumbers(children, useContext(GoalRepository))}</>;
+}
 
 /** How much of a goal is finished, as a ring. */
 export function GoalRing({ goal, size = 20 }: { goal: GoalDto | null; size?: number }): React.JSX.Element {
@@ -132,6 +139,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
     now={props.now} onStart={props.onStart} onOpenTask={props.onOpenTask} onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue}
     onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck} onFileIssue={props.onFileIssue} onReview={setSelected} lessonId={lessonId} />;
   return (
+    <GoalRepository value={props.repository}>
     <div className={`goal-panel is-${mode}`} role="dialog" aria-label={goal === null ? 'Goal' : `Goal: ${goal.title}`}>
       <div className="goal-panel__head">
         <div className="goal-panel__bar">
@@ -166,9 +174,9 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         {goal !== null && (
           <>
             <GoalTitle key={goal.id} goal={goal} onRename={props.onRename} />
-            <div className="goal-panel__situation">{situation(goal, props.conversation.exchanges, props.conversation.gaps).text}</div>
+            <div className="goal-panel__situation"><GoalText>{situation(goal, props.conversation.exchanges, props.conversation.gaps).text}</GoalText></div>
             {actionError !== null && <p className="goal-guide__error" role="alert">{actionError}</p>}
-            {goal.description !== '' && <div className="goal-panel__desc">{goal.description}</div>}
+            {goal.description !== '' && <div className="goal-panel__desc"><GoalText>{goal.description}</GoalText></div>}
           </>
         )}
         {props.onBack === undefined && <div className="goal-panel__views">
@@ -218,6 +226,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
         </ConfirmDialog>
       )}
     </div>
+    </GoalRepository>
   );
 }
 
@@ -358,8 +367,8 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
           <ol className="goal-thread" aria-label="Conversation with the goal's agent">
             {exchanges.map((exchange) => <li key={exchange.id} ref={exchange === last ? latest : undefined} className="goal-thread__turn">
               {/* An event can list everything a run saved; two lines say what happened, and the rest shows on hover. */}
-              {exchange.automatic ? <div className="goal-thread__event" title={exchange.message}>{exchange.message}</div>
-                : <div className="goal-thread__user">{exchange.message}</div>}
+              {exchange.automatic ? <div className="goal-thread__event" title={exchange.message}><GoalText>{exchange.message}</GoalText></div>
+                : <div className="goal-thread__user"><GoalText>{exchange.message}</GoalText></div>}
               {exchange.state === 'PENDING' && <Pending exchange={exchange} now={now} onStop={conversation.stop} />}
               {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">
                 <span>{exchange.failure}</span>
@@ -369,9 +378,9 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
                 }}>Ask again</button>}
               </div>}
               {exchange.reply !== null && <div className="goal-thread__agent">
-                <p>{exchange.reply.assessment}</p>
+                <p><GoalText>{exchange.reply.assessment}</GoalText></p>
                 {/* The question on screen is asked above the reply field. */}
-                {exchange.reply.question !== null && exchange !== last && <p className="goal-thread__question">{exchange.reply.question.text}</p>}
+                {exchange.reply.question !== null && exchange !== last && <p className="goal-thread__question"><GoalText>{exchange.reply.question.text}</GoalText></p>}
               </div>}
             </li>)}
           </ol>
@@ -385,7 +394,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
         {!docked && alert}
       </div>
       {docked && <div className="goal-guide__dock">
-        {question !== null && <div className="goal-guide__question">{question.text}</div>}
+        {question !== null && <div className="goal-guide__question"><GoalText>{question.text}</GoalText></div>}
         {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} picked={answers} disabled={answering} onToggle={toggle}>
           <button type="button" className="goal-link goal-guide__other" disabled={answering} onClick={() => say(OTHER_OPTIONS)}>Other options</button>
         </Choices>}
@@ -419,7 +428,7 @@ function Gaps({ gaps, onAdd, onFile, onReview }: {
     <section className="goal-gaps" aria-label="Reproduced gaps">
       <div className="goal-group">Gaps the spec check reproduced · {gaps.length}</div>
       {gaps.map((gap) => <div key={gap.candidateId} className="goal-gap">
-        <span className="goal-gap__title" title={gap.rule}>{gap.title}</span>
+        <span className="goal-gap__title" title={gap.rule}><GoalText>{gap.title}</GoalText></span>
         {gap.test !== null && <span className="goal-muted">{gap.test.path}</span>}
         {gap.draft !== null && <button type="button" className="goal-link" onClick={() => {
           setNote(null);
@@ -457,14 +466,14 @@ function Started({ goal, card, research, onOpenTask, onLesson, onStartIssue, onS
   const pull = work?.links.findLast((link) => link.kind === 'PULL_REQUEST');
   return (
     <div className="goal-guide__running" role="status">
-      <span>{STARTED_LABELS[card.card.kind]}: {card.card.title}</span>
+      <span>{STARTED_LABELS[card.card.kind]}: <GoalText>{card.card.title}</GoalText></span>
       {card.card.kind === 'SPEC_CHECK' && card.card.module !== null && <button type="button" className="goal-link"
         onClick={() => onSpecCheck({ directory: card.card.module })}>Open check</button>}
       {card.card.kind === 'RESEARCH' && card.taskId !== null && <ResearchProgress taskId={card.taskId} read={research.researchRun} stop={research.stopResearch} />}
       {card.card.kind === 'LESSON' && card.card.workItemId !== null && <button type="button" className="goal-link"
         onClick={() => onLesson(card.card.workItemId)}>Open lesson</button>}
       {card.card.kind === 'INVESTIGATE' && work !== undefined && <button type="button" className="goal-link" onClick={() => onReview(work.id)}>Open work</button>}
-      {pull !== undefined && <span className="goal-muted">{pull.label} {pull.status.toLowerCase()}</span>}
+      {pull !== undefined && <span className="goal-muted"><GoalText>{pull.label}</GoalText> {pull.status.toLowerCase()}</span>}
       {work !== undefined && pull?.state === 'MERGED' && <button type="button" className="goal-link" onClick={() => onReview(work.id)}>Review result</button>}
       {card.card.kind === 'WORK' && (task !== undefined
         ? <button type="button" className="goal-link" onClick={() => onOpenTask(task.key)}>Open task</button>
@@ -578,9 +587,9 @@ function LessonView({ goal, item, repository, conversation, beside = false, onBa
   return (
     <div className="goal-panel__body goal-lesson">
       <button type="button" className="goal-link goal-lesson__back" onClick={onBack}>Back to guidance</button>
-      <div className="goal-lesson__part">{part}</div>
-      <div className="goal-lesson__title">{item.title}</div>
-      <div className="goal-lesson__outcome">After this lesson you can: {item.acceptanceCriteria}</div>
+      <div className="goal-lesson__part"><GoalText>{part}</GoalText></div>
+      <div className="goal-lesson__title"><GoalText>{item.title}</GoalText></div>
+      <div className="goal-lesson__outcome">After this lesson you can: <GoalText>{item.acceptanceCriteria}</GoalText></div>
       {lesson === null && error === null && <p className="goal-muted" role="status">Opening the lesson…</p>}
       {writing && <p className="goal-muted" role="status">Writing the lesson from the goal’s notes…</p>}
       {lesson?.state === 'FAILED' && <p className="goal-guide__error" role="alert">{lesson.failure}{' '}
@@ -588,8 +597,8 @@ function LessonView({ goal, item, repository, conversation, beside = false, onBa
       {lesson?.content != null && <>
         <MarkdownBody className="goal-lesson__explanation" body={lesson.content.explanation} repository={repository} />
         <section className="goal-lesson__section"><div className="goal-group">Exercise</div><MarkdownBody body={lesson.content.exercise} repository={repository} /></section>
-        <section className="goal-lesson__section"><div className="goal-group">What to observe</div><p>{lesson.content.observe}</p></section>
-        <section className="goal-lesson__section"><div className="goal-group">Check</div><p>{lesson.content.check}</p>
+        <section className="goal-lesson__section"><div className="goal-group">What to observe</div><p><GoalText>{lesson.content.observe}</GoalText></p></section>
+        <section className="goal-lesson__section"><div className="goal-group">Check</div><p><GoalText>{lesson.content.check}</GoalText></p>
           <Composer answering={answering} placeholder="Your answer" submitLabel="Answer"
             onSend={(operationId, message) => conversation.ask(operationId, CHECK_ANSWER + message, item.id)} />
         </section>
@@ -602,10 +611,10 @@ function LessonView({ goal, item, repository, conversation, beside = false, onBa
             .finally(() => setBusy(false));
         }}>{busy ? 'Saving…' : 'Mark lesson done'}</button>}
       {!beside && questions.length > 0 && <ol className="goal-thread" aria-label="Questions about this lesson">{questions.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
-        <div className="goal-thread__user">{exchange.message}</div>
+        <div className="goal-thread__user"><GoalText>{exchange.message}</GoalText></div>
         {exchange.state === 'PENDING' && <Pending exchange={exchange} onStop={conversation.stop} />}
         {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">{exchange.failure}</div>}
-        {exchange.reply !== null && <div className="goal-thread__agent"><p>{exchange.reply.assessment}</p></div>}
+        {exchange.reply !== null && <div className="goal-thread__agent"><p><GoalText>{exchange.reply.assessment}</GoalText></p></div>}
       </li>)}</ol>}
       {!beside && <Composer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />}
     </div>
@@ -626,14 +635,14 @@ function CourseProposal({ goal, course }: { goal: GoalDto | null; course: GoalCo
   return (
     <section className="goal-proposal" aria-label={label}>
       <div className="goal-proposal__label">{label}</div>
-      {course.reason !== null && <p className="goal-course__reason">{course.reason}</p>}
+      {course.reason !== null && <p className="goal-course__reason"><GoalText>{course.reason}</GoalText></p>}
       {course.parts.map((part, index) => <div key={part.title} className="goal-course__part">
-        <div className="goal-course__title">{index + 1}. {part.title}</div>
+        <div className="goal-course__title">{index + 1}. <GoalText>{part.title}</GoalText></div>
         <ol className="goal-course__lessons">{part.lessons.map((lesson) => {
           const existing = lesson.lessonId === null ? undefined : lessons.get(lesson.lessonId);
           return <li key={lesson.lessonId ?? lesson.title} className={existing?.state === 'DONE' ? 'is-done' : undefined}>
-            <span>{existing?.title ?? lesson.title}{accepted !== null && existing === undefined && <span className="goal-course__new">New</span>}</span>
-            <span className="goal-course__outcome">{existing === undefined ? lesson.outcome : existing.state === 'DONE' ? 'Done' : existing.acceptanceCriteria}</span>
+            <span><GoalText>{existing?.title ?? lesson.title}</GoalText>{accepted !== null && existing === undefined && <span className="goal-course__new">New</span>}</span>
+            <span className="goal-course__outcome"><GoalText>{existing === undefined ? lesson.outcome : existing.state === 'DONE' ? 'Done' : existing.acceptanceCriteria}</GoalText></span>
           </li>;
         })}</ol>
       </div>)}
@@ -651,11 +660,11 @@ function Course({ goal, onLesson }: { goal: GoalDto; onLesson: (lessonId: string
   return (
     <section className="goal-course" aria-label="Course">
       {goal.course.parts.map((part, index) => <div key={part.title} className="goal-course__part">
-        <div className="goal-course__title">{index + 1}. {part.title}</div>
+        <div className="goal-course__title">{index + 1}. <GoalText>{part.title}</GoalText></div>
         <ol className="goal-course__lessons">{part.lessons.map((id) => lessons.get(id)).filter((lesson) => lesson !== undefined).map((lesson) =>
           <li key={lesson.id} className={`is-${lesson.state.toLowerCase()}`}>
             <button type="button" className="goal-course__open" onClick={() => onLesson(lesson.id)}>{lesson.title}</button>
-            <span className="goal-course__outcome">{lesson.state === 'DONE' ? 'Done' : lesson.acceptanceCriteria}</span>
+            <span className="goal-course__outcome"><GoalText>{lesson.state === 'DONE' ? 'Done' : lesson.acceptanceCriteria}</GoalText></span>
           </li>)}</ol>
       </div>)}
     </section>
@@ -669,7 +678,7 @@ function Known({ topics, onCorrect }: { topics: GoalTopicDto[]; onCorrect: (topi
     <details className="goal-known goal-fold" aria-label="What you know">
       <summary>What you know · {topics.length}</summary>
       {topics.map((topic) => <label key={topic.topic} className="goal-known__row" title={topic.evidence.join(', ')}>
-        <span className="goal-known__topic">{topic.topic}</span>
+        <span className="goal-known__topic"><GoalText>{topic.topic}</GoalText></span>
         <select value={topic.level} aria-label={`Your level in ${topic.topic}`} onChange={(event) => {
           setError(null);
           void onCorrect(topic.topic, event.target.value as TopicLevel).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The level was not saved'));
@@ -691,8 +700,8 @@ function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element 
     <details className="goal-notes goal-fold" aria-label="Knowledge notes">
       <summary>What the agent learned · {notes.length}</summary>
       {notes.map((note) => <details key={note.id} className="goal-note">
-        <summary>{note.topic}{note.stale && <span className="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>}</summary>
-        <p>{note.body}</p>
+        <summary><GoalText>{note.topic}</GoalText>{note.stale && <span className="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>}</summary>
+        <p><GoalText>{note.body}</GoalText></p>
         <ul>{note.sources.map((source) => <li key={source.reference + (source.commit ?? '')}>
           <a href={sourceUrl(source)} target="_blank" rel="noreferrer">{source.commit === null ? source.reference : `${source.reference} @ ${source.commit.slice(0, 7)}`}</a>
         </li>)}</ul>
@@ -720,9 +729,9 @@ function Choices({ choices, picked, disabled, onToggle, children }: {
 function Definition({ definition }: { definition: NonNullable<GoalDto['definition']> }): React.JSX.Element {
   return (
     <dl className="goal-definition" aria-label="Agreed goal">
-      <dt>Success means</dt><dd>{definition.successDefinition}</dd>
-      {definition.startingKnowledge !== '' && <><dt>You already know</dt><dd>{definition.startingKnowledge}</dd></>}
-      {definition.constraints !== '' && <><dt>Constraints</dt><dd>{definition.constraints}</dd></>}
+      <dt>Success means</dt><dd><GoalText>{definition.successDefinition}</GoalText></dd>
+      {definition.startingKnowledge !== '' && <><dt>You already know</dt><dd><GoalText>{definition.startingKnowledge}</GoalText></dd></>}
+      {definition.constraints !== '' && <><dt>Constraints</dt><dd><GoalText>{definition.constraints}</GoalText></dd></>}
     </dl>
   );
 }
@@ -755,10 +764,10 @@ function Proposal({ proposal, title, onTitle }: { proposal: GoalProposalDto; tit
       <div className="goal-proposal__label">Proposed goal</div>
       <input aria-label="Goal title" maxLength={500} value={title} onChange={(event) => onTitle(event.target.value)} />
       <dl className="goal-definition">
-        <dt>Objective</dt><dd>{proposal.objective}</dd>
-        <dt>Success means</dt><dd>{proposal.successDefinition}</dd>
-        {proposal.startingKnowledge !== '' && <><dt>You already know</dt><dd>{proposal.startingKnowledge}</dd></>}
-        {proposal.constraints !== '' && <><dt>Constraints</dt><dd>{proposal.constraints}</dd></>}
+        <dt>Objective</dt><dd><GoalText>{proposal.objective}</GoalText></dd>
+        <dt>Success means</dt><dd><GoalText>{proposal.successDefinition}</GoalText></dd>
+        {proposal.startingKnowledge !== '' && <><dt>You already know</dt><dd><GoalText>{proposal.startingKnowledge}</GoalText></dd></>}
+        {proposal.constraints !== '' && <><dt>Constraints</dt><dd><GoalText>{proposal.constraints}</GoalText></dd></>}
       </dl>
     </section>
   );
@@ -996,7 +1005,7 @@ function GoalWork(props: GoalPanelProps & { goal: GoalDto; onSelect: (id: string
       </div>)}
     </div>}
     {activity.length > 0 && <div><div className="goal-group">Recent decisions</div>{activity.map(({ item, text, at }, index) =>
-      <div className="goal-activity__row" key={`${item.id}-${index}`}><span className="goal-activity__text">{text}</span><span>{relativeTime(at, { now: props.now })}</span></div>)}</div>}
+      <div className="goal-activity__row" key={`${item.id}-${index}`}><span className="goal-activity__text"><GoalText>{text}</GoalText></span><span>{relativeTime(at, { now: props.now })}</span></div>)}</div>}
   </div>;
 }
 
@@ -1105,7 +1114,7 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
   };
   return <div className="goal-panel__body goal-work-form">
     <button type="button" className="goal-link" onClick={props.onBack}>Back to work</button>
-    <strong>{item.title}</strong><span>{item.state.toLowerCase()} · {item.kind.toLowerCase()}</span>
+    <strong><GoalText>{item.title}</GoalText></strong><span>{item.state.toLowerCase()} · {item.kind.toLowerCase()}</span>
     {error !== null && <p role="alert">{error}</p>}
     <label>Title<input maxLength={500} disabled={concluded || busy} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
     <label>Acceptance criteria<textarea maxLength={10000} disabled={concluded || busy} value={criteria} onChange={(event) => setCriteria(event.target.value)} /></label>
@@ -1133,11 +1142,11 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
       {place >= 0 && <div className="goal-work-actions"><span className="goal-muted">{place + 1} of {openSiblings.length} open</span>
         <button type="button" className="goal-link" disabled={busy || place === 0} onClick={() => move(-1)}>Move earlier</button>
         <button type="button" className="goal-link" disabled={busy || place === openSiblings.length - 1} onClick={() => move(1)}>Move later</button></div>}
-      {waitsOn.map((other) => <div className="goal-result" key={other.id}><span>Waits on</span><span className="goal-result__title">{other.title}</span>
+      {waitsOn.map((other) => <div className="goal-result" key={other.id}><span>Waits on</span><span className="goal-result__title"><GoalText>{other.title}</GoalText></span>
         <span>{other.state.toLowerCase()}</span>
         {!concluded && <button type="button" className="goal-link" disabled={busy} onClick={() => arrange({ action: 'UNBLOCK', blocker: other.id })}>Stop waiting</button>}
       </div>)}
-      {waiting.map((other) => <div className="goal-result" key={other.id}><span>Blocks</span><span className="goal-result__title">{other.title}</span>
+      {waiting.map((other) => <div className="goal-result" key={other.id}><span>Blocks</span><span className="goal-result__title"><GoalText>{other.title}</GoalText></span>
         <span>{other.state.toLowerCase()}</span></div>)}
       {!concluded && blockable.length > 0 && <label>Waits on<select disabled={busy} value="" onChange={(event) => arrange({ action: 'BLOCK', blocker: event.target.value })}>
         <option value="">Choose work…</option>{blockable.map((other) => <option key={other.id} value={other.id}>{other.title}</option>)}
@@ -1176,7 +1185,7 @@ function WorkDetails(props: GoalPanelProps & { item: WorkItemDto; onBack: () => 
     <button type="button" className="goal-link" disabled={busy || targetGoal === (item.goalId ?? '')} onClick={() => change('MOVE')}>Move work item</button>
     <div className="goal-group">History</div>
     {[...item.history].reverse().filter((event) => event.action !== 'SUMMARY').map((event) => <div className="goal-work-history" key={event.operationId}>
-      <span className="goal-muted">{relativeTime(event.at, { now: props.now })}</span><p>{event.detail}</p>
+      <span className="goal-muted">{relativeTime(event.at, { now: props.now })}</span><p><GoalText>{event.detail}</GoalText></p>
     </div>)}
   </div>;
 }

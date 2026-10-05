@@ -22,6 +22,7 @@ import { CI_RUN } from './fixtures/ciAutofix';
 import { runningReviewFixture } from '../pulls/agent-review/fixtures/review';
 import type { TaskDiscussions } from './discussions/useTaskDiscussions';
 import { AgentTaskBody, providerStatusFromUnavailable, type AttachmentPreview } from './AgentTaskScreen';
+import { PlanSteps } from './AgentConversation';
 import fixture from './fixtures/agent-events-v2.json';
 import { parseAgentEventSequence, type AgentEventEnvelope } from './events';
 import { initialAgentTaskState, type AgentTaskState } from './model';
@@ -1052,6 +1053,14 @@ describe('agent task detail', () => {
     expect(body({ ...state, turn: turn('RUNNING', { plan: [] }) })).not.toContain('class="agt-todos"');
     expect(body({ ...state, latestTurnId: 'next-turn' })).not.toContain('class="agt-todos"');
     expect(body({ ...state, capabilities: { ...CAPABILITIES, structuredPlans: false } })).not.toContain('class="agt-todos"');
+  });
+
+  it('links structured plan references using the task repository', () => {
+    const markup = renderToStaticMarkup(<PlanSteps repository="owner/repo" steps={[{ text: 'Resolve #42 then other/project#42', state: 'PENDING' }]} />);
+    expect(markup).toContain('href="https://github.com/owner/repo/issues/42"><svg');
+    expect(markup).toContain('</svg>#42</a>');
+    expect(markup).toContain('href="https://github.com/other/project/issues/42"><svg');
+    expect(markup).toContain('</svg>other/project#42</a>');
   });
 
   it('uses semantic Lucide icons for activity and keeps state icons for outcomes', () => {

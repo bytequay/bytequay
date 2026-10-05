@@ -57,6 +57,17 @@ workspace before preparing a worktree, and a Jira ticket cannot be reassigned
 away from its work item's workspace.
 The existing source services still reopen the current task by default.
 
+In workspace prose, `#number` identifies an issue or pull request in the
+workspace's monitored repository; `owner/repo#number` explicitly selects another
+repository. Goal messages, assessments, definitions, notes, lessons,
+recommendations and work history share the reference hover card and click-to-zoom
+behavior of task conversations. References immediately use the link color and
+resolve during rendering, displaying the title alongside the number when
+available. An unresolved reference keeps its number. Hover or keyboard focus
+reads the title and details. A click opens the existing issue or pull-request zoom, including
+uncached issues in watched repositories. An issue outside watched repositories
+keeps its browser fallback. Reading a reference never writes to GitHub.
+
 The Goal window opens on guidance. A workspace without a Goal, or a Goal with no
 conversation and no definition, asks what the user wants to achieve and offers
 three directions written from the repository name without a model request. Each

@@ -469,7 +469,7 @@ function TerminalSummary({ task, repository, onCleanup }: { task: AgentTaskDto; 
 }
 
 /** The plan the running turn is following, kept in view above the composer while it runs. */
-function PlanCard({ steps, open, onToggle }: { steps: PlanStep[]; open: boolean; onToggle: () => void }): React.JSX.Element {
+function PlanCard({ steps, open, onToggle, repository }: { steps: PlanStep[]; open: boolean; onToggle: () => void; repository?: string | null }): React.JSX.Element {
   return (
     <div className="agt-todos">
       <button type="button" className="agt-todos__head" aria-expanded={open} aria-label="Show or hide the plan" onClick={onToggle}>
@@ -479,7 +479,7 @@ function PlanCard({ steps, open, onToggle }: { steps: PlanStep[]; open: boolean;
         <span className="agt-spacer" />
         <Chevron open={open} />
       </button>
-      {open && <PlanSteps steps={steps} compact />}
+      {open && <PlanSteps steps={steps} compact repository={repository} />}
     </div>
   );
 }
@@ -1269,7 +1269,7 @@ export function AgentTaskBody({
       {!terminal && automationActive && currentCi == null && status !== 'recovery' && state.developmentProgress?.message
         && <div className="agt-barrier" role="status">{state.developmentProgress.message}</div>}
 
-      {!terminal && plan !== null && plan.steps.length > 0 && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} />}
+      {!terminal && plan !== null && plan.steps.length > 0 && <PlanCard steps={plan.steps} open={planOpen} onToggle={onTogglePlan} repository={repository} />}
 
       {!terminal && (
         <ConversationQueue

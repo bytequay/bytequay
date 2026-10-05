@@ -705,22 +705,30 @@ type ReferencePreview = GitHubReferencePreview;
 
 const previewRequests = new Map<string, Promise<ReferencePreview | null>>();
 
-const ISSUE_NUMBER = /((?<![\p{L}\p{N}_&])#[0-9]+(?![\p{L}\p{N}_]))/u;
+const ISSUE_NUMBER = /((?<![\p{L}\p{N}_&/])(?:[a-z0-9][a-z0-9-]*\/[a-z0-9_.-]+)?#[1-9][0-9]*(?![\p{L}\p{N}_]))/iu;
 
 /**
  * Text with every `#1234` linked, with its hover card, to that issue or pull request in `repository`.
+ * An explicit `owner/repo#1234` names its own repository.
  * Every surface showing GitHub or agent text goes through here. In prose the link reads as the item's
  * icon, title and number; a `compact` one, inside a title that is already a heading, stays `#1234`.
  */
 export function linkIssueNumbers(text: string, repository: string | null | undefined, compact = false): ReactNode[] {
   const [owner, repo] = repository?.split('/') ?? [];
   if (!owner || !repo) return [text];
-  return text.split(ISSUE_NUMBER).map((part, index) => index % 2 === 0 ? part : (
-    // GitHub answers /issues/{number} for pull requests too, so the preview settles which one it is.
-    <ReferenceLink key={index} icon={!compact} showTitle={!compact} reference={{
-      kind: 'issue', owner, repo, number: Number(part.slice(1)), href: `https://github.com/${owner}/${repo}/issues/${part.slice(1)}`,
-    }}>{part}</ReferenceLink>
-  ));
+  return text.split(ISSUE_NUMBER).map((part, index) => {
+    if (index % 2 === 0) return part;
+    const hash = part.lastIndexOf('#');
+    const number = Number(part.slice(hash + 1));
+    if (!Number.isSafeInteger(number)) return part;
+    const [referenceOwner, referenceRepo] = hash === 0 ? [owner, repo] : part.slice(0, hash).split('/');
+    return (
+      // GitHub answers /issues/{number} for pull requests too, so the preview settles which one it is.
+      <ReferenceLink key={`${index}:${referenceOwner}/${referenceRepo}#${number}`} icon={!compact} showTitle={!compact} reference={{
+        kind: 'issue', owner: referenceOwner, repo: referenceRepo, number, href: `https://github.com/${referenceOwner}/${referenceRepo}/issues/${number}`,
+      }}>{part}</ReferenceLink>
+    );
+  });
 }
 
 export function GitHubReferenceLink({ href, children }: { href: string | null; children: ReactNode }) {
@@ -831,6 +839,7 @@ export function ReferenceLink({ reference, showTitle = false, icon = true, child
         // A surface that already took the click, like a task showing its own pull request in a panel, keeps it.
         if (event.defaultPrevented) return;
         event.preventDefault();
+        event.stopPropagation();
         void openGitHubReference(reference, preview);
       }}
     >
@@ -838,7 +847,7 @@ export function ReferenceLink({ reference, showTitle = false, icon = true, child
       {showTitle && title ? <>{title} <small>#{reference.number}</small></> : children}
     </a>
     <ReferencePreviewCard id={previewId} hover={hover} reference={reference} preview={preview}
-      actions={<button className="bq-button" type="button" onClick={openReference}>
+      actions={<button className="bq-button" type="button" onClick={event => { event.stopPropagation(); openReference(); }}>
         Open <ArrowUpRight aria-hidden="true" />
       </button>} />
   </>;

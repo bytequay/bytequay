@@ -571,6 +571,13 @@ describe('MarkdownBody', () => {
 });
 
 describe('short issue references', () => {
+  it('uses an explicit repository and rejects invalid numbers and URL fragments', () => {
+    const html = renderToStaticMarkup(<>{linkIssueNumbers('Compare #42 with other/project.name#42; #0 #01 #9007199254740992 a#9 #9x /#8 https://example.com/#7', 'owner/repo', true)}</>);
+    expect(html).toContain('href="https://github.com/owner/repo/issues/42">#42</a>');
+    expect(html).toContain('href="https://github.com/other/project.name/issues/42">other/project.name#42</a>');
+    expect(html.match(/md-reference/g)).toHaveLength(2);
+  });
+
   it('links #number to the body repository and leaves look-alikes as text', () => {
     const html = renderToStaticMarkup(<MarkdownBody body={'Fixes #1234 and **#7**, not a#5, &#39;, `#8` or #9x'} repository="trinodb/trino" />);
 

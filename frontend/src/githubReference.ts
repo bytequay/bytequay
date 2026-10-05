@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { jiraIssueLocation, jiraTicketLink, type JiraLocation } from './jira/contracts';
-import type { GitHubIssuePreviewDto, PullRequestDetailDto, RepositoryIssueSnapshotDto } from './types';
+import type { GitHubIssuePreviewDto, PullRequestDetailDto } from './types';
 
 export type GitHubReference = {
   kind: 'issue' | 'pull';
@@ -66,33 +66,22 @@ export function pullRequestFromRoute(hash: string): { repo: string; number: numb
   }
 }
 
-async function findLocalIssue(reference: GitHubReference): Promise<{
-  workspaceId: string;
-  issue: RepositoryIssueSnapshotDto['issues'][number];
-} | null> {
+async function findIssueWorkspace(reference: GitHubReference): Promise<string | null> {
   const slug = `${reference.owner}/${reference.repo}`.toLowerCase();
   const workspaces = await window.bridge.listWorkspaces();
   const workspace = workspaces.find(candidate =>
     `${candidate.monitoredOwner}/${candidate.monitoredRepo}`.toLowerCase() === slug);
-  if (!workspace) return null;
-  try {
-    return {
-      workspaceId: workspace.id,
-      issue: await window.bridge.fetchWorkspaceIssue(workspace.id, reference.number),
-    };
-  }
-  catch {
-    return null;
-  }
+  return workspace?.id ?? null;
 }
 
 export async function resolveGitHubReference(reference: GitHubReference): Promise<GitHubReferencePreview | null> {
   if (reference.kind === 'issue') {
-    const localIssue = await findLocalIssue(reference).catch((): null => null);
-    if (localIssue) return { kind: 'issue', workspaceId: localIssue.workspaceId, issue: { ...localIssue.issue, state: 'open' } };
+    const workspaceId = await findIssueWorkspace(reference).catch((): null => null);
+    const localIssue = workspaceId === null ? null : await window.bridge.fetchWorkspaceIssue(workspaceId, reference.number).catch((): null => null);
+    if (localIssue) return { kind: 'issue', workspaceId, issue: { ...localIssue, state: 'open' } };
     try {
       const issue = await window.bridge.fetchGitHubIssuePreview(reference.owner, reference.repo, reference.number);
-      if (!issue.pullRequest) return { kind: 'issue', workspaceId: null, issue };
+      if (!issue.pullRequest) return { kind: 'issue', workspaceId, issue };
     }
     catch {
       // An issue-form URL can still refer to a cached pull request when GitHub is unavailable.
@@ -109,7 +98,7 @@ export async function resolveGitHubReference(reference: GitHubReference): Promis
     if (reference.kind === 'pull') {
       try {
         const issue = await window.bridge.fetchGitHubIssuePreview(reference.owner, reference.repo, reference.number);
-        if (!issue.pullRequest) return { kind: 'issue', workspaceId: null, issue };
+        if (!issue.pullRequest) return { kind: 'issue', workspaceId: await findIssueWorkspace(reference).catch((): null => null), issue };
       }
       catch {
         // Keep the link usable when GitHub cannot provide either preview.
@@ -156,7 +145,7 @@ export async function openGitHubReference(reference: GitHubReference, preview?: 
     zoomReference({ kind: 'pull', repo, number: reference.number });
     return;
   }
-  // Only a watched repository has an issue the app can show; anything else stays a web page.
+  // Watched repositories can show cached and uncached issues in the same zoom.
   if (resolved?.kind === 'issue' && resolved.workspaceId) {
     zoomReference({ kind: 'issue', repo, number: reference.number, workspaceId: resolved.workspaceId });
     return;

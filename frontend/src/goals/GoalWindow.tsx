@@ -104,7 +104,8 @@ export function GoalWindow({ anchor, open, onClose, children }: {
         return event.clientX >= left - 6 && event.clientX <= left + element.offsetWidth + 6
           && event.clientY >= top - 6 && event.clientY <= top + element.offsetHeight + 6;
       });
-      if (inside && event.type !== 'pointerout') cancelClose();
+      const inPreview = event.target instanceof Element && event.target.closest('.ref-card') !== null;
+      if ((inside || inPreview) && event.type !== 'pointerout') cancelClose();
       else if (timer === undefined) {
         timer = window.setTimeout(() => {
           timer = undefined;
@@ -131,7 +132,7 @@ export function GoalWindow({ anchor, open, onClose, children }: {
     style={{ ...origin, ...(zoom.full ? {} : { ...bounds, maxWidth: `calc(100% - ${bounds.left + MARGIN}px)`, maxHeight: `calc(100% - ${bounds.top + MARGIN}px)` }) }}
     onPointerDown={event => {
       if (zoom.full || event.button !== 0 || !(event.target instanceof Element)) return;
-      if (event.target.closest('.goal-panel__head') === null || event.target.closest('button, input, textarea, select, .goal-menu, dialog') !== null) return;
+      if (event.target.closest('.goal-panel__head') === null || event.target.closest('a, button, input, textarea, select, .goal-menu, dialog') !== null) return;
       event.preventDefault();
       event.currentTarget.setPointerCapture(event.pointerId);
       drag.current = { x: event.clientX, y: event.clientY, from: bounds };

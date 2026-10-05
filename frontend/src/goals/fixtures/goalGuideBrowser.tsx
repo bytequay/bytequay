@@ -20,8 +20,11 @@ import type { Goals } from '../useGoals';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import type { SpecCheckRequest } from '../../repository-context/specChecks';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
-import type { AgentModelSettingDto, ModelSettingsDto } from '../../types';
+import type { AgentModelSettingDto, GitHubIssuePreviewDto, ModelSettingsDto, PullRequestDetailDto } from '../../types';
+import { ZOOM_REFERENCE, type ZoomedReference } from '../../githubReference';
+import '../../css/reference-card.css';
 import '../../css/base.css';
+import '../../css/pulls.css';
 import '../../css/settings-window.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
@@ -182,6 +185,70 @@ function text(): string {
 const asked = (): number => server.asked.length;
 const starts = (): number => server.started.length;
 const composers = (): number => started.length;
+
+/** References in Goal prose use the same title preview and zoom as an agent conversation. */
+export async function references(): Promise<boolean> {
+  await conversation.start('references', 'Explain #31252');
+  answer({ assessment: 'Compare #31252 with #31270, then check #31299.', question: null, proposal: null, recommendation: null, course: null });
+  setCards([{ id: 'practice', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);
+  const host = document.createElement('div');
+  host.style.cssText = 'position:absolute;inset:0';
+  document.body.append(host);
+  const root = createRoot(host);
+  const zoomed: ZoomedReference[] = [];
+  let resolvePreviews = (): void => {};
+  const previewsReady = new Promise<void>(resolve => { resolvePreviews = resolve; });
+  const onZoom = (event: Event): void => { zoomed.push((event as CustomEvent<ZoomedReference>).detail); };
+  window.addEventListener(ZOOM_REFERENCE, onZoom);
+  Object.assign(window, { bridge: {
+    listWorkspaces: async () => [{ id: 'workspace', monitoredOwner: 'trinodb', monitoredRepo: 'trino' }],
+    fetchWorkspaceIssue: async () => { throw new Error('Not cached'); },
+    fetchGitHubIssuePreview: async (_owner: string, _repo: string, number: number): Promise<GitHubIssuePreviewDto> => {
+      await previewsReady;
+      if (number === 31299) throw new Error('Not found');
+      return { title: 'Checkpoint reconciliation loses rows', body: 'Details of the checkpoint issue.',
+        state: 'open', author: 'octocat', labels: [], updatedAt: NOW, pullRequest: number === 31270 };
+    },
+    fetchPullRequestDetailByRef: async (_repo: string, number: number): Promise<Pick<PullRequestDetailDto, 'title' | 'body' | 'state' | 'labels'>> => {
+      if (number === 31299) throw new Error('Not found');
+      return { title: 'Fix checkpoint reconciliation', body: 'The fix.', state: 'open', labels: [] };
+    },
+  } });
+  try {
+    flushSync(() => root.render(<Fixture />)); await settle();
+    const issue = host.querySelector<HTMLAnchorElement>('.goal-rec__title .md-reference');
+    assert(issue !== null, 'Recommendation titles link references');
+    assert(String(issue.textContent) === '#31252', 'The number renders while its title loads');
+    assert(getComputedStyle(issue).color === 'rgb(9, 105, 218)', 'The unresolved number uses the blue link color');
+    resolvePreviews(); await settle();
+    assert(issue.textContent === 'Checkpoint reconciliation loses rows #31252', 'Rendering resolves the title without a hover');
+    assert(document.querySelector('.ref-card') === null, 'Resolving a title does not open a hover card');
+    issue.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 400)); await settle();
+    assert(document.querySelector('.ref-card__title')?.textContent === 'Checkpoint reconciliation loses rows', 'Hover reads the issue title');
+    issue.click(); await settle();
+    const openedIssue = zoomed.at(-1);
+    assert(openedIssue?.kind === 'issue' && openedIssue.number === 31252, 'Click zooms an uncached workspace issue');
+    assert(starts() === 0 && composers() === 0 && document.querySelector('.goal-window') === null, 'A reference click does not open or start the recommendation');
+
+    document.querySelector<HTMLButtonElement>('.goal-pill')?.click(); await settle(); await settle();
+    const pull = host.querySelector<HTMLAnchorElement>('.goal-thread__agent a[href$="/31270"]');
+    assert(pull !== null && host.querySelector('.goal-thread__user .md-reference') !== null, 'Both sides of the Goal conversation link references');
+    assert(pull.textContent === 'Fix checkpoint reconciliation #31270', 'Pull request titles resolve inline in conversation');
+    const missing = host.querySelector<HTMLAnchorElement>('.goal-thread__agent a[href$="/31299"]');
+    assert(missing?.textContent === '#31299' && getComputedStyle(missing).color === 'rgb(9, 105, 218)', 'Unavailable titles leave the colored number visible');
+    pull.focus({ preventScroll: true });
+    // The fixture's hidden Electron window sets activeElement without emitting native focus events.
+    pull.dispatchEvent(new FocusEvent('focusin', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 100)); await settle();
+    assert(document.querySelector('.ref-card__title')?.textContent === 'Fix checkpoint reconciliation', 'Keyboard focus reads the pull request title');
+    pull.click(); await settle();
+    const openedPull = zoomed.at(-1);
+    assert(openedPull?.kind === 'pull' && openedPull.number === 31270, 'The same number syntax zooms a pull request');
+    return true;
+  }
+  finally { window.removeEventListener(ZOOM_REFERENCE, onZoom); flushSync(() => root.unmount()); host.remove(); }
+}
 
 /** Waits for the open conversation's next read while its agent answers. */
 async function nextRead(): Promise<void> {

@@ -14,6 +14,13 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
+it('colors numbers, resolves inline titles, and previews and zooms Goal references', async () => {
+  expect(await runBrowserFixture<boolean>({
+    prefix: 'bytequay-goal-references-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 1200, height: 900,
+    body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.references()');",
+  })).toBe(true);
+}, 30_000);
+
 it('clarifies a goal from free text and a suggested answer to an accepted definition', async () => {
   expect(await runBrowserFixture<boolean>({
     prefix: 'bytequay-goal-guide-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 1200, height: 900,

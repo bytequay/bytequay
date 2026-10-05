@@ -14,6 +14,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
+import type { ContextBuildViewDto } from '../repository-context/contracts';
 import { issueUrl } from '../repository-context/specChecks';
 import type { ModelChoice } from '../settings/ModelsPage';
 import type { AgentModelSettingDto, Bridge, ModelSettingsDto } from '../types';
@@ -33,7 +34,8 @@ const ANSWER_POLL_MS = 1_500;
 export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'linkWorkItem' | 'orderWorkItems' | 'listGoals' | 'createGoal' | 'updateGoal' | 'deleteGoal'
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'summarizeGoalWork' | 'acceptGoalDefinition'
   | 'acceptGoalCourse' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
-  | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'>;
+  | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'
+  | 'getRepositoryContextBuild' | 'stopRepositoryContextBuild'>;
 
 /** The model a goal's agent uses, with the configured models to choose from. */
 export type GoalModel = { setting: AgentModelSettingDto; settings: ModelSettingsDto };
@@ -69,6 +71,9 @@ export type Goals = {
   reassess: (goalId: string, operationId: string) => Promise<GoalExchangeDto[]>;
   /** Writes the summary of finished work again; it lands in the work's history. */
   summarize: (goalId: string, workItemId: string) => Promise<void>;
+  /** The workspace's restricted run, which is where a goal's research runs. */
+  researchRun: () => Promise<ContextBuildViewDto>;
+  stopResearch: (taskId: string) => Promise<ContextBuildViewDto>;
   /** Accepts the definition an answer proposed, under the title the user kept or edited. */
   accept: (goalId: string, exchangeId: string, title: string) => Promise<GoalDto>;
   /** Accepts a proposed course: its lessons become the goal's Learn work items. */
@@ -125,6 +130,8 @@ export type GoalConversation = {
   /** The model the goal's agent uses; null until read, and while it cannot be. */
   model: GoalModel | null;
   chooseModel: (choice: ModelChoice | null) => Promise<void>;
+  researchRun: Goals['researchRun'];
+  stopResearch: Goals['stopResearch'];
 };
 
 const windowBridge = (): GoalBridge => window.bridge;
@@ -287,6 +294,9 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     stop: (goalId, exchangeId) => bridge().stopGoalExchange(workspaceId, goalId, exchangeId),
     reassess: (goalId, operationId) => bridge().reassessGoal(workspaceId, goalId, operationId),
     summarize: (goalId, workItemId) => bridge().summarizeGoalWork(workspaceId, goalId, workItemId),
+    researchRun: () => bridge().getRepositoryContextBuild(workspaceId),
+    // A stopped run settles its card, which the goals carry.
+    stopResearch: (taskId) => bridge().stopRepositoryContextBuild(workspaceId, taskId).then((view) => { announce(workspaceId); return view; }),
     accept: (goalId, exchangeId, title) => bridge().acceptGoalDefinition(workspaceId, goalId, exchangeId, title).then(settle),
     acceptCourse: (goalId, exchangeId) => bridge().acceptGoalCourse(workspaceId, goalId, exchangeId).then(settle),
     startCard: (goalId, recommendationId) => bridge().startGoalRecommendation(workspaceId, goalId, recommendationId).then(settleCard),
@@ -389,6 +399,8 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
         : goals.finishLesson(goalId, lessonId, operationId).then(() => goals.exchanges(goalId)).then(show)),
       correctTopic: (topic, level) => (goalId === null ? Promise.resolve() : goals.setTopic(goalId, topic, level).then(() => {})),
       model: model !== null && model.goalId === goalId ? model : null,
+      researchRun: goals.researchRun,
+      stopResearch: goals.stopResearch,
       chooseModel: (choice) => (goalId === null ? Promise.resolve() : goals.chooseModel(goalId, choice).then((setting) => {
         setModel((last) => (last === null || last.goalId !== goalId ? last : { ...last, setting }));
       })),

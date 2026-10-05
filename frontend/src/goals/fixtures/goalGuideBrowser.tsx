@@ -26,7 +26,8 @@ import '../../css/settings-window.css';
 
 /** The backend as the Goal window sees it: one workspace whose agent answers when the journey says so. */
 const server = { goal: null as GoalDto | null, exchanges: [] as GoalExchangeDto[], notes: [] as GoalKnowledgeNoteDto[], asked: [] as string[], accepted: [] as string[],
-  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], reassessed: [] as string[], failNextAsk: false, model: null as AgentModelSettingDto | null };
+  started: [] as string[], cancelled: [] as string[], stopped: [] as string[], reassessed: [] as string[], failNextAsk: false, model: null as AgentModelSettingDto | null,
+  researchStopped: false };
 /** The workspace's Development model, which a goal follows until it has its own. */
 const WORKSPACE_MODEL: AgentModelSettingDto = { type: 'DEVELOPMENT', explicit: false, configId: 'codex', label: 'Codex', model: 'sol', modelLabel: 'Sol', effort: 'high' };
 const MODELS: ModelSettingsDto = { agents: [], apiKeys: [], keyProviders: [], providers: [{ id: 'codex', label: 'Codex', readiness: 'READY', diagnostic: '',
@@ -96,6 +97,14 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
   chooseModel: async (_goalId, choice) => {
     server.model = choice === null ? null : { ...WORKSPACE_MODEL, explicit: true, ...choice, modelLabel: choice.model === 'luna' ? 'Luna' : 'Sol' };
     return server.model ?? WORKSPACE_MODEL;
+  },
+  // The research run the started card began: one note saved so far, still reading.
+  researchRun: async () => ({ buildRequestSequence: 1, canStart: false, build: { kind: 'RESEARCH', requestKey: 'research', taskId: 'task-research', checkId: '',
+    task: null, activeTurn: { cancellationRequestedAt: null }, pendingApprovals: 0, outcome: server.researchStopped ? 'STOPPED' : 'RUNNING', detail: null,
+    activity: [{ at: NOW, text: 'Saved note · Manifest lists', tone: 'DONE' }] } }),
+  stopResearch: async (taskId) => {
+    server.researchStopped = taskId === 'task-research';
+    return conversation.researchRun();
   },
   startCard: async (_goalId, recommendationId) => {
     server.started.push(recommendationId);
@@ -293,6 +302,11 @@ export async function run(): Promise<boolean> {
     [...card.querySelectorAll('button')].find((candidate) => candidate.textContent === 'Start')?.click(); await settle(); await settle();
     assert(starts() === 1 && document.querySelector('.goal-cards') === null, 'Start begins the run and the card leaves the control');
     assert(text().includes('Researching: Read the Iceberg specification'), 'The Goal window shows the running research');
+    await nextRead();
+    assert(text().includes('1 note saved') && !text().includes('Open run'), 'The running research shows its progress in the Goal window, not a task screen');
+    button('Stop').click(); await settle(); await settle();
+    assert(server.researchStopped && ![...document.querySelectorAll('.goal-guide__running button')].some((found) => found.textContent === 'Stop'),
+      'Stop ends the research run, whose card then settles');
 
     // Later the agent judges the user ready to practice on a real gap.
     setCards([...server.goal.recommendations, { id: 'card-2', goalId: 'goal', card: PRACTICE, state: 'SHOWN', taskId: null, workItemId: null, checkId: null, createdAt: NOW }]);

@@ -123,7 +123,7 @@ describe('goal model', () => {
 const NO_CONVERSATION: GoalConversation = { loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, ask: async () => {}, retry: async () => {},
   stop: async () => {}, reassess: async () => {}, accept: async () => {},
   acceptCourse: async () => {}, openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {},
-  correctTopic: async () => {} };
+  correctTopic: async () => {}, researchRun: async () => ({ buildRequestSequence: 0, canStart: true, build: null }), stopResearch: async () => ({ buildRequestSequence: 0, canStart: true, build: null }) };
 
 function panel(props: Partial<GoalPanelProps>): string {
   return renderToStaticMarkup(
@@ -224,7 +224,8 @@ describe('goal guidance', () => {
     const markup = panel({ view: 'guide', goal: { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED', taskId: 'task-1' }] },
       conversation: { ...NO_CONVERSATION, notes: [NOTE], exchanges: [ASKED, { ...ASKED, id: 'op-9', automatic: true, message: 'The research run saved 1 note: Manifest lists.' }] } });
     expect(markup).toContain('Researching: Read the Iceberg specification');
-    expect(markup).toContain('>Open run</button>');
+    // A research run is no task to open; its progress is read from the run while the row shows.
+    expect(markup).not.toContain('Open run');
     expect(markup).toContain('What the agent learned · 1');
     expect(markup).toContain('<summary>Manifest lists</summary>');
     const stale = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, notes: [{ ...NOTE, stale: true }], exchanges: [ASKED] } });

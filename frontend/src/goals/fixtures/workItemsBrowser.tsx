@@ -16,10 +16,13 @@ import React, { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { GoalPanel } from '../GoalPanel';
+import type { ContextBuildViewDto } from '../../repository-context/contracts';
 import type { GoalDto, WorkItemDto, WorkItemDecision } from '../contracts';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/goals.css';
+
+const IDLE_RUN: ContextBuildViewDto = { buildRequestSequence: 0, canStart: true, build: null };
 
 function button(host: HTMLElement, label: string): HTMLButtonElement {
   const found = [...host.querySelectorAll('button')].find((candidate) => candidate.textContent?.trim() === label);
@@ -43,7 +46,7 @@ async function decisionsSurviveFailure(): Promise<void> {
       definition: null, revision: 0, course: null, items: item.goalId === 'goal' ? [item] : [], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
-        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onOrder={async () => {}} onLink={async () => item}
@@ -100,7 +103,7 @@ async function finishedWorkKeepsItsSummary(): Promise<void> {
       definition: null, revision: 0, course: null, items: [item], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
-        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
       onSummarize={async (summarized) => { asked.push(summarized.id); }} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
@@ -143,7 +146,7 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
       definition: null, revision: 0, course: null, items: [item], recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
-        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={(issue, instruction, replaces) => started.push([issue, instruction, replaces])}
       onStartTicket={(ticket, instruction, replaces) => tickets.push([ticket, instruction, replaces])}
@@ -188,7 +191,7 @@ async function orderAndBlockers(): Promise<void> {
       definition: null, revision: 0, course: null, items, recommendations: [], topics: [], createdAt: now, updatedAt: now };
     return <GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
-        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}
       onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
@@ -257,7 +260,7 @@ async function viewsPutReadyWorkFirst(): Promise<void> {
   try {
     flushSync(() => root.render(<GoalPanel mode="window" view="work" onView={() => {}} onStart={async () => {}} onOpenTask={() => {}} lesson={null} onLesson={() => {}}
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptCourse: async () => {},
-        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {} }}
+        openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}
       onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}

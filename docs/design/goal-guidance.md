@@ -92,8 +92,11 @@ a dismissed card is not offered again. Start begins a research run as the third
 kind of the workspace's restricted run, beside spec checks and memory harvests,
 at the monitored head with the checkouts of the workspace's Dependency
 workspaces. Its one tool, `goal_knowledge_save`, saves a note whose sources are
-https pages or files at a commit the run reads. A finished run completes the
-card and tells the agent what it saved; a failed one shows the card again. The
+https pages or files at a commit the run reads. While it runs, the Guide view
+shows how many notes it saved, the newest on hover, and Stop; it is the
+workspace's restricted run, not a task with a conversation to open. A finished
+run completes the card and tells the agent what it saved; a failed or stopped
+one shows the card again. The
 Guide view lists the notes with their sources. A note citing a file is marked
 stale once that file changed between the commit the research read and the
 monitored head of its workspace or Dependency, and the agent sees the mark and

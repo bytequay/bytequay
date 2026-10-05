@@ -29,6 +29,7 @@ import {
 } from './model';
 import { AgentModelControls, type ModelChoice } from '../settings/ModelsPage';
 import type { GoalConversation, GoalModel } from './useGoals';
+import type { ContextBuildViewDto } from '../repository-context/contracts';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { TOPIC_LEVELS } from './contracts';
 
@@ -344,7 +345,8 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
         <Choices choices={question.suggestions} picked={answers} disabled={answering} onToggle={toggle} />
         <button type="button" className="goal-link goal-guide__other" disabled={answering} onClick={() => say(OTHER_OPTIONS)}>Other options</button>
       </>}
-      {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} onOpenTask={onOpenTask}
+      {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} research={conversation}
+        onOpenTask={onOpenTask}
         onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onSpecCheck={onSpecCheck} onReview={onReview} />)}
       {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
       {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
@@ -401,10 +403,11 @@ function Gaps({ gaps, onAdd, onFile, onReview }: {
  * dropped. Practice leads to its task once the user sent it, back to the prepared composer until then, and to its result once its pull request
  * merged, which the user accepts.
  */
-function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket, onSpecCheck, onReview }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson'
+function Started({ goal, card, research, onOpenTask, onLesson, onStartIssue, onStartTicket, onSpecCheck, onReview }: Pick<GoalPanelProps, 'onOpenTask' | 'onLesson'
   | 'onStartIssue' | 'onStartTicket' | 'onSpecCheck'> & {
   goal: GoalDto;
   card: GoalRecommendationDto;
+  research: Pick<GoalConversation, 'researchRun' | 'stopResearch'>;
   onReview: (workItemId: string) => void;
 }): React.JSX.Element {
   const work = card.workItemId === null ? undefined : goal.items.find((item) => item.id === card.workItemId);
@@ -415,7 +418,7 @@ function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket
       <span>{STARTED_LABELS[card.card.kind]}: {card.card.title}</span>
       {card.card.kind === 'SPEC_CHECK' && card.card.module !== null && <button type="button" className="goal-link"
         onClick={() => onSpecCheck({ directory: card.card.module })}>Open check</button>}
-      {card.card.kind === 'RESEARCH' && card.taskId !== null && <button type="button" className="goal-link" onClick={() => onOpenTask(card.taskId)}>Open run</button>}
+      {card.card.kind === 'RESEARCH' && card.taskId !== null && <ResearchProgress taskId={card.taskId} read={research.researchRun} stop={research.stopResearch} />}
       {card.card.kind === 'LESSON' && card.card.workItemId !== null && <button type="button" className="goal-link"
         onClick={() => onLesson(card.card.workItemId)}>Open lesson</button>}
       {card.card.kind === 'INVESTIGATE' && work !== undefined && <button type="button" className="goal-link" onClick={() => onReview(work.id)}>Open work</button>}
@@ -429,6 +432,45 @@ function Started({ goal, card, onOpenTask, onLesson, onStartIssue, onStartTicket
         }}>Open the composer</button>)}
     </div>
   );
+}
+
+const RUN_POLL_MS = 2_000;
+
+/**
+ * A research run as it goes: the notes it saved so far, the newest, and Stop. A research run is a workspace's restricted run, not a
+ * conversation, so it is read from the run while the row shows; once the run ends, its card settles and the notes list what it saved.
+ */
+function ResearchProgress({ taskId, read, stop }: {
+  taskId: string;
+  read: () => Promise<ContextBuildViewDto>;
+  stop: (taskId: string) => Promise<ContextBuildViewDto>;
+}): React.JSX.Element | null {
+  const [run, setRun] = useState<ContextBuildViewDto['build']>(null);
+  const [stopping, setStopping] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    const load = (): void => {
+      void Promise.resolve().then(read).then((view) => {
+        if (active) setRun(view.build !== null && view.build.taskId === taskId ? view.build : null);
+      }, () => {});
+    };
+    load();
+    const timer = window.setInterval(load, RUN_POLL_MS);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [read, taskId]);
+  if (run === null) return null;
+  const saved = run.activity.filter((line) => line.tone === 'DONE');
+  return <>
+    <span className="goal-muted" title={saved.at(-1)?.text}>{saved.length === 0 ? 'Reading…' : `${saved.length} ${saved.length === 1 ? 'note' : 'notes'} saved`}</span>
+    {run.pendingApprovals > 0 && <span className="goal-muted">Waiting for approval</span>}
+    {run.outcome === 'RUNNING' && <button type="button" className="goal-link" disabled={stopping || run.activeTurn?.cancellationRequestedAt != null} onClick={() => {
+      setStopping(true); setError(null);
+      void stop(taskId).then((view) => setRun(view.build !== null && view.build.taskId === taskId ? view.build : null),
+        (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The run was not stopped')).finally(() => setStopping(false));
+    }}>{stopping ? 'Stopping…' : 'Stop'}</button>}
+    {error !== null && <span className="goal-guide__error" role="alert">{error}</span>}
+  </>;
 }
 
 /** A reply the agent is writing: how long it has worked, and Stop, after which the message can be asked again. */

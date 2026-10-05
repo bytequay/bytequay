@@ -23,7 +23,7 @@ import CommitsTab, { type CommitSourceSelection } from '../commits/CommitsTab';
 import ProgressView from '../commits/ProgressView';
 import { zoomReference } from '../githubReference';
 import { GoalLayer } from '../goals/GoalLayer';
-import { goalHas, goalRef, needsYouKeys, numberedKey, summarize } from '../goals/model';
+import { goalHas, goalRef, needsYouKeys, numberedKey } from '../goals/model';
 import { useGoals } from '../goals/useGoals';
 import type { GoalToggle } from '../home/AttentionList';
 import { visibleAttention, type AttentionItem } from '../home/attention';
@@ -37,9 +37,7 @@ import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import EpicDrawer from './EpicDrawer';
-import EpicView from './EpicView';
-import type { EpicWorkTab } from './EpicTabs';
-import { epicIdentity, epicWork, useConcludedEpics } from './epics';
+import { EPIC_START, epicIdentity, lendEpicWorkspace, takeEpicStart, useConcludedEpics } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import { useWorkspaceAttention } from './workspaceAttention';
 import type { WorkspaceDto } from '../types';
@@ -105,6 +103,17 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const concludedEpics = useConcludedEpics(workspace.id, epics.map(epicIdentity).join(' '));
   // Unmarked while open, the Epic's view closes with it.
   const epic = openEpic === null ? undefined : epics.find(item => epicIdentity(item) === openEpic);
+  // An Epic's Work tab opened anywhere, even in a layer over this page, reads these; keyed so an equal answer lends nothing new.
+  const needsYouKey = [...needsYou].sort().join('\n');
+  const epicTitlesKey = JSON.stringify(epics.map(item => [epicIdentity(item), item.title]));
+  useEffect(() => {
+    lendEpicWorkspace(workspace.id, {
+      needsYou: new Set(needsYouKey === '' ? [] : needsYouKey.split('\n')),
+      epicTitles: new Map(JSON.parse(epicTitlesKey) as [string, string][]),
+      repository: monitoredRepository,
+    });
+    return () => lendEpicWorkspace(workspace.id, null);
+  }, [epicTitlesKey, monitoredRepository, needsYouKey, workspace.id]);
   const goalToggle = useCallback((item: AttentionItem): GoalToggle | null => {
     const pinned = goals.pinned;
     const ref = goalRef(item);
@@ -202,12 +211,29 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     return () => window.clearTimeout(timer);
   }, [workspace, onWorkspaceChanged]);
 
-  const startIssue = (number: number, instruction: string, replaces?: string): void => {
+  const startIssue = useCallback((number: number, instruction: string, replaces?: string): void => {
     setStartLaunch(undefined);
     setStartDraft(instruction);
     setStartReplaces(replaces);
     window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
-  };
+  }, [workspace.id]);
+
+  // Work an Epic's Work tab starts, from Home or from a layer over any page; one waiting since before this page opened starts now.
+  useEffect(() => {
+    const take = (): void => {
+      const start = takeEpicStart(workspace.id);
+      if (start === null) return;
+      if ('issue' in start) {
+        startIssue(start.issue, start.instruction, start.replaces);
+        return;
+      }
+      setStartWork({ itemId: start.itemId, draft: start.draft });
+      window.location.hash = workspaceRoute(workspace.id, 'tasks');
+    };
+    take();
+    window.addEventListener(EPIC_START, take);
+    return () => window.removeEventListener(EPIC_START, take);
+  }, [startIssue, workspace.id]);
 
   // Every page of the workspace carries the pinned goal; an open task or review keeps its own spot for the pill.
   return (
@@ -361,27 +387,14 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       );
     }
     // The design's Home: the question, three starting points, the open tasks as windows.
-    // An open Epic shows over Home in its issue's or ticket's own layer, its Work tab first.
-    const summary = epic === undefined ? null : summarize({ items: epicWork(goals.workItems, epicIdentity(epic)) }, new Set());
-    const workTab: EpicWorkTab | undefined = epic === undefined ? undefined : {
-      progress: summary === null || summary.total === 0 ? null : `${summary.finished}/${summary.total}`,
-      render: (showSource) => <EpicView epic={epic} workspaceId={workspace.id} repository={monitoredRepository} work={goals.workItems} needsYou={needsYou}
-        goals={goals} epicTitle={id => epics.find(item => epicIdentity(item) === id)?.title ?? null}
-        onOpenTask={(taskId) => onSelectAgentTask(taskId, 'push')} onStartIssue={startIssue}
-        onStartWork={(itemId, draft) => {
-          setStartWork({ itemId, draft });
-          window.location.hash = workspaceRoute(workspace.id, 'tasks');
-        }}
-        onShowSource={showSource} />,
-    };
     // The Epic drawer comes first so its trigger is the next tab stop after the sidebar.
     return stage(<>
       {epic === undefined
         ? <EpicDrawer items={attention.candidates} concluded={concludedEpics} work={goals.workItems} onOpen={item => setOpenEpic(epicIdentity(item))} />
         : epic.jira
-          ? <JiraTicketLayer key={openEpic} location={jiraIssueLocation(epic.jira)} onClose={() => setOpenEpic(null)} epicWork={workTab} />
+          ? <JiraTicketLayer key={openEpic} location={jiraIssueLocation(epic.jira)} onClose={() => setOpenEpic(null)} openOnWork />
           : <WorkspaceIssuesScreen key={openEpic} workspaceId={workspace.id} repository={epic.repo} initialIssueNumber={epic.number} onClose={() => setOpenEpic(null)}
-            epicWork={workTab} />}
+            openOnWork />}
       <AgentHome
         workspaceId={workspace.id}
         headerAction={overviewOpen ? undefined : overviewToggle}

@@ -13,15 +13,17 @@
  */
 
 import React from 'react';
+import type { WorkItemDto } from '../goals/contracts';
+import { summarize } from '../goals/model';
 import { EpicGlyph } from './EpicDrawer';
+import { epicWork } from './epics';
 import '../css/epic-view.css';
 
-/** An Epic's Work tab beside its issue or ticket: its done/total, and what the tab shows. */
-export type EpicWorkTab = {
-  progress: string | null;
-  /** `showSource` switches to the issue or ticket tab. */
-  render: (showSource: () => void) => React.ReactNode;
-};
+/** The Work tab's done/total, as the drawer card counts it; null before the Epic has work. */
+export function workProgress(work: WorkItemDto[], epicId: string): string | null {
+  const summary = summarize({ items: epicWork(work, epicId) }, new Set());
+  return summary.total === 0 ? null : `${summary.finished}/${summary.total}`;
+}
 
 /** An Epic's issue or ticket and its Work, switched in place the way a pull request's tabs are. */
 export function EpicTabs({ source, progress, work, onWork }: {

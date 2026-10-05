@@ -15,6 +15,9 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, RepositoryIssueSnapshotDto, RepositoryMetadataDto, WorkspaceIssueDetailDto } from '../../types';
+import type { WorkItemDto } from '../../goals/contracts';
+import { issueEpicId, lendEpicWorkspace, takeEpicStart } from '../epics';
+import { workspaceRoute } from '../model';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
 import { assert, settle } from '../../fixtures/harness';
 import { handledEntry, issueAttentionItem, loadHandled, saveHandled, visibleAttention } from '../../home/attention';
@@ -156,12 +159,16 @@ async function zoomsOneIssue(): Promise<void> {
 }
 
 async function epicTabs(): Promise<void> {
-  const issues = [24].map((number): Issue => ({
-    id: 7000 + number, number, title: 'Migrate every connector to MemoryContext', body: 'Follows #23', author: 'alice', authorAvatarUrl: '',
-    htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
-    createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z',
+  const issues = [24, 25].map((number): Issue => ({
+    id: 7000 + number, number, title: number === 24 ? 'Migrate every connector to MemoryContext' : 'Not an Epic', body: 'Follows #23', author: 'alice',
+    authorAvatarUrl: '', htmlUrl: `https://github.com/upstream/app/issues/${number}`, labels: [], assignees: [], commentCount: 0,
+    createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', isEpic: number === 24, developmentTask: null,
   }));
   const repository = { owner: 'upstream', repo: 'app' };
+  const work = (id: string, title: string, state: WorkItemDto['state'], links: WorkItemDto['links'] = []): WorkItemDto => ({
+    id, workspaceId: 'workspace-1', goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0, links,
+    history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId: issueEpicId(7024),
+    epicRank: 0 });
   window.bridge = {
     fetchWorkspaceIssue: async (_workspace: string, number: number) => issues.find(issue => issue.number === number),
     fetchWorkspaceIssues: async (): Promise<RepositoryIssueSnapshotDto> => ({
@@ -174,31 +181,52 @@ async function epicTabs(): Promise<void> {
       repositoryId: 40, issueNumber: number, timeline: [], currentType: null, availableTypes: [], refreshedAt: '2026-09-02T00:00:00Z',
     }),
     recordRecentTouch: async () => {},
+    listWorkItems: async () => [work('a', 'Port the Hive reader', 'DONE'),
+      work('b', 'Port the Delta reader', 'WORKING', [{ kind: 'TASK', key: 'task-9', label: 'Task', title: 'Port Delta', state: 'IDLE', status: 'Idle',
+        blocked: false, url: null, activity: null, addedAt: null }]),
+      work('c', 'Port the Iceberg reader', 'PLANNED')],
   } as unknown as Bridge;
+  // The workspace on screen lends what needs the user; a task of this Epic waits on them.
+  lendEpicWorkspace('workspace-1', { needsYou: new Set(['TASK task-9']), epicTitles: new Map(), repository: 'upstream/app' });
   let closed = 0;
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
+  const tabs = (): HTMLButtonElement[] => [...host.querySelectorAll<HTMLButtonElement>('.epic-tabs button')];
+  // Read again after each click, so an earlier assertion cannot narrow it.
+  const overviewHidden = (): boolean | undefined => host.querySelector<HTMLElement>('.issue-overview')?.closest<HTMLElement>('.pull-detail__body')?.hidden;
   try {
-    flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={24} onClose={() => { closed += 1; }}
-      epicWork={{ progress: '1/3', render: showSource => <div className="work-probe"><button type="button" onClick={showSource}>See the issue</button></div> }} />));
-    await settle();
-    const tabs = [...host.querySelectorAll<HTMLButtonElement>('.epic-tabs button')];
-    const labels = tabs.map(tab => tab.textContent?.trim()).join('|');
+    flushSync(() => root.render(<WorkspaceIssuesScreen workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={24} onClose={() => { closed += 1; }} openOnWork />));
+    await settle(); await settle();
+    const labels = tabs().map(tab => tab.textContent?.trim()).join('|');
     assert(labels === 'Issue #24|Work1/3', `The card's tabs name the issue and its work's progress: ${labels}`);
-    // Read again after each click, so an earlier assertion cannot narrow it.
-    const overviewHidden = (): boolean | undefined => host.querySelector<HTMLElement>('.issue-overview')?.closest<HTMLElement>('.pull-detail__body')?.hidden;
-    assert(tabs[1].getAttribute('aria-pressed') === 'true' && host.querySelector('.work-probe') !== null && overviewHidden() === true,
-      'An Epic opens on its work, with its issue waiting behind the other tab');
-    tabs[0].click(); await settle();
-    assert(host.querySelector('.work-probe') === null && overviewHidden() === false && tabs[0].getAttribute('aria-pressed') === 'true',
+    assert(tabs()[1].getAttribute('aria-pressed') === 'true' && host.querySelector('.epic-view') !== null && overviewHidden() === true,
+      'Opened from the drawer, an Epic shows its work, with its issue behind the other tab');
+    const waiting = [...host.querySelectorAll<HTMLElement>('.epic-row')].find(row => row.textContent?.includes('Port the Delta reader'));
+    assert(waiting?.textContent?.includes('waiting on you') === true, 'The workspace on screen tells the tab what waits on the user');
+    tabs()[0].click(); await settle();
+    assert(host.querySelector('.epic-view') === null && overviewHidden() === false && tabs()[0].getAttribute('aria-pressed') === 'true',
       'The issue tab shows the issue in the same card');
-    tabs[1].click(); await settle();
-    host.querySelector<HTMLButtonElement>('.work-probe button').click(); await settle();
-    assert(tabs[0].getAttribute('aria-pressed') === 'true' && host.querySelector('.work-probe') === null, 'The work can switch to its issue');
+    tabs()[1].click(); await settle();
+    window.location.hash = '';
+    host.querySelector<HTMLButtonElement>('[aria-label="Run Port the Iceberg reader"]').click(); await settle();
+    const start = takeEpicStart('workspace-1');
+    assert(start !== null && 'itemId' in start && start.itemId === 'c' && start.draft === 'Port the Iceberg reader' && window.location.hash === workspaceRoute('workspace-1'),
+      `Run hands work without a source to its workspace, opening the workspace when another page is on screen: ${JSON.stringify(start)} ${window.location.hash}`);
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); await settle();
     assert(closed === 1, 'Escape leaves the Epic from either tab');
+
+    // Opened anywhere else, the Epic's issue shows first and its work is one tab away; an issue that is no Epic has no tabs.
+    flushSync(() => root.render(<WorkspaceIssuesScreen key="elsewhere" workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={24} onClose={() => {}} />));
+    await settle(); await settle();
+    assert(tabs().length === 2 && tabs()[0].getAttribute('aria-pressed') === 'true' && host.querySelector('.epic-view') === null && overviewHidden() === false,
+      'An Epic opened elsewhere shows its issue first');
+    tabs()[1].click(); await settle();
+    assert(host.querySelector('.epic-view') !== null, 'Its Work tab is there too');
+    flushSync(() => root.render(<WorkspaceIssuesScreen key="plain" workspaceId="workspace-1" repository="upstream/app" initialIssueNumber={25} onClose={() => {}} />));
+    await settle(); await settle();
+    assert(host.querySelector('.issue-overview') !== null && tabs().length === 0, 'An issue that is no Epic has no tabs');
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { lendEpicWorkspace('workspace-1', null); window.location.hash = ''; flushSync(() => root.unmount()); host.remove(); }
 }
 
 async function filtersLoadedIssues(): Promise<void> {

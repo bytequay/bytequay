@@ -24,8 +24,9 @@ import { GOAL_SOURCES, goalRef, isOpen, itemNeedsYou, progressWidths, refKey, su
 import type { Goals } from '../goals/useGoals';
 import type { AttentionItem, AttentionTone } from '../home/attention';
 import { EpicGlyph } from './EpicDrawer';
-import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, useEpicRecord } from './epics';
+import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, startEpicWork, useEpicGoals, useEpicLend, useEpicRecord } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
+import { workspaceAgentTaskRoute } from './model';
 import '../css/epic-view.css';
 
 type Decision = Omit<WorkItemDecision, 'operationId' | 'expectedRevision'>;
@@ -42,6 +43,28 @@ function upstreamOf(item: WorkItemDto, record: EpicRecordDto | null): Upstream |
   if (child !== undefined) return { child, former: false };
   const former = record.former.find(matches);
   return former === undefined ? null : { child: former, former: true };
+}
+
+/**
+ * The Work tab wherever an Epic's issue or ticket opens. The workspace on screen lends what needs the user, its Epics' names and its
+ * repository, and starts the work its rows run; elsewhere the tab still adds, orders and decides work.
+ */
+export function EpicWork({ epic, workspaceId, repository, work, onShowSource }: {
+  epic: AttentionItem;
+  workspaceId: string;
+  /** "owner/repo" the workspace's issue composer starts tasks in, when the host knows it. */
+  repository: string | null;
+  work: WorkItemDto[];
+  onShowSource: () => void;
+}): React.JSX.Element {
+  const lend = useEpicLend(workspaceId);
+  const goals = useEpicGoals(workspaceId);
+  return <EpicView epic={epic} workspaceId={workspaceId} repository={repository ?? lend.repository ?? ''} work={work} needsYou={lend.needsYou} goals={goals}
+    epicTitle={(epicId) => lend.epicTitles.get(epicId) ?? null}
+    onOpenTask={(taskId) => { window.location.hash = workspaceAgentTaskRoute(workspaceId, taskId); }}
+    onStartIssue={(issue, instruction, replaces) => startEpicWork({ workspaceId, issue, instruction, replaces })}
+    onStartWork={(itemId, draft) => startEpicWork({ workspaceId, itemId, draft })}
+    onShowSource={onShowSource} />;
 }
 
 /**

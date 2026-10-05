@@ -23,7 +23,7 @@ import Avatar from '../Avatar';
 import StartDevelopmentDialog from '../agents/StartDevelopmentDialog';
 import type { TaskLaunch } from '../agents/AgentTasksView';
 import { CircleCheck, CircleDot, ExternalLink, Flag, ListTodo, Play, User } from 'lucide-react';
-import { issueEpicId } from './epics';
+import { epicIdentity, issueEpicId, useWorkItems } from './epics';
 import { issueDevelopmentAction, notifyIssueDevelopmentChanged } from './issueDevelopment';
 import { useUnmarkEpic } from './useUnmarkEpic';
 import type { NavigationMode } from '../navigationHistory';
@@ -60,7 +60,8 @@ import type {
   WorkspaceIssueTimelineEventDto,
   WorkspaceIssueTypeDto,
 } from '../types';
-import { EpicTabs, type EpicWorkTab } from './EpicTabs';
+import { EpicTabs, workProgress } from './EpicTabs';
+import { EpicWork } from './EpicView';
 import '../css/issues.css';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
@@ -87,7 +88,7 @@ export async function loadWorkspaceIssueDetail(
     : detail;
 }
 
-export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue, onStartDevelopment, onViewTask, onClose, epicWork }: {
+export default function WorkspaceIssuesScreen({ workspaceId, repository, initialIssueNumber, onSelectIssue, onStartDevelopment, onViewTask, onClose, openOnWork = false }: {
   workspaceId: string;
   repository: string;
   initialIssueNumber: number | null;
@@ -96,8 +97,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   onViewTask?: (link: IssueDevelopmentTaskDto) => void;
   /** Shows only initialIssueNumber over the current page, without the list or navigation. */
   onClose?: () => void;
-  /** The issue opened as an Epic: its Work tab beside the issue, shown first. */
-  epicWork?: EpicWorkTab;
+  /** Opened from the Epic drawer: an Epic shows its Work tab first. */
+  openOnWork?: boolean;
 }) {
   const overlay = onClose !== undefined;
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -125,8 +126,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   const [changingEpic, setChangingEpic] = useState<number | null>(null);
   const [closedIssueId, setClosedIssueId] = useState<number | null>(null);
   const [startingIssue, setStartingIssue] = useState<number | null>(null);
-  const [showWork, setShowWork] = useState(epicWork !== undefined);
-  const workShown = epicWork !== undefined && showWork;
+  // The issue whose Work tab is showing; another issue picked from the list opens on its own tab.
+  const [workFor, setWorkFor] = useState<number | null>(openOnWork ? initialIssueNumber : null);
   const detailRequest = useRef(0);
   const loadingMoreRequest = useRef(false);
   const openedInitialIssue = useRef<number | null>(null);
@@ -385,6 +386,10 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
   };
 
   const selected = snapshot?.issues.find(issue => issue.id === selectedId) ?? (previewIssue?.id === selectedId ? previewIssue : null);
+  // An Epic's issue has its Work tab wherever it opens.
+  const epic = selected !== null && selected !== previewIssue && selected.isEpic ? issueAttentionItem(selected, repository, workspaceId) : null;
+  const work = useWorkItems(epic === null ? null : workspaceId);
+  const workShown = epic !== null && workFor === selected.number;
   const selectedNumber = selected?.number ?? null;
 
   useEffect(() => {
@@ -549,7 +554,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             aria-label="Resize issue panes" onMouseDown={resizeDetail} title="Drag to resize" />}
           <header className="pull-detail__header pull-detail__header--tabs">
             <div className="pull-detail__toolbar">
-              {epicWork !== undefined && <EpicTabs source={<><IssueIcon /> Issue #{selected.number}</>} progress={epicWork.progress} work={showWork} onWork={setShowWork} />}
+              {epic !== null && <EpicTabs source={<><IssueIcon /> Issue #{selected.number}</>} progress={workProgress(work, epicIdentity(epic))} work={workShown}
+                onWork={(shown) => setWorkFor(shown ? selected.number : null)} />}
               <div className="pull-detail__header-actions">
                 <PinButton className="pull-detail__icon-action" item={{ key: `${repository}#${selected.number}`, title: selected.title,
                   reference: `${repository} #${selected.number}`, target: { kind: 'issue', repo: repository, number: selected.number, workspaceId } }} />
@@ -570,7 +576,9 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
             </div>
           )}
           {mutationError && !workShown && <div className="pull-detail__error" role="alert">Could not update issue. {mutationError}</div>}
-          {workShown && <div className="pull-detail__body">{epicWork.render(() => setShowWork(false))}</div>}
+          {workShown && <div className="pull-detail__body">
+            <EpicWork epic={epic} workspaceId={workspaceId} repository={repository} work={work} onShowSource={() => setWorkFor(null)} />
+          </div>}
           <div className="pull-detail__body" hidden={workShown}>
             <IssueOverview key={selected.id} issue={selected} closed={selected.id === closedIssueId} readOnly={selected === previewIssue} metadata={metadata} timeline={timeline} issueType={issueType}
               repository={repository} workspaceId={workspaceId}

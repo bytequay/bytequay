@@ -27,11 +27,12 @@ tasks and PRs, history, priority, order and blockers.
    with an Epic membership, one Epic per item. They link issues, tickets, tasks
    and PRs. One item can belong to a Goal and an Epic at the same time, with its
    own place in each. Organizing an Epic never writes to GitHub or Jira.
-2. **One entrance: the Epic view.** A drawer card opens the Epic's issue or
-   ticket over the page in its own layer, with tabs the way a pull request has
-   them: the issue or ticket, and Work, which it opens on. Adding, editing and
+2. **The Epic's Work tab.** An Epic's issue or ticket has a Work tab beside it
+   wherever it opens, the way a pull request has its tabs: in a layer over the
+   page, on the Issues page and on the Jira page. A drawer card opens it on
+   Work; anywhere else it opens on the issue or ticket. Adding, editing and
    ordering items happen only in Work; there is no "Add to Epic" on other
-   surfaces for now, and the same issue opened anywhere else has no Work tab.
+   surfaces for now.
 3. **Quick add.** "New work item" takes a title and Return. The item is Develop
    work, done when its PR merges and the user accepts. Its done-when text and
    completion rule are edited afterwards.
@@ -92,8 +93,12 @@ tasks and PRs, history, priority, order and blockers.
 
 ## Implementation notes
 
-- The Epic view reads its source's children each time it opens; neither the
+- The Work tab reads its source's children each time it opens; neither the
   drawer nor Home reads them.
+- The Work tab reads the workspace's work items itself. What needs the user,
+  the names of other Epics and the repository come from the workspace on screen;
+  without it the tab still adds, orders and decides work, and Run opens the
+  workspace to start it.
 - Run is not offered for a GitHub sub-issue of another repository, because the
   workspace's issue composer starts tasks only in its own repository; the row
   opens the issue where it lives.

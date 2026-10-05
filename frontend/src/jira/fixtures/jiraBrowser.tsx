@@ -19,6 +19,8 @@ import { LayerCovered } from '../../Zoom';
 import { jiraDetail, jiraIssue } from './jira';
 import { jiraRoute, type JiraConnection, type JiraIssue, type JiraIssueDetail, type JiraQuery, type JiraUser } from '../contracts';
 import type { Bridge, CreateAgentTaskRequest, WorkspaceDto } from '../../types';
+import type { WorkItemDto } from '../../goals/contracts';
+import { ticketEpicId } from '../../workspaces/epics';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
 import { assert, settle } from '../../fixtures/harness';
 import { ZOOM_REFERENCE } from '../../githubReference';
@@ -399,24 +401,31 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       }
       finally { zoomRoot.unmount(); zoomHost.remove(); }
     },
-    async 'opens an Epic ticket on its work and switches to the ticket in the same dialog'() {
+    async 'keeps an Epic ticket and its work in one dialog, opening on Work only from the drawer'() {
       await mountPreview(false, false);
+      issue = { ...issue, isEpic: true, workspace: { id: 'workspace', name: 'Trino' } };
+      const work = (id: string, state: WorkItemDto['state']): WorkItemDto => ({
+        id, workspaceId: 'workspace', goalId: null, title: `Work ${id}`, kind: 'DEVELOP', acceptanceCriteria: '', completionRule: 'MERGED_DELIVERY', state, revision: 0,
+        links: [], history: [], createdAt: '2026-09-01T00:00:00Z', updatedAt: '2026-09-02T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [], epicId: ticketEpicId(issue),
+        epicRank: 0 });
+      window.bridge = { ...window.bridge, listWorkItems: async () => [work('a', 'DONE'), work('b', 'PLANNED')] } as Bridge;
       const location = { connectionId: issue.connectionId, cloudId: issue.cloudId, issueId: issue.id };
       const epicHost = document.createElement('div'); document.body.append(epicHost);
       const epicRoot = createRoot(epicHost);
+      const tabs = (): HTMLButtonElement[] => [...epicHost.querySelectorAll<HTMLButtonElement>('.epic-tabs button')];
       try {
-        flushSync(() => epicRoot.render(<JiraTicketLayer location={location} onClose={() => {}}
-          epicWork={{ progress: '2/5', render: showSource => <button type="button" className="work-probe" onClick={showSource}>See the ticket</button> }} />));
-        await until(() => epicHost.querySelector('.epic-tabs') !== null);
-        const tabs = [...epicHost.querySelectorAll<HTMLButtonElement>('.epic-tabs button')];
-        const labels = tabs.map(tab => tab.textContent?.trim()).join('|');
-        assert(labels === 'Ticket|Work2/5', `The dialog's tabs name the ticket and its work's progress: ${labels}`);
-        assert(epicHost.querySelector('.work-probe') !== null && epicHost.querySelector('.jira-detail h2') === null, 'An Epic ticket opens on its work');
-        epicHost.querySelector<HTMLButtonElement>('.work-probe').click(); await settle();
-        assert(epicHost.querySelector('.work-probe') === null && epicHost.querySelector('.jira-detail h2')?.textContent === issue.title,
-          'The work switches to its ticket in the same dialog');
-        tabs[1].click(); await settle();
-        assert(epicHost.querySelector('.work-probe') !== null && tabs[1].getAttribute('aria-pressed') === 'true', 'The Work tab comes back');
+        flushSync(() => epicRoot.render(<JiraTicketLayer key="drawer" location={location} onClose={() => {}} openOnWork />));
+        await until(() => epicHost.querySelector('.epic-view .epic-row') !== null);
+        const labels = tabs().map(tab => tab.textContent?.trim()).join('|');
+        assert(labels === 'Ticket|Work1/2', `The dialog's tabs name the ticket and its work's progress: ${labels}`);
+        assert(epicHost.querySelector('.jira-detail__head h2') === null, 'Opened from the drawer, an Epic ticket shows its work');
+        tabs()[0].click(); await settle();
+        assert(epicHost.querySelector('.epic-view') === null && epicHost.querySelector('.jira-detail__head h2')?.textContent === issue.title, 'The Ticket tab shows the ticket in the same dialog');
+        flushSync(() => epicRoot.render(<JiraTicketLayer key="elsewhere" location={location} onClose={() => {}} />));
+        await until(() => epicHost.querySelector('.jira-detail__head h2') !== null && tabs().length === 2);
+        assert(tabs()[0].getAttribute('aria-pressed') === 'true' && epicHost.querySelector('.epic-view') === null, 'Opened anywhere else, an Epic ticket shows itself first');
+        tabs()[1].click(); await until(() => epicHost.querySelector('.epic-view .epic-row') !== null);
+        assert(tabs()[1].getAttribute('aria-pressed') === 'true', 'Its Work tab is there too');
       }
       finally { epicRoot.unmount(); epicHost.remove(); }
     },

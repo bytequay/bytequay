@@ -12,12 +12,13 @@
  * limitations under the License.
  */
 
-import { useCallback, useEffect, useState } from 'react';
-import type { EpicJoinDto, EpicRecordDto, GoalItemDto, WorkItemDto } from '../goals/contracts';
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
 import { GOALS_CHANGED } from '../goals/useGoals';
 import type { AttentionItem } from '../home/attention';
 import type { JiraIssue } from '../jira/contracts';
 import type { Bridge } from '../types';
+import { workspaceRoute } from './model';
 
 export type EpicBridge = Pick<Bridge, 'joinEpic' | 'orderEpicWork' | 'removeFromEpic'>;
 export type EpicRecordBridge = Pick<Bridge, 'getEpic' | 'refreshEpicChildren' | 'syncEpicChildren' | 'dismissEpicChildren' | 'concludeEpic' | 'listConcludedEpics'
@@ -139,4 +140,87 @@ export function useConcludedEpics(workspaceId: string, marked: string, bridge: (
 export async function removeFromEpic(workspaceId: string, itemId: string, bridge: EpicBridge = window.bridge): Promise<void> {
   await bridge.removeFromEpic(workspaceId, itemId);
   changed(workspaceId);
+}
+
+type WorkBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'decideWorkItem' | 'searchGoalCandidates'>;
+const windowWorkBridge = (): WorkBridge => window.bridge;
+// As often as Goals read their work, so an Epic's issue shows the same work wherever it is open.
+const WORK_POLL_MS = 15_000;
+const NO_WORK: WorkItemDto[] = [];
+
+/** The workspace's work items for an Epic's issue or ticket, read again whenever a view changes them; null reads nothing. */
+export function useWorkItems(workspaceId: string | null, bridge: () => WorkBridge = windowWorkBridge): WorkItemDto[] {
+  const [items, setItems] = useState<{ workspaceId: string; items: WorkItemDto[] } | null>(null);
+  useEffect(() => {
+    if (workspaceId === null) return;
+    let active = true;
+    const read = (): void => {
+      if (document.hidden) return;
+      void Promise.resolve().then(() => bridge().listWorkItems(workspaceId)).then((found) => { if (active) setItems({ workspaceId, items: found }); }, () => {});
+    };
+    const onChange = (event: Event): void => { if ((event as CustomEvent<string>).detail === workspaceId) read(); };
+    read();
+    window.addEventListener(GOALS_CHANGED, onChange);
+    const timer = window.setInterval(read, WORK_POLL_MS);
+    return () => { active = false; window.removeEventListener(GOALS_CHANGED, onChange); window.clearInterval(timer); };
+  }, [bridge, workspaceId]);
+  return items === null || items.workspaceId !== workspaceId ? NO_WORK : items.items;
+}
+
+/** The Work tab's changes to the workspace's work, each announced so every view of the work reads it again. */
+export function useEpicGoals(workspaceId: string, bridge: () => WorkBridge = windowWorkBridge): {
+  createWork: (request: CreateWorkItem) => Promise<WorkItemDto>;
+  decideWork: (item: WorkItemDto, command: WorkItemDecision) => Promise<WorkItemDto>;
+  search: (query: string) => Promise<GoalItemDto[]>;
+} {
+  // Kept the same across renders, so an open search is not repeated each time the work refreshes.
+  return useMemo(() => ({
+    createWork: (request) => bridge().createWorkItem(workspaceId, request).then((item) => { changed(workspaceId); return item; }),
+    decideWork: (item, command) => bridge().decideWorkItem(workspaceId, item.id, command).then((decided) => { changed(workspaceId); return decided; }),
+    search: (query) => bridge().searchGoalCandidates(workspaceId, query),
+  }), [bridge, workspaceId]);
+}
+
+/**
+ * What the workspace on screen lends an Epic's Work tab wherever its issue or ticket opens: what needs the user, the names of its Epics and
+ * its repository. A workspace that is not on screen lends nothing.
+ */
+export type EpicLend = { needsYou: ReadonlySet<string>; epicTitles: ReadonlyMap<string, string>; repository: string | null };
+const NO_LEND: EpicLend = { needsYou: new Set(), epicTitles: new Map(), repository: null };
+const lends = new Map<string, EpicLend>();
+const lendListeners = new Set<() => void>();
+
+export function lendEpicWorkspace(workspaceId: string, lend: EpicLend | null): void {
+  if (lend === null) lends.delete(workspaceId);
+  else lends.set(workspaceId, lend);
+  lendListeners.forEach((listener) => listener());
+}
+
+function subscribeLends(listener: () => void): () => void {
+  lendListeners.add(listener);
+  return () => { lendListeners.delete(listener); };
+}
+
+export function useEpicLend(workspaceId: string): EpicLend {
+  return useSyncExternalStore(subscribeLends, () => lends.get(workspaceId) ?? NO_LEND);
+}
+
+/** Work a Work tab starts: through its issue's composer, or the task composer for work without an issue or ticket. */
+export type EpicStart = { workspaceId: string } & ({ issue: number; instruction: string; replaces?: string } | { itemId: string; draft: string });
+export const EPIC_START = 'bytequay:epic-start';
+let waitingStart: EpicStart | null = null;
+
+/** Hands the start to its workspace's page; when another page is on screen, the workspace opens and takes it there. */
+export function startEpicWork(start: EpicStart): void {
+  waitingStart = start;
+  window.dispatchEvent(new CustomEvent(EPIC_START));
+  if (waitingStart !== null) window.location.hash = workspaceRoute(start.workspaceId);
+}
+
+/** The start waiting for this workspace, taken once. */
+export function takeEpicStart(workspaceId: string): EpicStart | null {
+  if (waitingStart?.workspaceId !== workspaceId) return null;
+  const start = waitingStart;
+  waitingStart = null;
+  return start;
 }

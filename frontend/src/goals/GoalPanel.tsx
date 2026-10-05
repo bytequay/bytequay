@@ -128,6 +128,9 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
   };
   const answering = props.conversation.exchanges.some((exchange) => exchange.state === 'PENDING');
   const item = props.workItems.find((value) => value.id === selected) ?? goal?.items.find((value) => value.id === selected);
+  const guide = (lessonId?: string): React.JSX.Element => <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation}
+    now={props.now} onStart={props.onStart} onOpenTask={props.onOpenTask} onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue}
+    onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck} onFileIssue={props.onFileIssue} onReview={setSelected} lessonId={lessonId} />;
   return (
     <div className={`goal-panel is-${mode}`} role="dialog" aria-label={goal === null ? 'Goal' : `Goal: ${goal.title}`}>
       <div className="goal-panel__head">
@@ -176,13 +179,17 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
           {goal !== null && props.conversation.model !== null && <GoalModelPicker model={props.conversation.model} onChoose={props.conversation.chooseModel} />}
         </div>}
       </div>
-      {lessonItem !== undefined && goal !== null ? <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository}
-        conversation={props.conversation} onBack={() => props.onLesson(null)} />
+      {lessonItem !== undefined && goal !== null ? (mode === 'board'
+        // The expanded window teaches the lesson beside the conversation, where questions about it are asked.
+        ? <div className="goal-split">
+          <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository} conversation={props.conversation} beside
+            onBack={() => props.onLesson(null)} />
+          {guide(lessonItem.id)}
+        </div>
+        : <LessonView key={lessonItem.id} goal={goal} item={lessonItem} repository={props.repository} conversation={props.conversation}
+          onBack={() => props.onLesson(null)} />)
         : item !== undefined ? <WorkDetails key={item.id} {...props} item={item} onBack={() => setSelected(null)} />
-        : view === 'guide' ? <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation} now={props.now} onStart={props.onStart}
-          onOpenTask={props.onOpenTask}
-          onLesson={props.onLesson} onBack={props.onBack} onStartIssue={props.onStartIssue} onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck}
-          onFileIssue={props.onFileIssue} onReview={setSelected} />
+        : view === 'guide' ? guide()
           : goal === null ? <><NoGoal onCreate={props.onCreate} />{props.workItems.map((saved) => <button type="button" className="goal-work-card" key={saved.id} onClick={() => setSelected(saved.id)}>{saved.title} · {saved.state.toLowerCase()}</button>)}</> : <GoalWork {...props} goal={goal} onSelect={setSelected} />}
       {cancelling !== null && goal !== null && (
         <ConfirmDialog
@@ -277,9 +284,13 @@ function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onFileIssue, onReview }:
-  Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'now' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket'
-    | 'onSpecCheck' | 'onFileIssue'> & { onReview: (workItemId: string) => void }): React.JSX.Element {
+function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onFileIssue, onReview,
+  lessonId }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'now' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket'
+    | 'onSpecCheck' | 'onFileIssue'> & {
+  onReview: (workItemId: string) => void;
+  /** The lesson open beside the conversation, which the messages sent from here are about. */
+  lessonId?: string;
+}): React.JSX.Element {
   const { exchanges } = conversation;
   const [error, setError] = useState<string | null>(null);
   const last = exchanges.at(-1);
@@ -287,7 +298,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
   const question = last?.state === 'ANSWERED' ? last.reply?.question ?? null : null;
   const open = openProposal(goal, exchanges);
   const course = openCourse(goal, exchanges);
-  const send = (operationId: string, message: string): Promise<unknown> => (goal === null ? onStart(operationId, message) : conversation.ask(operationId, message));
+  const send = (operationId: string, message: string): Promise<unknown> => (goal === null ? onStart(operationId, message) : conversation.ask(operationId, message, lessonId));
   const say = (message: string): void => {
     setError(null);
     void send(crypto.randomUUID(), message).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The message was not sent'));
@@ -308,7 +319,8 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
   const answers = picked.question === shown ? picked.answers : NONE_PICKED;
   const toggle = (answer: string): void => setPicked({ question: shown, answers: answers.includes(answer) ? answers.filter((value) => value !== answer) : [...answers, answer] });
   const composer = <Composer answering={answering} focus={opening} picked={answers} seed={seed} onSent={() => setPicked({ question: '', answers: [] })}
-    placeholder={answers.length > 0 ? 'Add your own words, or just send' : opening ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'}
+    placeholder={answers.length > 0 ? 'Add your own words, or just send' : opening ? 'I want to…' : question !== null ? 'Answer in your own words'
+      : lessonId === undefined ? 'Ask about this goal' : 'Ask about this lesson'}
     onSend={send} />;
   const errorText = error ?? conversation.error;
   const alert = errorText !== null && <p className="goal-guide__error" role="alert">{errorText}</p>;
@@ -535,11 +547,13 @@ export function useNow(ticking: boolean): number {
  * One lesson in the Goal window: written once from the goal's notes, its explanation, exercise and check, and questions about it that the
  * agent answers with the lesson in view. Done is the user's decision.
  */
-function LessonView({ goal, item, repository, conversation, onBack }: {
+function LessonView({ goal, item, repository, conversation, beside = false, onBack }: {
   goal: GoalDto;
   item: WorkItemDto;
   repository: string;
   conversation: GoalConversation;
+  /** Shown beside the conversation, which asks and answers the questions about it. */
+  beside?: boolean;
   onBack: () => void;
 }): React.JSX.Element {
   const { openLesson, readLesson, finishLesson } = conversation;
@@ -575,7 +589,10 @@ function LessonView({ goal, item, repository, conversation, onBack }: {
         <MarkdownBody className="goal-lesson__explanation" body={lesson.content.explanation} repository={repository} />
         <section className="goal-lesson__section"><div className="goal-group">Exercise</div><MarkdownBody body={lesson.content.exercise} repository={repository} /></section>
         <section className="goal-lesson__section"><div className="goal-group">What to observe</div><p>{lesson.content.observe}</p></section>
-        <section className="goal-lesson__section"><div className="goal-group">Check</div><p>{lesson.content.check}</p></section>
+        <section className="goal-lesson__section"><div className="goal-group">Check</div><p>{lesson.content.check}</p>
+          <Composer answering={answering} placeholder="Your answer" submitLabel="Answer"
+            onSend={(operationId, message) => conversation.ask(operationId, CHECK_ANSWER + message, item.id)} />
+        </section>
       </>}
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
       {item.state === 'DONE' ? <p className="goal-muted">Done</p> : <button type="button" className="goal-add goal-lesson__done" disabled={busy || lesson?.content == null}
@@ -584,13 +601,13 @@ function LessonView({ goal, item, repository, conversation, onBack }: {
           void finishLesson(item.id, operation).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The lesson was not marked done'))
             .finally(() => setBusy(false));
         }}>{busy ? 'Saving…' : 'Mark lesson done'}</button>}
-      {questions.length > 0 && <ol className="goal-thread" aria-label="Questions about this lesson">{questions.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
+      {!beside && questions.length > 0 && <ol className="goal-thread" aria-label="Questions about this lesson">{questions.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
         <div className="goal-thread__user">{exchange.message}</div>
         {exchange.state === 'PENDING' && <Pending exchange={exchange} onStop={conversation.stop} />}
         {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">{exchange.failure}</div>}
         {exchange.reply !== null && <div className="goal-thread__agent"><p>{exchange.reply.assessment}</p></div>}
       </li>)}</ol>}
-      <Composer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />
+      {!beside && <Composer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />}
     </div>
   );
 }
@@ -688,6 +705,8 @@ const NONE_PICKED: string[] = [];
 /** What Other options sends: the agent asks the same question again with answers the user has not passed over. */
 const OTHER_OPTIONS = 'None of these fit. Show me other options.';
 const SKIP_PROPOSAL = 'Skip this proposal for now.';
+/** What an answer to a lesson's check starts with, so the agent reads it as the answer to the open lesson's check. */
+const CHECK_ANSWER = 'My answer to the check: ';
 const ADJUST_PROPOSAL = 'Adjust it: ';
 
 /** Suggested answers, any number of which the user picks; Send sends them with the user's own words. */
@@ -751,13 +770,14 @@ function Proposal({ proposal, title, onTitle }: { proposal: GoalProposalDto; tit
  *
  * @param focus whether the field takes focus as it appears and when the window opens, as for the opening question
  */
-function Composer({ answering, focus = false, picked = NONE_PICKED, seed = null, placeholder, onSend, onSent }: {
+function Composer({ answering, focus = false, picked = NONE_PICKED, seed = null, placeholder, submitLabel = 'Send', onSend, onSent }: {
   answering: boolean;
   focus?: boolean;
   picked?: string[];
   /** Words to start the reply with, such as Adjust's, which take the field and its focus. */
   seed?: { text: string } | null;
   placeholder: string;
+  submitLabel?: string;
   onSend: (operationId: string, message: string) => Promise<unknown>;
   onSent?: () => void;
 }): React.JSX.Element {
@@ -787,7 +807,7 @@ function Composer({ answering, focus = false, picked = NONE_PICKED, seed = null,
         onChange={(event) => setDraft(event.target.value)}
         onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
-      <button type="submit" className="goal-add" disabled={busy || answering || (draft.trim() === '' && picked.length === 0)}>{busy ? 'Sending…' : 'Send'}</button>
+      <button type="submit" className="goal-add" disabled={busy || answering || (draft.trim() === '' && picked.length === 0)}>{busy ? 'Sending…' : submitLabel}</button>
     </form>
   );
 }

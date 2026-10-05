@@ -1,7 +1,7 @@
 # Agent guided goals implementation plan
 
-Status: The first nine implementation slices are complete and the tenth is in
-progress. The later items of Steps 3 to 6 below remain as listed.
+Status: The first ten implementation slices are complete. The later items of
+Steps 3 to 6 below remain as listed.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -477,10 +477,14 @@ topic it shows.
    cite for a topic level, and ByteQuay keeps the level only when that message
    exists.
 
-Progress: item 3 is implemented. Each message the user sent the Goal reaches the
-agent with a message:<id> it may cite, a lesson question also naming its lesson,
-and a level citing such a message is kept; one citing an event ByteQuay reported
-or an unknown message is not.
+Progress: the tenth slice is complete. Each message the user sent the Goal
+reaches the agent with a message:<id> it may cite, a lesson question also naming
+its lesson, and a level citing such a message is kept; one citing an event
+ByteQuay reported or an unknown message is not. The expanded window shows an
+open lesson beside the conversation, whose reply field then asks about the
+lesson; the floating window keeps the lesson alone with its own question field.
+The check takes an answer under it, sent as "My answer to the check: " and the
+answer, which the agent assesses against the lesson's outcome.
 
 Done when: in the expanded window an open lesson and the conversation show side
 by side and a question sent there belongs to the lesson; a check answer reaches
@@ -608,7 +612,7 @@ work items. Closing and reopening the app retains the conversation and plan.
 - [x] Propose a course of parts and lessons from the notes and the starting
   knowledge. Accepted lessons become ordered Learn items with a milestone; a
   tool-free request writes and saves each lesson's explanation, exercise and check.
-- [ ] Show the open lesson in the expanded Goal window beside the conversation.
+- [x] Show the open lesson in the expanded Goal window beside the conversation.
   Questions there belong to the lesson; Done stays the user's decision.
 - [x] Recommend spec checks as cards naming the module, pages and reproduction
   count. Start runs the existing check and Adjust opens its drawer; a reproduced
@@ -645,8 +649,8 @@ Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
 `TestGoalCandidates`, `TestGoalResearchService` and the investigation-card test
 in `TestGoalConversationService`. Still partial: a research run is confined by
 its prompt and its own disposable worktree, not by a read-only tool policy;
-cited pages are never checked for staleness and no Remember is offered; a lesson
-replaces the conversation instead of sitting beside it; shortlisted sources
+cited pages are never checked for staleness and no Remember is offered;
+shortlisted sources
 record no duplicate read,
 revision or skipped coverage; research pages accept any https address;
 conclusions are not cached by input revision, so each event costs a request;
@@ -663,7 +667,7 @@ already-started source cannot slip through stale recommendations.
 
 ## Step 5 Record outcomes, learn the user and propose the next step
 
-- [ ] Add topic levels (new, learning, practiced, strong) with their evidence:
+- [x] Add topic levels (new, learning, practiced, strong) with their evidence:
   lessons finished, check answers, questions and merged work. The agent proposes
   changes with evidence; a user correction wins.
 - [ ] Read the user's private cards from `task_discussion`, `local_review_thread`
@@ -702,8 +706,7 @@ already-started source cannot slip through stale recommendations.
 
 Evidence for the checked items: the spec-check and blocked-lesson card tests in
 `TestGoalConversationService` and the delivery tests in `TestWorkItemService`.
-Still partial: check answers are not captured, and Goal or lesson questions
-cannot be cited; private cards are the twenty newest rather than those on the
+Still partial: private cards are the twenty newest rather than those on the
 Goal's topics; task deletion and runtime cleanup do not wait for a receipt;
 summaries carry no insights or next recommendation; blocker changes, task starts
 and finished milestones are not reported to the agent; plan differences cover

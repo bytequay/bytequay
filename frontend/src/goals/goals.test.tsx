@@ -350,6 +350,14 @@ describe('goal guidance', () => {
     expect(lesson).toContain('After this lesson you can: Verified fix');
     expect(lesson).toContain('Opening the lesson…');
     expect(lesson).not.toContain('Proposed course');
+    // The floating window shows the lesson alone, with its own question field.
+    expect(lesson).not.toContain('goal-split');
+    expect(lesson).toContain('placeholder="Ask about this lesson"');
+    // The expanded window teaches it beside the conversation, whose field then asks about the lesson.
+    const beside = panel({ mode: 'board', view: 'guide', goal: { ...GOAL, course }, lesson: 'work-0', conversation: conversation([ASKED, COURSE]) });
+    expect(beside).toMatch(/<div class="goal-split"><div class="goal-panel__body goal-lesson">.*<div class="goal-panel__body goal-guide">/);
+    expect(beside.match(/<textarea/g)).toHaveLength(1);
+    expect(beside).toContain('placeholder="Ask about this lesson"');
     expect(parseGoalLesson({ id: 'work-0', state: 'READY', failure: null, model: 'codex/gpt',
       content: { explanation: '# Tables', exercise: 'Run one test.', observe: 'It passes.', check: 'What is a snapshot?' } }).content?.check).toBe('What is a snapshot?');
     expect(() => parseGoalLesson({ id: 'work-0', state: 'DRAFT' })).toThrow('Malformed goal lesson state');

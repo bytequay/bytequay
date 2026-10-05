@@ -26,7 +26,7 @@ const LESSON: WorkItemDto = { id: 'lesson-1', workspaceId: 'workspace', goalId: 
   acceptanceCriteria: 'Explain metadata, snapshots and manifests', completionRule: 'ACCEPTED_RESULT', state: 'PLANNED', revision: 0, priority: 'NORMAL', rank: 0,
   blockedBy: [], links: [], history: [],
   createdAt: NOW, updatedAt: NOW };
-const server = { reads: 0, opened: 0, finished: [] as string[], asked: [] as (string | null | undefined)[] };
+const server = { reads: 0, opened: 0, finished: [] as string[], asked: [] as (string | null | undefined)[], messages: [] as string[] };
 const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, content: { explanation: '## Table metadata\nA table is a tree of metadata files.',
   exercise: 'Run `TestIcebergMetadata`.', observe: 'The test lists two snapshots.', check: 'What does a snapshot point to?' } };
 
@@ -63,6 +63,7 @@ function Fixture(): React.JSX.Element {
     researchRun: async () => ({ buildRequestSequence: 0, canStart: true, build: null }), stopResearch: async () => ({ buildRequestSequence: 0, canStart: true, build: null }),
     ask: async (operationId, message, lessonId) => {
       server.asked.push(lessonId);
+      server.messages.push(message);
       setExchanges([{ id: operationId, goalId: 'goal', message, automatic: false, lessonId: lessonId ?? null, inputRevision: 1, state: 'ANSWERED', failure: null,
         askedAt: NOW, reply: { assessment: 'Because each snapshot shares unchanged manifests.', question: null, proposal: null, recommendation: null, course: null } }]);
     },
@@ -90,9 +91,18 @@ export async function run(): Promise<boolean> {
     assert(document.querySelector('.goal-lesson__explanation h2')?.textContent === 'Table metadata', 'The explanation renders as Markdown');
     assert(text().includes('The test lists two snapshots.') && text().includes('What does a snapshot point to?'), 'The exercise and its check show');
 
-    changeInput(document.querySelector<HTMLTextAreaElement>('.goal-composer textarea'), 'Why share manifests?'); await settle();
+    assert(document.querySelector('.goal-split > .goal-lesson') !== null && document.querySelector('.goal-split > .goal-guide') !== null,
+      'The expanded window teaches the lesson beside the conversation');
+
+    changeInput(document.querySelector<HTMLTextAreaElement>('.goal-lesson .goal-composer textarea'), 'The manifest list of its table state'); await settle();
+    button('Answer').click(); await settle();
+    assert(server.asked[0] === 'lesson-1' && server.messages[0] === 'My answer to the check: The manifest list of its table state',
+      'The check takes an answer, sent to the agent as the answer to the open lesson\'s check');
+
+    changeInput(document.querySelector<HTMLTextAreaElement>('.goal-guide .goal-composer textarea'), 'Why share manifests?'); await settle();
     button('Send').click(); await settle();
-    assert(server.asked.length === 1 && server.asked[0] === 'lesson-1', 'A question asked in the lesson belongs to it');
+    assert(server.asked.length === 2 && server.asked[1] === 'lesson-1' && server.messages[1] === 'Why share manifests?',
+      'A question asked beside the lesson belongs to it');
     await until(() => text().includes('Because each snapshot shares unchanged manifests.'), 'The answer shows beside the lesson');
 
     button('Mark lesson done').click(); await settle();

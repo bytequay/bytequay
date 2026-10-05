@@ -128,10 +128,15 @@ already know, the agent may set the first topic levels citing that definition.
 A lesson opens in the expanded Goal window. The first time, a tool-free request
 writes it from the Goal's notes: an explanation in Markdown that links the notes'
 sources, one exercise, what to observe and a short check; reopening it needs no
-model call, and a failed or interrupted write is retried on opening. A question
-asked in the lesson carries it to the agent. Mark lesson done accepts the Learn
-work item and tells the agent, which may recommend the next lesson as a card;
-Start on a lesson card opens the lesson.
+model call, and a failed or interrupted write is retried on opening. The
+expanded window shows the lesson beside the Goal's conversation, and a message
+sent there while the lesson is open carries it to the agent; restored to the
+floating window, the lesson shows alone with its own question field. The user
+answers the lesson's check in a field under it, sent to the agent as the answer
+to the open lesson's check, and the agent says whether it shows what the lesson
+promises. Mark lesson done accepts the Learn work item and tells the agent,
+which may recommend the next lesson as a card; Start on a lesson card opens the
+lesson.
 
 Once the Goal is defined, the agent also sees up to 100 practice candidates from
 the local stores: the workspace's open issues, the 500 updated last, and the

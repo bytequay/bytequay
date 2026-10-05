@@ -1002,7 +1002,6 @@ button.goal-tile:hover {
 .goal-proposal input {
   padding: 5px 8px; border: 1px solid #d0d7de; border-radius: 6px; font: inherit; font-size: 13px;
 }
-.goal-proposal .goal-add { justify-self: start; }
 .goal-composer { display: grid; gap: 6px; margin-top: auto; }
 .goal-guide__opening .goal-composer { margin-top: 10px; }
 .goal-guide__back { display: block; margin: 0 0 8px -4px; }
@@ -1072,13 +1071,17 @@ button.goal-tile:hover {
 .goal-course__open:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
 .goal-course__lessons li.is-done > .goal-course__open { color: #57606a; text-decoration: line-through; }
 .goal-lesson { gap: 10px; }
-.goal-lesson__back { justify-self: start; padding: 0; }
+.goal-lesson__back { align-self: flex-start; padding: 0; }
 .goal-lesson__part { font-size: 11px; letter-spacing: 0.4px; text-transform: uppercase; color: #57606a; }
 .goal-lesson__title { font-size: 15px; line-height: 21px; }
 .goal-lesson__outcome { font-size: 12.5px; line-height: 18px; color: #57606a; }
 .goal-lesson__explanation { font-size: 13px; line-height: 20px; }
 .goal-lesson__section p { margin: 4px 0 0; font-size: 13px; line-height: 19px; white-space: pre-wrap; overflow-wrap: anywhere; }
-.goal-lesson__done { justify-self: start; }
+.goal-lesson__done { align-self: flex-start; }
+.goal-lesson__section .goal-composer { margin-top: 8px; }
+/* The expanded window teaches a lesson on the left of the conversation. */
+.goal-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 3fr) minmax(320px, 2fr); grid-template-rows: minmax(0, 1fr); }
+.goal-split > .goal-lesson { border-right: 1px solid #eceff2; }
 
 .goal-known__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; line-height: 18px; }
 .goal-known__topic { flex: 1 1 0; min-width: 120px; overflow-wrap: anywhere; }

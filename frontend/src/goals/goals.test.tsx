@@ -237,12 +237,13 @@ describe('goal guidance', () => {
     expect(markup).toContain('Researching: Read the Iceberg specification');
     // A research run is no task to open; its progress is read from the run while the row shows.
     expect(markup).not.toContain('Open run');
-    expect(markup).toContain('What the agent learned · 1');
+    // The notes fold under their count, out of the conversation's way.
+    expect(markup).toContain('<details class="goal-notes goal-fold" aria-label="Knowledge notes"><summary>What the agent learned · 1</summary>');
     expect(markup).toContain('<summary>Manifest lists</summary>');
     const stale = panel({ view: 'guide', conversation: { ...NO_CONVERSATION, notes: [{ ...NOTE, stale: true }], exchanges: [ASKED] } });
     expect(stale).toContain('Manifest lists<span class="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>');
     expect(markup).toContain(`ManifestLists.java @ ccccccc`);
-    expect(markup).toContain('<div class="goal-thread__event">The research run saved 1 note: Manifest lists.</div>');
+    expect(markup).toContain('<div class="goal-thread__event" title="The research run saved 1 note: Manifest lists.">The research run saved 1 note: Manifest lists.</div>');
   });
 
   it('shows started practice as practice, leading to its task once sent and to the prepared composer until then', () => {
@@ -363,7 +364,7 @@ describe('goal guidance', () => {
     expect(parseGoal(JSON.parse(JSON.stringify(known))).topics).toEqual(known.topics);
     expect(() => parseGoal({ ...known, topics: [{ ...known.topics[0], level: 'EXPERT' }] })).toThrow('Malformed goal topic level');
     const markup = panel({ view: 'guide', goal: known });
-    expect(markup).toContain('What you know');
+    expect(markup).toContain('<details class="goal-known goal-fold" aria-label="What you know"><summary>What you know · 2</summary>');
     expect(markup).toContain('aria-label="Your level in Manifests"');
     expect(markup).toMatch(/<option value="LEARNING" selected="">Learning<\/option>/);
     expect(markup).toContain('set by you');
@@ -423,12 +424,20 @@ describe('goal guidance', () => {
     expect(asked).toContain('aria-pressed="false">Not yet</button>');
     expect(asked).toContain('>Other options</button>');
     expect(asked).not.toContain('Proposed goal');
+    // The question on screen is asked once, under the conversation, with its answers right above the reply field.
+    const dock = asked.slice(asked.indexOf('<div class="goal-guide__dock">'));
+    expect(asked.split('Do you already know the Iceberg specification?')).toHaveLength(2);
+    expect(dock).toMatch(/^<div class="goal-guide__dock"><div class="goal-guide__question">Do you already know the Iceberg specification\?<\/div><div class="goal-choices">/);
+    expect(dock.indexOf('>Other options</button>')).toBeLessThan(dock.indexOf('<textarea'));
 
     const proposed = panel({ view: 'guide', conversation: conversation([ASKED, PROPOSED]) });
     expect(proposed).toContain('Proposed goal');
     expect(proposed).toContain('value="Iceberg connector expert"');
     expect(proposed).toContain('Trace a scan end to end');
-    expect(proposed).toContain('>Accept goal</button>');
+    // The proposal reads in the conversation; deciding on it happens above the reply field.
+    expect(proposed.indexOf('Trace a scan end to end')).toBeLessThan(proposed.indexOf('<div class="goal-guide__dock">'));
+    expect(proposed).toContain('<div class="goal-guide__decision"><button type="button" class="goal-add is-primary">Accept goal</button>'
+      + '<button type="button" class="goal-link">Adjust</button><button type="button" class="goal-link">Skip</button></div>');
 
     const failed = panel({ view: 'guide', conversation: conversation([{ ...ASKED, state: 'FAILED', reply: null, failure: 'Codex is not signed in' }]) });
     expect(failed).toContain('Codex is not signed in');

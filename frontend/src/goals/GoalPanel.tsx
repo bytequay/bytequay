@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Ban, ChevronDown, Maximize2, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { GoalIcon, SourceIcon } from '../cards/Card';
@@ -302,64 +302,95 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
   const [seed, setSeed] = useState<{ text: string } | null>(null);
   const adjust = (): void => setSeed({ text: ADJUST_PROPOSAL });
   const skip = (): void => say(SKIP_PROPOSAL);
+  // The proposed goal's title as the user edits it; Accept goal saves it.
+  const [titled, setTitled] = useState<{ exchangeId: string; title: string } | null>(null);
+  const title = open === null ? '' : titled?.exchangeId === open.exchangeId ? titled.title : open.proposal.title;
   const shown = opening ? 'opening' : last?.id ?? '';
   const answers = picked.question === shown ? picked.answers : NONE_PICKED;
   const toggle = (answer: string): void => setPicked({ question: shown, answers: answers.includes(answer) ? answers.filter((value) => value !== answer) : [...answers, answer] });
   const composer = <Composer answering={answering} focus={opening} picked={answers} seed={seed} onSent={() => setPicked({ question: '', answers: [] })}
     placeholder={answers.length > 0 ? 'Add your own words, or just send' : opening ? 'I want to…' : question === null ? 'Ask about this goal' : 'Answer in your own words'}
     onSend={send} />;
+  const errorText = error ?? conversation.error;
+  const alert = errorText !== null && <p className="goal-guide__error" role="alert">{errorText}</p>;
+  // Whatever waits on the user sits above the reply field, below the scrolling conversation, where the eye ends up.
+  const docked = !opening && ready;
+  const scroller = useRef<HTMLDivElement>(null);
+  const latest = useRef<HTMLLIElement>(null);
+  const turn = `${last?.id ?? ''} ${last?.state ?? ''}`;
+  // A new message or answer scrolls to the top of its turn, where reading it starts.
+  useLayoutEffect(() => {
+    const box = scroller.current;
+    const row = latest.current;
+    if (box === null || row === null) return;
+    box.scrollTop += row.getBoundingClientRect().top - box.getBoundingClientRect().top - TURN_MARGIN;
+  }, [turn]);
   return (
     <div className="goal-panel__body goal-guide">
-      {goal?.definition != null && <Definition definition={goal.definition} />}
-      {goal?.course != null && <Course goal={goal} onLesson={onLesson} />}
-      {opening ? (
-        <div className="goal-guide__opening">
-          {onBack !== undefined && <button type="button" className="goal-link goal-guide__back" onClick={onBack}>Back to the current goal</button>}
-          {/* The goal's own title is never the question: a name alone says little about what the user wants. */}
-          <div className="goal-guide__ask">What do you want to achieve?</div>
-          <div className="goal-guide__hint">Say it in your own words, pick any directions below, or both, then send. The agent asks what it needs, then proposes a goal
-            for you to accept.</div>
-          {composer}
-          <Choices choices={goalDirections(repository)} picked={answers} disabled={answering} onToggle={toggle} />
-        </div>
-      ) : (
-        <ol className="goal-thread" aria-label="Conversation with the goal's agent">
-          {exchanges.map((exchange) => <li key={exchange.id} className="goal-thread__turn">
-            <div className={exchange.automatic ? 'goal-thread__event' : 'goal-thread__user'}>{exchange.message}</div>
-            {exchange.state === 'PENDING' && <Pending exchange={exchange} now={now} onStop={conversation.stop} />}
-            {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">
-              <span>{exchange.failure}</span>
-              {exchange === last && <button type="button" className="goal-link" onClick={() => {
-                setError(null);
-                void conversation.retry(exchange.id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Could not ask again'));
-              }}>Ask again</button>}
-            </div>}
-            {exchange.reply !== null && <div className="goal-thread__agent">
-              <p>{exchange.reply.assessment}</p>
-              {exchange.reply.question !== null && <p className="goal-thread__question">{exchange.reply.question.text}</p>}
-            </div>}
-          </li>)}
-        </ol>
-      )}
-      {question !== null && question.suggestions.length > 0 && <>
-        <Choices choices={question.suggestions} picked={answers} disabled={answering} onToggle={toggle} />
-        <button type="button" className="goal-link goal-guide__other" disabled={answering} onClick={() => say(OTHER_OPTIONS)}>Other options</button>
-      </>}
-      {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} research={conversation}
-        onOpenTask={onOpenTask}
-        onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onSpecCheck={onSpecCheck} onReview={onReview} />)}
-      {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
-      {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
-      {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
-      {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} answering={answering} onAccept={(title) => conversation.accept(open.exchangeId, title)}
-        onAdjust={adjust} onSkip={skip} />}
-      {course !== null && <CourseProposal key={course.exchangeId} goal={goal} course={course.course} answering={answering}
-        onAccept={() => conversation.acceptCourse(course.exchangeId)} onAdjust={adjust} onSkip={skip} />}
-      {(error ?? conversation.error) !== null && <p className="goal-guide__error" role="alert">{error ?? conversation.error}</p>}
-      {!opening && ready && composer}
+      <div className="goal-guide__scroll" ref={scroller}>
+        {goal?.definition != null && <Definition definition={goal.definition} />}
+        {goal?.course != null && <Course goal={goal} onLesson={onLesson} />}
+        {conversation.notes.length > 0 && <Notes notes={conversation.notes} />}
+        {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
+        {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
+        {opening ? (
+          <div className="goal-guide__opening">
+            {onBack !== undefined && <button type="button" className="goal-link goal-guide__back" onClick={onBack}>Back to the current goal</button>}
+            {/* The goal's own title is never the question: a name alone says little about what the user wants. */}
+            <div className="goal-guide__ask">What do you want to achieve?</div>
+            <div className="goal-guide__hint">Say it in your own words, pick any directions below, or both, then send. The agent asks what it needs, then proposes a goal
+              for you to accept.</div>
+            {composer}
+            <Choices choices={goalDirections(repository)} picked={answers} disabled={answering} onToggle={toggle} />
+          </div>
+        ) : (
+          <ol className="goal-thread" aria-label="Conversation with the goal's agent">
+            {exchanges.map((exchange) => <li key={exchange.id} ref={exchange === last ? latest : undefined} className="goal-thread__turn">
+              {/* An event can list everything a run saved; two lines say what happened, and the rest shows on hover. */}
+              {exchange.automatic ? <div className="goal-thread__event" title={exchange.message}>{exchange.message}</div>
+                : <div className="goal-thread__user">{exchange.message}</div>}
+              {exchange.state === 'PENDING' && <Pending exchange={exchange} now={now} onStop={conversation.stop} />}
+              {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">
+                <span>{exchange.failure}</span>
+                {exchange === last && <button type="button" className="goal-link" onClick={() => {
+                  setError(null);
+                  void conversation.retry(exchange.id).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'Could not ask again'));
+                }}>Ask again</button>}
+              </div>}
+              {exchange.reply !== null && <div className="goal-thread__agent">
+                <p>{exchange.reply.assessment}</p>
+                {/* The question on screen is asked above the reply field. */}
+                {exchange.reply.question !== null && exchange !== last && <p className="goal-thread__question">{exchange.reply.question.text}</p>}
+              </div>}
+            </li>)}
+          </ol>
+        )}
+        {goal?.recommendations.filter((card) => card.state === 'STARTED').map((card) => <Started key={card.id} goal={goal} card={card} research={conversation}
+          onOpenTask={onOpenTask}
+          onLesson={onLesson} onStartIssue={onStartIssue} onStartTicket={onStartTicket} onSpecCheck={onSpecCheck} onReview={onReview} />)}
+        {open !== null && <Proposal key={open.exchangeId} proposal={open.proposal} title={title}
+          onTitle={(value) => setTitled({ exchangeId: open.exchangeId, title: value })} />}
+        {course !== null && <CourseProposal key={course.exchangeId} goal={goal} course={course.course} />}
+        {!docked && alert}
+      </div>
+      {docked && <div className="goal-guide__dock">
+        {question !== null && <div className="goal-guide__question">{question.text}</div>}
+        {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} picked={answers} disabled={answering} onToggle={toggle}>
+          <button type="button" className="goal-link goal-guide__other" disabled={answering} onClick={() => say(OTHER_OPTIONS)}>Other options</button>
+        </Choices>}
+        {open !== null && <Decision key={open.exchangeId} label="Accept goal" ready={title.trim() !== ''} answering={answering} failure="The goal was not saved"
+          onAccept={() => conversation.accept(open.exchangeId, title.trim())} onAdjust={adjust} onSkip={skip} />}
+        {course !== null && <Decision key={course.exchangeId} label={goal?.course == null ? 'Accept course' : 'Accept revision'} ready answering={answering}
+          failure="The course was not saved" onAccept={() => conversation.acceptCourse(course.exchangeId)} onAdjust={adjust} onSkip={skip} />}
+        {alert}
+        {composer}
+      </div>}
     </div>
   );
 }
+
+/** How far above a scrolled-to turn the conversation stops, so its first line does not touch the edge. */
+const TURN_MARGIN = 12;
 
 /**
  * The gaps the goal's last spec check reproduced with a failing test. The user files each drafted issue on GitHub's own form and adds the gap
@@ -565,13 +596,11 @@ function LessonView({ goal, item, repository, conversation, onBack }: {
   );
 }
 
-/** A course the agent proposes; accepting it saves each lesson as a Learn work item and starts nothing. */
-/** A proposed course, or a revision of the accepted one: its kept lessons as they stand, its new ones marked, and the unfinished ones it drops. */
-function CourseProposal({ goal, course, answering, onAccept, onAdjust, onSkip }: {
-  goal: GoalDto | null; course: GoalCourseDraftDto; answering: boolean; onAccept: () => Promise<unknown>; onAdjust: () => void; onSkip: () => void;
-}): React.JSX.Element {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+/**
+ * A proposed course, or a revision of the accepted one: its kept lessons as they stand, its new ones marked, and the unfinished ones it drops.
+ * Accepting it saves each lesson as a Learn work item and starts nothing.
+ */
+function CourseProposal({ goal, course }: { goal: GoalDto | null; course: GoalCourseDraftDto }): React.JSX.Element {
   const accepted = goal?.course ?? null;
   const lessons = new Map((goal?.items ?? []).map((item) => [item.id, item]));
   const kept = new Set(course.parts.flatMap((part) => part.lessons.flatMap((lesson) => (lesson.lessonId === null ? [] : [lesson.lessonId]))));
@@ -596,12 +625,6 @@ function CourseProposal({ goal, course, answering, onAccept, onAdjust, onSkip }:
         <div className="goal-course__title">Leaves the course</div>
         <ul className="goal-course__lessons goal-course__leaving">{leaving.map((item) => <li key={item.id}>{item.title}</li>)}</ul>
       </div>}
-      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
-      <button type="button" className="goal-add" disabled={busy} onClick={() => {
-        setBusy(true); setError(null);
-        void onAccept().catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The course was not saved')).finally(() => setBusy(false));
-      }}>{busy ? 'Saving…' : accepted === null ? 'Accept course' : 'Accept revision'}</button>
-      <ProposalChoices busy={busy || answering} onAdjust={onAdjust} onSkip={onSkip} />
     </section>
   );
 }
@@ -627,8 +650,8 @@ function Course({ goal, onLesson }: { goal: GoalDto; onLesson: (lessonId: string
 function Known({ topics, onCorrect }: { topics: GoalTopicDto[]; onCorrect: (topic: string, level: TopicLevel) => Promise<unknown> }): React.JSX.Element {
   const [error, setError] = useState<string | null>(null);
   return (
-    <section className="goal-known" aria-label="What you know">
-      <div className="goal-group">What you know</div>
+    <details className="goal-known goal-fold" aria-label="What you know">
+      <summary>What you know · {topics.length}</summary>
       {topics.map((topic) => <label key={topic.topic} className="goal-known__row" title={topic.evidence.join(', ')}>
         <span className="goal-known__topic">{topic.topic}</span>
         <select value={topic.level} aria-label={`Your level in ${topic.topic}`} onChange={(event) => {
@@ -640,17 +663,17 @@ function Known({ topics, onCorrect }: { topics: GoalTopicDto[]; onCorrect: (topi
         {topic.userSet && <span className="goal-muted">set by you</span>}
       </label>)}
       {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
-    </section>
+    </details>
   );
 }
 
 const LEVEL_NAMES: Record<TopicLevel, string> = { NEW: 'New', LEARNING: 'Learning', PRACTICED: 'Practiced', STRONG: 'Strong' };
 
-/** What the goal's research saved, each note with the pages and files it rests on. */
+/** What the goal's research saved, folded under its count, each note with the pages and files it rests on. */
 function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element {
   return (
-    <section className="goal-notes" aria-label="Knowledge notes">
-      <div className="goal-group">What the agent learned · {notes.length}</div>
+    <details className="goal-notes goal-fold" aria-label="Knowledge notes">
+      <summary>What the agent learned · {notes.length}</summary>
       {notes.map((note) => <details key={note.id} className="goal-note">
         <summary>{note.topic}{note.stale && <span className="goal-note__stale" title="A file it cites changed since the research read it">Stale</span>}</summary>
         <p>{note.body}</p>
@@ -658,7 +681,7 @@ function Notes({ notes }: { notes: GoalKnowledgeNoteDto[] }): React.JSX.Element 
           <a href={sourceUrl(source)} target="_blank" rel="noreferrer">{source.commit === null ? source.reference : `${source.reference} @ ${source.commit.slice(0, 7)}`}</a>
         </li>)}</ul>
       </details>)}
-    </section>
+    </details>
   );
 }
 
@@ -669,9 +692,11 @@ const SKIP_PROPOSAL = 'Skip this proposal for now.';
 const ADJUST_PROPOSAL = 'Adjust it: ';
 
 /** Suggested answers, any number of which the user picks; Send sends them with the user's own words. */
-function Choices({ choices, picked, disabled, onToggle }: { choices: string[]; picked: string[]; disabled: boolean; onToggle: (choice: string) => void }): React.JSX.Element {
+function Choices({ choices, picked, disabled, onToggle, children }: {
+  choices: string[]; picked: string[]; disabled: boolean; onToggle: (choice: string) => void; children?: React.ReactNode;
+}): React.JSX.Element {
   return <div className="goal-choices">{choices.map((choice) => <button type="button" className="goal-choice" key={choice} aria-pressed={picked.includes(choice)}
-    disabled={disabled} onClick={() => onToggle(choice)}>{choice}</button>)}</div>;
+    disabled={disabled} onClick={() => onToggle(choice)}>{choice}</button>)}{children}</div>;
 }
 
 function Definition({ definition }: { definition: NonNullable<GoalDto['definition']> }): React.JSX.Element {
@@ -684,36 +709,39 @@ function Definition({ definition }: { definition: NonNullable<GoalDto['definitio
   );
 }
 
-/** Besides accepting it, the user can tell the agent what to change, or pass on the proposal; the next answer replaces it either way. */
-function ProposalChoices({ busy, onAdjust, onSkip }: { busy: boolean; onAdjust: () => void; onSkip: () => void }): React.JSX.Element {
-  return <>
-    <button type="button" className="goal-link" disabled={busy} onClick={onAdjust}>Adjust</button>
-    <button type="button" className="goal-link" disabled={busy} onClick={onSkip}>Skip</button>
-  </>;
-}
-
-function Proposal({ proposal, answering, onAccept, onAdjust, onSkip }: {
-  proposal: GoalProposalDto; answering: boolean; onAccept: (title: string) => Promise<unknown>; onAdjust: () => void; onSkip: () => void;
+/**
+ * The open proposal's decision, above the reply field: accept it, or tell the agent what to change or that the user passes on it; the next
+ * answer replaces it either way.
+ */
+function Decision({ label, ready, answering, failure, onAccept, onAdjust, onSkip }: {
+  label: string; ready: boolean; answering: boolean; failure: string; onAccept: () => Promise<unknown>; onAdjust: () => void; onSkip: () => void;
 }): React.JSX.Element {
-  const [title, setTitle] = useState(proposal.title);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   return (
+    <div className="goal-guide__decision">
+      <button type="button" className="goal-add is-primary" disabled={busy || !ready} onClick={() => {
+        setBusy(true); setError(null);
+        void onAccept().catch((cause: unknown) => setError(cause instanceof Error ? cause.message : failure)).finally(() => setBusy(false));
+      }}>{busy ? 'Saving…' : label}</button>
+      <button type="button" className="goal-link" disabled={busy || answering} onClick={onAdjust}>Adjust</button>
+      <button type="button" className="goal-link" disabled={busy || answering} onClick={onSkip}>Skip</button>
+      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
+    </div>
+  );
+}
+
+function Proposal({ proposal, title, onTitle }: { proposal: GoalProposalDto; title: string; onTitle: (title: string) => void }): React.JSX.Element {
+  return (
     <section className="goal-proposal" aria-label="Proposed goal">
       <div className="goal-proposal__label">Proposed goal</div>
-      <input aria-label="Goal title" maxLength={500} value={title} onChange={(event) => setTitle(event.target.value)} />
+      <input aria-label="Goal title" maxLength={500} value={title} onChange={(event) => onTitle(event.target.value)} />
       <dl className="goal-definition">
         <dt>Objective</dt><dd>{proposal.objective}</dd>
         <dt>Success means</dt><dd>{proposal.successDefinition}</dd>
         {proposal.startingKnowledge !== '' && <><dt>You already know</dt><dd>{proposal.startingKnowledge}</dd></>}
         {proposal.constraints !== '' && <><dt>Constraints</dt><dd>{proposal.constraints}</dd></>}
       </dl>
-      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
-      <button type="button" className="goal-add" disabled={busy || title.trim() === ''} onClick={() => {
-        setBusy(true); setError(null);
-        void onAccept(title.trim()).catch((failure: unknown) => setError(failure instanceof Error ? failure.message : 'The goal was not saved')).finally(() => setBusy(false));
-      }}>{busy ? 'Saving…' : 'Accept goal'}</button>
-      <ProposalChoices busy={busy || answering} onAdjust={onAdjust} onSkip={onSkip} />
     </section>
   );
 }

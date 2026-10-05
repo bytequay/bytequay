@@ -74,14 +74,17 @@ it as its understanding changes until a definition is accepted. A title the user
 chose stays, and a name changes no revision, so pending proposals stay valid.
 Accepting a proposal saves its title, objective, success
 definition, starting knowledge and constraints, and is refused once the Goal's
-text changed after the request was built. A proposed goal or course can also
-be adjusted, which starts the reply with "Adjust it: ", or skipped, which tells
-the agent the user passes on it; the next answer replaces the proposal either
-way. One exchange per Goal and two across
-the app run at a time; a request still pending at startup is marked interrupted.
-A reply may take ten minutes and a lesson twenty; a pending reply shows how long
-the agent has worked, and Stop cancels the model's turn and leaves the message
-to ask again, its late answer never saved.
+text changed after the request was built. A proposed goal or course can also be
+adjusted, which starts the reply with "Adjust it: ", or skipped, which tells the
+agent the user passes on it; the next answer replaces the proposal either way.
+The question on screen, its suggested answers, an open proposal's Accept, Adjust
+and Skip and the reply field stay together under the conversation, which scrolls
+to the start of its newest turn; a picked answer shows a check, and an event
+ByteQuay told the agent shows two lines, the rest on hover. One exchange per
+Goal and two across the app run at a time; a request still pending at startup is
+marked interrupted. A reply may take ten minutes and a lesson twenty; a pending
+reply shows how long the agent has worked, and Stop cancels the model's turn and
+leaves the message to ask again, its late answer never saved.
 
 Once a definition is accepted, ByteQuay tells the agent, and its answer may
 recommend a research card: a scope and up to eight https pages. The Goal
@@ -96,11 +99,11 @@ https pages or files at a commit the run reads. While it runs, the Guide view
 shows how many notes it saved, the newest on hover, and Stop; it is the
 workspace's restricted run, not a task with a conversation to open. A finished
 run completes the card and tells the agent what it saved; a failed or stopped
-one shows the card again. The
-Guide view lists the notes with their sources. A note citing a file is marked
-stale once that file changed between the commit the research read and the
-monitored head of its workspace or Dependency, and the agent sees the mark and
-may recommend reading it again; pages are not checked.
+one shows the card again. The Guide view lists the notes with their sources,
+folded under their count. A note citing a file is marked stale once that file
+changed between the commit the research read and the monitored head of its
+workspace or Dependency, and the agent sees the mark and may recommend reading
+it again; pages are not checked.
 
 Once notes exist, the agent may propose a course: up to four parts with at most
 sixteen lessons, each naming what the user can do afterward. Accepting it saves
@@ -246,7 +249,8 @@ comments and review questions, without ByteQuay's own summary requests) and the
 Goal's topic levels. The agent may change a topic's level, New, Learning,
 Practiced or Strong, citing the questions, lessons or work items it rests on;
 ByteQuay keeps only evidence that exists and never changes a level the user set.
-The Guide view lists what the user knows, and the user can correct any level.
+The Guide view lists what the user knows, folded under its count, and the user
+can correct any level.
 
 Automatic outcome harvesting and the two-call discovery shortlist remain
 pending. The

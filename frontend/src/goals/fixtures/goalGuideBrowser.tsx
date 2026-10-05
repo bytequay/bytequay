@@ -291,6 +291,12 @@ export async function run(): Promise<boolean> {
     assert(document.querySelector('.goal-proposal') === null && text().includes('Success means'), 'The accepted definition replaces the proposal');
     assert(document.querySelector('.goal-panel__title')?.textContent === 'Trino Iceberg connector expert', 'The goal takes the accepted title');
     assert(text().includes('The user accepted the goal definition.') && text().includes('Thinking…'), 'Accepting tells the agent, which answers at once');
+    // The newest turn starts a margin below the top of the conversation, or as near it as the conversation scrolls.
+    const thread = document.querySelector('.goal-guide__scroll');
+    const newest = [...document.querySelectorAll('.goal-thread__turn')].at(-1);
+    const offset = (newest?.getBoundingClientRect().top ?? 0) - (thread?.getBoundingClientRect().top ?? 0);
+    assert(thread !== null && thread.scrollTop > 0 && offset >= 10 && offset < thread.clientHeight
+      && (offset < 14 || thread.scrollTop >= thread.scrollHeight - thread.clientHeight - 1), 'The conversation scrolls its newest turn into view');
 
     // The agent judges research is the next step; the backend floats its card when it saves the answer.
     answer({ assessment: 'Read the specification before the connector.', question: null, proposal: null, recommendation: CARD, course: null });

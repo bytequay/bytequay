@@ -630,6 +630,17 @@ button.goal-tile:hover {
   cursor: not-allowed;
 }
 
+.goal-add.is-primary {
+  border-color: var(--control-strong);
+  background: var(--control-strong);
+  color: var(--control-on-strong);
+}
+
+.goal-add.is-primary:hover:not(:disabled) {
+  border-color: var(--control-strong-hover);
+  background: var(--control-strong-hover);
+}
+
 .goal-link {
   padding: 2px 4px;
   border: 0;
@@ -952,20 +963,26 @@ button.goal-tile:hover {
 .goal-columns { grid-template-columns: repeat(4, minmax(160px, 1fr)); overflow-x: auto; }
 
 .goal-panel__views { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
-.goal-guide { gap: 12px; }
+/* The conversation scrolls; what waits on the user stays in the dock under it, above the reply field. */
+.goal-guide { gap: 0; padding: 0; overflow: hidden; }
+.goal-guide__scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 14px 16px 16px; }
+.goal-guide__dock { flex: none; display: grid; gap: 8px; max-height: 55%; overflow: auto; padding: 10px 16px 12px; border-top: 1px solid #eceff2; }
+.goal-guide__question { font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
+.goal-guide__decision { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .goal-guide__ask { font-size: 15px; font-weight: 600; line-height: 21px; text-wrap: pretty; }
 .goal-guide__hint { margin-top: 4px; font-size: 12.5px; line-height: 18px; color: #57606a; }
 .goal-guide__error { margin: 0; font-size: 12px; color: #cf222e; }
 .goal-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.goal-guide > .goal-choices { margin-top: 0; }
+.goal-guide__dock .goal-choices { margin-top: 0; }
 .goal-choice {
   padding: 5px 10px; border: 1px solid #d0d7de; border-radius: 14px; background: #ffffff; color: #0969da;
   font: inherit; font-size: 12.5px; line-height: 17px; text-align: left; cursor: pointer;
 }
 .goal-choice:hover { background: #f6f8fa; }
 .goal-choice[aria-pressed="true"] { border-color: #0969da; background: #ddf4ff; }
+.goal-choice[aria-pressed="true"]::before { content: '✓'; margin-right: 5px; }
 .goal-choice:disabled { cursor: default; opacity: 0.6; }
-.goal-guide__other { align-self: flex-start; margin-top: -6px; }
+.goal-guide__other { align-self: center; }
 .goal-thread { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
 .goal-thread__turn { display: grid; gap: 6px; }
 .goal-thread__user {
@@ -996,9 +1013,15 @@ button.goal-tile:hover {
 .goal-composer .goal-add { justify-self: end; }
 .goal-choice:focus-visible, .goal-proposal input:focus-visible, .goal-composer textarea:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
 
-.goal-thread__event { justify-self: center; max-width: 90%; font-size: 12px; line-height: 17px; color: #57606a; text-align: center; white-space: pre-line; overflow-wrap: anywhere; }
+.goal-thread__event {
+  display: -webkit-box; justify-self: center; max-width: 90%; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+  font-size: 12px; line-height: 17px; color: #57606a; text-align: center; white-space: pre-line; overflow-wrap: anywhere;
+}
 .goal-guide__running { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 12.5px; color: #57606a; }
-.goal-notes { display: grid; gap: 4px; }
+/* Notes and topic levels fold under their counts. */
+.goal-fold > summary { font-size: 12.5px; line-height: 18px; color: #57606a; cursor: pointer; }
+.goal-fold > summary:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
+.goal-fold > :not(summary) { margin: 4px 0 0 14px; }
 .goal-gaps { display: grid; gap: 6px; }
 .goal-gap { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; font-size: 12.5px; line-height: 18px; }
 .goal-gap__title { flex: 1 1 100%; overflow-wrap: anywhere; }
@@ -1057,7 +1080,6 @@ button.goal-tile:hover {
 .goal-lesson__section p { margin: 4px 0 0; font-size: 13px; line-height: 19px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .goal-lesson__done { justify-self: start; }
 
-.goal-known { display: grid; gap: 4px; }
 .goal-known__row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; line-height: 18px; }
 .goal-known__topic { flex: 1 1 0; min-width: 120px; overflow-wrap: anywhere; }
 .goal-known__row select { padding: 2px 6px; border: 1px solid #d0d7de; border-radius: 6px; background: #ffffff; font: inherit; font-size: 12px; }

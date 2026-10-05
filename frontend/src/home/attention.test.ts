@@ -163,6 +163,7 @@ describe('attentionKind', () => {
     );
     expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.number)).toEqual([7, 8, 9]);
     expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, false, false]);
+    expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.isEpic)).toEqual([false, true, false]);
     source.issues[1].isGoal = false;
     expect(issueAttentionItems(source, 'workspace-id', 'jack').map(item => item.canStartDevelopment)).toEqual([true, true, false]);
   });

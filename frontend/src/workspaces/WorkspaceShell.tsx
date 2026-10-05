@@ -35,6 +35,7 @@ import MemoryPage from '../memory/MemoryPage';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
 import { settingsRoute } from '../settings/routes';
 import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
+import EpicDrawer from './EpicDrawer';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
 import { useWorkspaceAttention } from './workspaceAttention';
 import type { WorkspaceDto } from '../types';
@@ -340,7 +341,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
       );
     }
     // The design's Home: the question, three starting points, the open tasks as windows.
-    return stage(
+    // The Epic drawer comes first so its trigger is the next tab stop after the sidebar.
+    return stage(<>
+      <EpicDrawer items={attention.candidates} />
       <AgentHome
         workspaceId={workspace.id}
         headerAction={overviewOpen ? undefined : overviewToggle}
@@ -356,8 +359,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         onOpenPullRequest={zoomPullRequest}
         onOpenIssue={(number) => zoomReference({ kind: 'issue', repo: monitoredRepository, number, workspaceId: workspace.id })}
         onStartIssue={number => { window.location.hash = workspaceIssueTaskRoute(workspace.id, number); }}
-      />,
-    );
+      />
+    </>);
   }
 }
 

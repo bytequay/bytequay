@@ -27,7 +27,7 @@ export function jiraAttentionItem(issue: JiraIssue): AttentionItem {
     title: issue.title, author: issue.assignee?.displayName ?? null, authorAvatarUrl: issue.assignee?.avatarUrl ?? null,
     createdAt: null, updatedAt: issue.updatedAt, labels: issue.labels, pr: null, body: issue.body, commentCount: 0,
     workspaceId: null, workspaceName: 'Jira',
-    canStartDevelopment: !issue.isGoal && !issue.hasChildren && issue.task === null && issue.status.category !== 'done',
+    canStartDevelopment: !issue.isGoal && !issue.hasChildren && issue.task === null && issue.status.category !== 'done', isEpic: issue.isGoal,
   };
 }
 /** The Jira tickets that need you, and whether Jira is connected at all, so a Home without it names no Jira. */

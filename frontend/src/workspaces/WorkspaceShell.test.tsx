@@ -317,7 +317,7 @@ describe('watched repository workspace UI', () => {
         onSelectPullRequest,
         onSelectIssue: () => {},
       });
-      home = view.props.children.props.children[0];
+      home = find(view, props => typeof props.onOpenPullRequest === 'function');
       return view;
     }
     renderToStaticMarkup(<CaptureHome />);

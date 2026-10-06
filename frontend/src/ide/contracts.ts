@@ -75,3 +75,27 @@ declare global {
     ideWorkbench: IdeWorkbenchBridge;
   }
 }
+
+export type CodeBlame = {
+  path: string;
+  revision: string;
+  contentHash: string;
+  spans: BlameSpan[];
+  truncated: boolean;
+  unavailableReason: string | null;
+};
+export type BlameSpan = {
+  line: number;
+  count: number;
+  originalLine: number;
+  commit: string;
+  author: string;
+  authoredAt: string;
+  summary: string;
+  originalPath: string;
+};
+
+export type HistoryCommit = { sha: string; parents: string[]; author: string; authoredAt: string; message: string };
+export type CodeHistory = { revision: string; commits: HistoryCommit[]; nextOffset: number | null };
+export type HistoryComparison = { commit: HistoryCommit; parent: string | null; files: HistoryChange[]; truncated: boolean };
+export type HistoryChange = { path: string; originalPath: string | null; status: string };

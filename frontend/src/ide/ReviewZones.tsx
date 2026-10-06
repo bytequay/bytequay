@@ -64,6 +64,8 @@ export default function ReviewZones({ runtime, uri, cards, renderCard }: {
         if (existing) { existing.resize.disconnect(); access.removeZone(existing.id); editor.removeOverlayWidget(existing.widget); }
         const node = existing?.container ?? document.createElement('div');
         node.className = 'ide-review-zone';
+        // Typing in a private card must not dispatch the editor's global shortcuts.
+        node.onkeydown = event => { if (event.target instanceof Element && event.target.closest('input, textarea, [contenteditable]')) event.stopPropagation(); };
         const content = node.firstElementChild as HTMLDivElement | null ?? document.createElement('div');
         if (!content.parentElement) node.appendChild(content);
         // Monaco hides view zones from assistive technology. An empty zone reserves space while a public

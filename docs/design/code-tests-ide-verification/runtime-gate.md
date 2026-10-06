@@ -218,8 +218,56 @@ and macOS arm64 packaging pass for this checkpoint; later additions retain their
 own verification requirement.
 
 Still required: production cutover, durable run/debug evidence and execution
-coordination, selected-log agent context, full history/blame and preview-strip
-integration, hidden shared code queries and GoalPlanner migration, CodeGraph
+coordination, selected-log agent context, final history/blame and preview-strip
+acceptance, hidden shared code queries and GoalPlanner migration, CodeGraph
 removal, and final native lifecycle/resource verification. Native fixture saves
 verify the renderer adapter; the backend claim/save behavior is covered by the
 separate service tests, not claimed as a single full-app end-to-end test here.
+
+## Code preview, blame and local history
+
+The modular editor now includes an optional, colored author/date gutter. Its
+line numbers use Monaco's line layout, so annotations follow the same scrolling
+and folding as the source. Repository-controlled metadata is escaped before
+Monaco's HTML line-number rendering. Blame is tied to the saved content hash and
+revision; dirty or stale buffers do not retain those annotations. Saved local
+changes are identified as uncommitted. Keyboard users can open the selected
+line's details from the toolbar.
+
+A read-only Monaco preview shares the source model and syntax services. The
+right overview/scroll strip maps pointer position through document line offsets,
+including folded ranges and review-card space. The toolbar offers the same
+preview with a line input and a jump action. Native verification exercised a
+long Go source file, previewed line 170, jumped there, and confirmed its blame
+metadata identified line 170. The colored gutter, native highlighted preview,
+commit details and parent-to-commit diff were visually inspected. Pointer-only
+hover remains a separate native interaction check; the native automation API
+used here has no hover action. The line mapping and metadata escaping have
+runnable regression checks.
+
+Blame opens full local commit history, including commits older than the task
+comparison base. The bottom panel uses the native SCM graph with a read-only
+provider over ByteQuay's existing bounded Git reader. Repository and current-file
+history use exact revisions and paging; file history follows renames. Native
+snapshot/diff editors handle the selected parent, renamed paths, additions and
+deletions. Stock Git mutation commands remain disabled.
+
+Real-Git backend checks cover Java/Go/Rust blame, repeated commit metadata,
+uncommitted lines, untracked files, links, path traversal, root commits, Unicode
+renames, deleted files, both merge parents, dirty/detached worktrees and paging
+while HEAD changes. They verify unchanged Git status and HEAD. The focused
+backend gate passes all 40 ReviewCodeService tests. Native fixture checks opened
+an actual commit from blame, inspected its read-only diff, and expanded the root
+commit in the reused graph. The fixture still uses a temporary local transport;
+these checks do not claim production tab cutover or full-app backend integration.
+
+Native graph file history does not advertise repository HEAD as its current
+item: HEAD may not have touched that file, and the pinned graph's reveal loop
+otherwise searches indefinitely for an absent item. Regression coverage also
+checks revision-pinned page requests and immutable rename/deletion snapshots.
+
+The full backend verification passes (2,575 app tests plus the other reactor
+modules). Frontend lint and type checks pass; the full suite passes 1,524 tests
+in 160 files, with the subsequent focused navigation/history gate passing all
+16 tests, including the new history-provider test. The final macOS arm64 package
+build passes. The production tab still awaits the remaining integration gates.

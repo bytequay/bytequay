@@ -314,6 +314,109 @@ public class ReviewCodeService
         return result;
     }
 
+    public CodeHistory history(String reviewId, Optional<String> revision, Optional<String> path, int offset)
+    {
+        return history(source(reviewId), revision, path, offset);
+    }
+
+    public CodeHistory history(TaskCodeHost host, Optional<String> revision, Optional<String> path, int offset)
+    {
+        return history(source(host), revision, path, offset);
+    }
+
+    private CodeHistory history(Source source, Optional<String> revision, Optional<String> path, int offset)
+    {
+        Path root = source.checkout().orElseGet(() -> repository(source.task()));
+        String selected = historyRevision(source, root, revision.orElseGet(source.headSha()));
+        return localDiff.historyPage(root, selected, path, offset);
+    }
+
+    public CodeHistory.Comparison historyCommit(String reviewId, String revision, Optional<String> parent)
+    {
+        return historyCommit(source(reviewId), revision, parent);
+    }
+
+    public CodeHistory.Comparison historyCommit(TaskCodeHost host, String revision, Optional<String> parent)
+    {
+        return historyCommit(source(host), revision, parent);
+    }
+
+    private CodeHistory.Comparison historyCommit(Source source, String revision, Optional<String> parent)
+    {
+        Path root = source.checkout().orElseGet(() -> repository(source.task()));
+        return localDiff.historyCommit(root, historyRevision(source, root, revision), parent);
+    }
+
+    public CodeFile snapshot(String reviewId, String revision, String path)
+    {
+        return snapshot(source(reviewId), revision, path);
+    }
+
+    public CodeFile snapshot(TaskCodeHost host, String revision, String path)
+    {
+        return snapshot(source(host), revision, path);
+    }
+
+    private CodeFile snapshot(Source source, String revision, String path)
+    {
+        checkPath(path);
+        Path root = source.checkout().orElseGet(() -> repository(source.task()));
+        String selected = historyRevision(source, root, revision);
+        Result shown = localDiff.read(root, "cat-file", "blob", selected + ":" + path);
+        if (!shown.successful()) {
+            throw notFound(path);
+        }
+        byte[] bytes = shown.output().getBytes(UTF_8);
+        return content(path, bytes, shown.truncated() || bytes.length > MAXIMUM_FILE_BYTES, Optional.of("Historical source is read-only"),
+                Optional.empty(), ImmutableList::of);
+    }
+
+    private String historyRevision(Source source, Path root, String revision)
+    {
+        String selected = localDiff.commit(root, revision);
+        checkArgument(localDiff.read(root, "merge-base", "--is-ancestor", selected, source.headSha().get()).successful(), "Commit is outside this task's history");
+        return selected;
+    }
+
+    public CodeBlame blame(String reviewId, String path)
+    {
+        checkPath(path);
+        return blame(source(reviewId), path);
+    }
+
+    public CodeBlame blame(TaskCodeHost host, String path)
+    {
+        checkPath(path);
+        return blame(source(host), path);
+    }
+
+    private CodeBlame blame(Source source, String path)
+    {
+        CodeFile file = file(source, path);
+        String revision = source.headSha().get();
+        if (file.content().isEmpty()) {
+            return new CodeBlame(path, revision, file.contentHash().orElse(""), ImmutableList.of(), false, file.unavailableReason());
+        }
+        Path root = source.checkout().orElseGet(() -> repository(source.task()));
+        if (source.checkout().isPresent() && symlinked(root, path)) {
+            return new CodeBlame(path, revision, file.contentHash().orElse(""), ImmutableList.of(), false, Optional.of("Blame is unavailable for symbolic links"));
+        }
+        Result result = localDiff.read(root, ImmutableList.<String>builder()
+                .add("blame", "--incremental", "--no-progress", "--no-textconv", "--encoding=UTF-8")
+                .addAll(source.checkout().isEmpty() ? ImmutableList.of(revision) : ImmutableList.of())
+                .add("--", path).build().toArray(String[]::new));
+        if (!result.successful()) {
+            return new CodeBlame(path, revision, file.contentHash().orElse(""), ImmutableList.of(), false, Optional.of("No local Git blame is available for this file"));
+        }
+        requireUnchangedHead(source);
+        CodeFile after = file(source, path);
+        if (!file.contentHash().equals(after.contentHash())) {
+            throw new ReviewConflictException("The file changed while blame was being read; refresh before viewing annotations");
+        }
+        String output = result.truncated() ? result.output().substring(0, result.output().lastIndexOf('\n') + 1) : result.output();
+        return new CodeBlame(path, revision, file.contentHash().orElse(""), CodeBlame.parse(output), result.truncated(), Optional.empty());
+    }
+
     /**
      * How the file differs from the pull request's merge base, compared with {@code revision}, or without one with the
      * working tree, so saved local edits count too. A file the pull request renamed compares with its source path.

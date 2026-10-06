@@ -125,6 +125,22 @@ export class IdeViews {
     ipcMain.handle('ide:request', (event, method: unknown, args: unknown, userGesture: boolean) => {
       const editor = child(event);
       validateIdeAction(method, args, editor.context, userGesture === true);
+      if (method === 'readCodeBlame') {
+        const host = editor.host;
+        const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}` : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
+        return runtimeRequest(`${route}/blame?path=${encodeURIComponent(String(args[1]))}`, 'GET');
+      }
+      if (method === 'readCodeHistory' || method === 'readHistoryCommit' || method === 'readHistorySnapshot') {
+        const host = editor.host;
+        const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}` : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
+        const query = args[1] as Record<string, unknown>;
+        const params = new URLSearchParams();
+        const endpoint = method === 'readCodeHistory' ? 'history' : method === 'readHistoryCommit' ? 'commit' : 'snapshot';
+        for (const key of endpoint === 'history' ? ['revision', 'path', 'offset'] : endpoint === 'commit' ? ['revision', 'parent'] : ['revision', 'path']) {
+          if (query[key] !== undefined) params.set(key, String(query[key]));
+        }
+        return runtimeRequest(`${route}/${endpoint}?${params}`, 'GET');
+      }
       if (editor.pending.size >= 64) throw new Error('Too many pending IDE actions');
       const requestId = randomUUID();
       return new Promise((resolve, reject) => {

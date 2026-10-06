@@ -213,6 +213,120 @@ class TestReviewCodeService
     }
 
     @Test
+    void historyReadsOldCommitsRenamesDeletionAndMergeParentsWithoutChangingGit()
+    {
+        String initial = head;
+        CodeHistory.Comparison root = service.historyCommit(taskHost(), initial, Optional.empty());
+        assertThat(root.parent()).isEmpty();
+        assertThat(root.files()).extracting(CodeHistory.Change::status).containsOnly("A");
+        assertThat(service.snapshot(taskHost(), initial, MAIN_PATH).content()).contains("production source\n");
+        assertThat(service.snapshot(taskHost(), initial, MAIN_PATH).editable()).isFalse();
+
+        git(checkout, "mv", "Old.java", "renamed 測試.java");
+        git(checkout, "commit", "-m", "Rename source");
+        String renamed = git(checkout, "rev-parse", "HEAD");
+        CodeHistory.Change rename = service.historyCommit(REVIEW_ID, renamed, Optional.empty()).files().getFirst();
+        assertThat(rename.path()).isEqualTo("renamed 測試.java");
+        assertThat(rename.originalPath()).contains("Old.java");
+        assertThat(service.history(taskHost(), Optional.empty(), Optional.of(rename.path()), 0).commits())
+                .extracting(CodeHistory.Commit::sha).containsExactly(renamed, initial);
+        git(checkout, "rm", "renamed 測試.java");
+        git(checkout, "commit", "-m", "Delete source");
+        String deleted = git(checkout, "rev-parse", "HEAD");
+        assertThat(service.historyCommit(taskHost(), deleted, Optional.empty()).files().getFirst().status()).isEqualTo("D");
+        assertThat(service.snapshot(taskHost(), renamed, rename.path()).content()).contains("renamed source\n");
+
+        git(checkout, "checkout", "-b", "other-parent", initial);
+        write(checkout, "branch.go", "package main\n");
+        git(checkout, "add", "branch.go");
+        git(checkout, "commit", "-m", "Other parent");
+        String other = git(checkout, "rev-parse", "HEAD");
+        git(checkout, "checkout", "--detach", deleted);
+        git(checkout, "merge", "--no-ff", "other-parent", "-m", "Merge source");
+        String merge = git(checkout, "rev-parse", "HEAD");
+        write(checkout, MAIN_PATH, "Uncommitted local edits\n");
+        String status = git(checkout, "status", "--porcelain=v1");
+        CodeHistory.Comparison first = service.historyCommit(taskHost(), merge, Optional.empty());
+        assertThat(first.commit().parents()).containsExactly(deleted, other);
+        assertThat(first.files()).extracting(CodeHistory.Change::path).containsExactly("branch.go");
+        CodeHistory.Comparison second = service.historyCommit(taskHost(), merge, Optional.of(other));
+        assertThat(second.parent()).contains(other);
+        assertThat(second.files()).extracting(CodeHistory.Change::path).containsExactly("Old.java");
+        assertThat(service.history(REVIEW_ID, Optional.of(initial), Optional.empty(), 0).commits()).hasSize(1);
+        assertThatThrownBy(() -> service.historyCommit(taskHost(), merge, Optional.of(initial))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.snapshot(taskHost(), initial, "../secret")).isInstanceOf(IllegalArgumentException.class);
+        assertThat(git(checkout, "status", "--porcelain=v1")).isEqualTo(status);
+        assertThat(git(checkout, "rev-parse", "HEAD")).isEqualTo(merge);
+    }
+
+    @Test
+    void historyPagesStayBoundToTheSelectedRevision()
+    {
+        for (int index = 0; index < 101; index++) {
+            git(checkout, "commit", "--allow-empty", "-m", "History " + index);
+        }
+        CodeHistory first = service.history(taskHost(), Optional.empty(), Optional.empty(), 0);
+        assertThat(first.commits()).hasSize(100);
+        assertThat(first.nextOffset()).hasValue(100);
+        git(checkout, "commit", "--allow-empty", "-m", "New head after page one");
+        CodeHistory second = service.history(taskHost(), Optional.of(first.revision()), Optional.empty(), first.nextOffset().orElseThrow());
+        assertThat(second.commits()).hasSize(2);
+        assertThat(second.commits().getLast().sha()).isEqualTo(head);
+        assertThat(second.nextOffset()).isEmpty();
+        assertThatThrownBy(() -> service.history(taskHost(), Optional.empty(), Optional.empty(), -1)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void blameTracksSavedEditsAndRetainsRepeatedCommitMetadataWithoutChangingGit()
+    {
+        write(checkout, MAIN_PATH, "one\ntwo\nthree\n");
+        git(checkout, "add", MAIN_PATH);
+        git(checkout, "commit", "-m", "Three lines");
+        String committed = git(checkout, "rev-parse", "HEAD");
+        write(checkout, MAIN_PATH, "one\nlocal edit\nthree\n");
+        String before = git(checkout, "status", "--porcelain=v1");
+        CodeBlame blame = service.blame(REVIEW_ID, MAIN_PATH);
+        assertThat(blame.revision()).isEqualTo(committed);
+        assertThat(blame.contentHash()).isEqualTo(service.file(REVIEW_ID, MAIN_PATH).contentHash().orElseThrow());
+        assertThat(blame.spans()).extracting(CodeBlame.Span::line).containsExactly(1, 2, 3);
+        assertThat(blame.spans()).extracting(CodeBlame.Span::uncommitted).containsExactly(false, true, false);
+        assertThat(blame.spans().getFirst().author()).isEqualTo("ByteQuay Test");
+        assertThat(blame.spans().getLast().author()).isEqualTo("ByteQuay Test");
+        assertThat(git(checkout, "status", "--porcelain=v1")).isEqualTo(before);
+        assertThat(git(checkout, "rev-parse", "HEAD")).isEqualTo(committed);
+    }
+
+    @Test
+    void blameFollowsRenamesAndWorksForJavaGoAndRust()
+    {
+        for (String path : ImmutableList.of(MAIN_PATH, "main.go", "src/main.rs")) {
+            write(checkout, path, "source line\n");
+        }
+        git(checkout, "add", ".");
+        git(checkout, "commit", "-m", "Language fixtures");
+        String commit = git(checkout, "rev-parse", "HEAD");
+        for (String path : ImmutableList.of(MAIN_PATH, "main.go", "src/main.rs")) {
+            assertThat(service.blame(taskHost(), path).spans().getFirst().commit()).isEqualTo(commit);
+        }
+        git(checkout, "mv", "main.go", "renamed 測試.go");
+        git(checkout, "commit", "-m", "Rename Go fixture");
+        CodeBlame renamed = service.blame(taskHost(), "renamed 測試.go");
+        assertThat(renamed.spans().getFirst().commit()).isEqualTo(commit);
+        assertThat(renamed.spans().getFirst().originalPath()).isEqualTo("main.go");
+    }
+
+    @Test
+    void blameDoesNotInventHistoryForUntrackedFilesOrFollowLinks()
+            throws IOException
+    {
+        write(checkout, "new.go", "new source\n");
+        assertThat(service.blame(taskHost(), "new.go").unavailableReason()).isPresent();
+        Files.createSymbolicLink(checkout.resolve("linked.java"), checkout.resolve(MAIN_PATH));
+        assertThat(service.blame(REVIEW_ID, "linked.java").unavailableReason()).contains("Blame is unavailable for symbolic links");
+        assertThatThrownBy(() -> service.blame(taskHost(), "../outside")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void caughtUpCodeUsesCurrentFileMarksWhileReviewedChangesStayFrozen()
     {
         String listedRevision = service.files(REVIEW_ID).revision();

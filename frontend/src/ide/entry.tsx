@@ -17,9 +17,9 @@ import { attachPart, Parts } from '@codingame/monaco-vscode-views-service-overri
 import type { TextEditor } from 'vscode';
 import type { Bridge } from '../types';
 import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '../pulls/code-tests/useCodeComments';
-import type { ReviewCodeFileDto, ReviewCodeFilesDto, WorktreeChangesDto } from '../pulls/code-tests/contracts';
+import type { ReviewCodeFileDto, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import { latestRun } from '../pulls/agent-review/model';
-import type { IdeConnection, IdeContext } from './contracts';
+import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
 import { startRuntime, chooseKeymap, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
 import { restoreSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
@@ -27,6 +27,9 @@ import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
 import { PanelLeft, ArrowLeft, ArrowRight, Search, ListTree, GitBranch, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
 import ReviewZones from './ReviewZones';
+import EditorNavigation from './EditorNavigation';
+import { installGitHistory } from './gitHistory';
+import { codeHostKey } from '../pulls/code-tests/contracts';
 import '../css/base.css';
 import '../css/markdown-editor.css';
 import '../css/pulls.css';
@@ -94,7 +97,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [bottom, setBottom] = useState<'tests' | 'debug' | 'terminal' | 'history'>('tests');
   const column = useResizablePane(285, 180, 650);
   const panel = useResizablePane(270, 100, 900, 'start', 'y');
-  const [history, setHistory] = useState<WorktreeChangesDto | null>(null);
+  const [history, setHistory] = useState<HistoryComparison | null>(null);
+  const [gitHistory, setGitHistory] = useState<ReturnType<typeof installGitHistory> | null>(null);
   const [recovered, setRecovered] = useState<SourceDraft[]>([]);
   const [keymap, setKeymap] = useState(localStorage.getItem('bytequay.ide.keymap') ?? 'IDEA');
   const [theme, setTheme] = useState(localStorage.getItem('bytequay.ide.theme') ?? 'ByteQuay IDEA Light');
@@ -104,6 +108,13 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     window.ideWorkbench.report({ dirty: runtime.api.workspace.textDocuments.filter(document => document.isDirty).length + privateDrafts,
       busy: runtime.terminals.instances.some(terminal => terminal.hasChildProcesses) || runtime.api.debug.activeDebugSession !== undefined || runtime.tests.results.some(result => result.completedAt === undefined) });
   };
+
+  useEffect(() => {
+    const history = installGitHistory(runtime, context.host);
+    setGitHistory(history);
+    return () => history.dispose();
+  }, [runtime, codeHostKey(context.host)]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (files?.revision) gitHistory?.updateRevision(files.revision); }, [gitHistory, files?.revision]);
 
   useEffect(() => {
     const drafts = trackSourceDrafts(runtime, setError);
@@ -127,6 +138,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       if (id === 'terminal') setBottom('terminal');
       else if (id?.includes('debug') || id === 'workbench.panel.repl') setBottom('debug');
       else if (id?.toLowerCase().includes('test')) setBottom('tests');
+      else if (id?.includes('scm')) setBottom('history');
     };
     showPanel(runtime.panels.getActivePaneComposite(1)?.getId());
     const panel = runtime.panels.onDidPaneCompositeOpen(event => { if (event.viewContainerLocation === 1) showPanel(event.composite.getId()); });
@@ -186,12 +198,12 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     if (value === 'debug') command('workbench.view.debug');
     if (value === 'terminal') command('workbench.action.terminal.focus');
     if (value === 'history') {
-      try { setHistory(await request('readWorktreeChanges', context.host, { scope: 'COMMITTED' }) as WorktreeChangesDto); }
+      try { setHistory(null); await gitHistory?.focus(); }
       catch (cause) { setError(String(cause)); }
     }
   };
-  const chooseCommit = async (commit: string) => {
-    try { setHistory(await request('readWorktreeChanges', context.host, { scope: 'COMMIT', commit }) as WorktreeChangesDto); }
+  const chooseCommit = async (commit: string, parent?: string) => {
+    try { if (gitHistory) setHistory(await gitHistory.readCommit(commit, parent)); }
     catch (cause) { setError(String(cause)); }
   };
 
@@ -206,6 +218,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <button onClick={() => command('editor.showCallHierarchy')}><GitBranch size={14} /> Callers</button>
       <button onClick={() => command('editor.action.referenceSearch.trigger')}>Usages</button>
       <button disabled={!comments.onComment} onClick={commentSelection}><MessageSquare size={14} /> Comment</button>
+      <EditorNavigation runtime={runtime} active={active} context={context} file={file} revision={files?.revision}
+        onHistory={commit => { setBottom('history'); void chooseCommit(commit); }} />
       <select aria-label="Editor keymap" value={keymap} onChange={event => { const value = event.target.value; void chooseKeymap(value).then(() => setKeymap(value), cause => setError(String(cause))); }}><option>IDEA</option><option>VS Code</option></select>
       <select aria-label="IDE theme" value={theme} onChange={event => {
         const value = event.target.value;
@@ -249,11 +263,22 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
         <button onClick={() => { void selectBottom('debug'); command('workbench.action.debug.start'); }}>Debug configuration</button>
         <button onClick={() => command('workbench.action.debug.stop')}><Square size={12} /> Stop debug</button>
       </nav>
-      <div className="ide-tools" style={{ display: bottom === 'history' ? 'none' : undefined }}><Part part={Parts.PANEL_PART} /></div>
-      {bottom === 'history' && <div className="ide-history">
-        <div>{history?.commits.map(commit => <button key={commit.sha} onClick={() => { void chooseCommit(commit.sha); }}><code>{commit.sha.slice(0, 8)}</code> {commit.message?.split('\n')[0]}</button>)}</div>
-        <div>{history?.files.map(file => <details key={file.filename}><summary>{file.filename} · +{file.additions} −{file.deletions}</summary><pre>{file.patch ?? 'No text patch is available'}</pre></details>)}</div>
-      </div>}
+      <div className="ide-tools" style={{ display: bottom === 'history' && history ? 'none' : undefined }}><Part part={Parts.PANEL_PART} /></div>
+      {bottom === 'history' && <nav className="ide-toolbar" aria-label="History scope">
+        <button onClick={() => { setHistory(null); void gitHistory?.focus().catch(cause => setError(String(cause))); }}>Repository history</button>
+        <button disabled={!selected} onClick={() => { setHistory(null); void gitHistory?.focus(selected ?? undefined).catch(cause => setError(String(cause))); }}>Current file history</button>
+      </nav>}
+      {bottom === 'history' && history && <section className="ide-history" aria-label="Commit details">
+        <div><strong>{history.commit.message.split('\n')[0]}</strong><p>{history.commit.author} · {new Date(history.commit.authoredAt).toLocaleString()}</p><code>{history.commit.sha}</code>
+          <p>{history.commit.message.split('\n').slice(1).join('\n')}</p>
+          {history.commit.parents.length > 1 && <label>Compare parent <select aria-label="Compare parent" value={history.parent ?? ''}
+            onChange={event => { void chooseCommit(history.commit.sha, event.target.value); }}>{history.commit.parents.map(parent => <option key={parent} value={parent}>{parent.slice(0, 12)}</option>)}</select></label>}
+          {history.truncated && <p role="status">The changed-file list is truncated.</p>}
+        </div><div>{history.files.map(file => <button key={file.path} onClick={() => { void gitHistory?.openDiff(history, file).catch(cause => setError(String(cause))); }}>
+          {file.status} · {file.originalPath ? `${file.originalPath} → ` : ''}{file.path}
+        </button>)}</div>
+      </section>}
+
     </footer>
   </main>;
 }

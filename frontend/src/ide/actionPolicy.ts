@@ -14,7 +14,7 @@
 import type { IdeContext } from './contracts';
 import { codeHostKey, parseCodeHost } from '../pulls/code-tests/contracts';
 
-const READ_METHODS = new Set(['getGitHubUserProfile', 'fetchGitHubCodeSnippet', 'listCodeFiles', 'readCodeFile', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges', 'getAgentReview', 'getAgentTask']);
+const READ_METHODS = new Set(['getGitHubUserProfile', 'fetchGitHubCodeSnippet', 'listCodeFiles', 'readCodeFile', 'readCodeBlame', 'readCodeHistory', 'readHistoryCommit', 'readHistorySnapshot', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges', 'getAgentReview', 'getAgentTask']);
 const PRIVATE_METHODS = new Set(['openInAppBrowser', 'github.post', 'github.reply', 'github.resolve', 'github.edit', 'github.react', 'comments.ask', 'comments.reply', 'comments.resolve', 'comments.retry', 'comments.finding', 'comments.refresh', 'comments.pending', 'comments.detail', 'review.changed', 'askAgentReview', 'resolveAgentReviewFinding', 'reopenAgentReviewFinding', 'betterWords', 'finding.ask', 'finding.resolve', 'finding.reopen', 'finding.add', 'finding.post', 'finding.editDraft', 'finding.remove', 'finding.fix']);
 
 function text(value: unknown, limit = 30_000): asserts value is string {
@@ -30,7 +30,7 @@ function object(value: unknown): Record<string, unknown> {
 }
 function file(value: unknown): void {
   text(value, 4_096);
-  if (!value || value.startsWith('/') || value.split('/').some(part => part === '..' || part === '.')) throw new Error('Invalid workspace path');
+  if (!value || value.startsWith('/') || value.includes('\\') || value.split('/').some(part => !part || part === '..' || part === '.' || part === '.git')) throw new Error('Invalid workspace path');
 }
 function count(args: unknown[], minimum: number, maximum = minimum): void {
   if (args.length < minimum || args.length > maximum) throw new Error('Invalid IDE action arguments');
@@ -65,10 +65,22 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
   }
   const review = context.review;
   const comments = context.comments;
-  if (['listCodeFiles', 'readCodeFile', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges'].includes(method)) {
+  if (['listCodeFiles', 'readCodeFile', 'readCodeBlame', 'readCodeHistory', 'readHistoryCommit', 'readHistorySnapshot', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges'].includes(method)) {
     if (codeHostKey(parseCodeHost(args[0])) !== codeHostKey(context.host)) throw new Error('The code request names a different task');
     switch (method) {
       case 'listCodeFiles': case 'listCodeRuns': count(args, 1); return;
+      case 'readCodeHistory': case 'readHistoryCommit': case 'readHistorySnapshot': {
+        count(args, 2);
+        const query = object(args[1]);
+        if (method !== 'readCodeHistory' || query.revision !== undefined) {
+          if (typeof query.revision !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(query.revision)) throw new Error('Invalid history revision');
+        }
+        if (query.parent !== undefined && (typeof query.parent !== 'string' || !/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/.test(query.parent))) throw new Error('Invalid history parent');
+        if (query.path !== undefined || method === 'readHistorySnapshot') file(query.path);
+        if (query.offset !== undefined) { integer(query.offset); if (query.offset > 1_000_000) throw new Error('History offset is too large'); }
+        return;
+      }
+      case 'readCodeBlame': count(args, 2); file(args[1]); return;
       case 'readCodeFile': count(args, 2, 3); file(args[1]); if (args[2] !== undefined) text(args[2], 64); return;
       case 'readCodeRunOutput': count(args, 3); id(args[1]); integer(args[2]); return;
       case 'readWorktreeChanges': {

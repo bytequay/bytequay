@@ -28,6 +28,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -78,6 +79,60 @@ public class WorktreeDiffReader
             commits.add(new DiffCommit(fields.get(index).strip(), parent, fields.get(index + 4).strip(), fields.get(index + 2), Instant.parse(fields.get(index + 3))));
         }
         return new History(commits.build(), fields.size() / 5 > MAXIMUM_COMMITS);
+    }
+
+    public CodeHistory historyPage(Path checkout, String revision, Optional<String> path, int offset)
+    {
+        checkArgument(offset >= 0 && offset <= 1_000_000, "Invalid history offset");
+        path.ifPresent(ReviewCodeService::checkPath);
+        String output = require(checkout, ImmutableList.<String>builder()
+                .add("log", "--no-show-signature", "--no-ext-diff", "--no-textconv", "--date-order", "--format=%H%x00%P%x00%an%x00%aI%x00%B%x00")
+                .add("--skip=" + offset, "-n", "101").addAll(path.isPresent() ? ImmutableList.of("--follow") : ImmutableList.of())
+                .add(revision, "--").addAll(path.stream().iterator()).build().toArray(String[]::new));
+        List<CodeHistory.Commit> commits = historyCommits(output);
+        return new CodeHistory(revision, commits.stream().limit(100).collect(ImmutableList.toImmutableList()),
+                commits.size() > 100 ? OptionalInt.of(offset + 100) : OptionalInt.empty());
+    }
+
+    public CodeHistory.Comparison historyCommit(Path checkout, String revision, Optional<String> requestedParent)
+    {
+        CodeHistory.Commit commit = historyCommits(require(checkout, "show", "--no-patch", "--no-show-signature",
+                "--format=%H%x00%P%x00%an%x00%aI%x00%B%x00", revision, "--")).getFirst();
+        Optional<String> parent = requestedParent.or(() -> commit.parents().stream().findFirst());
+        checkArgument(parent.isEmpty() || commit.parents().contains(parent.orElseThrow()), "The selected revision is not a parent of this commit");
+        List<String> args = parent.isPresent()
+                ? ImmutableList.of("diff", "--raw", "-z", "-M", "--no-ext-diff", "--no-textconv", parent.orElseThrow(), revision, "--")
+                : ImmutableList.of("diff-tree", "--root", "--no-commit-id", "--raw", "-z", "-r", "-M", "--no-ext-diff", "--no-textconv", revision, "--");
+        Result result = read(checkout, args.toArray(String[]::new));
+        checkState(result.successful(), "Cannot read commit changes: %s", result.output().strip());
+        List<String> entries = ReviewCodeService.entries(result.output(), result.truncated());
+        ImmutableList.Builder<CodeHistory.Change> files = ImmutableList.builder();
+        for (int index = 0; index + 1 < entries.size(); ) {
+            String metadata = entries.get(index++);
+            String status = metadata.substring(metadata.lastIndexOf(' ') + 1);
+            String path = entries.get(index++);
+            Optional<String> original = Optional.empty();
+            if (status.startsWith("R") || status.startsWith("C")) {
+                if (index == entries.size()) {
+                    break;
+                }
+                original = Optional.of(path);
+                path = entries.get(index++);
+            }
+            files.add(new CodeHistory.Change(path, original, status));
+        }
+        return new CodeHistory.Comparison(commit, parent, files.build(), result.truncated());
+    }
+
+    private static List<CodeHistory.Commit> historyCommits(String output)
+    {
+        List<String> fields = Splitter.on('\0').splitToList(output);
+        ImmutableList.Builder<CodeHistory.Commit> commits = ImmutableList.builder();
+        for (int index = 0; index + 4 < fields.size(); index += 5) {
+            commits.add(new CodeHistory.Commit(fields.get(index).strip(), Splitter.on(' ').omitEmptyStrings().splitToList(fields.get(index + 1)),
+                    fields.get(index + 2), Instant.parse(fields.get(index + 3)), fields.get(index + 4).strip()));
+        }
+        return commits.build();
     }
 
     public Diff diff(Path checkout, String base, Optional<String> head)

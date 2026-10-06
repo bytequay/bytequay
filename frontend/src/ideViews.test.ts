@@ -131,3 +131,31 @@ it('binds encoded saves to the owning task and rejects escapes and malformed byt
     await expect(invoke('ide:save', child(), ...args)).rejects.toThrow('Invalid editor save');
   }
 });
+
+
+it('reads blame only for the current task and keeps backend credentials in main', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:update', parent(), id, { host, task: null, review: null, detail: null });
+  await invoke('ide:request', child(), 'readCodeBlame', [host, 'src/測試.go'], false);
+  expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/ide/tasks/workspace/task/blame?path=src%2F%E6%B8%AC%E8%A9%A6.go', expect.objectContaining({ method: 'GET' }));
+  expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
+  expect(() => invoke('ide:request', child(), 'readCodeBlame', [{ ...host, taskId: 'other' }, 'src/main.go'], false)).toThrow('different task');
+  for (const path of ['../secret', '/etc/passwd', '.git/config', 'src/../secret', 'src//file']) {
+    expect(() => invoke('ide:request', child(), 'readCodeBlame', [host, path], false)).toThrow('workspace path');
+  }
+});
+
+
+it('bounds history queries to fixed read routes and validated revisions', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:update', parent(), id, { host, task: null, review: null, detail: null });
+  const revision = 'a'.repeat(40);
+  await invoke('ide:request', child(), 'readCodeHistory', [host, { revision, offset: 100, path: 'renamed 測試.go', token: 'unrecognized' }], false);
+  const url = new URL(fetchMock.mock.calls.at(-1)?.[0] as string);
+  expect(url.pathname).toBe('/agent/ide/tasks/workspace/task/history');
+  expect(Object.fromEntries(url.searchParams)).toEqual({ revision, offset: '100', path: 'renamed 測試.go' });
+  for (const [method, query] of [['readHistorySnapshot', { revision, path: '../secret' }], ['readHistoryCommit', { revision: '--all' }],
+    ['readHistoryCommit', { revision, parent: 'HEAD' }], ['readCodeHistory', { offset: 1_000_001 }]]) {
+    expect(() => invoke('ide:request', child(), method, [host, query], false)).toThrow();
+  }
+});

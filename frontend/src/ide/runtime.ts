@@ -30,6 +30,7 @@ import getTesting from '@codingame/monaco-vscode-testing-service-override';
 import getDebug from '@codingame/monaco-vscode-debug-service-override';
 import getRemote from '@codingame/monaco-vscode-remote-agent-service-override';
 import getSearch from '@codingame/monaco-vscode-search-service-override';
+import getScm from '@codingame/monaco-vscode-scm-service-override';
 import EditorWorker from '@codingame/monaco-vscode-api/workers/editor.worker?worker';
 import TextmateWorker from '@codingame/monaco-vscode-textmate-service-override/worker?worker';
 import '@codingame/monaco-vscode-theme-defaults-default-extension';
@@ -74,11 +75,11 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'java.configuration.updateBuildConfiguration': 'automatic', 'java.trace.server': 'off',
     'go.showWelcome': false, 'go.toolsManagement.autoUpdate': false, 'go.toolsManagement.checkForUpdates': 'off',
     'rust-analyzer.testExplorer': true, 'extensions.autoUpdate': false, 'extensions.autoCheckUpdates': false,
-    'git.enabled': false, 'terminal.integrated.enablePersistentSessions': false,
+    'git.enabled': false, 'scm.graph.pageSize': 100, 'terminal.integrated.enablePersistentSessions': false,
   }));
   await initUserKeybindings(JSON.stringify(localStorage.getItem('bytequay.ide.keymap') === 'VS Code' ? [] : ideaKeys));
   const extension = registerExtension({
-    name: 'workbench', publisher: 'bytequay', version: '1.0.0', engines: { vscode: '*' },
+    name: 'workbench', publisher: 'bytequay', version: '1.0.0', engines: { vscode: '*' }, enabledApiProposals: ['scmHistoryProvider'],
     contributes: { themes: [
       { id: 'ByteQuay IDEA Light', label: 'ByteQuay IDEA Light', uiTheme: 'vs', path: './ideaLight.json' },
       { id: 'ByteQuay Darcula', label: 'ByteQuay Darcula', uiTheme: 'vs-dark', path: './darcula.json' },
@@ -94,7 +95,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
   await initialize({
     [IWorkbenchExtensionEnablementService.toString()]: new SyncDescriptor(ExtensionPolicy, [versions]),
     ...getConfiguration(), ...getModel(), ...getStorage(), ...getViews(), ...getTheme(), ...getTextmate(),
-    ...getLanguages(), ...getKeys(), ...getExplorer(), ...getTesting(), ...getDebug(), ...getSearch(),
+    ...getLanguages(), ...getKeys(), ...getExplorer(), ...getTesting(), ...getDebug(), ...getSearch(), ...getScm(),
     ...getRemote({ scanRemoteExtensions: true }),
   }, container, {
     resourceUriProvider: uri => URI.from({ scheme: 'https', authority: 'ide-assets.bytequay.invalid', path: uri.path }),
@@ -110,7 +111,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     if (view) views.moveViewContainerToLocation(view, 1, undefined, 'ByteQuay');
   }
   return {
-    api, workspace,
+    api, workspace, views,
     editors: await getService(ICodeEditorService),
     tests: await getService(ITestResultService),
     debug: await getService(IDebugService),

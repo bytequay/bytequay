@@ -47,7 +47,8 @@ const WRITTEN: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, 
   // A command too long to wrap must scroll inside the chapter instead of widening it.
   exercise: 'Run the metadata test:\n\n```bash\n./mvnw -pl plugin/trino-iceberg -Dtest=TestIcebergMetadata#testSnapshotsListedInOrder '
     + '-Dair.check.skip-all=true -DfailIfNoTests=false -Dsurefire.failIfNoSpecifiedTests=false -Dmaven.javadoc.skip=true -Dlicense.skip=true test\n```',
-  observe: 'The test lists two snapshots.', check: 'What does a snapshot point to?' } };
+  observe: 'The test lists **two snapshots**.\n\n| Snapshot | State |\n| --- | --- |\n| First | `committed` |\n| Second | `current` |\n\nCompare with #123.',
+  check: 'What does a snapshot point to?' } };
 
 function text(): string {
   return document.body.textContent ?? '';
@@ -134,6 +135,12 @@ export async function run(): Promise<boolean> {
       && [...document.querySelectorAll('.goal-chapter > *')].every((part) => part.getBoundingClientRect().right <= chapter.right + 1),
       'A long command or a wide diagram stays inside the chapter, which sits in the middle of the page');
     assert(document.querySelector('.goal-chapter__section strong')?.textContent === 'current snapshot', 'A section reads as Markdown');
+    const observations = document.querySelector('.goal-chapter__try > .markdown-body:last-child');
+    assert(observations?.querySelector('strong')?.textContent === 'two snapshots'
+      && observations.querySelectorAll('thead th').length === 2 && observations.querySelectorAll('tbody tr').length === 2
+      && observations.querySelector('tbody td code')?.textContent === 'committed'
+      && observations.querySelector('a')?.getAttribute('href') === 'https://github.com/trinodb/trino/issues/123',
+    'What you should see renders Markdown tables and inline formatting, preserving repository issue links');
 
     const expand = document.querySelector<HTMLButtonElement>('.goal-diagram__expand');
     assert(expand !== null, 'Each diagram can be expanded');

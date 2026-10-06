@@ -75,7 +75,7 @@ export function ChapterBody({ content, repository }: { content: LessonContentDto
       <div className="goal-chapter__kicker">Try it</div>
       <MarkdownBody body={content.exercise} repository={repository} />
       <div className="goal-chapter__kicker">What you should see</div>
-      <p>{linkIssueNumbers(content.observe, repository)}</p>
+      <MarkdownBody body={content.observe} repository={repository} />
     </section>
   </>;
 }

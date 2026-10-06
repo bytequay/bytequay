@@ -16,11 +16,17 @@ package com.bytequay.app.web.review;
 import com.bytequay.app.review.IdeConnection;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.review.ReviewCodeService;
+import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.review.TaskCodeHost;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import static java.util.Objects.requireNonNull;
@@ -50,6 +56,29 @@ public class IdeController
     {
         return runtime.open(code.ideWorktree(new TaskCodeHost(workspaceId, taskId)));
     }
+
+    @PutMapping("/reviews/{reviewId}/file")
+    public void saveReview(@PathVariable String reviewId, @RequestBody SaveBytesRequest request)
+    {
+        code.saveBytes(reviewId, request.path(), request.content(), request.expectedHash());
+    }
+
+    @PutMapping("/tasks/{workspaceId}/{taskId}/file")
+    public void saveTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestBody SaveBytesRequest request)
+    {
+        code.saveBytes(new TaskCodeHost(workspaceId, taskId), request.path(), request.content(), request.expectedHash());
+    }
+
+    @ExceptionHandler(ReviewFileConflictException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public SaveConflict changed(ReviewFileConflictException conflict)
+    {
+        return new SaveConflict("IDE_FILE_CHANGED", conflict.getMessage());
+    }
+
+    record SaveConflict(String code, String message) {}
+
+    record SaveBytesRequest(String path, byte[] content, String expectedHash) {}
 
     @PostMapping("/{taskId}/{sessionId}/touch")
     public void touch(@PathVariable String taskId, @PathVariable String sessionId)

@@ -614,6 +614,24 @@ class TestReviewCodeService
     }
 
     @Test
+    void savesEncodedIdeBytesAndRefusesStaleOrExistingFiles()
+            throws IOException
+    {
+        byte[] original = {(byte) 0xff, (byte) 0xfe, 'a', 0};
+        byte[] edited = {(byte) 0xff, (byte) 0xfe, 'b', 0};
+        Files.write(checkout.resolve(MAIN_PATH), original);
+        String hash = Hashing.sha256().hashBytes(original).toString();
+        service.saveBytes(REVIEW_ID, MAIN_PATH, edited, hash);
+        assertThat(Files.readAllBytes(checkout.resolve(MAIN_PATH))).isEqualTo(edited);
+        assertThatThrownBy(() -> service.saveBytes(REVIEW_ID, MAIN_PATH, original, hash)).isInstanceOf(ReviewFileConflictException.class);
+        assertThat(Files.readAllBytes(checkout.resolve(MAIN_PATH))).isEqualTo(edited);
+        service.saveBytes(REVIEW_ID, "new/nested/main.go", "package main\n".getBytes(UTF_8), "-");
+        assertThat(checkout.resolve("new/nested/main.go")).hasContent("package main\n");
+        assertThatThrownBy(() -> service.saveBytes(REVIEW_ID, "new/nested/main.go", edited, "-")).isInstanceOf(ReviewConflictException.class);
+        assertThat(checkout.resolve("new/nested/main.go")).hasContent("package main\n");
+    }
+
+    @Test
     void staleSaveReturnsTheVersionOnDiskWithoutWriting()
             throws IOException
     {

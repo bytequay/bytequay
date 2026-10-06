@@ -436,12 +436,17 @@ public class ReviewCodeService
      */
     public CodeFile save(String reviewId, String path, String content, String expectedHash)
     {
-        checkPath(path);
-        byte[] bytes = savedBytes(content, expectedHash);
-        return reviews.mutateWorkingCopy(reviewId, task -> {
-            Source source = source(reviewId);
-            overwrite(source, path, bytes, expectedHash);
-            return file(source, path);
+        saveBytes(reviewId, path, savedBytes(content, expectedHash), expectedHash);
+        return file(source(reviewId), path);
+    }
+
+    /** IDE encoders supply bytes directly, so UTF-16 and BOMs retain the same conflict-safe save boundary. */
+    public void saveBytes(String reviewId, String path, byte[] content, String expectedHash)
+    {
+        checkSave(path, content, expectedHash);
+        reviews.mutateWorkingCopy(reviewId, task -> {
+            overwrite(source(reviewId), path, content, expectedHash);
+            return null;
         });
     }
 
@@ -455,13 +460,24 @@ public class ReviewCodeService
      */
     public CodeFile save(TaskCodeHost host, String path, String content, String expectedHash)
     {
-        checkPath(path);
-        byte[] bytes = savedBytes(content, expectedHash);
+        saveBytes(host, path, savedBytes(content, expectedHash), expectedHash);
+        return file(source(host), path);
+    }
+
+    public void saveBytes(TaskCodeHost host, String path, byte[] content, String expectedHash)
+    {
+        checkSave(path, content, expectedHash);
         mutableTask(host);
         Source source = source(host);
         LocalRunService.requireTaskIdle(turns, source.task());
-        turns.synchronizeWorktree(source.task().id(), source.task().version(), claimed -> overwrite(source, path, bytes, expectedHash));
-        return file(source, path);
+        turns.synchronizeWorktree(source.task().id(), source.task().version(), claimed -> overwrite(source, path, content, expectedHash));
+    }
+
+    private static void checkSave(String path, byte[] content, String expectedHash)
+    {
+        checkPath(path);
+        checkArgument(content != null && content.length <= MAXIMUM_FILE_BYTES, "The file is larger than 2 MiB");
+        checkArgument(expectedHash != null, "expectedHash is required");
     }
 
     private static byte[] savedBytes(String content, String expectedHash)
@@ -481,6 +497,17 @@ public class ReviewCodeService
         readOnlyReason(source, true, symlinked(root, path)).ifPresent(reason -> {
             throw new ReviewConflictException(reason);
         });
+        if (expectedHash.equals("-")) {
+            try {
+                Path file = root.resolve(path);
+                Files.createDirectories(file.getParent());
+                Files.write(file, bytes, LinkOption.NOFOLLOW_LINKS, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+                return;
+            }
+            catch (IOException failure) {
+                throw new ReviewConflictException("Cannot create " + path + ": " + failure.getMessage(), failure);
+            }
+        }
         byte[] current = readCheckout(root, path);
         Path file = root.resolve(path);
         String currentHash = contentHash(file);

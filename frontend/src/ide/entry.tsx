@@ -32,6 +32,7 @@ import { useResizablePane } from '../useResizablePane';
 import { PanelLeft, ArrowLeft, ArrowRight, Ellipsis, Search, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import EditorNavigation from './EditorNavigation';
+import Usages from './Usages';
 import { installGitHistory } from './gitHistory';
 import { codeHostKey } from '../pulls/code-tests/contracts';
 import '../css/base.css';
@@ -267,6 +268,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <section className="ide-editor" aria-label="Source code"><Part part={Parts.EDITOR_PART} />{comments.unplaced}</section>
     </div>
     {active && <ReviewZones runtime={runtime} uri={active.document.uri.toString()} cards={comments.cards} renderCard={comments.renderCard} />}
+    <Usages editors={runtime.editors} workspace={runtime.workspace} />
     <div className={`ide-panel-resize${panel.resizing ? ' is-resizing' : ''}`} role="separator" tabIndex={0} aria-orientation="horizontal"
       aria-label="Resize the tools panel" aria-valuenow={panel.width} aria-valuemin={100} aria-valuemax={900}
       onMouseDown={event => { event.currentTarget.focus(); panel.startResize(event); }} onKeyDown={event => {

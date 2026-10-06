@@ -76,7 +76,10 @@ Code & Tests offers IDEA Light and Darcula themes with Atom One-style syntax
 colors. License headers and imports fold on first open; expand them with the
 gutter arrows. Symbol search, callers, and usages remain available through the
 editor shortcuts and context menu. Use **⌘F** to find text in the current file and
-**⌘⇧F** to search across the worktree. Working-copy reset and discard are in the
+**⌘⇧F** to search across the worktree. **⌘-click** a method to show its usages
+with filenames, line numbers, and source lines; test-file results are green.
+Select a result to jump there, or press **Escape** to close the popup.
+Working-copy reset and discard are in the
 **…** menu and require confirmation.
 
 <a id="workspaces"></a>

@@ -38,6 +38,7 @@ import light from '../ideaLight.json';
 import dark from '../darcula.json';
 import { assert } from '../../fixtures/harness';
 import { verifyFileAppearance } from './fileAppearance';
+import { verifyUsages } from './usagesBrowser';
 
 export async function run() {
   window.MonacoEnvironment = { getWorker: (_id, label) => label === 'TextMateWorker' ? new TextmateWorker() : new EditorWorker() };
@@ -123,6 +124,7 @@ public class Example {
   }
   provider.dispose();
   await verifyFileAppearance();
+  await verifyUsages();
   // An attached editor part enables the workbench's native shortcuts, as it does in Code & Tests.
   const nativeEditor = document.createElement('div'); nativeEditor.style.cssText = 'height:100px;width:700px'; document.body.append(nativeEditor);
   attachPart(Parts.EDITOR_PART, nativeEditor);

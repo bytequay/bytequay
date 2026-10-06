@@ -20,7 +20,7 @@ import electron from 'electron';
 import { createServer } from 'vite';
 import { expect, it } from 'vitest';
 
-it('renders native syntax, folding, type icons, test colors, and search shortcuts', async () => {
+it('renders native syntax, folding, type icons, test colors, usages, and search shortcuts', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-editor-appearance-'));
   const server = await createServer({ configFile: resolve('vite.ide.config.ts'), logLevel: 'error',
     cacheDir: join(directory, 'node_modules/.vite'), server: { host: '127.0.0.1', port: 0 },
@@ -45,7 +45,7 @@ it('renders native syntax, folding, type icons, test colors, and search shortcut
         window.webContents.on('console-message', event => console.error(event.message));
         try {
           await window.loadURL('http://127.0.0.1:${address.port}/__appearance');
-          const result = await window.webContents.executeJavaScript('window.result');
+          const pending = window.webContents.executeJavaScript('window.result');
           const modifier = process.platform === 'darwin' ? 'meta' : 'control';
           const press = shift => {
             const modifiers = shift ? [modifier, 'shift'] : [modifier];
@@ -53,13 +53,19 @@ it('renders native syntax, folding, type icons, test colors, and search shortcut
             window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F', modifiers });
           };
           window.show(); window.focus(); window.webContents.focus();
-          const waitFor = async expression => {
-            for (let attempt = 0; attempt < 100; attempt++) {
+          const waitFor = async (expression, attempts = 100) => {
+            for (let attempt = 0; attempt < attempts; attempt++) {
               if (await window.webContents.executeJavaScript(expression)) return;
               await new Promise(resolve => setTimeout(resolve, 50));
             }
             throw new Error('Shortcut did not reach the editor: ' + expression);
           };
+          await waitFor('Boolean(window.usageClickPoint)', 600);
+          const point = await window.webContents.executeJavaScript('window.usageClickPoint');
+          window.webContents.sendInputEvent({ type: 'mouseMove', ...point, modifiers: [modifier] });
+          window.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
+          window.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
+          const result = await pending;
           press(false);
           await waitFor('Boolean(document.querySelector(".find-widget.visible"))');
           for (let attempt = 0; attempt < 2; attempt++) {

@@ -1,0 +1,118 @@
+{
+  "measurement": "sum of process RSS, shared pages may be counted repeatedly",
+  "totalMiB": 2693.9,
+  "processes": [
+    {
+      "pid": 48240,
+      "parent": 18164,
+      "group": 48240,
+      "rssKiB": 213792,
+      "executable": "/Users/jack.chen/IdeaProjects/bytequay/frontend/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron"
+    },
+    {
+      "pid": 48253,
+      "parent": 48240,
+      "group": 48240,
+      "rssKiB": 110384,
+      "executable": "/Users/jack.chen/IdeaProjects/bytequay/frontend/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron"
+    },
+    {
+      "pid": 48254,
+      "parent": 48240,
+      "group": 48240,
+      "rssKiB": 53504,
+      "executable": "/Users/jack.chen/IdeaProjects/bytequay/frontend/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron"
+    },
+    {
+      "pid": 48256,
+      "parent": 48240,
+      "group": 48256,
+      "rssKiB": 2096,
+      "executable": "bash"
+    },
+    {
+      "pid": 48262,
+      "parent": 48256,
+      "group": 48256,
+      "rssKiB": 96992,
+      "executable": "/Users/jack.chen/.codex/worktrees/modular-code-tests/bytequay/frontend/vendor/ide/server/node"
+    },
+    {
+      "pid": 48263,
+      "parent": 48240,
+      "group": 48240,
+      "rssKiB": 65360,
+      "executable": "/Users/jack.chen/IdeaProjects/bytequay/frontend/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron"
+    },
+    {
+      "pid": 48268,
+      "parent": 48240,
+      "group": 48240,
+      "rssKiB": 435152,
+      "executable": "/Users/jack.chen/IdeaProjects/bytequay/frontend/node_modules/electron/dist/Electron.app/Contents/Frameworks/Electron"
+    },
+    {
+      "pid": 48322,
+      "parent": 48262,
+      "group": 48256,
+      "rssKiB": 80064,
+      "executable": "/Users/jack.chen/.codex/worktrees/modular-code-tests/bytequay/frontend/vendor/ide/server/node"
+    },
+    {
+      "pid": 49030,
+      "parent": 48262,
+      "group": 48256,
+      "rssKiB": 143904,
+      "executable": "/Users/jack.chen/.codex/worktrees/modular-code-tests/bytequay/frontend/vendor/ide/server/node"
+    },
+    {
+      "pid": 49031,
+      "parent": 48262,
+      "group": 48256,
+      "rssKiB": 57232,
+      "executable": "/Users/jack.chen/.codex/worktrees/modular-code-tests/bytequay/frontend/vendor/ide/server/node"
+    },
+    {
+      "pid": 49091,
+      "parent": 49030,
+      "group": 48256,
+      "rssKiB": 888144,
+      "executable": "/private/tmp/bytequay-native-ide-probe/extensions/redhat.java-1.56.0/jre/21.0.12.1-macosx-aarch64/bin/java"
+    },
+    {
+      "pid": 49099,
+      "parent": 49030,
+      "group": 48256,
+      "rssKiB": 539712,
+      "executable": "/private/tmp/bytequay-native-ide-probe/extensions/rust-lang.rust-analyzer-0.4.3072/server/rust-analyzer"
+    },
+    {
+      "pid": 49186,
+      "parent": 49099,
+      "group": 48256,
+      "rssKiB": 27120,
+      "executable": "/tmp/bytequay-toolchains/rust/libexec/rust-analyzer-proc-macro-srv"
+    },
+    {
+      "pid": 49187,
+      "parent": 49099,
+      "group": 48256,
+      "rssKiB": 27136,
+      "executable": "/tmp/bytequay-toolchains/rust/libexec/rust-analyzer-proc-macro-srv"
+    },
+    {
+      "pid": 48862,
+      "parent": 48322,
+      "group": 48862,
+      "rssKiB": 8976,
+      "executable": "/bin/zsh"
+    },
+    {
+      "pid": 49350,
+      "parent": 48322,
+      "group": 49350,
+      "rssKiB": 8976,
+      "executable": "/bin/zsh"
+    }
+  ]
+}

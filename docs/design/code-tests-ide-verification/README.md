@@ -3,14 +3,19 @@
 These files support the [refactor plan](../code-tests-ide-refactor.md). They are
 integration-fixture evidence, not results from the production ByteQuay app.
 
+This page describes the original feasibility fixture. The newer
+[native runtime report](runtime-gate.md) records the pinned implementation,
+resolved TextMate failure, real language/debug checks, automatic project writes
+and the approved real-worktree execution boundary.
+
 - `ui-results.json`: development-server checks using the actual
   `LocalReviewThreadCard`, a synthetic VS Code TestController and DAP adapter, and
   an SCM provider populated from three temporary Git commits. The browser also
   verified reply Markdown preview, light/dark switching and visible history rows.
 - `prototype.jpg`: that development fixture with ByteQuay's card, the selected
   local error text and native Git history graph. It is not the finished UI design.
-- `production-ui-results.json`: the later production-build smoke test. It records
-  the unresolved TextMate runtime errors; do not interpret the earlier empty
+- `production-ui-results.json`: the original production-build smoke test. It records
+  the TextMate runtime errors before their fix; do not interpret the earlier empty
   error list as a production pass.
 - `probe-source.zip`: small source/configuration/lockfile snapshot for reproduction.
   It excludes dependencies and generated bundles. The fixture imports ByteQuay's
@@ -50,9 +55,9 @@ const { applyStateStackDiff, INITIAL } = await preload(async () => {
 That transform loses the `main` namespace expected by the library. The source
 imports the namespace and then destructures its `main` export. Inspecting Vite 5's
 `dynamicImportTreeshakenRE`/preload transform identifies the compatibility point;
-excluding `@codingame` from CommonJS conversion did not solve it. This remains
-open. Do not commit the experimental build aliases or settings to the application
-without resolving and retesting the complete packaged path.
+excluding `@codingame` from CommonJS conversion did not solve it. The later
+implementation resolves this specific transform with a regression-tested plugin.
+The complete application cutover remains gated as described in the native report.
 
 The raw result timestamps and generated IDs belong to the temporary fixtures.
 All test failures were deliberate (`double(3)` expected 7, returned 6); the DAP

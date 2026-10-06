@@ -1,7 +1,12 @@
 # Code & Tests IDE refactor plan
 
-Status: implementation plan backed by a feasibility prototype. The production
-application has not been migrated. [Code & Tests](code-tests.md),
+Status: design committed; implementation has started. The IDE uses the real task
+worktree, with production-code and test editing in active reviews as well as
+development. Opening the IDE does not take an exclusive mutation claim or block
+the agent. Native Java/Go/Rust caller queries, real tests and Java debug are now
+verified. See the [native runtime report](code-tests-ide-verification/runtime-gate.md)
+for completed checks and remaining integration work. The production application
+has not been migrated. [Code & Tests](code-tests.md),
 [WorkBench](workbench.md), and [Agent Service](agent-service.md) remain the current
 contracts until their replacement steps below land.
 
@@ -19,7 +24,7 @@ The library exposes separate services and workbench parts; its
 [views example](https://github.com/CodinGame/monaco-vscode-api/blob/main/demo/src/setup.views.ts)
 demonstrates attaching those parts to application containers.
 
-Choose this route subject to the runtime gate below. If that gate needs a
+Choose this route subject to the remaining runtime checks below. If those need a
 substantial upstream fork or duplicates the language/test/debug engines, stop and
 evaluate Theia as the replacement foundation. Do not build two production paths.
 Plain Monaco alone would leave too much IDE integration for ByteQuay to maintain.
@@ -48,6 +53,14 @@ output does not automatically become a structured test result.
 [Testing API](https://code.visualstudio.com/api/extension-guides/testing))
 
 ## Verification findings
+
+The table below records the original feasibility proof. The subsequent
+[native runtime proof](code-tests-ide-verification/runtime-gate.md) resolves the
+TextMate production-build failure and pins the real language extensions. Project
+import may execute build tools and write files, as in a normal IDE. This is
+consistent with the approved writable review workflow; an editor read-only flag
+is not an execution boundary. Final application integration and lifecycle checks
+remain open.
 
 The temporary prototype used `@codingame/monaco-vscode-*` **37.3.3**, Vite **5.4.21**,
 and ByteQuay's actual React `LocalReviewThreadCard` component and CSS. Its test
@@ -88,7 +101,7 @@ Two findings materially affect the implementation:
    bundles. Retain a pinned, tested build recipe; do not hide missing browser
    dependencies with fake externals.
 
-The subsequent production smoke test exposed one unresolved issue:
+The original production smoke test exposed this issue, since resolved:
 `Cannot destructure property 'applyStateStackDiff' ... as it is undefined`.
 Inspecting the built JavaScript shows that Vite 5's dynamic-import preload
 transform projects `applyStateStackDiff`/`INITIAL` before the library's
@@ -97,6 +110,8 @@ eliminated an earlier `$init` error; excluding the library from CommonJS convers
 did not fix this separate transform issue. Resolve it with a tested build
 configuration or a bounded compatibility correction before adopting the runtime.
 Do not upgrade the app's Vite major or disable syntax functionality silently.
+The pinned implementation's narrow import transform and production-bundle
+regression test now provide that correction.
 
 Earlier desktop VS Code checks established separate TypeScript definitions in two
 worktrees. They did not measure this modular runtime or Java/Rust/Go. In
@@ -210,14 +225,23 @@ Agent shell/build runs remain command results unless reliable structured reports
 exist. Keep existing Maven report ingestion until its consumers have a replacement;
 do not treat native Test Explorer as a parser for every external process.
 
-Editor saves and workspace edits must still validate file identity, current
-content hash, allowed path and source claims. Review workspaces retain their
-restricted edit scope; development workspaces retain theirs. Disable unapproved
-format-on-save/automatic fix behavior. Curated extensions can execute Node code and
-write directly to disk, so a frontend read-only flag is not a filesystem sandbox.
-The runtime gate must verify the chosen extensions' automatic import/build/write
-behavior and the execution gate before those extensions are enabled on a claimed
-or restricted workspace.
+Use the actual task worktree. Active reviews permit editing production code,
+tests and project files to reimplement, compare and verify behavior. Remove the
+old Code & Tests editor's test-source-only restriction; it is not a restriction
+on review agents. Preserve agent permissions, task routing and review experiment
+handling. Ended reviews and historical snapshots remain read-only.
+
+Opening or indexing a worktree does not acquire an exclusive mutation claim and
+does not prevent agent work. Explicit ByteQuay saves retain existing path,
+ownership, content-hash and short-lived mutation checks. Explicit runs/debugging
+retain the existing execution coordination. Watch external changes, surface
+conflicts with unsaved buffers, and never silently overwrite either side.
+Curated language extensions and project import/build tools may write directly to
+disk, as in a normal IDE; they do not call the editor save endpoint. Do not
+represent editor guards as a sandbox or claim they serialize every extension
+write. This refactor adds neither a disposable mirror with edit synchronization
+nor an IDE-wide exclusive lease. Leave automatic formatting/fixes off by default
+unless the user configures them.
 
 ## Git history
 
@@ -297,13 +321,13 @@ runtime disposal and correct claim release are required for this refactor.
   production bundle. Successful compilation alone does not satisfy this gate.
 - Run the Java, Rust and Go proofs above with actual extensions and tools.
   Confirm native test-debug profiles, not only standalone debugging.
-- Verify every launch/save gate, automatic extension behavior, two-worktree
+- Verify launch/save coordination, automatic extension behavior, two-worktree
   isolation, agent queries without a visible editor and baseline queries.
 - Measure cold import, warm reopen, active/idle footprint and process disposal
   against the same repositories. A closed idle runtime must have no remaining
   owned worker/extension/language processes. Record package size and startup cost.
-- **Exit gate:** no substantial upstream fork, no alternate indexing stack, no
-  bypass of existing write/claim policy, and the packaged three-language path
+- **Exit gate:** no substantial upstream fork, no alternate indexing stack,
+  preserved agent behavior and conflict handling, and the packaged three-language path
   works. Otherwise revisit the foundation before removing current features.
 
 ### 2. Replace the editor and preserve the ByteQuay UI

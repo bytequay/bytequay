@@ -361,9 +361,10 @@ user set.
 The Guide view lists what the user knows, folded under its count, and the user
 can correct any level.
 
-Automatic outcome harvesting and the two-call discovery shortlist remain
-pending. The
-checklist distinguishes these from implemented behavior.
+Two parts are left out on purpose. Accepting a result stays the user's own
+decision, so nothing harvests an outcome automatically, even after a merge; and
+discovery stays one answer over at most a hundred candidates, whose chosen
+source Start reads again, rather than a second shortlist call.
 
 The checked development database contained no Goals or issue/Jira task bindings.
 The final Goal mapping uses `goal`; work items and identity reservations use
@@ -649,14 +650,15 @@ and methods behind it and how they connect, and its sources: a page with its
 section, or a repository path at a commit.
 
 Notes belong to the Goal and are reused by lessons, discovery and later
-research. A note becomes stale when its source moves on, such as a newer
-specification revision or a monitored head that changes a cited path. Stale
-notes stay readable and are marked, and the agent may recommend a refresh. A
-note that cites a specification page can be remembered: Remember makes it a SPEC
-memory of the workspace, the user's own, through the existing capture policy,
-with its topic as the title, its text cut to a memory's size in whole sentences,
-its pages as sources and the files of the repository it cites as scope, and the
-note then names that memory. A note citing no page cannot be remembered, since
+research. A note becomes stale when a file it cites changes at the monitored
+head of its workspace or a Dependency. The pages it cites are not read again,
+since repository memory gave up page captures on purpose. Stale notes stay
+readable and are marked, and the agent may recommend a refresh. A note that
+cites a specification page can be remembered: Remember makes it a SPEC memory of
+the workspace, the user's own, through the existing capture policy, with its
+topic as the title, its text cut to a memory's size in whole sentences, its
+pages as sources and the files of the repository it cites as scope, and the note
+then names that memory. A note citing no page cannot be remembered, since
 repository memory keeps no description of how code works, and the Goal never
 writes repository memory without that click.
 

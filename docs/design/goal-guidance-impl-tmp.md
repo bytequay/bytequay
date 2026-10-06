@@ -1,7 +1,8 @@
 # Agent guided goals implementation plan
 
-Status: The first nineteen implementation slices are complete. The later items
-of Steps 3 to 6 below remain as listed.
+Status: complete. Twenty-six implementation slices and a live check on a real
+Goal landed; four items below were left out on 2026-10-06 by the user's
+decision, each marked where it stands with its reason.
 The [Goal guidance design](goal-guidance.md) owns the product and behavior contract;
 this checklist records delivery order, concrete actions and proof required.
 
@@ -922,6 +923,7 @@ intermediate reference-count percentage to maintain.
 - [ ] Add explicit accepted deliverable/base/criteria mappings and automatic
   merged-delivery evaluation with outcome harvesting in Step 5. The current
   result-acceptance action always requires the user's scope confirmation.
+  Left out: accepting a result stays the user's own decision, even after a merge.
 - [x] Add blocker-aware moves when same-Goal dependencies arrive in Step 6:
   work with blockers or dependents cannot leave its Goal.
 
@@ -1004,7 +1006,9 @@ work items. Closing and reopening the app retains the conversation and plan.
   through one fixed task-bound tool.
 - [ ] Store knowledge notes with topic, sources and staleness. Mark notes stale
   when a cited specification or path moves; offer a repository-memory Remember
-  through the existing capture policy.
+  through the existing capture policy. Left out for pages: notes, staleness for
+  cited files and Remember are built, but cited pages are not read again, since
+  repository memory gave up page captures on purpose.
 - [x] Propose a course of parts and lessons from the notes and the starting
   knowledge. Accepted lessons become ordered Learn items with a milestone; a
   tool-free request writes and saves each lesson as an illustrated chapter.
@@ -1020,7 +1024,9 @@ work items. Closing and reopening the app retains the conversation and plan.
   uncertain duplicates or possible fixes as if they were confirmed.
 - [ ] Refresh shortlisted sources through existing services. Add only the missing
   duplicate/closing-PR evidence reads needed for the readiness decision. Record
-  source revision, freshness and skipped coverage.
+  source revision, freshness and skipped coverage. Left out for the record: a
+  card's source is read again before it floats and at Start, but its revision and
+  freshness are not kept.
 - [x] Supply at most 100 compact candidates, inspect at most five selected sources
   and display at most three recommendations. Reject model-invented IDs and URLs.
   Cache conclusions by input revision; unchanged candidates need no new model call.
@@ -1040,6 +1046,8 @@ work items. Closing and reopening the app retains the conversation and plan.
   need not rewrite the agent's proposed task in another input.
 - [ ] At Start, recheck source identity, role, state, work-item revision and linked
   work. Open an existing task when appropriate; preserve the draft on failure.
+  Left out for the revision: the composer is prepared from the work as it stands
+  when it opens, and the user reviews the request before sending it.
 
 Evidence for the checked items: `TestGoalLessonService`, `TestGoalSpecChecks`,
 `TestGoalCandidates`, `TestGoalResearchService` for runs, stale notes and

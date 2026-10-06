@@ -50,6 +50,8 @@ public record ProcessOwner(Kind kind, String id)
          */
         DISCUSSION,
         /** One user-requested test run in a review working copy, owned by {@code <taskId>/<runId>}. */
-        LOCAL_RUN
+        LOCAL_RUN,
+        /** One task's IDE extension host and its language/debug child processes. */
+        IDE
     }
 }

@@ -24,6 +24,7 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -64,15 +65,18 @@ public final class ManagedWorktreeService
     private final WorkspacePaths paths;
     private final WorkspaceStore workspaces;
     private final GitCommandRunner git;
+    private final IdeRuntimeService ide;
 
     public ManagedWorktreeService(
             WorkspacePaths paths,
             WorkspaceStore workspaces,
-            GitCommandRunner git)
+            GitCommandRunner git,
+            IdeRuntimeService ide)
     {
         this.paths = requireNonNull(paths, "paths is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
+        this.ide = requireNonNull(ide, "ide is null");
     }
 
     @Override
@@ -255,6 +259,7 @@ public final class ManagedWorktreeService
             verifyPhysicalRepository(workspace, worktree.physicalRepository());
             Path repository = verifyManagedRepository(workspace);
             verifyDerivedPath(worktree);
+            ide.stopWorktree(worktree);
 
             if (Files.notExists(worktree.canonicalWorktree(), LinkOption.NOFOLLOW_LINKS)) {
                 if (registeredWorktreePaths(repository).contains(worktree.canonicalWorktree())) {
@@ -304,6 +309,7 @@ public final class ManagedWorktreeService
             verifyPhysicalRepository(workspace, worktree.physicalRepository());
             Path repository = verifyManagedRepository(workspace);
             verifyDerivedPath(worktree);
+            ide.stopWorktree(worktree);
             Path path = worktree.canonicalWorktree();
             if (Files.exists(path, LinkOption.NOFOLLOW_LINKS)) {
                 // Deleting the task is deleting its work, so dirty files are no refusal; ownership still is.

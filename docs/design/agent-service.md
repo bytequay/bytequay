@@ -2137,6 +2137,14 @@ sandbox text:
   control processes: one task's App Server, one Claude turn process, one
   read-only discussion session, or a short-lived control command. None claims
   an endpoint-level network allowlist;
+- `IDE` owns the pinned local IDE server and its extension-host descendants for
+  one task. It uses the actual worktree and the normal login-shell environment,
+  independently of agent turns and mutation claims. Opening an editor does not
+  block an agent or alter its execution profile. Desktop heartbeats retain an
+  active session; abandoned sessions, worktree removal and shutdown use the
+  existing verified process-tree stop. Failed startup or unverified cleanup
+  retains ownership for retry and startup recovery. The marker and launch row
+  carry the task ID; only that task is blocked by an unresolved recovery.
 - `LOCAL_RUN` owns one user-requested command in a review task's or
   development task's working copy ([Code & Tests](code-tests.md) §11).
   ByteQuay builds its argv: a fixed `/bin/bash -c` wrapper around the
@@ -2148,7 +2156,7 @@ sandbox text:
 `CLI_PROBE` identifies short-lived provider control commands and validated
 text-only helpers. The exact `APP_SERVER/codex-model-catalog` owner is also
 control-only. Every other `APP_SERVER` owner, every `CLAUDE_TURN` owner, and
-every `LOCAL_RUN` owner is task-worktree-capable.
+every `LOCAL_RUN` and `IDE` owner is task-worktree-capable.
 Keeping this classification on existing owner values preserves durable marker
 and SQLite compatibility without adding a lifecycle state.
 

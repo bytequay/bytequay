@@ -23,6 +23,7 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
@@ -46,6 +47,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -61,6 +63,7 @@ class TestManagedWorktreeService
     private WorkspacePaths paths;
     private RecordingGitCommandRunner git;
     private ManagedWorktreeService service;
+    private final IdeRuntimeService ide = mock(IdeRuntimeService.class);
     private Path repository;
     private String startCommit;
 
@@ -86,7 +89,18 @@ class TestManagedWorktreeService
 
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace()));
-        service = new ManagedWorktreeService(paths, workspaces, git);
+        service = new ManagedWorktreeService(paths, workspaces, git, ide);
+    }
+
+    @Test
+    void unverifiedIdeStopPreventsWorktreeRemoval()
+    {
+        TaskWorktree worktree = service.provision(command(TaskId.random()));
+        doThrow(new IllegalStateException("IDE processes remain")).when(ide).stopWorktree(worktree);
+        assertThatThrownBy(() -> service.cleanup(worktree)).hasMessage("IDE processes remain");
+        assertThatThrownBy(() -> service.delete(worktree)).hasMessage("IDE processes remain");
+        assertThat(worktree.canonicalWorktree()).exists();
+        assertThat(service.inspect(worktree).head()).isEqualTo(startCommit);
     }
 
     @Test
@@ -438,7 +452,7 @@ class TestManagedWorktreeService
         WorkspaceStore linkedWorkspaces = mock(WorkspaceStore.class);
         when(linkedWorkspaces.findById(linkedWorkspaceId))
                 .thenReturn(Optional.of(workspace(linkedWorkspaceId, linkedRepository)));
-        ManagedWorktreeService linkedService = new ManagedWorktreeService(linkedPaths, linkedWorkspaces, git);
+        ManagedWorktreeService linkedService = new ManagedWorktreeService(linkedPaths, linkedWorkspaces, git, mock(IdeRuntimeService.class));
 
         TaskId taskId = TaskId.random();
         assertThatThrownBy(() -> linkedService.provision(new ProvisionWorktreeCommand(

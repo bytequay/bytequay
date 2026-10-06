@@ -18,6 +18,7 @@ import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.domain.RepoRef;
@@ -91,7 +92,7 @@ class TestReviewExperiments
                 Optional.of(NOW), Optional.of(NOW), 0, NOW, NOW);
         WorkspaceStore store = mock(WorkspaceStore.class);
         when(store.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace));
-        worktrees = new ManagedWorktreeService(paths, store, git);
+        worktrees = new ManagedWorktreeService(paths, store, git, mock(IdeRuntimeService.class));
         TaskId taskId = TaskId.random();
         worktree = worktrees.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()),
                 base, "bytequay/task/" + taskId));

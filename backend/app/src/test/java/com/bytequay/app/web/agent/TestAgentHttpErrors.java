@@ -58,6 +58,7 @@ import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -164,7 +165,7 @@ class TestAgentHttpErrors
                 mock(AgentResourceService.class),
                 mock(RecentTouchRecorder.class),
                 mock(PullRequestTaskStore.class),
-                new ManagedWorktreeService(new WorkspacePaths(System.getProperty("java.io.tmpdir")), mock(WorkspaceStore.class), git),
+                new ManagedWorktreeService(new WorkspacePaths(System.getProperty("java.io.tmpdir")), mock(WorkspaceStore.class), git, mock(IdeRuntimeService.class)),
                 mock(PullRequestService.class),
                 appSettings,
                 ciRuns,

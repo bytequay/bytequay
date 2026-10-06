@@ -26,5 +26,6 @@ public enum LaunchOwnerKind
     CLAUDE_TURN,
     CLI_PROBE,
     DISCUSSION,
-    LOCAL_RUN
+    LOCAL_RUN,
+    IDE
 }

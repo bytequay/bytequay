@@ -149,6 +149,28 @@ public class ReviewCodeService
         return files(source(host));
     }
 
+    /** Resolves a writable IDE workspace without claiming it or changing an agent's execution state. */
+    public TaskWorktree ideWorktree(String reviewId)
+    {
+        Source source = source(reviewId);
+        source.ended().ifPresent(reason -> {
+            throw new ReviewConflictException(reason);
+        });
+        if (source.checkout().isEmpty()) {
+            throw new ReviewConflictException("The working copy is gone");
+        }
+        return source.task().taskWorktree().orElseThrow();
+    }
+
+    public TaskWorktree ideWorktree(TaskCodeHost host)
+    {
+        AgentTask task = mutableTask(host);
+        if (task.state() != TaskState.OPEN) {
+            throw new ReviewConflictException("The task has ended");
+        }
+        return task.taskWorktree().orElseThrow();
+    }
+
     private CodeFiles files(Source source)
     {
         Set<String> changed = source.diff().get().stream().map(DiffFile::filename).collect(toImmutableSet());

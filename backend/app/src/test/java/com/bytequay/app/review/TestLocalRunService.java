@@ -180,7 +180,7 @@ class TestLocalRunService
         WorkspaceStore workspaceStore = mock(WorkspaceStore.class);
         when(workspaceStore.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace));
         GitCommandRunner runner = new GitCommandRunner();
-        worktrees = new ManagedWorktreeService(paths, workspaceStore, runner);
+        worktrees = new ManagedWorktreeService(paths, workspaceStore, runner, mock(IdeRuntimeService.class));
         TaskId taskId = TaskId.random();
         worktree = worktrees.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), head, "bytequay/task/" + taskId));
         checkout = worktree.canonicalWorktree();

@@ -28,6 +28,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -110,7 +111,7 @@ class TestDevelopmentGitInspector
         when(workspaces.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace(false, "main")));
         when(credentials.gitAuthenticationEnvironment(eq(WORKSPACE_ID), anyCollection())).thenReturn(ImmutableMap.of());
         when(credentials.resolveGitHubToken(WORKSPACE_ID)).thenReturn("test-token");
-        worktreeService = new ManagedWorktreeService(paths, workspaces, git);
+        worktreeService = new ManagedWorktreeService(paths, workspaces, git, mock(IdeRuntimeService.class));
         TaskId taskId = TaskId.random();
         worktree = worktreeService.provision(new ProvisionWorktreeCommand(
                 taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), baseSha, TaskBranches.generate(taskId, "user", "Development test")));

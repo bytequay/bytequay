@@ -87,6 +87,7 @@ public class StoredLaunchIntentRecorder
             case CLI_PROBE -> LaunchOwnerKind.CLI_PROBE;
             case DISCUSSION -> LaunchOwnerKind.DISCUSSION;
             case LOCAL_RUN -> LaunchOwnerKind.LOCAL_RUN;
+            case IDE -> LaunchOwnerKind.IDE;
         };
     }
 }

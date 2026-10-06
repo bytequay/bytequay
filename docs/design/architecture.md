@@ -100,6 +100,13 @@ CI description repair reuses the fixed CI tool bridge in `agent-spi` and
 The existing attempt stores the exact proposal and write/verification facts in
 `core` and `persistence-sqlite`. It adds no module or independent workflow engine.
 
+The modular Code & Tests runtime stays in these modules. Application services
+resolve its task worktree and launch the bundled IDE server through the existing
+owned-process supervisor. `IDE` is a task-bound process owner, not an agent turn
+or mutation claim. Managed worktree cleanup stops that runtime under the same
+workspace lock before removing files. Electron owns the isolated editor view
+and authenticated runtime connection; ByteQuay owns the surrounding UI.
+
 ## 1. Architecture decision
 
 [Workspace relationships and backport chains](workspace-backports.md) reuse the

@@ -508,6 +508,36 @@ class TestAgentStartupRecovery
         verify(supervisor, never()).acknowledge("run-leaked");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void resolvesAnUnverifiableIdeToItsTask(boolean markerSurvived)
+    {
+        AgentEventOutboxStore outboxStore = mock(AgentEventOutboxStore.class);
+        AgentTurnStore turnStore = mock(AgentTurnStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        AgentServingGate servingGate = new AgentServingGate();
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
+        TaskId taskId = TaskId.random();
+        when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
+        String owner = taskId.toString();
+        ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(markerSurvived
+                ? unverifiableForOwner("ide-leaked", ProcessOwner.Kind.IDE, owner)
+                : unverifiable("ide-leaked")));
+
+        new AgentStartupRecovery(
+                outboxStore, mock(AgentEventService.class), maintenance(taskStore, turnStore), supervisor, servingGate,
+                launchStore(launch("ide-leaked", LaunchOwnerKind.IDE, owner)), taskStore, turnStore, mock(AgentTurnService.class))
+                .afterSingletonsInstantiated();
+
+        // An IDE process can write its task worktree, so an unresolved receipt must retain that task.
+        assertThat(servingGate.isReady()).isTrue();
+        ArgumentCaptor<AgentTask> held = ArgumentCaptor.forClass(AgentTask.class);
+        verify(taskStore).update(held.capture());
+        assertThat(held.getValue().worktreeMutationClaim()).contains(WorktreeMutationClaim.recovery("ide-leaked", held.getValue().updatedAt()));
+        verify(supervisor, never()).acknowledge("ide-leaked");
+    }
+
     @Test
     void keepsTheGateClosedForALocalRunOwnerThatNamesNoTask()
     {

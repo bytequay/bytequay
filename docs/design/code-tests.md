@@ -99,7 +99,7 @@ section 5. It adds no lifecycle state. The backend enforces each blocked action
   tab's availability.
 - **End review.** End review needs a working copy with no uncommitted changes
   (ignored files are fine), because task completion refuses uncommitted work.
-  - Saved test edits must be discarded first. The backend now returns 409
+  - Saved source and test edits must be discarded first. The backend returns 409
     "Discard saved edits before ending the review" (section 9).
   - If only ignored `target/` output remains, End keeps the worktree and the tab
     keeps reading it.
@@ -266,7 +266,9 @@ code editor provides. This design proposes **CodeMirror 6**:
 - **Packages** (all MIT): `@codemirror/state`, `@codemirror/view`,
   `@codemirror/commands` (history, default keymap), `@codemirror/language`,
   `@codemirror/lang-java`, `@codemirror/legacy-modes`, `@codemirror/search`.
-- **Production source** uses `EditorState.readOnly`.
+- **Active review source and tests** are editable. Historical snapshots and
+  ended reviews use `EditorState.readOnly`. Review experiments may change
+  production code and project files as well as tests.
 - **Inline cards** mount through React portals and are fully controlled
   (section 3.2).
 - **In-file find** is the editor's, because CodeMirror renders only the lines in
@@ -274,7 +276,7 @@ code editor provides. This design proposes **CodeMirror 6**:
   screen of a file. `search({top: true})` is always installed, and the keymap
   binds ⌘F, ⌘G / F3 and a panel-scoped Escape — not the package's
   `searchKeymap`, which also takes ⌘D, ⌘⇧L and ⌥⌘G. The panel drops its
-  replace controls by itself on read-only production source. An open find keeps
+  replace controls by itself on read-only snapshots. An open find keeps
   its query across a file switch, which the window find bar it replaces did.
 
 The alternative without a dependency is a highlight.js table for reading plus a
@@ -380,10 +382,10 @@ All go through `GitCommandRunner.run`.
   path must stay under the canonical worktree. Reads are capped at 2 MiB.
 - A path is **editable** only when all of these hold:
   - it is in the working copy of an OPEN review;
-  - it has a `src/test/` segment and no `.git` component;
+  - it has no `.git` component; production, test and project files are eligible;
   - neither the file nor any parent below the worktree is a symlink (checked
-    with `LinkOption.NOFOLLOW_LINKS`), so a PR cannot point a test path at
-    production source or Git metadata.
+    with `LinkOption.NOFOLLOW_LINKS`), so a path cannot redirect a write to
+    another file or Git metadata.
 - `PUT` repeats the check immediately before writing.
 
 **Save and discard** go through a new `AgentReviewService.mutateWorkingCopy`,
@@ -404,7 +406,7 @@ held under the review lock (`locked(reviewId)`), the same lock `reconcile`,
   without continuing. The lock serializes against both.
 - **Save** compares a SHA-256 of the on-disk bytes with `expectedHash` before
   writing, overwrites in place (the file mode stays), and never creates a file
-  (404). A path that could never be editable (production source, Git metadata,
+  (404). A path that could never be editable (Git metadata,
   over 2 MiB) is refused with 400 before the lock; refusals that depend on the
   working copy's state are 409. A stale hash answers 409 `{currentHash,
   currentContent}`, with `currentContent` null for a binary or oversized file.
@@ -950,7 +952,7 @@ Each phase is runnable and reviewable on its own. Each runs the full gates
   - Run records label local execution as distinct from GitHub CI.
 - **End review with build output.** A test run leaves ignored `target/`. End
   review then keeps the worktree "for inspection", and the tab keeps reading
-  it. Saved test edits must be discarded before End.
+  it. Saved source and test edits must be discarded before End.
 - **Backend crash mid-run.** Maven keeps running, because the JVM ignores
   SIGPIPE and the runtime limit dies with the backend. Startup recovery stops
   the group. If the stop cannot be verified, only that task stays in Recovery.

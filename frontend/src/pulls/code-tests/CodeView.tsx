@@ -290,7 +290,7 @@ function followHandlers(follow: { current: ((request: FollowRequest) => void) | 
       return false;
     },
     mousedown(event, view) {
-      // A plain click only places the caret, so test source stays typeable.
+      // A plain click only places the caret, so source stays typeable.
       if (follow.current === null || !(event.metaKey || event.ctrlKey) || event.button !== 0) return false;
       const word = wordAt(view, event);
       if (word === null) return false;
@@ -513,7 +513,7 @@ function stateFor(path: string, value: string, saved: string, allowed: boolean, 
         }
       }),
       EditorView.contentAttributes.of({
-        'aria-label': allowed ? `${path} test source — type to edit` : `${path} source`,
+        'aria-label': allowed ? `${path} source — type to edit` : `${path} source`,
         spellcheck: 'false',
       }),
     ],

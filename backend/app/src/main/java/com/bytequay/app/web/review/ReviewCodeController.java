@@ -34,7 +34,7 @@ import java.util.Optional;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-/** Whole-file and symbol reads, test-source edits, local test runs and the terminal's directory for an Agent review's Code and Tests tab. */
+/** Whole-file and symbol reads, source edits, local test runs and the terminal's directory for an Agent review's Code and Tests tab. */
 @RestController
 @RequestMapping("/api/agent-review/{reviewId}/code")
 public class ReviewCodeController

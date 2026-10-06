@@ -422,7 +422,7 @@ class TestReviewCodeService
     }
 
     @Test
-    void onlyTestSourceOfAnOpenReviewWithoutSymbolicLinksIsEditable()
+    void sourceAndTestsOfAnOpenReviewWithoutSymbolicLinksAreEditable()
             throws IOException
     {
         CodeFile test = service.file(REVIEW_ID, TEST_PATH);
@@ -434,8 +434,8 @@ class TestReviewCodeService
         assertThat(test.prPatch()).contains(TEST_PATCH);
 
         CodeFile production = service.file(REVIEW_ID, MAIN_PATH);
-        assertThat(production.editable()).isFalse();
-        assertThat(production.readOnlyReason()).contains("Production source — read-only here");
+        assertThat(production.editable()).isTrue();
+        assertThat(production.readOnlyReason()).isEmpty();
         assertThat(production.prPatch()).isEmpty();
 
         Files.createSymbolicLink(checkout.resolve("src/test/linked"), checkout.resolve("src/main/java"));
@@ -447,6 +447,7 @@ class TestReviewCodeService
 
         when(store.findReview(REVIEW_ID)).thenReturn(Optional.of(review(AgentReview.State.CLOSED)));
         assertThat(service.file(REVIEW_ID, TEST_PATH).readOnlyReason()).contains("This review has ended — read-only");
+        assertThat(service.file(REVIEW_ID, MAIN_PATH).readOnlyReason()).contains("This review has ended — read-only");
     }
 
     @Test
@@ -595,6 +596,24 @@ class TestReviewCodeService
     }
 
     @Test
+    void savesReviewExperimentsInSourceAndProjectFiles()
+    {
+        for (String path : ImmutableList.of(MAIN_PATH, "src/lib.rs", "main.go", "Cargo.toml")) {
+            write(checkout, path, "original\n");
+            CodeFile loaded = service.file(REVIEW_ID, path);
+            CodeFile saved = service.save(REVIEW_ID, path, "experiment\n", loaded.contentHash().orElseThrow());
+            assertThat(saved.editable()).isTrue();
+            assertThat(saved.content()).contains("experiment\n");
+            assertThat(checkout.resolve(path)).hasContent("experiment\n");
+
+            write(checkout, path, "agent edit\n");
+            assertThatThrownBy(() -> service.save(REVIEW_ID, path, "stale edit\n", saved.contentHash().orElseThrow()))
+                    .isInstanceOf(ReviewFileConflictException.class);
+            assertThat(checkout.resolve(path)).hasContent("agent edit\n");
+        }
+    }
+
+    @Test
     void staleSaveReturnsTheVersionOnDiskWithoutWriting()
             throws IOException
     {
@@ -622,14 +641,13 @@ class TestReviewCodeService
             throws IOException
     {
         String hash = Hashing.sha256().hashString("production source\n", UTF_8).toString();
-        assertThatThrownBy(() -> service.save(REVIEW_ID, MAIN_PATH, "edited\n", hash)).isInstanceOf(IllegalArgumentException.class).hasMessage("Only test sources can be edited here");
         assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/.git/config", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/../main/java/Code.java", "edited\n", hash)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> service.save(REVIEW_ID, TEST_PATH, "a".repeat(ReviewCodeService.MAXIMUM_FILE_BYTES + 1), hash))
                 .isInstanceOf(IllegalArgumentException.class).hasMessage("The file is larger than 2 MiB");
         assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/java/Missing.java", "edited\n", hash)).isInstanceOf(ReviewNotFoundException.class);
 
-        // A link in the file or any parent could aim a test path at production source.
+        // A link in the file or any parent can redirect a write away from the named file.
         Files.createSymbolicLink(checkout.resolve("src/test/linked"), checkout.resolve("src/main/java"));
         assertThatThrownBy(() -> service.save(REVIEW_ID, "src/test/linked/Code.java", "edited\n", hash))
                 .isInstanceOf(ReviewConflictException.class).hasMessage("Symbolic links are read-only here");
@@ -641,7 +659,9 @@ class TestReviewCodeService
         doThrow(new ReviewConflictException("A run is using this working copy")).when(reviews).mutateWorkingCopy(eq(REVIEW_ID), any());
         String loaded = Hashing.sha256().hashString("test source\n", UTF_8).toString();
         assertThatThrownBy(() -> service.save(REVIEW_ID, TEST_PATH, "edited\n", loaded)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
+        assertThatThrownBy(() -> service.save(REVIEW_ID, MAIN_PATH, "edited\n", hash)).isInstanceOf(ReviewConflictException.class).hasMessage("A run is using this working copy");
         assertThat(checkout.resolve(TEST_PATH)).hasContent("test source\n");
+        assertThat(checkout.resolve(MAIN_PATH)).hasContent("production source\n");
     }
 
     @Test

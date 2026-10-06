@@ -115,7 +115,7 @@ class TestReviewCodeController
                 "src/test/java/TestCode.java", Optional.of("class TestCode {}\n"), Optional.of("hash"), Optional.empty(), Optional.empty(), Optional.of("@@ -1 +1 @@"),
                 ImmutableList.of(new LineChange(LineChange.Kind.MODIFIED, 1, 1), new LineChange(LineChange.Kind.DELETED, 0, 2))));
         when(code.file("review-1", "image.png", Optional.empty())).thenReturn(new CodeFile(
-                "image.png", Optional.empty(), Optional.empty(), Optional.of("Production source — read-only here"), Optional.of("Binary file"), Optional.empty(), ImmutableList.of()));
+                "image.png", Optional.empty(), Optional.empty(), Optional.of("This review has ended — read-only"), Optional.of("Binary file"), Optional.empty(), ImmutableList.of()));
 
         mvc.perform(get("/api/agent-review/review-1/code/file").param("path", "src/test/java/TestCode.java"))
                 .andExpect(status().isOk())
@@ -128,7 +128,7 @@ class TestReviewCodeController
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"path": "image.png", "content": null, "contentHash": null, "editable": false,
-                         "readOnlyReason": "Production source — read-only here", "unavailableReason": "Binary file", "prPatch": null, "lineChanges": []}
+                         "readOnlyReason": "This review has ended — read-only", "unavailableReason": "Binary file", "prPatch": null, "lineChanges": []}
                         """, JsonCompareMode.STRICT));
     }
 
@@ -152,7 +152,7 @@ class TestReviewCodeController
                 "src/test/java/TestCode.java", Optional.of("class TestCode { int x; }\n"), Optional.of("saved"), Optional.empty(), Optional.empty(), Optional.of("@@ -1 +1 @@"), ImmutableList.of()));
         when(code.save("review-1", "src/test/java/TestCode.java", "draft\n", "stale")).thenThrow(new ReviewFileConflictException("disk", Optional.of("class TestCode {}\n")));
         when(code.save("review-1", "src/test/image.png", "draft\n", "stale")).thenThrow(new ReviewFileConflictException("binary", Optional.empty()));
-        when(code.save("review-1", "src/main/java/Code.java", "draft\n", "loaded")).thenThrow(new IllegalArgumentException("Only test sources can be edited here"));
+        when(code.save("review-1", ".git/config", "draft\n", "loaded")).thenThrow(new IllegalArgumentException("path must not name Git metadata"));
         when(code.save("review-1", "src/test/java/TestBusy.java", "draft\n", "loaded")).thenThrow(new ReviewConflictException("The review agent is working"));
 
         mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content("""
@@ -173,9 +173,9 @@ class TestReviewCodeController
                 .andExpect(content().json("""
                         {"currentHash": "binary", "currentContent": null}
                         """, JsonCompareMode.STRICT));
-        mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content(saveRequest("src/main/java/Code.java", "loaded")))
+        mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content(saveRequest(".git/config", "loaded")))
                 .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.message").value("Only test sources can be edited here"));
+                .andExpect(jsonPath("$.message").value("path must not name Git metadata"));
         mvc.perform(put("/api/agent-review/review-1/code/file").contentType(MediaType.APPLICATION_JSON).content(saveRequest("src/test/java/TestBusy.java", "loaded")))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("The review agent is working"))

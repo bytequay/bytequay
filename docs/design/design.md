@@ -107,7 +107,7 @@ historical checkpoint evidence and explicitly deferred future work.
   and runs, and report only reproduced bugs, feature requests and improvements,
   each with a draft issue the user files.
 - [Code & Tests](code-tests.md) specifies the task-bound WorkBench tab for reading whole
-  files, following symbols, running tests, editing test source, and a terminal
+  files, following symbols, running tests, editing source and tests, and a terminal
   in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)
   tracks the phased delivery. The [IDE refactor plan](code-tests-ide-refactor.md)
   records the verified modular-editor approach and migration gates for debugging,

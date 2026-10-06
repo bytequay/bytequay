@@ -280,13 +280,13 @@ public class ReviewCodeService
             // ponytail: the runner decodes output as UTF-8, so these bytes match the blob for UTF-8 text only; a revision is never saved against its hash.
             byte[] bytes = shown.output().getBytes(UTF_8);
             boolean tooLarge = shown.truncated() || bytes.length > MAXIMUM_FILE_BYTES;
-            return content(path, bytes, tooLarge, readOnlyReason(source, false, path, false), prPatch, () -> lineChanges(repository, source, Optional.of(revision), path));
+            return content(path, bytes, tooLarge, readOnlyReason(source, false, false), prPatch, () -> lineChanges(repository, source, Optional.of(revision), path));
         }
         Path root = source.checkout().orElseThrow();
         byte[] bytes = readCheckout(root, path);
         boolean symlinked = symlinked(root, path);
         // Git diffs a link's target text, not the file shown through it.
-        CodeFile result = content(path, bytes, bytes.length > MAXIMUM_FILE_BYTES, readOnlyReason(source, true, path, symlinked), prPatch,
+        CodeFile result = content(path, bytes, bytes.length > MAXIMUM_FILE_BYTES, readOnlyReason(source, true, symlinked), prPatch,
                 () -> symlinked ? ImmutableList.of() : lineChanges(root, source, Optional.empty(), path));
         requireUnchangedHead(source);
         return result;
@@ -406,7 +406,7 @@ public class ReviewCodeService
     }
 
     /**
-     * Writes a test source of the review's working copy over the version the editor loaded.
+     * Writes a file of the review's working copy over the version the editor loaded.
      *
      * @param expectedHash the {@link CodeFile#contentHash} the edit started from
      * @return the saved file, read back like {@link #file}
@@ -415,7 +415,6 @@ public class ReviewCodeService
     public CodeFile save(String reviewId, String path, String content, String expectedHash)
     {
         checkPath(path);
-        checkArgument(testSource(path), "Only test sources can be edited here");
         byte[] bytes = savedBytes(content, expectedHash);
         return reviews.mutateWorkingCopy(reviewId, task -> {
             Source source = source(reviewId);
@@ -457,7 +456,7 @@ public class ReviewCodeService
     {
         Path root = source.checkout().orElseThrow(() -> new ReviewConflictException("The working copy is gone"));
         // Repeated under the claim: the working copy may have changed since the editor loaded the file.
-        readOnlyReason(source, true, path, symlinked(root, path)).ifPresent(reason -> {
+        readOnlyReason(source, true, symlinked(root, path)).ifPresent(reason -> {
             throw new ReviewConflictException(reason);
         });
         byte[] current = readCheckout(root, path);
@@ -637,10 +636,10 @@ public class ReviewCodeService
                 // Catch-up changes code without changing the frozen review. Derive file marks from the checkout's own committed revision.
                 Supplier<Base> base = Suppliers.memoize(() -> reviewBase(review, run, directory, head));
                 return new Source(task, checkout, Suppliers.memoize(() -> localDiff.diff(directory, base.get().sha(), Optional.of(head)).files()),
-                        () -> Optional.of(base.get().sha()), () -> head, ended, true);
+                        () -> Optional.of(base.get().sha()), () -> head, ended);
             }
         }
-        return new Source(task, checkout, run::diff, () -> Optional.of(run.mergeBaseSha()), run::headSha, ended, true);
+        return new Source(task, checkout, run::diff, () -> Optional.of(run.mergeBaseSha()), run::headSha, ended);
     }
 
     /** Reads remain available during execution, but a head move cannot pair one revision's code with another revision's marks. */
@@ -696,7 +695,7 @@ public class ReviewCodeService
         Optional<String> readOnly = task.state() != TaskState.OPEN ? Optional.of("This task has ended — read-only")
                 : !task.interactive() ? Optional.of("This task's working copy is read-only here") : Optional.empty();
         return new Source(task, Optional.of(checkout), Suppliers.memoize(() -> localDiff.diff(checkout, base.get().sha(), Optional.of(head.get())).files()),
-                () -> Optional.of(base.get().sha()), head, readOnly, false);
+                () -> Optional.of(base.get().sha()), head, readOnly);
     }
 
     private Base taskBase(AgentTask task, Path checkout)
@@ -908,7 +907,7 @@ public class ReviewCodeService
         return false;
     }
 
-    private static Optional<String> readOnlyReason(Source source, boolean workingCopy, String path, boolean symlinked)
+    private static Optional<String> readOnlyReason(Source source, boolean workingCopy, boolean symlinked)
     {
         if (source.ended().isPresent()) {
             return source.ended();
@@ -916,18 +915,10 @@ public class ReviewCodeService
         if (!workingCopy) {
             return Optional.of("Read-only: the working copy is gone");
         }
-        if (source.testSourcesOnly() && !testSource(path)) {
-            return Optional.of("Production source — read-only here");
-        }
         if (symlinked) {
             return Optional.of("Symbolic links are read-only here");
         }
         return Optional.empty();
-    }
-
-    private static boolean testSource(String path)
-    {
-        return path.startsWith("src/test/") || path.contains("/src/test/");
     }
 
     /** Whether the file or any directory between it and the checkout root is a symbolic link, so a PR cannot aim an editable path elsewhere. */
@@ -988,7 +979,6 @@ public class ReviewCodeService
      *
      * @param headSha the revision a missing working copy is read at and renames are paired to
      * @param ended why the host no longer accepts edits
-     * @param testSourcesOnly only test sources are editable, as on a review
      */
     private record Source(
             AgentTask task,
@@ -996,8 +986,7 @@ public class ReviewCodeService
             Supplier<List<DiffFile>> diff,
             Supplier<Optional<String>> mergeBaseSha,
             Supplier<String> headSha,
-            Optional<String> ended,
-            boolean testSourcesOnly) {}
+            Optional<String> ended) {}
 
     public enum CodeSource
     {

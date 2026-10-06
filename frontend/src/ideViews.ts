@@ -19,6 +19,7 @@ import { pathToFileURL } from 'node:url';
 import { browserBounds } from './browserTabs';
 import { backendBase, sessionToken } from './backendProcess';
 import { parseCodeHost, codeHostKey, type CodeHostRef } from './pulls/code-tests/contracts';
+import { parseCodeQuery, parseCodeQueryReply, queryFailure, type CodeQueryRequest, type CodeQueryReply } from './ide/codeQuery';
 import { validateIdeAction } from './ide/actionPolicy';
 import type { IdeConnection, IdeContext, IdeEvent, IdeReply, IdeRequest } from './ide/contracts';
 
@@ -36,13 +37,15 @@ type Editor = {
   dirty: number;
   busy: boolean;
   lastUsed: number;
+  queryReady: boolean;
+  queries: Map<string, { request: CodeQueryRequest; finish: (reply: CodeQueryReply) => void }>;
   closing: Promise<void> | null;
   pending: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>;
 };
 
-async function runtimeRequest(route: string, method: string, body?: unknown): Promise<unknown> {
+async function runtimeRequest(route: string, method: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
   const response = await fetch(`${backendBase()}/agent/ide${route}`, {
-    method, body: body === undefined ? undefined : JSON.stringify(body), headers: { 'X-ByteQuay-Session': sessionToken(), 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(65_000),
+    method, body: body === undefined ? undefined : JSON.stringify(body), headers: { 'X-ByteQuay-Session': sessionToken(), 'Content-Type': 'application/json' }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(65_000)]) : AbortSignal.timeout(65_000),
   });
   if (!response.ok) {
     const body: unknown = await response.json().catch((): unknown => null);
@@ -66,6 +69,9 @@ function connectionFrom(value: unknown): IdeConnection {
 /** Native view ownership, resource access and idle cleanup live in main, outside repository-controlled content. */
 export class IdeViews {
   private readonly editors = new Map<string, Editor>();
+  private readonly queryPump = new AbortController();
+  private readonly runningQueries = new Map<string, AbortController>();
+  private pumping = false;
   private readonly opening = new Map<string, Promise<string>>();
   private readonly timer: ReturnType<typeof setInterval>;
 
@@ -84,6 +90,19 @@ export class IdeViews {
       if (!editor || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown IDE view');
       return editor;
     };
+    ipcMain.on('ide:query-ready', event => {
+      const editor = child(event);
+      editor.queryReady = true;
+      for (const { request } of editor.queries.values()) editor.view.webContents.send('ide:query', request);
+    });
+    ipcMain.on('ide:query-reply', (event, id: unknown, value: unknown) => {
+      const editor = child(event);
+      if (typeof id !== 'string') return;
+      const query = editor.queries.get(id);
+      if (!query) return;
+      try { query.finish(parseCodeQueryReply(value)); }
+      catch { query.finish(queryFailure('UNAVAILABLE', 'The language service returned an invalid result')); }
+    });
     ipcMain.handle('ide:open', (event, host: unknown) => { parent(event); return this.open(parseCodeHost(host)); });
     ipcMain.handle('ide:present', (event, id: string, bounds: unknown) => {
       parent(event);
@@ -186,20 +205,25 @@ export class IdeViews {
     return opening;
   }
 
-  private async create(host: CodeHostRef): Promise<string> {
+  private async create(host: CodeHostRef, suppliedConnection?: IdeConnection): Promise<string> {
     const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}`
       : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
-    const connection = connectionFrom(await runtimeRequest(route, 'POST'));
+    const connection = suppliedConnection ?? connectionFrom(await runtimeRequest(route, 'POST'));
     const existing = [...this.editors.values()].find(item => item.connection.taskId === connection.taskId);
     if (existing) {
-      if (codeHostKey(existing.host) !== codeHostKey(host)) throw new Error('This working copy is already open in another review; close that editor first');
+      if (existing.connection.sessionId !== connection.sessionId || existing.view.webContents.isDestroyed()) {
+        await this.close(existing.id);
+        return this.create(host, connection);
+      }
+      if (codeHostKey(existing.host) !== codeHostKey(host) && existing.context) throw new Error('This working copy is already open in another review; close that editor first');
+      existing.host = host;
       return existing.id;
     }
     const id = randomUUID();
     const view = new WebContentsView({ webPreferences: {
       preload: path.join(__dirname, 'idePreload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, partition: `persist:bytequay-ide-${connection.taskId}`,
     } });
-    const editor: Editor = { id, host, connection, view, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), closing: null, pending: new Map() };
+    const editor: Editor = { id, host, connection, view, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, queries: new Map(), closing: null, pending: new Map() };
     this.editors.set(id, editor);
     try {
       const resources = await Promise.all(['extensions', 'server'].map(name => realpath(path.join(connection.bundleRoot, name))));
@@ -247,6 +271,78 @@ export class IdeViews {
     }
   }
 
+  /** Keeps only a query lease. Opening a code view later reuses this exact hidden runtime. */
+  async query(request: CodeQueryRequest, signal: AbortSignal): Promise<{ result: CodeQueryReply; connection: IdeConnection }> {
+    const query = parseCodeQuery(request.query);
+    const connection = connectionFrom(request.connection);
+    if (connection.taskId !== request.taskId) throw new Error('Code query belongs to another runtime');
+    const existing = [...this.editors.values()].find(editor => editor.connection.taskId === request.taskId && editor.connection.sessionId === connection.sessionId && !editor.view.webContents.isDestroyed());
+    const id = existing?.id ?? await this.create({ kind: 'task', taskId: request.taskId, workspaceId: request.workspaceId }, connection);
+    const editor = this.require(id);
+    if (signal.aborted) return { result: queryFailure('CANCELLED', 'Code query cancelled'), connection: editor.connection };
+    if (editor.queries.size >= 4) return { result: queryFailure('UNAVAILABLE', 'Too many active queries for this working copy'), connection: editor.connection };
+    editor.lastUsed = Date.now();
+    const result = await new Promise<CodeQueryReply>(resolve => {
+      const cancel = () => {
+        if (!editor.view.webContents.isDestroyed()) editor.view.webContents.send('ide:query', { ...request, cancel: true });
+        finish(queryFailure('CANCELLED', 'Code query cancelled'));
+      };
+      const timeout = setTimeout(cancel, Math.max(0, request.expiresAt - Date.now()));
+      const finish = (reply: CodeQueryReply) => {
+        clearTimeout(timeout); signal.removeEventListener('abort', cancel); editor.queries.delete(request.id);
+        editor.lastUsed = Date.now(); resolve(reply);
+      };
+      signal.addEventListener('abort', cancel, { once: true });
+      const bounded = { ...request, query };
+      editor.queries.set(request.id, { request: bounded, finish });
+      if (editor.queryReady) editor.view.webContents.send('ide:query', bounded);
+    });
+    return { result, connection: editor.connection };
+  }
+
+  /** Main alone polls the authenticated queue. Repository content never receives its credential or another task's request. */
+  startQueries(): void {
+    if (this.pumping) return;
+    this.pumping = true;
+    void this.pumpQueries();
+  }
+
+  private async pumpQueries(): Promise<void> {
+    let version = -1;
+    while (!this.queryPump.signal.aborted) {
+      try {
+        const snapshot = await runtimeRequest(`/queries?after=${version}`, 'GET', undefined, this.queryPump.signal) as { version: number; requests: CodeQueryRequest[] };
+        if (!Number.isSafeInteger(snapshot.version) || !Array.isArray(snapshot.requests) || snapshot.requests.length > 32) throw new Error('Invalid IDE request queue');
+        version = snapshot.version;
+        const active = new Set(snapshot.requests.map(request => request.id));
+        for (const [id, controller] of this.runningQueries) {
+          if (!active.has(id)) { controller.abort(); this.runningQueries.delete(id); }
+        }
+        for (const request of snapshot.requests) {
+          if (this.runningQueries.has(request.id) || request.expiresAt <= Date.now()) continue;
+          const controller = new AbortController();
+          this.runningQueries.set(request.id, controller);
+          void this.query(request, controller.signal).then(async ({ result, connection }) => {
+            if (controller.signal.aborted) return;
+            await runtimeRequest(`/queries/${encodeURIComponent(request.id)}`, 'POST', { taskId: connection.taskId, sessionId: connection.sessionId, result }, controller.signal);
+          }).catch(async error => {
+            if (controller.signal.aborted) return;
+            await runtimeRequest(`/queries/${encodeURIComponent(request.id)}`, 'POST', {
+              taskId: request.taskId, result: queryFailure('UNAVAILABLE', String(error).slice(0, 4000)),
+            }, controller.signal).catch(() => {});
+          });
+        }
+      } catch {
+        if (!this.queryPump.signal.aborted) await new Promise<void>(resolve => {
+          const timeout = setTimeout(done, 5_000);
+          const signal = this.queryPump.signal;
+          signal.addEventListener('abort', done, { once: true });
+          function done() { clearTimeout(timeout); signal.removeEventListener('abort', done); resolve(); }
+        });
+      }
+    }
+  }
+
   private require(id: string): Editor {
     const editor = this.editors.get(id);
     if (!editor) throw new Error('The IDE session has ended');
@@ -255,7 +351,7 @@ export class IdeViews {
 
   private async maintain(): Promise<void> {
     await Promise.allSettled([...this.editors.values()].map(async editor => {
-      if (editor.view.webContents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && editor.pending.size === 0 && Date.now() - editor.lastUsed > 120_000)) {
+      if (editor.view.webContents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && editor.pending.size === 0 && editor.queries.size === 0 && Date.now() - editor.lastUsed > 120_000)) {
         await this.close(editor.id);
         return;
       }
@@ -282,6 +378,7 @@ export class IdeViews {
         pending.reject(new Error('The editor closed'));
       }
       editor.pending.clear();
+      for (const query of editor.queries.values()) query.finish(queryFailure('UNAVAILABLE', 'The IDE closed during the query'));
       // Failed termination remains registered so maintenance and explicit close retry the same process tree.
       await runtimeRequest(`/${editor.connection.taskId}/${editor.connection.sessionId}`, 'DELETE');
       this.editors.delete(id);
@@ -301,6 +398,9 @@ export class IdeViews {
 
   dispose(): void {
     clearInterval(this.timer);
+    this.queryPump.abort();
+    for (const controller of this.runningQueries.values()) controller.abort();
+    this.runningQueries.clear();
     for (const editor of this.editors.values()) {
       if (!editor.view.webContents.isDestroyed()) editor.view.webContents.close({ waitForBeforeUnload: false });
     }

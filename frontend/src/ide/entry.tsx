@@ -20,6 +20,7 @@ import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '
 import type { ReviewCodeFileDto, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import { latestRun } from '../pulls/agent-review/model';
 import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
+import { installSemanticQueries } from './semanticQueries';
 import { startRuntime, chooseKeymap, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
 import { restoreSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
@@ -307,6 +308,7 @@ function App() {
     void window.ideWorkbench.bootstrap().then(async bootstrap => {
       if (bootstrap.context) setContext(bootstrap.context);
       const runtime = await startRuntime(bootstrap.connection, document.body);
+      installSemanticQueries(runtime.workspace);
       setReady({ runtime, connection: bootstrap.connection });
     }).catch(cause => setError(String(cause)));
     return stop;

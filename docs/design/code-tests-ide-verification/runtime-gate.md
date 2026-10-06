@@ -149,7 +149,7 @@ in the observed check, but a DAP stop alone and a root-PID exit are not general
 process-tree proofs. Production should reuse ByteQuay's existing
 `ProcessSupervisor` recovery and verified-stop facilities.
 
-Cold/warm timings, a stable idle sample, hidden agent queries, crash recovery and
+Cold/warm timings, a stable idle sample, crash recovery and
 final lifecycle measurements remain open. The measured footprint is sufficient
 to reject any assumption that adopting VS Code services automatically uses less
 memory.
@@ -218,8 +218,8 @@ and macOS arm64 packaging pass for this checkpoint; later additions retain their
 own verification requirement.
 
 Still required: production cutover, durable run/debug evidence and execution
-coordination, selected-log agent context, final history/blame and preview-strip
-acceptance, hidden shared code queries and GoalPlanner migration, CodeGraph
+coordination, selected-log agent context, final full-app history/blame and preview-strip
+acceptance, agent and GoalPlanner query migration, CodeGraph
 removal, and final native lifecycle/resource verification. Native fixture saves
 verify the renderer adapter; the backend claim/save behavior is covered by the
 separate service tests, not claimed as a single full-app end-to-end test here.
@@ -240,10 +240,13 @@ including folded ranges and review-card space. The toolbar offers the same
 preview with a line input and a jump action. Native verification exercised a
 long Go source file, previewed line 170, jumped there, and confirmed its blame
 metadata identified line 170. The colored gutter, native highlighted preview,
-commit details and parent-to-commit diff were visually inspected. Pointer-only
-hover remains a separate native interaction check; the native automation API
-used here has no hover action. The line mapping and metadata escaping have
-runnable regression checks.
+commit details and parent-to-commit diff were visually inspected. Native pointer verification also previewed line 219 while the caret stayed on
+170, then clicked the strip and confirmed the caret reached 219 through its
+line-history details. A longer pointer drag did not change the caret. The native
+scrollbar uses pointer capture, so the click observer listens before that
+handler and reads the mounted editor bounds when the gesture starts. The
+[combined blame and hover view](code-preview-blame.png) records the rendered
+result. The line mapping and metadata escaping have runnable regression checks.
 
 Blame opens full local commit history, including commits older than the task
 comparison base. The bottom panel uses the native SCM graph with a read-only
@@ -271,3 +274,50 @@ modules). Frontend lint and type checks pass; the full suite passes 1,524 tests
 in 160 files, with the subsequent focused navigation/history gate passing all
 16 tests, including the new history-provider test. The final macOS arm64 package
 build passes. The production tab still awaits the remaining integration gates.
+
+
+## Shared semantic query transport
+
+The native IDE now accepts a closed set of semantic requests against the same
+models and language providers used by its editor. Operations cover workspace and
+document symbols, definitions, references, implementations, incoming/outgoing
+calls, and published diagnostics. Queries name a repository-relative source file
+so its language can activate without opening a visible editor. Positions use
+one-based UTF-16 columns; responses contain at most 200 locations and 40 call
+sites per symbol. Locations outside the worktree are omitted.
+
+An authenticated, versioned backend queue delivers requests only through Electron
+main to the owning isolated view. Main starts after backend readiness, reuses the
+worktree's existing runtime and gives active requests an idle-disposal lease. A
+query-only runtime can later acquire the visible review context. Request removal,
+cancellation, timeout and view shutdown cancel provider work; late replies cannot
+complete a request for another task. Runtime startup failures return an explicit
+unavailable result. An agent query does not take a worktree mutation claim.
+
+The backend revalidates checkout ownership, HEAD and the existing working-copy
+content fingerprint before returning a result. Source and returned locations must
+remain inside the real worktree; symlink escapes and Git internals are rejected.
+The adapter refuses unsaved source buffers, reloads clean open models before a
+query and invalidates results if source models change during it. Provider readiness
+and language support are explicit. READY means the provider answered for its
+imported projects; it is not a guarantee of complete indexing. Empty diagnostics
+are not a passing build or test result.
+
+The [native result record](semantic-query-results.json) contains successful Java,
+Go and Rust symbol/caller queries with no visible editor context. Go definitions,
+outgoing calls and cross-language symbol search also answered; XML reported
+unsupported. The check used the built renderer and real pinned extensions through
+the isolated preload. Backend queue and Electron routing were checked separately,
+including task binding, source edits without a new commit, symlink escapes,
+concurrency limits, cancellation, idle disposal and reuse by a visible review.
+The temporary native runtime and its language-service children exited afterward.
+
+This delivers the shared query path, not CodeGraph retirement: agent tool schemas,
+GoalPlanner evidence, remaining UI consumers and graph-specific lifecycle/settings
+still need migration before deleting the old engine. Production CodeTestsTab and
+the run/debug ownership integration remain outstanding.
+
+Shared-query verification passes the full backend reactor, frontend lint and
+type checks, all 1,530 frontend tests in 162 files, and macOS arm64 packaging.
+The final focused check also covers cancellation after the editor renderer has
+already crashed. No native fixture processes remain running.

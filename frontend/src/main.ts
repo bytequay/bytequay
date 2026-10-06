@@ -2128,6 +2128,7 @@ app.on('ready', async () => {
   if (!backendReady) reportBackendFailure();
   await ensureWindow();
   if (!backendReady) return;
+  ideViews.startQueries();
   refreshDashboardInBackground();
   void pollPrNotifications();
   prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 5_000);

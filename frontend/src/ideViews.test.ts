@@ -159,3 +159,78 @@ it('bounds history queries to fixed read routes and validated revisions', async 
     expect(() => invoke('ide:request', child(), method, [host, query], false)).toThrow();
   }
 });
+
+
+it('reuses a query-only view for the visible editor and binds replies to that child', async () => {
+  const request = { id: 'query', connection, taskId: 'task', workspaceId: 'workspace', expiresAt: Date.now() + 300_000,
+    query: { operation: 'REFERENCES', path: 'src/main.go', line: 1, column: 1, limit: 20 } } as const;
+  const controller = new AbortController();
+  const answer = views.query(request, controller.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(desktop.views).toHaveLength(1);
+  expect(desktop.views[0].webContents.send).not.toHaveBeenCalledWith('ide:query', expect.anything());
+  invoke('ide:query-ready', child());
+  expect(desktop.views[0].webContents.send).toHaveBeenCalledWith('ide:query', request);
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  const id = await invoke('ide:open', parent(), { kind: 'review', reviewId: 'review' });
+  expect(desktop.views).toHaveLength(1);
+  invoke('ide:update', parent(), id, { host: { kind: 'review', reviewId: 'review' }, review: null, task: null, detail: null });
+  const result = { status: 'READY', items: [] as unknown[], truncated: false, message: 'No references' };
+  expect(() => invoke('ide:query-reply', parent(), 'query', result)).toThrow('Unknown IDE view');
+  invoke('ide:query-reply', child(), 'query', result);
+  expect(await answer).toEqual({ connection, result });
+  await vi.advanceTimersByTimeAsync(135_000);
+  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+});
+
+it('cancels semantic work when its caller stops and rejects malformed replies', async () => {
+  const request = { id: 'query', connection, taskId: 'task', workspaceId: 'workspace', expiresAt: Date.now() + 60_000,
+    query: { operation: 'DOCUMENT_SYMBOLS', path: 'src/main.go', limit: 20 } } as const;
+  const controller = new AbortController();
+  const answer = views.query(request, controller.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  invoke('ide:query-ready', child()); controller.abort();
+  expect((await answer).result.status).toBe('CANCELLED');
+  expect(desktop.views[0].webContents.send).toHaveBeenCalledWith('ide:query', { ...request, cancel: true });
+  const another = views.query({ ...request, id: 'another' }, new AbortController().signal);
+  await vi.advanceTimersByTimeAsync(0);
+  invoke('ide:query-reply', child(), 'another', { status: 'READY', items: [{ path: '../outside' }], truncated: false, message: '' });
+  expect((await another).result.status).toBe('UNAVAILABLE');
+  const crashController = new AbortController();
+  const afterCrash = views.query({ ...request, id: 'after-crash' }, crashController.signal);
+  await vi.advanceTimersByTimeAsync(0);
+  desktop.views[0].webContents.destroyed = true;
+  desktop.views[0].webContents.send.mockImplementation(() => { throw new Error('Object has been destroyed'); });
+  crashController.abort();
+  expect((await afterCrash).result.status).toBe('CANCELLED');
+});
+
+
+it('delivers backend queries without a parent renderer and cancels removed queue entries', async () => {
+  const request = { id: 'queued', connection, taskId: 'task', workspaceId: 'workspace', expiresAt: Date.now() + 60_000,
+    query: { operation: 'DOCUMENT_SYMBOLS', path: 'src/main.go', limit: 20 } } as const;
+  let poll: ((response: Response) => void) | undefined;
+  let first = true;
+  fetchMock.mockImplementation(async (url: string, init: RequestInit) => {
+    if (url.includes('/queries?after=')) {
+      if (first) { first = false; return new Response(JSON.stringify({ version: 1, requests: [request] })); }
+      return new Promise<Response>((resolve, reject) => {
+        poll = resolve; init.signal?.addEventListener('abort', () => reject(new Error('Stopped')), { once: true });
+      });
+    }
+    if (url.endsWith('/queries/queued')) return new Response('');
+    return new Response('');
+  });
+  views.startQueries();
+  await vi.advanceTimersByTimeAsync(0);
+  invoke('ide:query-ready', child());
+  const result = { status: 'READY', items: [] as unknown[], truncated: false, message: 'Imported project' };
+  invoke('ide:query-reply', child(), 'queued', result);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/ide/queries/queued', expect.objectContaining({ method: 'POST',
+    body: JSON.stringify({ taskId: 'task', sessionId: 'session', result }) }));
+  expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
+  poll?.(new Response(JSON.stringify({ version: 2, requests: [] })));
+  await vi.advanceTimersByTimeAsync(0);
+});

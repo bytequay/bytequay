@@ -1,0 +1,923 @@
+{
+  "fixture": "Java, Go and Rust source in the temporary native IDE verification workspace",
+  "visibleEditorContext": false,
+  "results": [
+    {
+      "query": {
+        "operation": "DOCUMENT_SYMBOLS",
+        "path": "main.go"
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "twice",
+            "kind": 11,
+            "path": "main.go",
+            "line": 3,
+            "column": 6,
+            "endLine": 3,
+            "endColumn": 11
+          },
+          {
+            "name": "caller",
+            "kind": 11,
+            "path": "main.go",
+            "line": 6,
+            "column": 6,
+            "endLine": 6,
+            "endColumn": 12
+          },
+          {
+            "name": "main",
+            "kind": 11,
+            "path": "main.go",
+            "line": 7,
+            "column": 6,
+            "endLine": 7,
+            "endColumn": 10
+          },
+          {
+            "name": "example1",
+            "kind": 11,
+            "path": "main.go",
+            "line": 10,
+            "column": 6,
+            "endLine": 10,
+            "endColumn": 14
+          },
+          {
+            "name": "example2",
+            "kind": 11,
+            "path": "main.go",
+            "line": 13,
+            "column": 6,
+            "endLine": 13,
+            "endColumn": 14
+          },
+          {
+            "name": "example3",
+            "kind": 11,
+            "path": "main.go",
+            "line": 16,
+            "column": 6,
+            "endLine": 16,
+            "endColumn": 14
+          },
+          {
+            "name": "example4",
+            "kind": 11,
+            "path": "main.go",
+            "line": 19,
+            "column": 6,
+            "endLine": 19,
+            "endColumn": 14
+          },
+          {
+            "name": "example5",
+            "kind": 11,
+            "path": "main.go",
+            "line": 22,
+            "column": 6,
+            "endLine": 22,
+            "endColumn": 14
+          },
+          {
+            "name": "example6",
+            "kind": 11,
+            "path": "main.go",
+            "line": 25,
+            "column": 6,
+            "endLine": 25,
+            "endColumn": 14
+          },
+          {
+            "name": "example7",
+            "kind": 11,
+            "path": "main.go",
+            "line": 28,
+            "column": 6,
+            "endLine": 28,
+            "endColumn": 14
+          },
+          {
+            "name": "example8",
+            "kind": 11,
+            "path": "main.go",
+            "line": 31,
+            "column": 6,
+            "endLine": 31,
+            "endColumn": 14
+          },
+          {
+            "name": "example9",
+            "kind": 11,
+            "path": "main.go",
+            "line": 34,
+            "column": 6,
+            "endLine": 34,
+            "endColumn": 14
+          },
+          {
+            "name": "example10",
+            "kind": 11,
+            "path": "main.go",
+            "line": 37,
+            "column": 6,
+            "endLine": 37,
+            "endColumn": 15
+          },
+          {
+            "name": "example11",
+            "kind": 11,
+            "path": "main.go",
+            "line": 40,
+            "column": 6,
+            "endLine": 40,
+            "endColumn": 15
+          },
+          {
+            "name": "example12",
+            "kind": 11,
+            "path": "main.go",
+            "line": 43,
+            "column": 6,
+            "endLine": 43,
+            "endColumn": 15
+          },
+          {
+            "name": "example13",
+            "kind": 11,
+            "path": "main.go",
+            "line": 46,
+            "column": 6,
+            "endLine": 46,
+            "endColumn": 15
+          },
+          {
+            "name": "example14",
+            "kind": 11,
+            "path": "main.go",
+            "line": 49,
+            "column": 6,
+            "endLine": 49,
+            "endColumn": 15
+          },
+          {
+            "name": "example15",
+            "kind": 11,
+            "path": "main.go",
+            "line": 52,
+            "column": 6,
+            "endLine": 52,
+            "endColumn": 15
+          },
+          {
+            "name": "example16",
+            "kind": 11,
+            "path": "main.go",
+            "line": 55,
+            "column": 6,
+            "endLine": 55,
+            "endColumn": 15
+          },
+          {
+            "name": "example17",
+            "kind": 11,
+            "path": "main.go",
+            "line": 58,
+            "column": 6,
+            "endLine": 58,
+            "endColumn": 15
+          }
+        ],
+        "truncated": true,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "INCOMING_CALLS",
+        "path": "main.go",
+        "line": 3,
+        "column": 7
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "caller",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 6,
+                "column": 28,
+                "endLine": 6,
+                "endColumn": 33
+              }
+            ],
+            "path": "main.go",
+            "line": 6,
+            "column": 6,
+            "endLine": 6,
+            "endColumn": 12
+          },
+          {
+            "name": "example1",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 10,
+                "column": 30,
+                "endLine": 10,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 10,
+            "column": 6,
+            "endLine": 10,
+            "endColumn": 14
+          },
+          {
+            "name": "example2",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 13,
+                "column": 30,
+                "endLine": 13,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 13,
+            "column": 6,
+            "endLine": 13,
+            "endColumn": 14
+          },
+          {
+            "name": "example3",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 16,
+                "column": 30,
+                "endLine": 16,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 16,
+            "column": 6,
+            "endLine": 16,
+            "endColumn": 14
+          },
+          {
+            "name": "example4",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 19,
+                "column": 30,
+                "endLine": 19,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 19,
+            "column": 6,
+            "endLine": 19,
+            "endColumn": 14
+          },
+          {
+            "name": "example5",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 22,
+                "column": 30,
+                "endLine": 22,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 22,
+            "column": 6,
+            "endLine": 22,
+            "endColumn": 14
+          },
+          {
+            "name": "example6",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 25,
+                "column": 30,
+                "endLine": 25,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 25,
+            "column": 6,
+            "endLine": 25,
+            "endColumn": 14
+          },
+          {
+            "name": "example7",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 28,
+                "column": 30,
+                "endLine": 28,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 28,
+            "column": 6,
+            "endLine": 28,
+            "endColumn": 14
+          },
+          {
+            "name": "example8",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 31,
+                "column": 30,
+                "endLine": 31,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 31,
+            "column": 6,
+            "endLine": 31,
+            "endColumn": 14
+          },
+          {
+            "name": "example9",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 34,
+                "column": 30,
+                "endLine": 34,
+                "endColumn": 35
+              }
+            ],
+            "path": "main.go",
+            "line": 34,
+            "column": 6,
+            "endLine": 34,
+            "endColumn": 14
+          },
+          {
+            "name": "example10",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 37,
+                "column": 31,
+                "endLine": 37,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 37,
+            "column": 6,
+            "endLine": 37,
+            "endColumn": 15
+          },
+          {
+            "name": "example11",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 40,
+                "column": 31,
+                "endLine": 40,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 40,
+            "column": 6,
+            "endLine": 40,
+            "endColumn": 15
+          },
+          {
+            "name": "example12",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 43,
+                "column": 31,
+                "endLine": 43,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 43,
+            "column": 6,
+            "endLine": 43,
+            "endColumn": 15
+          },
+          {
+            "name": "example13",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 46,
+                "column": 31,
+                "endLine": 46,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 46,
+            "column": 6,
+            "endLine": 46,
+            "endColumn": 15
+          },
+          {
+            "name": "example14",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 49,
+                "column": 31,
+                "endLine": 49,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 49,
+            "column": 6,
+            "endLine": 49,
+            "endColumn": 15
+          },
+          {
+            "name": "example15",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 52,
+                "column": 31,
+                "endLine": 52,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 52,
+            "column": 6,
+            "endLine": 52,
+            "endColumn": 15
+          },
+          {
+            "name": "example16",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 55,
+                "column": 31,
+                "endLine": 55,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 55,
+            "column": 6,
+            "endLine": 55,
+            "endColumn": 15
+          },
+          {
+            "name": "example17",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 58,
+                "column": 31,
+                "endLine": 58,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 58,
+            "column": 6,
+            "endLine": 58,
+            "endColumn": 15
+          },
+          {
+            "name": "example18",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 61,
+                "column": 31,
+                "endLine": 61,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 61,
+            "column": 6,
+            "endLine": 61,
+            "endColumn": 15
+          },
+          {
+            "name": "example19",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 64,
+                "column": 31,
+                "endLine": 64,
+                "endColumn": 36
+              }
+            ],
+            "path": "main.go",
+            "line": 64,
+            "column": 6,
+            "endLine": 64,
+            "endColumn": 15
+          }
+        ],
+        "truncated": true,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "OUTGOING_CALLS",
+        "path": "main.go",
+        "line": 6,
+        "column": 7
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "twice",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "main.go",
+                "line": 6,
+                "column": 28,
+                "endLine": 6,
+                "endColumn": 33
+              }
+            ],
+            "path": "main.go",
+            "line": 3,
+            "column": 6,
+            "endLine": 3,
+            "endColumn": 11
+          }
+        ],
+        "truncated": false,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "DEFINITIONS",
+        "path": "main.go",
+        "line": 6,
+        "column": 28
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "path": "main.go",
+            "line": 3,
+            "column": 6,
+            "endLine": 3,
+            "endColumn": 11
+          }
+        ],
+        "truncated": false,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "SYMBOLS",
+        "path": "main.go",
+        "query": "twice"
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "twice",
+            "kind": 11,
+            "path": "main.go",
+            "line": 3,
+            "column": 6,
+            "endLine": 3,
+            "endColumn": 11
+          },
+          {
+            "name": "TestTwice",
+            "kind": 11,
+            "path": "main_test.go",
+            "line": 5,
+            "column": 6,
+            "endLine": 5,
+            "endColumn": 15
+          },
+          {
+            "name": "twice",
+            "kind": 11,
+            "path": "src/main.rs",
+            "line": 1,
+            "column": 4,
+            "endLine": 1,
+            "endColumn": 9
+          }
+        ],
+        "truncated": false,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running. Locations outside this working copy were omitted."
+      }
+    },
+    {
+      "query": {
+        "operation": "DOCUMENT_SYMBOLS",
+        "path": "src/main.rs"
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "twice",
+            "kind": 11,
+            "path": "src/main.rs",
+            "line": 1,
+            "column": 4,
+            "endLine": 1,
+            "endColumn": 9
+          },
+          {
+            "name": "caller",
+            "kind": 11,
+            "path": "src/main.rs",
+            "line": 4,
+            "column": 4,
+            "endLine": 4,
+            "endColumn": 10
+          },
+          {
+            "name": "main",
+            "kind": 11,
+            "path": "src/main.rs",
+            "line": 5,
+            "column": 4,
+            "endLine": 5,
+            "endColumn": 8
+          },
+          {
+            "name": "tests",
+            "kind": 1,
+            "path": "src/main.rs",
+            "line": 7,
+            "column": 5,
+            "endLine": 7,
+            "endColumn": 10
+          },
+          {
+            "name": "doubles",
+            "kind": 11,
+            "path": "src/main.rs",
+            "line": 10,
+            "column": 5,
+            "endLine": 10,
+            "endColumn": 12
+          }
+        ],
+        "truncated": false,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "INCOMING_CALLS",
+        "path": "src/main.rs",
+        "line": 1,
+        "column": 5
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "caller",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "src/main.rs",
+                "line": 4,
+                "column": 22,
+                "endLine": 4,
+                "endColumn": 27
+              }
+            ],
+            "path": "src/main.rs",
+            "line": 4,
+            "column": 4,
+            "endLine": 4,
+            "endColumn": 10
+          },
+          {
+            "name": "doubles",
+            "kind": 11,
+            "calls": [
+              {
+                "path": "src/main.rs",
+                "line": 10,
+                "column": 28,
+                "endLine": 10,
+                "endColumn": 33
+              }
+            ],
+            "path": "src/main.rs",
+            "line": 10,
+            "column": 5,
+            "endLine": 10,
+            "endColumn": 12
+          }
+        ],
+        "truncated": false,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "DOCUMENT_SYMBOLS",
+        "path": "src/main/java/dev/bytequay/Calculator.java"
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "dev.bytequay",
+            "kind": 3,
+            "path": "src/main/java/dev/bytequay/Calculator.java",
+            "line": 1,
+            "column": 1,
+            "endLine": 1,
+            "endColumn": 22
+          },
+          {
+            "name": "Calculator",
+            "kind": 4,
+            "path": "src/main/java/dev/bytequay/Calculator.java",
+            "line": 2,
+            "column": 14,
+            "endLine": 2,
+            "endColumn": 24
+          },
+          {
+            "name": "twice(int)",
+            "kind": 5,
+            "path": "src/main/java/dev/bytequay/Calculator.java",
+            "line": 3,
+            "column": 14,
+            "endLine": 3,
+            "endColumn": 19
+          },
+          {
+            "name": "caller()",
+            "kind": 5,
+            "path": "src/main/java/dev/bytequay/Calculator.java",
+            "line": 4,
+            "column": 14,
+            "endLine": 4,
+            "endColumn": 20
+          },
+          {
+            "name": "main(String[])",
+            "kind": 5,
+            "path": "src/main/java/dev/bytequay/Calculator.java",
+            "line": 5,
+            "column": 22,
+            "endLine": 5,
+            "endColumn": 26
+          }
+        ],
+        "truncated": false,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "INCOMING_CALLS",
+        "path": "src/main/java/dev/bytequay/Calculator.java",
+        "line": 3,
+        "column": 15
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [
+          {
+            "name": "caller() : int",
+            "kind": 5,
+            "calls": [
+              {
+                "path": "src/main/java/dev/bytequay/Calculator.java",
+                "line": 4,
+                "column": 32,
+                "endLine": 4,
+                "endColumn": 40
+              }
+            ],
+            "path": "src/main/java/dev/bytequay/Calculator.java",
+            "line": 4,
+            "column": 32,
+            "endLine": 4,
+            "endColumn": 40
+          },
+          {
+            "name": "twice() : void",
+            "kind": 5,
+            "calls": [
+              {
+                "path": "src/test/java/dev/bytequay/CalculatorTest.java",
+                "line": 5,
+                "column": 57,
+                "endLine": 5,
+                "endColumn": 65
+              }
+            ],
+            "path": "src/test/java/dev/bytequay/CalculatorTest.java",
+            "line": 5,
+            "column": 57,
+            "endLine": 5,
+            "endColumn": 65
+          }
+        ],
+        "truncated": false,
+        "message": "Language-service results for imported projects. Coverage may be incomplete while project analysis is running."
+      }
+    },
+    {
+      "query": {
+        "operation": "DIAGNOSTICS",
+        "path": "src/main/java/dev/bytequay/Calculator.java"
+      },
+      "attempt": 0,
+      "result": {
+        "status": "READY",
+        "items": [],
+        "truncated": false,
+        "message": "Current published diagnostics; an empty result is not proof that a build or test passed."
+      }
+    },
+    {
+      "query": {
+        "operation": "DOCUMENT_SYMBOLS",
+        "path": "pom.xml"
+      },
+      "attempt": 0,
+      "result": {
+        "status": "UNSUPPORTED",
+        "items": [],
+        "truncated": false,
+        "message": "Semantic queries are not configured for plaintext. Use file and text search."
+      }
+    }
+  ]
+}

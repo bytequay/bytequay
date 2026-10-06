@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { CodeQueryRequest, CodeQueryReply } from './codeQuery';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
@@ -62,6 +63,9 @@ export type IdeDesktopBridge = {
 
 /** The isolated workbench has no desktop session token and cannot invoke arbitrary app IPC. */
 export type IdeWorkbenchBridge = {
+  onQuery: (listener: (request: CodeQueryRequest & { cancel?: boolean }) => void) => () => void;
+  queryReply: (id: string, reply: CodeQueryReply) => void;
+  queryReady: () => void;
   save: (path: string, content: string, expectedHash: string) => Promise<void>;
   bootstrap: () => Promise<{ connection: IdeConnection; context: IdeContext | null }>;
   request: (method: string, ...args: unknown[]) => Promise<unknown>;

@@ -12,9 +12,17 @@
  * limitations under the License.
  */
 import { contextBridge, ipcRenderer } from 'electron';
+import type { CodeQueryRequest } from './ide/codeQuery';
 import type { IdeContext, IdeWorkbenchBridge } from './ide/contracts';
 
 const bridge: IdeWorkbenchBridge = {
+  queryReady: () => ipcRenderer.send('ide:query-ready'),
+  queryReply: (id, reply) => ipcRenderer.send('ide:query-reply', id, reply),
+  onQuery: listener => {
+    const receive = (_event: Electron.IpcRendererEvent, request: CodeQueryRequest & { cancel?: boolean }) => listener(request);
+    ipcRenderer.on('ide:query', receive);
+    return () => ipcRenderer.removeListener('ide:query', receive);
+  },
   save: (path, content, expectedHash) => ipcRenderer.invoke('ide:save', path, content, expectedHash),
   bootstrap: () => ipcRenderer.invoke('ide:bootstrap'),
   request: (method, ...args) => ipcRenderer.invoke('ide:request', method, args, navigator.userActivation.isActive),

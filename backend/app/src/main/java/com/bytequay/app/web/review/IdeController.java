@@ -13,8 +13,11 @@
  */
 package com.bytequay.app.web.review;
 
+import com.bytequay.agent.core.CodeQuery;
+import com.bytequay.agent.core.CodeQueryResult;
 import com.bytequay.app.review.CodeBlame;
 import com.bytequay.app.review.CodeHistory;
+import com.bytequay.app.review.IdeCodeQueries;
 import com.bytequay.app.review.IdeConnection;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.review.ReviewCodeService;
@@ -36,6 +39,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Authenticated desktop-only runtime transport; workspace paths are resolved from durable task ownership. */
@@ -45,12 +49,41 @@ public class IdeController
 {
     private final ReviewCodeService code;
     private final IdeRuntimeService runtime;
+    private final IdeCodeQueries queries;
 
-    public IdeController(ReviewCodeService code, IdeRuntimeService runtime)
+    public IdeController(ReviewCodeService code, IdeRuntimeService runtime, IdeCodeQueries queries)
     {
         this.code = requireNonNull(code, "code is null");
         this.runtime = requireNonNull(runtime, "runtime is null");
+        this.queries = requireNonNull(queries, "queries is null");
     }
+
+    @PostMapping("/tasks/{workspaceId}/{taskId}/query")
+    public IdeCodeQueries.Answer query(@PathVariable String workspaceId, @PathVariable String taskId, @RequestBody CodeQuery query)
+    {
+        return queries.query(code.ideQueryWorktree(new TaskCodeHost(workspaceId, taskId)), query);
+    }
+
+    @GetMapping("/queries")
+    public IdeCodeQueries.Snapshot queries(@RequestParam(defaultValue = "-1") long after)
+            throws InterruptedException
+    {
+        return queries.poll(after);
+    }
+
+    @PostMapping("/queries/{id}")
+    public void queryReply(@PathVariable String id, @RequestBody QueryReply reply)
+    {
+        if (reply.sessionId().isPresent()) {
+            runtime.touch(reply.taskId(), reply.sessionId().orElseThrow());
+        }
+        else {
+            checkArgument(reply.result().status() == CodeQueryResult.Status.UNAVAILABLE, "a live IDE session is required for query results");
+        }
+        queries.complete(id, reply.taskId(), reply.result());
+    }
+
+    record QueryReply(String taskId, Optional<String> sessionId, CodeQueryResult result) {}
 
     @PostMapping("/reviews/{reviewId}")
     public IdeConnection openReview(@PathVariable String reviewId)

@@ -1,13 +1,13 @@
 /* Licensed under the Apache License, Version 2.0. See the repository LICENSE. */
 @import url("https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap");
 :root {
-  color-scheme: light;
-  --paper: #fff;
-  --ink: #191924;
-  --muted: #60616f;
-  --line: #e4e4ed;
-  --purple: #7044df;
-  --soft: #f5f3ff;
+  color-scheme: dark;
+  --paper: #101017;
+  --ink: #f2f1f7;
+  --muted: #b4adbf;
+  --line: #36313f;
+  --purple: #c3a1f7;
+  --soft: #24212d;
   --night: #101017;
 }
 * {
@@ -115,7 +115,7 @@ p {
   position: fixed;
   top: -100px;
   left: 16px;
-  background: white;
+  background: #1e2025;
   color: #17171f;
   padding: 12px;
   z-index: 100;
@@ -153,7 +153,7 @@ p {
 }
 .primary {
   background: var(--ink);
-  color: white;
+  color: var(--paper);
 }
 .secondary {
   background: var(--soft);
@@ -275,6 +275,7 @@ p {
 }
 .view-switcher {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   background: #191821;
   border: 1px solid #ffffff12;
@@ -319,7 +320,7 @@ p {
   border-radius: 9px 9px 0 0;
   overflow: hidden;
   box-shadow: 0 8px 50px #08030e80;
-  background: #fff;
+  background: #1e2025;
 }
 .app-stage img {
   width: 100%;
@@ -446,7 +447,7 @@ p {
 }
 .agent-grid img {
   border-radius: 5px 5px 0 0;
-  background: white;
+  background: #1e2025;
   width: 100%;
 }
 .agent-grid figcaption {
@@ -469,8 +470,8 @@ p {
   align-items: flex-start;
   min-height: 385px;
   padding: 38px;
-  background: #eeecf4;
-  color: #242031;
+  background: #25202f;
+  color: #f0eaf8;
   border: 1px solid transparent;
   border-radius: 10px;
   transition:
@@ -478,14 +479,14 @@ p {
     border-color 0.2s;
 }
 .resource-card:hover {
-  color: #242031;
+  color: #f0eaf8;
   transform: translateY(-4px);
   border-color: #be9fed;
 }
 .resource-label {
   font-size: 0.75rem;
   letter-spacing: 0.11em;
-  color: #756584;
+  color: #b5a2c8;
   font-weight: 600;
 }
 .resource-card h3 {
@@ -495,7 +496,7 @@ p {
 }
 .resource-card p {
   max-width: 365px;
-  color: #645d71;
+  color: #b7adbf;
 }
 .resource-action {
   display: block;
@@ -503,7 +504,7 @@ p {
   padding-top: 28px;
   font-size: 0.9375rem;
   font-weight: 600;
-  color: #6b3cb1;
+  color: #c7a8ef;
 }
 .design-card {
   background: #22202b;
@@ -551,7 +552,7 @@ p {
   position: sticky;
   top: 0;
   z-index: 10;
-  background: #ffffffed;
+  background: #101017ed;
   backdrop-filter: blur(12px);
 }
 .doc-page .header:before {
@@ -562,7 +563,7 @@ p {
   z-index: -1;
 }
 .doc-page {
-  background: #fff;
+  background: var(--paper);
 }
 .design-hero {
   padding: 55px 0 42px;
@@ -612,7 +613,7 @@ p {
 .contents a {
   padding: 6px 12px;
   border-radius: 5px;
-  color: #666274;
+  color: #b4adbf;
   border-left: 2px solid transparent;
 }
 .contents a:hover,
@@ -625,7 +626,7 @@ p {
   font-size: 0.75rem;
   letter-spacing: 0.075em;
   font-weight: 600;
-  color: #8d829d;
+  color: #b1a4c1;
 }
 .guide-shortcuts {
   display: grid;
@@ -714,7 +715,7 @@ p {
   align-items: center;
   margin: 26px 0;
   padding: 22px;
-  border: 1px solid #e5dcee;
+  border: 1px solid var(--line);
   border-radius: 7px;
   background: var(--soft);
   font-size: 0.875rem;
@@ -740,7 +741,7 @@ p {
 .modules dt {
   font-family: monospace;
   font-size: 0.8125rem;
-  color: #744393;
+  color: #c3a1f7;
 }
 .modules dd {
   margin: 0;
@@ -1023,7 +1024,7 @@ details p {
     margin-bottom: 8px;
   }
   .contents a {
-    background: #f7f6fa;
+    background: #211e2a;
     padding: 5px 9px;
     font-size: 0.8125rem;
   }
@@ -1083,5 +1084,49 @@ details p {
   *:before,
   *:after {
     transition: none !important;
+  }
+}
+
+.showcase-caption h3 {
+  color: var(--ink);
+  font-size: 1.12rem;
+  letter-spacing: -0.02em;
+  margin-bottom: 8px;
+}
+.showcase-caption p {
+  max-width: 720px;
+}
+.showcase-caption a {
+  display: inline-block;
+  margin-top: 12px;
+  color: var(--purple);
+}
+.showcase-caption > span {
+  text-align: right;
+  line-height: 1.8;
+}
+.workflow-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+.workflow-grid article {
+  grid-column: span 2;
+}
+.workflow-grid article:nth-last-child(-n + 2) {
+  grid-column: span 3;
+}
+@media (max-width: 720px) {
+  .view-switcher {
+    justify-content: flex-start;
+  }
+  .showcase-caption > span {
+    text-align: left;
+    margin-top: 8px;
+  }
+  .workflow-grid {
+    grid-template-columns: 1fr;
+  }
+  .workflow-grid article,
+  .workflow-grid article:nth-last-child(-n + 2) {
+    grid-column: auto;
   }
 }

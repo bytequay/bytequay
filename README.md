@@ -38,8 +38,9 @@ ByteQuay is pre-1.0, under active redesign, and currently supports macOS only.
 
 Start with the [user guide](website/documentation.md) for ByteQuay's goals,
 setup, and instructions for its main features. See the
-[high-level design](docs/overview/design.md) for architecture, workflows, and
-trust boundaries. The [website source](website/README.md) contains the landing
+[product design](docs/design.md) for intent and principles, and
+[architecture](docs/architecture.md) for system and trust boundaries.
+The [website source](website/README.md) contains the landing
 page, documentation, and design overview.
 
 ## Install

@@ -10,7 +10,7 @@ credentials, pull-request lists/details/actions, and the approved
 worktree-scoped Codex and Claude agent-task surface. The previous task-agent
 and staged development-flow systems remain deleted. Do not restore their APIs,
 schemas, compatibility layers, or design assumptions; expand the current agent
-service only through its canonical design.
+service within the documented architecture and explicitly approved product scope.
 
 ## Prerequisites
 
@@ -112,7 +112,7 @@ macOS sandbox.
 │   └── app/          # GitHub/PR services, agent HTTP, and executable packaging
 ├── frontend/         # Electron + React + TypeScript
 │   └── src/          # Main process, IPC bridge, Home, PR, and Settings UI
-├── docs/             # High-level architecture and canonical feature designs
+├── docs/             # Product design and system architecture
 ├── website/          # Static product website, documentation, and design overview
 └── dev.sh
 ```
@@ -121,15 +121,13 @@ macOS sandbox.
 
 Keep the [user documentation](website/documentation.md) focused on the
 product's purpose, goals, and short guides that match current UI controls.
-Keep the [public overview](docs/overview/design.md) at design level: product
-behavior, ownership boundaries, data flow, trust decisions, and important
-tradeoffs. The website publishes these two reader-facing parts; keep its content
-consistent with them. Keep `docs/` limited to the high-level overview,
-[canonical feature designs](docs/design/design.md), and their design references.
-Record durable decisions and open acceptance boundaries in the relevant design;
-do not keep temporary implementation checklists, execution logs, or verification
-captures in `docs/`. Keep user guides with the website and developer runbooks
-beside their scripts. Use GitHub Releases for published release notes.
+Keep `docs/` limited to [design.md](docs/design.md) and
+[architecture.md](docs/architecture.md): durable product intent, ownership,
+data flow, trust boundaries, and tradeoffs. Describe individual capabilities
+as features in the website guide rather than maintaining public per-feature
+specifications. Implementation contracts and verification belong with source
+and tests. Keep user guides with the website and developer runbooks beside
+their scripts. Use GitHub Releases for published release notes.
 
 Developer runbooks: [agent shell](scripts/agent-e2e.md) and
 [CI Autofix shell](scripts/ci-autofix.md).

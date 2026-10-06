@@ -10,6 +10,7 @@ What ByteQuay is, what it aims to do, and short guides to its main features.
 - [Work with coding agents](#agent-tasks)
 - [Deliver changes and repair CI](#delivery-and-ci)
 - [Turn a goal into useful work](#goals)
+- [Keep related work together with Epics](#epics)
 - [Build repository memory](#memory-and-specs)
 - [Start from an issue or Jira ticket](#issues-and-jira)
 - [Move changes between branches](#commits-and-backports)
@@ -274,6 +275,23 @@ beside the lesson and choose **Mark lesson done** when ready.
 dependency. **Pause guidance** pauses suggestions; **New goal** in the GOAL menu starts
 another objective.
 
+<a id="epics"></a>
+
+## Keep related work together with Epics
+
+An Epic connects a larger issue or ticket to the work needed to finish it. Its
+**Work** view shows progress, active attempts, and dependencies in one place.
+
+1. Open an Epic issue or Jira ticket and choose **Work** beside its source tab.
+2. When new source children are offered, inspect them and choose **Sync** to bring
+   them into the Epic, or **Not now** to leave the suggestion for later.
+3. Add a work item by title, or choose **Add existing** to link an issue, ticket,
+   pull request, or task. Review proposed work before choosing **Accept**.
+4. Open a work item to inspect its state and linked attempts. Start eligible work
+   and follow the resulting development task; dependencies explain what is waiting.
+5. Review completed outcomes. When the Epic is ready, choose **Conclude Epic**
+   and record its outcome. Closing the source issue or ticket is a separate action.
+
 <a id="memory-and-specs"></a>
 
 ## Build repository memory
@@ -418,7 +436,6 @@ measure of someone’s work.
   notes. Some controls depend on repository permissions, provider capabilities, or the
   state of the selected work.
 
-For architecture and product boundaries, read the [high-level
-design](../docs/overview/design.md). For building from source, use
-[CONTRIBUTING](../CONTRIBUTING.md). Canonical feature specifications remain in
-the [design index](../docs/design/design.md).
+For product intent and system boundaries, read the [design](../docs/design.md)
+and [architecture](../docs/architecture.md). For building from source, use
+[CONTRIBUTING](../CONTRIBUTING.md).

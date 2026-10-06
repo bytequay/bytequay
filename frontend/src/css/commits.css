@@ -1,6 +1,6 @@
 /* Workspace Commits tab: history/changes browser, cherry-pick tasks, range
    confirm, and task progress. Workflow boundaries are documented in
-   docs/overview/workflows.md. */
+   website/documentation.md#commits-and-backports. */
 
 .cmt-root {
   display: flex;

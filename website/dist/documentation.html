@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Learn what ByteQuay is and how to use workspaces, pull-request reviews, coding agents, Goals, Memory, Jira, and backports."
+      content="Learn what ByteQuay is and how to use workspaces, pull-request reviews, coding agents, Goals, Epics, Memory, Jira, and backports."
     />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#101017" />
     <title>Documentation — ByteQuay</title>
     <link rel="icon" href="assets/logo.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="style.css" />
@@ -56,6 +56,7 @@
             <a href="#agent-tasks">Agent tasks</a>
             <a href="#delivery-and-ci">Delivery &amp; CI</a>
             <a href="#goals">Goals</a>
+            <a href="#epics">Epics</a>
             <a href="#memory-and-specs">Memory &amp; specs</a>
             <a href="#issues-and-jira">Issues &amp; Jira</a>
             <a href="#commits-and-backports">Commits &amp; backports</a>
@@ -530,6 +531,41 @@
               <strong>New goal</strong> in the GOAL menu starts another
               objective.
             </p>
+          </section>
+          <section id="epics">
+            <h2>Keep related work together with Epics</h2>
+            <p>
+              An Epic connects a larger issue or ticket to the work needed to
+              finish it. Its <strong>Work</strong> view shows progress, active
+              attempts, and dependencies in one place.
+            </p>
+            <ol>
+              <li>
+                Open an Epic issue or Jira ticket and choose
+                <strong>Work</strong> beside its source tab.
+              </li>
+              <li>
+                When new source children are offered, inspect them and choose
+                <strong>Sync</strong> to bring them into the Epic, or
+                <strong>Not now</strong> to leave the suggestion for later.
+              </li>
+              <li>
+                Add a work item by title, or choose
+                <strong>Add existing</strong> to link an issue, ticket, pull
+                request, or task. Review proposed work before choosing
+                <strong>Accept</strong>.
+              </li>
+              <li>
+                Open a work item to inspect its state and linked attempts. Start
+                eligible work and follow the resulting development task;
+                dependencies explain what is waiting.
+              </li>
+              <li>
+                Review completed outcomes. When the Epic is ready, choose
+                <strong>Conclude Epic</strong> and record its outcome. Closing
+                the source issue or ticket is a separate action.
+              </li>
+            </ol>
           </section>
           <section id="memory-and-specs">
             <h2>Build repository memory</h2>

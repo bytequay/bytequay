@@ -16,18 +16,22 @@ full-size image links, navigation, topic links, disclosures, and narrow layouts 
 [`documentation.md`](documentation.md) and is presented in
 `dist/documentation.html`. Keep its introduction, product goals, and feature
 instructions consistent with the Markdown guide and current app controls.
-The canonical high-level design lives in
-[`docs/overview/`](../docs/overview/design.md); keep the website summary consistent
-with it without publishing implementation notes or unfinished release claims.
+The two public design documents are [`docs/design.md`](../docs/design.md) and
+[`docs/architecture.md`](../docs/architecture.md). Keep their durable product
+intent and architecture separate from user-facing feature descriptions. Do not
+publish internal specifications, implementation notes, or unverified release claims.
 
-The two `dist/assets/app-*.jpg` images capture real React components at
-1280 × 800 with sample data. The review uses `summaryLayoutBrowser` with
-`AppSidebar`; the task uses `AgentTaskScreen` and `createPreviewBridge` with a
-sample authentication review, neutral workspace labels, and valid display
-timestamps. These are illustrative fixture conversations, not live provider
-results. Capture through an isolated browser fixture with external images and
-connections blocked; never capture credentials or private active work for the
-website. The page labels the images as sample data and offers full-size views.
+The five `dist/assets/app-*.jpg` images show development tasks, PR review,
+cherry-pick, Goals, and Epics using the app's actual React components and dark
+palette. Each is captured at 2880 × 1800, rendering a 1440 × 900 workspace at
+2× scale. The page offers full-resolution views with feature descriptions.
+
+Capture through an isolated browser fixture with sample bridge data, blocked
+external images and connections, and no live provider or backend. Development
+uses `AgentTaskScreen` with WorkBench Changes; review uses `AgentReviewTab`;
+cherry-pick uses its confirmation view; planning uses `GoalPanel` and `EpicView`.
+These are illustrative sample outcomes, not live provider results. Never capture
+credentials or private active work. Keep the sample-data label visible on the site.
 
 `.openai/hosting.json` identifies the existing Sites project and declares the
 static directory. Reuse that project for updates. Source synchronization and

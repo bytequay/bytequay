@@ -59,35 +59,56 @@
         <div class="showcase-heading">
           <h2 id="showcase-title">One workspace. The whole picture.</h2>
           <div class="view-switcher" role="group" aria-label="App screenshots">
-            <button type="button" data-view="review" aria-pressed="true">
-              Pull-request review</button
-            ><button type="button" data-view="agents" aria-pressed="false">
-              Agent tasks
+            <button type="button" data-view="development" aria-pressed="true">
+              Dev tasks
+            </button>
+            <button type="button" data-view="review" aria-pressed="false">
+              PR review
+            </button>
+            <button type="button" data-view="cherry-pick" aria-pressed="false">
+              Cherry-pick
+            </button>
+            <button type="button" data-view="goals" aria-pressed="false">
+              Goals
+            </button>
+            <button type="button" data-view="epics" aria-pressed="false">
+              Epics
             </button>
           </div>
         </div>
         <div class="app-stage">
           <a
             id="screenshot-link"
-            href="assets/app-review.jpg"
+            href="assets/app-development.jpg"
             target="_blank"
             rel="noopener"
-            aria-label="Open full-size pull-request review screenshot"
+            aria-label="Open full-size development task screenshot"
             ><img
               id="app-screenshot"
-              src="assets/app-review.jpg"
-              width="1280"
-              height="800"
-              alt="ByteQuay pull-request review showing a change summary, commit explanations, and private findings."
+              src="assets/app-development.jpg"
+              width="2880"
+              height="1800"
+              alt="ByteQuay in dark mode with a completed development task beside its code changes and regression tests."
               fetchpriority="high"
           /></a>
         </div>
         <div class="showcase-caption">
-          <p id="screenshot-caption">
-            Understand the intent, inspect each commit, and discuss findings
-            privately.
-          </p>
-          <span>Actual app components · Sample data</span>
+          <div aria-live="polite">
+            <h3 id="screenshot-title">
+              From a request to a reviewable change.
+            </h3>
+            <p id="screenshot-caption">
+              Give an agent a task, follow the conversation, and inspect its
+              code and tests in WorkBench. Keep the next decision in your hands.
+            </p>
+            <a id="screenshot-guide" href="documentation.html#agent-tasks"
+              >Read the feature guide →</a
+            >
+          </div>
+          <span
+            >Actual app · Dark mode · Sample data<br />2880 × 1800 · Click image
+            for full size</span
+          >
         </div>
       </section>
       <div class="foundation wrap">
@@ -103,66 +124,87 @@
         </div>
         <div class="workflow-grid">
           <article>
-            <span class="feature-number">01 / FIND YOUR FOCUS</span>
-            <h3>See what needs you.</h3>
+            <span class="feature-number">01 / DEVELOPMENT</span>
+            <h3>A conversation that builds.</h3>
             <p>
-              Follow watched repositories and recent activity. Bring the pull
-              requests that need your attention into view.
+              Work with Codex or Claude in a separate local worktree. Steer the
+              task, handle approvals, and inspect the result beside the
+              conversation.
             </p>
-            <a href="documentation.html#workspaces">Explore Home</a>
+            <a href="documentation.html#agent-tasks">Development guide →</a>
           </article>
           <article>
-            <span class="feature-number">02 / REVIEW THE CHANGE</span>
+            <span class="feature-number">02 / PR REVIEW</span>
             <h3>See beyond the diff.</h3>
             <p>
-              Read patches, checks, and conversation together. Investigate
-              privately before you comment, approve, or merge.
+              Understand the intent, follow each commit, and investigate private
+              findings before choosing what to publish.
             </p>
-            <a href="documentation.html#pull-requests">Explore pull requests</a>
+            <a href="documentation.html#private-review">Review guide →</a>
           </article>
           <article>
-            <span class="feature-number">03 / MOVE IT FORWARD</span>
-            <h3>Work with your agents.</h3>
+            <span class="feature-number">03 / CHERRY-PICK</span>
+            <h3>Carry the right changes.</h3>
             <p>
-              Give Codex or Claude a task in its own local worktree. Follow the
-              transcript, handle approvals, and steer the next step.
+              Choose the source and destination, review a commit range, and
+              follow conflict resolution before delivering the branch.
             </p>
-            <a href="documentation.html#agent-tasks">Explore agent tasks</a>
+            <a href="documentation.html#commits-and-backports"
+              >Cherry-pick guide →</a
+            >
+          </article>
+          <article>
+            <span class="feature-number">04 / GOALS</span>
+            <h3>Give the work a purpose.</h3>
+            <p>
+              Clarify the outcome, learn what you need, and turn a broad
+              objective into useful next steps with evidence of completion.
+            </p>
+            <a href="documentation.html#goals">Goals guide →</a>
+          </article>
+          <article>
+            <span class="feature-number">05 / EPICS</span>
+            <h3>Keep the bigger picture.</h3>
+            <p>
+              Bring related work into one view. Follow planned items, active
+              attempts, dependencies, and completed outcomes.
+            </p>
+            <a href="documentation.html#epics">Epics guide →</a>
           </article>
         </div>
       </section>
       <section class="agent-feature">
         <div class="wrap agent-grid">
           <div class="agent-copy">
-            <p class="eyebrow">STAY PART OF THE WORK</p>
-            <h2>Let agents work.<br />Keep the thread.</h2>
+            <p class="eyebrow">MAKE PROGRESS VISIBLE</p>
+            <h2>Big changes.<br />Clear next steps.</h2>
             <p>
-              A task is more than a prompt. Follow what happened, ask a
-              follow-up, and pick up where you left off.
+              Epics keep the work behind a larger change together. See what is
+              done, what is moving, and what is waiting for something else.
             </p>
             <ul>
-              <li>Separate worktrees for local tasks</li>
-              <li>Replay, approvals, and queued follow-ups</li>
-              <li>Changes and conversation in the same workspace</li>
+              <li>Related issues, tasks, and pull requests</li>
+              <li>Progress and dependencies in one view</li>
+              <li>Proposed work for you to review and accept</li>
             </ul>
-            <a class="button secondary" href="documentation.html#agent-tasks"
-              >Read the agent guide</a
+            <a class="button secondary" href="documentation.html#epics"
+              >Explore Epics</a
             >
           </div>
           <figure>
             <a
-              href="assets/app-agents.jpg"
+              href="assets/app-epics.jpg"
               target="_blank"
               rel="noopener"
-              aria-label="Open full-size agent task screenshot"
+              aria-label="Open full-size Epic screenshot"
               ><img
-                src="assets/app-agents.jpg"
-                width="1280"
-                height="800"
-                alt="ByteQuay agent task with a conversation, tool activity, and follow-up composer."
+                src="assets/app-epics.jpg"
+                width="2880"
+                height="1800"
+                alt="ByteQuay Epic with completed work, active tasks, dependencies, and proposed next steps."
                 loading="lazy"
             /></a>
-            <figcaption>Local agent task · Sample conversation</figcaption>
+            <figcaption>Epic work and progress · Sample data</figcaption>
           </figure>
         </div>
       </section>

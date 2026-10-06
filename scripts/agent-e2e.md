@@ -3,7 +3,7 @@
 > **Current behavior:** the script creates an isolated managed-workspace
 > fixture and submits only its workspace ID. The backend resolves the selected
 > repository and provisions the task worktree through the shared
-> [Managed Worktree Service](../docs/design/worktree-service.md). Choose either the `codex` or
+> [agent execution boundary](../docs/architecture.md#agent-execution). Choose either the `codex` or
 > `claude` public lane; the temporary backend enables only that lane.
 
 The agent shell exercises the selected real provider through the public backend

@@ -13,13 +13,13 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.agent.core.CodeQuery;
 import com.bytequay.agent.core.CodeQueryResult;
 import com.bytequay.agent.core.CodeQueryResult.Status;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.spi.CodeQuery;
 import com.bytequay.app.git.GitCommandRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -77,7 +77,7 @@ class TestIdeCodeQueries
         IdeRuntimeService runtime = mock(IdeRuntimeService.class);
         when(runtime.open(worktree)).thenReturn(new IdeConnection(id.toString(), "session", "127.0.0.1:5205", "fixture-token", root.toString(),
                 directory.resolve("bundle").toString(), directory.resolve("cache").toString(), "a".repeat(40)));
-        queries = new IdeCodeQueries(runtime, ownership, git);
+        queries = new IdeCodeQueries(runtime, ownership, git, new ObjectMapper().registerModule(new Jdk8Module()));
     }
 
     @AfterEach
@@ -91,18 +91,19 @@ class TestIdeCodeQueries
     void answersOnlyTheOwningTaskAndReturnsRevisionBoundEvidence()
             throws Exception
     {
-        Future<IdeCodeQueries.Answer> answer = submit();
+        Future<String> answer = executor.submit(() -> queries.query(worktree, query));
+        submitted.add(answer);
         IdeCodeQueries.Snapshot snapshot = next(1);
         IdeCodeQueries.Request request = snapshot.requests().getFirst();
         assertThat(request.query()).isEqualTo(query);
         assertThat(request.workspaceId()).isEqualTo("workspace");
         assertThatThrownBy(() -> queries.complete(request.id(), "another-task", ready)).isInstanceOf(IllegalArgumentException.class);
         queries.complete(request.id(), worktree.taskId().toString(), ready);
-        IdeCodeQueries.Answer result = answer.get(5, TimeUnit.SECONDS);
-        assertThat(result.taskId()).isEqualTo(worktree.taskId().toString());
-        assertThat(result.revision()).isEqualTo(worktree.startCommit());
-        assertThat(result.sourceFingerprint()).hasSize(64);
-        assertThat(result.result()).isEqualTo(ready);
+        var result = new ObjectMapper().readTree(answer.get(5, TimeUnit.SECONDS));
+        assertThat(result.path("taskId").asText()).isEqualTo(worktree.taskId().toString());
+        assertThat(result.path("revision").asText()).isEqualTo(worktree.startCommit());
+        assertThat(result.path("sourceFingerprint").asText()).hasSize(64);
+        assertThat(result.path("result").path("status").asText()).isEqualTo("READY");
         assertThat(queries.poll(snapshot.version()).requests()).isEmpty();
         assertThat(run("status", "--porcelain")).isEmpty();
     }
@@ -126,7 +127,7 @@ class TestIdeCodeQueries
             submit();
         }
         IdeCodeQueries.Snapshot snapshot = next(4);
-        assertThat(queries.query(worktree, query).result().status()).isEqualTo(Status.UNAVAILABLE);
+        assertThat(queries.execute(worktree, query).result().status()).isEqualTo(Status.UNAVAILABLE);
         submitted.forEach(future -> future.cancel(true));
         while (!snapshot.requests().isEmpty()) {
             snapshot = queries.poll(snapshot.version());
@@ -141,7 +142,7 @@ class TestIdeCodeQueries
         Path outside = Files.writeString(directory.resolve("outside.go"), "private contents");
         Files.createSymbolicLink(root.resolve("link.go"), outside);
         CodeQuery escaped = new CodeQuery(query.operation(), "link.go", Optional.empty(), OptionalInt.empty(), OptionalInt.empty(), 20);
-        assertThatThrownBy(() -> queries.query(worktree, escaped)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> queries.execute(worktree, escaped)).isInstanceOf(IllegalArgumentException.class);
         Future<IdeCodeQueries.Answer> answer = submit();
         IdeCodeQueries.Request request = next(1).requests().getFirst();
         var item = new CodeQueryResult.Item("link.go", 1, 1, 1, 2, Optional.of("outside"), OptionalInt.empty(), Optional.empty(), OptionalInt.empty(), ImmutableList.of());
@@ -167,7 +168,7 @@ class TestIdeCodeQueries
 
     private Future<IdeCodeQueries.Answer> submit()
     {
-        Future<IdeCodeQueries.Answer> future = executor.submit(() -> queries.query(worktree, query));
+        Future<IdeCodeQueries.Answer> future = executor.submit(() -> queries.execute(worktree, query));
         submitted.add(future);
         return future;
     }

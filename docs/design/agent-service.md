@@ -780,12 +780,18 @@ require a separate later design. [Review Triage](review-triage.md) is an
 approved read-only workflow that registers no tool. Claude's task-scoped
 permission callback is only an approval transport adapter, not a product tool.
 
-The [CodeGraph Service](codegraph-service.md) is the one narrow later
-exception to this baseline: behind its own isolation gate, ByteQuay exposes
-exactly one optional, fail-open structural-exploration tool,
-`codegraph_explore`. It performs no product action and does not create a
-general tool registry. Every other business MCP, dynamic tool, and workflow
-action remains outside this contract.
+The [IDE refactor](code-tests-ide-refactor.md) replaces the former CodeGraph
+agent bridge with one fixed `code_query` tool. It uses the same worktree language
+providers as the editor for bounded symbols, definitions, references,
+implementations, calls and diagnostics. Source paths are relative to the owning
+worktree and positions use one-based UTF-16 columns. The backend validates task
+ownership, revision and source fingerprint before returning results. Loading a
+language project follows normal IDE import behavior; this is not a new process
+sandbox. No mutation claim is acquired for indexing or queries. Unavailable or
+unsupported queries let the agent continue using normal source and text search.
+Existing restricted/helper and DeepSeek tool exclusions remain. The old tool
+name has no compatibility alias; this does not create a general tool registry.
+Legacy UI and goal-baseline CodeGraph consumers still await their migration.
 
 [Agent Review](agent-review.md) is a separately owned
 extension for PR-owned tasks. It authorizes only its fixed context-read and
@@ -800,7 +806,7 @@ Attended review sessions can offer provider-native children for read-only
 exploration in both Claude and Codex only when that provider's review-specific
 caller-identity hook and MCP isolation checks are active. Claude Explore can
 use allowed native reads. Codex's hook directs children to bounded
-`review_get_context` and optional `codegraph_explore`; native shell and edit
+`review_get_context` and optional `code_query`; native shell and edit
 remain in the shared workspace-write sandbox, and a failed or timed-out hook
 can let those calls proceed. ByteQuay denies native child approvals; its Codex
 task bridge supplies review mutations as App Server dynamic tools and requires

@@ -26,7 +26,8 @@ import com.bytequay.agent.spi.AgentPermissionScope;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CiDescriptionProposal;
-import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.CodeQuery;
+import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
@@ -63,10 +64,12 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -280,9 +283,9 @@ public final class PermissionBroker
             SessionAccess access,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
-            Optional<CodeGraphBridge> codeGraph)
+            Optional<CodeQueryBridge> codeQueries)
     {
-        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeGraph, ImmutableMap.of());
+        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeQueries, ImmutableMap.of());
     }
 
     public McpRegistration register(
@@ -294,7 +297,7 @@ public final class PermissionBroker
             SessionAccess access,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
-            Optional<CodeGraphBridge> codeGraph,
+            Optional<CodeQueryBridge> codeQueries,
             Map<String, String> environment)
     {
         requireNonNull(taskId, "taskId is null");
@@ -309,8 +312,8 @@ public final class PermissionBroker
         Path configFile = providerDirectory.resolve("bytequay-mcp.json");
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         Path childGateFile = providerDirectory.resolve("review-child-gate.sh");
-        requireNonNull(codeGraph, "codeGraph is null");
-        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, access, true, environment);
+        requireNonNull(codeQueries, "codeQueries is null");
+        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, access, true, environment);
         contexts.put(token, context);
         Optional<Path> childGate = (context.reviewChildren() || context.relatedWork().isPresent()) ? Optional.of(childGateFile) : Optional.empty();
         try {
@@ -372,17 +375,17 @@ public final class PermissionBroker
             AgentPermissionPolicy permissionPolicy,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
-            Optional<CodeGraphBridge> codeGraph)
+            Optional<CodeQueryBridge> codeQueries)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(approvals, "approvals is null");
         requireNonNull(redactor, "redactor is null");
-        requireNonNull(codeGraph, "codeGraph is null");
+        requireNonNull(codeQueries, "codeQueries is null");
         String token = token();
         PermissionContext context = resolveContext(
-                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeGraph, SessionAccess.FULL, false, ImmutableMap.of());
+                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, SessionAccess.FULL, false, ImmutableMap.of());
         // A policy-only review still needs registration to select the provider's review execution profile.
         if (context.review().isEmpty() && tools(context).isEmpty()) {
             return Optional.empty();
@@ -402,8 +405,8 @@ public final class PermissionBroker
         checkArgument(context.review().isPresent() || context.relatedWork().isPresent(), "No root-bound tools on this task");
         Set<String> readable = Stream.concat(
                         context.review().stream().flatMap(review -> review.tools().stream()).filter(ReviewTool::childCallable).map(ReviewTool::name),
-                        context.codeGraph().stream().map(ignored -> CodeGraphBridge.TOOL_NAME))
-                .filter(name -> name.equals("review_get_context") || name.equals(CodeGraphBridge.TOOL_NAME))
+                        context.codeQueries().stream().map(ignored -> CodeQueryBridge.TOOL_NAME))
+                .filter(name -> name.equals("review_get_context") || name.equals(CodeQueryBridge.TOOL_NAME))
                 .collect(ImmutableSet.toImmutableSet());
         if (context.review().isPresent()) {
             checkArgument(readable.contains("review_get_context"), "Review children need readable context");
@@ -460,7 +463,7 @@ public final class PermissionBroker
             AgentPermissionPolicy permissionPolicy,
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
-            Optional<CodeGraphBridge> codeGraph,
+            Optional<CodeQueryBridge> codeQueries,
             SessionAccess access,
             boolean permissionTools,
             Map<String, String> environment)
@@ -486,7 +489,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeGraph, review, development, localReview, pullRequestCi, issueContext, memory, related,
+                codeQueries, review, development, localReview, pullRequestCi, issueContext, memory, related,
                 reviewChildren, new AtomicReference<>());
     }
 
@@ -495,7 +498,7 @@ public final class PermissionBroker
     {
         String joined = Stream.of(
                         context.review().map(ReviewBridge::instruction),
-                        context.codeGraph().map(CodeGraphBridge::instruction),
+                        context.codeQueries().map(CodeQueryBridge::instruction),
                         context.development().map(DevelopmentResultBridge::instruction),
                         context.localReview().map(LocalReviewBridge::instruction),
                         context.pullRequestCi().map(PullRequestCiBridge::instruction),
@@ -562,7 +565,7 @@ public final class PermissionBroker
         return switch (params.name()) {
             case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
-            case CodeGraphBridge.TOOL_NAME -> codeGraphExplore(request.id(), params.arguments(), context);
+            case CodeQueryBridge.TOOL_NAME -> codeQueriesExplore(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
             case RelatedWorkspaceBridge.TOOL_NAME -> relatedWork(request.id(), params.arguments(), context);
             case MemoryBridge.TOOL_NAME -> memory(request.id(), params.arguments(), context);
@@ -1010,24 +1013,44 @@ public final class PermissionBroker
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", markdown)), false));
     }
 
-    private McpHttpResponse codeGraphExplore(JsonNode id, JsonNode arguments, PermissionContext context)
+    private McpHttpResponse codeQueriesExplore(JsonNode id, JsonNode arguments, PermissionContext context)
     {
-        Optional<String> query = codeGraphQuery(arguments);
-        if (context.codeGraph().isEmpty() || query.isEmpty()) {
-            return error(id, -32602, "Invalid " + CodeGraphBridge.TOOL_NAME + " arguments");
+        Optional<CodeQuery> query = codeQuery(arguments);
+        if (context.codeQueries().isEmpty() || query.isEmpty()) {
+            return error(id, -32602, "Invalid " + CodeQueryBridge.TOOL_NAME + " arguments");
         }
-        String text = context.redactor().redact(context.codeGraph().orElseThrow().explore().apply(query.orElseThrow()));
+        String text = context.redactor().redact(context.codeQueries().orElseThrow().query().apply(query.orElseThrow()));
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
     }
 
-    /** The one accepted argument shape: an object holding only a non-blank, bounded {@code query} string. */
-    private static Optional<String> codeGraphQuery(JsonNode arguments)
+    private static Optional<CodeQuery> codeQuery(JsonNode arguments)
     {
-        if (arguments == null || !arguments.isObject() || arguments.size() != 1 || !arguments.has("query") || !arguments.get("query").isTextual()) {
+        if (arguments == null || !arguments.isObject() || !arguments.path("operation").isTextual() || !arguments.path("path").isTextual()) {
             return Optional.empty();
         }
-        String query = arguments.get("query").asText().strip();
-        return query.isEmpty() || query.length() > CodeGraphBridge.MAXIMUM_QUERY_LENGTH ? Optional.empty() : Optional.of(query);
+        var fields = arguments.fieldNames();
+        while (fields.hasNext()) {
+            if (!ImmutableSet.of("operation", "path", "query", "line", "column", "limit").contains(fields.next())) {
+                return Optional.empty();
+            }
+        }
+        for (String key : ImmutableList.of("line", "column", "limit")) {
+            if ((arguments.has(key) || key.equals("limit")) && (!arguments.path(key).isIntegralNumber() || !arguments.path(key).canConvertToInt())) {
+                return Optional.empty();
+            }
+        }
+        if (arguments.has("query") && !arguments.path("query").isTextual()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(new CodeQuery(CodeQuery.Operation.valueOf(arguments.path("operation").textValue()), arguments.path("path").textValue(),
+                    Optional.ofNullable(arguments.get("query")).map(JsonNode::textValue),
+                    arguments.has("line") ? OptionalInt.of(arguments.path("line").intValue()) : OptionalInt.empty(),
+                    arguments.has("column") ? OptionalInt.of(arguments.path("column").intValue()) : OptionalInt.empty(), arguments.path("limit").intValue()));
+        }
+        catch (IllegalArgumentException failure) {
+            return Optional.empty();
+        }
     }
 
     private McpHttpResponse response(JsonNode id, Object result)
@@ -1051,17 +1074,23 @@ public final class PermissionBroker
         return objectMapper.treeToValue(params, InitializeParams.class).protocolVersion();
     }
 
-    private static ToolDefinition codeGraphTool()
+    private static ToolDefinition codeQueriesTool()
     {
         return new ToolDefinition(
-                CodeGraphBridge.TOOL_NAME,
-                "Explore this task's code graph: callers, callees, implementations, routes, dependencies, and cross-file structure "
-                        + "for a natural-language query. Returns matching symbols with source and call paths. Navigation help only; verify in current source.",
+                CodeQueryBridge.TOOL_NAME,
+                "Query this working copy's IDE language services for symbols, definitions, references, implementations, calls or diagnostics. "
+                        + "Use a relative source path; positions are one-based UTF-16. Results may be partial while importing. Verify current source.",
                 ImmutableMap.of(
                         "type", "object",
                         "properties", ImmutableMap.of(
-                                "query", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", CodeGraphBridge.MAXIMUM_QUERY_LENGTH)),
-                        "required", ImmutableList.of("query"),
+                                "operation", ImmutableMap.of("type", "string", "enum",
+                                        Arrays.stream(CodeQuery.Operation.values()).map(Enum::name).collect(ImmutableList.toImmutableList())),
+                                "path", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4096),
+                                "query", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 200),
+                                "line", ImmutableMap.of("type", "integer", "minimum", 1),
+                                "column", ImmutableMap.of("type", "integer", "minimum", 1),
+                                "limit", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", 200)),
+                        "required", ImmutableList.of("operation", "path", "limit"),
                         "additionalProperties", false));
     }
 
@@ -1085,8 +1114,8 @@ public final class PermissionBroker
         if (context.permissionTools()) {
             tools.add(permissionTool());
         }
-        if (context.codeGraph().isPresent()) {
-            tools.add(codeGraphTool());
+        if (context.codeQueries().isPresent()) {
+            tools.add(codeQueriesTool());
         }
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
         context.issueContext().ifPresent(ignored -> tools.add(new ToolDefinition(
@@ -1417,7 +1446,7 @@ public final class PermissionBroker
     {
         List<String> readable = Stream.concat(
                         context.review().stream().flatMap(review -> review.tools().stream()).filter(ReviewTool::childCallable).map(ReviewTool::name),
-                        context.codeGraph().stream().map(graph -> CodeGraphBridge.TOOL_NAME))
+                        context.codeQueries().stream().map(graph -> CodeQueryBridge.TOOL_NAME))
                 .filter(name -> SHELL_SAFE_TOOL_NAME.matcher(name).matches())
                 .map(name -> "mcp__bytequay__" + name)
                 .collect(toImmutableList());
@@ -1490,7 +1519,7 @@ public final class PermissionBroker
             AgentApprovalHandler approvals,
             SecretRedactor redactor,
             boolean permissionTools,
-            Optional<CodeGraphBridge> codeGraph,
+            Optional<CodeQueryBridge> codeQueries,
             Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
@@ -1510,7 +1539,7 @@ public final class PermissionBroker
             requireNonNull(approvals, "approvals is null");
             requireNonNull(redactor, "redactor is null");
             requireNonNull(codexReviewTools, "codexReviewTools is null");
-            requireNonNull(codeGraph, "codeGraph is null");
+            requireNonNull(codeQueries, "codeQueries is null");
             requireNonNull(review, "review is null");
             requireNonNull(development, "development is null");
             requireNonNull(localReview, "localReview is null");

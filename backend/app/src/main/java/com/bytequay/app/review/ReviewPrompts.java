@@ -95,7 +95,7 @@ final class ReviewPrompts
                 .append("Report with review_save_summary and review_save_investigation, then end this turn. ")
                 .append("Do not save findings yet; ByteQuay will start a separate validation turn. ")
                 .append(DELEGATION_REQUEST)
-                .append("Optional CodeGraph exploration is available when codegraph_explore is listed. No remote writes.")
+                .append("IDE language queries are available when code_query is listed. No remote writes.")
                 .toString();
     }
 

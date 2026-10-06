@@ -42,7 +42,7 @@ import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
-import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
@@ -3192,7 +3192,7 @@ class TestCodexCliDriver
                 plain.model(),
                 plain.effort(),
                 plain.access(),
-                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")),
+                Optional.of(new CodeQueryBridge(query -> "graph:" + query, "use the graph")),
                 "Keep explanations concise");
 
         AgentSession session = driver.open(bridged, event -> {});
@@ -3231,7 +3231,7 @@ class TestCodexCliDriver
             AgentSessionContext plain = context(sessionReference, new AtomicReference<>());
             AgentSessionContext configured = new AgentSessionContext(
                     plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
-                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeGraph(), instructions);
+                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeQueries(), instructions);
             try (AgentSession session = driver.open(configured, event -> {})) {
                 RunningTurn turn = session.start(new AgentTurnCommand("context-turn-" + index, input, ImmutableList.of(), Duration.ofMinutes(1)));
                 AppServerProcess server = supervisor.servers().getLast();
@@ -3259,7 +3259,7 @@ class TestCodexCliDriver
             AgentSessionContext plain = context(reference, new AtomicReference<>());
             AgentSessionContext configured = new AgentSessionContext(
                     plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
-                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeGraph(), instruction);
+                    plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeQueries(), instruction);
             AgentSession session = driver.open(configured, event -> {});
             AppServerProcess server = supervisor.servers().getLast();
             JsonNode request = server.threadRequests().getFirst();

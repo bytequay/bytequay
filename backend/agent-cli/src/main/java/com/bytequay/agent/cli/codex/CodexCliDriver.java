@@ -613,13 +613,13 @@ public final class CodexCliDriver
                 : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<McpRegistration> codeGraph = context.restricted() ? Optional.empty() : permissions.registerTools(
+        Optional<McpRegistration> codeQueries = context.restricted() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
-                deepSeekSecret.isPresent() ? Optional.empty() : context.codeGraph());
-        boolean review = codeGraph.flatMap(McpRegistration::review).isPresent();
+                deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries());
+        boolean review = codeQueries.flatMap(McpRegistration::review).isPresent();
         if (review && context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION)
                 && compareVersion(runningVersion, REVIEW_CHILD_GATE_MINIMUM_RELEASE).orElse(-1) < 0) {
-            codeGraph.ifPresent(McpRegistration::close);
+            codeQueries.ifPresent(McpRegistration::close);
             throw new AgentUnavailableException("This Codex version cannot resume the guarded review tools");
         }
         AgentPermissionScope scope = new AgentPermissionScope(context.permissionPolicy(), context.access(), review);
@@ -628,7 +628,7 @@ public final class CodexCliDriver
         CodexLaunchProfile.ChildProfile childProfile = ciWritableRoots.isEmpty()
                 ? childProfile(modelProfile.childProfile(), context.restricted(), review, runningVersion)
                 : CodexLaunchProfile.ChildProfile.NONE;
-        if (review && codeGraph.stream().noneMatch(registration -> registration.toolNames().contains("review_get_context"))) {
+        if (review && codeQueries.stream().noneMatch(registration -> registration.toolNames().contains("review_get_context"))) {
             childProfile = CodexLaunchProfile.ChildProfile.NONE;
         }
         if (review && context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == CONTRACT_VERSION)) {
@@ -640,13 +640,13 @@ public final class CodexCliDriver
         ClientLaunch launch;
         Optional<PermissionBroker.CodexRootTools> guardedReviewTools;
         try {
-            guardedReviewTools = (dynamicReview || codeGraph.stream().anyMatch(registration -> registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME)))
-                    ? codeGraph.map(permissions::guardCodexRootTools) : Optional.empty();
+            guardedReviewTools = (dynamicReview || codeQueries.stream().anyMatch(registration -> registration.toolNames().contains(RelatedWorkspaceBridge.TOOL_NAME)))
+                    ? codeQueries.map(permissions::guardCodexRootTools) : Optional.empty();
             launch = appServerClient(
                     context.taskId(),
                     context.worktree(),
                     childProfile,
-                    codeGraph,
+                    codeQueries,
                     context.access(),
                     savedKey,
                     ciWritableRoots,
@@ -656,18 +656,18 @@ public final class CodexCliDriver
                     launchEnvironment());
         }
         catch (RuntimeException failure) {
-            codeGraph.ifPresent(McpRegistration::close);
+            codeQueries.ifPresent(McpRegistration::close);
             throw failure;
         }
         try {
             return new CodexSession(launch.client(), launch.redactor(), context, events, modelProfile, childProfile,
-                    codeGraph, guardedReviewTools, ciWritableRoots, scope, launch.deepSeek(), launch.mcpEndpoint());
+                    codeQueries, guardedReviewTools, ciWritableRoots, scope, launch.deepSeek(), launch.mcpEndpoint());
         }
         catch (RuntimeException failure) {
             // The process is running by the time anything below it can fail, and nothing else
             // holds a reference that would ever close it.
             launch.client().close();
-            codeGraph.ifPresent(McpRegistration::close);
+            codeQueries.ifPresent(McpRegistration::close);
             throw failure;
         }
     }
@@ -856,7 +856,7 @@ public final class CodexCliDriver
         private final AgentEventSink events;
         private final CodexEventMapper eventMapper;
         private final CodexIsolationGuard isolation;
-        private final Optional<McpRegistration> codeGraph;
+        private final Optional<McpRegistration> codeQueries;
         private final Optional<PermissionBroker.CodexRootTools> guardedReviewTools;
         private final AgentSessionRef reference;
         private final ModelProfile modelProfile;
@@ -908,7 +908,7 @@ public final class CodexCliDriver
                 AgentEventSink events,
                 ModelProfile modelProfile,
                 CodexLaunchProfile.ChildProfile childProfile,
-                Optional<McpRegistration> codeGraph,
+                Optional<McpRegistration> codeQueries,
                 Optional<PermissionBroker.CodexRootTools> guardedReviewTools,
                 List<String> ciWritableRoots,
                 AgentPermissionScope permissionScope,
@@ -921,7 +921,7 @@ public final class CodexCliDriver
             this.events = requireNonNull(events, "events is null");
             this.modelProfile = requireNonNull(modelProfile, "modelProfile is null");
             this.childProfile = requireNonNull(childProfile, "childProfile is null");
-            this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
+            this.codeQueries = requireNonNull(codeQueries, "codeQueries is null");
             this.guardedReviewTools = requireNonNull(guardedReviewTools, "guardedReviewTools is null");
             this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
             this.permissionScope = requireNonNull(permissionScope, "permissionScope is null");
@@ -971,13 +971,13 @@ public final class CodexCliDriver
                             AgentCommandPolicy.instructions(permissionScope),
                             context.restricted() ? "" : PLAN_INSTRUCTION,
                             context.managedInstructions(),
-                            codeGraph.flatMap(McpRegistration::instruction).orElse(""),
+                            codeQueries.flatMap(McpRegistration::instruction).orElse(""),
                             permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "")
                     .filter(instruction -> !instruction.isBlank())
                     .collect(joining("\n\n"));
             Map<String, Object> config = CodexLaunchProfile.threadConfig(
                     childProfile,
-                    codeGraph.isPresent(),
+                    codeQueries.isPresent(),
                     context.textOnly(),
                     ciWritableRoots,
                     permissionScope.githubCommands(),
@@ -1078,7 +1078,7 @@ public final class CodexCliDriver
                 throw appServerFailure("turn/start", failure);
             }
             String turnId = response.turn().id();
-            development = codeGraph.flatMap(McpRegistration::development)
+            development = codeQueries.flatMap(McpRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, this::userInput);
             CodexRunningTurn started = running;
@@ -1935,7 +1935,7 @@ public final class CodexCliDriver
                             return;
                         }
                     }
-                    JsonNode body = permissions.callCodexRootTool(codeGraph.orElseThrow().token(),
+                    JsonNode body = permissions.callCodexRootTool(codeQueries.orElseThrow().token(),
                             request.params().tool(), request.params().arguments()).body().orElseThrow();
                     JsonNode tool = body.path("result");
                     boolean success = !tool.isMissingNode() && !tool.path("isError").asBoolean(false);
@@ -1980,7 +1980,7 @@ public final class CodexCliDriver
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
                 String rawCommand = command.orElseThrow();
-                if (codeGraph.flatMap(McpRegistration::review).isPresent()
+                if (codeQueries.flatMap(McpRegistration::review).isPresent()
                         && ReviewBridge.deniedReason(rawCommand).isPresent()) {
                     // A review session's remote-write guard answers before any card exists.
                     try {
@@ -2155,7 +2155,7 @@ public final class CodexCliDriver
                 closed = true;
                 running = null;
             }
-            codeGraph.ifPresent(McpRegistration::close);
+            codeQueries.ifPresent(McpRegistration::close);
             try {
                 client.close();
             }

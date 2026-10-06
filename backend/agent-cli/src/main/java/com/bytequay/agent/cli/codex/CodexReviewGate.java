@@ -31,7 +31,7 @@ import static java.util.Objects.requireNonNull;
 final class CodexReviewGate
 {
     static final String INSTRUCTION = """
-            In this Codex review, children may use review_get_context, codegraph_explore and repository_memory SEARCH/READ
+            In this Codex review, children may use review_get_context, code_query and repository_memory SEARCH/READ
             when listed, native shell tools for read-only source searches, and send_message to share findings with the main agent.
             Use the MCP repository_memory tool for reads; the unqualified dynamic tool belongs to the main agent.
             Shell commands retain the native sandbox. Children must not edit files, run tests, commit, publish, save review

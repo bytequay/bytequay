@@ -79,7 +79,7 @@ class TestCodexReviewProfile
         Path gate = CodexReviewGate.install(codexHome);
         assertThat(runGate(gate, "{\"tool_name\":\"mcp__bytequay__review_save_finding\"}")).isZero();
         assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"mcp__bytequay__review_get_context\"}")).isZero();
-        assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"mcp__bytequay__codegraph_explore\"}")).isZero();
+        assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"mcp__bytequay__code_query\"}")).isZero();
         for (String tool : ImmutableList.of("Bash", "write_stdin")) {
             assertThat(runGate(gate, "{\"agent_id\":\"child\",\"tool_name\":\"" + tool + "\",\"tool_input\":{\"command\":\"rg -n decimal src\"}}"))
                     .as("child exploration tool %s", tool).isZero();

@@ -40,7 +40,7 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
-import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
@@ -311,7 +311,7 @@ class TestClaudeCliDriver
                 plain.model(),
                 plain.effort(),
                 plain.access(),
-                Optional.of(new CodeGraphBridge(query -> "graph:" + query, "use the graph")),
+                Optional.of(new CodeQueryBridge(query -> "graph:" + query, "use the graph")),
                 "");
 
         AgentSession session = driver.open(bridged, event -> {});
@@ -320,14 +320,14 @@ class TestClaudeCliDriver
         assertThat(spec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\nuse the graph");
         int allowed = spec.argv().indexOf("--allowedTools");
         assertThat(allowed).isPositive();
-        assertThat(spec.argv().get(allowed + 1)).contains("mcp__bytequay__codegraph_explore");
+        assertThat(spec.argv().get(allowed + 1)).contains("mcp__bytequay__code_query");
         session.close();
 
         AgentSession unbridged = driver.open(plain, event -> {});
         await(unbridged.start(command("second")));
         ProcessSpec plainSpec = supervisor.turns().get(1).spec();
         assertThat(plainSpec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION);
-        assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("codegraph_explore"));
+        assertThat(plainSpec.argv()).noneMatch(argument -> argument.contains("code_query"));
         unbridged.close();
     }
 
@@ -373,7 +373,7 @@ class TestClaudeCliDriver
             String expected = DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + (instruction.isEmpty() ? "" : "\n\n" + instruction);
             assertThat(arguments).containsSequence("--append-system-prompt", expected);
             assertThat(arguments.stream().filter(argument -> argument.startsWith("--append-system-prompt"))).hasSize(1);
-            assertThat(arguments).noneMatch(argument -> argument.contains("codegraph_explore") || argument.contains("review_finish"));
+            assertThat(arguments).noneMatch(argument -> argument.contains("code_query") || argument.contains("review_finish"));
             assertThat(arguments.contains("--resume")).isEqualTo(reference.isPresent());
             reference = Optional.of(session.reference());
             session.close();
@@ -1669,7 +1669,7 @@ class TestClaudeCliDriver
         Path checkout = Files.createDirectories(worktree.resolve(repository).resolve("task-worktree"));
         Path runtime = Files.createDirectories(worktree.resolve(repository).resolve("runtime"));
         return new AgentSessionContext(repository, checkout, runtime, runtime.resolve("provider"), base.permissionPolicy(), reference,
-                base.approvals(), base.model(), base.effort(), base.access(), base.codeGraph(), base.managedInstructions());
+                base.approvals(), base.model(), base.effort(), base.access(), base.codeQueries(), base.managedInstructions());
     }
 
     private Path claudeHome()
@@ -1713,7 +1713,7 @@ class TestClaudeCliDriver
         AgentSessionContext plain = context(reference);
         return new AgentSessionContext(
                 plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
-                plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeGraph(), managedInstructions);
+                plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeQueries(), managedInstructions);
     }
 
     private AgentSessionContext context(

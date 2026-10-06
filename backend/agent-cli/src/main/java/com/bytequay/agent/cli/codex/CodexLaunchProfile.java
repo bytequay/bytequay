@@ -89,32 +89,32 @@ final class CodexLaunchProfile
     static List<String> arguments(
             String executable,
             ChildProfile childProfile,
-            Optional<CodeGraphLaunch> codeGraph,
+            Optional<CodeGraphLaunch> codeQueries,
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
             boolean review)
     {
-        return arguments(executable, childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
+        return arguments(executable, childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
     }
 
     static List<String> arguments(
             String executable,
             ChildProfile childProfile,
-            Optional<CodeGraphLaunch> codeGraph,
+            Optional<CodeGraphLaunch> codeQueries,
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
             boolean review,
             Optional<DeepSeekProfile> deepSeek)
     {
-        requireNonNull(codeGraph, "codeGraph is null");
+        requireNonNull(codeQueries, "codeQueries is null");
         requireNonNull(deepSeek, "deepSeek is null");
         boolean ci = !ciWritableRoots.isEmpty();
         boolean reviewChildren = review && childProfile != ChildProfile.NONE;
         checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
         checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
-        checkArgument(!reviewChildren || codeGraph.flatMap(CodeGraphLaunch::reviewGate).isPresent(), "Review children require the ByteQuay hook gate");
+        checkArgument(!reviewChildren || codeQueries.flatMap(CodeGraphLaunch::reviewGate).isPresent(), "Review children require the ByteQuay hook gate");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(executable);
         arguments.add(
                 "app-server",
@@ -180,10 +180,10 @@ final class CodexLaunchProfile
         }
         if (reviewChildren) {
             arguments.add("-c", "hooks.PreToolUse=[{matcher=\".*\",hooks=[{type=\"command\",command="
-                    + tomlString(CodexReviewGate.command(codeGraph.orElseThrow().reviewGate().orElseThrow())) + ",timeout=5}]}]");
+                    + tomlString(CodexReviewGate.command(codeQueries.orElseThrow().reviewGate().orElseThrow())) + ",timeout=5}]}]");
         }
         // The broker admits only this task's authorized tools; Codex must not ask a second approval question for them.
-        codeGraph.ifPresent(launch -> {
+        codeQueries.ifPresent(launch -> {
             arguments.add("-c", "mcp_servers.bytequay.url=" + tomlString(launch.endpoint().toString()));
             if (launch.bearerTokenInEnvironment()) {
                 arguments.add("-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(CodeGraphLaunch.TOKEN_VARIABLE));
@@ -207,18 +207,18 @@ final class CodexLaunchProfile
      */
     static Map<String, Object> threadConfig(
             ChildProfile childProfile,
-            boolean codeGraph,
+            boolean codeQueries,
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
             boolean review)
     {
-        return threadConfig(childProfile, codeGraph, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
+        return threadConfig(childProfile, codeQueries, textOnly, ciWritableRoots, allowGitHubCommands, review, Optional.empty());
     }
 
     static Map<String, Object> threadConfig(
             ChildProfile childProfile,
-            boolean codeGraph,
+            boolean codeQueries,
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
@@ -252,7 +252,7 @@ final class CodexLaunchProfile
         else if (allowGitHubCommands || review) {
             config.put("sandbox_workspace_write", ImmutableMap.of("network_access", true));
         }
-        if (!codeGraph) {
+        if (!codeQueries) {
             config.put("mcp_servers", ImmutableMap.of());
         }
         config.put("agents", childProfile == ChildProfile.V1

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.core;
+package com.bytequay.agent.spi;
 
 import com.google.common.base.Splitter;
 

@@ -13,13 +13,16 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.agent.core.CodeQuery;
 import com.bytequay.agent.core.CodeQueryResult;
 import com.bytequay.agent.core.CodeQueryResult.Status;
+import com.bytequay.agent.core.CodeQueryService;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
+import com.bytequay.agent.spi.CodeQuery;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSortedSet;
 import org.springframework.stereotype.Component;
@@ -44,22 +47,36 @@ import static java.util.Objects.requireNonNull;
 /** In-memory requests to the desktop's one shared IDE per worktree. No second index or saved query queue. */
 @Component
 public class IdeCodeQueries
+        implements CodeQueryService
 {
     private static final Duration TIMEOUT = Duration.ofSeconds(90);
     private final IdeRuntimeService runtime;
     private final WorktreeService worktrees;
     private final GitCommandRunner git;
+    private final ObjectMapper mapper;
     private final Map<String, Pending> pending = new LinkedHashMap<>();
     private long version;
 
-    public IdeCodeQueries(IdeRuntimeService runtime, WorktreeService worktrees, GitCommandRunner git)
+    public IdeCodeQueries(IdeRuntimeService runtime, WorktreeService worktrees, GitCommandRunner git, ObjectMapper mapper)
     {
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.git = requireNonNull(git, "git is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
-    public Answer query(TaskWorktree worktree, CodeQuery query)
+    @Override
+    public String query(TaskWorktree worktree, CodeQuery query)
+    {
+        try {
+            return mapper.writeValueAsString(execute(worktree, query));
+        }
+        catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Cannot encode code query evidence", failure);
+        }
+    }
+
+    public Answer execute(TaskWorktree worktree, CodeQuery query)
     {
         Path root = worktrees.ownedCheckout(worktree);
         validateFile(root, query.path());

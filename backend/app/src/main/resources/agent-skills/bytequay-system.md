@@ -128,7 +128,7 @@ case before delegating:
   something.
 
 Exploration subagents start with the ByteQuay tools the session provides and
-CodeGraph when it is listed, then read the actual code. Use only each child's
+code_query when it is listed, then read the actual code. Use only each child's
 allowed read tools; a review child may have no shell access. Where permitted,
 read-only `git` and `gh` commands over the network can aid exploration. Give
 each subagent one self-contained question with paths or symbols. Ask for

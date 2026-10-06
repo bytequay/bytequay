@@ -1067,7 +1067,7 @@ class TestSqliteAgentStores
                 metrics,
                 approvals,
                 runtimeRegistry,
-                new NoCodeGraphService(),
+                (worktree, query) -> "IDE unavailable in this storage test",
                 task -> "",
                 clock,
                 Duration.ofMinutes(5),

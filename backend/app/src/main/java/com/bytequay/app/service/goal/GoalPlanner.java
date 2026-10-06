@@ -19,7 +19,6 @@ import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.CodeGraphBridge;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.context.ContextText;
@@ -395,7 +394,7 @@ public class GoalPlanner
     /** What the code graph finds for a question at the baseline of the goal's repository; nothing without CodeGraph, a baseline or an answer. */
     Optional<PinnedCodeGraphService.BaselineResult> codeMap(GoalView goal, String question)
     {
-        String bounded = question.length() <= CodeGraphBridge.MAXIMUM_QUERY_LENGTH ? question : question.substring(0, CodeGraphBridge.MAXIMUM_QUERY_LENGTH);
+        String bounded = question.length() <= 2000 ? question : question.substring(0, 2000);
         try {
             return workspaces.findById(goal.workspaceId())
                     .flatMap(workspace -> codeGraph.exploreBaseline(new RepositoryIdentity(workspace.selectedRepository().owner(), workspace.selectedRepository().repo()),

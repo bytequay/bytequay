@@ -9,7 +9,7 @@ name=$(printf '%s' "$payload" | /usr/bin/plutil -extract tool_name raw -o - - 2>
 }
 printf '%s' "$payload" | /usr/bin/plutil -extract agent_id raw -o /dev/null - 2>/dev/null || exit 0
 case "$name" in
-  mcp__bytequay__review_get_context|mcp__bytequay__codegraph_explore) exit 0 ;;
+  mcp__bytequay__review_get_context|mcp__bytequay__code_query) exit 0 ;;
   mcp__bytequay__repository_memory|repository_memory)
     action=$(printf '%s' "$payload" | /usr/bin/plutil -extract tool_input.action raw -o - - 2>/dev/null)
     case "$action" in SEARCH|READ) exit 0 ;; esac
@@ -22,5 +22,5 @@ case "$name" in
     [ -n "$root" ] && [ "$target" = "$root" ] && exit 0
     ;;
 esac
-echo "ByteQuay review child scope: use context, CodeGraph, memory SEARCH/READ, sandboxed source searches, or messages to the main agent. Save changes and permission requests for the main agent. Return missing evidence in your final answer; do not retry denied calls." >&2
+echo "ByteQuay review child scope: use context, IDE code queries, memory SEARCH/READ, sandboxed source searches, or messages to the main agent. Save changes and permission requests for the main agent. Return missing evidence in your final answer; do not retry denied calls." >&2
 exit 2

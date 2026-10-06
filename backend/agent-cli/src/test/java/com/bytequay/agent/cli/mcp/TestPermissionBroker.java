@@ -19,7 +19,7 @@ import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.BridgeResolver;
-import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
@@ -87,7 +87,7 @@ class TestPermissionBroker
                                 PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())) : Optional.empty());
         for (String taskId : ImmutableList.of("plain", "review", "development", "graph", "ci")) {
             AgentPermissionPolicy policy = taskId.equals("ci") ? AgentPermissionPolicy.CI_AUTOFIX : AgentPermissionPolicy.AUTO;
-            Optional<CodeGraphBridge> graph = taskId.equals("graph") ? Optional.of(new CodeGraphBridge(query -> "graph", "Use the graph")) : Optional.empty();
+            Optional<CodeQueryBridge> graph = taskId.equals("graph") ? Optional.of(new CodeQueryBridge(query -> "graph", "Use the graph")) : Optional.empty();
             try (McpRegistration registration = broker.register(
                     taskId, temporaryDirectory, temporaryDirectory, temporaryDirectory, policy, SessionAccess.FULL,
                     (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
@@ -543,7 +543,7 @@ class TestPermissionBroker
     }
 
     @Test
-    void servesTheCodeGraphToolOnlyWhenBridged()
+    void servesTypedLanguageQueriesOnlyWhenBridged()
             throws Exception
     {
         PermissionBroker broker = new PermissionBroker(
@@ -560,7 +560,7 @@ class TestPermissionBroker
                 SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 redactor,
-                Optional.of(new CodeGraphBridge(query -> "graph for " + query + " known-secret", "use the graph")));
+                Optional.of(new CodeQueryBridge(query -> "symbols for " + query.query().orElseThrow() + " known-secret", "use the graph")));
         McpRegistration plain = broker.register(
                 "task-2",
                 temporaryDirectory,
@@ -574,17 +574,29 @@ class TestPermissionBroker
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """)).body().orElseThrow();
         assertThat(listed.at("/result/tools")).hasSize(2);
-        assertThat(listed.at("/result/tools/1/name").asText()).isEqualTo("codegraph_explore");
-        assertThat(listed.at("/result/tools/1/inputSchema/required/0").asText()).isEqualTo("query");
+        assertThat(listed.at("/result/tools/1/name").asText()).isEqualTo("code_query");
+        assertThat(listed.at("/result/tools/1/inputSchema/required/0").asText()).isEqualTo("operation");
 
         JsonNode called = broker.handle(bridged.token(), objectMapper.readTree("""
-                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"query":"who calls cleanup"}}}
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code_query","arguments":{"operation":"SYMBOLS","path":"src/main.go","limit":20,"query":"cleanup"}}}
                 """)).body().orElseThrow();
-        assertThat(called.at("/result/content/0/text").asText()).isEqualTo("graph for who calls cleanup [REDACTED]");
+        assertThat(called.at("/result/content/0/text").asText()).isEqualTo("symbols for cleanup [REDACTED]");
 
         for (String arguments : ImmutableList.of("{}", "{\"query\":\"  \"}", "{\"query\":\"x\",\"path\":\"/\"}", "{\"query\":5}")) {
             JsonNode rejected = broker.handle(bridged.token(), objectMapper.readTree(
-                    "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"codegraph_explore\",\"arguments\":" + arguments + "}}")).body().orElseThrow();
+                    "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"code_query\",\"arguments\":" + arguments + "}}")).body().orElseThrow();
+            assertThat(rejected.at("/error/code").asInt()).as(arguments).isEqualTo(-32602);
+        }
+
+        for (String arguments : ImmutableList.of(
+                "{\"operation\":\"executeCommand\",\"path\":\"src/main.go\",\"limit\":20}",
+                "{\"operation\":\"DOCUMENT_SYMBOLS\",\"path\":\"../private.go\",\"limit\":20}",
+                "{\"operation\":\"DOCUMENT_SYMBOLS\",\"path\":\".git/config\",\"limit\":20}",
+                "{\"operation\":\"REFERENCES\",\"path\":\"src/main.go\",\"line\":1.5,\"column\":1,\"limit\":20}",
+                "{\"operation\":\"DOCUMENT_SYMBOLS\",\"path\":\"src/main.go\",\"limit\":201}",
+                "{\"operation\":\"DOCUMENT_SYMBOLS\",\"path\":\"src/main.go\",\"limit\":20,\"taskId\":\"other\"}")) {
+            JsonNode rejected = broker.handle(bridged.token(), objectMapper.readTree(
+                    "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"tools/call\",\"params\":{\"name\":\"code_query\",\"arguments\":" + arguments + "}}")).body().orElseThrow();
             assertThat(rejected.at("/error/code").asInt()).as(arguments).isEqualTo(-32602);
         }
 
@@ -593,7 +605,7 @@ class TestPermissionBroker
                 """)).body().orElseThrow();
         assertThat(unbridged.at("/result/tools")).hasSize(1);
         JsonNode denied = broker.handle(plain.token(), objectMapper.readTree("""
-                {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"query":"x"}}}
+                {"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"code_query","arguments":{"query":"x"}}}
                 """)).body().orElseThrow();
         assertThat(denied.at("/error/code").asInt()).isEqualTo(-32602);
         bridged.close();
@@ -601,7 +613,7 @@ class TestPermissionBroker
     }
 
     @Test
-    void codeGraphOnlyRegistrationsHideThePermissionTools()
+    void codeQueriesOnlyRegistrationsHideThePermissionTools()
             throws Exception
     {
         PermissionBroker broker = new PermissionBroker(
@@ -614,18 +626,18 @@ class TestPermissionBroker
                 AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()),
-                Optional.of(new CodeGraphBridge(query -> "graph for " + query, "use the graph"))).orElseThrow();
+                Optional.of(new CodeQueryBridge(query -> "symbols for " + query.query().orElseThrow(), "use the graph"))).orElseThrow();
         assertThat(registration.endpoint()).isEqualTo(URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"));
 
         JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """)).body().orElseThrow();
         assertThat(listed.at("/result/tools")).hasSize(1);
-        assertThat(listed.at("/result/tools/0/name").asText()).isEqualTo("codegraph_explore");
+        assertThat(listed.at("/result/tools/0/name").asText()).isEqualTo("code_query");
         JsonNode called = broker.handle(registration.token(), objectMapper.readTree("""
-                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"codegraph_explore","arguments":{"query":"routes"}}}
+                {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code_query","arguments":{"operation":"SYMBOLS","path":"src/main.go","limit":20,"query":"routes"}}}
                 """)).body().orElseThrow();
-        assertThat(called.at("/result/content/0/text").asText()).isEqualTo("graph for routes");
+        assertThat(called.at("/result/content/0/text").asText()).isEqualTo("symbols for routes");
         JsonNode hidden = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"permission_prompt","arguments":{"tool_name":"Bash","input":{}}}}
                 """)).body().orElseThrow();
@@ -1485,7 +1497,7 @@ class TestPermissionBroker
         Path gate;
         try (var registration = broker.register("task-gate", worktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.of(new CodeGraphBridge(query -> "graph", "Use the graph")), ImmutableMap.of())) {
+                SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.of(new CodeQueryBridge(query -> "graph", "Use the graph")), ImmutableMap.of())) {
             gate = registration.settingsFile().orElseThrow().resolveSibling("review-child-gate.sh");
             JsonNode hook = objectMapper.readTree(Files.readString(registration.settingsFile().orElseThrow())).at("/hooks/PreToolUse/0");
             assertThat(hook.path("matcher").asText()).isEqualTo("^(Agent|Task|mcp__bytequay__.*)$");
@@ -1498,7 +1510,7 @@ class TestPermissionBroker
             assertThat(gate(command, "{\"tool_name\":\"mcp__bytequay__review_finish\",\"tool_input\":{}}")).isZero();
             // A child reads and explores, and nothing else.
             assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__review_get_context\",\"tool_input\":{\"kind\":\"pr\"}}")).isZero();
-            assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__codegraph_explore\",\"tool_input\":{}}")).isZero();
+            assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__code_query\",\"tool_input\":{}}")).isZero();
             assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__review_finish\",\"tool_input\":{}}")).isEqualTo(2);
             assertThat(gate(command, "{" + child + "\"tool_name\":\"mcp__bytequay__review_future_tool\",\"tool_input\":{}}")).isEqualTo(2);
             // Only read-only Explore children start.

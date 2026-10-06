@@ -34,7 +34,7 @@ import com.bytequay.agent.core.ApprovalDecision;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
 import com.bytequay.agent.core.BlobRef;
-import com.bytequay.agent.core.CodeGraphInstructions;
+import com.bytequay.agent.core.CodeQueryInstructions;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
@@ -83,7 +83,8 @@ import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.CodeQuery;
+import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -114,6 +115,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
@@ -162,6 +164,8 @@ class TestDefaultAgentTurnService
     private final AtomicReference<String> managedInstructions = new AtomicReference<>("");
     private final List<AgentTask> instructionTasks = new CopyOnWriteArrayList<>();
     private boolean codeGraphEnabled = true;
+    private boolean codeQueryUnavailable;
+    private TaskWorktree queriedWorktree;
     private Optional<Consumer<DevelopmentTurnCompletion>> developmentListener = Optional.empty();
     private Consumer<TaskId> stopChildren = ignored -> {};
     private BiConsumer<AgentTask, AgentTurn> developmentAccepted = (acceptedTask, turn) -> {};
@@ -454,6 +458,7 @@ class TestDefaultAgentTurnService
                 deepSeek.id(), "first", ImmutableList.of(), "deepseek-first")
                 .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
         assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
+        assertThat(driver.openedContexts().getLast().codeQueries()).isEmpty();
         assertThat(driver.openedContexts().getLast().managedInstructions())
                 .contains("Commit finished development work: true", "Auto draft PR: false")
                 .doesNotContain("Private local review");
@@ -3690,7 +3695,13 @@ class TestDefaultAgentTurnService
                 metrics,
                 configuredApprovals,
                 runtimeRegistry,
-                codeGraph,
+                (worktree, query) -> {
+                    queriedWorktree = worktree;
+                    if (codeQueryUnavailable) {
+                        throw new IllegalStateException("IDE not ready");
+                    }
+                    return "symbols:" + query.query().orElseThrow();
+                },
                 instructionTask -> {
                     instructionTasks.add(instructionTask);
                     return managedInstructions.get();
@@ -3758,35 +3769,36 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void opensProviderSessionsWithTheCodeGraphBridgeWhenTheHelperIsAvailable()
+    void sharesTaskBoundLanguageQueriesWithTheProvider()
     {
         service.start(command("first", "key-1"));
 
-        CodeGraphBridge bridge = driver.openedContexts().getFirst().codeGraph().orElseThrow();
-        assertThat(bridge.instruction()).isEqualTo(CodeGraphInstructions.MANAGED);
-        assertThat(bridge.explore().apply("who calls cleanup")).isEqualTo("graph:who calls cleanup");
+        CodeQueryBridge bridge = driver.openedContexts().getFirst().codeQueries().orElseThrow();
+        assertThat(bridge.instruction()).isEqualTo(CodeQueryInstructions.MANAGED);
+        CodeQuery query = new CodeQuery(CodeQuery.Operation.SYMBOLS, "src/main.go", Optional.of("cleanup"), OptionalInt.empty(), OptionalInt.empty(), 20);
+        assertThat(bridge.query().apply(query)).isEqualTo("symbols:cleanup");
+        assertThat(queriedWorktree).isEqualTo(task.taskWorktree().orElseThrow());
     }
 
     @Test
-    void opensProviderSessionsWithoutTheBridgeWhenTheHelperIsOff()
+    void languageRuntimeFailuresRemainFailOpenForTheAgent()
     {
-        codeGraph.available = false;
-
+        codeQueryUnavailable = true;
         service.start(command("first", "key-1"));
-
-        assertThat(driver.openedContexts().getFirst().codeGraph()).isEmpty();
+        CodeQuery query = new CodeQuery(CodeQuery.Operation.DOCUMENT_SYMBOLS, "src/main.go", Optional.empty(), OptionalInt.empty(), OptionalInt.empty(), 20);
+        assertThat(driver.openedContexts().getFirst().codeQueries().orElseThrow().query().apply(query))
+                .contains("unavailable", "normal source and search", "IDE not ready");
     }
 
     @Test
-    void opensProviderSessionsWithoutTheBridgeForATaskCreatedWithoutTheTool()
+    void languageQueriesDoNotDependOnTheRetiringGraphIndex()
     {
         codeGraphEnabled = false;
+        codeGraph.available = false;
         AgentTask withoutGraph = interactiveTask("Without graph");
-
         service.start(new StartAgentTurnCommand(withoutGraph.id(), "first", ImmutableList.<AgentAttachment>of(), "key-off"));
-
         assertThat(withoutGraph.codegraph()).isFalse();
-        assertThat(driver.openedContexts().getFirst().codeGraph()).isEmpty();
+        assertThat(driver.openedContexts().getFirst().codeQueries()).isPresent();
     }
 
     private StartAgentTurnCommand command(String message, String idempotencyKey)

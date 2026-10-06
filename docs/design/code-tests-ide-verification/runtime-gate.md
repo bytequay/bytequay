@@ -321,3 +321,24 @@ Shared-query verification passes the full backend reactor, frontend lint and
 type checks, all 1,530 frontend tests in 162 files, and macOS arm64 packaging.
 The final focused check also covers cancellation after the editor renderer has
 already crashed. No native fixture processes remain running.
+
+
+## Agent query integration
+
+The Codex and Claude task bridge now exposes `code_query` with the same validated
+request contract as the IDE queue. The old `codegraph_explore` bridge and its
+natural-language graph instructions are removed. Fixed operation, relative-path,
+position and result limits are enforced before dispatch. Task identity comes
+from the provider session; callers cannot choose another task or invoke arbitrary
+IDE commands. Review child guards advertise the new read tool, while their
+mutation restrictions and helper/DeepSeek exclusions remain unchanged.
+
+Agent callbacks return task/revision/fingerprint evidence from the shared queue;
+startup and service failures remain fail-open. They do not depend on the old
+CodeGraph task flag or eagerly create a second index. Provider fixtures exercise
+both adapters, redaction, malformed/extra arguments, task binding, child guards
+and failure fallback. The focused backend gate passes 337 tests; the application-context and stored-task
+composition checks also pass. This is bridge
+and native-provider evidence from separate checks, not a real-model end-to-end
+agent execution. The legacy UI and GoalPlanner still use CodeGraph pending the
+remaining migration.

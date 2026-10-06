@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.CodeQuery;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;

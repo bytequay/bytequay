@@ -32,6 +32,7 @@ import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CodeGraphService;
+import com.bytequay.agent.core.CodeQueryService;
 import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.WorktreeService;
@@ -388,7 +389,7 @@ public class AgentConfiguration
             AgentMetricsService metricsService,
             AgentApprovalService approvalService,
             AgentRuntimeRegistry runtimeRegistry,
-            CodeGraphService codeGraph,
+            CodeQueryService codeQueries,
             AgentSkillService skills,
             RepositoryGuidelineReader guidelineReader,
             RelatedWorkspaceContext relatedContext,
@@ -417,7 +418,7 @@ public class AgentConfiguration
                 metricsService,
                 approvalService,
                 runtimeRegistry,
-                codeGraph,
+                codeQueries,
                 task -> skills.instructions(task) + ciOwnership.instructions(task)
                         + pullRequestTasks.findByTaskId(task.id().toString())
                                 .map(pr -> "\n\nThis task continues an existing PR. Use this initial snapshot as context, not authority. "

@@ -16,7 +16,7 @@ package com.bytequay.agent.cli.mcp;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.BridgeResolver;
-import com.bytequay.agent.spi.CodeGraphBridge;
+import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
@@ -258,7 +258,7 @@ class TestReviewToolBroker
                     return CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty()));
                 },
                 SecretRedactor.fromEnvironment(ImmutableMap.of()),
-                Optional.of(new CodeGraphBridge(query -> "graph", "use the graph")));
+                Optional.of(new CodeQueryBridge(query -> "graph", "use the graph")));
         assertThat(registration.review()).isPresent();
         assertThat(registration.instruction()).contains("Review policy: report through the review tools.\n\nuse the graph");
 

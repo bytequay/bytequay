@@ -55,7 +55,7 @@ final class CodexIsolationGuard
     private final CodexAppServerClient client;
     private final Path codexHome;
     private final CodexLaunchProfile.ChildProfile childProfile;
-    private final Optional<URI> codeGraphEndpoint;
+    private final Optional<URI> codeQueriesEndpoint;
     private final boolean textOnly;
     private final List<String> ciWritableRoots;
     private final boolean allowGitHubCommands;
@@ -66,7 +66,7 @@ final class CodexIsolationGuard
             CodexAppServerClient client,
             Path codexHome,
             CodexLaunchProfile.ChildProfile childProfile,
-            Optional<URI> codeGraphEndpoint,
+            Optional<URI> codeQueriesEndpoint,
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
@@ -76,7 +76,7 @@ final class CodexIsolationGuard
         this.client = requireNonNull(client, "client is null");
         this.codexHome = requireNonNull(codexHome, "codexHome is null").toAbsolutePath().normalize();
         this.childProfile = requireNonNull(childProfile, "childProfile is null");
-        this.codeGraphEndpoint = requireNonNull(codeGraphEndpoint, "codeGraphEndpoint is null");
+        this.codeQueriesEndpoint = requireNonNull(codeQueriesEndpoint, "codeQueriesEndpoint is null");
         this.textOnly = textOnly;
         this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
         this.allowGitHubCommands = allowGitHubCommands;
@@ -357,7 +357,7 @@ final class CodexIsolationGuard
                 throw unavailable("mcpServerStatus/list omitted its data array");
             }
             for (JsonNode status : data) {
-                if (codeGraphEndpoint.isEmpty()) {
+                if (codeQueriesEndpoint.isEmpty()) {
                     throw unavailable("thread inherited an MCP server");
                 }
                 if (++servers > 1 || !status.path("name").asText("").equals("bytequay")) {
@@ -379,7 +379,7 @@ final class CodexIsolationGuard
             }
         }
         while (cursor.isPresent());
-        if (codeGraphEndpoint.isPresent() && servers != 1) {
+        if (codeQueriesEndpoint.isPresent() && servers != 1) {
             throw unavailable("thread does not expose exactly the ByteQuay task MCP endpoint");
         }
     }
@@ -387,13 +387,13 @@ final class CodexIsolationGuard
     /** The effective MCP map holds nothing, or exactly ByteQuay's own task endpoint when this launch exposes the CodeGraph tool. */
     private void verifyOnlyTheCodeGraphServer(JsonNode servers)
     {
-        if (codeGraphEndpoint.isEmpty()) {
+        if (codeQueriesEndpoint.isEmpty()) {
             if (!servers.isObject() || !servers.isEmpty()) {
                 throw unavailable("config/read exposes MCP servers on an isolated launch");
             }
             return;
         }
-        String expected = codeGraphEndpoint.orElseThrow().toString();
+        String expected = codeQueriesEndpoint.orElseThrow().toString();
         if (!servers.isObject() || servers.size() != 1 || !servers.path("bytequay").path("url").asText("").equals(expected)) {
             throw unavailable("config/read does not expose exactly the ByteQuay task MCP endpoint");
         }

@@ -16,8 +16,8 @@ discussions, resumed turns, and report repair.
    and relevant unchanged files. Where applicable, inspect every implementation
    of a changed interface, by-name registration, and sibling path that could
    retain the old behavior. Search only as broadly as the changed contract
-   requires. Retrieve context as questions arise. Use CodeGraph when it can
-   find an indirect path, then inspect the actual code. Revisit the decisive
+   requires. Retrieve context as questions arise. Use code_query when its caller or implementation results help, then inspect
+   the actual code. Revisit the decisive
    changed hunk and affected unchanged source before sealing a candidate.
    Record assessed changed files separately from supporting context evidence.
    A file read or passing build does not prove its behavior was reviewed. Save suspected defects as
@@ -200,7 +200,7 @@ You own every save. Use only source read in your turn or evidence refs returned
 by a child's review_get_context, and verify each delegated conclusion yourself.
 For independent questions, use at most two concurrent read-only children under
 the shared parallel-exploration policy. Children may call review_get_context
-and codegraph_explore only when listed. They never edit, run tests, save reports
+and code_query only when listed. They never edit, run tests, save reports
 or make review decisions. If native delegation is unavailable, investigate directly.
 
 ## Verification and reuse

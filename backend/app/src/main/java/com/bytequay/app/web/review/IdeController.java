@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web.review;
 
-import com.bytequay.agent.core.CodeQuery;
 import com.bytequay.agent.core.CodeQueryResult;
+import com.bytequay.agent.spi.CodeQuery;
 import com.bytequay.app.review.CodeBlame;
 import com.bytequay.app.review.CodeHistory;
 import com.bytequay.app.review.IdeCodeQueries;
@@ -61,7 +61,7 @@ public class IdeController
     @PostMapping("/tasks/{workspaceId}/{taskId}/query")
     public IdeCodeQueries.Answer query(@PathVariable String workspaceId, @PathVariable String taskId, @RequestBody CodeQuery query)
     {
-        return queries.query(code.ideQueryWorktree(new TaskCodeHost(workspaceId, taskId)), query);
+        return queries.execute(code.ideQueryWorktree(new TaskCodeHost(workspaceId, taskId)), query);
     }
 
     @GetMapping("/queries")

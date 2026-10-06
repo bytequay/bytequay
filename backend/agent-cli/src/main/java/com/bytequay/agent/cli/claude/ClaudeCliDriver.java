@@ -767,7 +767,7 @@ public final class ClaudeCliDriver
                     context.access(),
                     this::requestApproval,
                     ClaudeCliDriver.this.redactor,
-                    context.codeGraph(),
+                    context.codeQueries(),
                     environment);
             this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());

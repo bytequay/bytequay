@@ -15,17 +15,17 @@ import { afterEach, expect, it, vi } from 'vitest';
 import type { SourceControlHistoryProvider, TextDocumentContentProvider } from 'vscode';
 import { installGitHistory } from './gitHistory';
 import type { IdeRuntime } from './runtime';
-import type { HistoryComparison } from './contracts';
+import type { HistoryComparison, HistoryCommit } from './contracts';
 // eslint-disable-next-line import/no-unresolved -- The pinned package exports this path.
 import { URI } from '@codingame/monaco-vscode-api/vscode/vs/base/common/uri';
 
 it('pins graph pages, avoids revealing an absent file-history HEAD and opens immutable rename and deletion diffs', async () => {
-  const request = vi.fn(async () => ({ commits: [], content: 'historical contents' }));
+  const request = vi.fn(async () => ({ commits: [] as HistoryCommit[], content: 'historical contents' }));
   vi.stubGlobal('window', { ideWorkbench: { request } });
   const scm = { inputBox: { visible: true }, historyProvider: undefined as SourceControlHistoryProvider | undefined, dispose: vi.fn() };
   const execute = vi.fn();
   let contents: TextDocumentContentProvider | undefined;
-  const runtime = { workspace: URI.parse('vscode-remote://localhost/worktree'), views: { getViewDescriptorById: () => undefined }, api: {
+  const runtime = { workspace: URI.parse('vscode-remote://localhost/worktree'), views: { getViewDescriptorById: (): undefined => undefined }, api: {
     Uri: URI, EventEmitter: class { event = vi.fn(); fire = vi.fn(); dispose = vi.fn(); },
     scm: { createSourceControl: () => scm }, commands: { executeCommand: execute },
     workspace: { registerTextDocumentContentProvider: (_scheme: string, provider: TextDocumentContentProvider) => { contents = provider; return { dispose: vi.fn() }; } },
@@ -55,4 +55,4 @@ it('pins graph pages, avoids revealing an absent file-history HEAD and opens imm
   history.dispose(); expect(scm.dispose).toHaveBeenCalledOnce();
 });
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.unstubAllGlobals(); });

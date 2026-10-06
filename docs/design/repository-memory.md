@@ -398,10 +398,8 @@ Phase 2 removes the learning system.
 - The 41 IPC channels shrink to the spec check set; phase 3 adds the memory set.
 
 **Docs:**
-- Deleted: `repository-context.md`, `repository-context-refactor.md`,
-  `repository-context-agent-discovery.md`, `repository-context-acceptance.md`,
-  `repository-context-impl-tmp.md`, the `docs/evaluation` captures and the two
-  `scripts/*repository-context-cases.py` fixture tools.
+- Deleted: superseded repository-context designs, implementation trackers,
+  evaluation captures, and the repository-context fixture tools.
 - Rewritten: the context paragraphs in `architecture.md`, `agent-service.md`,
   `agent-task-ui.md` and `agent-skills.md`; the spec check design moved to
   `spec-check.md`.

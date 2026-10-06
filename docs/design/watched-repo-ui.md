@@ -2,16 +2,17 @@
 
 Status: original mockups for the four changed surfaces, with current watch routing and workspace
 retention behavior documented. Canonical behavior:
-[watched-repo.md](watched-repo.md). Mockups live in
-[watched-repo-ui/](watched-repo-ui/) as interactive HTML state boards (open in a
-browser) plus PNG exports.
+[watched-repo.md](watched-repo.md). The retained interactive references are
+[Workspace Home](Workspace%20Home.dc.html) and the
+[workspace/cherry-pick handoff](design_handoff_cherry_pick_flow/README.md).
+Earlier state boards are described below; their exports are no longer retained.
 
-| Board | Files |
+| Board | Reference |
 | --- | --- |
-| Watch Repository flow | `watched-repo-ui/Watch Repository.dc.html` · `watch-repository.png` |
-| Workspaces page | `watched-repo-ui/Workspaces.dc.html` · `workspaces.png` |
-| Workspace Home | `../Workspace Home.dc.html` (current); `watched-repo-ui/Workspace Home.dc.html` · `workspace-home.png` (earlier state board) |
-| Workspace Pull Requests | `watched-repo-ui/Workspace Pull Requests.dc.html` · `workspace-pull-requests.png` |
+| Watch Repository flow | Routing and states in this document |
+| Workspaces page | [Workspaces prototype](design_handoff_cherry_pick_flow/Workspaces.dc.html) |
+| Workspace Home | [Current prototype](Workspace%20Home.dc.html); earlier states below |
+| Workspace Pull Requests | States in this document |
 
 ## Current watch routing
 
@@ -209,7 +210,7 @@ the primary link. Unwatch and Delete appear in their own action row beneath the 
 
 ### 3. Workspace Home (frames A–D)
 
-The current Workspace Home is [../Workspace Home.dc.html](../Workspace%20Home.dc.html),
+The current Workspace Home is [Workspace Home.dc.html](Workspace%20Home.dc.html),
 specified in [agent-task-ui.md §2.8](agent-task-ui.md#28-screen-shape-and-navigation):
 repository avatar, composer, starting points, the repository's Needs attention
 rows, and the open tasks as windows. The frames below record the earlier state

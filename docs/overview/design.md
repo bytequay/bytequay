@@ -6,8 +6,8 @@ sidecar backed by SQLite.
 
 These documents preserve product intent, ownership, data flow, trust boundaries,
 and important tradeoffs. They summarize the
-[working designs](../design/design.md); they do not replace specifications and
-implementation plans needed by ongoing work.
+[canonical feature designs](../design/design.md), which own detailed contracts
+and acceptance boundaries.
 
 ## Reading map
 
@@ -35,5 +35,5 @@ implementation plans needed by ongoing work.
   product proposals. Git history supplies chronology, not dates in design files.
 
 Feature expansion requires an explicit approved design. Keep this overview at
-the level of user behavior, boundaries, and tradeoffs. Working specifications
-and active implementation plans stay in `../design/` at their existing paths.
+the level of user behavior, boundaries, and tradeoffs. Canonical specifications
+and approved UI references stay in `../design/`.

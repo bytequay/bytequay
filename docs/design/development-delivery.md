@@ -9,8 +9,8 @@ overall workflow state machine, delivery table, phase engine, step journal, or
 restart/resume support. Unsupported CI evidence retains the draft as described
 below; no live-provider/live-PR smoke is claimed.
 
-Track implementation and verification in the temporary
-[implementation checklist](development-delivery-impl-tmp.md).
+Live Claude repair-to-ready acceptance remains separate from fixture and local
+checks and requires an explicitly authorized disposable GitHub destination.
 
 ## 1. Who advances the work
 

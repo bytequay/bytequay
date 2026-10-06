@@ -419,6 +419,6 @@ measure of someone’s work.
   state of the selected work.
 
 For architecture and product boundaries, read the [high-level
-design](../overview/design.md). For building from source, use
-[CONTRIBUTING](../../CONTRIBUTING.md). Active specifications and checklists remain in
-the [working design index](../design/design.md).
+design](../docs/overview/design.md). For building from source, use
+[CONTRIBUTING](../CONTRIBUTING.md). Canonical feature specifications remain in
+the [design index](../docs/design/design.md).

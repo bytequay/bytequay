@@ -1,19 +1,9 @@
-# Code & Tests IDE refactor plan
+# Code & Tests IDE integration design
 
-Status: design committed; implementation has started. The IDE uses the real task
-worktree, with production-code and test editing in active reviews as well as
-development. Opening the IDE does not take an exclusive mutation claim or block
-the agent. Native Java/Go/Rust caller queries, real tests and Java debug are now
-verified. See the [native runtime report](code-tests-ide-verification/runtime-gate.md)
-for completed checks and remaining integration work. Active interactive tasks and
-active reviews now open the modular IDE from the production Code & Tests tab.
-Closed reviews and noninteractive task inspection use a bounded, highlighted
-source snapshot with the shared review cards and retained run logs; they start
-no IDE runtime. The CodeMirror editor, custom Java navigation and graph settings
-UI are removed, along with backend CodeGraph services, flags, counters and
-lifecycle hooks. [Code & Tests](code-tests.md), [WorkBench](workbench.md), and
-[Agent Service](agent-service.md) describe the implemented contracts; the
-[checklist](code-tests-impl-tmp.md) tracks remaining native acceptance work.
+This design records the modular IDE foundation and its ownership boundaries.
+[Code & Tests](code-tests.md) is the canonical behavior contract, including
+current native acceptance limits. [WorkBench](workbench.md) and
+[Agent Service](agent-service.md) own the surrounding task and review workflows.
 
 ## Decision
 
@@ -29,9 +19,9 @@ The library exposes separate services and workbench parts; its
 [views example](https://github.com/CodinGame/monaco-vscode-api/blob/main/demo/src/setup.views.ts)
 demonstrates attaching those parts to application containers.
 
-Choose this route subject to the remaining runtime checks below. If those need a
-substantial upstream fork or duplicates the language/test/debug engines, stop and
-evaluate Theia as the replacement foundation. Do not build two production paths.
+If this integration requires a substantial upstream fork or duplicates the
+language/test/debug engines, reassess the foundation before adding another
+production path.
 Plain Monaco alone would leave too much IDE integration for ByteQuay to maintain.
 
 The intended saving is code that ByteQuay owns. Dependency size, resident memory,
@@ -57,70 +47,21 @@ output does not automatically become a structured test result.
 ([Debugging](https://code.visualstudio.com/docs/debugtest/debugging),
 [Testing API](https://code.visualstudio.com/api/extension-guides/testing))
 
-## Verification findings
+## Integration constraints
 
-The table below records the original feasibility proof. The subsequent
-[native runtime proof](code-tests-ide-verification/runtime-gate.md) resolves the
-TextMate production-build failure and pins the real language extensions. Project
-import may execute build tools and write files, as in a normal IDE. This is
-consistent with the approved writable review workflow; an editor read-only flag
-is not an execution boundary. Final application integration and lifecycle checks
-remain open.
+Project import can execute build tools and write files. An editor read-only flag
+is not an execution boundary; reviews use the actual writable task worktree.
 
-The temporary prototype used `@codingame/monaco-vscode-*` **37.3.3**, Vite **5.4.21**,
-and ByteQuay's actual React `LocalReviewThreadCard` component and CSS. Its test
-controller and debug adapter are deliberately synthetic. The history provider
-uses three real commits from a temporary Git repository. No production source,
-dependency lockfile, user review, or agent conversation was changed by this probe.
+Interactive React review cards use accessible overlay widgets, with Monaco view
+zones reserving their space. Measure card content rather than the spacer to
+avoid resize feedback. Keep one rendering of each card and verify keyboard,
+selection, resizing, folding, and scrolling behavior.
 
-| Check | Observed result | Limit of the evidence |
-| --- | --- | --- |
-| Partial workbench | Explorer, editor and panel mounted separately; activity bar hidden | Final panel composition and Electron embedding still need integration |
-| Existing private card | Real component rendered inside Monaco; reply, Markdown preview, Resolve and Reopen worked | Callbacks used fixture state, not the review backend; full finding/evidence cards and draft recovery still need coverage |
-| Test result and custom logs | Test service delivered one deliberate failure, expected/actual, source range and output; selected error text was captured with run/worktree identity | Does not establish Java/Rust/Go test discovery; no real agent message was sent |
-| Debug UI | Breakpoint pause, stack, locals, Step Over, console evaluation, and Stop reached the DAP fixture | Does not prove Java/Delve/LLDB launch, debug-test routing, or OS process termination |
-| Git graph | Native history view showed the three commits in the bottom panel | Provider is a fixture; real historical file contents, merge parents and rename diffs were not tested |
-| IDEA appearance | Light/dark editor and workbench palette switching worked | A complete IDEA-style theme is additional CSS/token work; existing card colors are partly hard-coded |
-| Production bundle | Compilation passed; editor, card, test results and history loaded from the built assets | **Blocked:** background TextMate tokenization throws after Vite 5 rewrites a dynamic import; this is not a clean production-runtime pass |
-
-Evidence: [captured UI results](code-tests-ide-verification/ui-results.json),
-[production failure](code-tests-ide-verification/production-ui-results.json),
-[build notes](code-tests-ide-verification/README.md), and
-[prototype screenshot](code-tests-ide-verification/prototype.jpg). This is a
-feasibility fixture, not the proposed finished layout. The temporary source and
-lockfile are retained at `/tmp/bytequay-modular-ide-probe` for this working session.
-
-Two findings materially affect the implementation:
-
-1. A React card placed directly in a Monaco view zone inherits an inaccessible
-   container. The working prototype reserves space with a view zone and mounts
-   the interactive card as an overlay widget. Keep one React card, not a duplicate
-   HTML rendering. Measure the card content rather than the allocated spacer to
-   avoid a resize feedback loop. Verify focus, selection, resizing, folding,
-   scrolling and assistive technology in the final integration.
-2. This library is not a drop-in dependency for our bundler. The probe required ES
-   workers, explicit TextMate-worker routing, an exact `cssValue` resolution alias,
-   and the shipped browser-compatible `@xterm/addon-ligatures` entry instead of its
-   ESM entry importing `node:diagnostics_channel`. The resulting bundle contains a
-   roughly 11.8 MB minified main chunk, about 3.1 MB gzip, before real language
-   bundles. Retain a pinned, tested build recipe; do not hide missing browser
-   dependencies with fake externals.
-
-The original production smoke test exposed this issue, since resolved:
-`Cannot destructure property 'applyStateStackDiff' ... as it is undefined`.
-Inspecting the built JavaScript shows that Vite 5's dynamic-import preload
-transform projects `applyStateStackDiff`/`INITIAL` before the library's
-`.then(n => n.main)` runs, leaving `n.main` undefined. Correct worker routing
-eliminated an earlier `$init` error; excluding the library from CommonJS conversion
-did not fix this separate transform issue. Resolve it with a tested build
-configuration or a bounded compatibility correction before adopting the runtime.
-Do not upgrade the app's Vite major or disable syntax functionality silently.
-The pinned implementation's narrow import transform and production-bundle
-regression test now provide that correction.
-
-Earlier desktop VS Code checks established separate TypeScript definitions in two
-worktrees. They did not measure this modular runtime or Java/Rust/Go. In
-particular, there is no verified idle-memory number for the proposed integration.
+Keep a pinned, tested build recipe for workers, TextMate resources, and
+browser-compatible dependencies. The narrow Vite import transformation and its
+production-bundle regression test handle the library's dynamic import shape.
+Do not hide missing browser dependencies with fake externals, silently upgrade
+the app's Vite major, or disable syntax functionality.
 
 ## Runtime structure
 
@@ -164,7 +105,7 @@ extension from the VS Code source license.
 For an agent query while the editor is closed, start the same isolated runtime
 without attaching its view visibly, answer the bounded query, then release its
 lease. This avoids a second language-server stack. Hidden-view startup, background
-progress, and full cleanup are explicit runtime-gate tests, not verified features.
+progress, and full cleanup belong to the runtime's acceptance boundary.
 Tool-free goal planning uses bounded Git text excerpts at the fetched monitored
 baseline commit. It does not start another IDE or create another index. Its
 prompts distinguish keyword matches from semantic relationships, identify the
@@ -286,36 +227,19 @@ Do not enable stock checkout/reset/cherry-pick/push actions merely to obtain the
 graph. Commit selection reads snapshots; it does not modify the task worktree or
 write to GitHub. Existing user-triggered GitHub actions keep their current owner.
 
-## Retire CodeGraph after replacing all consumers
+## Shared semantic queries
 
-One language-service session per worktree/language should serve both editor and
-agent semantic queries. Retire CodeGraph when that replacement is complete, not
-as soon as Monaco renders a file.
+One language-service session per worktree/language serves the editor and agent
+semantic queries. The contract covers bounded symbol search, definitions,
+references, implementations, incoming/outgoing calls, diagnostics, and source
+locations, with worktree/revision identity, readiness, cancellation, and explicit
+unsupported capabilities. These indexes are not a repository-wide graph or a
+natural-language architecture search engine.
 
-The replacement contract covers bounded symbol search, definitions, references,
-implementations, incoming/outgoing calls, diagnostics and source locations, with
-worktree/revision identity, readiness, cancellation and explicit unsupported
-capabilities. IDE indexes are language-specific; they are not automatically a
-repository-wide dependency graph or a natural-language architecture search engine.
-Use ordinary file/text search and source excerpts for non-semantic discovery; do
-not create a new persistent graph database to imitate the old one.
-
-Migrate all of these before deletion:
-
-1. Code & Tests navigation and its current name-matching/Java heuristics.
-2. The fixed agent `codegraph_explore` tool, its advertised capabilities and
-   prompts, replacing it with the new bounded code-query contract.
-3. `GoalPlanner` baseline exploration through `GoalSourceContext`: replace
-   `PinnedCodeGraphService` with bounded source excerpts, preserving revision-bound
-   evidence and graceful unavailable results without claiming semantic graph coverage.
-4. Worktree prepare/cleanup paths, readiness/settings/status surfaces, tests and
-   documentation that assume a CodeGraph CLI or cache.
-
-Then remove the CLI packaging/install hooks, bridges, routes, configuration,
-metrics and graph-specific state as their last consumers disappear. Remove stale
-tool names rather than retaining a compatibility alias. Existing CodeGraph uses
-short-lived no-daemon/no-watch execution; deleting it must not be described as
-recovering memory from an always-running graph server.
+Goal planning uses bounded Git source excerpts at the fetched monitored baseline,
+with revision identity and explicit unavailable results. It starts no IDE or
+separate index. CodeGraph, its tool alias, packaging, hooks, settings, and graph
+state are retired; keep no compatibility alias or second persistent graph.
 
 ## Worktree memory and disposal
 
@@ -332,75 +256,11 @@ Never delete a worktree while its processes can still access it. Broad cache
 eviction and existing terminal cleanup improvements remain follow-up work, but
 runtime disposal and correct claim release are required for this refactor.
 
-## Delivery sequence and acceptance gates
+## Acceptance boundaries
 
-### 1. Prove the packaged runtime before migration
-
-- Pin an entire compatible frontend/server/extension set. Keep React 19, Vite 5
-  and React plugin 4.x; isolate the IDE bundle from the normal app startup path.
-- Build and launch in packaged Electron `WebContentsView`, including workers,
-  fonts, themes, WASM, extension assets, offline startup and native tool paths.
-- First reproduce and resolve the recorded Vite 5/TextMate runtime failure, then
-  exercise syntax tokenization after opening, editing and switching files in the
-  production bundle. Successful compilation alone does not satisfy this gate.
-- Run the Java, Rust and Go proofs above with actual extensions and tools.
-  Confirm native test-debug profiles, not only standalone debugging.
-- Verify launch/save coordination, automatic extension behavior, two-worktree
-  isolation, agent queries without a visible editor and baseline source evidence.
-- Measure cold import, warm reopen, active/idle footprint and process disposal
-  against the same repositories. A closed idle runtime must have no remaining
-  owned worker/extension/language processes. Record package size and startup cost.
-- **Exit gate:** no substantial upstream fork, no alternate indexing stack,
-  preserved agent behavior and conflict handling, and the packaged three-language path
-  works. Otherwise revisit the foundation before removing current features.
-
-### 2. Replace the editor and preserve the ByteQuay UI
-
-- Integrate the selected file/editor/bottom views and navigation/search entry.
-- Port review positioning only; keep the existing cards and backend semantics.
-- Add draft recovery, conflict-safe saving, theme tokens and scoped keymaps.
-- Cover dirty files, external agent edits, stale anchors, file switches, layout
-  resizing, keyboard/accessibility and runtime restart. Remove CodeMirror-specific
-  code only when its remaining users have migrated.
-
-### 3. Integrate runs, debugging and durable logs
-
-- Connect real test/debug profiles through the launch gate and existing run domain.
-- Make Run/Debug available for individual tests and supported configurations.
-- Verify failures, stack links, selected-log agent context, cancellation, crashes,
-  restart and process-tree cleanup. Preserve historical evidence across shutdown.
-- Reuse the current terminal backend and avoid duplicate sessions for the same
-  process. Remove obsolete custom test discovery/rendering only after parity.
-
-### 4. Add the Git history panel
-
-- Replace the fixture history provider with existing Git reads and readonly
-  snapshot/diff models; add file history and paging.
-- Test commits/merge parents, renames/deletions, dirty and detached worktrees, and
-  unchanged Git status before/after all history navigation.
-
-### 5. Migrate code queries and remove CodeGraph
-
-- Move UI and agent semantic queries to the shared runtime; move goal baseline evidence to bounded Git object reads.
-- Test symbol identity across overloads, interfaces/traits, modules/packages and
-  two worktrees with intentionally different definitions. Show readiness and
-  unsupported results honestly; never substitute text matches for semantic callers.
-- Remove CodeGraph and the superseded Java/navigation heuristics. Search the whole
-  repository for executable references and update canonical designs, tool docs and
-  dependency notices. A short migration sequence is acceptable; permanent dual
-  indexes are not.
-
-### 6. Complete the cutover
-
-- Update `code-tests.md`, `code-tests-impl-tmp.md`, `architecture.md`,
-  `agent-service.md`, `workbench.md` and the CodeGraph design to match shipped
-  behavior; remove obsolete contracts rather than describing both as current.
-- Run backend `mvn verify`; frontend `npm run lint`, `npx tsc --noEmit`, `npm test`
-  and `npm run package`, followed by packaged native interaction checks.
-- Re-run lifecycle and resource measurements after the final composition. Record
-  removed owned code separately from added dependency/runtime size.
-
-Completion means all required workflows work through the new runtime, private
-review and worktree ownership remain intact, and the superseded engines and UI
-implementations have been removed. The feasibility prototype alone is not that
-completion condition.
+Verify worktree isolation, current-source identity, editing and draft recovery,
+private-card interactions, native run/debug evidence and cleanup, read-only Git
+history, and shared agent/editor queries through the production runtime.
+Successful compilation or a feasibility fixture alone does not establish these
+contracts. Remaining native language/debug coverage and development-database
+constraints are recorded in [Code & Tests](code-tests.md#verification-and-development-data).

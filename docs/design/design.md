@@ -10,142 +10,57 @@ historical checkpoint evidence and explicitly deferred future work.
 
 ## Design documents
 
-- [Agent guided goals](goal-guidance.md) proposes Goal conversations, research
-  runs, courses taught in the Goal window, issue/ticket and spec-check discovery,
-  accepted work items, durable outcomes and recommendation cards the user starts
-  or rejects, and learns what the user knows from lessons, work and private
-  cards. Its [implementation plan](goal-guidance-impl-tmp.md) covers trustworthy
-  progress, one record per outcome and clear organization. The local work-item
-  foundation is implemented; the conversation, research, courses, discovery and
-  guidance remain planned.
+### Product and planning
 
-- [Private circles](teams.md) defines account-local trusted circles, shared Home
-  attention preference, the Circles page, bounded member activity, and observed
-  collaboration statistics. Its [temporary checklist](team-impl-tmp.md) tracks
-  implementation.
+- [Agent guided goals](goal-guidance.md): conversation, research, learning,
+  accepted work, recommendation cards, and durable outcomes.
+- [Issue-backed development](issue-development-plan.md): GitHub issue-to-task
+  launch and the current small delivery scope.
+- [Work planning](issue-development.md): the broader product vision and roadmap.
+- [Epic work items](epic-work-items.md): delivery containers, leaf work items,
+  execution attempts, and progress.
+- [Private circles](teams.md): personal groups, scoped activity, and attention.
+- [Jira integration](jira-integration.md): account, ticket, and development handoff.
 
-- [WorkBench](workbench.md) defines the shared PR/WorkBench navigation, task-bound
-  working-copy inspection, local commit history, and explicit development review
-  using the existing isolated reviewer.
+### Desktop and workspaces
 
-- [Jira development integration](jira-integration.md) specifies the native Jira board
-  and completed history, hosted OAuth boundary, local source context and shared
-  development flow.
+- [Architecture](architecture.md): system and module ownership, dependency
+  direction, storage, and runtime composition.
+- [Watched repositories](watched-repo.md) and [workspace UI](watched-repo-ui.md):
+  repository routing, Workspace Home, and approved interaction references.
+- [Settings](settings-window.md): application and workspace settings surfaces.
+- [WorkBench](workbench.md): shared PR and local-task navigation and review.
+- [Code & Tests](code-tests.md) and [IDE integration](code-tests-ide-refactor.md):
+  editor, language services, execution, history, and shared semantic queries.
 
-- [Issue-backed Development](issue-development-plan.md) defines the approved small
-  GitHub release: local Epic marking, issue-to-task launch and navigation, and
-  actionable work items in both existing Needs attention views. The broader
-  [work planning design](issue-development.md) remains the later roadmap.
+### Agents and review
 
-- [Epic work items](epic-work-items.md) describes how an Epic gets ByteQuay work
-  items through its Epic view, syncs its source's children on a click, runs,
-  breaks down and concludes its work, and shows item status and Epic progress;
-  it is implemented.
+- [Agent service](agent-service.md): tasks, turns, providers, events, approvals,
+  queues, attachments, subagents, recovery, and completion.
+- [Agent task UI](agent-task-ui.md): composer, transcript, plans, steering,
+  queueing, and approved UI references.
+- [Managed worktrees](worktree-service.md): checkout ownership and cleanup.
+- [DeepSeek key lane](deepseek-api-key-lane.md): saved-key execution and trust.
+- [Codex compatibility](codex-app-server-compat.md): provider protocol and
+  executable compatibility contracts.
+- [Agent skills](agent-skills.md): scoped reusable instructions.
+- [Agent review](agent-review.md): private review and explicit publication.
+- [Discussion threads](discussion-threads.md): private answer discussions.
+- [Review triage](review-triage.md): private discussion of GitHub comments.
+- [Repository memory](repository-memory.md): sourced rules, recipes, and specs.
+- [Spec checks](spec-check.md): reproduced gaps and user-filed issue drafts.
 
-- [Architecture](architecture.md) describes the whole system, Maven module
-  boundaries, dependency direction, the dedicated SQLite persistence module,
-  runtime composition, and extraction sequence.
-- [Agent Service](agent-service.md) records the current worktree-scoped Codex
-  App Server and Claude implementation and specifies the task, turn, event,
-  approval, queue, attachment, and subagent contracts used by the rich task
-  surface.
-- [DeepSeek API-key task lane](deepseek-api-key-lane.md) is the saved-key
-  choice for interactive development and CI repair using the existing Codex
-  App Server adapter and the same Codex CLI task permissions. Its automation
-  paths have passed offline verification; permission parity is implemented,
-  while the full opt-in real-key gate remains open. Its
-  [implementation checklist](deepseek-api-key-lane-impl-tmp.md) tracks
-  checkpoints and verification.
-- [Managed Worktree Service](worktree-service.md) specifies the approved
-  stateless, synchronous separate-worktree boundary shared by interactive
-  tasks, cherry-pick, and CI Autofix: provision, inspect, and non-destructive
-  cleanup that always retains the generated branch.
-- [Code & Tests](code-tests.md) defines the shared worktree IDE and fixed
-  task-bound semantic query tool. Editor and agent queries use the same language
-  services. Goal planning uses bounded baseline Git text excerpts.
-  [CodeGraph](codegraph-service.md) is retired.
-- [Codex App Server compatibility fixture](codex-app-server-compat.md) records
-  the executable v0.151.0 schema and compatibility evidence, together with the
-  completed CP1 technical isolation and opt-in local real-model smoke evidence.
-- [Agent Task UI](agent-task-ui.md) specifies the approved composer,
-  transcript, approvals, folded activity, plans, images, subagent inspection,
-  steering, queue, Electron transport, and incremental delivery sequence. The
-  linked document records commit `84af81c73cea7ae2cf7a53681827f550c598b706`
-  as the approved static visual and state prototype.
-- [Managed Agent Skills](agent-skills.md) specifies app-wide prompt skill
-  management in Settings with Global, Development, and Review scopes, SQLite
-  storage, and per-turn provider-neutral
-  instruction delivery, including always-applied internal ByteQuay guidance
-  that is excluded from user-facing skill management.
-- [Agent Review](agent-review.md) defines shared **WorkBench Summary** for PR and development reviews and retained development learning: a private intention card, distinct commit
-  implementation cards, and inline findings, shared local discussions, and workspace review
-  conversations beside the PR. It reuses agent tasks, incremental review and
-  explicit user publication. Its [implementation checklist](agent-review-impl-tmp.md)
-  records delivery gates; the design is not a claim of implementation.
-- [Discussion Threads](discussion-threads.md) specifies private, read-only side
-  conversations about a quoted passage of a completed assistant answer: a
-  separate provider conversation seeded with the task's history through the
-  selected turn, one thread per passage, a reply-count footer in the transcript
-  and a task side-panel tab. A discussion is not an agent task and never enters
-  the task's own conversation, event log, outbox or stream.
-- [Review Triage](review-triage.md) gives each GitHub comment a private,
-  read-only thread with an agent, on a development task's own pull request or
-  on a pull request with an agent review. Ask agent opens one; a development
-  task's Auto review summary option has the agent summarize each new review
-  comment. It never replies on GitHub or edits code, and a drafted reply is
-  posted only by the user.
-- [Repository memory](repository-memory.md) is the approved redesign that
-  replaced the repository-context notes. Agents get the repository's guideline
-  files and short rules captured where the information appears: pull request
-  history, corrections in tasks and reviews, passing commands and spec pages,
-  instead of notes learned by reading code. Phases 0 to 2 are implemented:
-  guidelines reach every conversation, and the learning system and its note data are
-  deleted.
-- [Spec check](spec-check.md) is implemented: compare a directory's code with the
-  specification it implements, reproduce each gap with a test the check writes
-  and runs, and report only reproduced bugs, feature requests and improvements,
-  each with a draft issue the user files.
-- [Code & Tests](code-tests.md) specifies the task-bound WorkBench tab for reading whole
-  files, following symbols, running tests, editing source and tests, and a terminal
-  in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)
-  tracks delivery and remaining native acceptance checks. The [IDE refactor plan](code-tests-ide-refactor.md)
-  records the verified modular-editor approach and migration gates for debugging,
-  Git history, Java/Rust/Go support, and retiring CodeGraph.
-- [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
-  bounded watch/fix/commit/push loop for pending or failing GitHub Actions checks. Review
-  comment triage is outside that service; see [Review Triage](review-triage.md).
-- [Development Task Delivery](development-delivery.md) defines approved default-on
-  commit, draft-PR, and CI-fix settings after development turns. The agent
-  commits and publishes; ByteQuay verifies the result, coordinates the existing
-  CI loop, and marks the draft ready after verified green. The task stays open
-  for later turns. The MVP uses an in-process after-turn coordinator, waits on
-  explicit user-input gates, and fails rather than resumes after restart.
-  Settings, accepted-turn choices, root readiness, commit/publication, bounded
-  CI integration, checked source synchronization, and ready promotion are
-  implemented. Its [implementation checklist](development-delivery-impl-tmp.md)
-  records fixture/local verification and conservative unsupported-check limits;
-  review-comment fixing and whole-flow restart recovery are excluded.
-- [Workspace relationships and backport chains](workspace-backports.md) defines
-  direct Fork/Dependency context, fresh conversation handoffs, and sequential
-  backports through existing cherry-pick, PR, CI, and rebase services.
-  All five checkpoints are implemented and verified with local Git, provider and
-  browser fixtures. Its [temporary checklist](workspace-backports-impl-tmp.md)
-  records the checks and live-provider limits.
-- [Branch Rebase Service](rebase-service.md) specifies a program-owned rebase
-  of one local branch onto another with agent-assisted conflict resolution,
-  intended for explicit branch rebases and to replace CI Autofix's unverified
-  agent-driven rebase. It is not automatic in the cherry-pick range flow.
-- [Cherry-pick Range](cherry-pick-range.md) specifies source-range preview,
-  target-presence detection, pull-request grouping and skip selection,
-  conflict scope, immutable confirmation, local execution handoff, and final
-  accounting.
-- [Commit History and Refresh](commits.md) specifies local-only commit display,
-  durable commit-to-PR and avatar enrichment, scheduled and manual refresh,
-  backend service contracts, and the renderer call chain.
-- [Watched Repository / Workspace](watched-repo.md) specifies how watching a
-  GitHub repository creates a durable workspace, provisions direct and fork
-  repository routing, opens Workspace Home, and connects Commits to the
-  existing cherry-pick flow.
+### Git and delivery
+
+- [Commit history](commits.md): local history and refresh boundaries.
+- [Cherry-pick ranges](cherry-pick-range.md): selection, confirmation, local
+  execution, conflict resolution, and accounting.
+- [Branch rebase](rebase-service.md): program-owned Git operations and conflicts.
+- [Development delivery](development-delivery.md): accepted commit, draft-PR,
+  and CI follow-up scope.
+- [CI Autofix](ci-autofix-service.md): bounded watch, repair, and publication.
+- [Workspace relationships and backports](workspace-backports.md): related
+  repositories, conversation handoff, and sequential backport chains.
 
 When a cherry-pick conflicts, ByteQuay commits Git's conflict snapshot as the
 source-marked target commit `C`, then the agent resolves it in one directly

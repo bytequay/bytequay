@@ -5,10 +5,9 @@ and reviews of local development commits. Its source and hosting contracts
 apply to the existing services described here.
 
 This is the canonical design for the review workflow shown in WorkBench Summary. Changes to the
-product boundary or the invariants below require explicit approval. Delivery
-and verification belong in [the implementation checklist](agent-review-impl-tmp.md),
-not in this document. Keep this document as final design content, without a
-dated progress log.
+product boundary or the invariants below require explicit approval. Keep durable
+requirements and acceptance criteria here; use source, tests, and Git history
+for implementation and verification history.
 
 ## 1. Decision
 

@@ -19,7 +19,7 @@ ticket keeps its current task until that task ends; another attempt then becomes
 the source's task. Before cleanup or deletion removes a task's event log or
 rows, the Goal work it attempted records the turns it has not recorded yet; when
 that fails, cleanup stays pending for its retry and deletion is refused. The
-[implementation plan](goal-guidance-impl-tmp.md) tracks what remains.
+[Goal design](goal-guidance.md#current-boundaries) records the remaining boundaries.
 
 [WorkBench](workbench.md) owns the shared navigation, task-bound code access,
 and reviews of local development commits. Its source and hosting contracts

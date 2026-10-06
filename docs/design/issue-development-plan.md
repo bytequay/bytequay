@@ -134,8 +134,7 @@ The current repository has uncommitted changes in several integration files, inc
 ## Following releases
 
 [Agent guided goals](goal-guidance.md) owns guided outcomes, research, courses
-and discovery. Its [implementation plan](goal-guidance-impl-tmp.md) orders that
-work. Epic organization below remains a separate delivery-planning roadmap;
+and discovery. Epic organization below remains a separate delivery-planning roadmap;
 marking an Epic does not create a guided Goal. Shared work-item states are
 Planned, Working, Done and Dropped.
 

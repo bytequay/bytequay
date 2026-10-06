@@ -4,7 +4,7 @@ This approved design extends the current [Agent Service](agent-service.md)
 with a DeepSeek key chosen for one agent task. The saved-key lane, its
 automation paths, and shared Codex permission behavior have passed offline
 verification. A live local-commit check has passed; the remaining opt-in
-live-key checks are tracked in the implementation checklist. The current Codex
+live-key checks are defined in the acceptance requirements below. The current Codex
 and Claude lanes remain available.
 
 ## Scope

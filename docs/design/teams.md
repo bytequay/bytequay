@@ -136,5 +136,3 @@ persistence-sqlite, and collection, projections, and HTTP to app. The backend
 API and stored keys keep their original `teams` names. The frontend uses the
 existing typed Electron bridge, React, and plain CSS. No new library, Maven
 module, agent execution path, or GitHub publisher is introduced.
-
-Progress and verification are recorded in [the temporary checklist](team-impl-tmp.md).

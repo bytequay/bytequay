@@ -3,9 +3,8 @@
 Code & Tests is ByteQuay's task-bound IDE surface in [WorkBench](workbench.md).
 ByteQuay owns the layout, file tree, review cards, agent actions and durable run
 history. Monaco and selected VS Code services provide editing, language
-navigation, tests and debugging. The [refactor plan](code-tests-ide-refactor.md)
-records the decision; the [runtime report](code-tests-ide-verification/runtime-gate.md)
-distinguishes verified behavior from remaining native acceptance checks.
+navigation, tests and debugging. The [IDE integration design](code-tests-ide-refactor.md)
+records the foundation and ownership decisions.
 
 ## Hosting and availability
 
@@ -251,10 +250,16 @@ are removed. No second persistent graph is kept.
 
 ## Verification and development data
 
-The runtime report records native proofs, fixture limitations and remaining
-acceptance work. Standard gates are backend `mvn verify` and frontend lint,
+Standard gates are backend `mvn verify` and frontend lint,
 TypeScript, tests and packaging. Mocked Electron/backend checks and an isolated
 native fixture are not described as a single production end-to-end pass.
+
+Remaining acceptance boundaries are extended Java module/overload, Go interface
+and Rust trait coverage; native Go/Rust debugging; and native test/debug execution
+against the production backend. macOS Developer Tools authorization for the
+debugger is not granted by this design. Fixture dispatch and evidence checks,
+separate backend claim/history tests, and successful shared queries must not be
+reported as completion of those boundaries.
 
 Retiring the graph removes its JPA fields. An existing development SQLite schema
 can retain a NOT NULL `agent_task.codegraph` column without a default, which

@@ -1,6 +1,6 @@
 # Prompt: implement the Agent review tab
 
-Implement ByteQuay's **Agent review** PR tab. Behaviour is locked in `docs/design/agent-review.md`; delivery is tracked in `docs/design/agent-review-impl-tmp.md`. Read `ByteQuay.md`, `CONTRIBUTING.md`, both design docs and the approved UI reference before writing code.
+Implement ByteQuay's **Agent review** PR tab. Behaviour is locked in `docs/design/agent-review.md`; acceptance criteria belong in that canonical design. Read `ByteQuay.md`, `CONTRIBUTING.md`, the design and the approved UI reference before writing code.
 
 ## UI is the source of truth
 

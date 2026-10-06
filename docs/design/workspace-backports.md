@@ -2,7 +2,6 @@
 
 Status: implemented and verified with local Git, provider and browser fixtures.
 All five checkpoints are complete; no live GitHub writes or merges were used.
-The [temporary checklist](workspace-backports-impl-tmp.md) tracks five checkpoints.
 
 Keep one workspace per repository. Add two relationship kinds, let a
 conversation read and request work in a related workspace, and put a small
@@ -478,7 +477,7 @@ Show version comparison in the conversation using existing Git/diff output;
 no dedicated comparison dashboard is required. Reuse the Memory page as its
 current implementation lands, without adding another memory browser.
 
-Implement in this order: relationships and reading; conversation handoff;
-landed-source resolution; chain integration; end-to-end verification. These are
-the five checkpoints in the [checklist](workspace-backports-impl-tmp.md), not
-runtime states. Dependency investigation is usable without the chain feature.
+Dependency investigation is usable without the chain feature. Relationship
+reading, conversation handoff, landed-source resolution, and chain execution
+reuse their existing service boundaries rather than introducing checkpoint
+states into the runtime.

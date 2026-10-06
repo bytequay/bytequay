@@ -13,7 +13,7 @@ python3 -m http.server 4173 --bind 127.0.0.1 --directory website/dist
 
 Open `http://127.0.0.1:4173/`. Check all three pages, navigation, topic links,
 disclosures, and narrow layouts after edits. The user guide lives in
-[`docs/documentation/`](../docs/documentation/README.md) and is presented in
+[`documentation.md`](documentation.md) and is presented in
 `dist/documentation.html`. Keep its introduction, product goals, and feature
 instructions consistent with the Markdown guide and current app controls.
 The canonical high-level design lives in

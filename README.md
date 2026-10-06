@@ -36,7 +36,7 @@ ByteQuay is pre-1.0, under active redesign, and currently supports macOS only.
 - WorkBench review, private discussions, and repository context alongside
   development work.
 
-Start with the [user guide](docs/documentation/README.md) for ByteQuay's goals,
+Start with the [user guide](website/documentation.md) for ByteQuay's goals,
 setup, and instructions for its main features. See the
 [high-level design](docs/overview/design.md) for architecture, workflows, and
 trust boundaries. The [website source](website/README.md) contains the landing

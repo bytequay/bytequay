@@ -6,10 +6,9 @@ open a prepared composer, task receipts and the learner profile. The second
 slice so far makes a started practice card Goal work, records a task's pull
 request, its merge and the receipts missed while ByteQuay was stopped, and finds
 practice among open issues and mapped Jira tickets, recommends spec checks and
-turns a reproduced gap into Goal work. The later steps of the plan remain. This document specifies the Goal conversation, research, courses,
+turns a reproduced gap into Goal work. This document specifies the Goal conversation, research, courses,
 discovery, guidance and durable progress panel, and three takeaways from the
-Plane comparison. The [implementation plan](goal-guidance-impl-tmp.md) lists
-actionable changes and acceptance checks.
+Plane comparison. Current boundaries and acceptance criteria are retained below.
 
 The user describes an outcome to an agent, often a large and vague one such as
 becoming an expert in one connector. ByteQuay helps clarify it, researches what
@@ -1044,14 +1043,35 @@ resetting the user's database. Disposable local fixtures may reset under the
 existing development convention. This proposal authorizes no data deletion and
 introduces no Flyway or migration-history machinery.
 
+## Current boundaries
+
+- Accepting a result remains the user's decision, including after a linked PR
+  merges. A merge alone does not establish that all accepted scope was delivered.
+- Research notes track cited-file staleness. They do not reread cited pages;
+  repository memory does not retain page captures.
+- Source cards are reread before display and Start, but do not retain source
+  revision/freshness or duplicate-read evidence. Spec-check pages are not opened
+  before their card is shown. Unavailable evidence must remain visible.
+- Discovery caches conclusions by the Goal exchange and facts digest, not by each
+  candidate. New Jira tickets do not independently trigger discovery.
+- Start rechecks source identity, role, work state, and the current task. It does
+  not recheck the work-item revision at composer submission; the user reviews
+  the prepared request before sending.
+- A task start reaches guidance with its first finished turn. Proposed plan
+  changes cover course content, priorities, order, dependencies, and criteria;
+  work-item titles and completion rules are outside that proposal boundary.
+- Research context exposes note topics rather than full note bodies. Live
+  research/course evidence does not establish the full spec-check-to-merged-PR
+  journey, and fixture coverage does not establish live-service acceptance.
+
 ## First release and verification
 
 The first complete release includes the conversation, research runs, a course
 taught in the Goal window, the profile of what the user knows, bounded GitHub/Jira
 and spec-check discovery, recommendation cards, accepted work-item identity,
 existing-task handoff, durable outcome receipts, summaries and the updated panel.
-Fixing a progress bar alone is not this release. The implementation plan delivers smaller independently
-verifiable changes on the way to that complete loop.
+Fixing a progress bar alone is not this release. Each part must be independently
+verifiable on the way to that complete loop.
 
 Acceptance must demonstrate:
 

@@ -20,7 +20,7 @@ import electron from 'electron';
 import { createServer } from 'vite';
 import { expect, it } from 'vitest';
 
-it('renders native syntax, folding, type icons, test colors, usages, and search shortcuts', async () => {
+it('renders native syntax, folding, type icons, test colors, usages, and unified search', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-editor-appearance-'));
   const server = await createServer({ configFile: resolve('vite.ide.config.ts'), logLevel: 'error',
     cacheDir: join(directory, 'node_modules/.vite'), server: { host: '127.0.0.1', port: 0 },
@@ -46,15 +46,12 @@ it('renders native syntax, folding, type icons, test colors, usages, and search 
         try {
           await window.loadURL('http://127.0.0.1:${address.port}/__appearance');
           const pending = window.webContents.executeJavaScript('window.result');
+          let failure; pending.catch(error => { failure = error; });
           const modifier = process.platform === 'darwin' ? 'meta' : 'control';
-          const press = shift => {
-            const modifiers = shift ? [modifier, 'shift'] : [modifier];
-            window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'F', modifiers });
-            window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'F', modifiers });
-          };
           window.show(); window.focus(); window.webContents.focus();
           const waitFor = async (expression, attempts = 100) => {
             for (let attempt = 0; attempt < attempts; attempt++) {
+              if (failure) throw failure;
               if (await window.webContents.executeJavaScript(expression)) return;
               await new Promise(resolve => setTimeout(resolve, 50));
             }
@@ -65,14 +62,21 @@ it('renders native syntax, folding, type icons, test colors, usages, and search 
           window.webContents.sendInputEvent({ type: 'mouseMove', ...point, modifiers: [modifier] });
           window.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
           window.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
-          const result = await pending;
-          press(false);
-          await waitFor('Boolean(document.querySelector(".find-widget.visible"))');
-          for (let attempt = 0; attempt < 2; attempt++) {
-            press(true);
-            await waitFor('Boolean(document.querySelector("#search-pane")?.contains(document.activeElement))');
-            await window.webContents.executeJavaScript('document.querySelector("#show-files").click()');
+          for (const mode of ['dark', 'light']) {
+            await waitFor('window.searchCapture === ' + JSON.stringify(mode), 600);
+            if (process.env.BYTEQUAY_SEARCH_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_SEARCH_CAPTURE + '-' + mode + '.png', (await window.webContents.capturePage()).toPNG());
+            await window.webContents.executeJavaScript('window.searchCaptured = ' + JSON.stringify(mode));
           }
+          for (const gesture of ['doubleShift', 'file', 'project']) {
+            await waitFor('window.searchShortcut === ' + JSON.stringify(gesture), 600);
+            const modifiers = gesture === 'project' ? [modifier, 'shift'] : gesture === 'file' ? [modifier] : [];
+            for (let tap = 0; tap < (gesture === 'doubleShift' ? 2 : 1); tap++) {
+              const keyCode = gesture === 'doubleShift' ? 'Shift' : 'F';
+              window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers });
+              window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers });
+            }
+          }
+          const result = await pending;
           process.stdout.write(JSON.stringify(result) + '\\n');
           app.exit(0);
         } catch (error) { console.error(error); app.exit(1); }

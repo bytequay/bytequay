@@ -20,7 +20,6 @@ import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '
 import type { ReviewCodeFileDto, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import { latestRun } from '../pulls/agent-review/model';
 import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
-import { useSearchPanel } from './useSearchPanel';
 import { installSemanticQueries } from './semanticQueries';
 import { startRuntime, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
@@ -29,10 +28,11 @@ import RunHistory from './RunHistory';
 import TerminalView from '../pulls/code-tests/TerminalView';
 import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
-import { PanelLeft, ArrowLeft, ArrowRight, Ellipsis, Search, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
+import { PanelLeft, ArrowLeft, ArrowRight, Ellipsis, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import EditorNavigation from './EditorNavigation';
 import Usages from './Usages';
+import Search from './Search';
 import { installGitHistory } from './gitHistory';
 import { codeHostKey } from '../pulls/code-tests/contracts';
 import '../css/base.css';
@@ -97,7 +97,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [files, setFiles] = useState<ReviewCodeFilesDto | null>(null);
   const [file, setFile] = useState<ReviewCodeFileDto | null>(null);
   const [filesReload, setFilesReload] = useState(0);
-  const [sidebar, setSidebar] = useState<'files' | 'search' | null>('files');
+  const [filesVisible, setFilesVisible] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [execution, setExecution] = useState(runtime.executions.run);
   const [executionError, setExecutionError] = useState(runtime.executions.error);
@@ -107,10 +107,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [history, setHistory] = useState<HistoryComparison | null>(null);
   const [gitHistory, setGitHistory] = useState<ReturnType<typeof installGitHistory> | null>(null);
   const [recovered, setRecovered] = useState<SourceDraft[]>([]);
-  const [keymap] = useState(localStorage.getItem('bytequay.ide.keymap') ?? 'IDEA');
   const [theme, setTheme] = useState(localStorage.getItem('bytequay.ide.theme') ?? 'ByteQuay IDEA Light');
   const command = (name: string) => { void runtime.api.commands.executeCommand(name).then(undefined, cause => setError(String(cause))); };
-  useSearchPanel(runtime.commands, setSidebar);
   const report = () => {
     const privateDrafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && node.value.trim()).length;
     window.ideWorkbench.report({ dirty: runtime.api.workspace.textDocuments.filter(document => document.isDirty).length + privateDrafts,
@@ -225,9 +223,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     <header className="ide-toolbar">
       <button aria-label="Back" onClick={() => command('workbench.action.navigateBack')} title="Back"><ArrowLeft size={15} /></button>
       <button aria-label="Forward" onClick={() => command('workbench.action.navigateForward')} title="Forward"><ArrowRight size={15} /></button>
-      {sidebar !== 'files' && <button aria-label="Show files" title="Show files" onClick={() => setSidebar('files')}><PanelLeft size={15} /></button>}
-      <button className="ide-search" onClick={() => command('workbench.action.quickOpen')}>Go to file <kbd>{keymap === 'IDEA' ? '⌘⇧O' : '⌘P'}</kbd></button>
-      <button title="Search worktree (⌘⇧F)" onClick={() => command('workbench.action.findInFiles')}><Search size={14} /> Search</button>
+      {!filesVisible && <button aria-label="Show files" title="Show files" onClick={() => setFilesVisible(true)}><PanelLeft size={15} /></button>}
+      <Search editors={runtime.editors} workspace={runtime.workspace} files={files} />
       <button disabled={!comments.onComment} onClick={commentSelection}><MessageSquare size={14} /> Comment</button>
       <EditorNavigation runtime={runtime} active={active} context={context} file={file} revision={files?.revision}
         onHistory={commit => { setBottom('history'); void chooseCommit(commit); }} />
@@ -257,9 +254,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <button onClick={() => { discardRecoveredDraft(draft); setRecovered(current => current.filter(item => item !== draft)); }}>Discard recovered draft</button>
     </div>)}
     <div className="ide-code-row">
-      {sidebar === 'files' && <div className="ide-files-pane" style={{ width: column.width }}><FileExplorer files={files} selected={selected} runtime={runtime} onRefresh={() => setFilesReload(value => value + 1)} onError={setError} onHide={() => setSidebar(null)} /></div>}
-      {sidebar === 'search' && <aside className="ide-files-pane" style={{ width: column.width }} aria-label="Code search"><Part part={Parts.SIDEBAR_PART} /></aside>}
-      {sidebar && <div className={`ct-resize${column.resizing ? ' is-resizing' : ''}`} role="separator" tabIndex={0} aria-orientation="vertical"
+      {filesVisible && <div className="ide-files-pane" style={{ width: column.width }}><FileExplorer files={files} selected={selected} runtime={runtime} onRefresh={() => setFilesReload(value => value + 1)} onError={setError} onHide={() => setFilesVisible(false)} /></div>}
+      {filesVisible && <div className={`ct-resize${column.resizing ? ' is-resizing' : ''}`} role="separator" tabIndex={0} aria-orientation="vertical"
         aria-label="Resize the Files column" aria-valuenow={column.width} aria-valuemin={180} aria-valuemax={650}
         onMouseDown={event => { event.currentTarget.focus(); column.startResize(event); }} onKeyDown={event => {
           if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;

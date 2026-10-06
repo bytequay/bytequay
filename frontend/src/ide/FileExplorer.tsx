@@ -66,7 +66,7 @@ export default function FileExplorer({ files, selected, runtime, onRefresh, onEr
       <TreeItems items={tree} depth={0} selected={selected} isOpen={path => changed ? !expanded.has(`closed:${path}`) : expanded.has(path)}
         renderFileIcon={path => path.endsWith('.java') ? <JavaFileIcon uri={runtime.workspace.with({ path: `${runtime.workspace.path}/${path}` }).toString()} /> : undefined}
         onToggle={path => setExpanded(current => { const next = new Set(current); const key = changed ? `closed:${path}` : path; if (next.has(key)) next.delete(key); else next.add(key); return next; })} onOpen={open} />
-      {files?.truncated && <div className="ct-files__note">More files are available through Go to file and Search.</div>}
+      {files?.truncated && <div className="ct-files__note">More files are available through Search.</div>}
       {files && entries.length === 0 && <div className="ct-files__note">{changed ? 'Nothing touched' : 'No files'}</div>}
     </div>
   </nav>;

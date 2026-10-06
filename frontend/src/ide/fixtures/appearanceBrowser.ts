@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 /* eslint-disable import/no-unresolved -- Exercise the pinned native editor and real grammar resources. */
-import { initialize, getService, ICodeEditorService, ICommandService } from '@codingame/monaco-vscode-api';
+import { initialize, getService, ICodeEditorService } from '@codingame/monaco-vscode-api';
 import { registerExtension, ExtensionHostKind } from '@codingame/monaco-vscode-api/extensions';
 import { IWorkbenchThemeService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/themes/common/workbenchThemeService.service';
 import { FoldingController } from '@codingame/monaco-vscode-api/vscode/vs/editor/contrib/folding/browser/folding';
@@ -20,13 +20,9 @@ import getConfiguration, { initUserConfiguration } from '@codingame/monaco-vscod
 import getModel from '@codingame/monaco-vscode-model-service-override';
 import getTheme from '@codingame/monaco-vscode-theme-service-override';
 import getTextmate from '@codingame/monaco-vscode-textmate-service-override';
-import getSearch from '@codingame/monaco-vscode-search-service-override';
-import { createElement, useState, useLayoutEffect, useRef } from 'react';
-import { createRoot } from 'react-dom/client';
-import { flushSync } from 'react-dom';
-import { useSearchPanel } from '../useSearchPanel';
 import getLanguages from '@codingame/monaco-vscode-languages-service-override';
-import getViews, { attachPart, Parts } from '@codingame/monaco-vscode-views-service-override';
+import getSearch from '@codingame/monaco-vscode-search-service-override';
+import getViews from '@codingame/monaco-vscode-views-service-override';
 import EditorWorker from '@codingame/monaco-vscode-api/workers/editor.worker?worker';
 import TextmateWorker from '@codingame/monaco-vscode-textmate-service-override/worker?worker';
 import '@codingame/monaco-vscode-java-default-extension';
@@ -39,6 +35,7 @@ import dark from '../darcula.json';
 import { assert } from '../../fixtures/harness';
 import { verifyFileAppearance } from './fileAppearance';
 import { verifyUsages } from './usagesBrowser';
+import { verifySearch } from './searchBrowser';
 
 export async function run() {
   window.MonacoEnvironment = { getWorker: (_id, label) => label === 'TextMateWorker' ? new TextmateWorker() : new EditorWorker() };
@@ -125,20 +122,6 @@ public class Example {
   provider.dispose();
   await verifyFileAppearance();
   await verifyUsages();
-  // An attached editor part enables the workbench's native shortcuts, as it does in Code & Tests.
-  const nativeEditor = document.createElement('div'); nativeEditor.style.cssText = 'height:100px;width:700px'; document.body.append(nativeEditor);
-  attachPart(Parts.EDITOR_PART, nativeEditor);
-  const commands = await getService(ICommandService);
-  function Search() {
-    const [panel, setPanel] = useState<'files' | 'search'>('files');
-    const ref = useRef<HTMLDivElement>(null);
-    useSearchPanel(commands, setPanel);
-    useLayoutEffect(() => { if (ref.current) { const attached = attachPart(Parts.SIDEBAR_PART, ref.current); return () => attached.dispose(); } }, [panel]);
-    return createElement('section', {}, createElement('button', { id: 'show-files', onClick: () => setPanel('files') }, 'Files'),
-      panel === 'search' ? createElement('div', { ref, id: 'search-pane', style: { height: 500, width: 400 } }) : null);
-  }
-  const shell = document.createElement('div'); document.body.append(shell);
-  flushSync(() => createRoot(shell).render(createElement(Search)));
-  code.focus();
+  await verifySearch();
   return results;
 }

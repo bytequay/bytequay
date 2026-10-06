@@ -13,19 +13,9 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.agent.cli.process.ManagedProcess;
-import com.bytequay.agent.cli.process.OwnedProcessRecovery;
-import com.bytequay.agent.cli.process.PreparedProcess;
-import com.bytequay.agent.cli.process.ProcessExit;
-import com.bytequay.agent.cli.process.ProcessOutputSink;
-import com.bytequay.agent.cli.process.ProcessOwner;
-import com.bytequay.agent.cli.process.ProcessSpec;
-import com.bytequay.agent.cli.process.ProcessStream;
-import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
-import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
@@ -39,14 +29,12 @@ import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
@@ -72,12 +60,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
-import org.junit.jupiter.params.ParameterizedTest;
-import org.junit.jupiter.params.provider.EnumSource;
-import org.mockito.InOrder;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -86,7 +70,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -94,24 +77,16 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionStage;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.bytequay.app.git.GitTestSupport.write;
 import static com.google.common.collect.ImmutableList.toImmutableList;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.Mockito.doAnswer;
-import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -128,9 +103,6 @@ class TestLocalRunService
     private static final String PASSING_REPORT = """
             <testsuite name="demo.TestCode"><testcase name="passes" classname="demo.TestCode" time="0.002"/></testsuite>
             """;
-    private static final String SKIPPED_REPORT = """
-            <testsuite name="demo.TestCode"><testcase name="later" classname="demo.TestCode"><skipped/></testcase></testsuite>
-            """;
 
     @TempDir
     private Path directory;
@@ -140,9 +112,8 @@ class TestLocalRunService
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final InMemoryLocalRunStore runs = new InMemoryLocalRunStore();
-    private final FakeSupervisor supervisor = new FakeSupervisor();
+    private final IdeExecutions executions = mock(IdeExecutions.class);
     private Path checkout;
-    private Path jdk;
     private TaskWorktree worktree;
     private String head;
     private ManagedWorktreeService worktrees;
@@ -182,8 +153,6 @@ class TestLocalRunService
         TaskId taskId = TaskId.random();
         worktree = worktrees.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), head, "bytequay/task/" + taskId));
         checkout = worktree.canonicalWorktree();
-        jdk = directory.resolve("jdk");
-        script(jdk.resolve("bin/java"), "#!/bin/sh\n");
 
         when(reviewStore.findReview(REVIEW_ID)).thenReturn(Optional.of(review(true)));
         when(reviewStore.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(reviewRun()));
@@ -192,33 +161,7 @@ class TestLocalRunService
         code = new ReviewCodeService(reviewStore, reviews, worktrees, mock(WorkspaceRepositoryService.class), runner,
                 new ReviewExperiments(runner, worktrees), tasks, turns, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
                 new WorktreeDiffReader(runner), mock(PullRequestService.class));
-        service = service(ImmutableMap.of("JAVA_HOME", jdk.toString(), "PATH", "/usr/bin:/bin", "BYTEQUAY_SESSION_TOKEN", "secret"));
-    }
-
-    @Test
-    void refusesARunTheWorkingCopyOrLoginEnvironmentCannotStart()
-            throws IOException
-    {
-        assertThatThrownBy(() -> service.start(REVIEW_ID, "core/src/main/java/demo/Code.java", Optional.empty()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not a Surefire test source");
-        assertThatThrownBy(() -> service.start(REVIEW_ID, "core/src/test/java/demo/Helper.java", Optional.empty()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not a Surefire test source");
-        assertThatThrownBy(() -> service.start(REVIEW_ID, TEST_PATH, Optional.of("fails; rm")))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not a Java identifier");
-        assertThatThrownBy(() -> service.start(REVIEW_ID, "../" + TEST_PATH, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
-        // Surefire reads commas and wildcards in -Dtest as patterns that select other tests.
-        assertThatThrownBy(() -> service.start(REVIEW_ID, "core/src/test/java/demo/Test,demo.Other*.java", Optional.empty()))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not a Surefire test source");
-
-        assertRefused(ROOT_TEST_PATH, "No Maven module for this test", false);
-        assertRefused(TEST_PATH, "No Java runtime in your login shell environment", true,
-                service(ImmutableMap.of("PATH", "/usr/bin:/bin")));
-        Files.delete(checkout.resolve("mvnw"));
-        assertRefused(TEST_PATH, "No Maven wrapper (mvnw) in this working copy", true);
-
-        verify(turns, never()).claimLocalRun(any(), anyString());
-        assertThat(runs.list()).isEmpty();
-        assertThat(supervisor.specs).isEmpty();
+        service = new LocalRunService(reviewStore, reviews, runs, worktrees, code, executions, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -251,257 +194,7 @@ class TestLocalRunService
     }
 
     @Test
-    void aDevelopmentTaskRunsUnderItsClaimAndListsItsRunsPerTask()
-    {
-        runs.insert(LocalRun.started("other-task", TaskId.random().toString(), WORKSPACE_ID, 5, TEST_PATH, "demo.TestCode", Optional.empty(), Optional.of("core"),
-                "./mvnw test", head, ImmutableList.of(), "fingerprint", "other-launch", STARTED_AT));
-
-        LocalRun run = service.start(taskHost(), TEST_PATH, Optional.empty());
-
-        verify(turns).claimLocalRun(worktree.taskId(), run.id());
-        assertThat(run.ordinal()).isEqualTo(1);
-        assertThat(run.taskId()).isEqualTo(worktree.taskId().toString());
-        assertThat(run.workspaceId()).isEqualTo(WORKSPACE_ID);
-        assertThat(supervisor.specs.getFirst().owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.LOCAL_RUN, worktree.taskId() + "/" + run.id()));
-        assertThat(service.list(taskHost())).containsExactly(run);
-        assertThatThrownBy(() -> service.output(taskHost(), "other-task", 0)).isInstanceOf(ReviewNotFoundException.class);
-        // A review's runs are the runs of the task it owns.
-        assertThat(service.list(REVIEW_ID)).containsExactly(run);
-
-        supervisor.process().sink.onOutput(ProcessStream.STDOUT, ByteBuffer.wrap("partial".getBytes(UTF_8)));
-        assertThat(service.output(taskHost(), run.id(), 0)).isEqualTo(new LocalRunService.OutputChunk("partial", 7, 0, false));
-        assertThat(service.stop(taskHost(), run.id()).status()).isEqualTo(Status.STOPPED);
-        verify(turns).releaseLocalRun(worktree.taskId(), run.id());
-        assertThat(service.start(taskHost(), TEST_PATH, Optional.empty()).ordinal()).isEqualTo(2);
-    }
-
-    @Test
-    void aDevelopmentTaskRefusesRunsWhileBusyEndedOrOutsideItsWorkspace()
-    {
-        TurnId turnId = TurnId.random();
-        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.of(WorktreeMutationClaim.turn(turnId, NOW))));
-        when(turns.get(turnId)).thenReturn(AgentTurn.accepted(turnId, worktree.taskId(), "develop", settings(), NOW));
-        assertTaskBusy("The task's agent is working");
-        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.of(WorktreeMutationClaim.recovery("launch-1", NOW))));
-        assertTaskBusy(LocalRunService.TASK_RECOVERY_NEEDED);
-        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()).withDevelopmentContinuation(true, NOW));
-        assertTaskBusy("Development automation is working");
-        AgentTask completed = developmentTask(Optional.empty()).complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
-                ImmutableList.of()), NOW, NOW.plusSeconds(60));
-        when(tasks.get(worktree.taskId())).thenReturn(completed);
-        assertTaskBusy("The task has ended");
-        when(tasks.get(worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));
-        assertTaskBusy("The task's worktree was removed");
-        assertThatThrownBy(() -> service.list(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task's worktree was removed");
-
-        when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()));
-        TaskCodeHost other = new TaskCodeHost("other", worktree.taskId().toString());
-        assertThatThrownBy(() -> service.start(other, TEST_PATH, Optional.empty())).isInstanceOf(ReviewNotFoundException.class);
-        assertThatThrownBy(() -> service.list(other)).isInstanceOf(ReviewNotFoundException.class);
-
-        verify(turns, never()).claimLocalRun(any(), anyString());
-        assertThat(runs.list()).isEmpty();
-    }
-
-    @Test
-    void startsARunningRecordUnderTheClaimAndLaunchesTheWrapperWithTheLoginEnvironment()
-            throws IOException
-    {
-        write(checkout, "core/src/test/java/demo/TestLocal.java", "class TestLocal {}\n");
-
-        LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.of("fails"));
-
-        InOrder order = inOrder(turns);
-        order.verify(turns).claimLocalRun(worktree.taskId(), run.id());
-        verify(turns, never()).releaseLocalRun(any(), anyString());
-        assertThat(run.status()).isEqualTo(Status.RUNNING);
-        assertThat(run.ordinal()).isEqualTo(1);
-        assertThat(run.scope()).isEqualTo(LocalRun.Scope.METHOD);
-        assertThat(run.testClass()).contains("demo.TestCode");
-        assertThat(run.testMethod()).contains("fails");
-        assertThat(run.module()).contains("core");
-        assertThat(run.command()).isEqualTo("./mvnw -B -pl core -Dtest=demo.TestCode#fails -Dsurefire.failIfNoSpecifiedTests=false test");
-        assertThat(run.sourceHeadSha()).contains(head);
-        assertThat(run.localPaths()).containsExactly("core/src/test/java/demo/TestLocal.java");
-        assertThat(run.sourceFingerprint()).contains(code.workingCopySource(checkout).fingerprint());
-        assertThat(run.startedAt()).isEqualTo(STARTED_AT);
-        assertThat(run.launchId()).contains("launch-1");
-        assertThat(runs.find(run.id())).contains(run);
-
-        ProcessSpec spec = supervisor.specs.getFirst();
-        assertThat(spec.owner()).isEqualTo(new ProcessOwner(ProcessOwner.Kind.LOCAL_RUN, worktree.taskId() + "/" + run.id()));
-        assertThat(spec.argv()).containsExactly("/bin/bash", "-c", "\"$0\" \"$@\"; exit $?", checkout.resolve("mvnw").toString(),
-                "-B", "-pl", "core", "-Dtest=demo.TestCode#fails", "-Dsurefire.failIfNoSpecifiedTests=false", "test");
-        assertThat(spec.workingDirectory()).isEqualTo(checkout);
-        assertThat(spec.environment()).containsEntry("JAVA_HOME", jdk.toString()).containsEntry("LANG", "en_US.UTF-8");
-        assertThat(spec.environment().keySet()).noneMatch(name -> name.startsWith("BYTEQUAY_"));
-        assertThat(spec.stdoutCaptureLimit()).isEmpty();
-        assertThat(spec.maximumStderrBytes()).isEqualTo(64 * 1024);
-        assertThat(spec.maximumRuntime()).isEqualTo(Duration.ofMinutes(60));
-        assertThat(spec.cancellationGrace()).isEqualTo(Duration.ofSeconds(10));
-
-        supervisor.process().sink.onOutput(ProcessStream.STDOUT, ByteBuffer.wrap("[INFO] Scanning\n".getBytes(UTF_8)));
-        assertThat(service.output(REVIEW_ID, run.id(), 0)).isEqualTo(new LocalRunService.OutputChunk("[INFO] Scanning\n", 16, 0, false));
-
-        // A root-module project runs without -pl.
-        write(checkout, "pom.xml", "<project/>\n");
-        supervisor.process().complete(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED);
-        awaitFinished(run.id());
-        LocalRun rootRun = service.start(REVIEW_ID, ROOT_TEST_PATH, Optional.empty());
-        assertThat(rootRun.ordinal()).isEqualTo(2);
-        assertThat(rootRun.module()).isEmpty();
-        assertThat(rootRun.command()).isEqualTo("./mvnw -B -Dtest=demo.TestRoot -Dsurefire.failIfNoSpecifiedTests=false test");
-    }
-
-    @ParameterizedTest
-    @EnumSource(Finish.class)
-    void derivesTheStatusFromFreshReportsAndTheExit(Finish finish)
-            throws IOException
-    {
-        LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
-        finish.report.ifPresent(report -> report(report, finish.fresh ? Instant.now() : STARTED_AT.minusMillis(1)));
-
-        supervisor.process().complete(finish.exitCode, finish.reason, ProcessExit.TreeTermination.VERIFIED_STOPPED);
-
-        LocalRun finished = awaitFinished(run.id());
-        assertThat(finished.status()).isEqualTo(finish.status);
-        assertThat(finished.counts()).isEqualTo(finish.counts);
-        assertThat(finished.exitCode()).hasValue(finish.exitCode);
-        assertThat(finished.treeUnverified()).isFalse();
-        InOrder order = inOrder(turns);
-        order.verify(turns, timeout(5_000)).releaseLocalRun(worktree.taskId(), run.id());
-        assertThat(supervisor.acknowledged).containsExactly("launch-1");
-    }
-
-    @Test
-    void keepsTheClaimForAnUnverifiableTreeUntilStopVerifiesIt()
-    {
-        when(reviewStore.findReviewByTask(worktree.taskId().toString())).thenReturn(Optional.of(review(true)));
-        LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
-        report(PASSING_REPORT, Instant.now());
-        FakeProcess process = supervisor.process();
-
-        process.complete(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.UNVERIFIABLE);
-
-        LocalRun finished = awaitFinished(run.id());
-        assertThat(finished.status()).isEqualTo(Status.PASSED);
-        assertThat(finished.treeUnverified()).isTrue();
-        verify(turns, never()).releaseLocalRun(any(), anyString());
-        assertThat(supervisor.acknowledged).isEmpty();
-        verify(reviews, never()).reconcile(REVIEW_ID);
-
-        process.stopResult = ProcessExit.TreeTermination.UNVERIFIABLE;
-        assertThat(service.stop(REVIEW_ID, run.id()).treeUnverified()).isTrue();
-        verify(turns, never()).releaseLocalRun(any(), anyString());
-
-        process.stopResult = ProcessExit.TreeTermination.VERIFIED_STOPPED;
-        LocalRun settled = service.stop(REVIEW_ID, run.id());
-
-        assertThat(settled.treeUnverified()).isFalse();
-        assertThat(settled.status()).isEqualTo(Status.PASSED);
-        assertThat(runs.find(run.id()).orElseThrow().treeUnverified()).isFalse();
-        InOrder order = inOrder(turns);
-        order.verify(turns).releaseLocalRun(worktree.taskId(), run.id());
-        assertThat(supervisor.acknowledged).containsExactly("launch-1");
-        verify(reviews, timeout(1000)).reconcile(REVIEW_ID);
-    }
-
-    @Test
-    void stopRecordsAStoppedRunWithItsPartialOutputAndNoAggregate()
-    {
-        LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
-        report(PASSING_REPORT, Instant.now());
-        supervisor.process().sink.onOutput(ProcessStream.STDOUT, ByteBuffer.wrap("partial".getBytes(UTF_8)));
-
-        LocalRun stopped = service.stop(REVIEW_ID, run.id());
-
-        assertThat(stopped.status()).isEqualTo(Status.STOPPED);
-        assertThat(stopped.counts()).isEmpty();
-        assertThat(stopped.results()).isEmpty();
-        assertThat(runs.findOutput(run.id())).contains("partial");
-        assertThat(stopped.omittedBytes()).hasValue(0);
-        verify(turns).releaseLocalRun(worktree.taskId(), run.id());
-        assertThat(service.output(REVIEW_ID, run.id(), 0)).isEqualTo(new LocalRunService.OutputChunk("partial", 7, 0, true));
-        // Stopping a settled run changes nothing.
-        assertThat(service.stop(REVIEW_ID, run.id())).isEqualTo(stopped);
-    }
-
-    @Test
-    void aFailedStartKeepsTheClaimForStartupRecoveryAndAFailureBeforeItReleasesIt()
-    {
-        supervisor.startFailure = Optional.of(new AgentUnavailableException("Gated launcher did not report its identity"));
-
-        LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
-
-        assertThat(run.status()).isEqualTo(Status.RESULTS_UNAVAILABLE);
-        assertThat(run.treeUnverified()).isTrue();
-        String output = "Cannot start the run: Gated launcher did not report its identity\nRestart ByteQuay to check its processes and free the working copy.";
-        assertThat(runs.findOutput(run.id())).contains(output);
-        assertThat(runs.find(run.id())).contains(run);
-        verify(turns, never()).releaseLocalRun(any(), anyString());
-        assertThat(service.output(REVIEW_ID, run.id(), 22)).isEqualTo(new LocalRunService.OutputChunk(output.substring(22), output.length(), 0, true));
-
-        supervisor.startFailure = Optional.empty();
-        supervisor.prepareFailure = Optional.of(new AgentUnavailableException("Launch marker could not be written"));
-        assertThatThrownBy(() -> service.start(REVIEW_ID, TEST_PATH, Optional.empty())).hasMessage("Launch marker could not be written");
-        verify(turns).releaseLocalRun(eq(worktree.taskId()), anyString());
-    }
-
-    @Test
-    void aFailedFinalSaveLeavesTheRunStoppableAndStopRecordsItAndReleasesTheClaim()
-    {
-        LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
-        report(PASSING_REPORT, Instant.now());
-        supervisor.process().sink.onOutput(ProcessStream.STDOUT, ByteBuffer.wrap("done".getBytes(UTF_8)));
-        // The final save and the unverified mark both fail, as when the one database connection times out.
-        runs.failingUpdates = 2;
-
-        supervisor.process().complete(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED);
-
-        awaitOutputComplete(run.id());
-        assertThat(runs.find(run.id()).orElseThrow().status()).isEqualTo(Status.RUNNING);
-        verify(turns, never()).releaseLocalRun(any(), anyString());
-
-        LocalRun settled = service.stop(REVIEW_ID, run.id());
-
-        assertThat(settled.status()).isEqualTo(Status.PASSED);
-        assertThat(settled.treeUnverified()).isFalse();
-        assertThat(runs.find(run.id())).contains(settled);
-        assertThat(runs.findOutput(run.id())).contains("done");
-        verify(turns).releaseLocalRun(worktree.taskId(), run.id());
-        assertThat(supervisor.acknowledged).containsExactly("launch-1");
-    }
-
-    @Test
-    void aFailedReleaseShowsTheRunUnverifiedUntilStopReleasesTheClaim()
-    {
-        LocalRun run = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
-        report(PASSING_REPORT, Instant.now());
-        AtomicInteger releases = new AtomicInteger();
-        doAnswer(invocation -> {
-            if (releases.incrementAndGet() == 1) {
-                throw new ReviewConflictException("Task version changed");
-            }
-            return null;
-        }).when(turns).releaseLocalRun(worktree.taskId(), run.id());
-
-        supervisor.process().complete(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED);
-
-        awaitOutputComplete(run.id());
-        LocalRun stored = runs.find(run.id()).orElseThrow();
-        assertThat(stored.status()).isEqualTo(Status.PASSED);
-        // Unverified keeps Stop available in the tab.
-        assertThat(stored.treeUnverified()).isTrue();
-
-        LocalRun settled = service.stop(REVIEW_ID, run.id());
-
-        assertThat(settled.treeUnverified()).isFalse();
-        assertThat(runs.find(run.id())).contains(settled);
-        assertThat(releases).hasValue(2);
-    }
-
-    @Test
-    void startupMarksRunsTheLastBackendLeftAsInterruptedAndShutdownStopsLiveRuns()
+    void startupPreservesHistoricalOutputAndMarksInterruptedRuns()
     {
         LocalRun left = runs.insert(LocalRun.started("left", worktree.taskId().toString(), WORKSPACE_ID, 1, TEST_PATH, "demo.TestCode", Optional.empty(),
                 Optional.of("core"), "./mvnw test", head, ImmutableList.of(), "fingerprint", "old-launch", STARTED_AT));
@@ -520,13 +213,8 @@ class TestLocalRunService
         assertThat(runs.find(unverified.id()).orElseThrow().treeUnverified()).isFalse();
         assertThat(service.output(REVIEW_ID, unverified.id(), 2)).isEqualTo(new LocalRunService.OutputChunk("ne", 4, 0, true));
 
-        LocalRun live = service.start(REVIEW_ID, TEST_PATH, Optional.empty());
         service.stop();
-
         assertThat(service.isRunning()).isFalse();
-        assertThat(runs.find(live.id()).orElseThrow().status()).isEqualTo(Status.STOPPED);
-        verify(turns).releaseLocalRun(eq(worktree.taskId()), eq(live.id()));
-        assertThatThrownBy(() -> service.start(REVIEW_ID, TEST_PATH, Optional.empty())).isInstanceOf(ReviewConflictException.class).hasMessage("ByteQuay is shutting down");
     }
 
     @Test
@@ -563,7 +251,6 @@ class TestLocalRunService
         assertThat(run.treeUnverified()).isFalse();
         assertThat(runs.findOutput(run.id())).contains("[INFO] BUILD SUCCESS");
         verify(turns, never()).claimLocalRun(any(), anyString());
-        assertThat(supervisor.specs).isEmpty();
     }
 
     @Test
@@ -641,70 +328,26 @@ class TestLocalRunService
                 new AgentEventPayload.CommandActivity(state, ImmutableList.of(argv), output, exitCode, truncated, Optional.empty(), durationMs, ImmutableList.of(), background, Optional.empty()));
     }
 
-    private enum Finish
+    @Test
+    void historyReadsAndStopsStayBoundToTheOwningTask()
     {
-        PASSED(Optional.of(PASSING_REPORT), true, 0, ProcessExit.Reason.EXITED, Status.PASSED, Optional.of(new LocalRun.Counts(1, 0, 0, 0))),
-        FAILED(Optional.of(TestSurefireReports.REPORT), true, 1, ProcessExit.Reason.EXITED, Status.FAILED_ASSERTION, Optional.of(new LocalRun.Counts(4, 1, 1, 1))),
-        PASSED_BUT_EXIT_FAILED(Optional.of(PASSING_REPORT), true, 1, ProcessExit.Reason.EXITED, Status.BUILD_FAILED, Optional.of(new LocalRun.Counts(1, 0, 0, 0))),
-        NO_REPORT_EXIT_FAILED(Optional.empty(), true, 1, ProcessExit.Reason.EXITED, Status.BUILD_FAILED, Optional.empty()),
-        STALE_REPORT(Optional.of(PASSING_REPORT), false, 0, ProcessExit.Reason.EXITED, Status.NO_TESTS_RAN, Optional.empty()),
-        ONLY_SKIPPED(Optional.of(SKIPPED_REPORT), true, 0, ProcessExit.Reason.EXITED, Status.NO_TESTS_RAN, Optional.of(new LocalRun.Counts(1, 0, 0, 1))),
-        MALFORMED_REPORT(Optional.of("<testsuite"), true, 0, ProcessExit.Reason.EXITED, Status.RESULTS_UNAVAILABLE, Optional.empty()),
-        TIMED_OUT(Optional.of(PASSING_REPORT), true, 143, ProcessExit.Reason.TIMED_OUT, Status.TIMED_OUT, Optional.empty());
-
-        private final Optional<String> report;
-        private final boolean fresh;
-        private final int exitCode;
-        private final ProcessExit.Reason reason;
-        private final Status status;
-        private final Optional<LocalRun.Counts> counts;
-
-        Finish(Optional<String> report, boolean fresh, int exitCode, ProcessExit.Reason reason, Status status, Optional<LocalRun.Counts> counts)
-        {
-            this.report = report;
-            this.fresh = fresh;
-            this.exitCode = exitCode;
-            this.reason = reason;
-            this.status = status;
-            this.counts = counts;
-        }
-    }
-
-    private LocalRunService service(Map<String, String> backendEnvironment)
-    {
-        try {
-            Map<String, String> shellEnvironment = ImmutableMap.<String, String>builder()
-                    .putAll(backendEnvironment)
-                    .put("SHELL", script(directory.resolve("shell-" + backendEnvironment.hashCode()), "#!/bin/sh\nexec /usr/bin/env -0\n").toString())
-                    .buildOrThrow();
-            LoginShellEnvironment login = new LoginShellEnvironment(shellEnvironment, directory.resolve("no-java-home"));
-            return new LocalRunService(reviewStore, reviews, turns, runs, supervisor, login, worktrees, code, new ReviewLocks(), Clock.fixed(NOW, ZoneOffset.UTC));
-        }
-        catch (IOException failure) {
-            throw new IllegalStateException(failure);
-        }
-    }
-
-    private void assertRefused(String path, String reason, boolean openTerminal)
-    {
-        assertRefused(path, reason, openTerminal, service);
-    }
-
-    private static void assertRefused(String path, String reason, boolean openTerminal, LocalRunService service)
-    {
-        assertThatThrownBy(() -> service.start(REVIEW_ID, path, Optional.empty()))
-                .isInstanceOfSatisfying(LocalRunRefusedException.class, refusal -> assertThat(refusal.openTerminal()).isEqualTo(openTerminal))
-                .hasMessage(reason);
+        LocalRun run = runs.insert(LocalRun.started("live", worktree.taskId().toString(), WORKSPACE_ID, 1, TEST_PATH, "demo.TestCode", Optional.empty(),
+                Optional.of("core"), "retained run", head, ImmutableList.of(), "fingerprint", "launch", STARTED_AT));
+        LocalRunService.OutputChunk chunk = new LocalRunService.OutputChunk("live output", 11, 0, false);
+        when(executions.output(run, 0)).thenReturn(Optional.of(chunk));
+        when(executions.stop(run)).thenReturn(run);
+        assertThat(service.output(taskHost(), run.id(), 0)).isEqualTo(chunk);
+        assertThat(service.stop(REVIEW_ID, run.id())).isEqualTo(run);
+        verify(executions).stop(run);
+        assertThat(service.list(taskHost())).containsExactly(run);
+        assertThatThrownBy(() -> service.output(taskHost(), run.id(), -1)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> service.stop(new TaskCodeHost("other", worktree.taskId().toString()), run.id())).isInstanceOf(ReviewNotFoundException.class);
     }
 
     private void assertBusy(String reason)
     {
-        assertThatThrownBy(() -> service.start(REVIEW_ID, TEST_PATH, Optional.empty())).isInstanceOf(ReviewConflictException.class).hasMessage(reason);
-    }
-
-    private void assertTaskBusy(String reason)
-    {
-        assertThatThrownBy(() -> service.start(taskHost(), TEST_PATH, Optional.empty())).isInstanceOf(ReviewConflictException.class).hasMessage(reason);
+        assertThatThrownBy(() -> LocalRunService.requireIdle(turns, reviewStore.listRuns(REVIEW_ID), reviewStore.findReview(REVIEW_ID).orElseThrow(), reviews.task(REVIEW_ID)))
+                .isInstanceOf(ReviewConflictException.class).hasMessage(reason);
     }
 
     private TaskCodeHost taskHost()
@@ -719,30 +362,6 @@ class TestLocalRunService
         return claim.map(held -> task.claimWorktreeMutation(held, NOW)).orElse(task);
     }
 
-    private void awaitOutputComplete(String runId)
-    {
-        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-        while (!service.output(REVIEW_ID, runId, 0).complete()) {
-            if (System.nanoTime() > deadline) {
-                throw new AssertionError("Run output did not complete: " + runId);
-            }
-            Thread.onSpinWait();
-        }
-    }
-
-    private LocalRun awaitFinished(String runId)
-    {
-        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
-        while (System.nanoTime() < deadline) {
-            LocalRun run = runs.find(runId).orElseThrow();
-            if (run.status() != Status.RUNNING) {
-                return run;
-            }
-            Thread.onSpinWait();
-        }
-        throw new AssertionError("Run did not finish: " + runId);
-    }
-
     private void report(String content, Instant modifiedAt)
     {
         try {
@@ -754,15 +373,6 @@ class TestLocalRunService
         catch (IOException failure) {
             throw new IllegalStateException(failure);
         }
-    }
-
-    private static Path script(Path file, String content)
-            throws IOException
-    {
-        Files.createDirectories(file.getParent());
-        Files.writeString(file, content);
-        Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rwx------"));
-        return file;
     }
 
     private AgentTask task(Optional<WorktreeMutationClaim> claim)
@@ -802,7 +412,6 @@ class TestLocalRunService
     {
         private final Map<String, LocalRun> rows = new LinkedHashMap<>();
         private final Map<String, String> outputs = new LinkedHashMap<>();
-        private int failingUpdates;
 
         @Override
         public synchronized LocalRun insert(LocalRun run)
@@ -832,10 +441,6 @@ class TestLocalRunService
         @Override
         public synchronized LocalRun update(LocalRun run)
         {
-            if (failingUpdates > 0) {
-                failingUpdates--;
-                throw new IllegalStateException("Connection is not available, request timed out");
-            }
             if (rows.replace(run.id(), run) == null) {
                 throw new ReviewConflictException("Local run not found: " + run.id());
             }
@@ -868,130 +473,4 @@ class TestLocalRunService
         }
     }
 
-    private static final class FakeSupervisor
-            implements ProcessSupervisor
-    {
-        private final List<ProcessSpec> specs = new ArrayList<>();
-        private final List<String> acknowledged = new ArrayList<>();
-        private final List<FakeProcess> processes = new ArrayList<>();
-        private Optional<RuntimeException> startFailure = Optional.empty();
-        private Optional<RuntimeException> prepareFailure = Optional.empty();
-
-        @Override
-        public synchronized PreparedProcess prepare(ProcessSpec spec)
-        {
-            prepareFailure.ifPresent(failure -> {
-                throw failure;
-            });
-            specs.add(spec);
-            String launchId = "launch-" + specs.size();
-            return new PreparedProcess()
-            {
-                @Override
-                public String launchId()
-                {
-                    return launchId;
-                }
-
-                @Override
-                public ManagedProcess start(ProcessOutputSink output)
-                {
-                    startFailure.ifPresent(failure -> {
-                        throw failure;
-                    });
-                    FakeProcess process = new FakeProcess(launchId, output);
-                    synchronized (FakeSupervisor.this) {
-                        processes.add(process);
-                    }
-                    return process;
-                }
-
-                @Override
-                public void abandon() {}
-            };
-        }
-
-        @Override
-        public List<OwnedProcessRecovery> recoverOwnedProcesses()
-        {
-            return ImmutableList.of();
-        }
-
-        @Override
-        public synchronized void acknowledge(String launchId)
-        {
-            acknowledged.add(launchId);
-        }
-
-        private synchronized FakeProcess process()
-        {
-            return processes.getLast();
-        }
-    }
-
-    private static final class FakeProcess
-            implements ManagedProcess
-    {
-        private final String launchId;
-        private final ProcessOutputSink sink;
-        private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
-        private volatile ProcessExit.TreeTermination stopResult = ProcessExit.TreeTermination.VERIFIED_STOPPED;
-
-        private FakeProcess(String launchId, ProcessOutputSink sink)
-        {
-            this.launchId = launchId;
-            this.sink = sink;
-        }
-
-        private void complete(int exitCode, ProcessExit.Reason reason, ProcessExit.TreeTermination termination)
-        {
-            exit.complete(new ProcessExit(exitCode, reason, termination, Duration.ofSeconds(1), false, false));
-        }
-
-        @Override
-        public String launchId()
-        {
-            return launchId;
-        }
-
-        @Override
-        public long pid()
-        {
-            return 42;
-        }
-
-        @Override
-        public CompletionStage<Void> write(ByteBuffer bytes)
-        {
-            throw new UnsupportedOperationException("A local run has no input");
-        }
-
-        @Override
-        public void closeInput() {}
-
-        @Override
-        public CompletionStage<ProcessExit> exit()
-        {
-            return exit;
-        }
-
-        @Override
-        public void cancel()
-        {
-            complete(143, ProcessExit.Reason.CANCELLED, stopResult);
-        }
-
-        @Override
-        public CompletionStage<ProcessExit.TreeTermination> stopAndVerify()
-        {
-            cancel();
-            return CompletableFuture.completedFuture(stopResult);
-        }
-
-        @Override
-        public void close()
-        {
-            cancel();
-        }
-    }
 }

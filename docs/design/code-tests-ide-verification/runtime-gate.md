@@ -63,7 +63,7 @@ at the shipped bundle caused the server to create `extensions.json` there.
 | Java tests | Stable Red Hat Java 1.56.0 plus Java Test 0.46.0 reported deliberate expected 7 / actual 6 failure with source location | Test discovery is lazy: Run Current File before discovery can report no tests |
 | Java debug test | Real breakpoint pause, local value 3, stack, Step Over returning 6, and Stop | Use executable line breakpoints. A column breakpoint on the method name remained unverified and did not pause |
 | Go and Rust tests | Earlier production-browser proof ran actual Go/Cargo failing tests and captured logs/locations | Rust's structured assertion text was empty; retaining raw output is required |
-| Native Go/Rust debugging | Not verified | Go debugging encountered macOS authorization; the user was asked to handle it. Rust native debugging remains pending |
+| Native Go/Rust debugging | Not verified | Go debugging encountered macOS authorization; the user explicitly left debugger verification pending. Rust native debugging also remains pending |
 | Private cards/theme/history | Earlier fixture verified the actual React local card, theme switching and a real three-commit history provider | Backend integration, durable drafts, full finding cards and historical/merge/rename diffs are not complete |
 
 See the [native Java debug screenshot](java-native-debug.png) and captured
@@ -456,3 +456,17 @@ were checked after shutdown and none remained. These results do not complete the
 remaining debugger, production-backend composition or resource acceptance gates.
 The development SQLite compatibility consequence is documented in the canonical
 Code & Tests design; no user database was reset.
+
+
+## Native execution history cleanup
+
+The Maven user-launch endpoint and IPC transport are removed. Agent command
+mirroring and stored run evidence remain. Run history now reads active IDE
+output through the production service and reloads compacted final output when
+a run completes. Host ownership, stop routing and final-output regression checks
+pass. The full backend reactor passes `mvn verify`; frontend lint, TypeScript,
+1,511 tests in 160 files and macOS arm64 packaging pass.
+
+The user left macOS-gated debugger verification pending. The isolated debugger
+fixture was closed, and none of its 17 recorded owned process identities remained.
+This verifies fixture shutdown, not yet the production idle lifecycle.

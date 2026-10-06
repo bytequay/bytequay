@@ -180,6 +180,25 @@ public class IdeExecutions
         }
     }
 
+    /** The caller has already resolved this stored run through its authorized review or task host. */
+    LocalRun stop(LocalRun stored)
+    {
+        Live execution = live.get(stored.id());
+        if (execution == null) {
+            return runs.find(stored.id()).filter(run -> run.taskId().equals(stored.taskId())).orElse(stored);
+        }
+        return stop(stored.taskId(), execution.sessionId, stored.id());
+    }
+
+    Optional<LocalRunService.OutputChunk> output(LocalRun stored, long after)
+    {
+        Live execution = live.get(stored.id());
+        if (execution == null || !execution.run.taskId().equals(stored.taskId())) {
+            return Optional.empty();
+        }
+        return Optional.of(execution.output.read(after));
+    }
+
     private Live requireLive(String taskId, String sessionId, String id)
     {
         Live execution = live.get(id);

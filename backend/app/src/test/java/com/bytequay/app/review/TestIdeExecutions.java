@@ -118,6 +118,7 @@ class TestIdeExecutions
         when(process.observedDescendants()).thenReturn(Optional.of(ImmutableList.of(new ProcessIdentity(handle.pid(), handle.info().startInstant().orElseThrow()))));
         IdeExecutions.Output chunk = new IdeExecutions.Output(1, "expected 7, got 6\n", false);
         executions.output(taskId.toString(), "session", run.id(), chunk);
+        assertThat(executions.output(run, 9)).contains(new LocalRunService.OutputChunk("7, got 6\n", chunk.text().length(), 0, false));
         executions.output(taskId.toString(), "session", run.id(), chunk);
         assertThatThrownBy(() -> executions.output(taskId.toString(), "other-session", run.id(), chunk)).hasMessageContaining("no longer active");
         assertThatThrownBy(() -> executions.output(taskId.toString(), "session", run.id(), new IdeExecutions.Output(1, "changed", false)))
@@ -155,7 +156,7 @@ class TestIdeExecutions
             exit.complete(new ProcessExit(0, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
             return null;
         }).when(runtime).stop(taskId.toString(), "session");
-        assertThat(executions.stop(taskId.toString(), "session", run.id()).treeUnverified()).isFalse();
+        assertThat(executions.stop(finished).treeUnverified()).isFalse();
         verify(turns).releaseLocalRun(taskId, run.id());
         assertThat(new IdeExecutions.Result(false, false, true, OptionalInt.empty(), ImmutableList.of()).status(Scope.TESTS)).isEqualTo(Status.RESULTS_UNAVAILABLE);
     }

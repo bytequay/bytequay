@@ -24,13 +24,12 @@ import {
   Eraser,
   LoaderCircle,
   Play,
-  RotateCcw,
   Square,
   SquareTerminal,
   UserRound,
   X,
 } from 'lucide-react';
-import type { CodeHostRef, LocalRunDto, LocalRunMethodDto, LocalRunOutputDto, RunRefusalDto, ReviewCodeFilesDto } from './contracts';
+import type { CodeHostRef, LocalRunDto, LocalRunMethodDto, LocalRunOutputDto, ReviewCodeFilesDto } from './contracts';
 import {
   failedRows,
   formatDuration,
@@ -52,7 +51,7 @@ import TerminalView, { type TerminalBridge } from './TerminalView';
 
 type SubTab = 'tests' | 'details';
 type Mode = 'run' | 'terminal';
-type OutputState = { text: string; offset: number; complete: boolean };
+type OutputState = { text: string; offset: number; complete: boolean; snapshot: boolean };
 
 const MIN_HEIGHT = 96;
 const MAX_HEIGHT = 560;
@@ -109,11 +108,8 @@ export default function RunPanel({
   runs,
   files,
   gate,
-  refusal,
-  onDismissRefusal,
   terminal: terminalTarget,
   hostKind,
-  onRerun,
   onStop,
   onBrowseTests,
   readOutput,
@@ -125,15 +121,12 @@ export default function RunPanel({
   runs: readonly LocalRunDto[];
   files: ReviewCodeFilesDto | null;
   gate: RunGate;
-  refusal: RunRefusalDto | null;
-  onDismissRefusal: () => void;
   /** The host whose working copy the terminal opens in, or null when it has none. */
   terminal: { host: CodeHostRef; bridge: TerminalBridge } | null;
   /** Whose working copy this is; a development task's agent runs are not mirrored here. */
   hostKind: CodeHostRef['kind'];
   embedded?: boolean;
   onAskAgent?: (run: LocalRunDto, text: string) => void;
-  onRerun?: (run: LocalRunDto, method: string | null) => void;
   onStop: (run: LocalRunDto) => void;
   onBrowseTests: () => void;
   readOutput: (runId: string, after: number) => Promise<LocalRunOutputDto>;
@@ -186,15 +179,18 @@ export default function RunPanel({
       const current = outputsRef.current.get(runId);
       if (current?.complete) return;
       try {
-        const chunk = await readOutput(runId, current?.offset ?? 0);
+        // Final storage compacts the stream's omitted middle, so its offsets start over.
+        const snapshot = finished && !current?.snapshot;
+        const chunk = await readOutput(runId, snapshot ? 0 : current?.offset ?? 0);
         if (!live) return;
         setOutputs(map => {
           const previous = map.get(runId);
           const gap = chunk.skippedBytes > 0 ? `\n… ${chunk.skippedBytes.toLocaleString()} characters of output omitted …\n` : '';
           return new Map(map).set(runId, {
-            text: `${previous?.text ?? ''}${gap}${chunk.text}`,
+            text: `${snapshot ? '' : previous?.text ?? ''}${gap}${chunk.text}`,
             offset: chunk.nextOffset,
             complete: finished && chunk.complete,
+            snapshot: finished,
           });
         });
         if (!finished || !chunk.complete) timer = setTimeout(() => { void poll(); }, 1000);
@@ -275,8 +271,6 @@ export default function RunPanel({
   };
   const rows = run === null ? [] : methodRows(run);
   const tree = run === null ? [] : shownResults(run, failedOnly);
-  const blocked = gate.hidden ? 'This working copy cannot run tests' : gate.blocked;
-  const canRerun = onRerun !== undefined && run !== null && (run.scope === 'CLASS' || run.scope === 'METHOD') && run.path !== null && !gate.hidden && blocked === null;
   const firstFailed = run === null ? undefined : failedRows(run)[0];
   const failure = failureDetail ?? firstFailed;
   const output = run === null ? null : outputs.get(run.id) ?? null;
@@ -365,16 +359,6 @@ export default function RunPanel({
       )}
       {open && terminal === null && (
         <div className="ct-run__body" style={{ height: embedded ? undefined : height }}>
-          {refusal !== null && (
-            <div className="ct-run__refusal" role="alert">
-              <strong>Setup missing</strong>
-              <span>{refusal.reason}</span>
-              {refusal.action === 'OPEN_TERMINAL' && terminalTarget !== null && (
-                <button type="button" className="ct-text-button" onClick={() => showMode('terminal')}>Open Terminal</button>
-              )}
-              <button type="button" className="ct-icon-button" aria-label="Dismiss" onClick={onDismissRefusal}><X size={12} strokeWidth={1.8} aria-hidden="true" /></button>
-            </div>
-          )}
           {run === null ? (
             <div className="ct-run__empty">
               <div>{runs.length === 0 ? 'No runs yet' : 'Pick a run tab to see its result'}</div>
@@ -387,12 +371,6 @@ export default function RunPanel({
           ) : (
             <>
               <div className="ct-run__toolbar">
-                <button type="button" className="ct-run__action is-rerun" disabled={!canRerun} aria-label="Rerun this scope"
-                  title={canRerun ? 'Rerun this scope' : blocked ?? 'A command result cannot be rerun here'}
-                  onClick={() => onRerun?.(run, run.testMethod)}><Play size={12} strokeWidth={2} aria-hidden="true" /></button>
-                <button type="button" className="ct-run__action is-rerun-failed" disabled={!canRerun || firstFailed === undefined} aria-label="Rerun the failed method"
-                  title={firstFailed === undefined ? 'Nothing failed in this run' : canRerun ? 'Rerun the failed method' : blocked ?? ''}
-                  onClick={() => { if (firstFailed !== undefined) onRerun?.(run, firstFailed.name); }}><RotateCcw size={13} strokeWidth={1.8} aria-hidden="true" /></button>
                 <button type="button" className="ct-run__action" disabled={run.status !== 'RUNNING' && !run.treeUnverified} aria-label="Stop" title="Stop"
                   onClick={() => onStop(run)}><Square size={12} strokeWidth={2} aria-hidden="true" /></button>
                 <button type="button" className="ct-run__action is-failed-only" aria-pressed={failedOnly}
@@ -442,11 +420,6 @@ export default function RunPanel({
                               <RowIcon row={method} />
                               <button type="button" className="ct-run__row-name ct-text-button" onClick={() => setFailureDetail(method)}>{method.name}{run.scope === 'CLASS' || run.scope === 'METHOD' ? '()' : ''}</button>
                             </span>
-                            {onRerun !== undefined && run.status !== 'RUNNING' && (run.scope === 'CLASS' || run.scope === 'METHOD') && run.path !== null && (
-                              <button type="button" className="ct-run__row-rerun" aria-label={`Rerun ${method.name}()`}
-                                title={blocked ?? 'Rerun this test'} disabled={blocked !== null}
-                                onClick={() => onRerun?.(run, method.name)}><Play size={10} strokeWidth={2} aria-hidden="true" /></button>
-                            )}
                             <span className="ct-run__duration">{formatDuration(method.durationMs)}</span>
                           </div>
                         ))}

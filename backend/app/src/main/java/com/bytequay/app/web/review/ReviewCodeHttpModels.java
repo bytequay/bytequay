@@ -143,11 +143,7 @@ final class ReviewCodeHttpModels
 
     record RunMethodResponse(String name, String status, OptionalLong durationMs, Optional<String> message, Optional<String> trace) {}
 
-    record StartRunRequest(String path, String method) {}
-
     record RunOutputResponse(String text, long nextOffset, long skippedBytes, boolean complete) {}
-
-    record RunRefusalResponse(String reason, Optional<String> action) {}
 
     record SaveFileRequest(String path, String content, String expectedHash) {}
 

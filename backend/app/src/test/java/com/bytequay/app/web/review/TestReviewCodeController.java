@@ -14,7 +14,6 @@
 package com.bytequay.app.web.review;
 
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.app.review.LocalRunRefusedException;
 import com.bytequay.app.review.LocalRunService;
 import com.bytequay.app.review.ReviewCodeService;
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
@@ -42,7 +41,6 @@ import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
 
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -242,53 +240,6 @@ class TestReviewCodeController
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"runs\": [" + FINISHED_RUN_JSON + ", " + RUNNING_RUN_JSON + "]}", JsonCompareMode.STRICT));
         mvc.perform(get("/api/agent-review/review-1/code/runs/missing/output")).andExpect(status().isNotFound());
-    }
-
-    @Test
-    void startsAClassOrMethodRun()
-            throws Exception
-    {
-        when(localRuns.start("review-1", "core/src/test/java/demo/TestCode.java", Optional.empty())).thenReturn(runningRun());
-        when(localRuns.start("review-1", "core/src/test/java/demo/TestCode.java", Optional.of("fails"))).thenReturn(finishedRun());
-        when(localRuns.start("review-1", "src/main/java/Code.java", Optional.empty())).thenThrow(new IllegalArgumentException("path is not a Surefire test source"));
-
-        mvc.perform(post("/api/agent-review/review-1/code/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"path": "core/src/test/java/demo/TestCode.java", "method": null}
-                        """))
-                .andExpect(status().isCreated())
-                .andExpect(content().json(RUNNING_RUN_JSON, JsonCompareMode.STRICT));
-        mvc.perform(post("/api/agent-review/review-1/code/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"path": "core/src/test/java/demo/TestCode.java", "method": "fails"}
-                        """))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value("run-2"));
-        mvc.perform(post("/api/agent-review/review-1/code/runs").contentType(MediaType.APPLICATION_JSON).content("""
-                        {"path": "src/main/java/Code.java"}
-                        """))
-                .andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void refusalsCarryTheirReasonAndAction()
-            throws Exception
-    {
-        when(localRuns.start(eq("review-1"), eq("src/test/java/TestNoWrapper.java"), any())).thenThrow(new LocalRunRefusedException("No Maven wrapper (mvnw) in this working copy", true));
-        when(localRuns.start(eq("review-1"), eq("src/test/java/TestNoModule.java"), any())).thenThrow(new LocalRunRefusedException("No Maven module for this test", false));
-        when(localRuns.start(eq("review-1"), eq("src/test/java/TestBusy.java"), any())).thenThrow(new ReviewConflictException("A run is using this working copy"));
-
-        mvc.perform(post("/api/agent-review/review-1/code/runs").contentType(MediaType.APPLICATION_JSON).content("{\"path\": \"src/test/java/TestNoWrapper.java\"}"))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(content().json("""
-                        {"reason": "No Maven wrapper (mvnw) in this working copy", "action": "OPEN_TERMINAL"}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(post("/api/agent-review/review-1/code/runs").contentType(MediaType.APPLICATION_JSON).content("{\"path\": \"src/test/java/TestNoModule.java\"}"))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(content().json("""
-                        {"reason": "No Maven module for this test", "action": null}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(post("/api/agent-review/review-1/code/runs").contentType(MediaType.APPLICATION_JSON).content("{\"path\": \"src/test/java/TestBusy.java\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("A run is using this working copy"));
     }
 
     @Test

@@ -265,7 +265,6 @@ export function parseLocalRunOutput(value: unknown): LocalRunOutputDto {
 }
 
 /** A start the backend refused before creating a record: the reason and the one action the panel offers. */
-export type RunRefusalDto = { reason: string; action: 'OPEN_TERMINAL' | null };
 
 /** The file on disk no longer matches the draft's starting point; nothing was written. */
 export type SaveConflictDto = { currentHash: string | null; currentContent: string | null };

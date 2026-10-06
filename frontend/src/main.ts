@@ -1061,17 +1061,6 @@ function registerIpc(): void {
     backendJson(codeUrl(host, '/file', { path, ...(expectedRevision === undefined ? {} : { expectedRevision }) }), { headers: agentHeaders() }).then(parseReviewCodeFile));
   ipcMain.handle('code:runs:list', (_event, host: unknown) =>
     backendJson(codeUrl(host, '/runs'), { headers: agentHeaders() }).then(parseLocalRuns));
-  // A refused preflight (no Maven wrapper, no JDK) is an answer for the run panel, not an error.
-  ipcMain.handle('code:runs:start', async (_event, host: unknown, path: string, method: string | null) => {
-    const response = await fetch(codeUrl(host, '/runs'), jsonInit('POST', { path, method }, agentHeaders(true)));
-    const body = await response.text();
-    if (response.status === 422) {
-      const refusal = JSON.parse(body) as { reason?: unknown; action?: unknown };
-      return { refusal: { reason: typeof refusal.reason === 'string' ? refusal.reason : 'This run cannot start', action: refusal.action === 'OPEN_TERMINAL' ? 'OPEN_TERMINAL' : null } };
-    }
-    if (!response.ok) throw new Error(extractMessage(body) || `Starting the run returned ${response.status}`);
-    return { run: parseLocalRun(JSON.parse(body)) };
-  });
   ipcMain.handle('code:runs:stop', (_event, host: unknown, runId: string) =>
     backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/stop`), { method: 'POST', headers: agentHeaders() }).then(parseLocalRun));
   // A stale draft is a conflict the editor resolves with the user, not an error.

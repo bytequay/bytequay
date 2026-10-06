@@ -50,7 +50,7 @@ export default function RunHistory({ context, files, runtime, onTests }: {
   };
   return <div className="ide-run-history">
     {notice && <div className="ide-notice" role="status">{notice}<button onClick={() => setNotice(null)}>Dismiss</button></div>}
-    <RunPanel embedded runs={runs} files={files} gate={gate} refusal={null} onDismissRefusal={() => {}} terminal={null} hostKind={host.kind}
+    <RunPanel embedded runs={runs} files={files} gate={gate} terminal={null} hostKind={host.kind}
       onStop={run => { void stop(run); }} onBrowseTests={onTests} readOutput={output} selectedRunId={selected} onSelectRun={setSelected}
       onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
         void window.ideWorkbench.request('run.ask', run.id, text).then(() => setNotice('Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));

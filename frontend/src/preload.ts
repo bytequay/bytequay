@@ -506,7 +506,6 @@ const bridge: Bridge = {
   listCodeFiles: host => ipcRenderer.invoke('code:files', host),
   readCodeFile: (host, path, expectedRevision) => ipcRenderer.invoke('code:file', host, path, expectedRevision),
   listCodeRuns: host => ipcRenderer.invoke('code:runs:list', host),
-  startCodeRun: (host, path, method) => ipcRenderer.invoke('code:runs:start', host, path, method),
   stopCodeRun: (host, runId) => ipcRenderer.invoke('code:runs:stop', host, runId),
   readCodeRunOutput: (host, runId, after) => ipcRenderer.invoke('code:runs:output', host, runId, after),
   saveCodeFile: (host, path, content, expectedHash) => ipcRenderer.invoke('code:save', host, path, content, expectedHash),

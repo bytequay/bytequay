@@ -19,10 +19,13 @@ limitations live in the [runtime report](code-tests-ide-verification/runtime-gat
 - [x] Active production-tab cutover and bounded read-only archive viewer.
 - [x] Remove CodeMirror/custom Java navigation, CodeGraph service, settings,
   packaging, tool aliases, lifecycle hooks and graph-only persistence fields.
-- [ ] Remove unused legacy user-Maven run transport while retaining old run
+- [x] Remove unused legacy user-Maven run transport while retaining old run
   evidence and agent command mirroring.
-- [ ] Complete native Go/Rust debugger acceptance, semantic identity across
-  divergent worktrees and larger module/interface/trait fixtures.
+- [ ] Complete semantic identity across divergent worktrees and larger
+  module/interface/trait fixtures.
+- [ ] Native Go/Rust debugger acceptance: pending at the user’s direction;
+  macOS Developer Tools authorization is not approved.
 - [ ] Complete real-backend composition and native idle/crash cleanup evidence,
   including cold/warm timing and resource/package measurements.
-- [ ] Final required backend/frontend gates and committed evidence.
+- [x] Required backend/frontend gates after legacy runner removal.
+- [ ] Commit remaining native acceptance evidence.

@@ -174,9 +174,10 @@ review-agent commands, records bounded output and reads fresh Surefire reports
 within the command window. It changes no agent tool or execution behavior,
 creates no second claim and does not guess results for other command types.
 Background Claude commands and unknown Maven outcomes do not become passing
-runs. Retained old runs remain readable. The legacy Maven user-run endpoint still
-exists pending removal of its unused transport; the production IDE launches
-through native profiles.
+runs. Retained old runs remain readable. The unused Maven user-run endpoint and
+its transport are removed; all new user executions launch through native
+profiles. Run history reads the live IDE output buffer and reloads the compacted
+final output from offset zero when the run settles, preserving final failures.
 
 ## Terminal
 

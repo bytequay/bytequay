@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web.review;
 
-import com.bytequay.app.review.LocalRunRefusedException;
 import com.bytequay.app.review.LocalRunService;
 import com.bytequay.app.review.ReviewCodeService;
 import com.bytequay.app.review.ReviewFileConflictException;
@@ -102,16 +101,6 @@ public class TaskCodeController
                 .collect(toImmutableList()));
     }
 
-    @PostMapping("/runs")
-    @ResponseStatus(HttpStatus.CREATED)
-    public ReviewCodeHttpModels.RunResponse startRun(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestBody ReviewCodeHttpModels.StartRunRequest request)
-    {
-        return ReviewCodeHttpModels.run(localRuns.start(new TaskCodeHost(workspaceId, taskId), request.path(), Optional.ofNullable(request.method())));
-    }
-
     @PostMapping("/runs/{runId}/stop")
     public ReviewCodeHttpModels.RunResponse stopRun(
             @PathVariable String taskId,
@@ -130,13 +119,6 @@ public class TaskCodeController
     {
         LocalRunService.OutputChunk chunk = localRuns.output(new TaskCodeHost(workspaceId, taskId), runId, after);
         return new ReviewCodeHttpModels.RunOutputResponse(chunk.text(), chunk.nextOffset(), chunk.skippedBytes(), chunk.complete());
-    }
-
-    @ExceptionHandler(LocalRunRefusedException.class)
-    @ResponseStatus(HttpStatus.UNPROCESSABLE_ENTITY)
-    public ReviewCodeHttpModels.RunRefusalResponse refused(LocalRunRefusedException refusal)
-    {
-        return new ReviewCodeHttpModels.RunRefusalResponse(refusal.getMessage(), refusal.openTerminal() ? Optional.of("OPEN_TERMINAL") : Optional.empty());
     }
 
     @ExceptionHandler(ReviewFileConflictException.class)

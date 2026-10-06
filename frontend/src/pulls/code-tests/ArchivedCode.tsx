@@ -116,7 +116,7 @@ export default function ArchivedCode({ host, onExit, comments, active, bridge, o
             onComment={cards.onComment} commentRange={cards.commentRange} />{cards.unplaced}</>}
       </section>
     </div>
-    {runs.length > 0 && <RunPanel runs={runs} files={files} gate={{ hidden: true, blocked: null }} refusal={null} onDismissRefusal={() => {}}
+    {runs.length > 0 && <RunPanel runs={runs} files={files} gate={{ hidden: true, blocked: null }}
       terminal={null} hostKind={host.kind} onStop={() => {}} onBrowseTests={() => {}} readOutput={readOutput} selectedRunId={selected} onSelectRun={setSelected} />}
   </div>;
 }

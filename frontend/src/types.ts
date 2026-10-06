@@ -36,7 +36,7 @@ import type {
   ReviewEvent,
   ReviewSide,
 } from './pulls/agent-review/contracts';
-import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
+import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, SaveConflictDto } from './pulls/code-tests/contracts';
 
 type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
@@ -1880,7 +1880,6 @@ export type Bridge = JiraBridge & {
   /** Test runs of the host's task, newest first; a review's include its agent's mirrored runs. */
   listCodeRuns: (host: CodeHostRef) => Promise<LocalRunDto[]>;
   /** Runs a test class, or one method, from its source path; a refused preflight returns why instead of a run. */
-  startCodeRun: (host: CodeHostRef, path: string, method: string | null) => Promise<{ run: LocalRunDto } | { refusal: RunRefusalDto }>;
   stopCodeRun: (host: CodeHostRef, runId: string) => Promise<LocalRunDto>;
   readCodeRunOutput: (host: CodeHostRef, runId: string, after: number) => Promise<LocalRunOutputDto>;
   /** Writes an editable file of the working copy only if it still has the hash the edit started from. */

@@ -2156,13 +2156,9 @@ sandbox text:
   worktree claim before launch. The server remains the process owner. The claim
   is released only after protocol completion and observed execution descendants
   have exited; paused sessions retain it. See [Code & Tests](code-tests.md).
-- `LOCAL_RUN` owns one user-requested command in a review task's or
-  development task's working copy ([Code & Tests](code-tests.md) §11).
-  ByteQuay builds its argv: a fixed `/bin/bash -c` wrapper around the
-  worktree's Maven wrapper, with the test selector as positional arguments. It
-  runs with the user's login-shell environment minus every `BYTEQUAY_*`
-  variable, and under no provider sandbox or approval
-  ([Code & Tests](code-tests.md) §5.3).
+- `LOCAL_RUN` remains recognized for recovery of launch markers from the removed
+  Maven user runner. New IDE executions use the `IDE` process owner and a
+  `LOCAL_RUN` mutation claim; the legacy runner no longer launches processes.
 
 `CLI_PROBE` identifies short-lived provider control commands and validated
 text-only helpers. The exact `APP_SERVER/codex-model-catalog` owner is also
@@ -2648,23 +2644,20 @@ stop releases the turn's claim; an unverifiable launch swaps it for a
 `RECOVERY` claim keyed by that launch, and a later startup that verifies the
 launch stopped is what releases it.
 
-A Code & Tests local run ([Code & Tests](code-tests.md) §5.3) is the one
-supervised process in a task worktree that no provider turn owns.
-`AgentTurnService.claimLocalRun(taskId, runId)` takes a `LOCAL_RUN` claim under
-the agent serving gate and the same start rules as a turn, so turn start,
-enqueue, `synchronizeWorktree`, and completion refuse while it is held. Its
-launch is `ProcessOwner.Kind.LOCAL_RUN` with owner id `<taskId>/<runId>`,
-persisted as `LaunchOwnerKind.LOCAL_RUN`; startup recovery
-(`AgentStartupRecovery.ownerTask`) attributes that launch to its task.
-`releaseLocalRun` runs only after the run's process tree is
-`VERIFIED_STOPPED` and before the launch is acknowledged; an unverifiable run
-keeps both. At startup `AgentMaintenance.recover` releases a `LOCAL_RUN` claim
-as it does a stale `COMPLETION` claim, which is safe because the serving gate
-stays closed until process recovery settles. `settleAfterProcessRecovery` then
-gives a task whose run launch is unverifiable a `RECOVERY` claim keyed by that
-launch, so only that task is blocked. The existing runtime Stop for a recovery
-claim (`AgentStartupRecovery.stopRecoveredRuntime`) retries verification of
-every launch attributable to the task, run launches included.
+An explicit Code & Tests execution takes a `LOCAL_RUN` worktree claim through
+`AgentTurnService.claimLocalRun(taskId, runId)` under the same serving gate and
+start rules as a turn. Turn start, enqueue, `synchronizeWorktree`, and completion
+refuse while it is held. Native adapters/build processes remain descendants of
+the task's `IDE` server; protocol completion and verified process quiescence are
+both required before `releaseLocalRun`. An unresolved stop retains the claim.
+
+Startup process recovery settles the task's IDE launch before the serving gate
+opens. `AgentMaintenance.recover` releases stale `LOCAL_RUN` claims, and
+`settleAfterProcessRecovery` gives any task with an unverifiable launch a
+`RECOVERY` claim keyed by that launch. The existing runtime Stop retries every
+launch attributable to the task. Old `ProcessOwner.Kind.LOCAL_RUN` /
+`LaunchOwnerKind.LOCAL_RUN` markers with owner id `<taskId>/<runId>` remain
+attributable for cleanup; the superseded Maven user runner is removed.
 
 Release compatibility tests run reference-version sandbox and lifecycle
 fixtures: ordinary built-in tool execution must stay inside the task worktree,

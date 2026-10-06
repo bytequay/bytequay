@@ -14,6 +14,8 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import { SourceSnapshot } from '../ArchivedCode';
+import RunPanel from '../RunPanel';
+import type { LocalRunDto } from '../contracts';
 import { useCodeComments, type CodeCommentsOptions } from '../useCodeComments';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
 import type { PullRequestDto } from '../../../types';
@@ -51,6 +53,26 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     assert(host.querySelector('.ct-snapshot__number')?.textContent === '501' && host.querySelector('.hljs-keyword')?.textContent === 'class', 'Paging keeps source line identity and syntax coloring');
     results.push({ name: 'Historical source pages retain line numbers and syntax' });
   } catch (error) { results.push({ name: 'Historical source paging', error: String(error) }); }
+  try {
+    const requested: number[] = [];
+    const run: LocalRunDto = { id: 'streamed', ordinal: 1, initiator: 'USER', scope: 'TESTS', path: 'main_test.go', testClass: null, testMethod: null,
+      module: null, command: 'Run tests', sourceHeadSha: 'abc', localPaths: [], sourceFingerprint: 'fingerprint', status: 'RUNNING', startedAt: '', endedAt: null,
+      exitCode: null, tests: null, failures: null, errors: null, skipped: null, outputTruncated: false, omittedBytes: null, treeUnverified: false, results: [] };
+    let finished = false;
+    const readOutput = async (_id: string, after: number) => {
+      requested.push(after);
+      return finished ? { text: 'head\n… omitted …\nfinal failure', nextOffset: 32, skippedBytes: 0, complete: true }
+        : { text: 'live output', nextOffset: 2_000_000, skippedBytes: 1_999_989, complete: false };
+    };
+    const render = () => flushSync(() => root.render(<RunPanel runs={[finished ? { ...run, status: 'FAILED_ASSERTION' } : run]} files={null}
+      gate={{ hidden: false, blocked: null }} terminal={null} hostKind="task" onStop={() => {}} onBrowseTests={() => {}}
+      readOutput={readOutput} selectedRunId={run.id} onSelectRun={() => {}} />));
+    render(); await settle();
+    assert(requested.join(',') === '0', 'The active run must request live output');
+    finished = true; render(); await settle();
+    assert(requested.length === 2 && requested[1] === 0, 'Completion must reread the compacted final output instead of losing its tail at the live offset');
+    results.push({ name: 'Run history reloads final evidence after live output compaction' });
+  } catch (error) { results.push({ name: 'Run history final output', error: String(error) }); }
   finally { flushSync(() => root.unmount()); host.remove(); }
   return results;
 }

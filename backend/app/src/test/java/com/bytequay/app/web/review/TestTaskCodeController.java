@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web.review;
 
-import com.bytequay.app.review.LocalRunRefusedException;
 import com.bytequay.app.review.LocalRunService;
 import com.bytequay.app.review.ReviewCodeService;
 import com.bytequay.app.review.ReviewCodeService.ChangeScope;
@@ -122,15 +121,13 @@ class TestTaskCodeController
     }
 
     @Test
-    void runsTheTaskTestsAndMapsRefusals()
+    void listsAndStopsTaskRunsAndReadsOutput()
             throws Exception
     {
         LocalRun run = LocalRun.started("run-1", "task-1", "workspace-1", 1, "src/test/java/TestCode.java", "TestCode", Optional.empty(), Optional.empty(),
                 "./mvnw -B -Dtest=TestCode -Dsurefire.failIfNoSpecifiedTests=false test", HEAD, ImmutableList.of(), "fingerprint", "launch-1",
                 Instant.parse("2026-09-15T10:00:00.123Z"));
         when(localRuns.list(HOST)).thenReturn(ImmutableList.of(run));
-        when(localRuns.start(HOST, "src/test/java/TestCode.java", Optional.empty())).thenReturn(run);
-        when(localRuns.start(HOST, "src/test/java/TestNoWrapper.java", Optional.empty())).thenThrow(new LocalRunRefusedException("No Maven wrapper (mvnw) in this working copy", true));
         when(localRuns.stop(HOST, "run-1")).thenReturn(run);
         when(localRuns.output(HOST, "run-1", 5)).thenReturn(new LocalRunService.OutputChunk("tail", 9, 0, false));
 
@@ -138,14 +135,6 @@ class TestTaskCodeController
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.runs[0].id").value("run-1"))
                 .andExpect(jsonPath("$.runs[0].ordinal").value(1));
-        mvc.perform(withWorkspace(post(BASE + "/runs")).contentType(MediaType.APPLICATION_JSON).content("{\"path\": \"src/test/java/TestCode.java\"}"))
-                .andExpect(status().isCreated())
-                .andExpect(jsonPath("$.id").value("run-1"));
-        mvc.perform(withWorkspace(post(BASE + "/runs")).contentType(MediaType.APPLICATION_JSON).content("{\"path\": \"src/test/java/TestNoWrapper.java\"}"))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(content().json("""
-                        {"reason": "No Maven wrapper (mvnw) in this working copy", "action": "OPEN_TERMINAL"}
-                        """, JsonCompareMode.STRICT));
         mvc.perform(withWorkspace(post(BASE + "/runs/run-1/stop"))).andExpect(status().isOk());
         mvc.perform(withWorkspace(get(BASE + "/runs/run-1/output")).param("after", "5"))
                 .andExpect(status().isOk())

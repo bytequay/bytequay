@@ -31,8 +31,14 @@ import { remoteErrorMessage, ReviewThread } from '../PullOverview';
 import { inlineReviewComment, NO_RANGE_SELECTION, rangeHeading, rangeSelectionReducer } from '../lineRangeSelection';
 import LocalReviewThreadCard, { localReviewMatchesRevision } from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
-import type { CommentGesture, LineCard } from './CodeView';
 import { findingOnLines, githubCommentBlocker } from './codeModel';
+
+export type LineCard = { key: string; line: number };
+export type CommentGesture =
+  | { type: 'start'; line: number; extend: boolean }
+  | { type: 'drag'; line: number }
+  | { type: 'finish' }
+  | { type: 'cancel' };
 
 /** What the pull-request screen shares with Code & Tests so comments land in the same review as on Changes. */
 export type CodeCommentsOptions = {

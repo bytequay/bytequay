@@ -17,7 +17,7 @@ import Avatar from '../Avatar';
 import { SourceIcon } from '../cards/Card';
 import { openActivityLink } from '../githubReference';
 import { itemRelation } from '../home/AttentionRow';
-import { usePopoverDismiss } from '../pulls/code-tests/Outline';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 import { relativeTime } from '../relativeTime';
 import { activityVerb, METRICS, type Metric } from './activity';
 import { needAge, openAttentionItem } from './NeedsYou';

@@ -29,7 +29,6 @@
     "summary": null,
     "deleteAfter": null,
     "checkoutRemovedAt": null,
-    "codegraph": false,
     "archivedAt": null
   },
   "turn": {
@@ -118,7 +117,6 @@
     },
     "deleteAfter": "<timestamp>",
     "checkoutRemovedAt": "<timestamp>",
-    "codegraph": false,
     "archivedAt": null
   }
 }

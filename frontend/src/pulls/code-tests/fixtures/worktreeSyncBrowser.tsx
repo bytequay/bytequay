@@ -40,10 +40,10 @@ export async function run(): Promise<string> {
   };
   const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
   const bridge: CodeTestsBridge = {
-    listCodeFiles: async () => ({ source: 'WORKING_COPY', revision: head, sourceFingerprint: head, codeGraph: 'OFF', truncated: false,
+    listCodeFiles: async () => ({ source: 'WORKING_COPY', revision: head, sourceFingerprint: head, truncated: false,
       savedExperiment: false, files: [] }),
-    readCodeFile: unused, searchCodeSymbols: unused, readCodeOutline: unused, listCodeRuns: unused, startCodeRun: unused, stopCodeRun: unused,
-    readCodeRunOutput: unused, saveCodeFile: unused, discardReviewCodeChanges: unused,
+    readCodeFile: unused, listCodeRuns: unused, stopCodeRun: unused,
+    readCodeRunOutput: unused, discardReviewCodeChanges: unused,
     openCodeTerminal: unused, writeReviewTerminal: unused, resizeReviewTerminal: unused, onReviewTerminalEvent: () => () => {},
     listAgentReviews: unused, startAgentReview: unused, getAgentReview: unused, subscribeAgentReview: unused, getAgentTask: unused,
     syncReviewWorktree: async (id, expected) => {

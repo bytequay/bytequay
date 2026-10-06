@@ -1391,7 +1391,6 @@ describe('agent task detail', () => {
       ...task('t-1', 'COMPLETED', 'Shipped'),
       terminalAt: '2026-08-20T10:05:00Z',
       checkoutRemovedAt: '2026-08-20T10:05:01Z',
-      codegraph: true,
       summary: {
         finalResponse: 'All done.',
         resultBranch: 'bytequay/task/t-1',

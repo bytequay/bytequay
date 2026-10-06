@@ -15,7 +15,7 @@ import { RelatedWorkspaceNavigation } from './workspaces/RelatedWorkspaces';
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import {
   BookMarked, Bot, ChevronDown, ChevronLeft, ChevronRight, CircleDot, CircleUser, GitBranch, Globe, History, House, KeyRound,
-  LayoutDashboard, LayoutGrid, ListChecks, Network, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
+  LayoutDashboard, LayoutGrid, ListChecks, PanelLeft, Search, Settings, SquareCheck, SquareLibrary,
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
 import Avatar from './Avatar';
@@ -52,7 +52,6 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   models: <Sparkles size={16} strokeWidth={1.7} aria-hidden="true" />,
   workflow: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />,
   skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
-  'code-graph': <Network size={16} strokeWidth={1.7} aria-hidden="true" />,
   jira: <JiraIcon size={16} />,
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,

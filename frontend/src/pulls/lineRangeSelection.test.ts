@@ -176,7 +176,7 @@ describe('line range selection', () => {
 
     expect(css('base.css')).toContain('--diff-selected: #fff8c5;');
     expect(css('pulls.css')).toMatch(/\.pull-diff-code tr\.is-selected \.is-source \{[^}]*background: var\(--diff-selected\)/);
-    expect(css('code-tests.css')).toMatch(/\.ct-code \.cm-line\.ct-code__selected \{[^}]*background: var\(--diff-selected\)/);
-    expect(css('code-tests.css')).toMatch(/\.ct-code \.cm-gutterElement\.ct-code__selected \{[^}]*background: var\(--diff-selected\)/);
+    expect(css('code-tests.css')).toMatch(/\.ct-snapshot__line\.is-selected \{[^}]*background: var\(--diff-selected\)/);
+    expect(css('code-tests.css')).toMatch(/\.ct-snapshot__line\.is-selected \.ct-snapshot__number \{[^}]*background: var\(--diff-selected\)/);
   });
 });

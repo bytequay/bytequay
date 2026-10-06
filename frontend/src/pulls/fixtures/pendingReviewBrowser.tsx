@@ -19,6 +19,7 @@ import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
 import { assert, changeInput, settle } from '../../fixtures/harness';
+import { DETAIL_REFRESH_INTERVAL } from '../usePullRequestDetail';
 import type { ReviewDraftDto } from '../agent-review/contracts';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
@@ -50,7 +51,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   let polls: (() => void)[] = [];
   const originalTimeout = window.setTimeout;
   window.setTimeout = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
-    if (delay === 5_000 && typeof handler === 'function') {
+    if (delay === DETAIL_REFRESH_INTERVAL && typeof handler === 'function') {
       polls.push(() => handler(...args));
       return 1_000_000;
     }
@@ -79,7 +80,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     findPullRequestTask: async () => null,
     listWorkspaces: async () => [],
     listLocalReviewComments: async () => [],
-    listCodeFiles: async () => ({ source: 'WORKING_COPY', revision: 'one', truncated: false, codeGraph: 'OFF',
+    listCodeFiles: async () => ({ source: 'WORKING_COPY', revision: 'one', truncated: false,
       sourceFingerprint: null, savedExperiment: false, files: [] }),
     listCodeRuns: async () => [],
     listAgentReviews: async () => [review],

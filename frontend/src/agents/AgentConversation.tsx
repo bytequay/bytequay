@@ -26,7 +26,7 @@ import type { LocalReviewThreads } from '../pulls/local-review/types';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { MEMORY_CHANGED } from '../memory/model';
-import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ToolCountersDto } from '../types';
+import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto } from '../types';
 import { AgentMark } from './AgentMark';
 import { developmentTurnRequest,draftPullRequestRequest } from './DevelopmentFacts';
 import type { AgentEventEnvelope } from './events';
@@ -643,15 +643,6 @@ export function BlockView({ block, repository, activityChoice, agentLabels, onTo
   }
 }
 
-/** The graph part of a stats line: calls with their seconds, or why there are none. */
-export function codeGraphText(counters: ToolCountersDto, on: boolean): string {
-  if (counters.codegraphCalls > 0) {
-    const failed = counters.codegraphFailures > 0 ? `, ${counters.codegraphFailures} failed` : '';
-    return `CodeGraph ${counters.codegraphCalls} ${counters.codegraphCalls === 1 ? 'call' : 'calls'} · ${(counters.codegraphMillis / 1000).toFixed(1)}s${failed}`;
-  }
-  return on ? 'CodeGraph unused' : 'CodeGraph off';
-}
-
 /** The line under an answer: what the turn ran with and what it used, from the durable turn and its usage event. */
 function TurnFooter({ turn, durable, models }: {
   turn: TranscriptTurn;
@@ -670,7 +661,7 @@ function TurnFooter({ turn, durable, models }: {
   }
   const counters = durable?.metrics.counters;
   if (counters) {
-    parts.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions}${counters.codegraphCalls > 0 ? ` · ${codeGraphText(counters, true)}` : ''}`);
+    parts.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions}`);
   }
   if (turn.endedAt !== null) parts.push(clock(turn.endedAt));
   const guidelines = durable?.guidelines ?? [];

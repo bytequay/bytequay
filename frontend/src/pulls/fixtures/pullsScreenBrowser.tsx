@@ -242,7 +242,7 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     getAgentTask: async () => previewTask(review.workspaceId, 'development-task'),
     listCodeFiles: async host => {
       codeSources.push(host);
-      return { source: 'WORKING_COPY' as const, revision: review.runs[0].headSha, codeGraph: 'OFF' as const,
+      return { source: 'WORKING_COPY' as const, revision: review.runs[0].headSha,
         truncated: false, sourceFingerprint: null, savedExperiment: false, files: [] };
     },
     listCodeRuns: async () => [],

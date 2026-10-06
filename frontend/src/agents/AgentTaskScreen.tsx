@@ -70,7 +70,7 @@ PullRequestDto,
 WorkspaceDto
 } from '../types';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
-import { AgentConversation,codeGraphText,ConversationComposer,ConversationQueue,modelName,PlanSteps,serviceTierName,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
+import { AgentConversation,ConversationComposer,ConversationQueue,modelName,PlanSteps,serviceTierName,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
@@ -1442,7 +1442,7 @@ function TaskStats({ task, turns, now }: { task: AgentTaskDto | null; turns: Tra
   groups.push(`Input ${tokens(inputTokens)} · Cached ${tokens(cachedInputTokens)} · Output ${tokens(outputTokens)}${costText}`);
   const counters = task.metrics.counters;
   if (counters) {
-    groups.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions} · ${codeGraphText(counters, task.codegraph)}`);
+    groups.push(`Tools ${counters.toolCalls} · Explored ${counters.exploreActions}`);
   }
   return (
     <div className="agt-compose__stats" aria-label="Task statistics">

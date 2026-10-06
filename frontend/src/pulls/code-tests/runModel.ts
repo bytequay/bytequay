@@ -194,33 +194,3 @@ export function taskRunGate(task: AgentTaskDto, files: ReviewCodeFilesDto | null
   if (task.developmentContinuationUnfinished) return { hidden: false, blocked: 'Development automation is working' };
   return { hidden: false, blocked: null };
 }
-
-export type LogTone = 'info' | 'error' | 'warning' | 'frame' | 'fail' | 'pass' | 'note' | 'plain';
-
-export function logTone(line: string): LogTone {
-  if (line.includes('[ERROR]')) return 'error';
-  if (line.includes('[WARNING]')) return 'warning';
-  if (/\b(FAILED|FAILURE|AssertionFailedError)\b/.test(line) || /^\s*(expected|but was)/.test(line)) return 'fail';
-  if (/\b(PASSED|BUILD SUCCESS)\b/.test(line)) return 'pass';
-  if (/^\s+at /.test(line)) return 'frame';
-  if (line.includes('[INFO]')) return 'info';
-  return /truncated|omitted/i.test(line) ? 'note' : 'plain';
-}
-
-/** The newest outcome for a test class, or one of its methods, among runs that reported rows. */
-export function lastOutcome(runs: readonly LocalRunDto[], className: string, method: string | null): { tone: 'pass' | 'fail'; ordinal: number } | null {
-  for (const run of runs) {
-    const rows = run.results.filter(result => simpleClassName(result.className) === className).flatMap(result => result.methods);
-    const relevant = method === null ? rows : rows.filter(row => row.name === method);
-    if (relevant.length === 0) continue;
-    const failed = relevant.some(row => row.status === 'FAILED' || row.status === 'ERROR');
-    return { tone: failed ? 'fail' : 'pass', ordinal: run.ordinal };
-  }
-  return null;
-}
-
-/** Whether the live run is this class (method null) or this method of the test source at `path`. */
-export function isRunning(runs: readonly LocalRunDto[], path: string, method: string | null) {
-  return runs.some(run => run.status === 'RUNNING' && run.path === path
-    && (method === null ? run.scope === 'CLASS' : run.scope === 'METHOD' && run.testMethod === method));
-}

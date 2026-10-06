@@ -17,8 +17,6 @@ import type {
   AgentModelType,
   AgentSkillDto,
   AppPreferencesDto,
-  CodeGraphBaselineDto,
-  CodeGraphMode,
   GitHubAccountDto,
   ModelSettingsDto,
   QuietHoursDto,
@@ -32,7 +30,6 @@ import ModelsPage, { type ModelChoice } from './ModelsPage';
 import ProviderSignInDialog from '../agents/ProviderSignInDialog';
 import SkillsPage from './SkillsPage';
 import WorkflowPage from './WorkflowPage';
-import CodeGraphPage from './CodeGraphPage';
 import GitHubPage from './GitHubPage';
 import JiraPage from './JiraPage';
 import { AppearancePage, BrowserPage, GeneralPage } from './PersonalPages';
@@ -70,8 +67,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const modelRequest = useRef(0);
   const [skills, setSkills] = useState<AgentSkillDto[] | null>(null);
   const [skillsBusy, setSkillsBusy] = useState(false);
-  const [graphMode, setGraphMode] = useState<CodeGraphMode | null>(null);
-  const [baseline, setBaseline] = useState<CodeGraphBaselineDto | null>(null);
   const [account, setAccount] = useState<GitHubAccountDto | null>(null);
   const [login, setLogin] = useState<string | null>(null);
   const [quietHours, setQuietHours] = useState<QuietHoursDto | null>(null);
@@ -118,12 +113,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   useEffect(() => {
     if (section !== 'skills') return;
     void window.bridge.getAgentSkills().then(setSkills).catch(report);
-  }, [section, report]);
-
-  useEffect(() => {
-    if (section !== 'code-graph') return;
-    void window.bridge.getCodeGraphSetting().then(value => setGraphMode(value.mode)).catch(report);
-    void window.bridge.getCodeGraphBaseline().then(setBaseline).catch(() => {});
   }, [section, report]);
 
   useEffect(() => {
@@ -339,17 +328,6 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
                 setSkillsBusy(true);
                 window.bridge.removeAgentSkill(skill.id)
                   .then(setSkills).catch(report).finally(() => setSkillsBusy(false));
-              }}
-            />
-          )}
-          {section === 'code-graph' && graphMode !== null && (
-            <CodeGraphPage
-              mode={graphMode}
-              baseline={baseline}
-              error={error}
-              onMode={mode => {
-                setGraphMode(mode);
-                window.bridge.saveCodeGraphSetting({ mode }).then(value => setGraphMode(value.mode)).catch(report);
               }}
             />
           )}

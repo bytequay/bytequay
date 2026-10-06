@@ -72,7 +72,7 @@ import {
   parseAgentReviews,
   parseReviewDraft,
 } from './pulls/agent-review/contracts';
-import { parseWorktreeChanges, codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles, parseReviewCodeSymbols } from './pulls/code-tests/contracts';
+import { parseWorktreeChanges, codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles } from './pulls/code-tests/contracts';
 import { AgentSubscriptions } from './agents/subscriptions';
 import { CodeTerminals, terminalEnvironment } from './terminals';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
@@ -1059,11 +1059,6 @@ function registerIpc(): void {
     backendJson(codeUrl(host, '/files'), { headers: agentHeaders() }).then(parseReviewCodeFiles));
   ipcMain.handle('code:file', (_event, host: unknown, path: string, expectedRevision?: string) =>
     backendJson(codeUrl(host, '/file', { path, ...(expectedRevision === undefined ? {} : { expectedRevision }) }), { headers: agentHeaders() }).then(parseReviewCodeFile));
-  ipcMain.handle('code:symbols', (_event, host: unknown, query: string, limit: number) =>
-    backendJson(codeUrl(host, '/symbols', { query, limit: String(limit) }), { headers: agentHeaders() })
-      .then(parseReviewCodeSymbols));
-  ipcMain.handle('code:outline', (_event, host: unknown, path: string) =>
-    backendJson(codeUrl(host, '/outline', { path }), { headers: agentHeaders() }).then(parseReviewCodeSymbols));
   ipcMain.handle('code:runs:list', (_event, host: unknown) =>
     backendJson(codeUrl(host, '/runs'), { headers: agentHeaders() }).then(parseLocalRuns));
   // A refused preflight (no Maven wrapper, no JDK) is an answer for the run panel, not an error.
@@ -1390,12 +1385,6 @@ function registerIpc(): void {
   ipcMain.handle('settings:development-automation:save', (_event, setting: unknown) =>
     backendJson(`${backendBase()}/api/settings/development-automation`, jsonInit('PUT', parseDevelopmentAutomation(setting)))
       .then(value => parseDevelopmentAutomation(value)));
-  ipcMain.handle('settings:codegraph', () =>
-    backendJson(`${backendBase()}/api/settings/codegraph`));
-  ipcMain.handle('settings:codegraph:save', (_event, setting: unknown) =>
-    backendJson(`${backendBase()}/api/settings/codegraph`, jsonInit('PUT', setting)));
-  ipcMain.handle('settings:codegraph:baseline', () =>
-    backendJson(`${backendBase()}/api/settings/codegraph/baseline`));
   ipcMain.handle('settings:app', () =>
     backendJson(`${backendBase()}/api/settings/app`));
   ipcMain.handle('settings:app:save', (_event, preferences: unknown) =>

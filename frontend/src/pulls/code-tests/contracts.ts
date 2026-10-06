@@ -47,39 +47,16 @@ export type ReviewCodeFileEntryDto = {
   uncommitted: boolean;
 };
 
-export type CodeGraphAvailability = 'READY' | 'OFF' | 'UNAVAILABLE';
-
 export type ReviewCodeFilesDto = {
   source: ReviewCodeSource;
   revision: string;
   truncated: boolean;
-  codeGraph: CodeGraphAvailability;
   /** Hash of HEAD plus uncommitted and working-copy-only content; null for a reviewed revision. */
   sourceFingerprint: string | null;
   /** A failed Update review left the review's experiments in a stash that Discard would also drop. */
   savedExperiment: boolean;
   files: ReviewCodeFileEntryDto[];
 };
-
-export type CodeSymbolStatus = 'READY' | 'BUSY' | 'UPDATING' | 'UNAVAILABLE';
-
-export type ReviewCodeSymbolDto = {
-  name: string;
-  kind: string;
-  qualifiedName: string | null;
-  path: string;
-  /** 1-based. */
-  startLine: number;
-  startColumn: number;
-  endLine: number;
-  signature: string | null;
-  /** A JUnit test method; only outlines compute it. */
-  test: boolean;
-  /** Every line of the symbol is an added line in the pull request's patch; only outlines compute it. */
-  added: boolean;
-};
-
-export type ReviewCodeSymbolsDto = { status: CodeSymbolStatus; symbols: ReviewCodeSymbolDto[] };
 
 export type ReviewCodeFileDto = {
   path: string;
@@ -129,7 +106,6 @@ export function parseReviewCodeFiles(value: unknown): ReviewCodeFilesDto {
     source: source.source,
     revision: text(source.revision, 'file list revision'),
     truncated: source.truncated === true,
-    codeGraph: source.codeGraph === 'READY' || source.codeGraph === 'OFF' ? source.codeGraph : 'UNAVAILABLE',
     sourceFingerprint: optionalText(source.sourceFingerprint),
     savedExperiment: source.savedExperiment === true,
     files: source.files.map(item => {
@@ -159,33 +135,6 @@ export function parseReviewCodeFile(value: unknown): ReviewCodeFileDto {
   };
 }
 
-
-const SYMBOL_STATUSES: readonly CodeSymbolStatus[] = ['READY', 'BUSY', 'UPDATING', 'UNAVAILABLE'];
-
-export function parseReviewCodeSymbols(value: unknown): ReviewCodeSymbolsDto {
-  const source = object(value, 'symbols');
-  const status = SYMBOL_STATUSES.find(candidate => candidate === source.status);
-  if (status === undefined) throw new Error('Malformed symbol status from the review code service');
-  if (!Array.isArray(source.symbols)) throw new Error('Malformed symbols from the review code service');
-  return {
-    status,
-    symbols: source.symbols.map(item => {
-      const symbol = object(item, 'symbol');
-      return {
-        name: text(symbol.name, 'symbol name'),
-        kind: text(symbol.kind, 'symbol kind'),
-        qualifiedName: optionalText(symbol.qualifiedName),
-        path: text(symbol.path, 'symbol path'),
-        startLine: count(symbol.startLine, 'symbol line'),
-        startColumn: typeof symbol.startColumn === 'number' ? symbol.startColumn : 0,
-        endLine: count(symbol.endLine, 'symbol end line'),
-        signature: optionalText(symbol.signature),
-        test: symbol.test === true,
-        added: symbol.added === true,
-      };
-    }),
-  };
-}
 
 export type LocalRunStatus =
   | 'RUNNING'

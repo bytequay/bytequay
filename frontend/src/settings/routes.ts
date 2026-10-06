@@ -20,7 +20,6 @@ export type SettingsSection =
   | 'models'
   | 'skills'
   | 'workflow'
-  | 'code-graph'
   | 'github'
   | 'jira'
   | 'ws-repository'
@@ -66,13 +65,6 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     rows: ['Development', 'Review', 'Providers', 'API keys', 'Add API key'],
   },
   { section: 'skills', group: 'Agents', label: 'Skills', slug: 'skills', rows: ['Your instructions', 'Add skill'] },
-  {
-    section: 'code-graph',
-    group: 'Agents',
-    label: 'Code graph',
-    slug: 'code-graph',
-    rows: ['Give tasks a code graph of their worktree', 'Baseline index', 'Does it help?'],
-  },
   {
     section: 'github',
     group: 'Integrations',

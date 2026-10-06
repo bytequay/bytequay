@@ -87,7 +87,7 @@ export async function run(local = false): Promise<string> {
     listLocalReviewComments: async () => [],
     listAgentReviews: async () => [review],
     listCodeFiles: async () => ({ source: 'WORKING_COPY' as const, revision: 'head', truncated: false,
-      codeGraph: 'OFF' as const, sourceFingerprint: null, savedExperiment: false, files: [] }),
+      sourceFingerprint: null, savedExperiment: false, files: [] }),
     listCodeRuns: async () => [],
     readWorktreeChanges: async (_host, request) => ({ scope: request.scope, selectedCommit: null, sourceFingerprint: 'worktree',
       branch: 'reviewer', baseSha: 'base', headSha: 'head', baseLabel: 'master', truncated: false,

@@ -148,12 +148,6 @@ if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
   ( cd "$ROOT/frontend" && npm install )
 fi
 
-# The CodeGraph helper is vendored beside the frontend and handed to the backend
-# by path. A failed fetch only means agent tasks run without the code graph.
-if ! node "$ROOT/scripts/codegraph-bundle.mjs"; then
-  echo "[dev] warning: CodeGraph bundle unavailable; agent tasks run without the code graph"
-fi
-export BYTEQUAY_CODEGRAPH_HOME="$ROOT/frontend/vendor/codegraph"
 node "$ROOT/scripts/ide-bundle.mjs"
 export BYTEQUAY_IDE_HOME="$ROOT/frontend/vendor/ide"
 

@@ -36,7 +36,7 @@ import type {
   ReviewEvent,
   ReviewSide,
 } from './pulls/agent-review/contracts';
-import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, ReviewCodeSymbolsDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
+import type { WorktreeChangesDto, WorktreeChangesRequest, CodeHostRef, LocalRunDto, LocalRunOutputDto, ReviewCodeFileDto, ReviewCodeFilesDto, RunRefusalDto, SaveConflictDto } from './pulls/code-tests/contracts';
 
 type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 export type PullRequestDto = {
@@ -565,9 +565,6 @@ export type AgentCapabilitiesDto = {
 export type ToolCountersDto = {
   toolCalls: number;
   exploreActions: number;
-  codegraphCalls: number;
-  codegraphMillis: number;
-  codegraphFailures: number;
 };
 
 /** Token and cost totals the backend reports for a task or turn. */
@@ -672,8 +669,6 @@ export type AgentTaskDto = {
   summary: AgentTaskSummaryDto | null;
   deleteAfter: string | null;
   checkoutRemovedAt: string | null;
-  /** Whether the task was created with the CodeGraph tool; a later settings change does not move it. */
-  codegraph: boolean;
   /** When the task was shelved. An archived task keeps everything but stays off Home and the overview. */
   archivedAt: string | null;
 };
@@ -1237,11 +1232,6 @@ export type AgentSkillDto = AgentSkillInput & {
   id: string;
 };
 
-/** Whether new agent tasks get the CodeGraph tool. */
-export type CodeGraphMode = 'ON' | 'OFF';
-export type CodeGraphSettingDto = { mode: CodeGraphMode };
-/** How many repositories have a baseline index, and when the newest was last brought current. */
-export type CodeGraphBaselineDto = { repositories: number; updatedAt?: string | null };
 
 /** Dark has no palette yet; the picker offers System and Light. */
 export type AppThemeDto = 'SYSTEM' | 'LIGHT' | 'DARK';
@@ -1702,9 +1692,6 @@ export type Bridge = JiraBridge & {
   saveQuietHours: (quietHours: QuietHoursDto) => Promise<QuietHoursDto>;
   getDevelopmentAutomation: () => Promise<DevelopmentAutomationDto>;
   saveDevelopmentAutomation: (settings: DevelopmentAutomationDto) => Promise<DevelopmentAutomationDto>;
-  getCodeGraphSetting: () => Promise<CodeGraphSettingDto>;
-  saveCodeGraphSetting: (setting: CodeGraphSettingDto) => Promise<CodeGraphSettingDto>;
-  getCodeGraphBaseline: () => Promise<CodeGraphBaselineDto>;
   getAppPreferences: () => Promise<AppPreferencesDto>;
   saveAppPreferences: (preferences: AppPreferencesDto) => Promise<AppPreferencesDto>;
   getGitHubAccount: () => Promise<GitHubAccountDto>;
@@ -1890,9 +1877,6 @@ export type Bridge = JiraBridge & {
   readWorktreeChanges: (host: CodeHostRef, request: WorktreeChangesRequest) => Promise<WorktreeChangesDto>;
   listCodeFiles: (host: CodeHostRef) => Promise<ReviewCodeFilesDto>;
   readCodeFile: (host: CodeHostRef, path: string, expectedRevision?: string) => Promise<ReviewCodeFileDto>;
-  /** CodeGraph symbols by name in the host's working copy; the status says when the index cannot answer. */
-  searchCodeSymbols: (host: CodeHostRef, query: string, limit: number) => Promise<ReviewCodeSymbolsDto>;
-  readCodeOutline: (host: CodeHostRef, path: string) => Promise<ReviewCodeSymbolsDto>;
   /** Test runs of the host's task, newest first; a review's include its agent's mirrored runs. */
   listCodeRuns: (host: CodeHostRef) => Promise<LocalRunDto[]>;
   /** Runs a test class, or one method, from its source path; a refused preflight returns why instead of a run. */

@@ -306,7 +306,6 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
       : summary(source.summary, `${path}.summary`),
     deleteAfter: optionalText(source.deleteAfter, `${path}.deleteAfter`),
     checkoutRemovedAt: optionalText(source.checkoutRemovedAt, `${path}.checkoutRemovedAt`),
-    codegraph: flag(source.codegraph, `${path}.codegraph`),
     archivedAt: optionalText(source.archivedAt, `${path}.archivedAt`),
   };
 }

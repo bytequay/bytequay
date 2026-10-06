@@ -27,13 +27,9 @@ function bridge(): CodeTestsBridge {
   return {
     listCodeFiles: vi.fn(),
     readCodeFile: vi.fn(),
-    searchCodeSymbols: vi.fn(),
-    readCodeOutline: vi.fn(),
     listCodeRuns: vi.fn(),
-    startCodeRun: vi.fn(),
     stopCodeRun: vi.fn(),
     readCodeRunOutput: vi.fn(),
-    saveCodeFile: vi.fn(),
     discardReviewCodeChanges: vi.fn(),
     openCodeTerminal: vi.fn(),
     writeReviewTerminal: vi.fn(),
@@ -97,17 +93,8 @@ describe('CodeTestsTab', () => {
     const task = { ...parseAgentTask(contracts.task), interactive: false };
     const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={null} task={task}
       onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
-    expect(html).toContain('aria-label="Go to file or symbol"');
+    expect(html).toContain('aria-label="Find file"');
     expect(html).not.toContain('Start review');
-  });
-
-  it('truncates the scope labels in a narrow files column instead of pushing its icons out', () => {
-    const css = readFileSync(resolve(process.cwd(), 'src/css/code-tests.css'), 'utf8');
-    expect(css).toMatch(/\.ct-scope button \{[^}]*min-width: 0/);
-    expect(css).toMatch(/\.ct-scope__label \{[^}]*overflow: hidden;[^}]*text-overflow: ellipsis/);
-    expect(css).toMatch(/\.ct-scope button\.ct-scope__tests \{[^}]*flex: none/);
-    expect(css).toMatch(/\.ct-scope__count \{[^}]*flex: none/);
-    expect(css).toMatch(/\.ct-icon-button \{[^}]*flex: none/);
   });
 
   it('styles an unplaced review card like one placed in the code', () => {

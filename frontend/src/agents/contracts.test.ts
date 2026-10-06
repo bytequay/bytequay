@@ -136,8 +136,6 @@ describe('agent contract parsing', () => {
 
   it('reads the worktree claim that decides whether the task is idle', () => {
     expect(parseAgentTask(fixture.task).mutationClaim).toBeNull();
-    expect(parseAgentTask(fixture.task).codegraph).toBe(false);
-    expect(parseAgentTask({ ...fixture.task, codegraph: true }).codegraph).toBe(true);
 
     const held = parseAgentTask({
       ...fixture.task,

@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { MetadataPicker, remoteErrorMessage } from '../pulls/PullOverview';
-import { usePopoverDismiss } from '../pulls/code-tests/Outline';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 import type { RepositoryMetadataDto } from '../types';
 import type { TeamCircle, TeamMemberInput } from './types';
 

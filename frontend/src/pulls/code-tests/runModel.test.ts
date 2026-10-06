@@ -16,7 +16,7 @@ import { parseAgentTask } from '../../agents/contracts';
 import contracts from '../../agents/fixtures/agent-contracts-v1.json';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import { parseLocalRun, parseLocalRunOutput, type LocalRunDto, type ReviewCodeFilesDto } from './contracts';
-import { commandLabel, isRunning, lastOutcome, logTone, runGate, runIsStale, runLabel, runSummary, shownResults, taskRunGate } from './runModel';
+import { commandLabel, runGate, runIsStale, runLabel, runSummary, shownResults, taskRunGate } from './runModel';
 
 function run(overrides: Partial<LocalRunDto> = {}): LocalRunDto {
   return {
@@ -30,7 +30,7 @@ function run(overrides: Partial<LocalRunDto> = {}): LocalRunDto {
   };
 }
 
-const files: ReviewCodeFilesDto = { source: 'WORKING_COPY', revision: 'abc', truncated: false, codeGraph: 'READY', sourceFingerprint: 'f1', savedExperiment: false, files: [] };
+const files: ReviewCodeFilesDto = { source: 'WORKING_COPY', revision: 'abc', truncated: false, sourceFingerprint: 'f1', savedExperiment: false, files: [] };
 
 describe('result tree', () => {
   it('keeps only failed and errored methods, and only the classes that have them, when asked', () => {
@@ -127,26 +127,6 @@ describe('run presentation', () => {
     expect(runIsStale(run({ sourceFingerprint: 'f0' }), { ...files, sourceFingerprint: null })).toBe(false);
   });
 
-  it('reads the newest outcome of a class or method and the live target', () => {
-    const failed = run({ id: 'run-2', ordinal: 2, results: [{ className: 'io.x.TestAccess', durationMs: 10, methods: [
-      { name: 'testBuiltin', status: 'FAILED', durationMs: 5, message: 'expected: true', trace: null },
-      { name: 'testRules', status: 'PASSED', durationMs: 5, message: null, trace: null },
-    ] }] });
-    const runs = [failed, run()];
-    expect(lastOutcome(runs, 'TestAccess', null)).toEqual({ tone: 'fail', ordinal: 2 });
-    expect(lastOutcome(runs, 'TestAccess', 'testRules')).toEqual({ tone: 'pass', ordinal: 2 });
-    expect(lastOutcome(runs, 'TestOther', null)).toBeNull();
-    const live = run({ status: 'RUNNING', scope: 'CLASS', testMethod: null });
-    expect(isRunning([live], live.path ?? '', null)).toBe(true);
-    expect(isRunning([live], live.path ?? '', 'testBuiltin')).toBe(false);
-  });
-
-  it('colours Maven log lines', () => {
-    expect(logTone('[INFO] BUILD SUCCESS')).toBe('pass');
-    expect(logTone('[ERROR] Tests run: 3, Failures: 1')).toBe('error');
-    expect(logTone('\tat io.x.TestAccess.testBuiltin(TestAccess.java:26)')).toBe('frame');
-    expect(logTone('[INFO] Running io.x.TestAccess')).toBe('info');
-  });
 });
 
 describe('run contracts', () => {

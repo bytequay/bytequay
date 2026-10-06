@@ -15,7 +15,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import type { IOverlayWidget } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser';
-import type { LineCard } from '../pulls/code-tests/CodeView';
+import type { LineCard } from '../pulls/code-tests/useCodeComments';
 import type { IdeRuntime } from './runtime';
 
 type Zone = { key: string; id: string; node: HTMLDivElement; container: HTMLDivElement; line: number; resize: ResizeObserver; height: number; widget: IOverlayWidget };

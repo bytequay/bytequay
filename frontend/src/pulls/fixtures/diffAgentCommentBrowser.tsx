@@ -16,9 +16,36 @@ import { createRoot } from 'react-dom/client';
 import type { DiffCommitDto, DiffFileDto, PullRequestDto } from '../../types';
 import { DiffViewer, type DiffAgentComment, type DiffViewerProps } from '../PullChanges';
 import { runTaskInlineCommentScenarios } from './taskInlineCommentBrowser';
-import { centre, realClick, runCodeCommentRangeScenarios } from '../code-tests/fixtures/codeCommentRangeBrowser';
+import { runArchivedCodeScenarios } from '../code-tests/fixtures/archivedCodeBrowser';
 import { resolveFinding } from '../agent-review/fixtures/resolveFindingBrowser';
 import { assert, changeInput, settle } from '../../fixtures/harness';
+
+export const centre = (element: Element) => {
+  const rect = element.getBoundingClientRect();
+  return { clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2 };
+};
+
+/** Trusted Chromium mouse input: the runner's main process relays `input:` console messages to sendInputEvent. */
+export async function realMouse(type: 'mouseDown' | 'mouseMove' | 'mouseUp', x: number, y: number, modifiers: string[] = []) {
+  assert(y >= 0 && y < window.innerHeight, `Pointer ${y} is outside the window`);
+  const domType = type.toLowerCase();
+  const arrived = new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => reject(new Error(`No ${domType} arrived from the runner`)), 2000);
+    window.addEventListener(domType, () => { clearTimeout(timeout); resolve(); }, { capture: true, once: true });
+  });
+  console.log(`input:${JSON.stringify({ type, x: Math.round(x), y: Math.round(y), button: 'left', clickCount: 1, modifiers })}`);
+  await arrived;
+  await settle();
+}
+
+/** A press whose pointer jitters 1px, as a real click does, after the press has collapsed the composer above it. */
+export async function realClick(target: Element, shift: boolean) {
+  const { clientX, clientY } = centre(target);
+  const modifiers = shift ? ['shift'] : [];
+  await realMouse('mouseDown', clientX, clientY, modifiers);
+  await realMouse('mouseMove', clientX, clientY + 1, [...modifiers, 'leftbuttondown']);
+  await realMouse('mouseUp', clientX, clientY + 1, modifiers);
+}
 
 function button(host: HTMLElement, text: string) {
   const result = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === text);
@@ -360,7 +387,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       try { await scenario(); assert(githubWrites === 0, 'Private comment action wrote to GitHub'); results.push({ name }); }
       catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
     }
-    return [...results, ...await runTaskInlineCommentScenarios(), ...await runCodeCommentRangeScenarios()];
+    return [...results, ...await runTaskInlineCommentScenarios(), ...await runArchivedCodeScenarios()];
   }
   finally { Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
 }

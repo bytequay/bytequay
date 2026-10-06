@@ -7,8 +7,10 @@ the agent. Native Java/Go/Rust caller queries, real tests and Java debug are now
 verified. See the [native runtime report](code-tests-ide-verification/runtime-gate.md)
 for completed checks and remaining integration work. Active interactive tasks and
 active reviews now open the modular IDE from the production Code & Tests tab.
-Closed reviews and noninteractive task inspection still use the legacy viewer
-until its replacement and CodeGraph removal are complete. [Code & Tests](code-tests.md),
+Closed reviews and noninteractive task inspection use a bounded, highlighted
+source snapshot with the shared review cards and retained run logs; they start
+no IDE runtime. The CodeMirror editor, custom Java navigation and graph settings
+UI are removed. Backend CodeGraph retirement is in progress. [Code & Tests](code-tests.md),
 [WorkBench](workbench.md), and [Agent Service](agent-service.md) remain the current
 contracts until their replacement steps below land.
 

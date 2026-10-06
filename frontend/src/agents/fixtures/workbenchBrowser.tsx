@@ -55,16 +55,15 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
         files: [{ filename: 'notes.txt', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+local' }] };
     },
     listCodeFiles: async () => {
-      return { source: 'WORKING_COPY' as const, revision: 'commit123', truncated: false, codeGraph: 'OFF' as const,
+      return { source: 'WORKING_COPY' as const, revision: 'commit123', truncated: false,
         sourceFingerprint: 'working-copy', savedExperiment: false,
         files: [{ path: 'notes.txt', changedInPr: true, addedInPr: false, onlyInWorkingCopy: false, uncommitted: true }] };
     },
     readCodeFile: async () => ({ path: 'notes.txt', content: 'local\n', contentHash: 'hash', editable: true,
       readOnlyReason: null, unavailableReason: null, prPatch: null, lineChanges: [] }),
     listCodeRuns: async () => [],
-    readCodeOutline: async () => ({ status: 'UNAVAILABLE' as const, symbols: [] }),
   } satisfies Pick<Bridge, 'findTaskAgentReview' | 'listLocalReviewComments' | 'getAgentTask' | 'readWorktreeChanges'
-    | 'listCodeFiles' | 'readCodeFile' | 'listCodeRuns' | 'readCodeOutline'>;
+    | 'listCodeFiles' | 'readCodeFile' | 'listCodeRuns'>;
   const originalBridge = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('div');

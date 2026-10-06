@@ -46,7 +46,7 @@ import {
   type RunGate,
 } from './runModel';
 import { shortSha } from './codeModel';
-import { usePopoverDismiss } from './Outline';
+import { usePopoverDismiss } from '../../usePopoverDismiss';
 import TerminalOutput from './TerminalOutput';
 import TerminalView, { type TerminalBridge } from './TerminalView';
 

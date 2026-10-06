@@ -16,7 +16,7 @@ import { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, u
 import { Bookmark, Bug, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ClipboardList, Columns3, CornerDownRight, Equal, ExternalLink, Flag, FolderGit2, List, LoaderCircle, Minus, Pencil, Play, RefreshCw, Reply, Search, UserRound, UsersRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
 import BetterWordsButton from '../pulls/BetterWordsButton';
-import { usePopoverDismiss } from '../pulls/code-tests/Outline';
+import { usePopoverDismiss } from '../usePopoverDismiss';
 import { ago, relativeTime } from '../relativeTime';
 import { TaskComposer, StartingAgentTask, useAgentTaskCreation } from '../agents/AgentTasksView';
 import { taskCardState, taskLinks } from '../agents/attention';

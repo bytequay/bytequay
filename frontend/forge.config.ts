@@ -26,9 +26,6 @@ import { join } from 'node:path';
 // at runtime by frontend/src/backendProcess.ts. Repo root is one level
 // up from this config (frontend/forge.config.ts).
 const BACKEND_JAR = join(__dirname, '..', 'backend', 'app', 'target', 'bytequay-backend.jar');
-// Vendored CodeGraph bundle, fetched by scripts/codegraph-bundle.mjs and
-// shipped whole into Contents/Resources/codegraph.
-const CODEGRAPH_BUNDLE = join(__dirname, 'vendor', 'codegraph');
 const IDE_BUNDLE = join(__dirname, 'vendor', 'ide');
 
 const config: ForgeConfig = {
@@ -44,7 +41,7 @@ const config: ForgeConfig = {
     // Ship the backend JAR alongside the renderer. extraResource
     // copies the file into Contents/Resources/ on macOS (the same
     // path process.resourcesPath resolves to at runtime).
-    extraResource: [BACKEND_JAR, CODEGRAPH_BUNDLE, IDE_BUNDLE],
+    extraResource: [BACKEND_JAR, IDE_BUNDLE],
   },
   hooks: {
     // The Vite plugin ships only its bundles, so the one runtime native module is copied in: its JS, license and
@@ -65,10 +62,6 @@ const config: ForgeConfig = {
     // exists, do nothing.
     generateAssets: async () => {
       execSync('node scripts/ide-bundle.mjs', { cwd: join(__dirname, '..'), stdio: 'inherit' });
-      execSync('node scripts/codegraph-bundle.mjs', {
-        cwd: join(__dirname, '..'),
-        stdio: 'inherit',
-      });
       if (existsSync(BACKEND_JAR)) {
         return;
       }

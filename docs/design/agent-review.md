@@ -748,13 +748,25 @@ the Codex process launch flag alone does not activate the hook in an app-server
 thread. Before each review turn, ByteQuay verifies that its review hook is the
 sole discovered hook and that effective MCP isolation still holds. Hook discovery
 may still label it untrusted because that listing does not include the thread's
-runtime override. On successful execution, the hook allows a child only
-`review_get_context` and optional `code_query` and refuses shell,
-edit, save, other MCP and delegation calls. A Codex child explores through
-those bounded tools. In a guarded review, the task MCP endpoint advertises
-only those child-safe reads; ByteQuay registers root-only review operations as
-App Server dynamic tools and binds each call to the root thread and exact active
-turn. Native child approval requests
+runtime override. On successful execution, the hook allows `review_get_context`,
+optional `code_query`, repository memory SEARCH/READ, native sandboxed
+shell tools for source searches, and messages to the main agent. It refuses
+memory writes, edit tools, review saves, other MCP
+tools and further delegation. Shell commands retain the native workspace-write
+sandbox; the read-only exploration scope is an instruction, not a separate
+filesystem sandbox or a shell-command parser. Native command review still applies.
+
+In a guarded review, the shared task MCP endpoint advertises only child-safe
+reads. Its `repository_memory` schema offers SEARCH/READ and the broker rejects
+every other action before invoking the memory bridge, even if the hook is
+bypassed. The root retains the full memory tool as an App Server dynamic tool,
+alongside the root-only review operations, bound to the exact root thread and
+active turn. This keeps the saved dynamic-tool layout unchanged on resume.
+Each guarded session explains this exploration scope, including the MCP memory
+read tool and root-owned writes. Children may message findings to the main agent
+or return them in their final answer. Expected review-child policy denials are
+logged at debug level; hook execution failures and other diagnostics remain
+warnings. Native child approval requests
 are refused before any root-only file-grant shortcut. This is a layered tool
 boundary in the shared workspace-write sandbox, not filesystem isolation:
 Codex 0.156.1 may continue a tool call if its `PreToolUse` hook fails or times

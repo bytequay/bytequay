@@ -340,8 +340,10 @@ both sources from the task log, and with an id it replaces a rule or recipe an
 agent saved. No action changes a memory the user owns. Results are JSON with an
 `activityLine` that the task log shows in place of the tool name; a saved
 memory's line, "Remembered m12 · " and its title, gives the transcript row its Undo. Restricted and text-only
-sessions, spec checks and other noninteractive runs get no tool; in a Codex
-review it is a root-only tool, like the other review writes.
+sessions, spec checks and other noninteractive runs get no tool. In a guarded
+Codex review, children receive SEARCH/READ through the shared MCP endpoint;
+the broker refuses other actions on that endpoint. The full memory tool stays
+root-bound through App Server dynamic calls, like the other review writes.
 
 Development conversations also receive direct related-workspace discovery at
 turn preparation: relationship kind, guidance, backend-resolved path and exact

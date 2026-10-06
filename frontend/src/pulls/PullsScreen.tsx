@@ -33,6 +33,7 @@ import PullChanges, { updatePendingReviewComment, type CommitRange, type DiffAge
 import MarkdownBody from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
 import BetterWordsButton from './BetterWordsButton';
+import { usePrCommentCommand } from './usePrCommentCommand';
 import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
 import { privateThreadSource, reviewThreadBridge, usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
@@ -1607,6 +1608,8 @@ export function ReviewDialog({
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   const savedDraft = useRef(review?.draft ?? null);
   const edited = useRef(false);
+  const command = usePrCommentCommand({ repository: detail.repo, number: detail.number, value: body,
+    onChange: text => { edited.current = true; setBody(text); }, textareaRef: bodyRef });
   const inFlight = useRef(false);
   const authored = pr.origin === 'AUTHORED';
   const [selectedEvent, setEvent] = useState<ReviewEvent>(authored ? 'COMMENT' : review?.draft?.event ?? 'APPROVE');
@@ -1615,7 +1618,7 @@ export function ReviewDialog({
   const [saving, setSaving] = useState(false);
   const [unsavedClose, setUnsavedClose] = useState(false);
   const [commentEdit, setCommentEdit] = useState<{ key: string; body: string; version: number } | null>(null);
-  const busy = submitting || saving;
+  const busy = submitting || saving || command.loading;
   const [error, setError] = useState<string | null>(null);
   const promoted = review?.draft?.items.filter(item => item.included && !item.published) ?? [];
   const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0;
@@ -1754,7 +1757,7 @@ export function ReviewDialog({
   }, [close]);
 
   const submit = async () => {
-    if (inFlight.current || commentEdit !== null || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
+    if (inFlight.current || command.loading || commentEdit !== null || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
@@ -1836,11 +1839,15 @@ export function ReviewDialog({
         <textarea
           ref={bodyRef}
           autoFocus
-          disabled={busy}
+          disabled={submitting || saving}
           value={body}
           placeholder="Leave a comment on this pull request…"
           aria-label="Review comment"
-          onChange={change => { edited.current = true; setBody(change.target.value); }} />
+          {...command.inputProps}
+          onBlur={command.dismiss}
+          onKeyDown={command.keyDown}
+          onChange={command.change} />
+        {command.suggestion}
         <BetterWordsButton text={body} textareaRef={bodyRef} repository={detail.repo} workspaceId={review?.workspaceId}
           disabled={busy} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
         {outgoing.length > 0 && (

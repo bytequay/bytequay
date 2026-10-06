@@ -40,6 +40,7 @@ import type {
 import LearnFromPullButton from '../memory/LearnFromPullButton';
 import ReplayReviewButton from '../memory/ReplayReviewButton';
 import BetterWordsButton from './BetterWordsButton';
+import { usePrCommentCommand } from './usePrCommentCommand';
 import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask, type SuggestionBase } from './MarkdownBody';
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PullRequestIcon } from './PullRowItem';
@@ -189,6 +190,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
         workspaceId={contributorsWorkspaceId}
         candidates={mentionCandidates(detail)}
         repository={pr.repo}
+        pullRequestNumber={pr.number}
         quotedReply={quotedReply}
         onDraftChange={body => { void saveDraft(pr.repo, pr.number, body); }}
         onClose={state.toLowerCase() === 'open' && (detail.viewerCanWrite || pr.origin === 'AUTHORED')
@@ -1699,6 +1701,7 @@ export function DiscussionComposer({
   workspaceId,
   candidates,
   repository,
+  pullRequestNumber,
   quotedReply,
   closeLabel = 'Close pull request',
   onClose,
@@ -1709,6 +1712,7 @@ export function DiscussionComposer({
   workspaceId?: string;
   candidates: MentionCandidate[];
   repository: string;
+  pullRequestNumber?: number;
   quotedReply?: QuoteRequest;
   closeLabel?: string;
   onClose?: () => Promise<void>;
@@ -1725,6 +1729,7 @@ export function DiscussionComposer({
   const [mention, setMention] = useState<ActiveMention | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const command = usePrCommentCommand({ repository, number: pullRequestNumber, value: body, onChange: setBody, textareaRef });
   const visibleCandidates = mention
     ? candidates.filter(candidate => candidate.login.toLowerCase().includes(mention.query.toLowerCase())).slice(0, 8)
     : [];
@@ -1755,7 +1760,8 @@ export function DiscussionComposer({
     });
   };
   const submit = async () => {
-    if (!body.trim()) return;
+    if (!body.trim() || command.loading) return;
+    command.dismiss();
     setPosting(true);
     try {
       await onSubmit(body.trim());
@@ -1782,20 +1788,24 @@ export function DiscussionComposer({
           setPreview(false);
           requestAnimationFrame(() => textareaRef.current?.focus());
         }}>Write</button>
-        <button className={preview ? 'is-active' : ''} type="button" onClick={() => { setPreview(true); setMention(null); }}>Preview</button>
+        <button className={preview ? 'is-active' : ''} type="button" onClick={() => { setPreview(true); setMention(null); command.dismiss(); }}>Preview</button>
       </header>
       {preview && <MarkdownBody body={body || 'Nothing to preview.'} repository={repository} />}
       <div className="pr-composer__input" hidden={preview}>
           <textarea ref={textareaRef} value={body} placeholder="Add a comment" rows={7}
-            aria-autocomplete="list" aria-controls="pr-mention-list" aria-expanded={mention !== null}
-            onBlur={() => setMention(null)}
+            disabled={posting || closing}
+            {...command.inputProps}
+            aria-controls={mention !== null ? 'pr-mention-list' : command.inputProps['aria-controls']}
+            aria-expanded={mention !== null || command.inputProps['aria-expanded']}
+            onBlur={() => { setMention(null); command.dismiss(); }}
             onChange={event => {
-              setBody(event.target.value);
+              command.change(event);
               setBetterWordsError(null);
               setMention(activeMention(event.target.value, event.target.selectionStart));
               setMentionIndex(0);
             }}
             onKeyDown={event => {
+              if (command.keyDown(event)) return;
               if (!mention) return;
               if (event.key === 'Escape') {
                 event.preventDefault();
@@ -1814,6 +1824,7 @@ export function DiscussionComposer({
                 chooseMention(visibleCandidates[mentionIndex] ?? visibleCandidates[0]);
               }
             }} />
+          {command.suggestion}
           {mention && (
             <div className="pr-mention-list" id="pr-mention-list" role="listbox" aria-label="Mention a participant">
               {visibleCandidates.length === 0
@@ -1833,11 +1844,11 @@ export function DiscussionComposer({
       <footer>
         {betterWords && <BetterWordsButton key={draftRevision} text={body} textareaRef={textareaRef}
           repository={repository} workspaceId={workspaceId}
-          disabled={preview || posting || closing}
+          disabled={preview || posting || closing || command.loading}
           onError={failure => setBetterWordsError(failure === null ? null : remoteErrorMessage(failure))} />}
-        {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing}
+        {onClose && <button className="pr-composer__close" type="button" disabled={posting || closing || command.loading}
           onClick={() => { void close(); }}>{closing ? 'Closing…' : body.trim() ? 'Close with comment' : closeLabel}</button>}
-        <button type="button" disabled={posting || closing || !body.trim()} onClick={() => { void submit(); }}>
+        <button type="button" disabled={posting || closing || command.loading || !body.trim()} onClick={() => { void submit(); }}>
           {posting ? 'Posting…' : 'Comment'}
         </button>
       </footer>

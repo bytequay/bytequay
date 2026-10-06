@@ -20,7 +20,7 @@ import { MouseTargetType } from '@codingame/monaco-vscode-api/vscode/vs/editor/b
 // eslint-disable-next-line import/no-unresolved -- The pinned package exports this path; Vite and tsc resolve it.
 import { EditorOption } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/config/editorOptions';
 import { AlignRight, GitCommitHorizontal, X } from 'lucide-react';
-import type { ReviewCodeFileDto } from '../pulls/code-tests/contracts';
+import { codeHostKey, type ReviewCodeFileDto } from '../pulls/code-tests/contracts';
 import type { BlameSpan, CodeBlame, IdeContext } from './contracts';
 import type { IdeRuntime } from './runtime';
 import { blameAt, blameDate, blameLine, overviewLine, uncommitted } from './navigationModel';
@@ -84,6 +84,7 @@ export default function EditorNavigation({ runtime, active, context, file, revis
   const editor = native?.getModel()?.uri.toString() === uri ? native : runtime.editors.listCodeEditors().find(item => item.getModel()?.uri.toString() === uri);
   const matches = !!active && !active.document.isDirty && file?.content?.replace(/^\uFEFF/, '') === active.document.getText();
 
+  // Context is cloned over IPC on each shell update; compare its host identity to keep blame installed.
   useEffect(() => {
     let live = true;
     setBlame(null); setDetail(null); setStatus(null);
@@ -97,7 +98,7 @@ export default function EditorNavigation({ runtime, active, context, file, revis
       setBlame(result); setStatus(result.unavailableReason ?? (result.truncated ? 'Blame is partial for this file.' : null));
     }, cause => { if (live) setStatus(String(cause)); });
     return () => { live = false; };
-  }, [enabled, matches, file?.path, file?.contentHash, revision, context.host]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [enabled, matches, file?.path, file?.contentHash, revision, codeHostKey(context.host)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useLayoutEffect(() => {
     if (!editor || !enabled || !matches || !blame?.spans.length) return;

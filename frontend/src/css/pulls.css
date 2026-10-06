@@ -961,6 +961,8 @@
 .lrc[open] > .lrc__head .lrc__chevron { transform: rotate(90deg); }
 .lrc__icon { flex: none; color: var(--lrc-icon); }
 .lrc__title { flex: 1 1 130px; min-width: 0; overflow: hidden; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.lrc:is(.is-github, .is-local) .lrc__title { font-size: 13px; font-weight: 400; }
+.lrc:is(.is-github, .is-local) .lrc__title strong { font-weight: inherit; }
 .lrc__title code, code.lrc__title { font-family: var(--font-mono); font-size: 13px; font-weight: 400; }
 .lrc__title code { margin-left: 4px; color: #59636e; }
 .lrc__chip, .lrc__badge, .lrc__resolved { display: inline-flex; flex: none; align-items: center; gap: 4px; font-size: 12px; white-space: nowrap; }

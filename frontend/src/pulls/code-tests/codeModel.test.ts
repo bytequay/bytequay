@@ -16,6 +16,7 @@ import {
   findingOnLines,
   githubCommentBlocker,
   inTestRoot,
+  isTestFile,
   isTestSource,
   languageFor,
   visibleFiles,
@@ -53,6 +54,15 @@ describe('file scope', () => {
 });
 
 describe('file kinds', () => {
+  it('colors test files across Java, Go, Rust and frontend projects without coloring production names', () => {
+    for (const path of ['src/test/java/Helper.java', 'pkg/client_test.go', 'crate/tests/roundtrip.rs', 'src/client.test.tsx', 'src/__tests__/client.ts']) {
+      expect(isTestFile(path), path).toBe(true);
+    }
+    for (const path of ['src/main/java/TestClient.java', 'pkg/client.go', 'src/lib.rs', 'src/testing.ts']) {
+      expect(isTestFile(path), path).toBe(false);
+    }
+  });
+
   it('recognizes only Surefire-named sources under src/test as tests', () => {
     expect(isTestSource('core/src/test/java/io/TestAccess.java')).toBe(true);
     expect(isTestSource('src/test/java/AccessTest.java')).toBe(true);

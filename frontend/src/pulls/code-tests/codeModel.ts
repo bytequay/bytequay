@@ -42,6 +42,12 @@ export function inTestRoot(path: string) {
   return IN_TEST_ROOT.test(path);
 }
 
+/** File colors, independent of which test framework can execute the file. */
+export function isTestFile(path: string) {
+  return inTestRoot(path) || /(^|\/)(tests|__tests__)\//.test(path)
+    || /_test\.go$|\.(test|spec)\.[cm]?[jt]sx?$/.test(path);
+}
+
 export type CodeLanguage = 'java' | 'xml' | 'properties' | 'yaml' | 'shell' | 'sql' | 'javascript' | 'python' | 'go' | 'rust' | 'text';
 
 const LANGUAGE_BY_EXTENSION: Record<string, CodeLanguage> = {

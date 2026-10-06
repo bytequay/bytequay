@@ -12,17 +12,19 @@
  * limitations under the License.
  */
 import { ChevronDown, ChevronRight, File, FilePlus, FlaskConical, Folder, GitCommitHorizontal } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { FileTreeItem } from '../fileTree';
-import { fileName, inTestRoot, isTestSource } from './codeModel';
+import { fileName, inTestRoot, isTestFile } from './codeModel';
 import type { ReviewCodeFileEntryDto } from './contracts';
 
-export default function TreeItems({ items, depth, selected, isOpen, onToggle, onOpen }: {
+export default function TreeItems({ items, depth, selected, isOpen, onToggle, onOpen, renderFileIcon }: {
   items: FileTreeItem<ReviewCodeFileEntryDto>[];
   depth: number;
   selected: string | null;
   isOpen: (path: string) => boolean;
   onToggle: (path: string) => void;
   onOpen: (path: string) => void;
+  renderFileIcon?: (path: string) => ReactNode;
 }) {
   return (
     <ul className="ct-tree">
@@ -40,11 +42,11 @@ export default function TreeItems({ items, depth, selected, isOpen, onToggle, on
           </button>
           {isOpen(item.path) && (
             <TreeItems items={item.children} depth={depth + 1} selected={selected} isOpen={isOpen}
-              onToggle={onToggle} onOpen={onOpen} />
+              onToggle={onToggle} onOpen={onOpen} renderFileIcon={renderFileIcon} />
           )}
         </li>
       ) : (
-        <FileRow key={`file:${item.path}`} entry={item.entry} depth={depth} selected={selected === item.path} onOpen={onOpen} />
+        <FileRow key={`file:${item.path}`} entry={item.entry} depth={depth} selected={selected === item.path} onOpen={onOpen} icon={renderFileIcon?.(item.path)} />
       ))}
     </ul>
   );
@@ -54,21 +56,22 @@ function treeNameClass(name: string) {
   return name.startsWith('.') ? ' is-dot' : '';
 }
 
-function FileRow({ entry, depth, selected, onOpen }: {
+function FileRow({ entry, depth, selected, onOpen, icon }: {
   entry: ReviewCodeFileEntryDto;
   depth: number;
   selected: boolean;
   onOpen: (path: string) => void;
+  icon?: ReactNode;
 }) {
   return (
     <li>
-      <button type="button" className={`ct-tree__row is-file${inTestRoot(entry.path) ? ' is-test-root' : ''}${selected ? ' is-selected' : ''}`} style={{ paddingLeft: 8 + depth * 16 }}
+      <button type="button" className={`ct-tree__row is-file${isTestFile(entry.path) ? ' is-test-root' : ''}${selected ? ' is-selected' : ''}`} style={{ paddingLeft: 8 + depth * 16 }}
         title={entry.path} aria-current={selected ? 'true' : undefined} onClick={() => onOpen(entry.path)}>
         <span className="ct-tree__twisty" aria-hidden="true" />
-        {isTestSource(entry.path)
+        {icon ?? (isTestFile(entry.path)
           ? <FlaskConical className="ct-tree__icon is-test" size={14} strokeWidth={1.7} aria-hidden="true" />
-          : <File className="ct-tree__icon" size={14} strokeWidth={1.7} aria-hidden="true" />}
-        <span className={`ct-tree__name${treeNameClass(fileName(entry.path))}`}>{fileName(entry.path)}</span>
+          : <File className="ct-tree__icon" size={14} strokeWidth={1.7} aria-hidden="true" />)}
+        <span className={`ct-tree__name${treeNameClass(fileName(entry.path))}`}>{fileName(entry.path).replace(/\.java$/, '')}</span>
         {entry.changedInPr && (
           <span className="ct-tree__marker is-pr" role="img" title="Changed in this pull request" aria-label="Changed in this pull request">
             <GitCommitHorizontal size={12} strokeWidth={1.8} aria-hidden="true" />

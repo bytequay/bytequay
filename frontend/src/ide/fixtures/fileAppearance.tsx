@@ -1,0 +1,99 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+/* eslint-disable import/no-unresolved -- Exercise the same native outline and tabs as the workbench. */
+import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
+import { getService, IEditorService, ITextModelService } from '@codingame/monaco-vscode-api';
+import { attachPart, Parts } from '@codingame/monaco-vscode-views-service-override';
+import { IWorkbenchThemeService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/themes/common/workbenchThemeService.service';
+import { editor, languages, Uri } from 'monaco-editor';
+import TreeItems from '../../pulls/code-tests/TreeItems';
+import { buildFileTree } from '../../pulls/fileTree';
+import JavaFileIcon from '../JavaFileIcon';
+import { installTestTabColors } from '../testTabColors';
+import { assert, settle } from '../../fixtures/harness';
+import '../../css/base.css';
+import '../../css/code-tests.css';
+import '../workbench.css';
+
+export async function verifyFileAppearance() {
+  const host = document.createElement('div'); host.className = 'ide-workbench';
+  host.style.cssText = 'position:fixed;inset:0;z-index:100'; document.body.append(host);
+  const tree = document.createElement('nav'); tree.className = 'ct ide-files'; host.append(tree);
+  const native = document.createElement('div'); native.style.cssText = 'flex:1;min-height:0'; host.append(native);
+  const attached = attachPart(Parts.EDITOR_PART, native);
+  const editors = await getService(IEditorService);
+  const models = await getService(ITextModelService);
+  const theme = await getService(IWorkbenchThemeService);
+  const paths = ['src/main/java/Example.java', 'src/test/java/Example.java', 'src/main/java/Contract.java', 'src/main/java/Mode.java', 'package_test.go', 'tests/example.rs'];
+  const uri = (path: string) => Uri.parse(`appearance:/project/${path}`);
+  const contents = models.registerTextModelContentProvider('appearance', { provideTextContent: async resource => {
+    const name = resource.path.split('/').pop()?.split('.')[0];
+    return editor.getModel(resource) ?? editor.createModel(`public ${name === 'Contract' ? 'interface' : name === 'Mode' ? 'enum' : 'class'} ${name} {}`, 'java', resource);
+  } });
+  const symbols = languages.registerDocumentSymbolProvider('java', { provideDocumentSymbols: model => [{
+    name: model.uri.path.split('/').pop()?.replace(/\.java$/, '') ?? '', detail: '', tags: [],
+    kind: model.getValue().includes('interface') ? languages.SymbolKind.Interface : model.getValue().includes('enum') ? languages.SymbolKind.Enum : languages.SymbolKind.Class,
+    range: model.getFullModelRange(), selectionRange: model.getFullModelRange(),
+  }] });
+  const stop = installTestTabColors(editors);
+  const root = createRoot(tree);
+  let opened = '';
+  flushSync(() => root.render(<TreeItems items={buildFileTree(paths.map(path => ({ path, changedInPr: false, addedInPr: false, onlyInWorkingCopy: false, uncommitted: false })), file => file.path)}
+    depth={0} selected={paths[1]} isOpen={() => true} onToggle={() => undefined} onOpen={path => { opened = path; }}
+    renderFileIcon={path => path.endsWith('.java') ? <JavaFileIcon uri={uri(path).toString()} /> : undefined} />));
+  const until = async (test: () => boolean, message: string) => {
+    for (let attempt = 0; attempt < 100; attempt++) { if (test()) return; await new Promise(resolve => setTimeout(resolve, 50)); }
+    throw new Error(message);
+  };
+  try {
+    await until(() => tree.querySelector('[aria-label="Java interface"]') !== null && tree.querySelector('[aria-label="Java enum"]') !== null, 'Tree uses language-service class/interface/enum icons');
+    const row = (path: string) => {
+      const button = tree.querySelector<HTMLButtonElement>(`button[title="${path}"]`);
+      assert(button !== null, `Missing tree row: ${path}`); return button;
+    };
+    assert(row(paths[0]).querySelector('[aria-label="Java class"]') !== null, 'Class has its own icon');
+    assert(row(paths[0]).querySelector('.ct-tree__name')?.textContent === 'Example', 'Java suffix is hidden only in the label');
+    assert(row(paths[4]).querySelector('.ct-tree__name')?.textContent === 'package_test.go', 'Other languages retain their suffix');
+    row(paths[0]).click(); assert(opened === paths[0], 'Opening uses the full unchanged source path');
+    for (const path of [paths[0], paths[1], paths[4], paths[5]]) await editors.openEditor({ resource: uri(path), options: { pinned: true } });
+    const group = editors.activeEditorPane?.group;
+    assert(group !== undefined, 'Native editor group opens');
+    const tabs = () => [...native.querySelectorAll<HTMLElement>('.tabs-container .tab')];
+    await until(() => tabs().length === 4 && tabs().filter(tab => tab.classList.contains('ide-test-tab')).length === 3, 'Only test tabs are green, including Go and Rust tests');
+    assert(!tabs()[0].classList.contains('ide-test-tab') && tabs()[1].classList.contains('ide-test-tab'), 'Same-named main/test files have different colors');
+    for (const [name, dark] of [['ByteQuay IDEA Light', false], ['ByteQuay Darcula', true]] as const) {
+      host.classList.toggle('is-dark', dark); host.style.colorScheme = dark ? 'dark' : 'light';
+      const palette = (await theme.getColorThemes()).find(item => item.settingsId === name);
+      assert(palette !== undefined, `Missing theme: ${name}`);
+      await theme.setColorTheme(palette.id, undefined); await settle();
+      const tint = getComputedStyle(tabs()[1]).backgroundColor;
+      assert(tint === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)'), `${name} test tab has the green tint: ${tint}`);
+      assert(getComputedStyle(row(paths[1])).backgroundColor === (dark ? 'rgb(52, 75, 54)' : 'rgb(214, 233, 196)'), `${name} selected test row keeps its green tint`);
+    }
+    const moved = group.getEditorByIndex(0);
+    assert(moved !== undefined, 'Production file is open');
+    group.moveEditor(moved, group, { index: 2 }); await settle();
+    assert(!tabs()[2].classList.contains('ide-test-tab') && tabs()[0].classList.contains('ide-test-tab'), 'Color follows the resource after tab reorder');
+    await group.closeEditor(moved); await settle();
+    assert(tabs().every(tab => tab.classList.contains('ide-test-tab')), 'Closing a source tab preserves remaining test colors');
+    const contract = editor.getModel(uri(paths[2]));
+    assert(contract !== null, 'Visible interface shares an editor model');
+    contract.setValue('public class Contract {}');
+    await until(() => row(paths[2]).querySelector('[aria-label="Java class"]') !== null, 'Unsaved type edits update the icon');
+  } finally {
+    await editors.activeEditorPane?.group.closeAllEditors();
+    flushSync(() => root.unmount()); stop(); symbols.dispose(); contents.dispose(); attached.dispose(); host.remove();
+  }
+}

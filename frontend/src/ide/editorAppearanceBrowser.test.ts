@@ -20,14 +20,14 @@ import electron from 'electron';
 import { createServer } from 'vite';
 import { expect, it } from 'vitest';
 
-it('renders native syntax, folding, and file/worktree search shortcuts', async () => {
+it('renders native syntax, folding, type icons, test colors, and search shortcuts', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-editor-appearance-'));
   const server = await createServer({ configFile: resolve('vite.ide.config.ts'), logLevel: 'error',
     cacheDir: join(directory, 'node_modules/.vite'), server: { host: '127.0.0.1', port: 0 },
     plugins: [{ name: 'appearance-fixture', configureServer(server) {
-      server.middlewares.use('/__appearance', (_request, response) => {
+      server.middlewares.use('/__appearance', async (_request, response) => {
         response.setHeader('Content-Type', 'text/html');
-        response.end('<!doctype html><meta charset="UTF-8"><body style="margin:0"><script>window.result = import("/src/ide/fixtures/appearanceBrowser.ts").then(module => module.run());</script>');
+        response.end(await server.transformIndexHtml('/__appearance', '<!doctype html><meta charset="UTF-8"><body style="margin:0"><script>window.result = import("/src/ide/fixtures/appearanceBrowser.ts").then(module => module.run());</script>'));
       });
     } }],
     optimizeDeps: { entries: [resolve('src/ide/fixtures/appearanceBrowser.ts')] },

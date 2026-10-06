@@ -36,8 +36,18 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-files .ct-tree__row { color: var(--ide-fg); font-size: 12px; }
 .ide-files .ct-tree__row:hover { background: var(--vscode-list-hoverBackground); }
 .ide-files .ct-tree__row.is-selected { background: var(--vscode-list-inactiveSelectionBackground); }
-.ide-workbench.is-dark .ct-tree__row.is-test-root { background: #344535; }
-.ide-workbench.is-dark .ct-tree__row.is-test-root.is-selected { background: #3c526c; }
+.ide-workbench { --ide-test-bg: #e7f2da; --ide-test-active: #d6e9c4; --ide-class: #3574e8; --ide-interface: #398349; --ide-enum: #946b23; }
+.ide-workbench.is-dark { --ide-test-bg: #29382b; --ide-test-active: #344b36; --ide-class: #6495ed; --ide-interface: #80b874; --ide-enum: #d9ae57; }
+.ide-files .ct-tree__row.is-test-root { background: var(--ide-test-bg); }
+.ide-files .ct-tree__row.is-test-root:is(:hover, .is-selected) { background: var(--ide-test-active); }
+.ide-files .ct-tree__row.is-selected { box-shadow: inset 3px 0 var(--vscode-focusBorder); }
+.ide-java-icon { display: inline-flex; width: 14px; height: 14px; align-items: center; justify-content: center; }
+.ide-java-icon > span { display: grid; place-items: center; box-sizing: border-box; width: 14px; height: 14px; border: 1.3px solid currentColor; border-radius: 50%; font: 10px/1 Menlo, monospace; }
+.ide-java-icon:is(.is-class, .is-record) { color: var(--ide-class); }
+.ide-java-icon.is-interface { color: var(--ide-interface); }
+.ide-java-icon.is-enum { color: var(--ide-enum); }
+.ide-workbench .tabs-container .tab.ide-test-tab { background: var(--ide-test-bg) !important; }
+.ide-workbench .tabs-container .tab.ide-test-tab:is(.active, :hover) { background: var(--ide-test-active) !important; }
 .ide-workbench .part.panel > .title .composite-bar-container { display: none; }
 
 .ide-workbench { --text-1: var(--ide-fg); --bg-card: var(--ide-bg); --bg-input: var(--ide-bg); --border: var(--ide-edge); --border-input: var(--ide-edge); --border-strong: var(--ide-edge); }

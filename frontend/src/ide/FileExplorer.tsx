@@ -17,6 +17,7 @@ import { buildFileTree } from '../pulls/fileTree';
 import TreeItems from '../pulls/code-tests/TreeItems';
 import type { ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import type { IdeRuntime } from './runtime';
+import JavaFileIcon from './JavaFileIcon';
 
 /** The same compact tree as today's Code & Tests, opening files through the shared IDE. */
 export default function FileExplorer({ files, selected, runtime, onRefresh, onError, onHide }: {
@@ -63,6 +64,7 @@ export default function FileExplorer({ files, selected, runtime, onRefresh, onEr
     <div className="ct-files__list">
       {files === null && <div className="ct-files__note" role="status">Loading files…</div>}
       <TreeItems items={tree} depth={0} selected={selected} isOpen={path => changed ? !expanded.has(`closed:${path}`) : expanded.has(path)}
+        renderFileIcon={path => path.endsWith('.java') ? <JavaFileIcon uri={runtime.workspace.with({ path: `${runtime.workspace.path}/${path}` }).toString()} /> : undefined}
         onToggle={path => setExpanded(current => { const next = new Set(current); const key = changed ? `closed:${path}` : path; if (next.has(key)) next.delete(key); else next.add(key); return next; })} onOpen={open} />
       {files?.truncated && <div className="ct-files__note">More files are available through Go to file and Search.</div>}
       {files && entries.length === 0 && <div className="ct-files__note">{changed ? 'Nothing touched' : 'No files'}</div>}

@@ -17,7 +17,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import CodeTestsTab, { type CodeTestsBridge } from '../CodeTestsTab';
 import type { AgentReviewDto } from '../../agent-review/contracts';
-import type { IdeEvent } from '../../../ide/contracts';
+import type { IdeContext, IdeEvent, IdeRequest } from '../../../ide/contracts';
 import { reviewFixture } from '../../agent-review/fixtures/review';
 import { assert, settle } from '../../../fixtures/harness';
 import '../../../css/base.css';
@@ -27,13 +27,16 @@ export async function run(): Promise<string> {
   let head = initial.worktreeSync?.headSha ?? '';
   let update: (review: AgentReviewDto) => void = () => {};
   let event: (event: IdeEvent) => void = () => {};
+  let request: (request: IdeRequest) => void = () => {};
+  let context: IdeContext | undefined;
   let unsaved = 0;
   let fail = true;
   const calls: string[] = [];
   const oldIde = window.ide;
   window.ide = {
     open: async host => { assert(host.kind === 'review' && host.reviewId === initial.id, 'The editor must open the selected review'); calls.push('open'); return 'editor'; },
-    present: async () => {}, update: async () => {}, reply: () => {}, onRequest: () => () => {},
+    present: async () => {}, update: async (_id, value) => { context = value; }, reply: () => {},
+    onRequest: listener => { request = listener; return () => {}; },
     onEvent: listener => { event = listener; return () => {}; },
     discardSourceDrafts: async () => { calls.push('discard drafts'); },
     close: async () => { calls.push('close'); event({ id: 'editor', closed: true, dirty: 0, busy: false }); },
@@ -65,30 +68,29 @@ export async function run(): Promise<string> {
     const found = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === text);
     assert(found !== undefined, `Missing ${text}`); return found;
   };
-  const reset = () => {
-    const found = host.querySelector<HTMLButtonElement>('[aria-label="Local branch is stale — reset to remote"]');
-    assert(found !== null, 'Stale reviews retain their reset action'); return found;
-  };
+  const reset = () => request({ id: 'editor', requestId: 'reset', method: 'worktree.reset', args: [] });
   try {
     flushSync(() => root.render(<Harness />)); await settle();
     assert(calls.includes('open') && host.querySelector('.ct-ide-surface') !== null, 'Active reviews must use the isolated IDE surface');
     event({ id: 'editor', dirty: 1, busy: false }); await settle();
-    assert(unsaved === 1 && !reset().disabled, 'Source drafts keep the host guard and the confirmed reset action');
+    assert(unsaved === 1 && context?.workingCopy?.blocked === null && context.workingCopy.staleLabel !== null, 'Source drafts keep the host guard and the confirmed reset action');
     for (const claim of ['COMPLETION', 'LOCAL_RUN', 'RECOVERY'] as const) {
       flushSync(() => update({ ...initial, task: { ...initial.task, mutationClaim: claim } })); await settle();
-      assert(reset().disabled, `${claim} must disable reset`);
+      assert(context?.workingCopy?.blocked != null, `${claim} must disable reset`);
+      reset(); await settle();
+      assert(host.querySelector('dialog[open]') === null, `${claim} cannot open a destructive confirmation`);
     }
     flushSync(() => update(initial)); await settle();
-    reset().click(); await settle();
+    reset(); await settle();
     assert(host.querySelector('dialog[open]')?.textContent?.includes('unsaved source drafts'), 'The dialog must explain source draft deletion');
     button('Cancel').click(); await settle();
     assert(!calls.includes('reset') && unsaved === 1, 'Cancelling preserves the draft');
-    reset().click(); await settle(); button('Discard and reset').click(); await settle();
+    reset(); await settle(); button('Discard and reset').click(); await settle();
     assert(host.textContent?.includes('Remote fetch failed') && !calls.includes('discard drafts') && unsaved === 1, 'A failed backend reset must preserve the editor draft');
     fail = false; button('Discard and reset').click(); await settle(); await settle();
     assert(calls.filter(call => call === 'reset').length === 2 && calls.indexOf('discard drafts') > calls.lastIndexOf('reset'), 'Discard the source draft only after a successful backend reset');
     assert(calls.includes('close') && Number(unsaved) === 0 && host.querySelector('dialog[open]') === null, 'A successful reset rebuilds the editor with cleared source drafts');
-    assert(host.querySelector('[aria-label="Local branch is stale — reset to remote"]') === null, 'The current branch loses its stale action');
+    assert(context?.workingCopy?.staleLabel === null && host.querySelector('.ct-toolbar') === null, 'The current branch loses its stale action and no redundant toolbar remains');
     return 'Worktree sync preserves drafts until a confirmed reset and never starts a review';
   } finally { flushSync(() => root.unmount()); host.remove(); window.ide = oldIde; }
 }

@@ -67,13 +67,14 @@ describe('CodeTestsTab', () => {
     expect(html).not.toContain('ct-code');
   });
 
-  it('marks a stale local branch with a reset icon instead of a review banner', () => {
+  it('keeps worktree controls inside the IDE without an extra toolbar', () => {
     const review = reviewFixture({ observedHeadSha: 'new-head', worktreeSync: {
       state: 'BLOCKED', headSha: 'old-head', targetHeadSha: 'new-head', dirty: true, reason: 'Local edits',
     } });
     const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={review}
       onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
-    expect(html).toContain('aria-label="Local branch is stale — reset to remote"');
+    expect(html).toContain('ct-ide-surface');
+    expect(html).not.toContain('ct-toolbar');
     expect(html).not.toContain('ct-banner ct-sync');
     expect(html).not.toContain('>Update review</button>');
   });

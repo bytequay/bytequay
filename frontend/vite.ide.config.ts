@@ -11,17 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { defineConfig } from 'vite';
+import { defineConfig, type UserConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { resolve } from 'node:path';
 import { encodingDetector, textmateImports } from './ideBuild';
 
-export default defineConfig({
-  plugins: [react(), encodingDetector(), textmateImports()],
-  base: './',
-  // This pinned release imports cssValue internally but omits its package export.
-  resolve: { alias: { '@codingame/monaco-vscode-api/vscode/vs/base/browser/cssValue': resolve(__dirname, 'node_modules/@codingame/monaco-vscode-api/vscode/src/vs/base/browser/cssValue.js') } },
-  build: { target: 'esnext', rollupOptions: { input: resolve(__dirname, 'ide/index.html') } },
-  server: { host: '127.0.0.1' },
-  worker: { format: 'es' },
+export default defineConfig(async () => {
+  const { default: importMetaUrlPlugin } = await import('@codingame/esbuild-import-meta-url-plugin');
+  return {
+    plugins: [react(), encodingDetector(), textmateImports()],
+    // Preserve grammar and Oniguruma URLs when Vite prebundles the native editor.
+    optimizeDeps: { esbuildOptions: { plugins: [importMetaUrlPlugin] } },
+    base: './',
+    // This pinned release imports cssValue internally but omits its package export.
+    resolve: { alias: { '@codingame/monaco-vscode-api/vscode/vs/base/browser/cssValue': resolve(__dirname, 'node_modules/@codingame/monaco-vscode-api/vscode/src/vs/base/browser/cssValue.js') } },
+    build: { target: 'esnext', rollupOptions: { input: resolve(__dirname, 'ide/index.html') } },
+    server: { host: '127.0.0.1' },
+    worker: { format: 'es' },
+  } satisfies UserConfig;
 });

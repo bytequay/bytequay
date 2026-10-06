@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import { GitPullRequestArrow, Undo2 } from 'lucide-react';
 import IdeSurface from './IdeSurface';
 import type { CodeTestsBridge, CodeTestsHost } from '../pulls/code-tests/CodeTestsTab';
 import type { CodeHostRef, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
@@ -95,14 +94,10 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
     finally { setBusy(false); }
   };
   return <div className="ct">
-    {review && <div className="ct-toolbar">
-      {stale && <button className="ct-icon-button" aria-label={syncLabel} title={syncLabel} disabled={busy || gate.hidden || gate.blocked !== null}
-        onClick={() => { if (files) { setError(null); setDialog({ kind: 'reset', revision: files.revision }); } }}><GitPullRequestArrow size={15} /></button>}
-      <button className="ct-icon-button" aria-label="Discard local changes" title={gate.blocked ?? 'Discard local changes'} disabled={busy || gate.hidden || gate.blocked !== null}
-        onClick={() => { if (files) { setError(null); setDialog({ kind: 'discard', revision: files.revision }); } }}><Undo2 size={14} /></button>
-    </div>}
     {error && <div className="ct-banner is-error" role="alert">{error}<button onClick={() => { setError(null); setReload(value => value + 1); }}>Retry</button></div>}
     <IdeSurface host={hostRef} active={active && !busy} review={review} task={task} comments={comments} onReviewChange={onReviewChange} onReady={setEditor}
+      workingCopy={review ? { blocked: busy || gate.hidden ? 'Working copy unavailable' : gate.blocked, staleLabel: stale ? syncLabel : null } : undefined}
+      onWorkingCopyAction={kind => { if (files && !busy && !gate.hidden && !gate.blocked && (kind !== 'reset' || stale)) { setError(null); setDialog({ kind, revision: files.revision }); } }}
       onUnsavedChange={count => { setDirty(count); onUnsavedChange?.(count); }} />
     {dialog && <ConfirmDialog title={dialog.kind === 'reset' ? 'Reset working copy to remote?' : 'Discard local changes?'}
       confirmLabel={busy ? 'Working…' : dialog.kind === 'reset' ? 'Discard and reset' : 'Discard'} destructive busy={busy} confirmDisabled={gate.hidden || gate.blocked !== null}

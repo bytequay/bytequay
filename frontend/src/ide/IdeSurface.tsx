@@ -31,12 +31,14 @@ export type IdeSurfaceProps = {
   onReviewChange: (review: AgentReviewDto) => void;
   onUnsavedChange?: (count: number) => void;
   onReady?: (id: string | null) => void;
+  workingCopy?: IdeContext['workingCopy'];
+  onWorkingCopyAction?: (action: 'reset' | 'discard') => void;
 };
 
 function contextOf(props: IdeSurfaceProps, findings: ReturnType<typeof useFindingActions>): IdeContext {
   const { comments } = props;
   return {
-    host: props.host, review: props.review, task: props.task, detail: props.detail ?? null, findingBusy: findings.busy, findingError: findings.error,
+    host: props.host, review: props.review, task: props.task, detail: props.detail ?? null, findingBusy: findings.busy, findingError: findings.error, workingCopy: props.workingCopy,
     comments: comments === undefined ? undefined : {
       repo: comments.repo, number: comments.number, workspaceId: comments.workspaceId, canReview: comments.canReview,
       viewer: comments.viewer, pending: comments.pending, askAgent: comments.onAskAgent !== undefined, openFinding: comments.onOpenFindingInReview !== undefined,
@@ -65,6 +67,8 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
     }
   }
   switch (request.method) {
+    case 'worktree.reset': return props.onWorkingCopyAction?.('reset');
+    case 'worktree.discard': return props.onWorkingCopyAction?.('discard');
     case 'getGitHubUserProfile': return window.bridge.getGitHubUserProfile(args[0] as string);
     case 'fetchGitHubCodeSnippet': return window.bridge.fetchGitHubCodeSnippet(args[0] as GitHubCodeSnippetRequest);
     case 'openInAppBrowser': return window.bridge.openInAppBrowser(args[0] as string);

@@ -30,6 +30,7 @@
     "jschardet": "npm:chardet@2.2.0"
   },
   "devDependencies": {
+    "@codingame/esbuild-import-meta-url-plugin": "1.0.3",
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-dmg": "^7.11.1",
     "@electron-forge/maker-zip": "^7.11.1",

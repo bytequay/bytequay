@@ -2,23 +2,27 @@
   "name": "ByteQuay IDEA Light",
   "type": "light",
   "colors": {
-    "editor.background": "#ffffff",
-    "editor.foreground": "#202020",
-    "editorLineNumber.foreground": "#999999",
-    "editor.selectionBackground": "#a6d2ff",
-    "sideBar.background": "#f5f5f5",
-    "sideBar.foreground": "#303030",
-    "editorGroupHeader.tabsBackground": "#f2f2f2",
-    "panel.background": "#ffffff",
+    "editor.background": "#fafafa",
+    "editor.foreground": "#383a42",
+    "editorLineNumber.foreground": "#a0a1a7",
+    "editor.selectionBackground": "#b3d4ff",
+    "sideBar.background": "#f3f3f3",
+    "sideBar.foreground": "#383a42",
+    "editorGroupHeader.tabsBackground": "#f3f3f3",
+    "panel.background": "#fafafa",
     "focusBorder": "#4a88c7",
-    "activityBar.background": "#f5f5f5",
-    "statusBar.background": "#f5f5f5"
+    "activityBar.background": "#f3f3f3",
+    "statusBar.background": "#f3f3f3",
+    "editorLineNumber.activeForeground": "#383a42",
+    "editor.lineHighlightBackground": "#f0f0f0",
+    "editorBracketMatch.background": "#e5e5e6",
+    "editorIndentGuide.background1": "#e5e5e6"
   },
   "tokenColors": [
     {
       "scope": "comment",
       "settings": {
-        "foreground": "#808080",
+        "foreground": "#a0a1a7",
         "fontStyle": "italic"
       }
     },
@@ -28,19 +32,20 @@
         "storage"
       ],
       "settings": {
-        "foreground": "#000080"
+        "foreground": "#a626a4",
+        "fontStyle": "italic"
       }
     },
     {
       "scope": "string",
       "settings": {
-        "foreground": "#008000"
+        "foreground": "#50a14f"
       }
     },
     {
       "scope": "constant.numeric",
       "settings": {
-        "foreground": "#0000ff"
+        "foreground": "#986801"
       }
     },
     {
@@ -49,27 +54,121 @@
         "support.function"
       ],
       "settings": {
-        "foreground": "#00627a"
+        "foreground": "#4078f2"
       }
     },
     {
       "scope": [
         "entity.name.type",
-        "entity.name.class"
+        "entity.name.class",
+        "support.class",
+        "support.type"
       ],
       "settings": {
-        "foreground": "#202020"
+        "foreground": "#c18401"
+      }
+    },
+    {
+      "scope": [
+        "entity.name.type.interface"
+      ],
+      "settings": {
+        "foreground": "#50a14f",
+        "fontStyle": "italic"
       }
     },
     {
       "scope": [
         "variable.other.property",
-        "variable.other.field"
+        "variable.other.field",
+        "variable.other.constant",
+        "constant.other"
       ],
       "settings": {
-        "foreground": "#660e7a"
+        "foreground": "#e45649"
+      }
+    },
+    {
+      "scope": "keyword.operator",
+      "settings": {
+        "foreground": "#4078f2",
+        "fontStyle": ""
+      }
+    },
+    {
+      "scope": [
+        "storage.type.java",
+        "storage.type.object.array.java",
+        "storage.modifier.import.java",
+        "storage.modifier.package.java",
+        "entity.other.inherited-class.java"
+      ],
+      "settings": {
+        "foreground": "#c18401",
+        "fontStyle": ""
+      }
+    },
+    {
+      "scope": "meta.definition.class.implemented.interfaces.java entity.other.inherited-class.java",
+      "settings": {
+        "foreground": "#50a14f",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "scope": "variable.other.object.property.java",
+      "settings": {
+        "foreground": "#e45649"
+      }
+    },
+    {
+      "scope": [
+        "constant.language",
+        "variable.language"
+      ],
+      "settings": {
+        "foreground": "#a626a4",
+        "fontStyle": "italic"
       }
     }
   ],
-  "semanticHighlighting": true
+  "semanticHighlighting": true,
+  "semanticTokenColors": {
+    "keyword": {
+      "foreground": "#a626a4",
+      "italic": true
+    },
+    "modifier": {
+      "foreground": "#a626a4",
+      "italic": true
+    },
+    "type": "#c18401",
+    "class": "#c18401",
+    "enum": "#c18401",
+    "struct": "#c18401",
+    "interface": {
+      "foreground": "#50a14f",
+      "italic": true
+    },
+    "typeParameter": "#c18401",
+    "namespace": "#c18401",
+    "function": "#4078f2",
+    "method": "#4078f2",
+    "property": "#e45649",
+    "enumMember": "#e45649",
+    "variable.readonly": "#e45649",
+    "property.static": {
+      "foreground": "#e45649",
+      "italic": true
+    },
+    "string": "#50a14f",
+    "number": "#986801",
+    "comment": {
+      "foreground": "#a0a1a7",
+      "italic": true
+    },
+    "parameter": "#383a42",
+    "variable": "#383a42",
+    "operator": "#4078f2"
+  }
 }

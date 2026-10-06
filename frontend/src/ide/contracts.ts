@@ -45,6 +45,7 @@ export type IdeContext = {
   comments?: IdeComments;
   findingBusy?: boolean;
   findingError?: string | null;
+  workingCopy?: { blocked: string | null; staleLabel: string | null };
 };
 
 export type IdeRequest = { id: string; requestId: string; method: string; args: unknown[] };

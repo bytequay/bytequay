@@ -15,7 +15,7 @@ import type { IdeContext } from './contracts';
 import { codeHostKey, parseCodeHost } from '../pulls/code-tests/contracts';
 
 const READ_METHODS = new Set(['getGitHubUserProfile', 'fetchGitHubCodeSnippet', 'listCodeFiles', 'readCodeFile', 'readCodeBlame', 'readCodeHistory', 'readHistoryCommit', 'readHistorySnapshot', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges', 'getAgentReview', 'getAgentTask']);
-const PRIVATE_METHODS = new Set(['run.ask', 'stopCodeRun', 'openInAppBrowser', 'github.post', 'github.reply', 'github.resolve', 'github.edit', 'github.react', 'comments.ask', 'comments.reply', 'comments.resolve', 'comments.retry', 'comments.finding', 'comments.refresh', 'comments.pending', 'comments.detail', 'review.changed', 'askAgentReview', 'resolveAgentReviewFinding', 'reopenAgentReviewFinding', 'betterWords', 'finding.ask', 'finding.resolve', 'finding.reopen', 'finding.add', 'finding.post', 'finding.editDraft', 'finding.remove', 'finding.fix']);
+const PRIVATE_METHODS = new Set(['worktree.reset', 'worktree.discard', 'run.ask', 'stopCodeRun', 'openInAppBrowser', 'github.post', 'github.reply', 'github.resolve', 'github.edit', 'github.react', 'comments.ask', 'comments.reply', 'comments.resolve', 'comments.retry', 'comments.finding', 'comments.refresh', 'comments.pending', 'comments.detail', 'review.changed', 'askAgentReview', 'resolveAgentReviewFinding', 'reopenAgentReviewFinding', 'betterWords', 'finding.ask', 'finding.resolve', 'finding.reopen', 'finding.add', 'finding.post', 'finding.editDraft', 'finding.remove', 'finding.fix']);
 
 function text(value: unknown, limit = 30_000): asserts value is string {
   if (typeof value !== 'string' || value.length > limit || value.includes('\0')) throw new Error('Invalid IDE action text');
@@ -61,6 +61,13 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
     if (typeof query.commit !== 'string' || !/^[a-f0-9]{40,64}$/.test(query.commit)) throw new Error('Invalid code preview revision');
     file(query.path); integer(query.startLine); integer(query.endLine);
     if (query.startLine === 0 || query.endLine < query.startLine || query.endLine - query.startLine >= 200) throw new Error('Invalid code preview range');
+    return;
+  }
+  if (method === 'worktree.reset' || method === 'worktree.discard') {
+    count(args, 0);
+    if (!context.workingCopy || context.workingCopy.blocked || context.review?.state !== 'OPEN' || (method === 'worktree.reset' && !context.workingCopy.staleLabel)) {
+      throw new Error('Working copy action is unavailable');
+    }
     return;
   }
   if (method === 'run.ask') {

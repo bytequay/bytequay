@@ -20,15 +20,16 @@ import { useCodeComments, type CodeCommentsOptions, type CommentContext } from '
 import type { ReviewCodeFileDto, ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import { latestRun } from '../pulls/agent-review/model';
 import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
+import { useSearchPanel } from './useSearchPanel';
 import { installSemanticQueries } from './semanticQueries';
-import { startRuntime, chooseKeymap, type IdeRuntime } from './runtime';
+import { startRuntime, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
 import { restoreSourceDrafts, discardSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
 import RunHistory from './RunHistory';
 import TerminalView from '../pulls/code-tests/TerminalView';
 import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
-import { PanelLeft, ArrowLeft, ArrowRight, Search, ListTree, GitBranch, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
+import { PanelLeft, ArrowLeft, ArrowRight, Ellipsis, Search, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import EditorNavigation from './EditorNavigation';
 import { installGitHistory } from './gitHistory';
@@ -105,9 +106,10 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [history, setHistory] = useState<HistoryComparison | null>(null);
   const [gitHistory, setGitHistory] = useState<ReturnType<typeof installGitHistory> | null>(null);
   const [recovered, setRecovered] = useState<SourceDraft[]>([]);
-  const [keymap, setKeymap] = useState(localStorage.getItem('bytequay.ide.keymap') ?? 'IDEA');
+  const [keymap] = useState(localStorage.getItem('bytequay.ide.keymap') ?? 'IDEA');
   const [theme, setTheme] = useState(localStorage.getItem('bytequay.ide.theme') ?? 'ByteQuay IDEA Light');
   const command = (name: string) => { void runtime.api.commands.executeCommand(name).then(undefined, cause => setError(String(cause))); };
+  useSearchPanel(runtime.commands, setSidebar);
   const report = () => {
     const privateDrafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && node.value.trim()).length;
     window.ideWorkbench.report({ dirty: runtime.api.workspace.textDocuments.filter(document => document.isDirty).length + privateDrafts,
@@ -224,19 +226,24 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <button aria-label="Forward" onClick={() => command('workbench.action.navigateForward')} title="Forward"><ArrowRight size={15} /></button>
       {sidebar !== 'files' && <button aria-label="Show files" title="Show files" onClick={() => setSidebar('files')}><PanelLeft size={15} /></button>}
       <button className="ide-search" onClick={() => command('workbench.action.quickOpen')}>Go to file <kbd>{keymap === 'IDEA' ? '⌘⇧O' : '⌘P'}</kbd></button>
-      <button onClick={() => command('workbench.action.showAllSymbols')}><ListTree size={14} /> Symbols</button>
-      <button onClick={() => { setSidebar('search'); command('workbench.action.findInFiles'); }}><Search size={14} /> Search</button>
-      <button onClick={() => command('editor.showCallHierarchy')}><GitBranch size={14} /> Callers</button>
-      <button onClick={() => command('editor.action.referenceSearch.trigger')}>Usages</button>
+      <button title="Search worktree (⌘⇧F)" onClick={() => command('workbench.action.findInFiles')}><Search size={14} /> Search</button>
       <button disabled={!comments.onComment} onClick={commentSelection}><MessageSquare size={14} /> Comment</button>
       <EditorNavigation runtime={runtime} active={active} context={context} file={file} revision={files?.revision}
         onHistory={commit => { setBottom('history'); void chooseCommit(commit); }} />
-      <select aria-label="Editor keymap" value={keymap} onChange={event => { const value = event.target.value; void chooseKeymap(value).then(() => setKeymap(value), cause => setError(String(cause))); }}><option>IDEA</option><option>VS Code</option></select>
       <select aria-label="IDE theme" value={theme} onChange={event => {
         const value = event.target.value;
         localStorage.setItem('bytequay.ide.theme', value); setTheme(value);
         void runtime.api.workspace.getConfiguration().update('workbench.colorTheme', value, runtime.api.ConfigurationTarget.Global);
       }}><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option></select>
+      {context.workingCopy && <details className="ide-more">
+        <summary aria-label="Working copy actions" title="Working copy actions"><Ellipsis size={16} /></summary>
+        <div>
+          {context.workingCopy.staleLabel && <button disabled={context.workingCopy.blocked !== null} title={context.workingCopy.blocked ?? undefined}
+            onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); void request('worktree.reset').catch(cause => setError(String(cause))); }}>{context.workingCopy.staleLabel}</button>}
+          <button disabled={context.workingCopy.blocked !== null} title={context.workingCopy.blocked ?? undefined}
+            onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); void request('worktree.discard').catch(cause => setError(String(cause))); }}>Discard local changes…</button>
+        </div>
+      </details>}
     </header>
     {executionError && <div className="ide-notice" role="alert">{executionError}</div>}
     {execution?.treeUnverified && <div className="ide-notice" role="status">Execution finished; verifying process cleanup.

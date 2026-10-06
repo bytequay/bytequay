@@ -1,6 +1,6 @@
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-workbench { --ide-bg: #fff; --ide-fg: #24292f; --ide-edge: #dfe3e8; --ide-bar: #f5f6f8; display: flex; flex-direction: column; width: 100%; height: 100%; color: var(--ide-fg); background: var(--ide-bg); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
-.ide-workbench.is-dark { --ide-bg: #2b2b2b; --ide-fg: #bbb; --ide-edge: #515151; --ide-bar: #3c3f41; }
+.ide-workbench.is-dark { --ide-bg: #282c34; --ide-fg: #abb2bf; --ide-edge: #3b4048; --ide-bar: #21252b; }
 .ide-toolbar { display: flex; align-items: center; flex-shrink: 0; gap: 6px; min-height: 34px; padding: 3px 8px; border-bottom: 1px solid var(--ide-edge); background: var(--ide-bar); }
 .ide-toolbar button, .ide-toolbar select { border: 1px solid transparent; border-radius: 4px; padding: 4px 7px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .ide-toolbar button:hover, .ide-toolbar select:hover { border-color: var(--ide-edge); background: var(--ide-bg); }
@@ -76,3 +76,9 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 
 .ide-workbench.is-dark :is(.ct-run, .ct-run__body, .ct-run__tree, .ct-run__log, .ct-run__details, .ct-run__row, .ct-history, .ct-run__note) { background: var(--ide-bg); color: var(--ide-fg); border-color: var(--ide-edge); }
 .ide-workbench.is-dark :is(.ct-run__header, .ct-run__toolbar, .ct-run__tab, .ct-history__head, .ct-run__class) { background: var(--ide-bar); color: var(--ide-fg); border-color: var(--ide-edge); }
+
+.ide-more { position: relative; margin-left: auto; }
+.ide-more summary { display: flex; padding: 5px; cursor: pointer; list-style: none; }
+.ide-more summary::-webkit-details-marker { display: none; }
+.ide-more > div { position: absolute; right: 0; top: 100%; z-index: 100; min-width: 230px; padding: 4px; border: 1px solid var(--ide-edge); border-radius: 4px; background: var(--ide-bar); box-shadow: 0 3px 12px #0003; }
+.ide-more > div button { width: 100%; text-align: left; }

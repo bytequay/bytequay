@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 /* eslint-disable import/no-unresolved -- The pinned modular packages export these paths; Vite and TypeScript resolve them. */
-import { initialize, getService, ICodeEditorService, ITestResultService, IDebugService, IViewDescriptorService, ITerminalService, IPaneCompositePartService, IExtensionService } from '@codingame/monaco-vscode-api';
+import { initialize, getService, ICommandService, ICodeEditorService, ITestResultService, IDebugService, IViewDescriptorService, ITerminalService, IPaneCompositePartService, IExtensionService } from '@codingame/monaco-vscode-api';
 import { registerExtension, ExtensionHostKind } from '@codingame/monaco-vscode-api/extensions';
 import { IWorkbenchExtensionEnablementService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensionManagement/common/extensionManagement.service';
 import { SyncDescriptor } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/descriptors';
@@ -24,7 +24,7 @@ import getStorage from '@codingame/monaco-vscode-storage-service-override';
 import getTheme from '@codingame/monaco-vscode-theme-service-override';
 import getTextmate from '@codingame/monaco-vscode-textmate-service-override';
 import getLanguages from '@codingame/monaco-vscode-languages-service-override';
-import getKeys, { initUserKeybindings, updateUserKeybindings } from '@codingame/monaco-vscode-keybindings-service-override';
+import { initUserKeybindings } from '@codingame/monaco-vscode-keybindings-service-override';
 import getExplorer from '@codingame/monaco-vscode-explorer-service-override';
 import getTesting from '@codingame/monaco-vscode-testing-service-override';
 import getDebug from '@codingame/monaco-vscode-debug-service-override';
@@ -41,6 +41,7 @@ import '@codingame/monaco-vscode-go-default-extension';
 import '@codingame/monaco-vscode-rust-default-extension';
 import '@codingame/monaco-vscode-javascript-default-extension';
 import 'vscode/localExtensionHost';
+import { installHeaderFolding } from './folding';
 import { coordinateSaves } from './save';
 import { coordinateExecutions } from './executions';
 import { ExtensionPolicy } from './extensionPolicy';
@@ -58,11 +59,6 @@ const ideaKeys = [
     { key: 'cmd+f12', command: 'workbench.action.gotoSymbol' },
 ];
 
-export async function chooseKeymap(name: string) {
-  await updateUserKeybindings(JSON.stringify(name === 'IDEA' ? ideaKeys : []));
-  localStorage.setItem('bytequay.ide.keymap', name);
-}
-
 export type IdeRuntime = Awaited<ReturnType<typeof startRuntime>>;
 
 export async function startRuntime(connection: IdeConnection, container: HTMLElement) {
@@ -73,6 +69,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'workbench.colorTheme': theme,
     'workbench.activityBar.location': 'hidden', 'workbench.statusBar.visible': false,
     'workbench.startupEditor': 'none', 'workbench.editor.restoreViewState': true,
+    'editor.bracketPairColorization.enabled': false, 'editor.folding': true, 'editor.foldingHighlight': false, 'editor.foldingImportsByDefault': true, 'editor.semanticHighlighting.enabled': true,
     'editor.minimap.enabled': false, 'editor.fontSize': 13, 'editor.fontFamily': 'Menlo, monospace',
     'telemetry.telemetryLevel': 'off', 'java.autobuild.enabled': true,
     'java.configuration.updateBuildConfiguration': 'automatic', 'java.trace.server': 'off',
@@ -100,7 +97,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
   await initialize({
     [IWorkbenchExtensionEnablementService.toString()]: new SyncDescriptor(ExtensionPolicy, [versions]),
     ...getConfiguration(), ...getModel(), ...getStorage(), ...getViews(), ...getTheme(), ...getTextmate(),
-    ...getLanguages(), ...getKeys(), ...getExplorer(), ...getTesting(), ...getDebug(), ...getTerminal(), ...getTasks(), ...getSearch(), ...getScm(),
+    ...getLanguages(), ...getExplorer(), ...getTesting(), ...getDebug(), ...getTerminal(), ...getTasks(), ...getSearch(), ...getScm(),
     ...getRemote({ scanRemoteExtensions: true }),
   }, container, {
     resourceUriProvider: uri => URI.from({ scheme: 'https', authority: 'ide-assets.bytequay.invalid', path: uri.path }),
@@ -116,9 +113,11 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     const view = views.getViewContainerById(id);
     if (view) views.moveViewContainerToLocation(view, 1, undefined, 'ByteQuay');
   }
+  const editors = await getService(ICodeEditorService);
+  installHeaderFolding(editors);
   return {
     api, workspace, views, executions: await coordinateExecutions(api, connection.root, connection.authority),
-    editors: await getService(ICodeEditorService),
+    editors, commands: await getService(ICommandService),
     tests: await getService(ITestResultService),
     debug: await getService(IDebugService),
     terminals: await getService(ITerminalService),

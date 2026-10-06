@@ -477,6 +477,7 @@
 }
 
 .agt-compose__input::placeholder { color: var(--text-4); }
+.agt-compose__input:focus-visible { outline: none; }
 
 .agt-compose__row {
   display: flex;

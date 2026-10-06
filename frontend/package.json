@@ -26,6 +26,9 @@
     "email": "chenjian2664@gmail.com"
   },
   "license": "Apache-2.0",
+  "overrides": {
+    "jschardet": "npm:chardet@2.2.0"
+  },
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-dmg": "^7.11.1",
@@ -57,13 +60,36 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.4",
     "@codemirror/view": "^6.43.11",
+    "@codingame/monaco-vscode-api": "33.0.9",
+    "@codingame/monaco-vscode-configuration-service-override": "33.0.9",
+    "@codingame/monaco-vscode-debug-service-override": "33.0.9",
+    "@codingame/monaco-vscode-explorer-service-override": "33.0.9",
+    "@codingame/monaco-vscode-go-default-extension": "33.0.9",
+    "@codingame/monaco-vscode-java-default-extension": "33.0.9",
+    "@codingame/monaco-vscode-javascript-default-extension": "33.0.9",
+    "@codingame/monaco-vscode-keybindings-service-override": "33.0.9",
+    "@codingame/monaco-vscode-languages-service-override": "33.0.9",
+    "@codingame/monaco-vscode-model-service-override": "33.0.9",
+    "@codingame/monaco-vscode-remote-agent-service-override": "33.0.9",
+    "@codingame/monaco-vscode-rust-default-extension": "33.0.9",
+    "@codingame/monaco-vscode-scm-service-override": "33.0.9",
+    "@codingame/monaco-vscode-search-service-override": "33.0.9",
+    "@codingame/monaco-vscode-storage-service-override": "33.0.9",
+    "@codingame/monaco-vscode-testing-service-override": "33.0.9",
+    "@codingame/monaco-vscode-textmate-service-override": "33.0.9",
+    "@codingame/monaco-vscode-theme-defaults-default-extension": "33.0.9",
+    "@codingame/monaco-vscode-theme-service-override": "33.0.9",
+    "@codingame/monaco-vscode-views-service-override": "33.0.9",
     "@lezer/highlight": "^1.2.3",
     "@xterm/addon-fit": "0.11.0",
     "@xterm/xterm": "6.0.0",
+    "chardet": "2.2.0",
     "highlight.js": "^11.12.0",
     "lucide-react": "^1.40.0",
+    "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@33.0.9",
     "node-pty": "1.1.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "vscode": "npm:@codingame/monaco-vscode-extension-api@33.0.9"
   }
 }

@@ -1,0 +1,125 @@
+{
+  "clientVersion": "33.0.9",
+  "vscodeVersion": "1.121.0",
+  "vscodeCommit": "987c9597516278c9fcf10d963a0592ce1384ab93",
+  "serverVersion": "1.121.03429",
+  "serverCommit": "824c4c46a288b839f13b24022655329c2aeb9f81",
+  "server": {
+    "darwin-arm64": {
+      "url": "https://github.com/VSCodium/vscodium/releases/download/1.121.03429/vscodium-reh-darwin-arm64-1.121.03429.tar.gz",
+      "sha256": "e0b41d232c072fa6ed33c3a965838eead015fa02a6a8eede2c734aaa45398c1b"
+    },
+    "darwin-x64": {
+      "url": "https://github.com/VSCodium/vscodium/releases/download/1.121.03429/vscodium-reh-darwin-x64-1.121.03429.tar.gz",
+      "sha256": "3d1c8fe48cfa968a8bf36216da46904e04fb15942c6a3dc9823426c8e2ed267e"
+    }
+  },
+  "extensions": [
+    {
+      "id": "redhat.java",
+      "version": "1.56.0",
+      "license": "EPL-2.0",
+      "source": "https://github.com/redhat-developer/vscode-java/tree/v1.56.0",
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://open-vsx.org/api/redhat/java/darwin-arm64/1.56.0/file/redhat.java-1.56.0@darwin-arm64.vsix",
+          "sha256": "0326b19b55d378dfdd11cc01a86eb6c90fcc42755c542f6261179be41d7e1812"
+        },
+        "darwin-x64": {
+          "url": "https://open-vsx.org/api/redhat/java/darwin-x64/1.56.0/file/redhat.java-1.56.0@darwin-x64.vsix",
+          "sha256": "08de8c954a3230f4823276baee066db1f9c1a283cd36b445f19ac7d90c4beffe"
+        }
+      }
+    },
+    {
+      "id": "vscjava.vscode-java-debug",
+      "version": "0.59.0",
+      "license": "MIT",
+      "source": "https://github.com/microsoft/vscode-java-debug",
+      "platforms": {
+        "universal": {
+          "url": "https://open-vsx.org/api/vscjava/vscode-java-debug/0.59.0/file/vscjava.vscode-java-debug-0.59.0.vsix",
+          "sha256": "87627e24dbb5b01137decc0265f043cb08adad22af3c195f1ba39898dafb1588"
+        }
+      }
+    },
+    {
+      "id": "vscjava.vscode-java-test",
+      "version": "0.46.0",
+      "license": "MIT",
+      "source": "https://github.com/microsoft/vscode-java-test",
+      "platforms": {
+        "universal": {
+          "url": "https://open-vsx.org/api/vscjava/vscode-java-test/0.46.0/file/vscjava.vscode-java-test-0.46.0.vsix",
+          "sha256": "56c1e14dc73a30e9574c47042106fa52893bf8325b580f47c14ace07d5eef255"
+        }
+      }
+    },
+    {
+      "id": "golang.go",
+      "version": "0.56.1",
+      "license": "MIT",
+      "source": "https://github.com/golang/vscode-go/tree/v0.56.1",
+      "platforms": {
+        "universal": {
+          "url": "https://open-vsx.org/api/golang/Go/0.56.1/file/golang.Go-0.56.1.vsix",
+          "sha256": "45365da5d1284f3518b2949f218481f1e9ef6221b3d999a2e3082ccbb61e874b"
+        }
+      }
+    },
+    {
+      "id": "rust-lang.rust-analyzer",
+      "version": "0.4.3072",
+      "license": "MIT OR Apache-2.0",
+      "source": "https://github.com/rust-lang/rust-analyzer",
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://open-vsx.org/api/rust-lang/rust-analyzer/darwin-arm64/0.4.3072/file/rust-lang.rust-analyzer-0.4.3072@darwin-arm64.vsix",
+          "sha256": "793daac3f375ccc76ac6dfb399bf2fc0d8ee5f2cd147a2b83283ba50da3bfacf"
+        },
+        "darwin-x64": {
+          "url": "https://open-vsx.org/api/rust-lang/rust-analyzer/darwin-x64/0.4.3072/file/rust-lang.rust-analyzer-0.4.3072@darwin-x64.vsix",
+          "sha256": "b71fcc6d02898200b61a0f56e03f89e2a3a45ff0c0c12746e911453e61a545df"
+        }
+      }
+    },
+    {
+      "id": "vadimcn.vscode-lldb",
+      "version": "1.12.3",
+      "license": "MIT",
+      "source": "https://github.com/vadimcn/codelldb/tree/v1.12.3",
+      "platforms": {
+        "darwin-arm64": {
+          "url": "https://github.com/vadimcn/codelldb/releases/download/v1.12.3/codelldb-darwin-arm64.vsix",
+          "sha256": "2f114a990e1b368dd1dbd33c80c0e719767af2d228391ec0df0571c957f9ac91"
+        },
+        "darwin-x64": {
+          "url": "https://github.com/vadimcn/codelldb/releases/download/v1.12.3/codelldb-darwin-x64.vsix",
+          "sha256": "e25cc716b94c62c07fec268ff2785d2b797245b160502baef8b9c970a0c4d8e8"
+        }
+      }
+    }
+  ],
+  "notices": [
+    {
+      "name": "VSCodium-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/VSCodium/vscodium/1.121.03429/LICENSE",
+      "sha256": "ed289092386002771285e3423f66f49af65ff918e1b667b517d977fa4fe1f057"
+    },
+    {
+      "name": "Code-OSS-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/microsoft/vscode/987c9597516278c9fcf10d963a0592ce1384ab93/LICENSE.txt",
+      "sha256": "9480271317925265e806a9a196aaa33410a962fa9d4d1e248a4a5187bc8c9df9"
+    },
+    {
+      "name": "Code-OSS-ThirdPartyNotices.txt",
+      "url": "https://raw.githubusercontent.com/microsoft/vscode/987c9597516278c9fcf10d963a0592ce1384ab93/ThirdPartyNotices.txt",
+      "sha256": "4cb210d0c8f8fa304b37a31d44436ebf86dff59466a4033fbcd0c401d63c6568"
+    },
+    {
+      "name": "Node-LICENSE.txt",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v22.22.1/LICENSE",
+      "sha256": "c738ae413cf561f174e34f6961f8ca458aae2369a73640dda6234c629b98bcc4"
+    }
+  ]
+}

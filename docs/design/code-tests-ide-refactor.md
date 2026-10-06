@@ -5,8 +5,10 @@ worktree, with production-code and test editing in active reviews as well as
 development. Opening the IDE does not take an exclusive mutation claim or block
 the agent. Native Java/Go/Rust caller queries, real tests and Java debug are now
 verified. See the [native runtime report](code-tests-ide-verification/runtime-gate.md)
-for completed checks and remaining integration work. The production application
-has not been migrated. [Code & Tests](code-tests.md),
+for completed checks and remaining integration work. Active interactive tasks and
+active reviews now open the modular IDE from the production Code & Tests tab.
+Closed reviews and noninteractive task inspection still use the legacy viewer
+until its replacement and CodeGraph removal are complete. [Code & Tests](code-tests.md),
 [WorkBench](workbench.md), and [Agent Service](agent-service.md) remain the current
 contracts until their replacement steps below land.
 

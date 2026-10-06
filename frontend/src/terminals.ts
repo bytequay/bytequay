@@ -101,6 +101,10 @@ export class CodeTerminals {
     }
   }
 
+  has(sender: TerminalSender): boolean {
+    return [...this.terminals.values()].some(terminal => terminal.sender === sender);
+  }
+
   stopAll(): void {
     for (const terminal of [...this.terminals.values()]) this.kill(terminal);
   }

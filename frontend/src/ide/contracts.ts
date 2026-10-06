@@ -15,6 +15,7 @@ import type { CodeQueryRequest, CodeQueryReply } from './codeQuery';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import type { ExecutionStart, ExecutionOutput, ExecutionResult } from './executionProtocol';
 import type { LocalRunDto, CodeHostRef } from '../pulls/code-tests/contracts';
+import type { TerminalBridge } from '../pulls/code-tests/TerminalView';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
 import type { AgentTaskDto, PullRequestDetailDto } from '../types';
 
@@ -57,6 +58,7 @@ export type IdeDesktopBridge = {
   present: (id: string, bounds: IdeBounds | null) => Promise<void>;
   update: (id: string, context: IdeContext) => Promise<void>;
   close: (id: string) => Promise<void>;
+  discardSourceDrafts: (id: string) => Promise<void>;
   reply: (reply: IdeReply) => void;
   onRequest: (listener: (request: IdeRequest) => void) => () => void;
   onEvent: (listener: (event: IdeEvent) => void) => () => void;
@@ -64,6 +66,8 @@ export type IdeDesktopBridge = {
 
 /** The isolated workbench has no desktop session token and cannot invoke arbitrary app IPC. */
 export type IdeWorkbenchBridge = {
+  terminal: TerminalBridge;
+  onDiscardSource: (handler: () => Promise<void>) => () => void;
   startExecution: (request: ExecutionStart) => Promise<LocalRunDto>;
   outputExecution: (id: string, request: ExecutionOutput) => Promise<void>;
   finishExecution: (id: string, request: ExecutionResult) => Promise<LocalRunDto>;

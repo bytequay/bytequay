@@ -398,3 +398,36 @@ exited. A newly created long-lived import/build daemon is conservatively treated
 as part of that execution; explicit Stop code tools stops the shared runtime when
 cleanup cannot otherwise be proved. This is process observation, not operating
 system containment or a promise to detect escaped, unobserved descendants.
+
+
+## Active Code & Tests cutover
+
+Active reviews and interactive development tasks now open the isolated modular
+IDE from the production tab. The existing task/WorkBench shell retains the view
+when switching tabs or opening Subagents. Review reset/discard uses the existing
+backend mutation and clears source drafts only after it succeeds; cancellation
+and backend failure preserve them. Private reply drafts remain separate.
+
+The bottom tools include native Tests and Debug, durable Run history, Git history,
+and the existing ByteQuay terminal. Native execution terminals remain available
+under Execution output. Run history renders ANSI output through xterm, displays
+normalized failure details, and prepares selected output or failure text in the
+existing conversation composer with run/source identity. Preparing a draft does
+not start, queue or steer an agent turn. Java Markdown failure messages use the
+pinned native plain-text renderer, preserving text without executable links.
+
+Browser checks cover reset success/failure/cancellation, retained native-view
+identity across task navigation, and appending evidence to the real composer
+without submitting it. Main-process tests cover terminal ownership and blocking
+idle disposal while that view owns an interactive shell. Closed reviews and
+noninteractive tasks still use the legacy viewer; deleting it and CodeGraph
+remains part of the refactor, not a completed migration.
+
+
+The packaged native fixture confirmed readable Java expected/actual and stack
+messages, failure-to-draft handoff, interactive shell input, ANSI colors, and
+Darcula switching without losing terminal output. The fixture uses the packaged
+node-pty module through its archive path; directly loading its unpacked path
+incorrectly duplicates node-pty's own archive-path translation. The full frontend
+gate passes lint, TypeScript, 1,543 tests in 163 files and macOS arm64 packaging.
+The backend is unchanged since the passing native-execution reactor gate.

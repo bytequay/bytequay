@@ -23,7 +23,9 @@ import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
 import { installSemanticQueries } from './semanticQueries';
 import { startRuntime, chooseKeymap, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
-import { restoreSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
+import { restoreSourceDrafts, discardSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
+import RunHistory from './RunHistory';
+import TerminalView from '../pulls/code-tests/TerminalView';
 import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
 import { PanelLeft, ArrowLeft, ArrowRight, Search, ListTree, GitBranch, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
@@ -97,7 +99,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [error, setError] = useState<string | null>(null);
   const [execution, setExecution] = useState(runtime.executions.run);
   const [executionError, setExecutionError] = useState(runtime.executions.error);
-  const [bottom, setBottom] = useState<'tests' | 'debug' | 'terminal' | 'history'>('tests');
+  const [bottom, setBottom] = useState<'tests' | 'runs' | 'debug' | 'output' | 'terminal' | 'history'>('tests');
   const column = useResizablePane(285, 180, 650);
   const panel = useResizablePane(270, 100, 900, 'start', 'y');
   const [history, setHistory] = useState<HistoryComparison | null>(null);
@@ -126,12 +128,13 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
 
   useEffect(() => {
     const drafts = trackSourceDrafts(runtime, setError);
+    const stopDiscard = window.ideWorkbench.onDiscardSource(discardSourceDrafts);
     let navigation: ReturnType<typeof trackNavigation> | undefined;
     let live = true;
     void restoreSourceDrafts(runtime, draft => setRecovered(current => [...current, draft]))
       .then(() => restoreNavigation(runtime)).catch(cause => setError(String(cause)))
       .finally(() => { if (live) navigation = trackNavigation(runtime, setError); });
-    return () => { live = false; drafts.dispose(); navigation?.dispose(); };
+    return () => { live = false; stopDiscard(); drafts.dispose(); navigation?.dispose(); };
   }, [runtime]);
 
   useEffect(() => {
@@ -143,7 +146,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     document.addEventListener('input', report);
     const timer = setInterval(report, 5_000);
     const showPanel = (id: string | undefined) => {
-      if (id === 'terminal') setBottom('terminal');
+      if (id === 'terminal') setBottom('output');
       else if (id?.includes('debug') || id === 'workbench.panel.repl') setBottom('debug');
       else if (id?.toLowerCase().includes('test')) setBottom('tests');
       else if (id?.includes('scm')) setBottom('history');
@@ -166,12 +169,12 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   useEffect(() => {
     let live = true;
     setFile(null);
-    if (selected) void request('readCodeFile', context.host, selected).then(value => { if (live) setFile(value as ReviewCodeFileDto); }, cause => { if (live) setError(String(cause)); });
+    if (selected) void request('readCodeFile', context.host, selected, files?.revision).then(value => { if (live) setFile(value as ReviewCodeFileDto); }, cause => { if (live) setError(String(cause)); });
     return () => { live = false; };
   }, [selected, files?.sourceFingerprint, files?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileContext: CommentContext | null = useMemo(() => {
-    if (!selected || !active || file?.path !== selected || !files) return null;
-    const reviewedHead = context.review ? latestRun(context.review)?.headSha ?? null : files.revision;
+    if (!selected || !active || file?.path !== selected || !files || (!active.document.isDirty && active.document.getText() !== file.content)) return null;
+    const reviewedHead = context.review ? latestRun(context.review)?.headSha ?? null : context.task?.localReviewHead ?? files.revision;
     return { path: selected, text: active.document.getText(), prPatch: file.prPatch, draft: active.document.isDirty,
       uncommitted: files.files.find(entry => entry.path === selected)?.uncommitted ?? true,
       atReviewedRevision: files.revision === reviewedHead, reviewedHead, observedHead: context.review?.observedHeadSha ?? reviewedHead,
@@ -204,7 +207,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     setBottom(value);
     if (value === 'tests') command('workbench.view.testing.focus');
     if (value === 'debug') command('workbench.view.debug');
-    if (value === 'terminal') command('workbench.action.terminal.focus');
+    if (value === 'output') command('workbench.action.terminal.focus');
     if (value === 'history') {
       try { setHistory(null); await gitHistory?.focus(); }
       catch (cause) { setError(String(cause)); }
@@ -266,8 +269,10 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     <footer className="ide-bottom" style={{ height: panel.width }}>
       <nav className="ide-toolbar" aria-label="Code tools">
         <button aria-pressed={bottom === 'tests'} onClick={() => { void selectBottom('tests'); }}><Play size={13} /> Tests</button>
+        <button aria-pressed={bottom === 'runs'} onClick={() => { void selectBottom('runs'); }}>Run history</button>
         <button aria-pressed={bottom === 'debug'} onClick={() => { void selectBottom('debug'); }}><Bug size={14} /> Debug</button>
         <button aria-pressed={bottom === 'terminal'} onClick={() => { void selectBottom('terminal'); }}><TerminalSquare size={14} /> Terminal</button>
+        <button aria-pressed={bottom === 'output'} onClick={() => { void selectBottom('output'); }}>Execution output</button>
         <button aria-pressed={bottom === 'history'} onClick={() => { void selectBottom('history'); }}><GitCommitHorizontal size={14} /> Git history</button>
         <span className="ide-spacer" />
         <button onClick={() => command('testing.runCurrentFile')}>Run file tests</button>
@@ -275,7 +280,9 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
         <button onClick={() => { void selectBottom('debug'); command('workbench.action.debug.start'); }}>Debug configuration</button>
         <button disabled={!execution} onClick={() => { void runtime.executions.stop().catch(cause => setError(String(cause))); }}><Square size={12} /> Stop execution</button>
       </nav>
-      <div className="ide-tools" style={{ display: bottom === 'history' && history ? 'none' : undefined }}><Part part={Parts.PANEL_PART} /></div>
+      <div className="ide-tools" style={{ display: (bottom === 'history' && history) || bottom === 'runs' || bottom === 'terminal' ? 'none' : undefined }}><Part part={Parts.PANEL_PART} /></div>
+      {bottom === 'runs' && <RunHistory context={context} files={files} runtime={runtime} onTests={() => { void selectBottom('tests'); }} />}
+      {bottom === 'terminal' && <TerminalView host={context.host} bridge={window.ideWorkbench.terminal} clearRequest={0} />}
       {bottom === 'history' && <nav className="ide-toolbar" aria-label="History scope">
         <button onClick={() => { setHistory(null); void gitHistory?.focus().catch(cause => setError(String(cause))); }}>Repository history</button>
         <button disabled={!selected} onClick={() => { setHistory(null); void gitHistory?.focus(selected ?? undefined).catch(cause => setError(String(cause))); }}>Current file history</button>

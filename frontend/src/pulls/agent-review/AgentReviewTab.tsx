@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { usePreparedAgentInput } from '../../agents/preparedInput';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
@@ -136,6 +137,7 @@ export default function AgentReviewTab({
   const { events, turns } = conversation;
   const [approvals, setApprovals] = useState<AgentPendingApprovalDto[]>([]);
   const [composer, setComposer] = useState('');
+  usePreparedAgentInput(mode === 'conversation' ? review?.task.id ?? null : null, text => setComposer(current => [current, text].filter(Boolean).join('\n\n')));
   const [models, setModels] = useState<ModelOptionDto[]>([]);
   const [now, setNow] = useState(() => Date.now());
   const navigationToken = useRef(0);

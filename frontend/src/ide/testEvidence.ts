@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 /* eslint-disable import/no-unresolved -- Pinned VS Code test result types. */
+import { renderAsPlaintext } from '@codingame/monaco-vscode-api/vscode/vs/base/browser/markdownRenderer';
 import type { ITestResult } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/testing/common/testResult';
 import type { TestResultItem } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/testing/common/testTypes';
 import type { ExecutionResult } from './executionProtocol';
@@ -67,7 +68,9 @@ export function testEvidence(results: Iterable<ITestResult>): Pick<ExecutionResu
       const traces: string[] = [];
       for (const task of item.tasks) for (const message of task.messages) {
         if (message.type !== 0) continue;
-        messages.push(typeof message.message === 'string' ? message.message : message.message.value);
+        // Java test failures use Markdown links and HTML line breaks; retain their text, never command links.
+        messages.push(renderAsPlaintext(typeof message.message === 'string' ? message.message
+          : { ...message.message, value: message.message.value.replace(/<br\s*\/?>/gi, '\n') }));
         if (message.expected !== undefined) traces.push(`Expected: ${message.expected}`);
         if (message.actual !== undefined) traces.push(`Actual: ${message.actual}`);
         if (message.location) traces.push(`${message.location.uri.toString()}:${message.location.range.startLineNumber}`);

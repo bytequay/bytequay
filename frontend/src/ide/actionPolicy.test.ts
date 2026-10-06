@@ -78,3 +78,11 @@ describe('IDE action boundary', () => {
   });
 
 });
+
+
+it('prepares a bounded log draft only on a click in an open task', () => {
+  expect(() => validateIdeAction('run.ask', ['run', 'failure'], context, true)).not.toThrow();
+  expect(() => validateIdeAction('run.ask', ['run', 'failure'], context, false)).toThrow('user click');
+  expect(() => validateIdeAction('run.ask', ['run', 'x'.repeat(30_001)], context, true)).toThrow('text');
+  expect(() => validateIdeAction('run.ask', ['run', 'failure'], { ...context, review: { ...review, state: 'CLOSED' } }, true)).toThrow('Open a task');
+});

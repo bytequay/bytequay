@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { installDesktopFixture } from '../../../ide/fixtures/desktop';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, PullRequestDetailDto } from '../../../types';
@@ -23,6 +24,7 @@ import { runningReviewFixture } from './review';
 import '../../../css/base.css';
 
 export async function run(local = false): Promise<string> {
+  const desktop = installDesktopFixture();
   const initial = runningReviewFixture();
   const review = { ...initial, number: local ? null : initial.number, task: { ...initial.task, nestedAgents: true } };
   const events: AgentEventEnvelope[] = [];
@@ -164,6 +166,6 @@ export async function run(local = false): Promise<string> {
     return 'Review chips open live, completed and nested subagents in the existing inspector';
   }
   finally {
-    flushSync(() => root.unmount()); host.remove(); Object.assign(window, { bridge: previous });
+    flushSync(() => root.unmount()); host.remove(); desktop.dispose(); Object.assign(window, { bridge: previous });
   }
 }

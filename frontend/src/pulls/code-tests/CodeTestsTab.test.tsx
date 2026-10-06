@@ -63,17 +63,12 @@ describe('CodeTestsTab', () => {
     expect(html).toContain('Start review');
   });
 
-  it('reads the review working copy with its file column, filter and history controls', () => {
+  it('opens the modular IDE for an active review', () => {
     const html = renderToStaticMarkup(<CodeTestsTab detail={detail} workspaceId="workspace-1" review={reviewFixture()}
       onReviewChange={() => {}} active ownReviewStream bridge={bridge()} />);
-    expect(html).toContain('aria-label="Go to file or symbol"');
-    expect(html).not.toContain('>Tests</button>');
-    expect(html).toContain('aria-pressed="false" title="Show only test files"');
-    expect(html).toContain('aria-label="Back"');
-    expect(html).toContain('aria-pressed="false" title="Every file in the repository"><span class="ct-scope__label">All files');
-    expect(html).toContain('title="Files changed on this branch or in the working copy"><span class="ct-scope__label">Changed files</span><span class="ct-scope__count">');
-    expect(html).toContain('Loading files…');
-    expect(html).toContain('Open a file from the tree to read it whole.');
+    expect(html).toContain('Starting code tools');
+    expect(html).toContain('ct-ide-surface');
+    expect(html).not.toContain('ct-code');
   });
 
   it('marks a stale local branch with a reset icon instead of a review banner', () => {
@@ -140,8 +135,7 @@ describe('CodeTestsTab', () => {
     const task = { ...parseAgentTask(contracts.task), interactive: true };
     const html = renderToStaticMarkup(<CodeTestsTab detail={detail} workspaceId="workspace-1" review={reviewFixture()} task={task}
       onReviewChange={() => {}} active ownReviewStream bridge={bridge()} />);
-    expect(html).toContain('aria-label="Go to file or symbol"');
-    expect(html).toContain('Loading files…');
+    expect(html).toContain('Starting code tools');
     expect(html).not.toContain('Start review');
     expect(html).not.toContain('Discard');
     expect(html).not.toContain('Back to reviews');

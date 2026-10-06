@@ -572,6 +572,7 @@ const ide: IdeDesktopBridge = {
   present: (id, bounds) => ipcRenderer.invoke('ide:present', id, bounds),
   update: (id, context) => ipcRenderer.invoke('ide:update', id, context),
   close: id => ipcRenderer.invoke('ide:close', id),
+  discardSourceDrafts: id => ipcRenderer.invoke('ide:discard-source', id),
   reply: reply => ipcRenderer.send('ide:reply', reply),
   onRequest: listener => {
     const receive = (_event: Electron.IpcRendererEvent, request: IdeRequest) => listener(request);

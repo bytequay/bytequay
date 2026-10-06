@@ -13,8 +13,9 @@
  */
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
+import { prepareAgentInput } from '../preparedInput';
 import { createRoot } from 'react-dom/client';
-import { EditorView } from '@codemirror/view';
+import { installDesktopFixture } from '../../ide/fixtures/desktop';
 import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
 import DevelopmentLearningPanel from '../DevelopmentLearningPanel';
 import type { TaskReviewOptions } from '../../pulls/agent-review/TaskReviewSummary';
@@ -31,6 +32,7 @@ import { assert, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 
 export async function run(keepMounted = false, showChanges = false, zoomChanges = false): Promise<string> {
+  const desktop = installDesktopFixture();
   const task: AgentTaskDto = { ...previewTask('workspace-1', 'task-1'), interactive: true, checkoutRemovedAt: null, mutationClaim: null };
   const requests: { host: CodeHostRef; request: WorktreeChangesRequest }[] = [];
   const publishedPr: PullRequestDto = { id: 7, repo: 'owner/repo', number: 7, title: 'Published implementation', author: 'developer',
@@ -41,7 +43,6 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
   const publishedFiles = [{ filename: 'published.txt', status: 'added', additions: 1, deletions: 0, patch: '@@ -0,0 +1 @@\n+Published implementation' }];
   const selectedCommits: string[] = [];
   let linkPullRequest = () => {};
-  let fileReads = 0;
   const bridge = {
     findTaskAgentReview: async () => null,
     listLocalReviewComments: async () => [],
@@ -54,7 +55,6 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
         files: [{ filename: 'notes.txt', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+local' }] };
     },
     listCodeFiles: async () => {
-      fileReads++;
       return { source: 'WORKING_COPY' as const, revision: 'commit123', truncated: false, codeGraph: 'OFF' as const,
         sourceFingerprint: 'working-copy', savedExperiment: false,
         files: [{ path: 'notes.txt', changedInPr: true, addedInPr: false, onlyInWorkingCopy: false, uncommitted: true }] };
@@ -118,21 +118,18 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     assert(requests.at(-1)?.request.commit === 'commit123', 'Clicking a local commit must read its changed files');
     click('Code & Tests'); await settle();
     assert(host.querySelector('.pull-changes__toolbar') === null, 'Hidden Changes must not leave a toolbar in the header');
-    click('notes.txt'); await settle();
-    const editor = host.querySelector<HTMLElement>('.cm-editor');
-    assert(editor !== null, 'Code must open without PR or review prerequisites');
-    const view = EditorView.findFromDOM(editor);
-    assert(view !== null, 'The file must have a live editor');
-    view.dispatch({ changes: { from: 0, insert: 'unsaved ' } }); await settle();
+    const editor = host.querySelector<HTMLElement>('.ct-ide-surface');
+    assert(editor !== null && desktop.opens === 1, 'Code must open one native editor without PR or review prerequisites');
+    desktop.report(1); await settle();
     click('PR'); await settle();
     assert(host.textContent?.includes('No pull request yet') === true, 'The PR destination must show its actual empty state');
     assert(getComputedStyle(editor).display !== 'none' && editor.closest('[hidden]') !== null, 'The code editor must be hidden through its kept ancestor');
     click('WorkBench'); await settle();
-    assert(host.querySelector('.cm-editor') === editor && view.state.doc.toString() === 'unsaved local\n', 'Switching destinations must retain the editor and unsaved draft');
-    assert(fileReads === 1, 'Switching destinations must not recreate the code host');
+    assert(host.querySelector('.ct-ide-surface') === editor && desktop.opens === 1, 'Switching destinations must retain the editor and unsaved draft');
+    assert(desktop.opens === 1, 'Switching destinations must not reopen the native editor');
     click('Summary'); await settle();
     assert(host.querySelector('.agr-development-learning') === summary && summary !== null && getComputedStyle(summary).display !== 'none', 'Summary must remain mounted and become visible again');
-    assert(host.querySelector('.cm-editor')?.closest('[hidden]') !== null, 'Returning to Summary must hide the retained editor');
+    assert(host.querySelector('.ct-ide-surface')?.closest('[hidden]') !== null, 'Returning to Summary must hide the retained editor');
     click('Changes'); await settle();
     assert(host.querySelector<HTMLSelectElement>('[aria-label="Change scope or commit"]')?.value === 'commit:commit123', 'Returning to Changes must retain the selected commit');
     assert(requests.every(item => item.host.kind === 'task' && item.host.taskId === task.id), 'Local exploration must stay on the development worktree');
@@ -162,7 +159,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
       assert(selectedCommits.join() === 'published-sha' && host.querySelector('.agt-panel .pull-diff-file')?.textContent?.includes('Published implementation'),
         'Summary commit links must select the published commit without reopening local Changes');
       click('Code & Tests'); await settle();
-      assert(host.querySelector('.cm-editor') === editor && view.state.doc.toString() === 'unsaved local\n',
+      assert(host.querySelector('.ct-ide-surface') === editor && desktop.opens === 1,
         'Linking a PR and navigating its changes must preserve the task working-copy draft');
     }
     if (keepMounted && !showChanges) { click('Code & Tests'); await settle(); }
@@ -183,7 +180,7 @@ export async function run(keepMounted = false, showChanges = false, zoomChanges 
     return 'Local WorkBench preserves commit selection, summary and unsaved code before a PR exists';
   }
   finally {
-    if (!keepMounted) { flushSync(() => root.unmount()); host.remove(); Object.assign(window, { bridge: originalBridge }); }
+    if (!keepMounted) { flushSync(() => root.unmount()); host.remove(); desktop.dispose(); Object.assign(window, { bridge: originalBridge }); }
   }
 }
 
@@ -226,6 +223,13 @@ export async function utilityTabs(): Promise<string> {
   try {
     flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={answer.taskId} bridge={bridge} onBack={() => {}} />));
     await footer();
+    prepareAgentInput(answer.taskId, 'Selected test failure: expected 7, actual 6'); await settle();
+    prepareAgentInput(answer.taskId, 'Please investigate this failure.'); await settle();
+    assert([...host.querySelectorAll<HTMLTextAreaElement>('textarea')].some(input => input.value ===
+      'Selected test failure: expected 7, actual 6\n\nPlease investigate this failure.'),
+    'Code tools must append to the existing composer without replacing its draft');
+    assert(!bridge.commands.some(command => /startAgentTurn|queueAgentInput|steerAgentTurn/.test(command.name)),
+      'Preparing selected evidence must never submit an agent command');
     const attentionKey = `task:${answer.taskId}`;
     assert(host.querySelector('.attention-visit-status') === null, 'An opened task must not show a Viewed label');
     assert(loadHandled()[attentionKey] === undefined, 'The task must stay in attention while its detail remains open');

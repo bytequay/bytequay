@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import type { BrowserWindow } from 'electron';
+import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { IdeViews } from './ideViews';
 import type { LocalRunDto } from './pulls/code-tests/contracts';
 import type { ExecutionRequest } from './ide/executionProtocol';
@@ -263,4 +263,32 @@ it('binds execution metadata to the owning task and keeps cleanup-pending runs a
   await invoke('ide:execution', child(), finish);
   await vi.advanceTimersByTimeAsync(15_000);
   expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+});
+
+
+it('binds an interactive terminal to its known editor and retains that hidden shell', async () => {
+  views.dispose();
+  const terminal = vi.fn(() => true);
+  views = new IdeViews(() => window, terminal); views.register();
+  const id = await invoke('ide:open', parent(), host);
+  expect(() => views.terminalHost(child() as unknown as IpcMainInvokeEvent)).toThrow('Unknown');
+  invoke('ide:update', parent(), id, { host });
+  expect(views.terminalHost(child() as unknown as IpcMainInvokeEvent)).toEqual(host);
+  expect(() => views.terminalHost(parent() as unknown as IpcMainInvokeEvent)).toThrow('Unknown');
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  terminal.mockReturnValue(false);
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+});
+
+it('waits for the source-draft discard acknowledgement from that editor only', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  expect(() => invoke('ide:discard-source', child(), id)).toThrow('owner');
+  const result = invoke('ide:discard-source', parent(), id);
+  const request = desktop.views[0].webContents.send.mock.calls.find(call => call[0] === 'ide:discard-source')?.[1];
+  expect(request).toBeTypeOf('string');
+  expect(() => invoke('ide:discard-source-result', parent(), request)).toThrow('Unknown');
+  invoke('ide:discard-source-result', child(), request);
+  await expect(result).resolves.toBeUndefined();
 });

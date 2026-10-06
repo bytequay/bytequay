@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ipcMain, net, protocol, WebContentsView, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain, net, protocol, WebContentsView, type BrowserWindow, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -79,9 +79,15 @@ export class IdeViews {
   private readonly opening = new Map<string, Promise<string>>();
   private readonly timer: ReturnType<typeof setInterval>;
 
-  constructor(private readonly window: () => BrowserWindow | null) {
+  constructor(private readonly window: () => BrowserWindow | null, private readonly terminalOpen: (sender: WebContents) => boolean = () => false) {
     this.timer = setInterval(() => { void this.maintain(); }, 15_000);
     this.timer.unref();
+  }
+
+  terminalHost(event: IpcMainInvokeEvent): CodeHostRef {
+    const editor = [...this.editors.values()].find(item => item.view.webContents === event.sender);
+    if (!editor?.context || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown IDE terminal owner');
+    return editor.host;
   }
 
   register(): void {
@@ -130,6 +136,23 @@ export class IdeViews {
       if (codeHostKey(parseCodeHost(context.host)) !== codeHostKey(editor.host)) throw new Error('IDE context belongs to another task');
       editor.context = context;
       editor.view.webContents.send('ide:context', context);
+    });
+    ipcMain.handle('ide:discard-source', (event, id: string) => {
+      parent(event);
+      const editor = this.require(id);
+      return new Promise<void>((resolve, reject) => {
+        const requestId = randomUUID();
+        const timer = setTimeout(() => { editor.pending.delete(requestId); reject(new Error('The editor did not discard its source drafts')); }, 20_000);
+        editor.pending.set(requestId, { resolve: () => resolve(), reject, timer });
+        editor.view.webContents.send('ide:discard-source', requestId);
+      });
+    });
+    ipcMain.on('ide:discard-source-result', (event, id: string, error?: string) => {
+      const editor = child(event);
+      const pending = editor.pending.get(id);
+      if (!pending) return;
+      editor.pending.delete(id); clearTimeout(pending.timer);
+      if (typeof error === 'string') pending.reject(new Error(error.slice(0, 4000))); else pending.resolve(undefined);
     });
     ipcMain.handle('ide:close', async (event, id: string) => { parent(event); await this.close(id); });
     ipcMain.handle('ide:bootstrap', event => {
@@ -379,7 +402,7 @@ export class IdeViews {
 
   private async maintain(): Promise<void> {
     await Promise.allSettled([...this.editors.values()].map(async editor => {
-      if (editor.view.webContents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
+      if (editor.view.webContents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && !this.terminalOpen(editor.view.webContents) && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
         await this.close(editor.id);
         return;
       }

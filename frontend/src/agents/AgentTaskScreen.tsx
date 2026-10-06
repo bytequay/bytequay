@@ -38,6 +38,7 @@ import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { privateThreadSource } from '../pulls/PrivateThread';
 import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
+import { usePreparedAgentInput } from './preparedInput';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
@@ -1582,6 +1583,13 @@ export default function AgentTaskScreen({
   const submissionRef = useRef<DraftSubmissionTracker | null>(null);
   if (submissionRef.current === null) submissionRef.current = createDraftSubmissionTracker();
   const submissions = submissionRef.current;
+  usePreparedAgentInput(taskId, text => {
+    const draft = stateRef.current;
+    const message = [draft.composer, text].filter(Boolean).join('\n\n');
+    submissions.draftChanged(taskId, message, draft.attachments.map(attachment => attachment.id), draft.task?.defaults ?? null);
+    dispatch({ type: 'composer/changed', text: message });
+    composerRef.current?.focus();
+  });
   const inlineSending = useRef(false);
   const ciSending = useRef(false);
   const ciRequest = useRef<{ runId: string; message: string; key: string } | null>(null);

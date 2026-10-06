@@ -23,6 +23,10 @@ import { coordinateExecutions } from './executions';
 import { parseExecutionRequest } from './executionProtocol';
 import { testEvidence } from './testEvidence';
 
+vi.mock('@codingame/monaco-vscode-api/vscode/vs/base/browser/markdownRenderer', () => ({
+  renderAsPlaintext: (message: string | { value: string }) => typeof message === 'string' ? message : message.value,
+}));
+
 const services = vi.hoisted(() => new Map<unknown, unknown>());
 vi.mock('@codingame/monaco-vscode-api', () => ({ getService: async (id: unknown) => services.get(id),
   ITestService: 'tests', ITestResultService: 'results', IDebugService: 'debug', ITerminalService: 'terminals', ICommandService: 'commands' }));

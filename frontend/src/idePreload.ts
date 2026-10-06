@@ -16,6 +16,24 @@ import type { CodeQueryRequest } from './ide/codeQuery';
 import type { IdeContext, IdeWorkbenchBridge } from './ide/contracts';
 
 const bridge: IdeWorkbenchBridge = {
+  onDiscardSource: handler => {
+    const receive = (_event: Electron.IpcRendererEvent, id: string) => {
+      void handler().then(() => ipcRenderer.send('ide:discard-source-result', id), error => ipcRenderer.send('ide:discard-source-result', id, String(error)));
+    };
+    ipcRenderer.on('ide:discard-source', receive);
+    return () => ipcRenderer.removeListener('ide:discard-source', receive);
+  },
+  terminal: {
+    openCodeTerminal: (_host, cols, rows) => ipcRenderer.invoke('ide:terminal-open', cols, rows),
+    writeReviewTerminal: (id, data) => ipcRenderer.send('terminal:write', id, data),
+    resizeReviewTerminal: (id, cols, rows) => ipcRenderer.send('terminal:resize', id, cols, rows),
+    onReviewTerminalEvent: listener => {
+      const data = (_event: Electron.IpcRendererEvent, value: { terminalId: string; data: string }) => listener(value);
+      const exit = (_event: Electron.IpcRendererEvent, value: { terminalId: string; exitCode: number }) => listener(value);
+      ipcRenderer.on('terminal:data', data); ipcRenderer.on('terminal:exit', exit);
+      return () => { ipcRenderer.removeListener('terminal:data', data); ipcRenderer.removeListener('terminal:exit', exit); };
+    },
+  },
   startExecution: request => ipcRenderer.invoke('ide:execution', { operation: 'start', request }),
   outputExecution: (id, request) => ipcRenderer.invoke('ide:execution', { operation: 'output', id, request }),
   finishExecution: (id, request) => ipcRenderer.invoke('ide:execution', { operation: 'finish', id, request }),

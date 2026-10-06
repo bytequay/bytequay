@@ -270,7 +270,7 @@ function imageMediaType(filePath: string): string {
   if (extension === '.gif') return 'image/gif';
   return 'image/jpeg';
 }
-const ideViews = new IdeViews(() => mainWindow);
+const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender));
 const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'));
 let pendingWindow: Promise<void> | null = null;
 
@@ -1013,6 +1013,15 @@ function registerIpc(): void {
       .forEach(([key, value]) => url.searchParams.set(key, value));
     return url.toString();
   };
+  ipcMain.handle('ide:terminal-open', (event, cols: number, rows: number) => {
+    const host = ideViews.terminalHost(event);
+    if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 1000 || rows > 1000) throw new Error('Invalid terminal size');
+    return codeTerminals.open(event.sender, codeHostKey(host), cols, rows, async () => {
+      const body = await backendJson<{ workingDirectory?: unknown }>(codeUrl(host, '/terminal'), { method: 'POST', headers: agentHeaders() });
+      if (typeof body.workingDirectory !== 'string') throw new Error('Malformed terminal response');
+      return body.workingDirectory;
+    });
+  });
   ipcMain.handle('terminal:open', (event, host: unknown, cols: number, rows: number) =>
     codeTerminals.open(event.sender, codeHostKey(parseCodeHost(host)), cols, rows, async () => {
       const body = await backendJson<{ workingDirectory?: unknown }>(codeUrl(host, '/terminal'), {

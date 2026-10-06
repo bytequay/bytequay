@@ -17,7 +17,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
 import type { Bridge } from '../../types';
 import { remoteErrorMessage } from '../PullOverview';
-import type { CodeHostRef } from './contracts';
+import { codeHostKey, type CodeHostRef } from './contracts';
 
 export type TerminalBridge = Pick<Bridge, 'openCodeTerminal' | 'writeReviewTerminal' | 'resizeReviewTerminal' | 'onReviewTerminalEvent'>;
 
@@ -31,8 +31,23 @@ export const TERMINAL_THEME = {
   brightCyan: '#3192aa', brightWhite: '#8c959f',
 };
 
+/** Follow the shared IDE theme without restarting a shell or losing its selection. */
+export function followTerminalTheme(terminal: Terminal, element: HTMLElement): () => void {
+  const owner = element.closest('.ide-workbench');
+  const apply = () => { terminal.options.theme = owner?.classList.contains('is-dark')
+    ? { background: '#2b2b2b', foreground: '#bbbbbb', cursor: '#bbbbbb', selectionBackground: '#4b6eaf',
+      black: '#2b2b2b', red: '#ff6b68', green: '#a9cfa5', yellow: '#ffc66d', blue: '#6a9fb5', magenta: '#cc7832', cyan: '#6897bb', white: '#bbbbbb' }
+    : TERMINAL_THEME; };
+  apply();
+  const observer = new MutationObserver(apply);
+  if (owner) observer.observe(owner, { attributes: true, attributeFilter: ['class'] });
+  return () => observer.disconnect();
+}
+
 /** The host's login shell. Unmounting only detaches: the shell keeps running and replays its output on the next attach. */
 export default function TerminalView({ host: codeHost, bridge, clearRequest }: { host: CodeHostRef; bridge: TerminalBridge; clearRequest: number }) {
+  const hostKey = codeHostKey(codeHost);
+  const currentHost = useRef(codeHost); currentHost.current = codeHost;
   const host = useRef<HTMLDivElement>(null);
   const terminal = useRef<Terminal | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'opening' });
@@ -45,6 +60,7 @@ export default function TerminalView({ host: codeHost, bridge, clearRequest }: {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(element);
+    const stopTheme = followTerminalTheme(term, element);
     terminal.current = term;
     // Hidden panes measure zero, and fitting to zero would shrink the shell to one column.
     const refit = () => {
@@ -75,7 +91,7 @@ export default function TerminalView({ host: codeHost, bridge, clearRequest }: {
 
     setStatus({ kind: 'opening' });
     // Output pushed before the attach answers is already in the scrollback, so it is dropped until the id is known.
-    bridge.openCodeTerminal(codeHost, term.cols, term.rows).then(opened => {
+    bridge.openCodeTerminal(currentHost.current, term.cols, term.rows).then(opened => {
       if (!live) return;
       terminalId = opened.terminalId;
       term.write(opened.scrollback);
@@ -92,10 +108,10 @@ export default function TerminalView({ host: codeHost, bridge, clearRequest }: {
       input.dispose();
       resize.dispose();
       observer.disconnect();
-      term.dispose();
+      stopTheme(); term.dispose();
       terminal.current = null;
     };
-  }, [attempt, bridge, codeHost]);
+  }, [attempt, bridge, hostKey]);
 
   useEffect(() => {
     if (clearRequest > 0) terminal.current?.clear();

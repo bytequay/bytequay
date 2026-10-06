@@ -37,6 +37,7 @@ import CodeView, { type FollowRequest, type RunMarker } from './CodeView';
 import RunButton, { type RunTarget } from './RunButton';
 import TreeItems from './TreeItems';
 import RunPanel from './RunPanel';
+import IdeWorkingCopy from '../../ide/IdeWorkingCopy';
 import { ConflictBanner, DiscardPopover, UnsavedBar } from './EditBars';
 import { useCodeComments, type CodeCommentsOptions } from './useCodeComments';
 import { isRunning, lastOutcome, runGate, taskRunGate } from './runModel';
@@ -130,8 +131,9 @@ export default function CodeTestsTab({
   const shown = review ?? endedReview;
 
   if (task !== null && workspaceId !== undefined) {
+    const TaskCopy = task.state === 'OPEN' && task.interactive !== false ? IdeWorkingCopy : WorkingCopy;
     return (
-      <WorkingCopy
+      <TaskCopy
         key={`task:${task.id}`}
         host={{ kind: 'task', task, workspaceId }}
         onReviewChange={onReviewChange}
@@ -148,8 +150,9 @@ export default function CodeTestsTab({
     return <NoReview detail={detail} workspaceId={workspaceId} bridge={bridge} onReviewChange={onReviewChange} onOpenEnded={setEndedReview} />;
   }
   if (shown === null) return null;
+  const ReviewCopy = shown.state === 'OPEN' ? IdeWorkingCopy : WorkingCopy;
   return (
-    <WorkingCopy
+    <ReviewCopy
       key={`review:${shown.id}`}
       host={{ kind: 'review', review: shown }}
       onReviewChange={review === null ? setEndedReview : onReviewChange}

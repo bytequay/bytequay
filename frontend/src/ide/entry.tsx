@@ -95,6 +95,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [filesReload, setFilesReload] = useState(0);
   const [sidebar, setSidebar] = useState<'files' | 'search' | null>('files');
   const [error, setError] = useState<string | null>(null);
+  const [execution, setExecution] = useState(runtime.executions.run);
+  const [executionError, setExecutionError] = useState(runtime.executions.error);
   const [bottom, setBottom] = useState<'tests' | 'debug' | 'terminal' | 'history'>('tests');
   const column = useResizablePane(285, 180, 650);
   const panel = useResizablePane(270, 100, 900, 'start', 'y');
@@ -107,8 +109,13 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const report = () => {
     const privateDrafts = [...document.querySelectorAll('textarea')].filter(node => !node.classList.contains('inputarea') && node.value.trim()).length;
     window.ideWorkbench.report({ dirty: runtime.api.workspace.textDocuments.filter(document => document.isDirty).length + privateDrafts,
-      busy: runtime.terminals.instances.some(terminal => terminal.hasChildProcesses) || runtime.api.debug.activeDebugSession !== undefined || runtime.tests.results.some(result => result.completedAt === undefined) });
+      busy: runtime.executions.run !== null || runtime.terminals.instances.some(terminal => terminal.hasChildProcesses) || runtime.api.debug.activeDebugSession !== undefined || runtime.tests.results.some(result => result.completedAt === undefined) });
   };
+
+  useEffect(() => {
+    const listener = runtime.executions.onChange(state => { setExecution(state.run); setExecutionError(state.error); });
+    return () => listener.dispose();
+  }, [runtime]);
 
   useEffect(() => {
     const history = installGitHistory(runtime, context.host);
@@ -228,6 +235,10 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
         void runtime.api.workspace.getConfiguration().update('workbench.colorTheme', value, runtime.api.ConfigurationTarget.Global);
       }}><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option></select>
     </header>
+    {executionError && <div className="ide-notice" role="alert">{executionError}</div>}
+    {execution?.treeUnverified && <div className="ide-notice" role="status">Execution finished; verifying process cleanup.
+      <button onClick={() => { void runtime.executions.stop(true).catch(cause => setError(String(cause))); }}>Stop code tools to finish cleanup</button>
+    </div>}
     {error && <div className="ide-notice" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
     {recovered.map(draft => <div className="ide-notice" role="alert" key={`${draft.path}:${draft.text}`}>
       <span>A saved draft for {draft.path} differs from the current file. Your draft has been kept.</span>
@@ -262,7 +273,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
         <button onClick={() => command('testing.runCurrentFile')}>Run file tests</button>
         <button onClick={() => { void selectBottom('debug'); command('testing.debugCurrentFile'); }}>Debug file tests</button>
         <button onClick={() => { void selectBottom('debug'); command('workbench.action.debug.start'); }}>Debug configuration</button>
-        <button onClick={() => command('workbench.action.debug.stop')}><Square size={12} /> Stop debug</button>
+        <button disabled={!execution} onClick={() => { void runtime.executions.stop().catch(cause => setError(String(cause))); }}><Square size={12} /> Stop execution</button>
       </nav>
       <div className="ide-tools" style={{ display: bottom === 'history' && history ? 'none' : undefined }}><Part part={Parts.PANEL_PART} /></div>
       {bottom === 'history' && <nav className="ide-toolbar" aria-label="History scope">

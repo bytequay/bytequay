@@ -80,7 +80,7 @@ public record LocalRun(
         checkOptionalText(testClass, "testClass", 1024);
         checkOptionalText(testMethod, "testMethod", 1024);
         checkOptionalText(module, "module", 4096);
-        checkArgument(scope == Scope.COMMAND || testClass.isPresent(), "a class or method run has no test class");
+        checkArgument((scope != Scope.CLASS && scope != Scope.METHOD) || testClass.isPresent(), "a class or method run has no test class");
         checkArgument((scope == Scope.METHOD) == testMethod.isPresent(), "only a method run names a test method");
         checkText(command, "command", 64 * 1024);
         checkOptionalSha(sourceHeadSha, "sourceHeadSha");
@@ -183,7 +183,10 @@ public record LocalRun(
     {
         CLASS,
         METHOD,
-        COMMAND
+        COMMAND,
+        TESTS,
+        DEBUG,
+        RUN
     }
 
     public enum Status
@@ -196,7 +199,9 @@ public record LocalRun(
         STOPPED,
         TIMED_OUT,
         RESULTS_UNAVAILABLE,
-        INTERRUPTED
+        INTERRUPTED,
+        COMPLETED,
+        FAILED
     }
 
     public record Counts(int tests, int failures, int errors, int skipped)

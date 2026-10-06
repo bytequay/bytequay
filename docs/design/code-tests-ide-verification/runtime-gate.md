@@ -359,3 +359,42 @@ output and unchanged checkout state. The full backend `mvn verify` gate passes,
 including the agent-query migration and application composition. Goal planning
 no longer consumes CodeGraph. The legacy editor, its status/settings and graph
 lifecycle still need removal when the production IDE cutover is ready.
+
+
+## Native execution coordination
+
+The production renderer now routes native Test Explorer, debug launch, task menu
+and task rerun dispatch through the existing ByteQuay local-run claim. Saving
+precedes launch. Paused or restarting debug sessions retain the claim. Test
+controller launch errors are retained even when the upstream UI only displays a
+notification. Native test IDs, outcomes, durations, failure messages and source
+locations are normalized into existing durable run records. Application/debug
+completion is distinct from a passing test.
+
+A temporary native Electron fixture used the production renderer and preload,
+the pinned server/extensions and real Java, Go and Rust projects. It observed:
+
+- Java, Go and Rust test failures with structured outcomes and source locations;
+  Go and Rust also produced captured build/test output.
+- Java test debugging paused at a breakpoint, displayed variables and call stack,
+  stepped into application code and stopped. A private React review card remained
+  usable in the same editor.
+- Java application launch produced output in its execution terminal. Completion
+  closed the terminal shell created by the execution while preserving the shell
+  already open before it. Its adapter did not supply an exit code in that mode;
+  the record therefore retains an unknown exit code.
+
+The fixture supplied the execution IPC responses; these observations do not
+constitute an end-to-end test against the production backend. Backend tests cover
+claim ownership, source identity, output retries, interrupted sessions, uncertain
+process tracking and delayed cleanup. Frontend tests cover remote adapter event
+capture, launch failure retention, output sequencing and native result bounds.
+Go and Rust debugger acceptance and final application integration remain open.
+
+Completion compares observed descendant process identities with the IDE's
+pre-execution baseline. The persistent PTY host is warmed before that snapshot.
+Finished protocol sessions keep the claim until new observed processes have
+exited. A newly created long-lived import/build daemon is conservatively treated
+as part of that execution; explicit Stop code tools stops the shared runtime when
+cleanup cannot otherwise be proved. This is process observation, not operating
+system containment or a promise to detect escaped, unobserved descendants.

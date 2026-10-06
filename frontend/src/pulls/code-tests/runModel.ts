@@ -26,6 +26,8 @@ const STATUS_LABELS: Record<LocalRunStatus, string> = {
   TIMED_OUT: 'Timed out after 60 min',
   RESULTS_UNAVAILABLE: 'Results unavailable',
   INTERRUPTED: 'Disconnected',
+  COMPLETED: 'Session ended',
+  FAILED: 'Execution failed',
 };
 
 export function statusLabel(status: LocalRunStatus) {
@@ -36,7 +38,7 @@ export type StatusTone = 'pass' | 'fail' | 'running' | 'neutral';
 
 export function statusTone(status: LocalRunStatus): StatusTone {
   if (status === 'PASSED') return 'pass';
-  if (status === 'FAILED_ASSERTION' || status === 'BUILD_FAILED') return 'fail';
+  if (status === 'FAILED_ASSERTION' || status === 'BUILD_FAILED' || status === 'FAILED') return 'fail';
   return status === 'RUNNING' ? 'running' : 'neutral';
 }
 
@@ -82,12 +84,16 @@ export function commandLabel(command: string) {
 }
 
 export function runLabel(run: LocalRunDto) {
+  if (['TESTS', 'DEBUG', 'RUN'].includes(run.scope)) return `${run.command} #${run.ordinal}`;
   const name = run.testMethod ?? simpleClassName(run.testClass) ?? commandLabel(run.command);
   return `${name} #${run.ordinal}`;
 }
 
 export function scopeText(run: LocalRunDto) {
   if (run.scope === 'COMMAND') return 'command';
+  if (run.scope === 'TESTS') return 'IDE tests';
+  if (run.scope === 'DEBUG') return 'debug session';
+  if (run.scope === 'RUN') return 'program';
   return run.scope === 'METHOD' ? `method ${run.testClass}#${run.testMethod}` : `class ${run.testClass}`;
 }
 

@@ -75,6 +75,8 @@
     "@codingame/monaco-vscode-scm-service-override": "33.0.9",
     "@codingame/monaco-vscode-search-service-override": "33.0.9",
     "@codingame/monaco-vscode-storage-service-override": "33.0.9",
+    "@codingame/monaco-vscode-task-service-override": "33.0.9",
+    "@codingame/monaco-vscode-terminal-service-override": "33.0.9",
     "@codingame/monaco-vscode-testing-service-override": "33.0.9",
     "@codingame/monaco-vscode-textmate-service-override": "33.0.9",
     "@codingame/monaco-vscode-theme-defaults-default-extension": "33.0.9",

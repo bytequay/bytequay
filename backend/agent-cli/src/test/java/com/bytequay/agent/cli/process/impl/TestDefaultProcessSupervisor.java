@@ -43,6 +43,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Duration;
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -534,6 +535,51 @@ class TestDefaultProcessSupervisor
     }
 
     @Test
+    void distinguishesPersistentChildrenFromAnExecutionsNewProcesses()
+            throws Exception
+    {
+        CountDownLatch serviceReady = new CountDownLatch(1);
+        CountDownLatch runReady = new CountDownLatch(1);
+        AtomicLong service = new AtomicLong();
+        AtomicLong run = new AtomicLong();
+        StringBuilder output = new StringBuilder();
+        ManagedProcess process = supervisor.prepare(spec(new ProcessOwner(ProcessOwner.Kind.IDE, "test-task"),
+                "sleep 30 & printf 'service:%s\\n' \"$!\"; read begin; sleep 30 & job=$!; printf 'run:%s\\n' \"$job\"; read finish; kill \"$job\"; wait \"$job\"; read close"))
+                .start((stream, bytes) -> {
+                    output.append(StandardCharsets.UTF_8.decode(bytes));
+                    for (String line : output.toString().split("\\n")) {
+                        if (line.startsWith("service:")) {
+                            service.set(Long.parseLong(line.substring(8).strip()));
+                            serviceReady.countDown();
+                        }
+                        if (line.startsWith("run:")) {
+                            run.set(Long.parseLong(line.substring(4).strip()));
+                            runReady.countDown();
+                        }
+                    }
+                });
+        try {
+            assertThat(serviceReady.await(5, TimeUnit.SECONDS)).isTrue();
+            List<ProcessIdentity> baseline = process.observedDescendants().orElseThrow();
+            assertThat(baseline).extracting(ProcessIdentity::pid).contains(service.get());
+            process.write(ByteBuffer.wrap("begin\n".getBytes(StandardCharsets.UTF_8))).toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(runReady.await(5, TimeUnit.SECONDS)).isTrue();
+            List<ProcessIdentity> added = process.observedDescendants().orElseThrow().stream().filter(identity -> !baseline.contains(identity)).toList();
+            assertThat(added).extracting(ProcessIdentity::pid).contains(run.get());
+            assertThat(added.stream().anyMatch(identity -> identity.liveness() != ProcessIdentity.Liveness.GONE)).isTrue();
+            process.write(ByteBuffer.wrap("finish\n".getBytes(StandardCharsets.UTF_8))).toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(awaitDead(run.get(), Duration.ofSeconds(5))).isTrue();
+            assertThat(process.observedDescendants().orElseThrow()).containsAll(added);
+            assertThat(added).allMatch(identity -> identity.liveness() == ProcessIdentity.Liveness.GONE);
+            assertThat(baseline.stream().filter(identity -> identity.pid() == service.get()).findFirst().orElseThrow().liveness()).isEqualTo(ProcessIdentity.Liveness.MATCHES);
+        }
+        finally {
+            assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        }
+        assertThat(process.observedDescendants()).isEmpty();
+    }
+
+    @Test
     void verifiesTextOnlyTaskProcesses()
             throws Exception
     {
@@ -572,7 +618,9 @@ class TestDefaultProcessSupervisor
         ManagedProcess process = supervisor.prepare(spec(new ProcessOwner(ProcessOwner.Kind.CLAUDE_TURN, "interrupted-task"), "read value"))
                 .start((stream, bytes) -> {});
         try {
+            assertThat(process.observedDescendants()).isPresent();
             observeTokenlessDescendant(process, true);
+            assertThat(process.observedDescendants()).isEmpty();
             assertThat(process.stopAndVerify().toCompletableFuture().get(15, TimeUnit.SECONDS)).isEqualTo(ProcessExit.TreeTermination.UNVERIFIABLE);
             LaunchMarker marker = new LaunchMarkerStore(launches).read(process.launchId()).orElseThrow();
             assertThat(marker.descendantTrackingIncomplete()).isTrue();

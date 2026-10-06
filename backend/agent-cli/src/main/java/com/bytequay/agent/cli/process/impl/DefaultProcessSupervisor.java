@@ -817,6 +817,18 @@ public final class DefaultProcessSupervisor
         }
 
         @Override
+        public Optional<List<ProcessIdentity>> observedDescendants()
+        {
+            if (terminating.get() || marker.identity().map(ProcessIdentity::liveness).orElse(ProcessIdentity.Liveness.UNKNOWN) != ProcessIdentity.Liveness.MATCHES) {
+                return Optional.empty();
+            }
+            sampleDescendants();
+            synchronized (markerLock) {
+                return marker.descendantTrackingIncomplete() ? Optional.empty() : marker.descendants();
+            }
+        }
+
+        @Override
         public CompletionStage<Void> write(ByteBuffer bytes)
         {
             requireNonNull(bytes, "bytes is null");
@@ -1021,20 +1033,25 @@ public final class DefaultProcessSupervisor
         private void observeDescendants()
         {
             while (observingDescendants.get()) {
-                try {
-                    // The outer launcher can still be reaping its identity-file publisher. Only
-                    // the gated payload's descendants can belong to the provider's task tree.
-                    launcher.children()
-                            .filter(child -> child.pid() == payloadPid)
-                            .flatMap(ProcessHandle::descendants)
-                            .forEach(this::rememberDescendant);
-                }
-                catch (RuntimeException failure) {
-                    markDescendantTrackingIncomplete("Unable to enumerate descendants: " + failure.getClass().getSimpleName());
-                }
+                sampleDescendants();
                 if (!sleep(10)) {
                     return;
                 }
+            }
+        }
+
+        private void sampleDescendants()
+        {
+            try {
+                // The outer launcher can still be reaping its identity-file publisher. Only
+                // the gated payload's descendants can belong to the provider's task tree.
+                launcher.children()
+                        .filter(child -> child.pid() == payloadPid)
+                        .flatMap(ProcessHandle::descendants)
+                        .forEach(this::rememberDescendant);
+            }
+            catch (RuntimeException failure) {
+                markDescendantTrackingIncomplete("Unable to enumerate descendants: " + failure.getClass().getSimpleName());
             }
         }
 

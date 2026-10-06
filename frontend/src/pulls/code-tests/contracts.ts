@@ -196,7 +196,9 @@ export type LocalRunStatus =
   | 'STOPPED'
   | 'TIMED_OUT'
   | 'RESULTS_UNAVAILABLE'
-  | 'INTERRUPTED';
+  | 'INTERRUPTED'
+  | 'COMPLETED'
+  | 'FAILED';
 
 export type LocalRunMethodDto = {
   name: string;
@@ -212,7 +214,7 @@ export type LocalRunDto = {
   id: string;
   ordinal: number;
   initiator: 'USER' | 'AGENT';
-  scope: 'CLASS' | 'METHOD' | 'COMMAND';
+  scope: 'CLASS' | 'METHOD' | 'COMMAND' | 'TESTS' | 'DEBUG' | 'RUN';
   /** Test source path the run was started from; null for commands. */
   path: string | null;
   testClass: string | null;
@@ -246,7 +248,7 @@ export type LocalRunOutputDto = {
 };
 
 const RUN_STATUSES: readonly LocalRunStatus[] = [
-  'RUNNING', 'PASSED', 'FAILED_ASSERTION', 'BUILD_FAILED', 'NO_TESTS_RAN', 'STOPPED', 'TIMED_OUT', 'RESULTS_UNAVAILABLE', 'INTERRUPTED',
+  'RUNNING', 'PASSED', 'FAILED_ASSERTION', 'BUILD_FAILED', 'NO_TESTS_RAN', 'STOPPED', 'TIMED_OUT', 'RESULTS_UNAVAILABLE', 'INTERRUPTED', 'COMPLETED', 'FAILED',
 ];
 
 
@@ -257,7 +259,7 @@ export function parseLocalRun(value: unknown): LocalRunDto {
     id: text(source.id, 'run id'),
     ordinal: count(source.ordinal, 'run ordinal'),
     initiator: oneOf(source.initiator, ['USER', 'AGENT'] as const, 'run initiator'),
-    scope: oneOf(source.scope, ['CLASS', 'METHOD', 'COMMAND'] as const, 'run scope'),
+    scope: oneOf(source.scope, ['CLASS', 'METHOD', 'COMMAND', 'TESTS', 'DEBUG', 'RUN'] as const, 'run scope'),
     path: optionalText(source.path),
     testClass: optionalText(source.testClass),
     testMethod: optionalText(source.testMethod),

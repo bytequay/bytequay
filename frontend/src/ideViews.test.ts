@@ -14,6 +14,8 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { BrowserWindow } from 'electron';
 import { IdeViews } from './ideViews';
+import type { LocalRunDto } from './pulls/code-tests/contracts';
+import type { ExecutionRequest } from './ide/executionProtocol';
 
 const desktop = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
@@ -233,4 +235,32 @@ it('delivers backend queries without a parent renderer and cancels removed queue
   expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
   poll?.(new Response(JSON.stringify({ version: 2, requests: [] })));
   await vi.advanceTimersByTimeAsync(0);
+});
+
+
+it('binds execution metadata to the owning task and keeps cleanup-pending runs alive while hidden', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  const start: ExecutionRequest = { operation: 'start', request: { scope: 'DEBUG', label: 'Example', path: null } };
+  await expect(invoke('ide:execution', child(), start)).rejects.toThrow('Open Code & Tests');
+  invoke('ide:update', parent(), id, { host, task: null, review: null, detail: null });
+  const run: LocalRunDto = { id: 'run-1', ordinal: 1, initiator: 'USER', scope: 'DEBUG', path: null, testClass: null, testMethod: null, module: null,
+    command: 'Example', sourceHeadSha: 'a'.repeat(40), localPaths: [], sourceFingerprint: 'source', status: 'RUNNING',
+    startedAt: '2026-01-01T00:00:00Z', endedAt: null, exitCode: null, tests: null, failures: null, errors: null, skipped: null,
+    outputTruncated: false, omittedBytes: null, treeUnverified: false, results: [] };
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(run)));
+  await invoke('ide:execution', child(), start);
+  expect(fetchMock).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/ide/tasks/workspace/task/executions', expect.objectContaining({
+    body: JSON.stringify({ scope: 'DEBUG', label: 'Example', path: null, sessionId: 'session' }),
+  }));
+  await expect(invoke('ide:execution', child(), start)).rejects.toThrow('already using');
+  await expect(invoke('ide:execution', child(), { operation: 'stop', id: 'another-run' })).rejects.toThrow('does not belong');
+  const finish: ExecutionRequest = { operation: 'finish', id: run.id, request: { cancelled: false, failed: false, incomplete: false, exitCode: 0, tests: [] } };
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...run, status: 'COMPLETED', treeUnverified: true })));
+  await invoke('ide:execution', child(), finish);
+  await vi.advanceTimersByTimeAsync(150_000);
+  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...run, status: 'COMPLETED', treeUnverified: false })));
+  await invoke('ide:execution', child(), finish);
+  await vi.advanceTimersByTimeAsync(15_000);
+  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
 });

@@ -19,11 +19,13 @@ import com.bytequay.app.review.CodeBlame;
 import com.bytequay.app.review.CodeHistory;
 import com.bytequay.app.review.IdeCodeQueries;
 import com.bytequay.app.review.IdeConnection;
+import com.bytequay.app.review.IdeExecutions;
 import com.bytequay.app.review.IdeRuntimeService;
 import com.bytequay.app.review.ReviewCodeService;
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.review.TaskCodeHost;
+import com.bytequay.app.web.review.ReviewCodeHttpModels.RunResponse;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -50,12 +52,44 @@ public class IdeController
     private final ReviewCodeService code;
     private final IdeRuntimeService runtime;
     private final IdeCodeQueries queries;
+    private final IdeExecutions executions;
 
-    public IdeController(ReviewCodeService code, IdeRuntimeService runtime, IdeCodeQueries queries)
+    public IdeController(ReviewCodeService code, IdeRuntimeService runtime, IdeCodeQueries queries, IdeExecutions executions)
     {
         this.code = requireNonNull(code, "code is null");
         this.runtime = requireNonNull(runtime, "runtime is null");
         this.queries = requireNonNull(queries, "queries is null");
+        this.executions = requireNonNull(executions, "executions is null");
+    }
+
+    @PostMapping("/reviews/{reviewId}/executions")
+    public RunResponse runReview(@PathVariable String reviewId, @RequestBody IdeExecutions.Start request)
+    {
+        return ReviewCodeHttpModels.run(executions.start(reviewId, request));
+    }
+
+    @PostMapping("/tasks/{workspaceId}/{taskId}/executions")
+    public RunResponse runTask(@PathVariable String workspaceId, @PathVariable String taskId, @RequestBody IdeExecutions.Start request)
+    {
+        return ReviewCodeHttpModels.run(executions.start(new TaskCodeHost(workspaceId, taskId), request));
+    }
+
+    @PostMapping("/{taskId}/{sessionId}/executions/{id}/output")
+    public void runOutput(@PathVariable String taskId, @PathVariable String sessionId, @PathVariable String id, @RequestBody IdeExecutions.Output request)
+    {
+        executions.output(taskId, sessionId, id, request);
+    }
+
+    @PostMapping("/{taskId}/{sessionId}/executions/{id}/finish")
+    public RunResponse finishRun(@PathVariable String taskId, @PathVariable String sessionId, @PathVariable String id, @RequestBody IdeExecutions.Result result)
+    {
+        return ReviewCodeHttpModels.run(executions.finish(taskId, sessionId, id, result));
+    }
+
+    @DeleteMapping("/{taskId}/{sessionId}/executions/{id}")
+    public RunResponse stopRun(@PathVariable String taskId, @PathVariable String sessionId, @PathVariable String id)
+    {
+        return ReviewCodeHttpModels.run(executions.stop(taskId, sessionId, id));
     }
 
     @PostMapping("/tasks/{workspaceId}/{taskId}/query")

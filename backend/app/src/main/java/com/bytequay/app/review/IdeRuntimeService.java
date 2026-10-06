@@ -17,6 +17,7 @@ import com.bytequay.agent.cli.process.LaunchIntentRecorder;
 import com.bytequay.agent.cli.process.ManagedProcess;
 import com.bytequay.agent.cli.process.OwnedProcessRecovery;
 import com.bytequay.agent.cli.process.ProcessExit;
+import com.bytequay.agent.cli.process.ProcessIdentity;
 import com.bytequay.agent.cli.process.ProcessOwner;
 import com.bytequay.agent.cli.process.ProcessSpec;
 import com.bytequay.agent.cli.process.ProcessSupervisor;
@@ -45,6 +46,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -135,6 +137,43 @@ public class IdeRuntimeService
             live.lastSeen = clock.instant();
             return live;
         });
+    }
+
+    /** Takes the process baseline before a claimed execution is allowed to start. */
+    public Execution trackExecution(String taskId, String sessionId)
+    {
+        touch(taskId, sessionId);
+        Live live = sessions.get(taskId);
+        checkState(live != null && live.sessionId.equals(sessionId), "The IDE session has ended");
+        ManagedProcess process = live.process.orElseThrow();
+        List<ProcessIdentity> baseline = process.observedDescendants()
+                .orElseThrow(() -> new ReviewConflictException("IDE process ownership is uncertain; close the editor before running code"));
+        return new Execution(process, baseline);
+    }
+
+    /** Backend-only execution evidence. A protocol completion still needs this process check before releasing its claim. */
+    public record Execution(ManagedProcess process, List<ProcessIdentity> baseline)
+    {
+        public Execution
+        {
+            requireNonNull(process, "process is null");
+            baseline = ImmutableList.copyOf(baseline);
+        }
+
+        public boolean quiescent()
+        {
+            if (process.exit().toCompletableFuture().isDone()) {
+                try {
+                    return process.exit().toCompletableFuture().join().treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED;
+                }
+                catch (RuntimeException failure) {
+                    return false;
+                }
+            }
+            return process.observedDescendants()
+                    .map(known -> known.stream().filter(identity -> !baseline.contains(identity)).allMatch(identity -> identity.liveness() == ProcessIdentity.Liveness.GONE))
+                    .orElse(false);
+        }
     }
 
     public void stop(String taskId, String sessionId)

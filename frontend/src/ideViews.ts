@@ -20,6 +20,8 @@ import { browserBounds } from './browserTabs';
 import { backendBase, sessionToken } from './backendProcess';
 import { parseCodeHost, codeHostKey, type CodeHostRef } from './pulls/code-tests/contracts';
 import { parseCodeQuery, parseCodeQueryReply, queryFailure, type CodeQueryRequest, type CodeQueryReply } from './ide/codeQuery';
+import { parseExecutionRequest } from './ide/executionProtocol';
+import { parseLocalRun } from './pulls/code-tests/contracts';
 import { validateIdeAction } from './ide/actionPolicy';
 import type { IdeConnection, IdeContext, IdeEvent, IdeReply, IdeRequest } from './ide/contracts';
 
@@ -38,6 +40,8 @@ type Editor = {
   busy: boolean;
   lastUsed: number;
   queryReady: boolean;
+  execution: string | null;
+  executionStarting: boolean;
   queries: Map<string, { request: CodeQueryRequest; finish: (reply: CodeQueryReply) => void }>;
   closing: Promise<void> | null;
   pending: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>;
@@ -141,6 +145,30 @@ export class IdeViews {
       const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}` : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
       await runtimeRequest(`${route}/file`, 'PUT', { path: file, content, expectedHash });
     });
+    ipcMain.handle('ide:execution', async (event, value: unknown) => {
+      const editor = child(event);
+      if (!editor.context) throw new Error('Open Code & Tests before running code');
+      const request = parseExecutionRequest(value);
+      const connection = editor.connection;
+      if (request.operation === 'start') {
+        if (editor.execution || editor.executionStarting) throw new Error('An execution is already using this working copy');
+        editor.executionStarting = true;
+        try {
+          const host = editor.host;
+          const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}` : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
+          const run = parseLocalRun(await runtimeRequest(`${route}/executions`, 'POST', { ...request.request, sessionId: connection.sessionId }));
+          editor.execution = run.id;
+          return run;
+        } finally { editor.executionStarting = false; }
+      }
+      if (request.id !== editor.execution) throw new Error('The execution does not belong to this editor');
+      const route = `/${connection.taskId}/${connection.sessionId}/executions/${request.id}`;
+      if (request.operation === 'output') return runtimeRequest(`${route}/output`, 'POST', request.request);
+      const run = parseLocalRun(await runtimeRequest(request.operation === 'finish' ? `${route}/finish` : route,
+        request.operation === 'finish' ? 'POST' : 'DELETE', request.operation === 'finish' ? request.request : undefined));
+      if (!run.treeUnverified && run.status !== 'RUNNING') editor.execution = null;
+      return run;
+    });
     ipcMain.handle('ide:request', (event, method: unknown, args: unknown, userGesture: boolean) => {
       const editor = child(event);
       validateIdeAction(method, args, editor.context, userGesture === true);
@@ -223,7 +251,7 @@ export class IdeViews {
     const view = new WebContentsView({ webPreferences: {
       preload: path.join(__dirname, 'idePreload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, partition: `persist:bytequay-ide-${connection.taskId}`,
     } });
-    const editor: Editor = { id, host, connection, view, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, queries: new Map(), closing: null, pending: new Map() };
+    const editor: Editor = { id, host, connection, view, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };
     this.editors.set(id, editor);
     try {
       const resources = await Promise.all(['extensions', 'server'].map(name => realpath(path.join(connection.bundleRoot, name))));
@@ -351,7 +379,7 @@ export class IdeViews {
 
   private async maintain(): Promise<void> {
     await Promise.allSettled([...this.editors.values()].map(async editor => {
-      if (editor.view.webContents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && editor.pending.size === 0 && editor.queries.size === 0 && Date.now() - editor.lastUsed > 120_000)) {
+      if (editor.view.webContents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
         await this.close(editor.id);
         return;
       }

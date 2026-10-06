@@ -278,7 +278,7 @@ export default function RunPanel({
   const rows = run === null ? [] : methodRows(run);
   const tree = run === null ? [] : shownResults(run, failedOnly);
   const blocked = gate.hidden ? 'This working copy cannot run tests' : gate.blocked;
-  const canRerun = run !== null && run.scope !== 'COMMAND' && run.path !== null && !gate.hidden && blocked === null;
+  const canRerun = run !== null && (run.scope === 'CLASS' || run.scope === 'METHOD') && run.path !== null && !gate.hidden && blocked === null;
   const firstFailed = run === null ? undefined : failedRows(run)[0];
   const output = run === null ? null : outputs.get(run.id) ?? null;
   const terminal = mode === 'terminal' ? terminalTarget : null;
@@ -440,9 +440,9 @@ export default function RunPanel({
                           <div key={method.name} role="treeitem" className="ct-run__row">
                             <span className="ct-run__row-label">
                               <RowIcon row={method} />
-                              <span className="ct-run__row-name">{method.name}()</span>
+                              <span className="ct-run__row-name">{method.name}{run.scope === 'CLASS' || run.scope === 'METHOD' ? '()' : ''}</span>
                             </span>
-                            {run.status !== 'RUNNING' && run.scope !== 'COMMAND' && run.path !== null && (
+                            {run.status !== 'RUNNING' && (run.scope === 'CLASS' || run.scope === 'METHOD') && run.path !== null && (
                               <button type="button" className="ct-run__row-rerun" aria-label={`Rerun ${method.name}()`}
                                 title={blocked ?? 'Rerun this test'} disabled={blocked !== null}
                                 onClick={() => onRerun(run, method.name)}><Play size={10} strokeWidth={2} aria-hidden="true" /></button>
@@ -476,7 +476,7 @@ export default function RunPanel({
                   <dt>Initiator</dt><dd>{run.initiator === 'USER' ? 'You' : 'Review agent'}</dd>
                   <dt>Scope</dt><dd>{scopeText(run)}</dd>
                   <dt>Selector</dt><dd>{run.command}</dd>
-                  <dt>Runner</dt><dd>{run.scope === 'COMMAND' ? 'none — plain command' : 'JUnit via Maven Surefire'}</dd>
+                  <dt>Runner</dt><dd>{run.scope === 'COMMAND' ? 'none — plain command' : run.scope === 'TESTS' ? 'IDE test controller' : run.scope === 'DEBUG' ? 'IDE debugger' : run.scope === 'RUN' ? 'IDE program or task' : 'JUnit via Maven Surefire'}</dd>
                   <dt>Working copy</dt><dd>{hostKind === 'review' ? 'Agent review working copy' : 'Development task working copy'}{run.sourceHeadSha === null ? '' : ` · ${shortSha(run.sourceHeadSha)}`}</dd>
                   <dt>Source version</dt><dd>{run.sourceHeadSha === null ? 'unknown' : shortSha(run.sourceHeadSha)}
                     {run.localPaths.length === 0 ? ' · no local files' : ` + ${run.localPaths.length} local ${run.localPaths.length === 1 ? 'file' : 'files'}`}</dd>

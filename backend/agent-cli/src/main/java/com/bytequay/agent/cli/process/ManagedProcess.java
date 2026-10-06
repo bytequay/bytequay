@@ -14,6 +14,8 @@
 package com.bytequay.agent.cli.process;
 
 import java.nio.ByteBuffer;
+import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
 /** Controls one supervised child process without exposing raw process streams. */
@@ -33,6 +35,22 @@ public interface ManagedProcess
      * @return payload process ID
      */
     long pid();
+
+    /**
+     * Samples and durably records the descendants of a still-running payload.
+     *
+     * <p>A persistent IDE can compare samples before and after an execution without treating its
+     * pre-existing language services as test processes. Known identities remain in later samples
+     * after reparenting or exit. Absence means the payload ended or observation is incomplete;
+     * it never means the tree is empty. This observation is not OS containment or a substitute
+     * for the provider's execution-finished signal. Recovery still stops the entire owned launch.
+     *
+     * @return immutable cumulative process identities, or empty when they cannot be verified
+     */
+    default Optional<List<ProcessIdentity>> observedDescendants()
+    {
+        return Optional.empty();
+    }
 
     /**
      * Writes bytes to standard input in call order.

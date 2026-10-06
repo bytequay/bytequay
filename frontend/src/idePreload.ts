@@ -16,6 +16,10 @@ import type { CodeQueryRequest } from './ide/codeQuery';
 import type { IdeContext, IdeWorkbenchBridge } from './ide/contracts';
 
 const bridge: IdeWorkbenchBridge = {
+  startExecution: request => ipcRenderer.invoke('ide:execution', { operation: 'start', request }),
+  outputExecution: (id, request) => ipcRenderer.invoke('ide:execution', { operation: 'output', id, request }),
+  finishExecution: (id, request) => ipcRenderer.invoke('ide:execution', { operation: 'finish', id, request }),
+  stopExecution: id => ipcRenderer.invoke('ide:execution', { operation: 'stop', id }),
   queryReady: () => ipcRenderer.send('ide:query-ready'),
   queryReply: (id, reply) => ipcRenderer.send('ide:query-reply', id, reply),
   onQuery: listener => {

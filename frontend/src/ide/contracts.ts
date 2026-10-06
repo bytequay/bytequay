@@ -13,7 +13,8 @@
  */
 import type { CodeQueryRequest, CodeQueryReply } from './codeQuery';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
-import type { CodeHostRef } from '../pulls/code-tests/contracts';
+import type { ExecutionStart, ExecutionOutput, ExecutionResult } from './executionProtocol';
+import type { LocalRunDto, CodeHostRef } from '../pulls/code-tests/contracts';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
 import type { AgentTaskDto, PullRequestDetailDto } from '../types';
 
@@ -63,6 +64,10 @@ export type IdeDesktopBridge = {
 
 /** The isolated workbench has no desktop session token and cannot invoke arbitrary app IPC. */
 export type IdeWorkbenchBridge = {
+  startExecution: (request: ExecutionStart) => Promise<LocalRunDto>;
+  outputExecution: (id: string, request: ExecutionOutput) => Promise<void>;
+  finishExecution: (id: string, request: ExecutionResult) => Promise<LocalRunDto>;
+  stopExecution: (id: string) => Promise<LocalRunDto>;
   onQuery: (listener: (request: CodeQueryRequest & { cancel?: boolean }) => void) => () => void;
   queryReply: (id: string, reply: CodeQueryReply) => void;
   queryReady: () => void;

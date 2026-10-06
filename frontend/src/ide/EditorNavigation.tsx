@@ -120,7 +120,8 @@ export default function EditorNavigation({ runtime, active, context, file, revis
       if (previewRef.current?.keyboard) return;
       const rect = editor.getDomNode()?.getBoundingClientRect();
       const model = editor.getModel();
-      if (!rect || !model || event.event.browserEvent.buttons !== 0
+      if (event.event.browserEvent.buttons !== 0) return;
+      if (!rect || !model
         || ![MouseTargetType.OVERVIEW_RULER, MouseTargetType.SCROLLBAR].includes(event.target.type)
         || event.event.posx < rect.right - 20 || event.event.posy >= rect.bottom - 14) { clear(); return; }
       const line = overviewLine((event.event.posy - rect.top) / editor.getLayoutInfo().height, editor.getScrollHeight(), model.getLineCount(), line => editor.getTopForLineNumber(line));
@@ -128,13 +129,33 @@ export default function EditorNavigation({ runtime, active, context, file, revis
       const show = () => setPreview(previewPosition(editor, line, event.event.posy, false));
       if (previewRef.current) show(); else timer = setTimeout(show, 180);
     });
-    const down = editor.onMouseDown(event => {
+    // Monaco handles scrollbar presses before onMouseDown. Observe the native gesture without taking its drag handling.
+    let press: { x: number; y: number; line: number } | null = null;
+    const down = (event: PointerEvent) => {
       const current = previewRef.current;
-      if (!current || current.keyboard || ![MouseTargetType.OVERVIEW_RULER, MouseTargetType.SCROLLBAR].includes(event.target.type)) return;
+      const rect = editor.getDomNode()?.getBoundingClientRect();
+      if (event.button !== 0 || !current || current.keyboard || !rect
+        || event.clientX < rect.right - 20 || event.clientX > rect.right || event.clientY < rect.top || event.clientY >= rect.bottom - 14) return;
+      press = { x: event.clientX, y: event.clientY, line: current.line };
+      clearTimeout(timer); setPreview(null);
+    };
+    const up = (event: PointerEvent) => {
+      const current = press;
+      press = null;
+      if (!current || event.button !== 0 || Math.hypot(event.clientX - current.x, event.clientY - current.y) > 4) return;
       editor.setPosition({ lineNumber: current.line, column: 1 }); editor.revealLineInCenter(current.line); editor.focus(); clear();
-    });
+    };
+    const cancel = () => { press = null; clear(); };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', cancel, true);
     const leave = editor.onMouseLeave(clear);
-    return () => { clearTimeout(timer); move.dispose(); down.dispose(); leave.dispose(); };
+    return () => {
+      clearTimeout(timer); move.dispose(); leave.dispose();
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', cancel, true);
+    };
   }, [editor]);
 
   return <>

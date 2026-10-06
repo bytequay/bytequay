@@ -18,6 +18,8 @@ import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-re
 import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import { useReviewCardFocus } from '../../agents/reviewCardNavigation';
 import { ConfirmDialog } from '../../ConfirmDialog';
+import AddRepoModal from '../../AddRepoModal';
+import { workspaceRoute } from '../../workspaces/model';
 import {
   agentTaskReducer,
   historyAfter,
@@ -80,6 +82,7 @@ export default function AgentReviewTab({
   timeline = false,
   ownStream = true,
   onOpenWorkspace,
+  onRepositoryWatched,
   localReview,
   onSelectCommit,
   toolbarTarget,
@@ -111,10 +114,12 @@ export default function AgentReviewTab({
    */
   ownStream?: boolean;
   onOpenWorkspace?: () => void;
+  onRepositoryWatched?: () => void;
   localReview?: LocalReviewThreads;
   onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
 }) {
   const [starting, setStarting] = useState(false);
+  const [watchRepositoryId, setWatchRepositoryId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
   const busy = pendingAction !== null;
   const resuming = pendingAction === 'resume';
@@ -455,14 +460,34 @@ export default function AgentReviewTab({
   const actions = findingActions.actions;
 
   if (workspaceId === undefined) {
+    const repository = detail?.repo ?? review?.repo;
     return (
-      <div className="agr-empty">
-        <div className="agr-empty__title">Agent review needs a watched repository</div>
-        <p>
-          Watch {detail?.repo ?? review?.repo ?? 'this repository'} in Workspaces to start a private review. ByteQuay uses that workspace&apos;s managed
-          worktree, and the review is available here or from the workspace.
-        </p>
-      </div>
+      <>
+        <div className="agr-empty">
+          <div className="agr-empty__title">Agent review needs a watched repository</div>
+          <p>
+            Watch {repository ?? 'this repository'} to start a private review. ByteQuay uses that workspace&apos;s managed
+            worktree, and the review is available here or from the workspace.
+          </p>
+          {repository && <div className="agr-empty__actions">
+            <button type="button" className="agr-action is-primary" disabled={busy} onClick={() => { void run_(async () => {
+              const repositories = await window.bridge.searchRepositories(repository, 30);
+              const match = repositories.find(candidate => candidate.fullName.toLowerCase() === repository.toLowerCase());
+              if (!match) throw new Error(`Could not find ${repository}. Check your GitHub access and try again.`);
+              setWatchRepositoryId(match.id);
+            }); }}>
+              {busy ? 'Loading repository…' : 'Watch repository'}
+            </button>
+          </div>}
+          {error !== null && <div className="agr-error" role="alert">{error}</div>}
+        </div>
+        {watchRepositoryId !== null && <AddRepoModal
+          initialRepositoryId={watchRepositoryId}
+          onAdded={() => onRepositoryWatched?.()}
+          onOpenWorkspace={id => { window.location.hash = workspaceRoute(id); }}
+          onClose={() => setWatchRepositoryId(null)}
+        />}
+      </>
     );
   }
 

@@ -86,9 +86,10 @@ describe('starting a review', () => {
     expect(html).toContain('normal review permissions');
   });
 
-  it('explains that a review needs a watched repository rather than offering a dead button', () => {
+  it('offers to watch the repository before starting a review', () => {
     const html = tab(null, NO_WORKSPACE);
     expect(html).toContain('Agent review needs a watched repository');
+    expect(html).toContain('Watch repository</button>');
     expect(html).not.toContain('Start review');
   });
 });

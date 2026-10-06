@@ -1231,7 +1231,8 @@ export default function PullsScreen({
                 localReview={localReview} bridge={window.bridge} onSelectCommit={selectCommit}
                 review={{ workspaceId: codeTask.workspaceId, active: detailTab === 'review', onReviewChange: updateReview, onSelectCommit: selectCommit,
                   focusFindingId, focusReviewCard: reviewCardFocus, onNavigateToChanges: navigateToChanges }} />
-                : <AgentReviewTab toolbarTarget={summaryToolbar} detail={detail} workspaceId={workspaceId} viewer={viewer} review={review} onReviewChange={updateReview}
+                : <AgentReviewTab key={`${detail.repo.toLowerCase()}#${detail.number}`} toolbarTarget={summaryToolbar} detail={detail} workspaceId={workspaceId} viewer={viewer} review={review} onReviewChange={updateReview}
+                  onRepositoryWatched={() => setReviewReload(value => value + 1)}
                   ownStream={reviewWorkspace === undefined && detailTab === 'review'} localReview={localReview} onSelectCommit={selectCommit}
                   focusFindingId={focusFindingId} focusReviewCard={reviewCardFocus}
                   onOpenWorkspace={review === null || reviewWorkspace !== undefined ? undefined : () => {

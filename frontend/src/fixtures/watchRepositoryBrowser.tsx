@@ -13,11 +13,14 @@
  */
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
+import { useState } from 'react';
 import AddRepoModal from '../AddRepoModal';
-import type { RepositorySearchResultDto, WatchRepositoryCommand, WatchRepositoryPreviewDto, WorkspaceDto } from '../types';
+import AgentReviewTab from '../pulls/agent-review/AgentReviewTab';
+import type { PullRequestDetailDto, RepositorySearchResultDto, WatchRepositoryCommand, WatchRepositoryPreviewDto, WorkspaceDto } from '../types';
 import { assert, settle } from './harness';
 import '../css/base.css';
 import '../css/modals.css';
+import '../css/agent-review.css';
 
 const repository = { owner: 'octocat', repo: 'project' };
 const result: RepositorySearchResultDto = {
@@ -103,7 +106,51 @@ export async function run(): Promise<string[]> {
     assert(host.querySelector('.modal__search') !== null && host.querySelector('.modal-preview') === null, 'Escape must return to search and ignore the late preview');
     await click('.modal__close');
     assert(Number(closes) === 2 && host.childElementCount === 0, 'Explicit Close must still dismiss the modal');
-    return ['background clicks preserve progress', 'explicit cancellation discards a late preview'];
+    let failLookup = true;
+    let watched = 0;
+    Object.defineProperty(window, 'bridge', { configurable: true, value: {
+      searchRepositories: async (query: string) => {
+        assert(query === result.fullName, 'Watch must look up the current PR repository');
+        if (failLookup) throw new Error('Repository access unavailable');
+        return [result];
+      },
+      previewWatch: async (id: number) => {
+        assert(id === result.id, 'Watch must preview the exact repository');
+        return preview;
+      },
+      watchRepository: async (command: WatchRepositoryCommand) => {
+        assert(command.selectedRepositoryId === result.id && command.previewFingerprint === preview.fingerprint,
+          'Watch must use the confirmed routing');
+        watched++;
+        return workspace;
+      },
+    } satisfies Partial<Window['bridge']> });
+    const detail: PullRequestDetailDto = {
+      id: 1, repo: result.fullName, number: 2, title: 'Update project', htmlUrl: null, state: 'open', draft: false,
+      mergeable: null, mergeableState: null, author: 'octocat', authorAvatarUrl: null, createdAt: null, updatedAt: null,
+      mergedAt: null, baseRef: 'main', headRef: 'feature', body: null, labels: [], assignees: [], milestone: null,
+      reviewers: [], additions: 1, deletions: 0, changedFiles: 1, approvalCount: 0, ciStatus: null,
+      recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
+    };
+    const Review = () => {
+      const [workspaceId, setWorkspaceId] = useState<string>();
+      return <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={null} review={null}
+        onReviewChange={() => {}} onNavigateToChanges={() => {}} focusFindingId={null}
+        onRepositoryWatched={() => setWorkspaceId(workspace.id)} />;
+    };
+    flushSync(() => root.render(<Review />));
+    await click('.agr-action');
+    assert(host.querySelector('[role="alert"]')?.textContent === 'Repository access unavailable', 'Lookup failures must be visible');
+    failLookup = false;
+    await click('.agr-action');
+    assert(host.querySelector('.modal-preview__confirm') !== null && watched === 0, 'Watch must require confirmation before writing');
+    await click('.modal__close');
+    assert(watched === 0 && host.querySelector('.modal') === null, 'Cancelling must not watch the repository');
+    await click('.agr-action');
+    await click('.modal-preview__confirm');
+    assert(Number(watched) === 1 && host.textContent?.includes('Start review') && host.querySelector('.modal') === null,
+      'Watching must refresh the review context and close confirmation');
+    return ['background clicks preserve progress', 'explicit cancellation discards a late preview', 'watch from review confirms and refreshes'];
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

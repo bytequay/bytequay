@@ -168,5 +168,5 @@ it('preserves watch progress on background clicks and keeps explicit cancellatio
     styles: true,
     charset: true,
   });
-  expect(results).toEqual(['background clicks preserve progress', 'explicit cancellation discards a late preview']);
+  expect(results).toEqual(['background clicks preserve progress', 'explicit cancellation discards a late preview', 'watch from review confirms and refreshes']);
 }, 30_000);

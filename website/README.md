@@ -1,7 +1,7 @@
 # ByteQuay website
 
 The product landing page, user documentation, and design overview are static HTML and CSS in
-`dist/`. They need no dependency installation or build step. The logo comes from
+`dist/`, with a small script for switching app screenshots. They need no dependency installation or build step. The logo comes from
 the repository's `assets/logo.svg`; typography uses Google Fonts with system
 fallbacks. No analytics, account system, or application data is embedded.
 
@@ -11,14 +11,23 @@ From the repository root, preview with:
 python3 -m http.server 4173 --bind 127.0.0.1 --directory website/dist
 ```
 
-Open `http://127.0.0.1:4173/`. Check all three pages, navigation, topic links,
-disclosures, and narrow layouts after edits. The user guide lives in
+Open `http://127.0.0.1:4173/`. Check all three pages, screenshot switching and
+full-size image links, navigation, topic links, disclosures, and narrow layouts after edits. The user guide lives in
 [`documentation.md`](documentation.md) and is presented in
 `dist/documentation.html`. Keep its introduction, product goals, and feature
 instructions consistent with the Markdown guide and current app controls.
 The canonical high-level design lives in
 [`docs/overview/`](../docs/overview/design.md); keep the website summary consistent
 with it without publishing implementation notes or unfinished release claims.
+
+The two `dist/assets/app-*.jpg` images capture real React components at
+1280 × 800 with sample data. The review uses `summaryLayoutBrowser` with
+`AppSidebar`; the task uses `AgentTaskScreen` and `createPreviewBridge` with a
+sample authentication review, neutral workspace labels, and valid display
+timestamps. These are illustrative fixture conversations, not live provider
+results. Capture through an isolated browser fixture with external images and
+connections blocked; never capture credentials or private active work for the
+website. The page labels the images as sample data and offers full-size views.
 
 `.openai/hosting.json` identifies the existing Sites project and declares the
 static directory. Reuse that project for updates. Source synchronization and

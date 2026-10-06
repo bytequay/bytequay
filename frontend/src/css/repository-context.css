@@ -156,7 +156,10 @@
 
 .rcp-spec-summary { margin-top: 6px; font-size: 13px; color: #1f2328; line-height: 1.5; }
 .rcp-spec-page { padding: 5px 0; font-size: 12.5px; }
-.rcp-modules { max-height: 460px; overflow-y: auto; margin: 4px -8px 0; }
+/* The filter stays put and the list scrolls down to the drawer's bottom edge; a fixed cap stopped it mid-drawer on a slice of a row. */
+.rcp-drawer__body:has(> .rcp-choose) { display: flex; flex-direction: column; padding-bottom: 0; }
+.rcp-choose { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.rcp-modules { flex: 1; min-height: 0; overflow-y: auto; margin: 4px -8px 0; padding-bottom: 24px; }
 .rcp-module { display: block; width: 100%; padding: 6px 8px; border: 0; border-radius: 6px; background: none; text-align: left; font-size: 12.5px; cursor: pointer; }
 .rcp-module:hover { background: #f6f8fa; }
 .rcp-spec-pick { display: flex; align-items: flex-start; gap: 8px; cursor: pointer; }

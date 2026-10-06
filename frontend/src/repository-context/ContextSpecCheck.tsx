@@ -90,7 +90,7 @@ function ChooseDirectory({ workspaceId, onChoose }: { workspaceId: string; onCho
   // A directory inside a module, or one the list leaves out, is checked when typed as a path.
   const other = typed !== null && filter.includes('/') && !(modules ?? []).some(module => module.directory === typed) ? typed : null;
   const first = rows.at(0)?.directory ?? other;
-  return <section aria-label="Choose a module">
+  return <section className="rcp-choose" aria-label="Choose a module">
     <div className="rcp-drawer-label">MODULE</div>
     <form className="rcp-q-add" onSubmit={(event: FormEvent) => { event.preventDefault(); if (first != null) onChoose(first); }}>
       <input aria-label="Filter modules" placeholder="Filter modules, or type a directory path" value={filter} maxLength={1000} autoFocus

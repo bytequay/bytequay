@@ -57,6 +57,18 @@
   transform: rotate(-90deg);
 }
 
+.goal-ring__run {
+  stroke: var(--accent);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: bq-spin 1s linear infinite;
+}
+
+/* Reduced motion stops the arc but keeps it, so a running goal still shows. */
+@media (prefers-reduced-motion: reduce) {
+  .goal-ring__run { animation: none; }
+}
+
 .goal-pill {
   position: absolute;
   z-index: 6;
@@ -64,7 +76,8 @@
   align-items: center;
   gap: 8px;
   height: 36px;
-  padding: 0 10px 0 6px;
+  /* The ring sits centred in the pill's rounded left end. */
+  padding: 0 10px 0 7px;
   border: 1px solid #d0d7de;
   border-radius: 18px;
   background: #ffffff;
@@ -101,12 +114,6 @@
   right: 0;
   border-right: 0;
   border-radius: 18px 0 0 18px;
-}
-
-.goal-pill__grip {
-  flex: none;
-  opacity: 0.5;
-  fill: #57606a;
 }
 
 .goal-pill__title {
@@ -328,7 +335,6 @@ input.goal-panel__title {
 }
 
 .goal-panel__desc {
-  margin-top: 3px;
   font-size: 12.5px;
   line-height: 18px;
   color: #57606a;
@@ -977,17 +983,18 @@ button.goal-tile:hover {
 .goal-columns { grid-template-columns: repeat(4, minmax(160px, 1fr)); overflow-x: auto; }
 
 .goal-panel__views { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px; }
-/* The conversation scrolls; what waits on the user stays in the dock under it, above the reply field. */
+/* One scroll holds the whole conversation; only a decision and the reply field stay in the dock under it, so nothing else scrolls apart. */
 .goal-guide { gap: 0; padding: 0; overflow: hidden; }
 .goal-guide__scroll { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 12px; overflow: auto; padding: 14px 16px 16px; }
-.goal-guide__dock { flex: none; display: grid; gap: 8px; max-height: 55%; overflow: auto; padding: 10px 16px 12px; border-top: 1px solid #eceff2; }
+.goal-guide__dock { flex: none; display: grid; gap: 8px; padding: 10px 16px 12px; border-top: 1px solid #eceff2; }
+.goal-guide__asked { display: grid; gap: 8px; }
 .goal-guide__question { font-size: 13px; line-height: 19px; overflow-wrap: anywhere; }
 .goal-guide__decision { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .goal-guide__ask { font-size: 15px; font-weight: 600; line-height: 21px; text-wrap: pretty; }
 .goal-guide__hint { margin-top: 4px; font-size: 12.5px; line-height: 18px; color: #57606a; }
 .goal-guide__error { margin: 0; font-size: 12px; color: #cf222e; }
 .goal-choices { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-.goal-guide__dock .goal-choices { margin-top: 0; }
+.goal-guide__asked .goal-choices { margin-top: 0; }
 .goal-choice {
   padding: 5px 10px; border: 1px solid #d0d7de; border-radius: 14px; background: #ffffff; color: #0969da;
   font: inherit; font-size: 12.5px; line-height: 17px; text-align: left; cursor: pointer;
@@ -1167,3 +1174,15 @@ button.goal-tile:hover {
 .goal-known__topic { flex: 1 1 0; min-width: 120px; overflow-wrap: anywhere; }
 .goal-known__row select { padding: 2px 6px; border: 1px solid #d0d7de; border-radius: 6px; background: #ffffff; font: inherit; font-size: 12px; }
 .goal-known__row select:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
+
+.goal-diagram__expand { display: inline-flex; align-items: center; gap: 6px; margin-top: 10px; }
+.goal-diagram__viewer { width: calc(100vw - 48px); height: calc(100vh - 48px); max-width: none; max-height: none; box-sizing: border-box; padding: 16px; border: 1px solid #d0d7de; border-radius: 12px; color: #24292f; background: #fbfcfd; }
+.goal-diagram__viewer[open] { display: flex; flex-direction: column; gap: 12px; }
+.goal-diagram__viewer::backdrop { background: rgb(27 31 36 / 45%); }
+.goal-diagram__toolbar { display: flex; align-items: center; gap: 8px; }
+.goal-diagram__toolbar .goal-diagram__close { margin-left: auto; }
+.goal-diagram__canvas { flex: 1; min-height: 0; overflow: auto; text-align: left; }
+.goal-diagram__canvas > svg { display: block; margin: auto; }
+.goal-diagram__canvas.is-fit > svg { width: 100%; height: 100%; }
+.goal-diagram__caption { margin: 0; font-size: 12.5px; color: #57606a; }
+.goal-diagram__viewer button:focus-visible, .goal-diagram__canvas:focus-visible, .goal-diagram__expand:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; }

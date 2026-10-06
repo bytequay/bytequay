@@ -90,9 +90,11 @@ definition, starting knowledge and constraints, and is refused once the Goal's
 text changed after the request was built. A proposed goal or course can also be
 adjusted, which starts the reply with "Adjust it: ", or skipped, which tells the
 agent the user passes on it; the next answer replaces the proposal either way.
-The question on screen, its suggested answers, an open proposal's Accept, Adjust
-and Skip and the reply field stay together under the conversation, which scrolls
-to the start of its newest turn; a picked answer shows a check, and an event
+The window's header keeps only the switcher, title, situation and views. The
+Goal's description, its definition and the conversation scroll as one, ending
+with the question on screen and its suggested answers. Only an open proposal's
+Accept, Adjust and Skip and the reply field stay under that scroll. A new turn
+scrolls to its start. A picked answer shows a check, and an event
 ByteQuay told the agent shows two lines, the rest on hover. Suggested answers
 never offer accepting, adjusting or skipping a proposal, which its buttons do.
 One exchange per Goal and two across the app run at a time; a request still
@@ -162,7 +164,11 @@ then one exercise, what to observe and a short check. A diagram is COMPONENTS, a
 system's parts in the columns of where they run with labelled arrows between
 them; SEQUENCE, participants and their numbered messages over time; FLOW, steps
 in order; or TREE, a hierarchy. ByteQuay validates its boxes and arrows and
-draws it; the model never writes markup. Every box is one real thing, every
+draws it; the model never writes markup. Course maps and chapter diagrams offer Expand diagram,
+opening a large modal at actual size with zoom, fit-to-window and scrolling.
+Close or Escape returns to the chapter with focus on its expand button.
+Component connections run through side gutters into separate labelled rows
+below the boxes; labels wrap and the drawing grows to include them. Every box is one real thing, every
 group a real boundary and every arrow a real call or flow labelled with what
 moves; a diagram keeps one zoom level, named in its caption, and commands belong
 to the exercise. The first chapter written for an accepted course first draws

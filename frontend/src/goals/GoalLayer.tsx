@@ -22,7 +22,7 @@ import { LayerCovered } from '../Zoom';
 import type { GoalItemDto, GoalRecommendationDto } from './contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
 import { GoalWindow } from './GoalWindow';
-import { foldSide, placePill, preparedRequest, situation, summarize, type PillPosition } from './model';
+import { foldSide, goalRuns, placePill, preparedRequest, situation, summarize, type PillPosition } from './model';
 import { useGoalConversation, type Goals } from './useGoals';
 import '../css/goals.css';
 
@@ -171,7 +171,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   const goal = goals.pinned;
   const shownGoal = drafting ? null : goal;
   const cards = goal?.recommendations ?? [];
-  const conversation = useGoalConversation(goals, shownGoal?.id ?? null, visited, cards.map((card) => `${card.id}:${card.state}`).join(','));
+  const conversation = useGoalConversation(goals, shownGoal?.id ?? null, cards.map((card) => `${card.id}:${card.state}`).join(','));
   const shown = cards.filter((card) => card.state === 'SHOWN').slice(0, MAX_CARDS);
   const panel = (full: boolean, toggle: () => void, onClose: () => void) => (
     <GoalPanel
@@ -212,8 +212,9 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
     />
   );
   const summary = goal === null ? null : summarize(goal, needsYou);
-  // The pinned goal's own conversation, unless the window shows another goal's question; its decisions only count once it was read.
+  // The pinned goal's own conversation, unless the window shows another goal's question.
   const decisions = goal === null || drafting ? 0 : situation(goal, conversation.exchanges, conversation.gaps).decisions;
+  const runs = goal === null || drafting ? [] : goalRuns(goal, conversation.exchanges);
   const needs = summary?.needs ?? 0;
   const folded = position.fold !== undefined;
   // A folded tab hides the cards, so its count holds them too.
@@ -229,8 +230,8 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
           type="button"
           className={`goal-pill${drag?.moved ? ' is-dragging' : ''}${folded ? ` is-folded is-${position.fold}` : ''}`}
           style={folded ? { bottom: position.bottom } : { right: position.right, bottom: position.bottom }}
-          title={folded ? 'Drag out to unfold · click to open · ⌥G' : 'Drag to pin anywhere, or into a side to fold · click to open · ⌥G'}
-          aria-label={goal === null ? 'Open goals' : `Open goal: ${goal.title}`}
+          title={[...runs, folded ? 'Drag out to unfold · click to open · ⌥G' : 'Drag to pin anywhere, or into a side to fold · click to open · ⌥G'].join('\n')}
+          aria-label={goal === null ? 'Open goals' : [`Open goal: ${goal.title}`, ...runs].join(' · ')}
           aria-expanded={opened}
           aria-haspopup="dialog"
           onPointerDown={(event) => {
@@ -283,10 +284,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
             else open();
           }}
         >
-          {!folded && <svg className="goal-pill__grip" width="8" height="14" viewBox="0 0 8 14" aria-hidden="true">
-            {[3, 7, 11].flatMap((y) => [2, 6].map((x) => <circle key={`${x}.${y}`} cx={x} cy={y} r="1.1" />))}
-          </svg>}
-          <GoalRing goal={goal} />
+          <GoalRing goal={goal} running={runs.length > 0} />
           {!folded && <span className="goal-pill__title">{goal === null ? 'Goal' : goal.title}</span>}
           {!folded && summary !== null && summary.total > 0 && <span className="goal-mono">{summary.finished}/{summary.total}</span>}
           {/* One count asks for attention: the work needing the user and the decisions waiting, both named on hover. */}

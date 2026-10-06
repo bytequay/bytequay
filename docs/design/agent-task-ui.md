@@ -1154,9 +1154,14 @@ An archived goal keeps its work items, which **Add existing** can still reach.
 
 Every workspace page, an open task or review included, carries the pinned goal
 as a pill: a progress ring, the goal's name, `done/total` with Dropped left out,
-and one count of the work needing you and the decisions waiting. It starts just
-above the composer's right edge, or in the page's bottom-right corner where
-there is no composer. It can be dragged anywhere, and keeps its spot per page
+and one count of the work needing you and the decisions waiting. An arc circles
+the ring while something runs for the goal: its agent answering, a research run
+or spec check one of its cards started, or a task of its work. The pill's hover
+text names each one. The pinned goal's conversation is read with the page, so
+the pill and its count are current before the window first opens. The pill
+starts just above the composer's right edge, or in the page's bottom-right
+corner where there is no composer. Any part of it drags it anywhere, and it
+keeps its spot per page
 (`bq.goal.pill.{page}`, an open task or review keeping one as `task`); wherever
 it would cover the composer it is lifted above it. Released against the left or
 right side of the page, it folds into that side as a tab with the ring and one
@@ -1168,8 +1173,8 @@ opening and stays inside the page. Moving the pointer out of the pill and window
 closes it, except during a drag, a resize or a confirmation; Escape and × close
 it too, and drafts survive closing. ⤢ expands the same panel to a board and
 back. The panel has the goal switcher (**GOAL 1 of 3**, **Pinned**,
-**New goal**, and **Cancel goal** for every Goal), the title
-and description, a Done / Working / Planned bar with Dropped counted beside it,
+**New goal**, and **Cancel goal** for every Goal), the title (the description
+opens the Guide conversation), a Done / Working / Planned bar with Dropped counted beside it,
 tiles for pull requests merged and open, what needs you and what is blocked,
 **Next · Working · Blocked · Done** views with priority and source filters,
 **New work item** (a title, a kind and what counts as success), **Add existing**

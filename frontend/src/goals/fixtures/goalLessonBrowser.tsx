@@ -124,7 +124,7 @@ export async function run(): Promise<boolean> {
       'The expanded window reads as a book whose contents mark the open chapter');
     assert(document.querySelector('.goal-book__ask') === null, 'The questions open only on demand');
     assert(document.querySelector('.goal-chapter__remember li')?.textContent === 'A snapshot never changes once written.', 'The chapter lists what to remember');
-    assert(document.querySelectorAll('.goal-diagram svg').length === 3 && document.querySelectorAll('.goal-diagram rect').length === 10
+    assert(document.querySelectorAll('.goal-diagram > svg').length === 3 && document.querySelectorAll('.goal-diagram rect').length === 10
       && document.querySelectorAll('.goal-diagram__edge').length === 7, 'Each diagram draws its boxes and arrows');
     assert([...document.querySelectorAll('.goal-book__sections button')].map((section) => section.textContent).join('|')
       === 'Table metadata|Writing a snapshot|Who reads a snapshot', 'The contents list the chapter\'s sections');
@@ -134,6 +134,25 @@ export async function run(): Promise<boolean> {
       && [...document.querySelectorAll('.goal-chapter > *')].every((part) => part.getBoundingClientRect().right <= chapter.right + 1),
       'A long command or a wide diagram stays inside the chapter, which sits in the middle of the page');
     assert(document.querySelector('.goal-chapter__section strong')?.textContent === 'current snapshot', 'A section reads as Markdown');
+
+    const expand = document.querySelector<HTMLButtonElement>('.goal-diagram__expand');
+    assert(expand !== null, 'Each diagram can be expanded');
+    expand.focus(); expand.click(); await settle();
+    const viewer = document.querySelector<HTMLDialogElement>('.goal-diagram__viewer');
+    assert(viewer?.open === true, 'Expand opens a modal viewer');
+    const picture = viewer.querySelector<SVGSVGElement>('.goal-diagram__canvas > svg');
+    assert(picture !== null && picture.getBoundingClientRect().width === picture.viewBox.baseVal.width, 'The viewer starts at readable actual size');
+    viewer.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')?.click(); await settle();
+    assert(picture.getBoundingClientRect().width > picture.viewBox.baseVal.width, 'Zoom enlarges the vector drawing');
+    button('Fit to window').click(); await settle();
+    assert(viewer.querySelector('.goal-diagram__canvas.is-fit') !== null, 'Fit restores a whole-diagram view');
+    const fittedBounds = picture.getBoundingClientRect();
+    const fittedScale = Math.min(fittedBounds.width / picture.viewBox.baseVal.width, fittedBounds.height / picture.viewBox.baseVal.height);
+    viewer.querySelector<HTMLButtonElement>('[aria-label="Zoom in"]')?.click(); await settle();
+    assert(Math.abs(picture.getBoundingClientRect().width / picture.viewBox.baseVal.width - Math.min(4, Math.max(0.25, fittedScale * 1.25))) < 0.01,
+      'Zoom from Fit uses the visible drawing scale');
+    viewer.querySelector<HTMLButtonElement>('[aria-label="Close diagram"]')?.click(); await settle();
+    assert(document.querySelector('.goal-diagram__viewer') === null && document.activeElement === expand, 'Closing returns focus to the diagram');
 
     button('Write again').click(); await settle();
     const again = (): number => server.again;

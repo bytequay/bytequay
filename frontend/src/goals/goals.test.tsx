@@ -22,9 +22,9 @@ import type {
 } from './contracts';
 import { parseGoal, parseGoalExchange, parseGoalGap, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation } from './contracts';
 import { GoalPanel, type GoalPanelProps } from './GoalPanel';
-import { ChapterBody, componentPlaces, flowPlaces, LessonDiagram, treePlaces, wrap } from './LessonBook';
+import { ChapterBody, componentLayout, componentPlaces, flowPlaces, LessonDiagram, treePlaces, wrap } from './LessonBook';
 import {
-  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, needsYouKeys, openCourse, openPlan, openProposal, outcomeOf, placePill, goalHistory, refKey, situation,
+  addable, attentionWorkspace, foldSide, goalDirections, goalHas, goalRef, goalRuns, needsYouKeys, openCourse, openPlan, openProposal, outcomeOf, placePill, goalHistory, refKey, situation,
   sourceOf,
   sourceUrl,
   goalPicked, preparedRequest, summarize, waitingOn, workIn,
@@ -430,6 +430,19 @@ describe('goal guidance', () => {
     expect(panel({ view: 'guide' })).toContain('<div class="goal-panel__situation">Clarifying your goal</div>');
   });
 
+  it('names what runs for the goal: its agent, a research run or spec check, and the tasks of its work', () => {
+    expect(goalRuns(GOAL, [ASKED])).toEqual([]);
+    const task = item('TASK', 'task-2', 'Task', 'WORKING', 'Running', { title: 'Fix the checkpoint' });
+    const busy: GoalDto = { ...GOAL, recommendations: [{ ...CARD, state: 'STARTED', taskId: 'task-9' }, { ...CARD, id: 'card-2' },
+      { ...CARD, id: 'card-3', state: 'STARTED', checkId: 'check-1', card: { ...CARD.card, kind: 'SPEC_CHECK', title: 'Check the Delta checkpoint' } },
+      // A lesson stays started while the user reads it.
+      { ...CARD, id: 'card-4', state: 'STARTED', card: { ...CARD.card, kind: 'LESSON', title: 'What a table is' } }],
+      // A task linked to two work items runs once.
+      items: [...GOAL.items, { ...GOAL.items[0], id: 'work-8', links: [task] }, { ...GOAL.items[2], id: 'work-9', links: [task] }] };
+    expect(goalRuns(busy, [ASKED, { ...PROPOSED, state: 'PENDING', reply: null }])).toEqual(['Thinking…', 'Researching: Read the Iceberg specification',
+      'Checking: Check the Delta checkpoint', 'Running: Fix the checkpoint']);
+  });
+
   it('lists the gaps the last spec check reproduced, to file and to add to the goal', () => {
     const gap: GoalGapDto = { checkId: 'check-1', candidateId: 'c-1', module: 'plugin/trino-delta-lake/', title: 'Checkpoint keys actions by path only',
       rule: 'Reconcile by path and deletion vector', specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md',
@@ -584,11 +597,15 @@ describe('goal guidance', () => {
     expect(asked).toContain('aria-pressed="false">Not yet</button>');
     expect(asked).toContain('>Other options</button>');
     expect(asked).not.toContain('Proposed goal');
-    // The question on screen is asked once, under the conversation, with its answers right above the reply field.
-    const dock = asked.slice(asked.indexOf('<div class="goal-guide__dock">'));
+    // One scroll holds the goal's description, the conversation and, last, the question with its answers; only the reply field stays under it.
+    const scroll = asked.indexOf('<div class="goal-guide__scroll">');
+    const dock = asked.indexOf('<div class="goal-guide__dock">');
     expect(asked.split('Do you already know the Iceberg specification?')).toHaveLength(2);
-    expect(dock).toMatch(/^<div class="goal-guide__dock"><div class="goal-guide__question">Do you already know the Iceberg specification\?<\/div><div class="goal-choices">/);
-    expect(dock.indexOf('>Other options</button>')).toBeLessThan(dock.indexOf('<textarea'));
+    expect(scroll).toBeLessThan(asked.indexOf('Land the fixes before 482.'));
+    expect(asked.indexOf('<div class="goal-guide__question">Do you already know the Iceberg specification?</div><div class="goal-choices">'))
+      .toBeGreaterThan(asked.indexOf('<ol class="goal-thread"'));
+    expect(asked.indexOf('>Other options</button>')).toBeLessThan(dock);
+    expect(asked.slice(dock)).toMatch(/^<div class="goal-guide__dock"><form class="goal-composer">/);
 
     const proposed = panel({ view: 'guide', conversation: conversation([ASKED, PROPOSED]) });
     expect(proposed).toContain('Proposed goal');
@@ -668,6 +685,33 @@ describe('lesson book', () => {
     expect(wrap('Swap the metadata pointer atomically in the catalog', 22)).toEqual(['Swap the metadata', 'pointer atomically in…']);
   });
 
+  it('keeps dense component labels and connections outside boxes and inside the drawing', () => {
+    const nodes = Array.from({ length: 12 }, (_, at) => ({ id: `n${at}`, label: `Component ${at}`, note: 'Some implementation detail', parent: null as string | null, group: `Group ${at % 7}` }));
+    const edges = Array.from({ length: 24 }, (_, at) => ({ from: `n${at % 12}`, to: `n${(at * 3 + 7) % 12}`,
+      label: `Request ${at}: metadata, table requirements and updates returned by the catalog implementation` }));
+    const layout = componentLayout({ kind: 'COMPONENTS', caption: 'Dense map', nodes, edges });
+    let previousBottom = layout.bottom;
+    for (const arrow of layout.arrows) {
+      expect(arrow.y - 9).toBeGreaterThan(previousBottom);
+      previousBottom = arrow.y + arrow.lines.length * 16;
+      expect(previousBottom).toBeLessThan(layout.height);
+      expect(arrow.lines.join(' ')).not.toContain('…');
+      const half = Math.max(...arrow.lines.map((line) => line.length)) * 6.2 / 2 + 6;
+      expect(arrow.x - half).toBeGreaterThanOrEqual(0);
+      expect(arrow.x + half).toBeLessThan(layout.width);
+      for (let at = 1; at < arrow.points.length; at++) {
+        const start = arrow.points[at - 1];
+        const end = arrow.points[at];
+        for (const box of layout.places) {
+          const crosses = start.x === end.x
+            ? start.x > box.x && start.x < box.x + 172 && Math.max(start.y, end.y) > box.y && Math.min(start.y, end.y) < box.y + layout.boxHeight
+            : start.y > box.y && start.y < box.y + layout.boxHeight && Math.max(start.x, end.x) > box.x && Math.min(start.x, end.x) < box.x + 172;
+          expect(crosses).toBe(false);
+        }
+      }
+    }
+  });
+
   it('draws components in the columns of their groups and a sequence as numbered messages', () => {
     const component = (id: string, group: string) => ({ id, label: id, note: null as string | null, parent: null as string | null, group });
     expect(componentPlaces([component('manager', 'Coordinator'), component('task', 'Worker'), component('group', 'Coordinator')], 52, 30).places)
@@ -676,7 +720,7 @@ describe('lesson book', () => {
       component('task', 'Worker')], edges: [{ from: 'manager', to: 'task', label: 'schedules' }] }} />);
     expect(parts).toContain('<g class="goal-diagram__zone"><rect');
     expect(parts).toContain('>Coordinator</text>');
-    expect(parts).toContain('>schedules</text>');
+    expect(parts).toContain('>schedules</tspan>');
     const calls = renderToStaticMarkup(<LessonDiagram diagram={{ kind: 'SEQUENCE', caption: 'Admitting a query', nodes: [component('query', ''), component('group', '')],
       edges: [{ from: 'query', to: 'group', label: 'submit' }, { from: 'group', to: 'query', label: 'start' }] }} />);
     expect(calls.match(/class="goal-diagram__lifeline"/g)).toHaveLength(2);

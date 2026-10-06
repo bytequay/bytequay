@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 
-import React, { useId } from 'react';
-import { Check } from 'lucide-react';
+import React, { useEffect, useId, useRef, useState } from 'react';
+import { Check, Expand, Minus, Plus, X } from 'lucide-react';
 import MarkdownBody, { linkIssueNumbers } from '../pulls/MarkdownBody';
 import type { GoalDto, LessonContentDto, LessonDiagramDto, WorkItemDto } from './contracts';
 
@@ -183,15 +183,13 @@ function Box({ node, place, height, noted, root }: {
   );
 }
 
-/** A label on an arrow, on a pale backing so the line under it does not cut through. */
-function EdgeLabel({ x, y, text }: { x: number; y: number; text: string }): React.JSX.Element {
-  const width = text.length * EDGE_CHAR + 10;
-  return (
-    <g className="goal-diagram__edge-label">
-      <rect x={x - width / 2} y={y - 9} width={width} height={17} rx="4" />
-      <text x={x} y={y + 4} textAnchor="middle">{text}</text>
-    </g>
-  );
+/** Labels wrap without losing the call or data being described. */
+function EdgeLabel({ x, y, lines }: { x: number; y: number; lines: string[] }): React.JSX.Element {
+  const width = Math.max(...lines.map((line) => line.length)) * EDGE_CHAR + 12;
+  return <g className="goal-diagram__edge-label">
+    <rect x={x - width / 2} y={y - 9} width={width} height={lines.length * 16 + 2} rx="4" />
+    <text x={x} y={y + 4} textAnchor="middle">{lines.map((line, row) => <tspan key={row} x={x} dy={row === 0 ? 0 : 16}>{line}</tspan>)}</text>
+  </g>;
 }
 
 type Drawing = { width: number; height: number; body: React.ReactNode };
@@ -237,74 +235,65 @@ export function componentPlaces(nodes: LessonDiagramDto['nodes'], height: number
   return { places, groups };
 }
 
-/** A system's parts in the columns of where they run, and labelled arrows for what connects them. */
-function drawComponents(diagram: LessonDiagramDto, arrow: string): Drawing {
-  const { nodes } = diagram;
-  const noted = nodes.some((node) => node.note !== null);
-  const height = boxHeight(nodes);
-  const named = nodes.some((node) => node.group !== null);
-  const head = named ? ZONE_HEAD : 0;
-  const { places, groups } = componentPlaces(nodes, height, head);
-  const index = new Map(nodes.map((node, at) => [node.id, at]));
-  const width = groups.length * NODE_WIDTH + (groups.length - 1) * COLUMN_GAP + 2 * PAD + (named ? 2 * ZONE_INSET : 0);
-  const tall = Math.max(...places.map((place) => place.y)) + height + 2 * PAD + (named ? ZONE_INSET : 0);
-  const shift = named ? ZONE_INSET : 0;
-  // Arrows between the same two components spread apart instead of drawing over each other.
-  const pairs = new Map<string, number>();
-  const lanes = diagram.edges.map((edge) => {
-    const pair = [edge.from, edge.to].sort().join('\u0000');
-    const lane = pairs.get(pair) ?? 0;
-    pairs.set(pair, lane + 1);
-    return { pair, lane };
+/** Route each connection through its own gutter and row, outside every component box. */
+export function componentLayout(diagram: LessonDiagramDto) {
+  const height = boxHeight(diagram.nodes);
+  const named = diagram.nodes.some((node) => node.group !== null);
+  const { places, groups } = componentPlaces(diagram.nodes, height, named ? ZONE_HEAD : 0);
+  const groupWidth = Math.max(NODE_WIDTH + 2 * ZONE_INSET, ...groups.map((group) => group.length * 7 + 24));
+  const stride = groupWidth + 32 + diagram.edges.length * 16;
+  const index = new Map(diagram.nodes.map((node, at) => [node.id, at]));
+  places.forEach((place, at) => {
+    place.x = groups.indexOf(diagram.nodes[at].group ?? '') * stride + (groupWidth - NODE_WIDTH) / 2;
   });
+  const bottom = Math.max(...places.map((place) => place.y)) + height + ZONE_INSET;
+  let row = bottom + 28;
+  const ports = new Map<number, number>();
+  const port = (node: number): Place => {
+    const count = ports.get(node) ?? 0;
+    ports.set(node, count + 1);
+    const total = diagram.edges.filter((edge) => edge.from === diagram.nodes[node].id).length
+      + diagram.edges.filter((edge) => edge.to === diagram.nodes[node].id).length;
+    return { x: places[node].x + NODE_WIDTH, y: places[node].y + height * (count + 1) / (total + 1) };
+  };
+  let width = (groups.length - 1) * stride + groupWidth + 32 + diagram.edges.length * 16;
   const arrows = diagram.edges.map((edge, at) => {
-    const start = places[index.get(edge.from) ?? 0];
-    const end = places[index.get(edge.to) ?? 0];
-    const { pair, lane } = lanes[at];
-    const offset = (lane - ((pairs.get(pair) ?? 1) - 1) / 2) * 14;
-    const key = `${edge.from}-${edge.to}-${at}`;
-    const label = edge.label ?? '';
-    if (start.x === end.x && Math.abs(end.y - start.y) > height + GAP_Y) {
-      // An arrow past the boxes between two components of one column goes around the column's side instead of through them.
-      const side = start.x + NODE_WIDTH;
-      const out = side + 22 + offset;
-      return { edge, key, d: `M${side},${start.y + height / 2} H${out} V${end.y + height / 2} H${side + 2}`,
-        at: { x: out + 6 + (label.length * EDGE_CHAR + 10) / 2, y: (start.y + end.y + height) / 2 } };
-    }
-    let from: Place;
-    let to: Place;
-    if (start.x === end.x) {
-      const down = end.y > start.y;
-      from = { x: start.x + NODE_WIDTH / 2 + offset, y: down ? start.y + height : start.y };
-      to = { x: end.x + NODE_WIDTH / 2 + offset, y: down ? end.y - 2 : end.y + height + 2 };
-    }
-    else {
-      const right = end.x > start.x;
-      from = { x: right ? start.x + NODE_WIDTH : start.x, y: start.y + height / 2 + offset };
-      to = { x: right ? end.x - 2 : end.x + NODE_WIDTH + 2, y: end.y + height / 2 + offset };
-    }
-    return { edge, key, d: `M${from.x},${from.y} L${to.x},${to.y}`, at: { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 } };
+    const from = index.get(edge.from) ?? 0;
+    const to = index.get(edge.to) ?? 0;
+    const start = port(from);
+    const end = port(to);
+    const gutter = (node: number, offset: number): number => groups.indexOf(diagram.nodes[node].group ?? '') * stride + groupWidth + 16 + at * 16 + offset;
+    const left = gutter(from, 0);
+    const right = gutter(to, 8);
+    const lines = edge.label === null ? [] : wrap(edge.label, 48, Infinity);
+    const labelWidth = Math.max(0, ...lines.map((line) => line.length)) * EDGE_CHAR + 12;
+    const x = Math.max(labelWidth / 2, (left + right) / 2);
+    const y = row + 16;
+    const points = [start, { x: left, y: start.y }, { x: left, y: row }, { x: right, y: row }, { x: right, y: end.y }, { x: end.x + 2, y: end.y }];
+    row += Math.max(36, lines.length * 16 + 30);
+    width = Math.max(width, x + labelWidth / 2);
+    return { points, lines, x, y };
   });
-  // A label that would cover one already placed moves down until it clears it.
-  const placed: { x: number; y: number; width: number }[] = [];
-  for (const arrow of arrows) {
-    if (arrow.edge.label === null) continue;
-    const width = arrow.edge.label.length * EDGE_CHAR + 10;
-    while (placed.some((other) => Math.abs(other.x - arrow.at.x) < (other.width + width) / 2 && Math.abs(other.y - arrow.at.y) < 19)) arrow.at = { ...arrow.at, y: arrow.at.y + 19 };
-    placed.push({ ...arrow.at, width });
-  }
+  return { places, groups, groupWidth, stride, bottom, boxHeight: height, arrows, width: width + 2 * PAD, height: row + PAD };
+}
+
+/** A system's parts stay in their groups; connections have separate, labelled rows below them. */
+function drawComponents(diagram: LessonDiagramDto, arrow: string): Drawing {
+  const layout = componentLayout(diagram);
+  const noted = diagram.nodes.some((node) => node.note !== null);
   return {
-    width,
-    height: tall,
-    body: <g transform={`translate(${shift},0)`}>
-      {named && groups.map((group, column) => group === '' ? null : <g key={group} className="goal-diagram__zone">
-        <rect x={column * (NODE_WIDTH + COLUMN_GAP) - ZONE_INSET} y={0} width={NODE_WIDTH + 2 * ZONE_INSET} height={tall - 2 * PAD} rx="10" />
-        <text x={column * (NODE_WIDTH + COLUMN_GAP) + NODE_WIDTH / 2} y={18} textAnchor="middle">{group}</text>
+    width: layout.width,
+    height: layout.height,
+    body: <>
+      {layout.groups.map((group, column) => group === '' ? null : <g key={group} className="goal-diagram__zone">
+        <rect x={column * layout.stride} y={0} width={layout.groupWidth} height={layout.bottom} rx="10" />
+        <text x={column * layout.stride + layout.groupWidth / 2} y={18} textAnchor="middle">{group}</text>
       </g>)}
-      {arrows.map(({ key, d }) => <path key={key} className="goal-diagram__edge" d={d} markerEnd={`url(#${arrow})`} />)}
-      {nodes.map((node, at) => <Box key={node.id} node={node} place={places[at]} height={height} noted={noted} root={false} />)}
-      {arrows.map(({ edge, key, at }) => edge.label === null ? null : <EdgeLabel key={key} x={at.x} y={at.y} text={edge.label} />)}
-    </g>,
+      {layout.arrows.map(({ points }, at) => <path key={at} className="goal-diagram__edge"
+        d={points.map((point, index) => `${index === 0 ? 'M' : 'L'}${point.x},${point.y}`).join(' ')} markerEnd={`url(#${arrow})`} />)}
+      {diagram.nodes.map((node, at) => <Box key={node.id} node={node} place={layout.places[at]} height={layout.boxHeight} noted={noted} root={false} />)}
+      {layout.arrows.map(({ lines, x, y }, at) => lines.length === 0 ? null : <EdgeLabel key={at} x={x} y={y} lines={lines} />)}
+    </>,
   };
 }
 
@@ -351,21 +340,66 @@ function drawSequence(diagram: LessonDiagramDto, arrow: string): Drawing {
 
 /** A section's picture, drawn from the boxes and arrows the lesson names; the model never writes markup. */
 export function LessonDiagram({ diagram }: { diagram: LessonDiagramDto }): React.JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  return (
+    <figure className={`goal-diagram is-${diagram.kind.toLowerCase()}`}>
+      <DiagramPicture diagram={diagram} />
+      <figcaption>{diagram.caption}</figcaption>
+      <button type="button" className="goal-add goal-diagram__expand" onClick={() => setExpanded(true)}>
+        <Expand size={14} aria-hidden="true" /> Expand diagram
+      </button>
+      {expanded && <DiagramViewer diagram={diagram} onClose={() => setExpanded(false)} />}
+    </figure>
+  );
+}
+
+function DiagramPicture({ diagram, scale }: { diagram: LessonDiagramDto; scale?: number }): React.JSX.Element {
   const arrow = `goal-arrow-${useId().replace(/[^a-zA-Z0-9]/g, '')}`;
   const drawing = diagram.kind === 'COMPONENTS' ? drawComponents(diagram, arrow) : diagram.kind === 'SEQUENCE' ? drawSequence(diagram, arrow) : drawBoxes(diagram, arrow);
   return (
-    <figure className={`goal-diagram is-${diagram.kind.toLowerCase()}`}>
-      <svg viewBox={`0 0 ${drawing.width} ${drawing.height}`} width={drawing.width} role="img" aria-label={diagram.caption}>
-        <defs>
-          <marker id={arrow} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
-            <path className="goal-diagram__head" d="M0,0 L10,5 L0,10 z" />
-          </marker>
-        </defs>
-        <g transform={`translate(${PAD},${PAD})`}>{drawing.body}</g>
-      </svg>
-      <figcaption>{diagram.caption}</figcaption>
-    </figure>
+    <svg viewBox={`0 0 ${drawing.width} ${drawing.height}`} width={drawing.width} role="img" aria-label={diagram.caption}
+      style={scale === undefined ? undefined : { width: drawing.width * scale, height: drawing.height * scale, maxWidth: 'none' }}>
+      <defs>
+        <marker id={arrow} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path className="goal-diagram__head" d="M0,0 L10,5 L0,10 z" />
+        </marker>
+      </defs>
+      <g transform={`translate(${PAD},${PAD})`}>{drawing.body}</g>
+    </svg>
   );
+}
+
+function DiagramViewer({ diagram, onClose }: { diagram: LessonDiagramDto; onClose: () => void }): React.JSX.Element {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState<number | undefined>(1);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => dialog?.close();
+  }, []);
+  const zoom = (factor: number): void => {
+    const svg = canvasRef.current?.querySelector('svg');
+    if (svg === null || svg === undefined) return;
+    const bounds = svg.getBoundingClientRect();
+    const fitted = Math.min(bounds.width / svg.viewBox.baseVal.width, bounds.height / svg.viewBox.baseVal.height);
+    setScale(Math.max(0.25, Math.min(4, (scale ?? fitted) * factor)));
+  };
+  return <dialog ref={dialogRef} className="goal-diagram__viewer" aria-label="Expanded diagram"
+    onClose={(event) => { if (!event.currentTarget.open) onClose(); }}
+    onKeyDown={(event) => event.stopPropagation()}>
+    <div className="goal-diagram__toolbar">
+      <button type="button" className="goal-add" aria-label="Zoom out" disabled={scale !== undefined && scale <= 0.25} onClick={() => zoom(0.8)}><Minus size={16} /></button>
+      <button type="button" className="goal-add" title="Actual size" onClick={() => setScale(1)}>{scale === undefined ? 'Fit' : `${Math.round(scale * 100)}%`}</button>
+      <button type="button" className="goal-add" aria-label="Zoom in" disabled={scale !== undefined && scale >= 4} onClick={() => zoom(1.25)}><Plus size={16} /></button>
+      <button type="button" className="goal-add" onClick={() => setScale(undefined)}>Fit to window</button>
+      <button type="button" className="goal-add goal-diagram__close" aria-label="Close diagram" title="Close (Esc)" autoFocus onClick={() => dialogRef.current?.close()}><X size={16} /></button>
+    </div>
+    <div ref={canvasRef} className={`goal-diagram__canvas${scale === undefined ? ' is-fit' : ''}`} tabIndex={0} aria-label="Diagram, scroll to explore">
+      <DiagramPicture diagram={diagram} scale={scale} />
+    </div>
+    <p className="goal-diagram__caption">{diagram.caption}</p>
+  </dialog>;
 }
 
 /**

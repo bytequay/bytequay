@@ -362,3 +362,16 @@ function situationText(goal: GoalDto, exchanges: GoalExchangeDto[], waiting: { p
   return 'Defined; the agent suggests what comes next';
 }
 
+/**
+ * What runs for the goal right now, a line each: its agent's reply, a research run or spec check a card started, and the running tasks of
+ * its work. A started lesson, practice or investigation stays started while the user works on it, so only its task counts.
+ */
+export function goalRuns(goal: GoalDto, exchanges: GoalExchangeDto[]): string[] {
+  const tasks = new Map(goal.items.flatMap((item) => item.links).filter((link) => link.kind === 'TASK' && link.state === 'WORKING')
+    .map((link) => [link.key, link.title]));
+  return [...(exchanges.at(-1)?.state === 'PENDING' ? ['Thinking…'] : []),
+    ...goal.recommendations.filter((card) => card.state === 'STARTED' && (card.card.kind === 'RESEARCH' || card.card.kind === 'SPEC_CHECK'))
+      .map((card) => `${STARTED_LABELS[card.card.kind]}: ${card.card.title}`),
+    ...[...tasks.values()].map((title) => `Running: ${title}`)];
+}
+

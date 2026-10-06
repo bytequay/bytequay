@@ -352,12 +352,12 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
 }
 
 /**
- * The goal's conversation and notes, read once they are first shown, again whenever the goal's cards change, such as when a research run
- * ends and its agent is told, and every moment while the agent is answering.
+ * The goal's conversation and notes, read at once, so the pill can show the agent answering before the window opens; again whenever the
+ * goal's cards change, such as when a research run ends and its agent is told; and every moment while the agent is answering.
  *
  * @param cards a fingerprint of the goal's cards
  */
-export function useGoalConversation(goals: Goals, goalId: string | null, shown: boolean, cards = ''): GoalConversation {
+export function useGoalConversation(goals: Goals, goalId: string | null, cards = ''): GoalConversation {
   const [read, setRead] = useState<{ goalId: string; exchanges: GoalExchangeDto[]; notes: GoalKnowledgeNoteDto[]; gaps: GoalGapDto[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const current = read !== null && read.goalId === goalId ? read : null;
@@ -380,7 +380,7 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
   }, [answering, refresh]);
 
   useEffect(() => {
-    if (goalId === null || !shown) return;
+    if (goalId === null) return;
     let active = true;
     const load = (): void => {
       // A read that throws on the spot fails like any other, so the conversation never takes the page down.
@@ -395,15 +395,15 @@ export function useGoalConversation(goals: Goals, goalId: string | null, shown: 
     load();
     const timer = answering ? window.setInterval(load, ANSWER_POLL_MS) : undefined;
     return () => { active = false; window.clearInterval(timer); };
-  }, [answering, cards, gapsOf, goalId, knowledge, list, shown]);
+  }, [answering, cards, gapsOf, goalId, knowledge, list]);
 
   useEffect(() => {
-    if (goalId === null || !shown) return;
+    if (goalId === null) return;
     let active = true;
     // Without its model the goal shows no model control; its agent still answers with the workspace's.
     void Promise.resolve().then(() => modelOf(goalId)).then((found) => { if (active) setModel({ ...found, goalId }); }, () => {});
     return () => { active = false; };
-  }, [goalId, modelOf, shown]);
+  }, [goalId, modelOf]);
 
   return useMemo(() => {
     const show = (found: GoalExchangeDto[]): void => {

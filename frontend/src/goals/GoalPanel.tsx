@@ -42,13 +42,14 @@ function GoalText({ children }: { children: string }): React.JSX.Element {
   return <>{linkIssueNumbers(children, useContext(GoalRepository))}</>;
 }
 
-/** How much of a goal is finished, as a ring. */
-export function GoalRing({ goal, size = 20 }: { goal: GoalDto | null; size?: number }): React.JSX.Element {
+/** How much of a goal is finished, as a ring; an arc circles it while something runs for the goal. */
+export function GoalRing({ goal, size = 20, running = false }: { goal: GoalDto | null; size?: number; running?: boolean }): React.JSX.Element {
   const dash = goal === null ? '0 44' : ringDash(summarize(goal, new Set()));
   return (
     <svg className="goal-ring" width={size} height={size} viewBox="0 0 20 20" aria-hidden="true">
       <circle cx="10" cy="10" r="7" fill="none" stroke="#e3e3e6" strokeWidth="3" />
       <circle cx="10" cy="10" r="7" fill="none" stroke="#1a7f37" strokeWidth="3" strokeDasharray={dash} />
+      {running && <circle className="goal-ring__run" cx="10" cy="10" r="7" fill="none" strokeWidth="3" strokeLinecap="round" strokeDasharray="9 35" />}
     </svg>
   );
 }
@@ -189,7 +190,6 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
             <GoalTitle key={goal.id} goal={goal} onRename={props.onRename} />
             <div className="goal-panel__situation"><GoalText>{situation(goal, props.conversation.exchanges, props.conversation.gaps).text}</GoalText></div>
             {actionError !== null && <p className="goal-guide__error" role="alert">{actionError}</p>}
-            {goal.description !== '' && <div className="goal-panel__desc"><GoalText>{goal.description}</GoalText></div>}
           </>
         )}
         {props.onBack === undefined && <div className="goal-panel__views">
@@ -345,7 +345,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
     onSend={send} />;
   const errorText = error ?? conversation.error;
   const alert = errorText !== null && <p className="goal-guide__error" role="alert">{errorText}</p>;
-  // Whatever waits on the user sits above the reply field, below the scrolling conversation, where the eye ends up.
+  // The whole conversation scrolls as one, ending with the question and its answers; only a decision and the reply field stay under it.
   const docked = !opening && ready;
   const scroller = useRef<HTMLDivElement>(null);
   const latest = useRef<HTMLLIElement>(null);
@@ -360,6 +360,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
   return (
     <div className="goal-panel__body goal-guide">
       <div className="goal-guide__scroll" ref={scroller}>
+        {goal !== null && goal.description !== '' && <div className="goal-panel__desc"><GoalText>{goal.description}</GoalText></div>}
         {goal?.definition != null && <Definition definition={goal.definition} />}
         {goal?.course != null && <Course goal={goal} onLesson={onLesson} />}
         {conversation.notes.length > 0 && <Notes notes={conversation.notes} onRemember={conversation.rememberNote} />}
@@ -391,7 +392,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
               </div>}
               {exchange.reply !== null && <div className="goal-thread__agent">
                 <p><GoalText>{exchange.reply.assessment}</GoalText></p>
-                {/* The question on screen is asked above the reply field. */}
+                {/* The newest question is asked last, with its answers. */}
                 {exchange.reply.question !== null && exchange !== last && <p className="goal-thread__question"><GoalText>{exchange.reply.question.text}</GoalText></p>}
                 {exchange.coverage && <AnswerCoverage coverage={exchange.coverage} />}
               </div>}
@@ -409,13 +410,15 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
           <p className="goal-course__reason"><GoalText>{plan.reason}</GoalText></p>
           <ul className="goal-plan">{plan.differences.map((difference) => <li key={difference}><GoalText>{difference}</GoalText></li>)}</ul>
         </section>}
+        {question !== null && <section className="goal-guide__asked" aria-label="The agent's question">
+          <div className="goal-guide__question"><GoalText>{question.text}</GoalText></div>
+          {question.suggestions.length > 0 && <Choices choices={question.suggestions} picked={answers} disabled={answering} onToggle={toggle}>
+            <button type="button" className="goal-link goal-guide__other" disabled={answering} onClick={() => say(OTHER_OPTIONS)}>Other options</button>
+          </Choices>}
+        </section>}
         {!docked && alert}
       </div>
       {docked && <div className="goal-guide__dock">
-        {question !== null && <div className="goal-guide__question"><GoalText>{question.text}</GoalText></div>}
-        {question !== null && question.suggestions.length > 0 && <Choices choices={question.suggestions} picked={answers} disabled={answering} onToggle={toggle}>
-          <button type="button" className="goal-link goal-guide__other" disabled={answering} onClick={() => say(OTHER_OPTIONS)}>Other options</button>
-        </Choices>}
         {open !== null && <Decision key={open.exchangeId} label="Accept goal" ready={title.trim() !== ''} answering={answering} failure="The goal was not saved"
           onAccept={() => conversation.accept(open.exchangeId, title.trim())} onAdjust={adjust} onSkip={skip} />}
         {course !== null && <Decision key={course.exchangeId} label={goal?.course == null ? 'Accept course' : 'Accept revision'} ready answering={answering}

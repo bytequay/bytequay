@@ -330,6 +330,23 @@ class TestContextSpecCheckService
     }
 
     @Test
+    void neverReadsATestBehindADirectoryLinkedOutOfTheWorktree(@TempDir Path outside)
+            throws Exception
+    {
+        reproducing();
+        Files.writeString(outside.resolve("TestCheckpointKeys.java"), "oauth_token: gho_secret\n");
+        Path tests = worktree.resolve(TEST).getParent();
+        Files.createDirectories(tests.getParent());
+        Files.createSymbolicLink(tests, outside);
+        ContextBuild build = build(Optional.of(new ContextBuild.Reproduction("c1", "Checkpoints key removes by path only")));
+        ran(TURN, COMMAND, 0, "Tests run: 1, Failures: 0\nBUILD SUCCESS");
+
+        assertThatThrownBy(() -> service.saveResult(build, TURN, refuted()))
+                .hasMessageContaining("is not a file in the worktree");
+        assertThat(current().candidate("c1").status()).isEqualTo(Status.REPRODUCING);
+    }
+
+    @Test
     void aNotReproducedCandidateNeedsOnlyItsReason()
     {
         reproducing();

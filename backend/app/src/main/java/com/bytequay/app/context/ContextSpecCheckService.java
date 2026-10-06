@@ -430,8 +430,18 @@ public class ContextSpecCheckService
         ContextLimits.pathPrefix(path + "/");
         AgentTask task = tasks.find(TaskId.valueOf(build.taskId())).orElseThrow(() -> new IllegalArgumentException("The check's task is unavailable"));
         Path checkout = worktrees.ownedCheckout(task.taskWorktree().orElseThrow(() -> new IllegalArgumentException("The check's task has no worktree")));
-        Path file = checkout.resolve(path).normalize();
-        checkArgument(file.startsWith(checkout) && Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS), "testPath: %s is not a file in the worktree", path);
+        // Real paths: a symlinked directory the agent made on the way would otherwise lead out of the worktree,
+        // to files such as the gh login, and their text into a drafted issue.
+        Path root;
+        Path file;
+        try {
+            root = checkout.toRealPath();
+            file = root.resolve(path).normalize().toRealPath();
+        }
+        catch (IOException missing) {
+            throw new IllegalArgumentException("testPath: " + path + " is not a file in the worktree", missing);
+        }
+        checkArgument(file.startsWith(root) && Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS), "testPath: %s is not a file in the worktree", path);
         try (InputStream input = Files.newInputStream(file, LinkOption.NOFOLLOW_LINKS)) {
             byte[] head = input.readNBytes(ContextSpecCheck.Test.MAX_SOURCE_BYTES + 1);
             return head.length <= ContextSpecCheck.Test.MAX_SOURCE_BYTES ? new String(head, UTF_8)

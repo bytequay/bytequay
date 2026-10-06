@@ -150,7 +150,8 @@ runs the test in its worktree as one command from the worktree root, without
 reports the test file and that command. ByteQuay takes the exit code and output
 of the command's latest completed run in that turn from the provider's events,
 and the test's source from the worktree; it does not take the agent's word for
-them. A command that does not name the test is refused, and so is a confirmed
+them. The source is read only where its real path stays inside the worktree, so a
+symlinked directory cannot lead the read, and a drafted issue, to files outside it. A command that does not name the test is refused, and so is a confirmed
 result whose output shows a compile failure or no test run.
 
 - **Confirmed**: the test fails, and its failure shows the gap the candidate

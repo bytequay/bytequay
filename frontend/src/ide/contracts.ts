@@ -1,0 +1,77 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import type { CodeHostRef } from '../pulls/code-tests/contracts';
+import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
+import type { AgentTaskDto, PullRequestDetailDto } from '../types';
+
+export type IdeConnection = {
+  taskId: string;
+  sessionId: string;
+  authority: string;
+  connectionToken: string;
+  root: string;
+  bundleRoot: string;
+  cacheRoot: string;
+  commit: string;
+};
+
+export type IdeComments = Omit<CodeCommentsOptions, 'onPendingChange' | 'onDetailChange' | 'onAskAgent' | 'onOpenFindingInReview' | 'threads' | 'localReview'> & {
+  askAgent: boolean;
+  openFinding: boolean;
+  threads: Omit<CodeCommentsOptions['threads'], 'onRefresh' | 'onDetailUpdate'>;
+  localReview: Omit<CodeCommentsOptions['localReview'], 'onReply' | 'onResolve' | 'onRetry'>;
+};
+
+export type IdeContext = {
+  host: CodeHostRef;
+  review: AgentReviewDto | null;
+  task: AgentTaskDto | null;
+  detail: PullRequestDetailDto | null;
+  comments?: IdeComments;
+  findingBusy?: boolean;
+  findingError?: string | null;
+};
+
+export type IdeRequest = { id: string; requestId: string; method: string; args: unknown[] };
+export type IdeReply = { requestId: string; value?: unknown; error?: string };
+export type IdeEvent = { id: string; dirty: number; busy: boolean; closed?: boolean; error?: string };
+export type IdeBounds = { x: number; y: number; width: number; height: number };
+
+/** Only the ByteQuay renderer can own or position an IDE view. */
+export type IdeDesktopBridge = {
+  open: (host: CodeHostRef) => Promise<string>;
+  present: (id: string, bounds: IdeBounds | null) => Promise<void>;
+  update: (id: string, context: IdeContext) => Promise<void>;
+  close: (id: string) => Promise<void>;
+  reply: (reply: IdeReply) => void;
+  onRequest: (listener: (request: IdeRequest) => void) => () => void;
+  onEvent: (listener: (event: IdeEvent) => void) => () => void;
+};
+
+/** The isolated workbench has no desktop session token and cannot invoke arbitrary app IPC. */
+export type IdeWorkbenchBridge = {
+  save: (path: string, content: string, expectedHash: string) => Promise<void>;
+  bootstrap: () => Promise<{ connection: IdeConnection; context: IdeContext | null }>;
+  request: (method: string, ...args: unknown[]) => Promise<unknown>;
+  report: (event: Pick<IdeEvent, 'dirty' | 'busy' | 'error'>) => void;
+  onContext: (listener: (context: IdeContext) => void) => () => void;
+};
+
+declare global {
+  interface Window {
+    ide: IdeDesktopBridge;
+    ideWorkbench: IdeWorkbenchBridge;
+  }
+}

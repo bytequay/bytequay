@@ -37,7 +37,7 @@ three.
 
 | Area | Reuse | ByteQuay responsibility |
 | --- | --- | --- |
-| Files and editing | Explorer, editor models/tabs, syntax and semantic highlighting, completion, diagnostics, formatting | Worktree identity, allowed paths, source claims, save conflict checks, review/development edit policy |
+| Files and editing | Editor models/tabs, syntax and semantic highlighting, completion, diagnostics, formatting | Existing compact ByteQuay file tree and icons, worktree identity, allowed paths, source claims, save conflict checks, review/development edit policy |
 | Discovery | File/text search, document/workspace symbols, definitions, references, implementations, incoming/outgoing calls | Compact entry point; precise capability/readiness messages; bounded agent query results |
 | Local review | Monaco positioning and decorations | Existing React cards, reply/preview/resolve/retry, anchors, privacy, evidence, review publication |
 | Run and tests | Extension test discovery/profiles, test tree, failure details and locations | Launch ownership, durable run history/logs, source identity, cancellation and process cleanup |
@@ -165,7 +165,10 @@ revision; it must not reuse a different task's dirty semantic state.
 
 ## UI and workflow details
 
-- Keep the file structure at the left and code tabs in the center. Offer file,
+- Reuse the current ByteQuay file tree, folder/file/test icons, compact package
+  grouping and Changed files filter. Keep its IDEA-like spacing and resizable
+  file and tool panels; the integration does not replace them with stock VS Code
+  chrome. Keep the file structure at the left and code tabs in the center. Offer file,
   symbol and text search plus navigation/back/forward without an activity bar.
   Move test/debug tool views into the bottom area. The fixture demonstrated moving
   the history view; moving every test/debug view is still an integration check.
@@ -244,6 +247,18 @@ nor an IDE-wide exclusive lease. Leave automatic formatting/fixes off by default
 unless the user configures them.
 
 ## Git history
+
+Include an optional left editor blame gutter with author/date on each line,
+commit details, and navigation to that commit in Git History. Use the actual
+file revision and distinguish uncommitted lines; do not present historical blame
+against a changed or unsaved buffer. Blame reads work for every text language,
+including Java, Go and Rust, and must not change Git state.
+
+Provide a narrow code overview strip on the editor's right. Hovering previews
+that section in a syntax-highlighted code card without moving the current
+cursor; selecting it jumps to the corresponding lines. Preserve diagnostic
+markers and offer the same action by keyboard. This is navigation within the
+open document, not an additional semantic index or CodeGraph consumer.
 
 Use a bottom Git History panel with commit graph/list, author/message/hash, changed
 files, and read-only parent-to-commit diffs. Include history of the current file

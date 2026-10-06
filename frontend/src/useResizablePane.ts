@@ -18,16 +18,18 @@ export function useResizablePane(
   minimumWidth: number,
   maximumWidth: number,
   resizeEdge: 'start' | 'end' = 'end',
+  axis: 'x' | 'y' = 'x',
 ) {
   const [width, setWidth] = useState(initialWidth);
   const [resizing, setResizing] = useState(false);
 
   const startResize = useCallback((event: ReactMouseEvent, renderedWidth = width) => {
     event.preventDefault();
-    const startX = event.clientX;
+    const startPosition = axis === 'x' ? event.clientX : event.clientY;
     const startWidth = renderedWidth;
     const move = (next: globalThis.MouseEvent) => {
-      const distance = resizeEdge === 'start' ? startX - next.clientX : next.clientX - startX;
+      const position = axis === 'x' ? next.clientX : next.clientY;
+      const distance = resizeEdge === 'start' ? startPosition - position : position - startPosition;
       setWidth(Math.max(minimumWidth, Math.min(maximumWidth, startWidth + distance)));
     };
     const stop = () => {
@@ -37,12 +39,12 @@ export function useResizablePane(
       document.body.style.userSelect = '';
       setResizing(false);
     };
-    document.body.style.cursor = 'col-resize';
+    document.body.style.cursor = axis === 'x' ? 'col-resize' : 'row-resize';
     document.body.style.userSelect = 'none';
     setResizing(true);
     window.addEventListener('mousemove', move);
     window.addEventListener('mouseup', stop);
-  }, [maximumWidth, minimumWidth, resizeEdge, width]);
+  }, [maximumWidth, minimumWidth, resizeEdge, width, axis]);
 
-  return { width, resizing, startResize };
+  return { width, setWidth, resizing, startResize };
 }

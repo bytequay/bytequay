@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useReducer, useRef, useState, type ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
+import { useReviewDraft } from '../ReviewDrafts';
 import type { InlineReviewCommentDto, PullRequestDetailDto, UserProfileDto } from '../../types';
 import type { AgentReviewDto, ReviewFindingDto } from '../agent-review/contracts';
 import ReviewFindingCard, { type FindingActions } from '../agent-review/ReviewFindingCard';
@@ -96,22 +97,26 @@ function FindingCard({ review, finding, viewer, actions, busy, error }: FindingC
  * Review comments in the whole-file view, sharing Changes' composer, pending list and discussion cards. A GitHub
  * comment anchors only to the reviewed revision's diff lines; Send to agent takes any line.
  */
-export function useCodeComments(options: CodeCommentsOptions | undefined, context: CommentContext | null, findings?: CodeFindings) {
-  const [range, dispatchRange] = useReducer(rangeSelectionReducer, NO_RANGE_SELECTION);
-  const [rangePath, setRangePath] = useState<string | null>(null);
-  const [body, setBody] = useState('');
+export function useCodeComments(options: CodeCommentsOptions | undefined, context: CommentContext | null, findings?: CodeFindings, findingOverride?: ReturnType<typeof useFindingActions>) {
+  const [range, setRange] = useReviewDraft('codeComment:range', NO_RANGE_SELECTION);
+  const dispatchRange = (action: Parameters<typeof rangeSelectionReducer>[1]) => setRange(current => rangeSelectionReducer(current, action));
+  const [rangePath, setRangePath] = useReviewDraft<string | null>('codeComment:path', null);
+  const [body, setBody] = useReviewDraft('codeComment:body', '');
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [posting, setPosting] = useState(false);
   const [sending, setSending] = useState(false);
-  const [pendingEdit, setPendingEdit] = useState<{ comment: InlineReviewCommentDto; body: string } | null>(null);
+  const [pendingEdit, setPendingEdit] = useReviewDraft<{ comment: InlineReviewCommentDto; body: string } | null>('codeComment:pendingEdit', null);
+  const editing = (item: InlineReviewCommentDto) => pendingEdit !== null && ['path', 'side', 'line', 'startLine', 'commitId', 'body'].every(key => pendingEdit.comment[key as keyof InlineReviewCommentDto] === item[key as keyof InlineReviewCommentDto]);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
   // One action state for every finding card, as on Changes, so two cards cannot race the same review draft version.
-  const findingActions = useFindingActions({
+  const defaultFindingActions = useFindingActions({
     review: findings?.review ?? PLACEHOLDER_REVIEW,
     onReviewChange: findings?.onReviewChange ?? (() => {}),
     onNavigate: finding => options?.onOpenFindingInReview?.(finding.id),
   });
+
+  const findingActions = findingOverride ?? defaultFindingActions;
 
   if (options === undefined || context === null) return { onComment: undefined, commentRange: null, cards: [] as LineCard[], renderCard: undefined, unplaced: null };
   const { path, text } = context;
@@ -203,16 +208,16 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
       return (
         <PendingReviewCard comment={item} viewer={options.viewer} repository={options.repo}
           suggestion={{ startLine: item.startLine ?? item.line, lines: lines.slice((item.startLine ?? item.line) - 1, item.line) }}
-          editBody={pendingEdit?.comment === item ? pendingEdit.body : null}
+          editBody={editing(item) ? pendingEdit.body : null}
           onEdit={value => setPendingEdit(value === null ? null : { comment: item, body: value })}
           onSave={() => {
-            if (pendingEdit?.comment !== item || !pendingEdit.body.trim()) return;
+            if (!editing(item) || !pendingEdit.body.trim()) return;
             options.onPendingChange(updatePendingReviewComment(options.pending, item, pendingEdit.body));
             setPendingEdit(null);
           }}
           onDiscard={() => {
             options.onPendingChange(updatePendingReviewComment(options.pending, item, null));
-            if (pendingEdit?.comment === item) setPendingEdit(null);
+            if (editing(item)) setPendingEdit(null);
           }} />
       );
     }

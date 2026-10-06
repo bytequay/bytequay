@@ -1,0 +1,75 @@
+{
+  "name": "ByteQuay IDEA Light",
+  "type": "light",
+  "colors": {
+    "editor.background": "#ffffff",
+    "editor.foreground": "#202020",
+    "editorLineNumber.foreground": "#999999",
+    "editor.selectionBackground": "#a6d2ff",
+    "sideBar.background": "#f5f5f5",
+    "sideBar.foreground": "#303030",
+    "editorGroupHeader.tabsBackground": "#f2f2f2",
+    "panel.background": "#ffffff",
+    "focusBorder": "#4a88c7",
+    "activityBar.background": "#f5f5f5",
+    "statusBar.background": "#f5f5f5"
+  },
+  "tokenColors": [
+    {
+      "scope": "comment",
+      "settings": {
+        "foreground": "#808080",
+        "fontStyle": "italic"
+      }
+    },
+    {
+      "scope": [
+        "keyword",
+        "storage"
+      ],
+      "settings": {
+        "foreground": "#000080"
+      }
+    },
+    {
+      "scope": "string",
+      "settings": {
+        "foreground": "#008000"
+      }
+    },
+    {
+      "scope": "constant.numeric",
+      "settings": {
+        "foreground": "#0000ff"
+      }
+    },
+    {
+      "scope": [
+        "entity.name.function",
+        "support.function"
+      ],
+      "settings": {
+        "foreground": "#00627a"
+      }
+    },
+    {
+      "scope": [
+        "entity.name.type",
+        "entity.name.class"
+      ],
+      "settings": {
+        "foreground": "#202020"
+      }
+    },
+    {
+      "scope": [
+        "variable.other.property",
+        "variable.other.field"
+      ],
+      "settings": {
+        "foreground": "#660e7a"
+      }
+    }
+  ],
+  "semanticHighlighting": true
+}

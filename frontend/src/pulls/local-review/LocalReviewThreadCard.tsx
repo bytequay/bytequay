@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useRef, useState } from 'react';
+import { useReviewDraft } from '../ReviewDrafts';
 import Avatar from '../../Avatar';
 import CopyLinkButton from '../../CopyLinkButton';
 import BetterWordsButton from '../BetterWordsButton';
@@ -30,8 +31,8 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
 }) {
   const learning = thread.learningAnchor ?? null;
   const disabledReason = learning !== null && learningDisabledReason !== undefined ? learningDisabledReason : codeDisabledReason;
-  const [replying, setReplying] = useState(false);
-  const [body, setBody] = useState('');
+  const [replying, setReplying] = useReviewDraft(`local:${thread.id}:replying`, false);
+  const [body, setBody] = useReviewDraft(`local:${thread.id}:body`, '');
   const [preview, setPreview] = useState(false);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -184,3 +184,42 @@ the existing review mutation path. Regression coverage includes Java, Rust, Go
 and Cargo files, stale edits after an agent write, busy worktrees, ended reviews,
 and path/symlink checks. No agent permission, turn, queue or runtime behavior was
 changed by this correction.
+
+## Integrated editor checkpoint
+
+The application now packages a separate modular IDE renderer and a sandboxed
+native view with a dedicated preload. The production Code & Tests tab has not
+switched to it yet. Main validates a closed set of task/review actions, encoded
+file saves and current parent context; the IDE renderer has no full desktop
+bridge or backend session credential.
+
+The renderer reuses the current ByteQuay file tree and icons, package grouping,
+Changed files filter, private React review cards, and its own compact toolbars.
+IDEA Light and Darcula presets and IDEA/VS Code keymaps are selectable. File and
+tool panels resize with pointer and keyboard controls. Source and review drafts
+are retained outside the lifetime of individual editor cards; source recovery
+keeps conflicting external edits separately rather than overwriting them.
+
+Native fixture checks exercised the current production renderer, real language
+extensions, and temporary source files. Go file tests displayed the deliberate
+failure with its message, line decoration and raw logs. Private card Reply and
+Resolve worked with fixture callbacks. A real native Go save reached the encoded
+save bridge with the expected content hash. This caught and corrected a delayed
+VS Code service proxy retaining a cached original write method; the adapter now
+updates both the underlying method and that cache. Unit coverage retains this
+regression, encoded-byte preservation, stale saves and create-only writes.
+
+View ownership checks cover deduplicated opens, parent/child IPC separation,
+hidden-idle disposal, retention of dirty or busy views, and retrying failed
+process cleanup before reporting closure. These tests use mocked Electron;
+final packaged application lifecycle and resource measurements remain required.
+The backend full verification passes. Frontend lint, type checks, 1,519 tests,
+and macOS arm64 packaging pass for this checkpoint; later additions retain their
+own verification requirement.
+
+Still required: production cutover, durable run/debug evidence and execution
+coordination, selected-log agent context, full history/blame and preview-strip
+integration, hidden shared code queries and GoalPlanner migration, CodeGraph
+removal, and final native lifecycle/resource verification. Native fixture saves
+verify the renderer adapter; the backend claim/save behavior is covered by the
+separate service tests, not claimed as a single full-app end-to-end test here.

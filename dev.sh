@@ -154,6 +154,8 @@ if ! node "$ROOT/scripts/codegraph-bundle.mjs"; then
   echo "[dev] warning: CodeGraph bundle unavailable; agent tasks run without the code graph"
 fi
 export BYTEQUAY_CODEGRAPH_HOME="$ROOT/frontend/vendor/codegraph"
+node "$ROOT/scripts/ide-bundle.mjs"
+export BYTEQUAY_IDE_HOME="$ROOT/frontend/vendor/ide"
 
 echo "[dev] starting backend (Spring Boot prefers :9527, then an available OS-assigned port)..."
 # Build the three-module reactor, then replace the background subshell with

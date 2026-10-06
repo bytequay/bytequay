@@ -29,6 +29,7 @@ const BACKEND_JAR = join(__dirname, '..', 'backend', 'app', 'target', 'bytequay-
 // Vendored CodeGraph bundle, fetched by scripts/codegraph-bundle.mjs and
 // shipped whole into Contents/Resources/codegraph.
 const CODEGRAPH_BUNDLE = join(__dirname, 'vendor', 'codegraph');
+const IDE_BUNDLE = join(__dirname, 'vendor', 'ide');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -43,7 +44,7 @@ const config: ForgeConfig = {
     // Ship the backend JAR alongside the renderer. extraResource
     // copies the file into Contents/Resources/ on macOS (the same
     // path process.resourcesPath resolves to at runtime).
-    extraResource: [BACKEND_JAR, CODEGRAPH_BUNDLE],
+    extraResource: [BACKEND_JAR, CODEGRAPH_BUNDLE, IDE_BUNDLE],
   },
   hooks: {
     // The Vite plugin ships only its bundles, so the one runtime native module is copied in: its JS, license and
@@ -63,6 +64,7 @@ const config: ForgeConfig = {
     // the artifact for packaging. Idempotent: if the JAR already
     // exists, do nothing.
     generateAssets: async () => {
+      execSync('node scripts/ide-bundle.mjs', { cwd: join(__dirname, '..'), stdio: 'inherit' });
       execSync('node scripts/codegraph-bundle.mjs', {
         cwd: join(__dirname, '..'),
         stdio: 'inherit',
@@ -103,8 +105,10 @@ const config: ForgeConfig = {
           config: 'vite.main.config.ts',
           target: 'preload',
         },
+        { entry: 'src/idePreload.ts', config: 'vite.main.config.ts', target: 'preload' },
       ],
       renderer: [
+        { name: 'ide_window', config: 'vite.ide.config.ts' },
         {
           name: 'main_window',
           config: 'vite.renderer.config.ts',

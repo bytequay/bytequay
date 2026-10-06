@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useReviewDraft } from './ReviewDrafts';
 import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads, LocalReviewThreadDto } from './local-review/types';
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -1024,13 +1025,13 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   showCode?: boolean;
 }) {
   const { payload } = activity;
-  const [replying, setReplying] = useState(false);
-  const [body, setBody] = useState('');
+  const [replying, setReplying] = useReviewDraft(`github:${activity.githubId}:replying`, false);
+  const [body, setBody] = useReviewDraft(`github:${activity.githubId}:body`, '');
   const [preview, setPreview] = useState(false);
   const [posting, setPosting] = useState(false);
   const [changingResolution, setChangingResolution] = useState(false);
   const [optimisticResolved, setOptimisticResolved] = useState<boolean | null>(null);
-  const [edit, setEdit] = useState<{ commentId: number; draft: string } | null>(null);
+  const [edit, setEdit] = useReviewDraft<{ commentId: number; draft: string } | null>(`github:${activity.githubId}:edit`, null);
   const [error, setError] = useState('');
   const [drafting, setDrafting] = useState(false);
   // The editor holds the agent's draft; nothing reaches GitHub until the user presses Comment.

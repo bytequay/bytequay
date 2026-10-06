@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useReviewDraft } from '../ReviewDrafts';
 import { useState } from 'react';
 import { Chevron } from '../../Chevron';
 import CopyLinkButton from '../../CopyLinkButton';
@@ -75,10 +76,10 @@ export default function ReviewFindingCard({
 }) {
   const [evidenceOpen, setEvidenceOpen] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
-  const [composer, setComposer] = useState<'ask' | 'resolve' | 'post' | 'draft' | 'fix' | null>(null);
+  const [composer, setComposer] = useReviewDraft<'ask' | 'resolve' | 'post' | 'draft' | 'fix' | null>(`finding:${finding.id}:composer`, null);
   const [fixSent, setFixSent] = useState(false);
-  const [remember, setRemember] = useState(false);
-  const [text, setText] = useState('');
+  const [remember, setRemember] = useReviewDraft(`finding:${finding.id}:remember`, false);
+  const [text, setText] = useReviewDraft(`finding:${finding.id}:text`, '');
   const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
   const publication = findingPublication(review, finding);

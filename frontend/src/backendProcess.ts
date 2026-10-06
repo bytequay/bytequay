@@ -146,6 +146,7 @@ export function spawnBackend(): void {
       BYTEQUAY_DESKTOP_SESSION_TOKEN: desktopSessionToken,
       BYTEQUAY_JIRA_AUTH_URL: process.env.BYTEQUAY_JIRA_AUTH_URL ?? (typeof __BYTEQUAY_JIRA_AUTH_URL__ === 'string' ? __BYTEQUAY_JIRA_AUTH_URL__ : ''),
       BYTEQUAY_CODEGRAPH_HOME: path.join(process.resourcesPath, 'codegraph'),
+      BYTEQUAY_IDE_HOME: path.join(process.resourcesPath, 'ide'),
     },
   });
   if (child.stdout) {

@@ -39,6 +39,7 @@ vi.mock('electron', () => ({
     on: (event: string, listener: () => Promise<void>) => desktop.listeners.set(event, listener),
     getAppPath: () => process.cwd(), getVersion: () => 'test', setAboutPanelOptions: vi.fn(),
   },
+  protocol: { registerSchemesAsPrivileged: vi.fn() },
   ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => Promise<unknown>) => desktop.handlers.set(channel, handler), on: vi.fn() },
   Menu: { setApplicationMenu: vi.fn(), buildFromTemplate: vi.fn() },
   clipboard: { read: desktop.clipboardRead, writeText: desktop.clipboardWriteText },

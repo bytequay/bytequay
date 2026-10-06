@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { IdeDesktopBridge, IdeEvent, IdeRequest } from './ide/contracts';
 import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
 import type { AgentStreamMessage, Bridge, FindResult, InAppBrowserState, PullRequestDto } from './types';
@@ -565,3 +566,22 @@ const bridge: Bridge = {
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);
+
+const ide: IdeDesktopBridge = {
+  open: host => ipcRenderer.invoke('ide:open', host),
+  present: (id, bounds) => ipcRenderer.invoke('ide:present', id, bounds),
+  update: (id, context) => ipcRenderer.invoke('ide:update', id, context),
+  close: id => ipcRenderer.invoke('ide:close', id),
+  reply: reply => ipcRenderer.send('ide:reply', reply),
+  onRequest: listener => {
+    const receive = (_event: Electron.IpcRendererEvent, request: IdeRequest) => listener(request);
+    ipcRenderer.on('ide:request', receive);
+    return () => ipcRenderer.removeListener('ide:request', receive);
+  },
+  onEvent: listener => {
+    const receive = (_event: Electron.IpcRendererEvent, event: IdeEvent) => listener(event);
+    ipcRenderer.on('ide:event', receive);
+    return () => ipcRenderer.removeListener('ide:event', receive);
+  },
+};
+contextBridge.exposeInMainWorld('ide', ide);

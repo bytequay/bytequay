@@ -18,6 +18,7 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Noti
 import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
+import { IdeViews } from './ideViews';
 import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -269,6 +270,7 @@ function imageMediaType(filePath: string): string {
   if (extension === '.gif') return 'image/gif';
   return 'image/jpeg';
 }
+const ideViews = new IdeViews(() => mainWindow);
 const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'));
 let pendingWindow: Promise<void> | null = null;
 
@@ -388,6 +390,7 @@ async function createWindow(): Promise<void> {
   mainWindow.on('closed', () => {
     draftAttachments.clear();
     browserTabs.releaseWindow();
+    ideViews.releaseWindow();
     mainWindow = null;
   });
   const sendFullScreen = (isFullScreen: boolean) => {
@@ -2113,6 +2116,7 @@ function registerIpc(): void {
     if (/^https?:/i.test(url)) await shell.openExternal(url);
   });
   registerBrowserTabIpc(browserTabs, () => mainWindow);
+  ideViews.register();
   ipcMain.handle('inapp:popout', (_event, url: string) => openPopup(url));
 }
 
@@ -2137,6 +2141,7 @@ app.on('before-quit', () => {
   // Streams read from the backend, so they stop before it does.
   agentSubscriptions.stopAll();
   codeTerminals.stopAll();
+  ideViews.dispose();
   killBackend();
 });
 app.on('activate', () => {

@@ -32,8 +32,7 @@ import com.bytequay.core.store.WorkItemStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -194,17 +193,64 @@ public class EpicBreakdowns
     private String prompt(String workspaceId, String epicId, Source source)
     {
         Epic epic = epics.find(epicId).orElseGet(() -> Epic.of(epicId, workspaceId));
-        ObjectNode data = MAPPER.createObjectNode();
-        data.putObject("epic").put("reference", source.label()).put("title", source.title())
-                .put("description", ContextText.excerpt(source.description(), MAX_DESCRIPTION));
-        ArrayNode children = data.putArray("children");
-        epic.children().stream().limit(MAX_LISTED).forEach(child -> children.addObject().put("reference", child.label()).put("title", child.title())
-                .put("status", child.status()));
-        ArrayNode work = data.putArray("work");
-        epicWork(workspaceId, epicId).stream().limit(MAX_LISTED).forEach(item -> work.addObject().put("title", item.title()).put("state", item.state().name()));
-        ArrayNode proposed = data.putArray("proposed");
-        epic.proposals().forEach(proposal -> proposed.addObject().put("title", proposal.title()));
-        return INSTRUCTIONS + "\n<epic-data>\n" + data.toPrettyString() + "\n</epic-data>\n";
+        Prompt data = new Prompt(new PromptSource(source.label(), source.title(), ContextText.excerpt(source.description(), MAX_DESCRIPTION)),
+                epic.children().stream().limit(MAX_LISTED).map(child -> new Child(child.label(), child.title(), child.status())).collect(toImmutableList()),
+                epicWork(workspaceId, epicId).stream().limit(MAX_LISTED).map(item -> new ExistingWork(item.title(), item.state().name())).collect(toImmutableList()),
+                epic.proposals().stream().map(proposal -> new PreviousProposal(proposal.title())).collect(toImmutableList()));
+        try {
+            return INSTRUCTIONS + "\n<epic-data>\n" + MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(data) + "\n</epic-data>\n";
+        }
+        catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Cannot encode Epic context", failure);
+        }
+    }
+
+    private record Prompt(PromptSource epic, List<Child> children, List<ExistingWork> work, List<PreviousProposal> proposed)
+    {
+        private Prompt
+        {
+            requireNonNull(epic, "epic is null");
+            children = ImmutableList.copyOf(children);
+            work = ImmutableList.copyOf(work);
+            proposed = ImmutableList.copyOf(proposed);
+        }
+    }
+
+    private record PromptSource(String reference, String title, String description)
+    {
+        private PromptSource
+        {
+            requireNonNull(reference, "reference is null");
+            requireNonNull(title, "title is null");
+            requireNonNull(description, "description is null");
+        }
+    }
+
+    private record Child(String reference, String title, String status)
+    {
+        private Child
+        {
+            requireNonNull(reference, "reference is null");
+            requireNonNull(title, "title is null");
+            requireNonNull(status, "status is null");
+        }
+    }
+
+    private record ExistingWork(String title, String state)
+    {
+        private ExistingWork
+        {
+            requireNonNull(title, "title is null");
+            requireNonNull(state, "state is null");
+        }
+    }
+
+    private record PreviousProposal(String title)
+    {
+        private PreviousProposal
+        {
+            requireNonNull(title, "title is null");
+        }
     }
 
     /** What the model proposed, less what the Epic already has as work. */

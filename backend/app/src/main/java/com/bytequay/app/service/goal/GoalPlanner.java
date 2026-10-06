@@ -33,11 +33,10 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
+import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -363,29 +362,23 @@ public class GoalPlanner
 
     String mapPrompt(GoalView goal, List<GoalKnowledgeNote> saved, Optional<GoalSourceContext.Evidence> code)
     {
-        ObjectNode data = MAPPER.createObjectNode();
-        workspaces.findById(goal.workspaceId()).ifPresent(workspace -> data.put("repository", workspace.monitoredRepository().fullName()));
-        data.put("goal", goal.title()).put("objective", goal.description());
-        course(data, goal, Optional.empty());
-        ArrayNode list = data.putArray("notes");
-        saved.stream().limit(MAX_LESSON_NOTES).forEach(note -> list.addObject().put("topic", note.topic()).put("body", note.body()));
-        code.ifPresent(found -> data.putObject("sourceContext").put("commit", found.commit()).put("text", found.text()).put("truncated", found.truncated()));
-        return MAP_INSTRUCTIONS + "\n<map-data>\n" + data.toPrettyString() + "\n</map-data>\n";
+        GoalPrompt.MapData data = new GoalPrompt.MapData(repository(goal), goal.title(), goal.description(), course(goal, Optional.empty()),
+                saved.stream().limit(MAX_LESSON_NOTES).map(note -> new GoalPrompt.Note(note.topic(), note.body())).collect(toImmutableList()), code);
+        return MAP_INSTRUCTIONS + "\n<map-data>\n" + json(data, true) + "\n</map-data>\n";
+    }
+
+    private Optional<String> repository(GoalView goal)
+    {
+        return workspaces.findById(goal.workspaceId()).map(workspace -> workspace.monitoredRepository().fullName());
     }
 
     /** The accepted course in order, each chapter with what it teaches, marking the one being written. */
-    private static void course(ObjectNode data, GoalView goal, Optional<String> thisChapter)
+    private static List<GoalPrompt.CoursePart> course(GoalView goal, Optional<String> thisChapter)
     {
-        ArrayNode course = data.putArray("course");
-        goal.course().ifPresent(accepted -> accepted.parts().forEach(entry -> {
-            ArrayNode chapters = course.addObject().put("part", entry.title()).putArray("chapters");
-            entry.lessons().forEach(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst().ifPresent(item -> {
-                ObjectNode chapter = chapters.addObject().put("title", item.title()).put("outcome", item.acceptanceCriteria());
-                if (thisChapter.filter(item.id()::equals).isPresent()) {
-                    chapter.put("thisChapter", true);
-                }
-            }));
-        }));
+        return goal.course().stream().flatMap(accepted -> accepted.parts().stream()).map(part -> new GoalPrompt.CoursePart(part.title(),
+                part.lessons().stream().flatMap(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst().stream())
+                        .map(item -> new GoalPrompt.Chapter(item.title(), item.acceptanceCriteria(), thisChapter.filter(item.id()::equals).map(ignored -> true)))
+                        .collect(toImmutableList()))).collect(toImmutableList());
     }
 
     /** A diagram in words: a flow's steps in order, a tree's nodes, or the labelled arrows of components and sequences. */
@@ -426,21 +419,12 @@ public class GoalPlanner
 
     String lessonPrompt(GoalView goal, WorkItemView lesson, String part, List<GoalKnowledgeNote> saved, Optional<GoalSourceContext.Evidence> code)
     {
-        ObjectNode data = MAPPER.createObjectNode();
-        workspaces.findById(goal.workspaceId()).ifPresent(workspace -> data.put("repository", workspace.monitoredRepository().fullName()));
-        data.put("goal", goal.title()).put("objective", goal.description());
-        goal.definition().ifPresent(definition -> data.put("startingKnowledge", definition.startingKnowledge()));
-        data.putObject("lesson").put("part", part).put("title", lesson.title()).put("outcome", lesson.acceptanceCriteria());
-        course(data, goal, Optional.of(lesson.id()));
-        goal.course().flatMap(GoalCourse::map).ifPresent(map -> data.set("courseMap", MAPPER.valueToTree(map)));
-        ArrayNode list = data.putArray("notes");
-        saved.stream().limit(MAX_LESSON_NOTES).forEach(note -> {
-            ObjectNode entry = list.addObject().put("topic", note.topic()).put("body", note.body());
-            ArrayNode sources = entry.putArray("sources");
-            note.sources().forEach(source -> sources.add(source.url()));
-        });
-        code.ifPresent(found -> data.putObject("sourceContext").put("commit", found.commit()).put("text", found.text()).put("truncated", found.truncated()));
-        return LESSON_INSTRUCTIONS + "\n<lesson-data>\n" + data.toPrettyString() + "\n</lesson-data>\n";
+        GoalPrompt.LessonData data = new GoalPrompt.LessonData(repository(goal), goal.title(), goal.description(),
+                goal.definition().map(definition -> definition.startingKnowledge()), new GoalPrompt.Lesson(part, lesson.title(), lesson.acceptanceCriteria()),
+                course(goal, Optional.of(lesson.id())), goal.course().flatMap(GoalCourse::map),
+                saved.stream().limit(MAX_LESSON_NOTES).map(note -> new GoalPrompt.CitedNote(note.topic(), note.body(),
+                        note.sources().stream().map(GoalKnowledgeNote.Source::url).collect(toImmutableList()))).collect(toImmutableList()), code);
+        return LESSON_INSTRUCTIONS + "\n<lesson-data>\n" + json(data, true) + "\n</lesson-data>\n";
     }
 
     /** A short summary of finished work from its history, which names only what the history shows. */
@@ -456,16 +440,13 @@ public class GoalPlanner
 
     String summaryPrompt(GoalView goal, WorkItemView item)
     {
-        ObjectNode data = MAPPER.createObjectNode().put("goal", goal.title()).put("objective", goal.description());
-        ObjectNode work = data.putObject("work").put("title", item.title()).put("kind", item.kind().name()).put("acceptanceCriteria", item.acceptanceCriteria())
-                .put("completionRule", item.completionRule().name());
-        ArrayNode links = work.putArray("links");
-        item.links().forEach(link -> links.add(link.kind().name() + " " + link.label() + ": " + link.status()));
-        ArrayNode history = work.putArray("history");
-        item.history().stream().filter(event -> !event.action().equals("SUMMARY")).skip(Math.max(0, item.history().size() - MAX_HISTORY))
-                .forEach(event -> history.addObject().put("kind", event.action()).put("at", event.at().toString())
-                        .put("detail", ContextText.excerpt(event.detail(), MAX_HISTORY_DETAIL)));
-        return SUMMARY_INSTRUCTIONS + "\n<work-data>\n" + data.toPrettyString() + "\n</work-data>\n";
+        GoalPrompt.Summary data = new GoalPrompt.Summary(goal.title(), goal.description(), new GoalPrompt.WorkSummary(item.title(), item.kind(),
+                item.acceptanceCriteria(), item.completionRule(),
+                item.links().stream().map(link -> link.kind().name() + " " + link.label() + ": " + link.status()).collect(toImmutableList()),
+                item.history().stream().filter(event -> !event.action().equals("SUMMARY")).skip(Math.max(0, item.history().size() - MAX_HISTORY))
+                        .map(event -> new GoalPrompt.History(event.action(), event.at().toString(), ContextText.excerpt(event.detail(), MAX_HISTORY_DETAIL)))
+                        .collect(toImmutableList())));
+        return SUMMARY_INSTRUCTIONS + "\n<work-data>\n" + json(data, true) + "\n</work-data>\n";
     }
 
     // What each answer's prompt held, kept until the answer is saved with it.
@@ -502,140 +483,100 @@ public class GoalPlanner
     }
 
     /** Everything the agent is given about the goal but the conversation; for an exchange, what it held is kept for its answer. */
-    private ObjectNode facts(GoalView goal, String message, Optional<String> exchangeId)
+    private GoalPrompt.Facts facts(GoalView goal, String message, Optional<String> exchangeId)
     {
-        ObjectNode data = MAPPER.createObjectNode();
-        workspaces.findById(goal.workspaceId()).ifPresent(workspace -> data.put("repository", workspace.monitoredRepository().fullName()));
-        ArrayNode dependencies = data.putArray("dependencies");
-        relationships.list(goal.workspaceId()).stream()
+        List<String> dependencies = relationships.list(goal.workspaceId()).stream()
                 .filter(relationship -> relationship.kind() == WorkspaceRelationships.Kind.DEPENDENCY)
                 .flatMap(relationship -> relationships.available(goal.workspaceId(), relationship.workspaceId()).stream())
-                .forEach(dependency -> dependencies.add(dependency.monitoredRepository().fullName()));
-        ObjectNode objective = data.putObject("goal").put("title", goal.title()).put("objective", goal.description());
-        goal.definition().ifPresent(definition -> objective.putObject("acceptedDefinition")
-                .put("id", "definition:" + definition.exchangeId())
-                .put("successDefinition", definition.successDefinition())
-                .put("startingKnowledge", definition.startingKnowledge())
-                .put("constraints", definition.constraints()));
-        goal.course().ifPresent(course -> {
-            ArrayNode parts = objective.putArray("acceptedCourse");
-            course.parts().forEach(part -> {
-                ArrayNode entries = parts.addObject().put("part", part.title()).putArray("lessons");
-                part.lessons().forEach(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst()
-                        .ifPresent(item -> entries.addObject().put("id", item.id()).put("title", item.title()).put("state", item.state().name())));
-            });
-        });
-        int offered = 0;
-        long issuesOpen = 0;
-        if (goal.definition().isPresent()) {
-            GoalCandidates.Pool pool = candidates.pool(goal);
-            offered = pool.candidates().size();
-            issuesOpen = pool.coverage().issuesOpen();
-            ArrayNode practice = data.putArray("practiceCandidates");
-            pool.candidates().forEach(candidate -> {
-                ObjectNode entry = practice.addObject().put("id", candidate.id()).put("title", candidate.title());
-                candidate.labels().forEach(entry.putArray("labels")::add);
-                candidate.status().ifPresent(status -> entry.put("status", status));
-                candidate.priority().ifPresent(priority -> entry.put("priority", priority));
-            });
-            GoalCandidates.Coverage coverage = pool.coverage();
-            ObjectNode covered = data.putObject("candidateCoverage").put("issuesRead", coverage.issuesRead()).put("issuesOpen", coverage.issuesOpen())
-                    .put("ticketsRead", coverage.ticketsRead());
-            coverage.issuesSyncedAt().ifPresent(at -> covered.put("issuesSyncedAt", at.toString()));
-            ArrayNode gaps = data.putArray("lastSpecCheckGaps");
-            specChecks.gaps(goal.workspaceId(), goal.id()).forEach(gap -> gaps.addObject().put("title", gap.title()).put("module", gap.module())
-                    .put("work", gap.state().map(Enum::name).orElse("NOT_ADDED")));
-            ArrayNode modules = data.putArray("specCheckModules");
-            try {
-                specChecks.modules(goal.workspaceId()).forEach(module -> {
-                    ObjectNode entry = modules.addObject().put("directory", module.directory()).put("sections", module.sections());
-                    module.page().ifPresent(page -> entry.put("page", page));
-                });
-            }
-            catch (RuntimeException unavailable) {
-                // Without a readable monitored head the goal can still be guided; it only cannot name a module to check.
-                log.debug("Goal {} has no modules to check: {}", goal.id(), unavailable.toString());
-            }
-        }
-        ArrayNode work = objective.putArray("workItems");
-        goal.items().stream().sorted(comparingLong(WorkItemView::rank).thenComparing(WorkItemView::createdAt)).limit(MAX_WORK_ITEMS).forEach(item -> {
-            ObjectNode entry = work.addObject().put("id", item.id()).put("title", item.title()).put("kind", item.kind().name()).put("state", item.state().name())
-                    .put("priority", item.priority().name());
-            if (!item.blockedBy().isEmpty()) {
-                ArrayNode waits = entry.putArray("waitsOn");
-                item.blockedBy().forEach(waits::add);
-            }
-            // What the work's sources, tasks and pull requests show now, such as a merged pull request awaiting the user's acceptance.
-            ArrayNode links = entry.putArray("links");
-            item.links().stream().limit(MAX_LINKS).forEach(link -> links.add(link.kind().name() + " " + link.label() + ": " + link.status()));
-            item.history().stream().filter(event -> event.action().equals("SUMMARY")).reduce((first, second) -> second)
-                    .ifPresent(summary -> entry.put("summary", ContextText.excerpt(summary.detail(), MAX_HISTORY_DETAIL)));
-        });
-        ArrayNode known = data.putArray("topics");
-        topics.list(goal.id()).forEach(topic -> known.addObject().put("topic", topic.topic()).put("level", topic.level().name()).put("setByUser", topic.userSet()));
-        ArrayNode asked = data.putArray("recentQuestions");
-        List<GoalQuestions.Question> nearest = questions.nearest(goal, MAX_QUESTIONS);
-        nearest.forEach(question -> asked.addObject().put("id", question.id()).put("text", question.text()).put("where", question.where()));
-        ArrayNode cards = data.putArray("cards");
-        goal.recommendations().forEach(card -> cards.addObject().put("kind", card.card().kind().name()).put("title", card.card().title())
-                .put("state", card.state().name()));
-        ArrayNode knowledge = data.putArray("knowledgeNotes");
+                .map(dependency -> dependency.monitoredRepository().fullName()).collect(toImmutableList());
+        Optional<GoalPrompt.Definition> definition = goal.definition().map(value -> new GoalPrompt.Definition("definition:" + value.exchangeId(),
+                value.successDefinition(), value.startingKnowledge(), value.constraints()));
+        Optional<List<GoalPrompt.AcceptedPart>> course = goal.course().map(accepted -> accepted.parts().stream()
+                .map(part -> new GoalPrompt.AcceptedPart(part.title(), part.lessons().stream()
+                        .flatMap(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst().stream())
+                        .map(item -> new GoalPrompt.AcceptedLesson(item.id(), item.title(), item.state())).collect(toImmutableList()))).collect(toImmutableList()));
+        Optional<GoalCandidates.Pool> pool = goal.definition().map(ignored -> candidates.pool(goal));
+        Optional<List<GoalPrompt.Candidate>> practice = pool.map(value -> value.candidates().stream()
+                .map(candidate -> new GoalPrompt.Candidate(candidate.id(), candidate.title(), candidate.labels(), candidate.status(), candidate.priority()))
+                .collect(toImmutableList()));
+        Optional<GoalPrompt.CandidateCoverage> coverage = pool.map(GoalCandidates.Pool::coverage).map(value ->
+                new GoalPrompt.CandidateCoverage(value.issuesRead(), value.issuesOpen(), value.ticketsRead(), value.issuesSyncedAt().map(Object::toString)));
+        Optional<List<GoalPrompt.Gap>> gaps = goal.definition().map(ignored -> specChecks.gaps(goal.workspaceId(), goal.id()).stream()
+                .map(gap -> new GoalPrompt.Gap(gap.title(), gap.module(), gap.state().map(Enum::name).orElse("NOT_ADDED"))).collect(toImmutableList()));
+        Optional<List<GoalPrompt.Module>> modules = goal.definition().map(ignored -> modules(goal));
+        List<GoalPrompt.Work> work = goal.items().stream().sorted(comparingLong(WorkItemView::rank).thenComparing(WorkItemView::createdAt)).limit(MAX_WORK_ITEMS)
+                .map(item -> new GoalPrompt.Work(item.id(), item.title(), item.kind(), item.state(), item.priority(),
+                        item.blockedBy().isEmpty() ? Optional.empty() : Optional.of(item.blockedBy()),
+                        item.links().stream().limit(MAX_LINKS).map(link -> link.kind().name() + " " + link.label() + ": " + link.status()).collect(toImmutableList()),
+                        item.history().stream().filter(event -> event.action().equals("SUMMARY")).reduce((first, second) -> second)
+                                .map(summary -> ContextText.excerpt(summary.detail(), MAX_HISTORY_DETAIL))))
+                .collect(toImmutableList());
+        List<GoalPrompt.Topic> known = topics.list(goal.id()).stream()
+                .map(topic -> new GoalPrompt.Topic(topic.topic(), topic.level(), topic.userSet())).collect(toImmutableList());
+        List<GoalPrompt.Question> nearest = questions.nearest(goal, MAX_QUESTIONS).stream()
+                .map(question -> new GoalPrompt.Question(question.id(), question.text(), question.where())).collect(toImmutableList());
+        List<GoalPrompt.Card> cards = goal.recommendations().stream()
+                .map(card -> new GoalPrompt.Card(card.card().kind(), card.card().title(), card.state())).collect(toImmutableList());
         List<GoalKnowledgeNote> saved = notes.list(goal.id()).stream().limit(MAX_NOTES).collect(toImmutableList());
         Set<String> stale = research.stale(goal.workspaceId(), saved);
         Set<String> inFull = nearestNotes(saved, message, GoalCandidates.context(goal), MAX_NOTES_IN_FULL);
-        saved.forEach(note -> {
-            ObjectNode entry = knowledge.addObject().put("topic", note.topic());
-            if (stale.contains(note.id())) {
-                entry.put("stale", true);
-            }
-            if (inFull.contains(note.id())) {
-                entry.put("body", note.body());
-            }
-        });
-        if (exchangeId.isPresent()) {
-            covered.put(exchangeId.orElseThrow(), new GoalExchange.Coverage(inFull.size(), saved.size() - inFull.size(), nearest.size(), offered, issuesOpen,
-                    Optional.of(digest(data))));
-        }
+        List<GoalPrompt.Knowledge> knowledge = saved.stream().map(note -> new GoalPrompt.Knowledge(note.topic(),
+                stale.contains(note.id()) ? Optional.of(true) : Optional.empty(), inFull.contains(note.id()) ? Optional.of(note.body()) : Optional.empty()))
+                .collect(toImmutableList());
+        GoalPrompt.Facts data = new GoalPrompt.Facts(repository(goal), dependencies, new GoalPrompt.Objective(goal.title(), goal.description(), definition, course, work),
+                practice, coverage, gaps, modules, known, nearest, cards, knowledge);
+        exchangeId.ifPresent(id -> covered.put(id, new GoalExchange.Coverage(inFull.size(), saved.size() - inFull.size(), nearest.size(),
+                practice.map(List::size).orElse(0), coverage.map(GoalPrompt.CandidateCoverage::issuesOpen).orElse(0L), Optional.of(digest(data)))));
         return data;
     }
 
-    /** The facts without the notes' bodies, which follow the message rather than the goal. */
-    private static String digest(ObjectNode data)
+    private List<GoalPrompt.Module> modules(GoalView goal)
     {
-        ObjectNode copy = data.deepCopy();
-        if (copy.get("knowledgeNotes") instanceof ArrayNode noted) {
-            noted.forEach(note -> ((ObjectNode) note).remove("body"));
+        try {
+            return specChecks.modules(goal.workspaceId()).stream()
+                    .map(module -> new GoalPrompt.Module(module.directory(), module.sections(), module.page())).collect(toImmutableList());
         }
-        return Hashing.sha256().hashString(copy.toString(), UTF_8).toString();
+        catch (RuntimeException unavailable) {
+            // Without a readable monitored head the goal can still be guided; it only cannot name a module to check.
+            log.debug("Goal {} has no modules to check: {}", goal.id(), unavailable.toString());
+            return ImmutableList.of();
+        }
+    }
+
+    /** The facts without the notes' bodies, which follow the message rather than the goal. */
+    private static String digest(GoalPrompt.Facts data)
+    {
+        return Hashing.sha256().hashString(json(data.withoutNoteBodies(), false), UTF_8).toString();
     }
 
     String prompt(GoalView goal, List<GoalExchange> earlier, GoalExchange current)
     {
-        ObjectNode data = facts(goal, current.message(), Optional.of(current.id()));
+        GoalPrompt.Facts facts = facts(goal, current.message(), Optional.of(current.id()));
         int omitted = Math.max(0, earlier.size() - MAX_EARLIER);
-        if (omitted > 0) {
-            data.put("omittedEarlierExchanges", omitted);
-        }
-        ArrayNode exchanges = data.putArray("earlierExchanges");
-        for (GoalExchange exchange : earlier.subList(omitted, earlier.size())) {
-            ObjectNode entry = exchanges.addObject();
-            if (!exchange.automatic()) {
-                entry.put("id", messageId(exchange));
-            }
-            entry.put(exchange.automatic() ? "event" : "user", exchange.message());
-            exchange.lessonId().ifPresent(lesson -> entry.put("aboutLesson", lesson));
-            exchange.reply().ifPresentOrElse(reply -> entry.set("agent", MAPPER.valueToTree(reply)), () -> entry.put("agent", "No answer"));
-        }
-        current.lessonId().flatMap(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst()).ifPresent(item -> {
-            ObjectNode open = data.putObject("openLesson").put("title", item.title()).put("outcome", item.acceptanceCriteria());
-            lessons.find(item.id()).flatMap(GoalLesson::content).ifPresent(content -> open.put("explanation", excerpt(chapterText(content), MAX_LESSON_EXCERPT))
-                    .put("exercise", content.exercise()).put("check", content.check()));
+        List<GoalPrompt.Exchange> exchanges = earlier.subList(omitted, earlier.size()).stream().map(exchange -> new GoalPrompt.Exchange(
+                exchange.automatic() ? Optional.empty() : Optional.of(messageId(exchange)),
+                exchange.automatic() ? Optional.of(exchange.message()) : Optional.empty(), exchange.automatic() ? Optional.empty() : Optional.of(exchange.message()),
+                exchange.lessonId(), exchange.reply().<GoalPrompt.AgentAnswer>map(GoalPrompt.Answered::new).orElse(GoalPrompt.Unanswered.INSTANCE)))
+                .collect(toImmutableList());
+        Optional<GoalPrompt.OpenLesson> open = current.lessonId().flatMap(id -> goal.items().stream().filter(item -> item.id().equals(id)).findFirst()).map(item -> {
+            Optional<GoalLesson.Content> content = lessons.find(item.id()).flatMap(GoalLesson::content);
+            return new GoalPrompt.OpenLesson(item.title(), item.acceptanceCriteria(), content.map(value -> excerpt(chapterText(value), MAX_LESSON_EXCERPT)),
+                    content.map(GoalLesson.Content::exercise), content.map(GoalLesson.Content::check));
         });
-        if (!current.automatic()) {
-            data.put("messageId", messageId(current));
+        GoalPrompt.Conversation data = new GoalPrompt.Conversation(facts, omitted > 0 ? Optional.of(omitted) : Optional.empty(), exchanges, open,
+                current.automatic() ? Optional.empty() : Optional.of(messageId(current)),
+                current.automatic() ? Optional.of(current.message()) : Optional.empty(), current.automatic() ? Optional.empty() : Optional.of(current.message()));
+        return INSTRUCTIONS + "\n<goal-data>\n" + json(data, true) + "\n</goal-data>\n";
+    }
+
+    private static String json(Object value, boolean pretty)
+    {
+        try {
+            return (pretty ? MAPPER.writerWithDefaultPrettyPrinter() : MAPPER.writer()).writeValueAsString(value);
         }
-        data.put(current.automatic() ? "event" : "message", current.message());
-        return INSTRUCTIONS + "\n<goal-data>\n" + data.toPrettyString() + "\n</goal-data>\n";
+        catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Cannot encode Goal context", failure);
+        }
     }
 
     /** The notes sharing the most words with the message, then with the goal, then the newest: those the agent reads in full. */

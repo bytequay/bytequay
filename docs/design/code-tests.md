@@ -259,6 +259,10 @@ native fixture are not described as a single production end-to-end pass.
 Retiring the graph removes its JPA fields. An existing development SQLite schema
 can retain a NOT NULL `agent_task.codegraph` column without a default, which
 Hibernate update does not remove; that old schema can reject new task inserts.
+Older CHECK constraints can also reject `IDE` in `agent_process_launch.owner_kind`
+and the native execution scopes/statuses in `local_run`. Hibernate update does
+not rewrite these checks. Check the existing schema before restarting an upgraded
+local app; source integration alone does not make those databases compatible.
 The repository has no released-data migration contract. Follow CONTRIBUTING's
 existing `./dev.sh --reset-data` backup/reset procedure for an incompatible old
 development schema. This refactor does not reset the user's database or install

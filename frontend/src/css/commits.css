@@ -1,6 +1,6 @@
 /* Workspace Commits tab: history/changes browser, cherry-pick tasks, range
-   confirm, and task progress. GitHub-like content palette per the design
-   handoff (docs/design/design_handoff_cherry_pick_flow). */
+   confirm, and task progress. Workflow boundaries are documented in
+   docs/overview/workflows.md. */
 
 .cmt-root {
   display: flex;

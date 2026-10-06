@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="ByteQuay brings GitHub pull requests and local agent work together in a focused macOS app.">
+  <meta name="theme-color" content="#faf8f5">
+  <title>ByteQuay — Review is all you need.</title>
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="header wrap">
+    <a class="brand" href="index.html" aria-label="ByteQuay home"><img src="assets/logo.svg" width="34" height="34" alt="">ByteQuay</a>
+    <nav aria-label="Main navigation"><a href="documentation.html">Docs</a><a href="design.html">Design</a><a href="https://github.com/bytequay/bytequay">GitHub <span aria-hidden="true">↗</span></a></nav>
+  </header>
+  <main id="main">
+    <section class="hero wrap">
+      <div class="hero-copy">
+        <p class="eyebrow"><span class="status-dot"></span> Built for macOS · Open source</p>
+        <h1>Review is<br>all you need<span class="accent">.</span></h1>
+        <p class="lede">A calmer home for your GitHub work. Review pull requests, follow what matters, and work with coding agents in local worktrees.</p>
+        <div class="actions"><a class="button" href="https://github.com/bytequay/bytequay/releases">Explore releases <span aria-hidden="true">↗</span></a><a class="text-link" href="documentation.html">Read the docs <span aria-hidden="true">→</span></a></div>
+        <p class="fine">Pre-1.0 · macOS 14+ · JDK 25</p>
+      </div>
+      <figure class="workflow-figure" aria-label="ByteQuay connects repository context, pull-request review, and local agent work.">
+        <div class="figure-top"><span class="mono">THE BYTEQUAY WORKFLOW</span><span aria-hidden="true">⌘</span></div>
+        <div class="workflow-row"><span class="step-mark">01</span><div><span class="mini-label">GET YOUR BEARINGS</span><h2>Your workspace</h2><p>Repositories, activity, and work that needs attention.</p></div><span class="row-symbol" aria-hidden="true">⌂</span></div>
+        <div class="flow-line" aria-hidden="true"></div>
+        <div class="workflow-row selected"><span class="step-mark">02</span><div><span class="mini-label">UNDERSTAND THE CHANGE</span><h2>Pull-request review</h2><p>Diffs, checks, and conversation in the same place.</p><div class="small-tags"><span>Changed files</span><span>Checks</span><span>Activity</span></div></div></div>
+        <div class="flow-line" aria-hidden="true"></div>
+        <div class="workflow-row"><span class="step-mark">03</span><div><span class="mini-label">MOVE THE WORK FORWARD</span><h2>Local agent tasks</h2><p>Codex and Claude, each task in its own worktree.</p></div><span class="row-symbol" aria-hidden="true">↗</span></div>
+        <figcaption>One desktop app. Your repositories stay close.</figcaption>
+      </figure>
+    </section>
+    <div class="principles-strip"><div class="wrap"><span>Local-first by design</span><span>GitHub at the edges</span><span>You control publication</span></div></div>
+    <section class="section wrap" id="workflow">
+      <div class="section-intro"><p class="eyebrow">FROM CONTEXT TO CHANGE</p><h2>Less switching.<br>More understanding.</h2><p>Keep the repository, the review, and the work connected.</p></div>
+      <div class="feature-list">
+        <article><span class="feature-number">01 / FIND</span><div><h3>Start with what needs you.</h3><p>Home brings together watched repositories, contribution history, and recent activity. Open the pull requests you authored or were asked to review.</p></div></article>
+        <article><span class="feature-number">02 / REVIEW</span><div><h3>See the whole change.</h3><p>Read patches beside checks and conversation. Comment, approve, and merge through explicit actions, or open GitHub in the embedded browser.</p></div></article>
+        <article><span class="feature-number">03 / DEVELOP</span><div><h3>Give each task room to work.</h3><p>Run Codex or Claude in a separate local worktree. Follow the transcript, handle approvals, steer an active turn, and queue the next request.</p></div></article>
+      </div>
+    </section>
+    <section class="local-section">
+      <div class="wrap local-grid"><div><p class="eyebrow">A DESKTOP APP, THROUGH AND THROUGH</p><h2>Your Mac is<br>the workspace.</h2><p>Application state lives in SQLite on your Mac. The interface talks to a local backend, and agent tasks run in managed Git worktrees.</p><p>GitHub and your selected model provider remain external services. Local-first means local ownership of app state and execution, with clear network boundaries.</p><a class="text-link light" href="design.html#boundaries">Explore the boundaries <span aria-hidden="true">→</span></a></div>
+        <div class="system-map" aria-label="React and Electron connect to a localhost Spring Boot backend, which stores state in SQLite and coordinates managed worktrees."><div class="map-label mono">ON YOUR MAC</div><div class="map-node">React + Electron <span>Desktop interface</span></div><div class="map-connector" aria-hidden="true">↕</div><div class="map-node">Spring Boot <span>Localhost sidecar</span></div><div class="map-connector" aria-hidden="true">↓</div><div class="map-bottom"><div>SQLite<span>App state</span></div><div>Git worktrees<span>Task execution</span></div></div></div>
+      </div>
+    </section>
+    <section class="section wrap start-section" id="get-started"><div><p class="eyebrow">MAKE YOURSELF AT HOME</p><h2>Start with one repository.</h2><p>ByteQuay is under active development. Browse the releases, or build it from source and help shape the next version.</p><div class="actions"><a class="button" href="https://github.com/bytequay/bytequay/releases">Browse releases <span aria-hidden="true">↗</span></a><a class="text-link" href="https://github.com/bytequay/bytequay/blob/main/CONTRIBUTING.md">Contribute <span aria-hidden="true">→</span></a></div></div><ol class="start-steps"><li><strong>Install ByteQuay</strong><span>Open the release DMG and drag the app to Applications. Check the release instructions before installing.</span></li><li><strong>Connect GitHub</strong><span>Use your GitHub CLI login or a personal access token.</span></li><li><strong>Bring a repository into focus</strong><span>Watch a repository, open a pull request, and follow the work.</span></li></ol></section>
+  </main>
+  <footer class="footer wrap"><a class="brand" href="index.html"><img src="assets/logo.svg" width="26" height="26" alt="">ByteQuay</a><p>Review is all you need.</p><nav aria-label="Footer navigation"><a href="documentation.html">Docs</a><a href="design.html">Design</a><a href="https://github.com/bytequay/bytequay">Source</a><a href="https://github.com/bytequay/bytequay/blob/main/LICENSE">Apache 2.0</a></nav></footer>
+</body>
+</html>

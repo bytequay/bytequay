@@ -112,11 +112,23 @@ macOS sandbox.
 │   └── app/          # GitHub/PR services, agent HTTP, and executable packaging
 ├── frontend/         # Electron + React + TypeScript
 │   └── src/          # Main process, IPC bridge, Home, PR, and Settings UI
-├── docs/             # Design notes and screenshots
+├── docs/             # User guides, high-level design, and active working designs
+├── website/          # Static product website, documentation, and design overview
 └── dev.sh
 ```
 
 ## Building and verifying
+
+Keep the [user documentation](docs/documentation/README.md) focused on the
+product's purpose, goals, and short guides that match current UI controls.
+Keep the [public overview](docs/overview/design.md) at design level: product
+behavior, ownership boundaries, data flow, trust decisions, and important
+tradeoffs. The website publishes these two reader-facing parts; keep its content
+consistent with them. Preserve the [working designs](docs/design/design.md), active
+implementation checklists, and supporting assets at their existing paths while
+ongoing work depends on them. A `tmp` filename or a high-level summary does not
+make a document safe to delete, move, or untrack. Publication cleanup must retain
+those working dependencies. Use GitHub Releases for published release notes.
 
 Backend:
 

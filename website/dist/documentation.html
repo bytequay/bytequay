@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Learn what ByteQuay is and how to use workspaces, pull-request reviews, coding agents, Goals, Memory, Jira, and backports.">
+  <meta name="theme-color" content="#faf8f5">
+  <title>Documentation — ByteQuay</title>
+  <link rel="icon" href="assets/logo.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header class="header wrap"><a class="brand" href="index.html" aria-label="ByteQuay home"><img src="assets/logo.svg" width="34" height="34" alt="">ByteQuay</a><nav aria-label="Main navigation"><a href="documentation.html" aria-current="page">Docs</a><a href="design.html">Design</a><a href="https://github.com/bytequay/bytequay">GitHub <span aria-hidden="true">↗</span></a></nav></header>
+  <main id="main" class="wrap">
+    <div class="design-hero"><p class="eyebrow">DOCUMENTATION</p><h1>Your guide to<br>ByteQuay.</h1><p class="lede">Meet ByteQuay, understand its goals, and learn the everyday workflows — one repository, one review, one task at a time.</p><div class="guide-shortcuts"><a href="#getting-started"><span class="mini-label">FIRST VISIT</span>Get started <span aria-hidden="true">→</span></a><a href="#pull-requests"><span class="mini-label">UNDERSTAND A CHANGE</span>Review a pull request <span aria-hidden="true">→</span></a><a href="#agent-tasks"><span class="mini-label">BUILD SOMETHING</span>Start an agent task <span aria-hidden="true">→</span></a></div></div>
+    <div class="docs-layout">
+      <aside><nav class="contents" aria-label="Documentation topics"><span class="mini-label">IN THIS GUIDE</span>
+        <a href="#what-is-bytequay">About ByteQuay</a>
+        <a href="#getting-started">Get started</a>
+        <a href="#workspaces">Home &amp; workspaces</a>
+        <a href="#pull-requests">Pull requests</a>
+        <a href="#private-review">Private review</a>
+        <a href="#agent-tasks">Agent tasks</a>
+        <a href="#delivery-and-ci">Delivery &amp; CI</a>
+        <a href="#goals">Goals</a>
+        <a href="#memory-and-specs">Memory &amp; specs</a>
+        <a href="#issues-and-jira">Issues &amp; Jira</a>
+        <a href="#commits-and-backports">Commits &amp; backports</a>
+        <a href="#circles">Circles</a>
+        <a href="#help">Help</a>
+      </nav></aside>
+      <div class="docs-content user-guide">
+        <section id="what-is-bytequay">
+          <h2>What is ByteQuay?</h2>
+          <p>ByteQuay is a macOS desktop app for GitHub pull-request work and local coding agents. It brings repositories, reviews, tasks, and the context behind a change into one place.</p>
+          <h3>What is its goal?</h3>
+          <p>“Review is all you need” expresses the direction: spend more time understanding and deciding, with agents helping investigate, implement, and verify the work.</p>
+          <ul>
+            <li><strong>Keep work connected.</strong> Follow a change from an issue or goal through development, review, and delivery.</li>
+            <li><strong>Make changes understandable.</strong> Read the code, checks, explanations, and discussion together.</li>
+            <li><strong>Keep you in control.</strong> Choose what to run, accept, publish, and merge. Review automation choices before starting a task.</li>
+            <li><strong>Keep the workspace close.</strong> App state and working copies live on your Mac. GitHub and model-provider requests still use external services.</li>
+          </ul>
+          <h3>Three useful concepts</h3>
+          <ul>
+            <li>A <strong>workspace</strong> is the home for one repository and its work.</li>
+            <li>A <strong>task</strong> is an agent conversation with its own working copy and execution history.</li>
+            <li>A <strong>goal</strong> describes what you want to achieve. Its <strong>work items</strong> track outcomes; a task is one attempt to produce an outcome.</li>
+          </ul>
+          <p>ByteQuay is pre-1.0. These guides describe the current development version; installed releases may offer fewer controls. Start with one repository and one pull request.</p>
+        </section>
+        <section id="getting-started">
+          <h2>Get started</h2>
+          <ol>
+            <li><strong>Install ByteQuay.</strong> Download the DMG from <a href="https://github.com/bytequay/bytequay/releases">GitHub Releases</a>, open it, and drag ByteQuay.app to Applications. Current builds require macOS 14+ and JDK 25; follow the instructions for your release.</li>
+            <li><strong>Connect GitHub.</strong> On the welcome screen, choose <strong>Use my GitHub CLI login</strong>. If needed, run <code>gh auth login</code> in Terminal and retry. Alternatively, enter a personal access token and choose <strong>Connect with token →</strong>. The app recommends a classic token with <code>repo</code> and <code>read:user</code> scopes.</li>
+            <li><strong>Watch a repository.</strong> From <strong>Home → Repos you watch → + Watch</strong>, search for a repository. Check the source branch, push destination, and PR destination, then choose <strong>Watch repository</strong>.</li>
+            <li><strong>Open a pull request.</strong> Open <strong>Pull requests</strong>, select <strong>Review</strong> or <strong>My work</strong>, and choose a PR. Read its checks and activity, then open <strong>WorkBench → Changes</strong>.</li>
+            <li><strong>Set up an agent when you need one.</strong> Install Codex or Claude CLI, then follow <a href="#agent-tasks">Agent tasks</a> to sign in and select a model. GitHub connection and agent-provider sign-in are separate.</li>
+          </ol>
+          <p>You can start by browsing and reviewing PRs without starting an agent task. Manage GitHub credentials later in <strong>Settings → Integrations → GitHub</strong>.</p>
+        </section>
+        <section id="workspaces">
+          <h2>Home and workspaces</h2>
+          <p>Home shows your profile, contribution history, watched repositories, and recent activity. A repository workspace keeps its tasks, PRs, issues, commits, and memory together.</p>
+          <ol>
+            <li>Choose <strong>Home → + Watch</strong> or <strong>Workspaces → New workspace</strong>, then select a repository.</li>
+            <li>Review <strong>Followed for updates</strong>, <strong>New branches start from</strong>, <strong>Work branches push to</strong>, and <strong>Pull requests open against</strong>. These may point to different repositories when you work through a fork.</li>
+            <li>Choose <strong>Watch repository</strong>, or <strong>Create fork and watch</strong> if the setup calls for a new personal fork.</li>
+            <li>Open the workspace. Use its sidebar to switch between <strong>Tasks</strong>, <strong>Pull requests</strong>, <strong>Issues</strong>, <strong>Jira</strong>, <strong>Commits</strong>, and <strong>Memory</strong>. Commits becomes available after the repository has cloned.</li>
+          </ol>
+          <p><strong>Unwatch</strong> moves the workspace to <strong>Workspaces → Retired</strong> and retains local history. Use <strong>Watch again</strong> to resume following it. <strong>Delete… → Delete local data</strong> is a separate confirmed removal of local workspace data; it does not delete a GitHub repository.</p>
+        </section>
+        <section id="pull-requests">
+          <h2>Find and review pull requests</h2>
+          <ol>
+            <li>Open <strong>Pull requests</strong> globally or within a workspace. Choose <strong>Review</strong>, <strong>Open</strong>, <strong>My work</strong>, <strong>Monitored</strong>, <strong>Reviewed</strong>, or <strong>Closed</strong>. Hidden tabs are available under <strong>More filters</strong>.</li>
+            <li>Search by title, <code>#number</code>, or <code>@author</code>. Clear the search to return to the selected filter.</li>
+            <li>Open a PR. <strong>PR</strong> contains its overview, checks, and activity. <strong>WorkBench → Changes</strong> contains changed files and commit selection.</li>
+            <li>Select a diff line or range, write feedback, and choose <strong>Add to review</strong>. When ready, choose <strong>Submit review</strong>, inspect the pending comments, select <strong>Comment</strong>, <strong>Approve</strong>, or <strong>Request Changes</strong> where allowed, and submit.</li>
+            <li>Use <strong>Monitor PR</strong> (the bell) to keep a PR in <strong>Monitored</strong>. <strong>Stop monitoring PR</strong> removes it from that list.</li>
+          </ol>
+          <p><strong>Post now</strong> publishes an individual comment immediately. Review submission and merge controls write to GitHub; inspect the outgoing content and selected action first. Your own PR cannot be self-approved.</p>
+          <h3>Check failures and merging</h3>
+          <p>Expand the failing-check group in <strong>PR</strong>, then choose <strong>Show log</strong> for a GitHub Actions job. <strong>Open in GitHub</strong> provides the complete log. <strong>Rerun failed tests</strong> appears when your permissions and the failed checks support it.</p>
+          <p>The header’s merge/check-status control shows the actions available for that PR, such as <strong>Ready for review</strong>, <strong>Rebase and merge</strong>, or <strong>Merge when ready</strong>. Monitoring with the bell does not enable automatic CI repair.</p>
+        </section>
+        <section id="private-review">
+          <h2>Ask for a private agent review</h2>
+          <p>Use a private review to understand a change and investigate findings before deciding what to share. First watch the repository and configure a ready Review model in <strong>Settings → Agents → Models</strong>.</p>
+          <ol>
+            <li>Open a PR and select <strong>WorkBench → Summary → Start review</strong>.</li>
+            <li>Read the change explanation and findings. Choose <strong>View in Changes</strong> to inspect the relevant code, or <strong>Ask reviewer</strong> to discuss a finding privately.</li>
+            <li>Choose <strong>Add to my review</strong> to copy a finding into your editable pending review. Inspect it and use <strong>Submit review</strong> when you want to publish it.</li>
+            <li>Use <strong>Update review</strong> after the PR changes. <strong>End review</strong> ends the reviewer task and releases its working copy; saved findings and discussions remain.</li>
+          </ol>
+          <p>For development before a PR exists, open the task’s <strong>WorkBench → Summary → Review changes</strong>. This reviews committed changes, including unpushed commits; it excludes uncommitted edits.</p>
+          <h3>Discuss without publishing</h3>
+          <ul>
+            <li>Highlight text in a finished agent answer and choose <strong>Ask about this → Ask</strong> for a private side conversation. Reopen it from <strong>Discussions</strong>.</li>
+            <li>On a GitHub comment, <strong>Ask agent</strong> opens a private discussion when a development or review task is linked.</li>
+            <li><strong>Draft with agent</strong> fills an editable reply. It stays <strong>Draft · not posted</strong> until you choose <strong>Comment</strong>.</li>
+            <li><strong>Resolve locally</strong> changes the private discussion or finding; it does not resolve a GitHub review thread.</li>
+          </ul>
+        </section>
+        <section id="agent-tasks">
+          <h2>Work with coding agents</h2>
+          <h3>Connect a provider</h3>
+          <p>You only need the provider you want to use: Codex, Claude, or a supported saved API key. A Claude account is not required for Codex or API-key tasks. New-task composers choose a ready provider when the configured default is unavailable; you can change that choice before sending. Drafting and <strong>Backport</strong> remain available while you set up a provider.</p>
+          <ol>
+            <li>Install the Codex or Claude CLI on your Mac, then open <strong>Settings → Agents → Models</strong>.</li>
+            <li>Under <strong>Providers</strong>, choose <strong>Sign in</strong> if needed and complete sign-in. Choose <strong>Check</strong> and wait for <strong>Ready</strong>.</li>
+            <li>Choose the <strong>Development</strong> model and a <strong>Review</strong> model, or <strong>Same as Development</strong>. Repository settings → <strong>Model overrides</strong> lets one repository use different choices.</li>
+          </ol>
+          <h3>Start a task</h3>
+          <ol>
+            <li>Open a workspace’s <strong>Tasks → + New task</strong>.</li>
+            <li>Describe the change in <strong>Let’s ship…</strong>. Include the outcome you want, relevant context, and how you will judge success. Select the provider and model.</li>
+            <li>Open <strong>Automation</strong> and review the publication and CI choices described below. They lock after the task starts.</li>
+            <li>Choose the upward <strong>Send</strong> arrow or press Enter. ByteQuay prepares a separate branch and working copy for the task. Shift+Enter adds a line; <strong>+</strong> attaches an image when the selected model supports it.</li>
+          </ol>
+          <h3>Guide the work</h3>
+          <ul>
+            <li><strong>Steer</strong> sends information into the active turn when supported. <strong>Run next</strong> queues a later message; <strong>Resume queue</strong> continues a paused queue after you address its cause.</li>
+            <li>On <strong>Approval needed</strong>, inspect the action and permissions, then choose <strong>Allow once</strong>, <strong>Allow for this task</strong> if offered, or <strong>Deny</strong>.</li>
+            <li>Use <strong>Stop this turn</strong> to interrupt the agent. Use <strong>Stop automation</strong> to stop delivery follow-up.</li>
+            <li>Inspect <strong>WorkBench → Changes</strong> and <strong>Summary</strong> before accepting the result. <strong>Code &amp; Tests</strong> provides file browsing, an available targeted test runner, and a terminal; the built-in runner currently supports the Maven-wrapper profile.</li>
+            <li>When idle with its queue handled, choose <strong>Mark it complete</strong> (the checkmark) to finish the task. <strong>Archive</strong> moves it out of the active list; <strong>Delete</strong> separately removes its history and generated local work.</li>
+          </ul>
+          <p>If sign-in expires, sign in again and refresh login status. Where offered, inspect <strong>Retry last message…</strong> before resending. A <strong>Delivery uncertain</strong> message needs inspection; it is not automatically resent.</p>
+          <h3>Reuse instructions</h3>
+          <p>Open <strong>Settings → Agents → Skills → Add skill</strong>. Enter a name, choose <strong>Global</strong>, <strong>Development</strong>, or <strong>Review</strong>, write the instructions, and save. Changes apply from the next turn.</p>
+        </section>
+        <section id="delivery-and-ci">
+          <h2>Deliver changes and repair CI</h2>
+          <p>Before sending a new development task, open <strong>Automation</strong>. Finished development work is committed automatically. Publication depends on the choices you accept:</p>
+          <ul>
+            <li><strong>Auto draft PR</strong> pushes commits and creates or updates the task’s pull request. It is on by default.</li>
+            <li><strong>Auto CI fix</strong> repairs supported failing checks, reruns CI, and can mark the draft ready when checks pass. It can write to GitHub and is on by default.</li>
+            <li><strong>CI repair agent</strong> chooses the same agent as development or another supported agent.</li>
+            <li><strong>Auto review summary</strong> adds a private note about new review comments. It does not post comments or fix code, and is off by default.</li>
+            <li><strong>Keep commits local for this turn</strong> disables publication and CI follow-up for that submission.</li>
+          </ul>
+          <p>Change defaults for new tasks in <strong>Settings → Agents → Workflow</strong>. A started task’s automation settings are read-only.</p>
+          <ol>
+            <li>Follow delivery and CI activity in the task header after development finishes.</li>
+            <li>When <strong>CI needs your input</strong>, type <code>@ci</code> followed by a text reply to the paused CI run.</li>
+            <li>Use <strong>Stop automation</strong> to stop the continuation. Review and merge the resulting PR yourself when it is ready.</li>
+          </ol>
+          <p>Ordinary PR details do not have a general “Start CI Autofix” button. Reading logs or monitoring a PR does not authorize repairs.</p>
+        </section>
+        <section id="goals">
+          <h2>Turn a goal into useful work</h2>
+          <p>Goals help you clarify an objective, learn about a repository, and track whether the work actually achieved its intended result.</p>
+          <ol>
+            <li>Open a repository workspace and choose the floating <strong>Goal</strong> control, or press <strong>⌥G</strong>.</li>
+            <li>In <strong>Guide</strong>, answer <strong>What do you want to achieve?</strong> in your own words or use a suggested direction. Choose <strong>Send</strong> and answer the follow-up questions.</li>
+            <li>Review the proposed objective, success definition, and constraints. Choose <strong>Accept goal</strong>, <strong>Adjust</strong>, or <strong>Skip</strong>.</li>
+            <li>Review recommendations. <strong>Start</strong> opens the named lesson or starts the named investigation; development recommendations open a prepared composer for you to review and submit. <strong>Not now</strong> dismisses a recommendation.</li>
+            <li>In <strong>Work</strong>, follow <strong>Next</strong>, <strong>Working</strong>, <strong>Blocked</strong>, and <strong>Done</strong>. Open an item to inspect its sources, attempts, and history.</li>
+            <li>When the outcome is ready, enter the result, evidence, and scope covered, then choose <strong>Accept result</strong>. A finished task or closed ticket alone does not mark the work item done.</li>
+          </ol>
+          <h3>Learn and organize</h3>
+          <p>For a proposed course, choose <strong>Accept course</strong>, open a lesson, read its explanation and exercise, and submit <strong>Your answer</strong> with <strong>Answer</strong> under <strong>Check</strong>. Ask questions beside the lesson and choose <strong>Mark lesson done</strong> when ready.</p>
+          <p><strong>Work → New work item</strong> creates an outcome with a title, kind, and success condition. <strong>Add existing</strong> links issues, tickets, tasks, or PRs. Use <strong>Waits on</strong> to record a dependency. <strong>Pause guidance</strong> pauses suggestions; <strong>New goal</strong> in the GOAL menu starts another objective.</p>
+        </section>
+        <section id="memory-and-specs">
+          <h2>Build repository memory</h2>
+          <p>Memory stores sourced rules, useful commands, and specifications so agents can apply what has already been learned about a repository.</p>
+          <ol>
+            <li>Open the workspace’s <strong>Memory</strong> page and choose <strong>Learn from my PRs</strong>. You can also use <strong>Learn from this PR</strong> on a closed or merged PR.</li>
+            <li>Inspect entries under <strong>Memories</strong>. Filter by <strong>Rules</strong>, <strong>Recipes</strong>, or <strong>Specs</strong>, then open an entry to read <strong>Applies to</strong> and <strong>Sources</strong>.</li>
+            <li>Use <strong>Edit → Save</strong>, <strong>Delete</strong>, or <strong>Restore</strong> where available. Editing an entry makes it yours, so agents will not change it.</li>
+            <li>Under <strong>Agents use memory in</strong>, select <strong>Reviews</strong>, <strong>Development tasks</strong>, or both. Inspect flagged entries under <strong>Needs you</strong>.</li>
+          </ol>
+          <h3>Check code against a specification</h3>
+          <ol>
+            <li>Choose <strong>Memory → Check against spec</strong>, then select a module or enter a directory path.</li>
+            <li>Select the linked pages to inspect, or use <strong>Add spec</strong> for an additional specification URL.</li>
+            <li>Choose <strong>Reproduce up to</strong> and start <strong>Check against spec</strong> with a ready agent provider.</li>
+            <li>Open the report under <strong>Spec checks</strong> and inspect each <strong>Failing test</strong> and <strong>Issue draft</strong>.</li>
+            <li>Choose <strong>Open issue</strong> to open a prefilled GitHub issue form. Inspect and submit it there yourself, or use <strong>Copy body</strong> or <strong>Dismiss</strong>.</li>
+          </ol>
+          <p>Only reproduced findings are shown as confirmed gaps. Unreproduced candidates and already-reported issues remain separate. <strong>Stop check</strong> stops a running investigation.</p>
+        </section>
+        <section id="issues-and-jira">
+          <h2>Start from an issue or Jira ticket</h2>
+          <p>Use existing issue or ticket context as the starting point for development, so the task stays connected to the requested change.</p>
+          <h3>GitHub issues</h3>
+          <p>Open a workspace’s <strong>Issues</strong>, find the issue, and choose its <strong>Start development</strong> action when available. Review the prepared task composer and submit it. <strong>View task</strong> returns to linked work; <strong>New issue</strong> begins a new issue.</p>
+          <h3>Jira</h3>
+          <ol>
+            <li>Open <strong>Settings → Integrations → Jira → Add account</strong>. Enter the <strong>Jira site</strong>, <strong>Atlassian account email</strong>, and <strong>API token</strong>, then choose <strong>Connect account</strong>. Follow <strong>Required token permissions</strong> for the required scopes.</li>
+            <li>Open <strong>Jira</strong> and use <strong>Site, board and sprint</strong> to choose a board and sprint or <strong>Backlog</strong>.</li>
+            <li>Browse <strong>Current sprint</strong> or <strong>Completed</strong>. Use <strong>Assigned to me</strong>, <strong>Status</strong>, <strong>Search tickets</strong>, and <strong>List</strong> or <strong>Board</strong> to find the work.</li>
+            <li>Open an eligible unfinished leaf ticket and choose <strong>Start development</strong>. Select and <strong>Assign workspace</strong> if prompted, then review and submit the task composer.</li>
+            <li>Use <strong>View task</strong> to return to development. Ticket field edits, comments, and status transitions are separate user actions.</li>
+          </ol>
+          <p><strong>Open in Jira</strong> handles fields and operations the app does not support. Browser sign-in is shown only when configured. Replace an expired token in settings.</p>
+        </section>
+        <section id="commits-and-backports">
+          <h2>Move changes between branches</h2>
+          <h3>Cherry-pick commits</h3>
+          <ol>
+            <li>Open <strong>Commits → History</strong>. Check the first repository/branch control: it is the destination. Select the source with the second control.</li>
+            <li>Choose commits or use <strong>Select range</strong>, select the endpoints, then choose <strong>Cherry-pick</strong>.</li>
+            <li>Review the route, commit order, and conflict resolver. Remove unwanted commits, then choose <strong>Start cherry-pick (N)</strong>.</li>
+            <li>If it pauses, use <strong>Send note</strong> or <strong>Cancel execution</strong>. Find existing executions in <strong>Commits → Cherry pick</strong>.</li>
+            <li>After completion, use <strong>Deliver this generated branch → Push branch</strong>, then <strong>Create pull request</strong>, with the displayed confirmations. PR creation also authorizes the disclosed CI monitor.</li>
+          </ol>
+          <p>The initial cherry-pick runs locally. <strong>Dry run</strong> shows the execution plan; it does not run another Git simulation.</p>
+          <h3>Backport through related workspaces</h3>
+          <ol>
+            <li>Watch the involved repositories. In each destination’s repository settings, open <strong>Related workspaces → + Add related workspace</strong>.</li>
+            <li>Select the source workspace, choose <strong>Fork</strong>, and enable <strong>Use as default backport source</strong> to include this destination when no targets are named. Choose <strong>Add</strong>. Each destination can have one default source. A <strong>Dependency</strong> permits investigation but not backporting.</li>
+            <li>On <strong>Workspace Home</strong> or <strong>Tasks</strong>, click <strong>Backport</strong> beside the repo icon, or type <code>@backp</code> and select the <code>@backport</code> suggestion with Enter, Tab or a click. Add <code>owner/repo #1234</code> and send it. <strong>Start backport conversation</strong> on the Backport chains tab also fills the composer. Use <code>@backport #1234</code> when the source is unambiguous. Name destinations to override the default route. You can also describe a fix and request backports before its PR exists.</li>
+            <li>Follow <strong>Tasks → Backport chains</strong> or the conversation’s chain card. Inspect linked PRs and use <strong>Stop</strong>, <strong>Resume</strong>, or <strong>Select commits</strong> when offered.</li>
+          </ol>
+          <p>Each step waits for its source PR to merge and uses its landed changes. Forks sharing a source can run in parallel; nested forks wait for their parent. If “then” conflicts with the saved route, the agent asks which source and order you intend. ByteQuay never merges these PRs automatically.</p>
+        </section>
+        <section id="circles">
+          <h2>Follow people with Circles</h2>
+          <p>Circles are personal collections of people whose work you want to follow. Creating one does not invite or notify anyone.</p>
+          <ol>
+            <li>Open <strong>Circles → Create a circle</strong>, or <strong>New circle</strong> from its menu.</li>
+            <li>Enter a name, optionally add a description, choose <strong>People</strong>, and optionally scope it to <strong>Repositories</strong>. Select <strong>Create circle</strong>.</li>
+            <li>Use <strong>Needs you</strong>, <strong>Activity</strong>, <strong>Members</strong>, and <strong>Insights</strong> to follow the collected work. Shortcuts <strong>⌘1–⌘4</strong> switch views.</li>
+            <li>Open relevant work, acknowledge it, or <strong>Snooze</strong> it. Choose a time range and inspect the activity behind insight counts.</li>
+            <li>Use <strong>Refresh activity</strong> for another collection pass and inspect <strong>Updated</strong> or <strong>Partial</strong> for coverage.</li>
+          </ol>
+          <p>The people picker searches contributors cached from watched repositories. Circles do not grant repository access. Their insights reflect collected activity, not a complete measure of someone’s work.</p>
+        </section>
+        <section id="help">
+          <h2>When something needs attention</h2>
+          <ul>
+            <li><strong>GitHub will not connect:</strong> retry the GitHub CLI login or update the token in <strong>Settings → Integrations → GitHub</strong>. Check repository access when using a fine-grained token.</li>
+            <li><strong>An agent is unavailable:</strong> open <strong>Settings → Agents → Models</strong>, sign in, choose <strong>Check</strong>, and wait for <strong>Ready</strong>. Check the workspace’s model override too.</li>
+            <li><strong>Commits or files are unavailable:</strong> wait for repository preparation. Code &amp; Tests needs an existing task or review working copy.</li>
+            <li><strong>A queue is paused:</strong> address the displayed cause, then <strong>Resume queue</strong>. Inspect uncertain delivery before sending the same message again.</li>
+            <li><strong>A feature differs from this guide:</strong> check your release version and its release notes. Some controls depend on repository permissions, provider capabilities, or the state of the selected work.</li>
+          </ul>
+          <p>For architecture and product boundaries, read the high-level design. For building from source, use the repository’s CONTRIBUTING guide.</p>
+          <p><a href="design.html">Read the design →</a> · <a href="https://github.com/bytequay/bytequay/blob/main/CONTRIBUTING.md">Build from source ↗</a></p>
+        </section>
+      </div>
+    </div>
+  </main>
+  <footer class="footer wrap"><a class="brand" href="index.html"><img src="assets/logo.svg" width="26" height="26" alt="">ByteQuay</a><p>Review is all you need.</p><nav aria-label="Footer navigation"><a href="documentation.html">Docs</a><a href="design.html">Design</a><a href="https://github.com/bytequay/bytequay">Source</a><a href="https://github.com/bytequay/bytequay/blob/main/LICENSE">Apache 2.0</a></nav></footer>
+</body>
+</html>

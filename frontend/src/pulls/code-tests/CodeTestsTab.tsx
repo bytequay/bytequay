@@ -16,11 +16,7 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  File,
-  FilePlus,
   FlaskConical,
-  Folder,
-  GitCommitHorizontal,
   GitPullRequestArrow,
   Lock,
   PanelLeft,
@@ -32,13 +28,14 @@ import {
 import type { AgentTaskDto, Bridge, PullRequestDetailDto } from '../../types';
 import { useResizablePane } from '../../useResizablePane';
 import { ConfirmDialog } from '../../ConfirmDialog';
-import { buildFileTree, type FileTreeItem } from '../fileTree';
+import { buildFileTree } from '../fileTree';
 import type { DiffAgentComment } from '../PullChanges';
 import { remoteErrorMessage } from '../PullOverview';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
 import CodeView, { type FollowRequest, type RunMarker } from './CodeView';
 import RunButton, { type RunTarget } from './RunButton';
+import TreeItems from './TreeItems';
 import RunPanel from './RunPanel';
 import { ConflictBanner, DiscardPopover, UnsavedBar } from './EditBars';
 import { useCodeComments, type CodeCommentsOptions } from './useCodeComments';
@@ -62,7 +59,7 @@ import {
   visibleFiles,
   type FileScope,
 } from './codeModel';
-import type { CodeHostRef, LocalRunDto, ReviewCodeFileDto, ReviewCodeFileEntryDto, ReviewCodeFilesDto, RunRefusalDto } from './contracts';
+import type { CodeHostRef, LocalRunDto, ReviewCodeFileDto, ReviewCodeFilesDto, RunRefusalDto } from './contracts';
 import '../../css/code-tests.css';
 
 export type CodeTestsBridge = Pick<Bridge,
@@ -945,74 +942,5 @@ function WorkingCopy({ host, onReviewChange, onExit, onUnsavedChange, comments, 
           onOpen={symbol => open(symbol.path, symbol.startLine)} />
       )}
     </div>
-  );
-}
-
-function TreeItems({ items, depth, selected, isOpen, onToggle, onOpen }: {
-  items: FileTreeItem<ReviewCodeFileEntryDto>[];
-  depth: number;
-  selected: string | null;
-  isOpen: (path: string) => boolean;
-  onToggle: (path: string) => void;
-  onOpen: (path: string) => void;
-}) {
-  return (
-    <ul className="ct-tree">
-      {items.map(item => item.kind === 'directory' ? (
-        <li key={`directory:${item.path}`}>
-          <button type="button" className={`ct-tree__row${inTestRoot(item.path) ? ' is-test-root' : ''}`} style={{ paddingLeft: 8 + depth * 16 }} title={item.path}
-            aria-expanded={isOpen(item.path)} onClick={() => onToggle(item.path)}>
-            <span className="ct-tree__twisty">
-              {isOpen(item.path)
-                ? <ChevronDown className="ct-tree__chevron" size={12} strokeWidth={2} aria-hidden="true" />
-                : <ChevronRight className="ct-tree__chevron" size={12} strokeWidth={2} aria-hidden="true" />}
-            </span>
-            <Folder className="ct-tree__icon" size={14} strokeWidth={1.7} aria-hidden="true" />
-            <span className={`ct-tree__name${treeNameClass(item.name)}${item.module ? ' is-module' : ''}`}>{item.name}</span>
-          </button>
-          {isOpen(item.path) && (
-            <TreeItems items={item.children} depth={depth + 1} selected={selected} isOpen={isOpen}
-              onToggle={onToggle} onOpen={onOpen} />
-          )}
-        </li>
-      ) : (
-        <FileRow key={`file:${item.path}`} entry={item.entry} depth={depth} selected={selected === item.path} onOpen={onOpen} />
-      ))}
-    </ul>
-  );
-}
-
-function treeNameClass(name: string) {
-  return name.startsWith('.') ? ' is-dot' : '';
-}
-
-function FileRow({ entry, depth, selected, onOpen }: {
-  entry: ReviewCodeFileEntryDto;
-  depth: number;
-  selected: boolean;
-  onOpen: (path: string) => void;
-}) {
-  return (
-    <li>
-      <button type="button" className={`ct-tree__row is-file${inTestRoot(entry.path) ? ' is-test-root' : ''}${selected ? ' is-selected' : ''}`} style={{ paddingLeft: 8 + depth * 16 }}
-        title={entry.path} aria-current={selected ? 'true' : undefined} onClick={() => onOpen(entry.path)}>
-        <span className="ct-tree__twisty" aria-hidden="true" />
-        {isTestSource(entry.path)
-          ? <FlaskConical className="ct-tree__icon is-test" size={14} strokeWidth={1.7} aria-hidden="true" />
-          : <File className="ct-tree__icon" size={14} strokeWidth={1.7} aria-hidden="true" />}
-        <span className={`ct-tree__name${treeNameClass(fileName(entry.path))}`}>{fileName(entry.path)}</span>
-        {entry.changedInPr && (
-          <span className="ct-tree__marker is-pr" role="img" title="Changed in this pull request" aria-label="Changed in this pull request">
-            <GitCommitHorizontal size={12} strokeWidth={1.8} aria-hidden="true" />
-          </span>
-        )}
-        {entry.onlyInWorkingCopy && (
-          <span className="ct-tree__marker is-local" role="img" title="Local file in this working copy — not in the pull request"
-            aria-label="Local file in this working copy — not in the pull request">
-            <FilePlus size={12} strokeWidth={1.8} aria-hidden="true" />
-          </span>
-        )}
-      </button>
-    </li>
   );
 }

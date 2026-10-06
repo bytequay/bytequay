@@ -96,6 +96,11 @@ and earlier-only references prevent cycles and repeated publication of shared
 prefixes. Existing PR sources are verified against their monitored repository
 and base branch without requiring a ByteQuay-created source conversation.
 
+The tool boundary decodes each action into its own immutable request record.
+Unknown actions, fields belonging to another action, duplicate keys, trailing
+JSON and scalar coercions fail before dispatch. Service admission still checks
+the captured turn, workspace relationships and live source state.
+
 The saved chain freezes these dependencies and authority. The coordinator skips
 waiting hops so ready siblings can run concurrently, while each dependent hop
 waits for its own parent to merge. Stop, attention and recovery remain chain-wide.

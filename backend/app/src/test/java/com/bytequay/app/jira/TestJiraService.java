@@ -34,6 +34,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
@@ -124,6 +126,35 @@ class TestJiraService
             }
             throw new AssertionError("Unexpected request " + path);
         });
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{}", "[]", "{\"values\":{}}", "{\"values\":[null]}", "{\"values\":[{}]}",
+            "{\"values\":[{\"id\":1,\"name\":123,\"type\":\"scrum\"}]}",
+            "{\"values\":[{\"id\":1.5,\"name\":\"Board\",\"type\":\"scrum\"}]}",
+            "{\"values\":[],\"isLast\":\"true\"}", "{\"values\":[],\"total\":1.5}", "{\"values\":[],\"total\":-1}"})
+    void malformedBoardPagesFailWithoutReplacingTheCache(String response)
+            throws Exception
+    {
+        var board = new JiraDtos.Board(7, "Product", "scrum");
+        cache.write("connection.cloud.boards", ImmutableList.of(board));
+        doReturn(json(response)).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board?"), eq("GET"), any());
+        assertThatThrownBy(() -> jira.boards("connection", "cloud", true)).isInstanceOfSatisfying(ResponseStatusException.class,
+                failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+        assertThat(jira.boards("connection", "cloud", false)).containsExactly(board);
+    }
+
+    @Test
+    void boardPagesAcceptAdditionalFieldsAndAnExplicitEmptyPage()
+            throws Exception
+    {
+        doReturn(json("{\"values\":[{\"id\":7,\"name\":\"Product\",\"type\":\"scrum\",\"location\":{}}],\"isLast\":true,\"extra\":1}"))
+                .when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board?"), eq("GET"), any());
+        assertThat(jira.boards("connection", "cloud", true)).containsExactly(new JiraDtos.Board(7, "Product", "scrum"));
+        doReturn(json("{\"values\":[],\"total\":0}"))
+                .when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board?"), eq("GET"), any());
+        assertThat(jira.boards("connection", "cloud", true)).isEmpty();
     }
 
     @Test
@@ -833,6 +864,12 @@ class TestJiraService
             assertThat(started.await(5, SECONDS)).isTrue();
             if (call.<String>getArgument(2).endsWith("/editmeta")) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN);
+            }
+            if (call.<String>getArgument(2).contains("/comment?")) {
+                return json("{\"comments\":[],\"total\":0}");
+            }
+            if (call.<String>getArgument(2).contains("/transitions")) {
+                return json("{\"transitions\":[]}");
             }
             return json("[{\"accountId\":\"alice\",\"displayName\":\"Alice\"}]");
         }).when(remote).request(eq("connection"), eq("cloud"), argThat(path -> path.startsWith("/rest/api/3/issue/1001/") || path.startsWith("/rest/api/3/user/")),

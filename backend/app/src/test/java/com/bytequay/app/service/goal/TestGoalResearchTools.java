@@ -39,6 +39,8 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -47,11 +49,17 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestGoalResearchTools
@@ -66,6 +74,7 @@ class TestGoalResearchTools
     private final ContextBuildStore store = new ContextBuildStore(new InMemoryAppSettingsStore(), tasks, mapper);
     private final ContextBuildService service = mock(ContextBuildService.class);
     private final AgentUnitOfWork unitOfWork = mock(AgentUnitOfWork.class);
+    private final AtomicBoolean inTransaction = new AtomicBoolean();
     private final List<GoalKnowledgeNote> saved = new ArrayList<>();
     private final GoalKnowledgeNoteStore notes = new GoalKnowledgeNoteStore()
     {
@@ -78,10 +87,11 @@ class TestGoalResearchTools
         @Override
         public void save(GoalKnowledgeNote note)
         {
+            assertThat(inTransaction).as("a note and its capture are saved in one transaction").isTrue();
             saved.add(note);
         }
     };
-    private final GoalResearchTools tools = new GoalResearchTools(store, service, notes, tasks, unitOfWork, mapper, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+    private final GoalResearchTools tools = new GoalResearchTools(store, service, notes, tasks, unitOfWork, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
 
     @BeforeEach
     void setUp()
@@ -91,7 +101,15 @@ class TestGoalResearchTools
                 .claimWorktreeMutation(WorktreeMutationClaim.turn(TURN, Instant.EPOCH), Instant.EPOCH);
         when(tasks.find(TASK)).thenReturn(Optional.of(task));
         when(service.authorize(TASK.toString(), Optional.of(TURN))).thenAnswer(call -> store.find(WORKSPACE).orElseThrow());
-        when(unitOfWork.execute(any())).thenAnswer(call -> ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run());
+        when(unitOfWork.execute(any())).thenAnswer(call -> {
+            inTransaction.set(true);
+            try {
+                return ((AgentUnitOfWork.Work<?>) call.getArgument(0)).run();
+            }
+            finally {
+                inTransaction.set(false);
+            }
+        });
     }
 
     @Test
@@ -123,10 +141,70 @@ class TestGoalResearchTools
                 {"topic": "Snapshots", "body": "b", "sources": ["http://example.com/spec"]}"""))
                 .contains("neither an https page nor owner/repo:path@commit");
         assertThat(error(bridge, """
-                {"topic": "Snapshots", "body": "b", "sources": []}""")).isEqualTo("sources: cite at least one page or file");
+                {"topic": "Snapshots", "body": "b", "sources": []}""")).contains("sources: cite at least one page or file");
         assertThat(error(bridge, """
-                {"topic": "Snapshots", "body": "b", "sources": ["https://iceberg.apache.org/spec/"], "level": "STRONG"}""")).isEqualTo("level: not a field of a note");
+                {"topic": "Snapshots", "body": "b", "sources": ["https://iceberg.apache.org/spec/"], "level": "STRONG"}""")).contains("Unrecognized field \"level\"");
         assertThat(saved).hasSize(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "null", "[]", "{}",
+            "{\"topic\":123,\"body\":\"b\",\"sources\":[\"https://example.com\"]}",
+            "{\"topic\":\"t\",\"body\":true,\"sources\":[\"https://example.com\"]}",
+            "{\"topic\":\"t\",\"body\":\"b\",\"sources\":[123]}",
+            "{\"topic\":\"t\",\"body\":\"b\",\"sources\":[null]}",
+            "{\"topic\":\"t\",\"body\":\"b\",\"sources\":null}",
+            "{\"topic\":\"one\",\"topic\":\"two\",\"body\":\"b\",\"sources\":[\"https://example.com\"]}",
+            "{\"topic\":\"t\",\"body\":\"b\",\"sources\":[\"https://example.com\"]} {}"})
+    void invalidRequestsCannotReachAuthorizationOrStorage(String json)
+            throws Exception
+    {
+        store.save(Optional.empty(), build(Optional.of(research())));
+        ReviewBridge bridge = tools.bridge(TASK.toString()).orElseThrow();
+        assertThat(error(bridge, json)).isNotBlank();
+        assertThat(saved).isEmpty();
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void rechecksAuthorizationBeforeSavingAnything()
+            throws Exception
+    {
+        ContextBuild build = build(Optional.of(research()));
+        store.save(Optional.empty(), build);
+        ReviewBridge bridge = tools.bridge(TASK.toString()).orElseThrow();
+        when(service.authorize(TASK.toString(), Optional.of(TURN))).thenReturn(build).thenThrow(new IllegalArgumentException("The turn was stopped"));
+        assertThat(error(bridge, """
+                {"topic":"t","body":"b","sources":["https://example.com"]}""")).isEqualTo("The turn was stopped");
+        assertThat(saved).isEmpty();
+    }
+
+    @Test
+    void checksTheCurrentQuotaInsideTheTransaction()
+            throws Exception
+    {
+        ContextBuild build = build(Optional.of(research()));
+        ContextBuild full = build.withCapture(build.capture().withAttempts(IntStream.range(0, GoalResearchTools.MAX_NOTES).boxed()
+                .collect(toImmutableMap(index -> GoalResearchTools.SAVED + index, ignored -> "1"))));
+        store.save(Optional.empty(), build);
+        ReviewBridge bridge = tools.bridge(TASK.toString()).orElseThrow();
+        when(service.authorize(TASK.toString(), Optional.of(TURN))).thenReturn(build, full);
+        assertThat(error(bridge, """
+                {"topic":"t","body":"b","sources":["https://example.com"]}""")).contains("already saved 40 notes");
+        assertThat(saved).isEmpty();
+    }
+
+    @Test
+    void unexpectedStorageFailureIsNotReportedAsInvalidInput()
+    {
+        store.save(Optional.empty(), build(Optional.of(research())));
+        ReviewBridge bridge = tools.bridge(TASK.toString()).orElseThrow();
+        doThrow(new IllegalStateException("Storage unavailable")).when(unitOfWork).execute(any());
+        assertThatThrownBy(() -> bridge.tool("goal_knowledge_save").orElseThrow().call().apply("""
+                {"topic":"t","body":"b","sources":["https://example.com"]}"""))
+                .isInstanceOf(IllegalStateException.class).hasMessage("Storage unavailable");
+        assertThat(saved).isEmpty();
     }
 
     @Test

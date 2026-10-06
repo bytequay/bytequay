@@ -32,6 +32,8 @@ import com.bytequay.core.store.WorkItemStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -92,8 +94,7 @@ class TestEpicBreakdowns
                 ```json
                 {"items": [
                   {"title": "Cache table metadata per catalog", "doneWhen": "Already the Epic's work"},
-                  {"title": "Invalidate cached metadata on DDL", "doneWhen": "ALTER TABLE reads the table again", "why": "ignored"},
-                  {"title": " ", "doneWhen": "A blank title is dropped"}
+                  {"title": "Invalidate cached metadata on DDL", "doneWhen": "ALTER TABLE reads the table again"}
                 ]}
                 ```""");
         breakdowns.start("workspace", EPIC, SOURCE);
@@ -133,16 +134,36 @@ class TestEpicBreakdowns
     }
 
     @Test
-    void parsingKeepsAtMostEightCompleteProposals()
+    void parsingRejectsOversizedProposals()
     {
         StringBuilder many = new StringBuilder("{\"items\": [");
         for (int i = 0; i < 10; i++) {
             many.append(i == 0 ? "" : ",").append("{\"title\": \"Work ").append(i).append("\", \"doneWhen\": \"Done ").append(i).append("\"}");
         }
-        assertThat(EpicBreakdowns.parse(many.append("]}").toString())).hasSize(EpicBreakdowns.MAX_PROPOSALS);
-        assertThat(EpicBreakdowns.parse("{\"items\": [{\"title\": \"No done-when\"}]}")).isEmpty();
-        assertThat(EpicBreakdowns.parse("{\"items\": null}")).isEmpty();
+        assertThatThrownBy(() -> EpicBreakdowns.parse(many.append("]}").toString())).isInstanceOf(AgentUnavailableException.class);
         assertThatThrownBy(() -> EpicBreakdowns.parse("")).isInstanceOf(AgentUnavailableException.class);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "null", "{}", "{\"items\":null}", "{\"items\":[null]}", "{\"items\":[{\"title\":\"Missing done-when\"}]}",
+            "{\"items\":[{\"title\":123,\"doneWhen\":true}]}",
+            "{\"items\":[{\"title\":\" \",\"doneWhen\":\"d\"}]}",
+            "{\"items\":[{\"title\":\"t\",\"doneWhen\":\"d\",\"why\":\"extra\"}]}",
+            "{\"items\":[],\"unexpected\":true}", "{\"items\":[],\"items\":[]}", "{\"items\":[]} {}"})
+    void rejectsMalformedProposals(String json)
+    {
+        assertThatThrownBy(() -> EpicBreakdowns.parse(json)).isInstanceOf(AgentUnavailableException.class);
+    }
+
+    @Test
+    void acceptsAnExplicitEmptyResultAndEnforcesTextBounds()
+    {
+        assertThat(EpicBreakdowns.parse("{\"items\":[]}")).isEmpty();
+        assertThatThrownBy(() -> EpicBreakdowns.parse("{\"items\":[{\"title\":\"%s\",\"doneWhen\":\"done\"}]}".formatted("x".repeat(121))))
+                .isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> EpicBreakdowns.parse("{\"items\":[{\"title\":\"title\",\"doneWhen\":\"%s\"}]}".formatted("x".repeat(401))))
+                .isInstanceOf(AgentUnavailableException.class);
     }
 
     @Test

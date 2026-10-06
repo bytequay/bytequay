@@ -46,6 +46,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.FutureTask;
+import java.util.function.Function;
 
 import static com.bytequay.app.jira.JiraConnections.segment;
 import static com.bytequay.app.jira.JiraMapping.nodes;
@@ -97,8 +98,8 @@ public class JiraService
     {
         String key = siteKey(connectionId, cloudId) + ".boards";
         if (refresh) {
-            List<JiraDtos.Board> boards = paged(connectionId, cloudId, "/rest/agile/1.0/board", "values", ImmutableMap.of()).stream()
-                    .map(item -> new JiraDtos.Board(item.path("id").asLong(), item.path("name").asText(), item.path("type").asText())).collect(toImmutableList());
+            List<JiraDtos.Board> boards = paged(connectionId, cloudId, "/rest/agile/1.0/board", "values", ImmutableMap.of(),
+                    item -> JiraMapping.response(item, JiraDtos.Board.class));
             cache.write(key, boards);
         }
         return cache.read(key, JiraDtos.Board[].class).map(ImmutableList::copyOf).orElseGet(ImmutableList::of);
@@ -110,9 +111,7 @@ public class JiraService
         String key = siteKey(connectionId, cloudId) + ".sprints." + boardId;
         if (refresh) {
             List<JiraDtos.Sprint> sprints = paged(connectionId, cloudId, "/rest/agile/1.0/board/" + boardId + "/sprint", "values", ImmutableMap.of("state",
-                    "active,future")).stream()
-                    .map(item -> new JiraDtos.Sprint(item.path("id").asLong(), item.path("name").asText(), item.path("state").asText(), JiraMapping.text(item,
-                            "startDate"), JiraMapping.text(item, "endDate"))).collect(toImmutableList());
+                    "active,future"), item -> JiraMapping.response(item, JiraDtos.Sprint.class));
             cache.write(key, sprints);
         }
         return cache.read(key, JiraDtos.Sprint[].class).map(ImmutableList::copyOf).orElseGet(ImmutableList::of);
@@ -299,7 +298,10 @@ public class JiraService
         JiraIssue issue = refreshIssue(connectionId, cloudId, value);
         String path = issuePath(issueId);
         // These reads only need the ticket, so they run together. They must not take JiraIssueLocks: afterWrite waits for them while holding a stripe.
-        Future<PageItems> commentRead = reads.submit(() -> pageItems(connectionId, cloudId, path + "/comment", "comments", ImmutableMap.of("orderBy", "-created")));
+        String siteUrl = connections.site(connectionId, cloudId).url();
+        Optional<String> account = connections.get(connectionId).account().map(JiraDtos.Account::accountId);
+        Future<PageItems<JiraDtos.Comment>> commentRead = reads.submit(() -> pageItems(connectionId, cloudId, path + "/comment", "comments",
+                ImmutableMap.of("orderBy", "-created"), comment -> JiraMapping.comment(siteUrl, account, comment)));
         Future<JsonNode> transitionRead = reads.submit(() -> get(connectionId, cloudId, path + "/transitions?expand=transitions.fields"));
         Future<JsonNode> fieldRead = reads.submit(() -> get(connectionId, cloudId, path + "/editmeta"));
         Future<JsonNode> assigneeRead = reads.submit(() -> get(connectionId, cloudId, query("/rest/api/3/user/assignable/search", ImmutableMap.of("issueKey", issue.key(),
@@ -308,10 +310,8 @@ public class JiraService
         Future<JsonNode> childRead = reads.submit(() -> issue.hasChildren() ? get(connectionId, cloudId, query("/rest/api/3/search/jql", ImmutableMap.of(
                 "jql", "parent = " + segment(issue.id()) + " ORDER BY created ASC", "maxResults", 100, "fields", "summary,issuetype,status,priority,assignee")))
                 : MissingNode.getInstance());
-        String siteUrl = connections.site(connectionId, cloudId).url();
-        Optional<String> account = connections.get(connectionId).account().map(JiraDtos.Account::accountId);
-        PageItems commentPage = join(commentRead);
-        List<JiraDtos.Comment> comments = commentPage.items().stream().map(comment -> JiraMapping.comment(siteUrl, account, comment))
+        PageItems<JiraDtos.Comment> commentPage = join(commentRead);
+        List<JiraDtos.Comment> comments = commentPage.items().stream()
                 .sorted(java.util.Comparator.comparing(JiraDtos.Comment::created)).collect(toImmutableList());
         List<JiraDtos.Transition> transitions = nodes(join(transitionRead).path("transitions")).stream()
                 .map(item -> new JiraDtos.Transition(item.path("id").asText(), item.path("name").asText(), JiraMapping.status(item.path("to")),
@@ -697,30 +697,30 @@ public class JiraService
         return result;
     }
 
-    private List<JsonNode> paged(String connectionId, String cloudId, String path, String field, Map<String, Object> parameters)
+    private <T> List<T> paged(String connectionId, String cloudId, String path, String field, Map<String, Object> parameters, Function<JsonNode, T> decode)
     {
-        PageItems page = pageItems(connectionId, cloudId, path, field, parameters);
+        PageItems<T> page = pageItems(connectionId, cloudId, path, field, parameters, decode);
         if (page.partial()) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "This Jira collection exceeds the supported page limit. Open it in Jira.");
         }
         return page.items();
     }
 
-    private PageItems pageItems(String connectionId, String cloudId, String path, String field, Map<String, Object> parameters)
+    private <T> PageItems<T> pageItems(String connectionId, String cloudId, String path, String field, Map<String, Object> parameters, Function<JsonNode, T> decode)
     {
-        List<JsonNode> result = new ArrayList<>();
+        List<T> result = new ArrayList<>();
         for (int page = 0; page < MAX_PAGES; page++) {
             Map<String, Object> params = new LinkedHashMap<>(parameters);
             params.put("startAt", result.size());
             params.put("maxResults", 100);
             JsonNode response = get(connectionId, cloudId, query(path, params));
-            List<JsonNode> items = nodes(response.path(field));
-            result.addAll(items);
-            if (items.isEmpty() || response.path("isLast").asBoolean() || result.size() >= response.path("total").asInt(Integer.MAX_VALUE)) {
-                return new PageItems(ImmutableList.copyOf(result), false);
+            Page<T> decoded = Page.read(response, field, decode);
+            result.addAll(decoded.items());
+            if (decoded.items().isEmpty() || decoded.isLast().orElse(false) || result.size() >= decoded.total().orElse(Integer.MAX_VALUE)) {
+                return new PageItems<>(result, false);
             }
         }
-        return new PageItems(ImmutableList.copyOf(result), true);
+        return new PageItems<>(result, true);
     }
 
     /** Rethrows a read's own failure, so a Jira status still reaches the client and the editing fallback. */
@@ -829,7 +829,44 @@ public class JiraService
         }
     }
 
-    private record PageItems(List<JsonNode> items, boolean partial) {}
+    private record PageItems<T>(List<T> items, boolean partial)
+    {
+        private PageItems
+        {
+            items = ImmutableList.copyOf(items);
+        }
+    }
+
+    private record Page<T>(List<T> items, Optional<Boolean> isLast, Optional<Integer> total)
+    {
+        private Page
+        {
+            items = ImmutableList.copyOf(items);
+            requireNonNull(isLast, "isLast is null");
+            requireNonNull(total, "total is null");
+            total.ifPresent(value -> checkArgument(value >= 0, "total is negative"));
+        }
+
+        static <T> Page<T> read(JsonNode response, String field, Function<JsonNode, T> decode)
+        {
+            try {
+                checkArgument(response.isObject() && response.path(field).isArray(), "%s must be an array", field);
+                Optional<JsonNode> last = Optional.ofNullable(response.get("isLast"));
+                last.ifPresent(value -> checkArgument(value.isBoolean(), "isLast must be a boolean"));
+                Optional<JsonNode> total = Optional.ofNullable(response.get("total"));
+                total.ifPresent(value -> checkArgument(value.isIntegralNumber() && value.canConvertToInt(), "total must be an integer"));
+                ImmutableList.Builder<T> items = ImmutableList.builder();
+                for (JsonNode item : response.get(field)) {
+                    checkArgument(item.isObject(), "%s must contain objects", field);
+                    items.add(decode.apply(item));
+                }
+                return new Page<>(items.build(), last.map(JsonNode::booleanValue), total.map(JsonNode::intValue));
+            }
+            catch (IllegalArgumentException | NullPointerException failure) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira returned an invalid " + field + " page", failure);
+            }
+        }
+    }
 
     private record CommentAttempt(String body, boolean completed) {}
 }

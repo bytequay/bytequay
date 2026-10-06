@@ -13,7 +13,11 @@
  */
 package com.bytequay.app.jira;
 
+import com.bytequay.app.json.JsonContracts;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -41,9 +45,20 @@ import static java.util.stream.Collectors.joining;
 /** Jira wire projections. Rich text is rendered as Markdown; credentials never enter this projection. */
 final class JiraMapping
 {
+    private static final ObjectMapper RESPONSES = JsonContracts.mapper().disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
     private static final Pattern PADDED = Pattern.compile("([\\s\\p{Z}]*)(.*?)([\\s\\p{Z}]*)", Pattern.DOTALL);
 
     private JiraMapping() {}
+
+    static <T> T response(JsonNode value, Class<T> type)
+    {
+        try {
+            return RESPONSES.treeToValue(value, type);
+        }
+        catch (JsonProcessingException failure) {
+            throw new IllegalArgumentException("Invalid Jira response", failure);
+        }
+    }
 
     static JiraIssue issue(String connectionId, String cloudId, String siteUrl, JsonNode value)
     {

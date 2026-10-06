@@ -26,26 +26,24 @@ import com.bytequay.app.context.ContextBuild;
 import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.context.ContextBuildStore;
 import com.bytequay.app.context.ContextText;
+import com.bytequay.app.json.JsonContracts;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.core.context.ContextLimits;
 import com.bytequay.core.domain.GoalKnowledgeNote;
 import com.bytequay.core.store.GoalKnowledgeNoteStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -56,7 +54,7 @@ public class GoalResearchTools
 {
     static final String SAVED = "goal-note:";
     static final int MAX_NOTES = 40;
-    private static final Set<String> FIELDS = ImmutableSet.of("topic", "body", "sources");
+    private static final ObjectMapper MAPPER = JsonContracts.mapper();
     private static final String POLICY = "This research run reads the repository, its dependency checkouts and documentation pages, and saves knowledge notes "
             + "through its tool only. It must not commit, push, comment on GitHub, change files, read credentials or start child agents.";
 
@@ -65,18 +63,16 @@ public class GoalResearchTools
     private final GoalKnowledgeNoteStore notes;
     private final AgentTaskStore tasks;
     private final AgentUnitOfWork unitOfWork;
-    private final ObjectMapper mapper;
     private final Clock clock;
 
     public GoalResearchTools(ContextBuildStore builds, ContextBuildService service, GoalKnowledgeNoteStore notes, AgentTaskStore tasks, AgentUnitOfWork unitOfWork,
-            ObjectMapper mapper, Clock clock)
+            Clock clock)
     {
         this.builds = requireNonNull(builds, "builds is null");
         this.service = requireNonNull(service, "service is null");
         this.notes = requireNonNull(notes, "notes is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.unitOfWork = requireNonNull(unitOfWork, "unitOfWork is null");
-        this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -102,23 +98,24 @@ public class GoalResearchTools
                 arguments -> call(taskId, turn, arguments))), POLICY);
     }
 
-    private JsonNode save(ContextBuild build, TurnId turn, JsonNode args)
+    private Saved save(String taskId, Optional<TurnId> turn, SaveNote request)
     {
-        args.fieldNames().forEachRemaining(field -> checkArgument(FIELDS.contains(field), "%s: not a field of a note", field));
-        ContextBuild.Research research = build.research().orElseThrow();
-        long saved = build.capture().attempts().keySet().stream().filter(key -> key.startsWith(SAVED)).count();
-        checkArgument(saved < MAX_NOTES, "This run already saved %s notes; end the run", MAX_NOTES);
-        List<GoalKnowledgeNote.Source> sources = strings(args).stream().map(value -> source(build, value)).collect(toImmutableList());
-        GoalKnowledgeNote note = new GoalKnowledgeNote("note-" + UUID.randomUUID(), research.goalId(), build.workspaceId(), text(args, "topic"), text(args, "body"),
-                sources, build.taskId(), Instant.now(clock), Optional.empty());
-        notes.save(note);
-        String line = "Saved note · " + ContextText.excerpt(note.topic(), 120);
-        WorkspaceOperationLocks.withLock(build.workspaceId(), () -> unitOfWork.execute(() -> {
-            ContextBuild current = service.authorize(build.taskId(), Optional.of(turn));
-            return builds.save(Optional.of(current), current.withCapture(current.capture().withAttempts(ImmutableMap.of(SAVED + note.id(), "1"))
+        ContextBuild authorized = service.authorize(taskId, turn);
+        return WorkspaceOperationLocks.withLock(authorized.workspaceId(), () -> unitOfWork.execute(() -> {
+            ContextBuild build = service.authorize(taskId, turn);
+            checkArgument(build.research().isPresent(), "This run is not a research run");
+            ContextBuild.Research research = build.research().orElseThrow();
+            long saved = build.capture().attempts().keySet().stream().filter(key -> key.startsWith(SAVED)).count();
+            checkArgument(saved < MAX_NOTES, "This run already saved %s notes; end the run", MAX_NOTES);
+            List<GoalKnowledgeNote.Source> sources = request.sources().stream().map(value -> source(build, value)).collect(toImmutableList());
+            GoalKnowledgeNote note = new GoalKnowledgeNote("note-" + UUID.randomUUID(), research.goalId(), build.workspaceId(), request.topic(), request.body(),
+                    sources, build.taskId(), Instant.now(clock), Optional.empty());
+            String line = "Saved note · " + ContextText.excerpt(note.topic(), 120);
+            notes.save(note);
+            builds.save(Optional.of(build), build.withCapture(build.capture().withAttempts(ImmutableMap.of(SAVED + note.id(), "1"))
                     .logged(Instant.now(clock), line, ContextBuild.Activity.Tone.DONE)));
+            return new Saved(note.id(), line);
         }));
-        return mapper.createObjectNode().put("id", note.id()).put("activityLine", line);
     }
 
     /** A page as it was given, or a file of this run's repository or of a dependency, at the commit the run reads it at. */
@@ -142,35 +139,66 @@ public class GoalResearchTools
     {
         try {
             checkArgument(ContextLimits.bytes(raw) <= 64 * 1024, "Tool arguments exceed 64 KiB");
-            JsonNode args = mapper.readTree(raw);
-            checkArgument(args != null && args.isObject(), "Tool arguments must be an object");
-            ContextBuild build = service.authorize(taskId, turn);
-            checkArgument(build.research().isPresent(), "This run is not a research run");
-            return save(build, turn.orElseThrow(), args).toString();
+            SaveNote request = MAPPER.readValue(raw, SaveNote.class);
+            checkArgument(request != null, "Tool arguments must be an object");
+            return encode(save(taskId, turn, request));
         }
-        catch (JsonProcessingException | RuntimeException failure) {
-            ObjectNode error = mapper.createObjectNode();
-            error.putObject("error").put("message", ContextText.excerpt(Optional.ofNullable(failure.getMessage()).orElse("The note was not saved"), 1000));
-            return error.toString();
+        catch (JsonProcessingException failure) {
+            return encode(new Failed(new Failure(ContextText.excerpt(failure.getOriginalMessage(), 1000))));
+        }
+        catch (IllegalArgumentException failure) {
+            return encode(new Failed(new Failure(ContextText.excerpt(failure.getMessage(), 1000))));
         }
     }
 
-    private static String text(JsonNode args, String key)
+    private static String encode(Object result)
     {
-        JsonNode value = args.get(key);
-        checkArgument(value != null && value.isTextual() && !value.textValue().isBlank(), "%s: required", key);
-        return value.textValue().strip();
+        try {
+            return MAPPER.writeValueAsString(result);
+        }
+        catch (JsonProcessingException failure) {
+            throw new IllegalStateException("Cannot encode the knowledge note result", failure);
+        }
     }
 
-    private static List<String> strings(JsonNode args)
+    private record SaveNote(String topic, String body, List<String> sources)
     {
-        JsonNode values = args.get("sources");
-        checkArgument(values != null && values.isArray() && !values.isEmpty(), "sources: cite at least one page or file");
-        ImmutableList.Builder<String> result = ImmutableList.builder();
-        values.forEach(value -> {
-            checkArgument(value.isTextual() && !value.textValue().isBlank(), "sources: items are text");
-            result.add(value.textValue().strip());
-        });
-        return result.build();
+        private SaveNote
+        {
+            checkText(topic, "topic", 120);
+            checkText(body, "body", 2_000);
+            topic = topic.strip();
+            body = body.strip();
+            sources = ImmutableList.copyOf(sources);
+            checkArgument(!sources.isEmpty(), "sources: cite at least one page or file");
+            checkArgument(sources.size() <= GoalKnowledgeNote.MAX_SOURCES, "sources: cite at most %s sources", GoalKnowledgeNote.MAX_SOURCES);
+            sources.forEach(value -> checkText(value, "source", 700));
+            sources = sources.stream().map(String::strip).collect(toImmutableList());
+        }
+    }
+
+    private record Saved(String id, String activityLine)
+    {
+        private Saved
+        {
+            checkText(id, "id");
+            checkText(activityLine, "activityLine");
+        }
+    }
+
+    private record Failed(Failure error)
+    {
+        private Failed
+        {
+            requireNonNull(error, "error is null");
+        }
+    }
+
+    private record Failure(String message)
+    {
+        private Failure
+        {
+            checkText(message, "message", 1000);
+        }
     }
 }

@@ -1,5 +1,11 @@
 # Jira development integration
 
+Board, sprint and comment pagination validates the expected collection and
+pagination field types before accepting a page. Missing collections and malformed
+pages are upstream failures, not empty completed results; a failed board or sprint
+refresh retains its prior cache. Known board and sprint fields use validated
+records while additive upstream fields remain accepted.
+
 ## Product boundary
 
 Jira Cloud is the source of truth for ticket content, comments, sprint membership,

@@ -938,7 +938,13 @@ The application supplies snapshots and validates a typed response containing an
 answer, optional proposed work changes, evidence references and a supported
 summary. Reject unknown IDs, cross-workspace references, invalid dependencies,
 oversized responses and unrecognized fields before recording any proposed
-mutation.
+mutation. Decode application-owned model replies and research-tool requests
+without scalar coercion, numeric enum ordinals, fractional integers, duplicate
+keys or trailing JSON. Fixed prompt shapes are immutable record projections;
+constructing a digest without note bodies does not mutate the prompt snapshot.
+Research-tool request records validate their text and source bounds before any
+write. Recheck the accepted turn and per-run note limit inside the same workspace
+lock and transaction that save the note and its capture entry.
 
 Persist the user message before dispatch and the complete validated response after
 completion. Failed JSON validation is a recoverable request failure; do not mine

@@ -20,6 +20,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.context.ContextText;
+import com.bytequay.app.json.JsonContracts;
 import com.bytequay.app.service.ai.TextOnlyHelper;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.service.settings.AgentModelType;
@@ -30,7 +31,6 @@ import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.WorkItemStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -49,6 +49,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
 
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
@@ -64,15 +66,13 @@ public class EpicBreakdowns
     // A reasoning model at high effort takes minutes to answer, as it does for a Goal.
     private static final Duration RUNTIME = Duration.ofMinutes(10);
     static final int MAX_PROPOSALS = 8;
-    private static final int MAX_TITLE = 200;
-    private static final int MAX_DONE_WHEN = 1_000;
+    private static final int MAX_TITLE = 120;
+    private static final int MAX_DONE_WHEN = 400;
     private static final int MAX_DESCRIPTION = 12_000;
     private static final int MAX_LISTED = 60;
     private static final int MAX_ANSWER = 32_000;
     private static final String FAILURE = "The selected model could not break the Epic down";
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
-            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    private static final ObjectMapper MAPPER = JsonContracts.mapper();
     private static final String INSTRUCTIONS = """
             You break an Epic down into the work that delivers it, for a software developer in ByteQuay, a desktop app for
             their GitHub pull-request work. The Epic is a GitHub issue or Jira ticket. The epic data holds its title and
@@ -115,9 +115,25 @@ public class EpicBreakdowns
         }
     }
 
-    record Reply(List<Proposed> items) {}
+    record Reply(List<Proposed> items)
+    {
+        Reply
+        {
+            items = ImmutableList.copyOf(items);
+            checkArgument(items.size() <= MAX_PROPOSALS, "items exceeds %s proposals", MAX_PROPOSALS);
+        }
+    }
 
-    record Proposed(String title, String doneWhen) {}
+    record Proposed(String title, String doneWhen)
+    {
+        Proposed
+        {
+            checkText(title, "title", MAX_TITLE);
+            checkText(doneWhen, "doneWhen", MAX_DONE_WHEN);
+            title = title.strip();
+            doneWhen = doneWhen.strip();
+        }
+    }
 
     @Autowired
     public EpicBreakdowns(EpicStore epics, EpicSources sources, WorkItemStore items, ModelSettingsService models, AgentDriverRegistry drivers, TextOnlyHelper helper,
@@ -259,19 +275,13 @@ public class EpicBreakdowns
         Set<String> taken = epicWork(workspaceId, epicId).stream().map(item -> item.title().strip().toLowerCase(Locale.ROOT)).collect(toImmutableSet());
         return proposed.stream()
                 .filter(item -> !taken.contains(item.title().strip().toLowerCase(Locale.ROOT)))
-                .map(item -> new EpicProposal(UUID.randomUUID().toString(), clip(item.title(), MAX_TITLE), clip(item.doneWhen(), MAX_DONE_WHEN)))
+                .map(item -> new EpicProposal(UUID.randomUUID().toString(), item.title(), item.doneWhen()))
                 .collect(toImmutableList());
     }
 
     private List<WorkItem> epicWork(String workspaceId, String epicId)
     {
         return items.list(workspaceId).stream().filter(item -> item.epicId().filter(epicId::equals).isPresent()).collect(toImmutableList());
-    }
-
-    private static String clip(String text, int maximum)
-    {
-        String value = text.strip();
-        return value.length() <= maximum ? value : value.substring(0, maximum).strip();
     }
 
     static List<Proposed> parse(String answer)
@@ -286,16 +296,15 @@ public class EpicBreakdowns
         if (json.isEmpty() || json.length() > MAX_ANSWER) {
             throw new AgentUnavailableException("The model's answer was empty or too long. Ask again.");
         }
-        Reply reply;
         try {
-            reply = MAPPER.readValue(json, Reply.class);
+            Reply reply = MAPPER.readValue(json, Reply.class);
+            if (reply != null) {
+                return reply.items();
+            }
         }
-        catch (JsonProcessingException e) {
+        catch (JsonProcessingException failure) {
             throw new AgentUnavailableException("The model did not answer with work in the expected shape. Ask again.");
         }
-        return reply.items() == null ? List.of() : reply.items().stream()
-                .filter(item -> item != null && item.title() != null && !item.title().isBlank() && item.doneWhen() != null && !item.doneWhen().isBlank())
-                .limit(MAX_PROPOSALS)
-                .collect(toImmutableList());
+        throw new AgentUnavailableException("The model did not answer with work in the expected shape. Ask again.");
     }
 }

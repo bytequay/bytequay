@@ -107,3 +107,7 @@ tasks and PRs, history, priority, order and blockers.
 - The breakdown runs one tool-free turn on the workspace's Development model.
   Its proposals stay on the Epic until each is accepted or dismissed; whether a
   breakdown is running, and why the last one failed, are kept in memory only.
+  The response must contain an explicit list of at most eight complete proposals,
+  with titles up to 120 characters and done-when text up to 400 characters.
+  Malformed, oversized or ambiguous JSON fails the request; invalid proposals
+  are never silently dropped or truncated.

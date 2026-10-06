@@ -19,7 +19,9 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
+import static java.util.Objects.requireNonNull;
 
 /** Native Jira HTTP projections, containing no authentication secrets. */
 public final class JiraDtos
@@ -44,9 +46,29 @@ public final class JiraDtos
 
     public record Account(String accountId, String displayName, Optional<String> email) {}
 
-    public record Board(long id, String name, String type) {}
+    public record Board(long id, String name, String type)
+    {
+        public Board
+        {
+            checkArgument(id > 0, "board id must be positive");
+            checkText(name, "name");
+            checkText(type, "type");
+        }
+    }
 
-    public record Sprint(long id, String name, String state, Optional<String> startDate, Optional<String> endDate) {}
+    public record Sprint(long id, String name, String state, Optional<String> startDate, Optional<String> endDate)
+    {
+        public Sprint
+        {
+            checkArgument(id > 0, "sprint id must be positive");
+            checkText(name, "name");
+            checkText(state, "state");
+            requireNonNull(startDate, "startDate is null");
+            requireNonNull(endDate, "endDate is null");
+            startDate.ifPresent(value -> checkText(value, "startDate"));
+            endDate.ifPresent(value -> checkText(value, "endDate"));
+        }
+    }
 
     public record Person(String accountId, String displayName, Optional<String> avatarUrl) {}
 

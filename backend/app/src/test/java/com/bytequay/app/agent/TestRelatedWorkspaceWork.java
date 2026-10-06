@@ -375,6 +375,18 @@ class TestRelatedWorkspaceWork
         verify(chainService).save(source.id().toString(), sourceTurn.id(), new BackportChainService.Request(
                 "existing-pr", Optional.empty(), Optional.empty(), ImmutableList.of("internal", "private"),
                 Optional.of(new BackportChainService.SourcePullRequest("oss", 1234)), Optional.of(ImmutableList.of(-1, -1))));
+        for (String malformed : ImmutableList.of(
+                "{\"action\":\"READ\",\"operationKey\":123}",
+                "{\"action\":\"READ\",\"operationKey\":\"a\",\"action\":\"READ_CHAIN\",\"chainId\":\"c\"}",
+                "{\"action\":\"READ\",\"operationKey\":\"a\"} {}",
+                "{\"action\":\"READ_CHAIN\",\"operationKey\":\"a\",\"chainId\":1}",
+                "{\"action\":\"SAVE_CHAIN\",\"operationKey\":\"a\",\"destinations\":[1]}",
+                "{\"action\":\"SAVE_CHAIN\",\"operationKey\":\"a\",\"destinations\":[\"internal\"],\"sourceHops\":[0.5]}",
+                "{\"action\":\"SAVE_CHAIN\",\"operationKey\":\"a\",\"destinations\":[\"internal\"],\"workspaceId\":\"other\"}",
+                "{\"action\":\"DISCOVER_BACKPORT\",\"operationKey\":\"a\",\"destinations\":[]}",
+                "{\"action\":\"UNKNOWN\",\"operationKey\":\"a\"}", "null")) {
+            assertThatThrownBy(() -> bridge.call().apply(malformed)).isInstanceOf(IllegalArgumentException.class);
+        }
         when(turns.findActive(source.id())).thenReturn(Optional.of(accepted(source.id(), "later-user-turn")));
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"READ\",\"operationKey\":\"bridge\"}"))
                 .isInstanceOf(AgentConflictException.class);

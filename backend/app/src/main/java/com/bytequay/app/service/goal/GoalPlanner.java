@@ -19,6 +19,7 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.agent.WorkflowAgentTasks;
 import com.bytequay.app.context.ContextText;
+import com.bytequay.app.json.JsonContracts;
 import com.bytequay.app.service.ai.TextOnlyHelper;
 import com.bytequay.app.service.settings.AgentModelSetting;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -31,9 +32,7 @@ import com.bytequay.core.store.GoalLessonStore;
 import com.bytequay.core.store.GoalTopicStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
 import com.google.common.collect.ImmutableList;
@@ -172,9 +171,7 @@ public class GoalPlanner
             """;
     private static final int MAX_ANSWER = 32_000;
     private static final String FAILURE = "The selected model could not answer";
-    private static final ObjectMapper MAPPER = new ObjectMapper()
-            .registerModule(new Jdk8Module())
-            .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    private static final ObjectMapper MAPPER = JsonContracts.mapper();
     private static final String INSTRUCTIONS = """
             You guide a software developer toward a long-term goal in ByteQuay, a desktop app for their GitHub pull-request work.
             The goal belongs to the workspace that develops the repository named in the goal data; it may also study the

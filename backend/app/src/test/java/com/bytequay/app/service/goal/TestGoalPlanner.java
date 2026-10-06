@@ -36,6 +36,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.MockMakers;
 
 import java.time.Instant;
@@ -73,6 +75,22 @@ class TestGoalPlanner
         assertThat(GoalPlanner.nearestNotes(saved, "Do deletion vectors survive a checkpoint?", "Delta Lake correctness", GoalPlanner.MAX_NOTES_IN_FULL))
                 .hasSize(GoalPlanner.MAX_NOTES_IN_FULL).contains("note-0")
                 .as("after the note the message names, the newest").doesNotContain("note-1", "note-2");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"assessment\":123}",
+            "{\"assessment\":true}",
+            "{\"assessment\":\"one\",\"assessment\":\"two\"}",
+            "{\"assessment\":\"a\",\"topics\":[{\"topic\":\"t\",\"level\":0,\"evidence\":[\"discussion:q-1\"]}]}",
+            "{\"assessment\":\"a\",\"topics\":[{\"topic\":\"t\",\"level\":\"0\",\"evidence\":[\"discussion:q-1\"]}]}",
+            "{\"assessment\":\"a\",\"recommendation\":{\"kind\":\"WORK\",\"title\":\"t\",\"reason\":\"r\",\"scope\":\"s\",\"pages\":[],\"issue\":12.9}}",
+            "{\"assessment\":\"a\",\"recommendation\":{\"kind\":\"WORK\",\"title\":\"t\",\"reason\":\"r\",\"scope\":\"s\",\"pages\":[],\"issue\":\"12\"}}",
+            "{\"assessment\":\"a\"} {}",
+            "null"})
+    void rejectsCoercedAndAmbiguousReplies(String json)
+    {
+        assertThatThrownBy(() -> GoalPlanner.parse(json)).isInstanceOf(AgentUnavailableException.class);
     }
 
     @Test

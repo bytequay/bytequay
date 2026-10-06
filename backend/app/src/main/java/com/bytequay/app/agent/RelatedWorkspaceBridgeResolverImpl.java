@@ -19,15 +19,19 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.app.backport.BackportChainService;
+import com.bytequay.app.json.JsonContracts;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
@@ -35,6 +39,7 @@ import static java.util.Objects.requireNonNull;
 public class RelatedWorkspaceBridgeResolverImpl
         implements BridgeResolver<RelatedWorkspaceBridge>
 {
+    private static final ObjectMapper REQUESTS = JsonContracts.mapper();
     private final ObjectProvider<RelatedWorkspaceWork> services;
     private final AgentTurnStore turns;
     private final ObjectProvider<BackportChainService> chains;
@@ -61,48 +66,95 @@ public class RelatedWorkspaceBridgeResolverImpl
     private String call(String taskId, TurnId turnId, String json)
     {
         try {
-            var input = mapper.readTree(json);
-            checkArgument(input != null && input.isObject(), "Expected an object");
-            var allowed = ImmutableSet.of("action", "operationKey", "workspaceId", "purpose", "question", "commit", "revision", "sourceTaskId",
-                    "chainId", "destinations", "sourcePullRequest", "sourceHops");
-            input.fieldNames().forEachRemaining(name -> checkArgument(allowed.contains(name), "Unknown field: %s", name));
-            checkArgument(input.path("action").isTextual() && input.path("operationKey").isTextual(), "action and operationKey are required");
-            var service = services.getObject();
-            var result = switch (input.path("action").asText()) {
-                case "READ" -> {
-                    checkArgument(input.size() == 2, "READ accepts only action and operationKey");
-                    yield service.read(taskId, turnId, input.path("operationKey").asText());
-                }
-                case "DISCOVER_BACKPORT" -> {
-                    checkArgument(input.size() == 2, "DISCOVER_BACKPORT accepts only action and operationKey");
-                    yield chains.getObject().discover(taskId, turnId);
-                }
-                case "SAVE_CHAIN" -> {
-                    checkArgument(!input.has("workspaceId") && !input.has("purpose") && !input.has("question") && !input.has("commit") && !input.has("revision"),
-                            "SAVE_CHAIN accepts operationKey, sourceTaskId, destinations and optional chainId");
-                    ((ObjectNode) input).remove("action");
-                    if (!input.has("sourceTaskId") && !input.has("sourcePullRequest")) {
-                        ((ObjectNode) input).put("sourceTaskId", taskId);
-                    }
-                    yield chains.getObject().save(taskId, turnId, mapper.treeToValue(input, BackportChainService.Request.class));
-                }
-                case "READ_CHAIN" -> {
-                    checkArgument(input.size() == 3 && input.path("chainId").isTextual(), "READ_CHAIN accepts action, operationKey and chainId");
-                    yield chains.getObject().read(taskId, turnId, input.path("chainId").asText());
-                }
-                case "START" -> {
-                    checkArgument(!input.has("sourceTaskId") && !input.has("chainId") && !input.has("destinations")
-                                    && !input.has("sourcePullRequest") && !input.has("sourceHops"),
-                            "START does not accept chain fields");
-                    ((ObjectNode) input).remove("action");
-                    yield service.start(taskId, turnId, mapper.treeToValue(input, RelatedWorkspaceWork.Request.class));
-                }
-                default -> throw new IllegalArgumentException("Choose START, READ, DISCOVER_BACKPORT, SAVE_CHAIN or READ_CHAIN");
+            Request request = REQUESTS.readValue(json, Request.class);
+            checkArgument(request != null, "Expected an object");
+            Object result = switch (request) {
+                case Read read -> services.getObject().read(taskId, turnId, read.operationKey());
+                case DiscoverBackport ignored -> chains.getObject().discover(taskId, turnId);
+                case ReadChain read -> chains.getObject().read(taskId, turnId, read.chainId());
+                case Start start -> services.getObject().start(taskId, turnId, start.request());
+                case SaveChain save -> chains.getObject().save(taskId, turnId, save.request(taskId));
             };
             return mapper.writeValueAsString(result);
         }
         catch (JsonProcessingException failure) {
             throw new IllegalArgumentException("Invalid related work request", failure);
+        }
+    }
+
+    @JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "action")
+    @JsonSubTypes({
+            @JsonSubTypes.Type(value = Read.class, name = "READ"),
+            @JsonSubTypes.Type(value = DiscoverBackport.class, name = "DISCOVER_BACKPORT"),
+            @JsonSubTypes.Type(value = ReadChain.class, name = "READ_CHAIN"),
+            @JsonSubTypes.Type(value = Start.class, name = "START"),
+            @JsonSubTypes.Type(value = SaveChain.class, name = "SAVE_CHAIN")})
+    private sealed interface Request permits Read, DiscoverBackport, ReadChain, Start, SaveChain {}
+
+    private record Read(String operationKey) implements Request
+    {
+        private Read
+        {
+            checkText(operationKey, "operationKey", 100);
+        }
+    }
+
+    private record DiscoverBackport(String operationKey) implements Request
+    {
+        private DiscoverBackport
+        {
+            checkText(operationKey, "operationKey", 100);
+        }
+    }
+
+    private record ReadChain(String operationKey, String chainId) implements Request
+    {
+        private ReadChain
+        {
+            checkText(operationKey, "operationKey", 100);
+            checkText(chainId, "chainId", 100);
+        }
+    }
+
+    private record Start(String operationKey, String workspaceId, RelatedWorkspaceWork.Purpose purpose, String question, Optional<String> commit,
+            Optional<String> revision) implements Request
+    {
+        private Start
+        {
+            // Reuse the service's admission contract before dispatch, including its purpose/commit relationship.
+            new RelatedWorkspaceWork.Request(operationKey, workspaceId, purpose, question, commit, revision);
+        }
+
+        RelatedWorkspaceWork.Request request()
+        {
+            return new RelatedWorkspaceWork.Request(operationKey, workspaceId, purpose, question, commit, revision);
+        }
+    }
+
+    private record SaveChain(String operationKey, Optional<String> sourceTaskId, Optional<String> chainId, List<String> destinations,
+            Optional<BackportChainService.SourcePullRequest> sourcePullRequest, Optional<List<Integer>> sourceHops) implements Request
+    {
+        private SaveChain
+        {
+            checkText(operationKey, "operationKey", 100);
+            requireNonNull(sourceTaskId, "sourceTaskId is null");
+            sourceTaskId.ifPresent(value -> checkText(value, "sourceTaskId", 100));
+            requireNonNull(sourcePullRequest, "sourcePullRequest is null");
+            checkArgument(sourceTaskId.isEmpty() || sourcePullRequest.isEmpty(), "Choose a source conversation or an existing PR");
+            requireNonNull(chainId, "chainId is null");
+            chainId.ifPresent(value -> checkText(value, "chainId", 100));
+            destinations = ImmutableList.copyOf(destinations);
+            checkArgument(!destinations.isEmpty() && destinations.size() <= 20, "Choose 1 to 20 destinations");
+            destinations.forEach(value -> checkText(value, "destination", 100));
+            requireNonNull(sourceHops, "sourceHops is null");
+            sourceHops = sourceHops.map(ImmutableList::copyOf);
+            checkArgument(sourceHops.isEmpty() || sourceHops.orElseThrow().size() == destinations.size(), "Each destination needs a source hop");
+        }
+
+        BackportChainService.Request request(String taskId)
+        {
+            Optional<String> source = sourcePullRequest.isPresent() ? sourceTaskId : sourceTaskId.or(() -> Optional.of(taskId));
+            return new BackportChainService.Request(operationKey, source, chainId, destinations, sourcePullRequest, sourceHops);
         }
     }
 }

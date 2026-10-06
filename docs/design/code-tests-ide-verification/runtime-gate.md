@@ -342,3 +342,20 @@ composition checks also pass. This is bridge
 and native-provider evidence from separate checks, not a real-model end-to-end
 agent execution. The legacy UI and GoalPlanner still use CodeGraph pending the
 remaining migration.
+
+
+## Goal baseline evidence
+
+`GoalPlanner` now uses `GoalSourceContext` for lesson and course-map evidence.
+It reads the already provisioned repository's monitored remote/default-branch
+commit, then bounded fixed-string Git matches with nearby source lines. It does
+not fetch, create a worktree, start an IDE or maintain an index. The prompt calls
+these text excerpts rather than semantic relationships, includes their exact
+commit and truncation, and falls back to saved knowledge notes when unavailable.
+
+Real Git verification covers fork/upstream routing, a different local HEAD,
+dirty and untracked files, missing baselines, absent matches, bounded Unicode
+output and unchanged checkout state. The full backend `mvn verify` gate passes,
+including the agent-query migration and application composition. Goal planning
+no longer consumes CodeGraph. The legacy editor, its status/settings and graph
+lifecycle still need removal when the production IDE cutover is ready.

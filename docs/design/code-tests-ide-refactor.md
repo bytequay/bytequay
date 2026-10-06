@@ -127,7 +127,7 @@ flowchart TD
   Host --> Languages[JDT LS / rust-analyzer / gopls]
   Host --> Execution[Test extensions and debug adapters]
   View <--> Backend[Existing backend: worktrees, claims, review, run evidence and Git]
-  Agent[Agent code queries and goal baseline queries] --> Coordinator[Worktree runtime coordinator]
+  Agent[Agent semantic code queries] --> Coordinator[Worktree runtime coordinator]
   Coordinator --> View
 ```
 
@@ -160,8 +160,11 @@ For an agent query while the editor is closed, start the same isolated runtime
 without attaching its view visibly, answer the bounded query, then release its
 lease. This avoids a second language-server stack. Hidden-view startup, background
 progress, and full cleanup are explicit runtime-gate tests, not verified features.
-Goal planning may use a separate temporary baseline workspace at the required
-revision; it must not reuse a different task's dirty semantic state.
+Tool-free goal planning uses bounded Git text excerpts at the fetched monitored
+baseline commit. It does not start another IDE or create another index. Its
+prompts distinguish keyword matches from semantic relationships, identify the
+commit and truncation, and fall back to knowledge notes if source is unavailable.
+It must not reuse a different task's dirty semantic state.
 
 ## UI and workflow details
 
@@ -297,8 +300,9 @@ Migrate all of these before deletion:
 1. Code & Tests navigation and its current name-matching/Java heuristics.
 2. The fixed agent `codegraph_explore` tool, its advertised capabilities and
    prompts, replacing it with the new bounded code-query contract.
-3. `GoalPlanner` baseline exploration through `PinnedCodeGraphService`, preserving
-   revision-bound evidence and graceful unavailable results.
+3. `GoalPlanner` baseline exploration through `GoalSourceContext`: replace
+   `PinnedCodeGraphService` with bounded source excerpts, preserving revision-bound
+   evidence and graceful unavailable results without claiming semantic graph coverage.
 4. Worktree prepare/cleanup paths, readiness/settings/status surfaces, tests and
    documentation that assume a CodeGraph CLI or cache.
 
@@ -337,7 +341,7 @@ runtime disposal and correct claim release are required for this refactor.
 - Run the Java, Rust and Go proofs above with actual extensions and tools.
   Confirm native test-debug profiles, not only standalone debugging.
 - Verify launch/save coordination, automatic extension behavior, two-worktree
-  isolation, agent queries without a visible editor and baseline queries.
+  isolation, agent queries without a visible editor and baseline source evidence.
 - Measure cold import, warm reopen, active/idle footprint and process disposal
   against the same repositories. A closed idle runtime must have no remaining
   owned worker/extension/language processes. Record package size and startup cost.
@@ -372,7 +376,7 @@ runtime disposal and correct claim release are required for this refactor.
 
 ### 5. Migrate code queries and remove CodeGraph
 
-- Move UI, agents and goal baseline consumers to the shared runtime contract.
+- Move UI and agent semantic queries to the shared runtime; move goal baseline evidence to bounded Git object reads.
 - Test symbol identity across overloads, interfaces/traits, modules/packages and
   two worktrees with intentionally different definitions. Show readiness and
   unsupported results honestly; never substitute text matches for semantic callers.

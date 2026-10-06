@@ -79,6 +79,13 @@ have independent runtime profiles and language state. Indexing can execute
 project build tools and write files, as in an ordinary IDE. Extension policy and
 editor save guards are not a filesystem or process sandbox.
 
+Hidden views remain attached to a native host with background throttling disabled
+so initialization and agent queries can run. If the macOS main window is closed,
+one lazy invisible host retains these views; it is destroyed when the last IDE
+closes. Queries wait for language-extension registration before creating source
+models. A fresh Electron session registers resource handlers without first
+unregistering handlers that do not exist.
+
 Main checks every 15 seconds. A hidden view is eligible for disposal after two
 minutes only when it has no dirty source/reply drafts, busy operation, interactive
 ByteQuay terminal, pending action/query or execution. Visible editors remain

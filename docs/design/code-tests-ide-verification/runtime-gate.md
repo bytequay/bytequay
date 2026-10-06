@@ -10,8 +10,9 @@ The sections below retain successive verification checkpoints; their earlier
 pending lists describe those checkpoints. The current
 [implementation checklist](../code-tests-impl-tmp.md) identifies remaining native
 acceptance work. In particular, fixture UI and separate backend tests are not a
-production end-to-end pass. Final Go/Rust debugging, larger semantic fixtures and
-native lifecycle/resource measurements remain incomplete.
+production end-to-end pass. Real-backend shared queries and lifecycle checks now
+pass as recorded below. Go/Rust debugging, larger semantic fixtures and native
+test execution against the production backend remain incomplete.
 
 ## Verified foundation
 
@@ -470,3 +471,53 @@ pass. The full backend reactor passes `mvn verify`; frontend lint, TypeScript,
 The user left macOS-gated debugger verification pending. The isolated debugger
 fixture was closed, and none of its 17 recorded owned process identities remained.
 This verifies fixture shutdown, not yet the production idle lifecycle.
+
+
+## Real-backend query and lifecycle composition
+
+An isolated Spring application used the actual runtime, query queue, managed
+worktree services, supervisor and HTTP authentication with its own SQLite file.
+It seeded two local Git worktrees; no provider turn or GitHub request ran. The
+production `IdeViews`, preload and packaged renderer connected to that backend.
+Only backend discovery and fixture toolchain paths were supplied by the harness.
+This is a native composition check, not a signed-app release acceptance pass.
+
+The check found and fixed three startup gaps that the earlier UI fixture bypassed:
+
+- Fresh Electron partitions must check `isProtocolHandled` before `unhandle`.
+- Hidden views need native attachment and usable bounds to initialize. They keep
+  background throttling disabled; a lazy invisible host supports queries when the
+  macOS main window is closed and is destroyed with the last IDE.
+- The first query must wait for language-extension registration; otherwise a Go
+  file can initially be classified as plain text.
+
+Each worktree returned its own differently named caller of the same Go method,
+plus its test caller; neither returned the other worktree's caller. Hidden queries
+and editor opens reused both the view and the server session. New runtime queries
+completed in roughly 2.1–2.5 seconds on the small fixture; subsequent incoming-call
+queries took 0.36–0.38 seconds. These are local warm-OS-cache fixture measurements,
+not general project-import or application-launch guarantees.
+
+After the real two-minute idle threshold and the main maintenance interval, none
+of the recorded IDE server, extension-host or gopls processes remained. Reopening
+worked; forced renderer crash also removed that runtime's processes. A separate
+run without a main window passed query, close, reopen and crash cleanup checks.
+The check preserves PID/start identity and excludes unrelated processes.
+
+Summed process RSS, including the fixture backend JVM and Electron, was about
+3.57 GiB with both Go worktrees warm and 1.70 GiB after idle disposal. Shared pages
+can be counted multiple times in these sums; they are not incremental physical
+memory measurements. The result confirms releasing runtimes matters; tuning
+indexing and disk-cache eviction remains separate follow-up work.
+
+The [compact results](native-composition-results.json) retain query status,
+caller names, timings, session reuse and process counts without credentials or
+machine-specific source paths. Extended Java module/overload, Go interface and
+Rust trait fixtures were prepared but not run; Go/Rust native debugger acceptance
+remains pending at the user's direction. Full native test/debug execution against
+the real backend remains separate from this query/lifecycle pass.
+
+The final frontend gate passes lint, TypeScript, 1,512 tests in 160 files and
+macOS arm64 packaging. Backend code is unchanged from the complete passing
+reactor verification recorded above. The isolated backend was shut down after
+verification.

@@ -20,6 +20,7 @@ import type { ExecutionRequest } from './ide/executionProtocol';
 const desktop = vi.hoisted(() => ({
   handlers: new Map<string, (...args: unknown[]) => unknown>(),
   views: [] as MockView[],
+  backgrounds: [] as { contentView: { addChildView: ReturnType<typeof vi.fn>; removeChildView: ReturnType<typeof vi.fn> }; destroy: ReturnType<typeof vi.fn> }[],
 }));
 type MockView = {
   options: { webPreferences: Record<string, unknown> };
@@ -36,18 +37,25 @@ vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return {
     protocol: { registerSchemesAsPrivileged: vi.fn() },
+    BrowserWindow: class {
+      contentView = { addChildView: vi.fn(), removeChildView: vi.fn() }; destroy = vi.fn();
+      constructor() { desktop.backgrounds.push(this); }
+    },
     ipcMain: {
       handle: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn),
       on: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn),
     },
     net: { fetch: vi.fn(async () => new Response('asset')) },
     WebContentsView: class {
+      private readonly handled = new Set<string>();
       webContents = Object.assign(new EventEmitter(), {
         destroyed: false, mainFrame: {},
         isDestroyed: () => this.webContents.destroyed,
         close: vi.fn(() => { this.webContents.destroyed = true; }),
         loadURL: vi.fn(async (): Promise<void> => undefined), send: vi.fn(), setWindowOpenHandler: vi.fn(),
-        session: { protocol: { handle: vi.fn(), unhandle: vi.fn() }, setPermissionRequestHandler: vi.fn(),
+        session: { protocol: { handle: vi.fn((scheme: string) => this.handled.add(scheme)),
+          isProtocolHandled: vi.fn(async (scheme: string) => this.handled.has(scheme)),
+          unhandle: vi.fn((scheme: string) => { if (!this.handled.delete(scheme)) throw new Error(`Failed to unhandle protocol: ${scheme}`); }) }, setPermissionRequestHandler: vi.fn(),
           setPermissionCheckHandler: vi.fn(), webRequest: { onBeforeRequest: vi.fn() } },
       });
       setVisible = vi.fn(); setBounds = vi.fn();
@@ -61,7 +69,7 @@ const connection = { taskId: 'task', sessionId: 'session', authority: '127.0.0.1
   cacheRoot: '/cache', connectionToken: 'server-only-token', commit: 'a'.repeat(40) };
 const host = { kind: 'task', workspaceId: 'workspace', taskId: 'task' };
 const sender = { mainFrame: {}, send: vi.fn(), getZoomFactor: () => 1 };
-const window = { webContents: sender, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
+const window = { isDestroyed: () => false, webContents: sender, contentView: { addChildView: vi.fn(), removeChildView: vi.fn() },
   getContentBounds: () => ({ width: 1000, height: 800 }) } as unknown as BrowserWindow;
 const fetchMock = vi.fn();
 const parent = () => ({ sender, senderFrame: sender.mainFrame });
@@ -69,7 +77,7 @@ const child = () => ({ sender: desktop.views[0].webContents, senderFrame: deskto
 const invoke = (name: string, ...args: unknown[]) => desktop.handlers.get(name)?.(...args);
 let views: IdeViews;
 beforeEach(() => {
-  vi.useFakeTimers(); desktop.views.length = 0; desktop.handlers.clear(); sender.send.mockClear();
+  vi.useFakeTimers(); desktop.views.length = 0; desktop.backgrounds.length = 0; desktop.handlers.clear(); sender.send.mockClear();
   fetchMock.mockReset().mockImplementation(async (_url: string, request: RequestInit) => new Response(request.method === 'POST' ? JSON.stringify(connection) : ''));
   vi.stubGlobal('fetch', fetchMock);
   views = new IdeViews(() => window); views.register();
@@ -79,7 +87,7 @@ afterEach(() => { views.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); })
 it('deduplicates worktree opens and keeps native credentials out of renderer URLs', async () => {
   const [first, second] = await Promise.all([invoke('ide:open', parent(), host), invoke('ide:open', parent(), host)]);
   expect(first).toBe(second); expect(desktop.views).toHaveLength(1);
-  expect(desktop.views[0].options.webPreferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false });
+  expect(desktop.views[0].options.webPreferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false });
   expect(desktop.views[0].webContents.loadURL).toHaveBeenCalledWith('bytequay-ide://app/ide/index.html');
   expect(invoke('ide:bootstrap', child())).toEqual({ connection, context: null });
   expect(() => invoke('ide:bootstrap', parent())).toThrow('Unknown IDE view');
@@ -291,4 +299,20 @@ it('waits for the source-draft discard acknowledgement from that editor only', a
   expect(() => invoke('ide:discard-source-result', parent(), request)).toThrow('Unknown');
   invoke('ide:discard-source-result', child(), request);
   await expect(result).resolves.toBeUndefined();
+});
+
+
+it('hosts hidden queries after the macOS window closes and releases the background window when idle', async () => {
+  views.dispose(); views = new IdeViews(() => null); views.register();
+  const request = { id: 'background', connection, taskId: 'task', workspaceId: 'workspace', expiresAt: Date.now() + 60_000,
+    query: { operation: 'DOCUMENT_SYMBOLS', path: 'src/main.go', limit: 20 } } as const;
+  const answer = views.query(request, new AbortController().signal);
+  await vi.advanceTimersByTimeAsync(0);
+  expect(desktop.backgrounds).toHaveLength(1);
+  expect(desktop.backgrounds[0].contentView.addChildView).toHaveBeenCalledWith(desktop.views[0]);
+  invoke('ide:query-ready', child());
+  invoke('ide:query-reply', child(), request.id, { status: 'READY', items: [], truncated: false, message: '' });
+  expect((await answer).result.status).toBe('READY');
+  await vi.advanceTimersByTimeAsync(135_000);
+  expect(desktop.backgrounds[0].destroy).toHaveBeenCalledOnce();
 });

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 /* eslint-disable import/no-unresolved -- The pinned modular packages export these paths; Vite and TypeScript resolve them. */
-import { initialize, getService, ICodeEditorService, ITestResultService, IDebugService, IViewDescriptorService, ITerminalService, IPaneCompositePartService } from '@codingame/monaco-vscode-api';
+import { initialize, getService, ICodeEditorService, ITestResultService, IDebugService, IViewDescriptorService, ITerminalService, IPaneCompositePartService, IExtensionService } from '@codingame/monaco-vscode-api';
 import { registerExtension, ExtensionHostKind } from '@codingame/monaco-vscode-api/extensions';
 import { IWorkbenchExtensionEnablementService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/extensionManagement/common/extensionManagement.service';
 import { SyncDescriptor } from '@codingame/monaco-vscode-api/vscode/vs/platform/instantiation/common/descriptors';
@@ -110,6 +110,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
   });
   await coordinateSaves(connection);
   const api = await extension.getApi();
+  await (await getService(IExtensionService)).whenInstalledExtensionsRegistered();
   const views = await getService(IViewDescriptorService);
   for (const id of ['workbench.view.extension.test', 'workbench.view.debug']) {
     const view = views.getViewContainerById(id);

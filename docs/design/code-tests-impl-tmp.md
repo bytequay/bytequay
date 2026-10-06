@@ -21,11 +21,15 @@ limitations live in the [runtime report](code-tests-ide-verification/runtime-gat
   packaging, tool aliases, lifecycle hooks and graph-only persistence fields.
 - [x] Remove unused legacy user-Maven run transport while retaining old run
   evidence and agent command mirroring.
-- [ ] Complete semantic identity across divergent worktrees and larger
-  module/interface/trait fixtures.
+- [x] Real-backend shared queries preserve identity across two divergent Go
+  worktrees and reuse the visible editor runtime.
+- [ ] Extended Java module/overload, Go interface and Rust trait coverage.
 - [ ] Native Go/Rust debugger acceptance: pending at the user’s direction;
   macOS Developer Tools authorization is not approved.
-- [ ] Complete real-backend composition and native idle/crash cleanup evidence,
-  including cold/warm timing and resource/package measurements.
+- [x] Real-backend query composition, native idle/crash cleanup, background
+  queries with the macOS window closed, and bounded timing/resource measurements.
+- [ ] Full native test/debug execution against the production backend; native
+  dispatch and evidence have fixture coverage, and backend claims/history have
+  separate service/HTTP coverage.
 - [x] Required backend/frontend gates after legacy runner removal.
-- [ ] Commit remaining native acceptance evidence.
+- [x] Commit native query/lifecycle evidence; remaining coverage is listed above.

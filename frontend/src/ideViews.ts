@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { ipcMain, net, protocol, WebContentsView, type BrowserWindow, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { ipcMain, net, protocol, WebContentsView, BrowserWindow, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -76,6 +76,7 @@ export class IdeViews {
   private readonly queryPump = new AbortController();
   private readonly runningQueries = new Map<string, AbortController>();
   private pumping = false;
+  private background: BrowserWindow | null = null;
   private readonly opening = new Map<string, Promise<string>>();
   private readonly timer: ReturnType<typeof setInterval>;
 
@@ -272,7 +273,7 @@ export class IdeViews {
     }
     const id = randomUUID();
     const view = new WebContentsView({ webPreferences: {
-      preload: path.join(__dirname, 'idePreload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, partition: `persist:bytequay-ide-${connection.taskId}`,
+      preload: path.join(__dirname, 'idePreload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `persist:bytequay-ide-${connection.taskId}`,
     } });
     const editor: Editor = { id, host, connection, view, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };
     this.editors.set(id, editor);
@@ -292,8 +293,9 @@ export class IdeViews {
         catch { return new Response('Not found', { status: 404 }); }
       };
       const session = view.webContents.session;
-      session.protocol.unhandle('bytequay-ide');
-      session.protocol.unhandle('https');
+      for (const scheme of ['bytequay-ide', 'https']) {
+        if (await session.protocol.isProtocolHandled(scheme)) session.protocol.unhandle(scheme);
+      }
       session.protocol.handle('bytequay-ide', serve);
       session.protocol.handle('https', serve);
       session.setPermissionRequestHandler((contents, permission, callback) => callback(contents === view.webContents && permission === 'clipboard-sanitized-write'));
@@ -313,6 +315,9 @@ export class IdeViews {
         void this.close(id).catch(() => {});
       });
       view.setVisible(false);
+      // Unattached native views can stall initialization before agent queries become ready.
+      view.setBounds({ x: 0, y: 0, width: 1000, height: 700 });
+      this.owner().contentView.addChildView(view);
       await view.webContents.loadURL(dev ? new URL('ide/index.html', dev).href : 'bytequay-ide://app/ide/index.html');
       return id;
     }
@@ -394,6 +399,14 @@ export class IdeViews {
     }
   }
 
+  private owner(): BrowserWindow {
+    const window = this.window();
+    if (window && !window.isDestroyed()) return window;
+    this.background ??= new BrowserWindow({ show: false, width: 1000, height: 700,
+      webPreferences: { sandbox: true, contextIsolation: true, nodeIntegration: false } });
+    return this.background;
+  }
+
   private require(id: string): Editor {
     const editor = this.editors.get(id);
     if (!editor) throw new Error('The IDE session has ended');
@@ -419,9 +432,11 @@ export class IdeViews {
     if (editor.closing) return editor.closing;
     const closing = async () => {
       editor.visible = false;
+      const window = this.window();
+      if (window && !window.isDestroyed()) window.contentView.removeChildView(editor.view);
+      this.background?.contentView.removeChildView(editor.view);
       if (!editor.view.webContents.isDestroyed()) {
         editor.view.setVisible(false);
-        this.window()?.contentView.removeChildView(editor.view);
         editor.view.webContents.close({ waitForBeforeUnload: false });
       }
       for (const pending of editor.pending.values()) {
@@ -433,6 +448,7 @@ export class IdeViews {
       // Failed termination remains registered so maintenance and explicit close retry the same process tree.
       await runtimeRequest(`/${editor.connection.taskId}/${editor.connection.sessionId}`, 'DELETE');
       this.editors.delete(id);
+      if (this.editors.size === 0) { this.background?.destroy(); this.background = null; }
       this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, closed: true } satisfies IdeEvent);
     };
     editor.closing = closing().finally(() => { editor.closing = null; });
@@ -443,7 +459,10 @@ export class IdeViews {
     for (const editor of this.editors.values()) {
       editor.visible = false;
       editor.lastUsed = Date.now();
-      if (!editor.view.webContents.isDestroyed()) editor.view.setVisible(false);
+      if (!editor.view.webContents.isDestroyed()) {
+        editor.view.setVisible(false);
+        this.owner().contentView.addChildView(editor.view);
+      }
     }
   }
 
@@ -455,6 +474,7 @@ export class IdeViews {
     for (const editor of this.editors.values()) {
       if (!editor.view.webContents.isDestroyed()) editor.view.webContents.close({ waitForBeforeUnload: false });
     }
+    this.background?.destroy(); this.background = null;
     // Spring shutdown performs the verified process-tree stop; renderer destruction alone is not its proof.
   }
 }

@@ -146,6 +146,10 @@ async function retryLocalTurn(): Promise<{ name: string; error?: string }[]> {
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
+    // The failed turn and provider readiness can arrive after the first paint.
+    for (let attempt = 0; attempt < 30 && !Array.from(host.querySelectorAll('button')).some(button => button.textContent === 'Refresh login status'); attempt++) {
+      await settle();
+    }
     const refresh = Array.from(host.querySelectorAll('button')).find(button => button.textContent === 'Refresh login status');
     assert(refresh !== undefined, 'Failed authentication must offer a fresh readiness check');
     refresh.click();

@@ -96,7 +96,6 @@ class TestDefaultAgentCompletionService
     private InMemoryAgentStores stores;
     private RecordingResources resources;
     private RecordingWorktreeService worktrees;
-    private RecordingCodeGraphService codeGraph;
     private AgentRuntimeRegistry runtimeRegistry;
     private TaskId taskId;
     private Consumer<AgentTask> beforeRemoval = task -> {};
@@ -107,7 +106,6 @@ class TestDefaultAgentCompletionService
         stores = new InMemoryAgentStores();
         resources = new RecordingResources();
         worktrees = new RecordingWorktreeService();
-        codeGraph = new RecordingCodeGraphService();
         runtimeRegistry = new AgentRuntimeRegistry(ignored -> {});
         taskId = TaskId.random();
         stores.insert(managedTask(taskId, "Completion test"));
@@ -227,13 +225,11 @@ class TestDefaultAgentCompletionService
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).isEmpty();
         assertThat(stores.find(taskId).orElseThrow().updatedAt()).isEqualTo(NOW.plusSeconds(1));
-        assertThat(codeGraph.deletedIndexes).isEmpty();
         assertThat(resources.worktreeCacheDeletions).isZero();
 
         worktrees.failCleanup = false;
         service(Clock.fixed(NOW.plusSeconds(2), ZoneOffset.UTC)).cleanupWorktree(taskId);
         assertThat(worktrees.cleaned).hasSize(2);
-        assertThat(codeGraph.deletedIndexes).hasSize(1);
         assertThat(resources.worktreeCacheDeletions).isOne();
         assertThat(stores.find(taskId).orElseThrow().worktreeRemovedAt()).contains(NOW.plusSeconds(2));
     }
@@ -357,7 +353,6 @@ class TestDefaultAgentCompletionService
         // Delete, not cleanup: the branch goes with the checkout, dirty or not.
         assertThat(worktrees.deleted).hasSize(1);
         assertThat(worktrees.cleaned).isEmpty();
-        assertThat(codeGraph.deletedIndexes).hasSize(1);
         assertThat(resources.deletions).isEqualTo(1);
         assertThat(stores.find(taskId)).isEmpty();
         assertThat(stores.listQueued(taskId)).isEmpty();
@@ -677,7 +672,6 @@ class TestDefaultAgentCompletionService
                 resources,
                 runtimeRegistry,
                 new FixedMetrics(),
-                codeGraph,
                 () -> Duration.ofDays(7),
                 task -> beforeRemoval.accept(task),
                 clock);

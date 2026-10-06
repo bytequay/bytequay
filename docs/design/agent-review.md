@@ -38,7 +38,7 @@ The agent judges whether evidence establishes the claim. ByteQuay checks report
 structure, frozen identities, assignment ownership, candidate accounting, and
 the follow-up budget. It never extracts workflow decisions from assistant prose
 or treats a confidence score as proof. The agent chooses context and verification
-techniques; ByteQuay supplies frozen scope, on-demand tools and optional CodeGraph.
+techniques; ByteQuay supplies frozen scope, on-demand tools and optional IDE code queries.
 There is no task per finding, new execution engine, or configurable pipeline.
 Expected behavior must have a basis independent of the check used to observe
 actual behavior. A test or another reviewer's comment can suggest a candidate,
@@ -49,7 +49,7 @@ then rereads the decisive changed and unchanged source. Validation checks each
 candidate against the applicable contract and a focused behavior control. Broad
 searches may run in parallel through native children assigned read-only
 exploration; the root rereads decisive source, challenges their conclusions, and owns every saved
-report. CodeGraph suggests paths to inspect, never establishes correctness.
+report. Semantic queries suggest paths to inspect, never establish correctness.
 
 User review turns carry the repository's guideline files; automatic assignments
 reuse confirmed delivery within their frozen run. Guidelines are read at
@@ -494,17 +494,13 @@ Once cleanup is verified, **Resume** continues the open review. If no prior run
 was accepted, complete a full pass to establish the successful reviewed-head
 cursor. Later compatible PR heads use the existing incremental-review rules.
 
-Use CodeGraph exactly as specified by [its service design](codegraph-service.md):
-one derived index per worktree, optional agent-led queries, read-only UI symbol
-queries through the review `/code` routes, synchronization inside queries, and
-best-effort index deletion after successful worktree cleanup. No
-review-specific graph lifecycle, forced graph use, or extra refresh tool. Graph
-failure never fails review execution or invalidates an otherwise complete
-review.
-The review prompt recommends a focused graph query when a changed contract may
-have indirect callers, sibling implementations, registration paths or
-configuration consumers. The agent still opens the current source and checks
-coverage; an absent graph does not narrow the review obligation.
+Use the optional shared IDE `code_query` contract in [Code & Tests](code-tests.md)
+for semantic discovery. It is bound to the review task's real worktree, validates
+revision/content identity and shares the editor's language providers. It does
+not introduce a review-specific index or lifecycle. Unavailable queries never
+fail review execution or invalidate an otherwise complete review. The agent
+still reads decisive current source and checks coverage; an unavailable language
+provider does not narrow the review obligation.
 
 The packaged `bytequay-review.md` is the single review policy. Shared agent
 guidance owns common writing and exploration rules; request builders supply the
@@ -620,7 +616,7 @@ bridge. The authenticated callback supplies task, review, run, and actor;
 the model cannot choose them or supply an absolute filesystem path/token.
 Context reads may select validated repository-relative paths or returned
 reference IDs, never a source root or another task's files. The review
-bridge must work when CodeGraph is off or absent. Ordinary tasks do not gain
+bridge must work when IDE queries are unavailable. Ordinary tasks do not gain
 these tools. Provider-specific registration, resume, cancellation, and
 isolation must pass executable tests before enabling the review capability
 for that lane; failure does not disable ordinary agent tasks. Save and mutation
@@ -728,7 +724,7 @@ directory, registered as a `PreToolUse` hook for the Agent and Task tools and
 every ByteQuay MCP tool. The gate parses the hook input with the system
 `plutil`, refuses a call it cannot read, starts only `Explore` children, and
 lets a child call only the ByteQuay tools marked child-callable:
-`review_get_context` and `codegraph_explore`. Every tool that saves or changes
+`review_get_context` and `code_query`. Every tool that saves or changes
 review state stays with the root agent, including tools added later, which
 are root-only until marked otherwise. The approval layer applies the same rule,
 and the driver offers the Agent tool only on a CLI release at or above the one
@@ -753,7 +749,7 @@ thread. Before each review turn, ByteQuay verifies that its review hook is the
 sole discovered hook and that effective MCP isolation still holds. Hook discovery
 may still label it untrusted because that listing does not include the thread's
 runtime override. On successful execution, the hook allows a child only
-`review_get_context` and optional `codegraph_explore` and refuses shell,
+`review_get_context` and optional `code_query` and refuses shell,
 edit, save, other MCP and delegation calls. A Codex child explores through
 those bounded tools. In a guarded review, the task MCP endpoint advertises
 only those child-safe reads; ByteQuay registers root-only review operations as
@@ -1436,8 +1432,8 @@ explicit; do not weaken isolation merely to enable review.
   process quiescence block the affected operation without destroying work.
 - Review result readiness does not close its task or clean its worktree.
   Explicit End review uses the existing terminal-result/cleanup barrier.
-- Keep user-visible review data after detailed runtime retention. CodeGraph
-  deletion remains best effort; no review-specific graph recovery state.
+- Keep user-visible review data after detailed runtime retention. Shared IDE
+  cleanup follows the task process-ownership rules; there is no graph recovery state.
 
 ## 11. Initial scope and deferred work
 

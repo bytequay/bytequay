@@ -2876,7 +2876,7 @@ class TestCodexCliDriver
                         .doesNotContainKeys("GH_CONFIG_DIR", "SSH_AUTH_SOCK", "GH_TOKEN", "GITHUB_TOKEN");
                 assertThat(thread.path("config").path("shell_environment_policy").path("include_only"))
                         .isEqualTo(objectMapper.valueToTree(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly()));
-                String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
+                String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
                 assertThat(token).isNotBlank();
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
@@ -2978,7 +2978,7 @@ class TestCodexCliDriver
                 }
                 List<String> arguments = supervisor.serverArgv().getLast();
                 assertThat(arguments).contains("mcp_servers.bytequay.tools={\"review_get_context\"={approval_mode=\"approve\"}}");
-                String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
+                String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
@@ -3091,7 +3091,7 @@ class TestCodexCliDriver
                                 + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_spec_search\"={approval_mode=\"approve\"}}");
                 assertThat(arguments).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(arguments).contains("approval_policy=\"on-request\"");
-                String token = supervisor.environments().getLast().get("BYTEQUAY_CODEGRAPH_TOKEN");
+                String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
@@ -3160,8 +3160,8 @@ class TestCodexCliDriver
             assertThat(arguments).containsSequence("--enable", "multi_agent_v2");
             assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + MCP_ENDPOINT + "\"");
             assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("developerInstructions").asText()).contains(bridged.instruction());
-            String token = supervisor.environments().stream().filter(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"))
-                    .reduce((previous, current) -> current).orElseThrow().get("BYTEQUAY_CODEGRAPH_TOKEN");
+            String token = supervisor.environments().stream().filter(environment -> environment.containsKey("BYTEQUAY_TOOL_TOKEN"))
+                    .reduce((previous, current) -> current).orElseThrow().get("BYTEQUAY_TOOL_TOKEN");
             assertThat(arguments).noneMatch(argument -> argument.contains(token));
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
@@ -3198,13 +3198,13 @@ class TestCodexCliDriver
         AgentSession session = driver.open(bridged, event -> {});
         List<String> arguments = supervisor.serverArgv().getFirst();
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + MCP_ENDPOINT + "\"");
-        assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.bearer_token_env_var=\"BYTEQUAY_CODEGRAPH_TOKEN\"");
+        assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.bearer_token_env_var=\"BYTEQUAY_TOOL_TOKEN\"");
         assertThat(arguments).containsSequence("-c", "developer_instructions=\"use the graph\"");
         Map<String, String> environment = supervisor.environments().stream()
-                .filter(candidate -> candidate.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"))
+                .filter(candidate -> candidate.containsKey("BYTEQUAY_TOOL_TOKEN"))
                 .findFirst()
                 .orElseThrow();
-        String token = environment.get("BYTEQUAY_CODEGRAPH_TOKEN");
+        String token = environment.get("BYTEQUAY_TOOL_TOKEN");
         assertThat(token).isNotBlank();
         assertThat(arguments).noneMatch(argument -> argument.contains(token));
         // The thread leaves the MCP map to the launch flags instead of emptying it.
@@ -3280,7 +3280,7 @@ class TestCodexCliDriver
             reference = Optional.of(session.reference());
             session.close();
         }
-        assertThat(supervisor.environments()).noneMatch(environment -> environment.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"));
+        assertThat(supervisor.environments()).noneMatch(environment -> environment.containsKey("BYTEQUAY_TOOL_TOKEN"));
     }
 
     @Test
@@ -3290,7 +3290,7 @@ class TestCodexCliDriver
         CodexCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         assertThat(supervisor.serverArgv().getFirst()).noneMatch(argument -> argument.startsWith("mcp_servers") || argument.startsWith("developer_instructions"));
-        assertThat(supervisor.environments()).noneMatch(candidate -> candidate.containsKey("BYTEQUAY_CODEGRAPH_TOKEN"));
+        assertThat(supervisor.environments()).noneMatch(candidate -> candidate.containsKey("BYTEQUAY_TOOL_TOKEN"));
         session.close();
 
         ScriptedProcessSupervisor ambient = new ScriptedProcessSupervisor(objectMapper);

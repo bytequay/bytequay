@@ -686,16 +686,16 @@ const noChildLaunchProfile = {
   multi_agent: false,
   multi_agent_v2: false,
 };
-const CODE_GRAPH_TOKEN_VARIABLE = "BYTEQUAY_CODEGRAPH_TOKEN";
-// The ByteQuay CodeGraph launch: one MCP server, ByteQuay's own task endpoint, on top of the
+const MANAGED_TOOLS_TOKEN_VARIABLE = "BYTEQUAY_TOOL_TOKEN";
+// The ByteQuay managed-tools launch: one MCP server, ByteQuay's own task endpoint, on top of the
 // no-child profile. config/read reflects the overrides without contacting the endpoint, so the
 // probe needs no server behind the URL.
-const codeGraphLaunchProfile = {
+const managedToolsLaunchProfile = {
   ...noChildLaunchProfile,
-  name: "code-graph-tool",
-  codeGraph: {
+  name: "managed-tools",
+  managedTools: {
     url: "http://127.0.0.1:9/internal/agent/claude/mcp",
-    instruction: "ByteQuay CodeGraph compatibility probe",
+    instruction: "ByteQuay managed-tools compatibility probe",
   },
 };
 const v1ChildLaunchProfile = {
@@ -2402,28 +2402,28 @@ function assertLaunchPolicy(response, launchProfile) {
   assert.equal(config.approvals_reviewer, "auto_review", "native automatic review was not selected");
   assert.equal(config.project_doc_max_bytes, 0, "Codex still loads AGENTS.md itself");
   assert.equal(config.features?.guardian_approval, true, "native automatic review was disabled");
-  if (launchProfile.codeGraph === undefined) {
+  if (launchProfile.managedTools === undefined) {
     assert.deepEqual(config.mcp_servers, {}, "isolated launch inherited MCP servers");
   } else {
     assert.deepEqual(
       Object.keys(config.mcp_servers ?? {}),
       ["bytequay"],
-      "code graph launch exposed something other than the ByteQuay task MCP endpoint",
+      "managed-tools launch exposed something other than the ByteQuay task MCP endpoint",
     );
     assert.equal(
       config.mcp_servers.bytequay.url,
-      launchProfile.codeGraph.url,
-      "code graph launch pointed at the wrong MCP endpoint",
+      launchProfile.managedTools.url,
+      "managed-tools launch pointed at the wrong MCP endpoint",
     );
     assert.equal(
       config.mcp_servers.bytequay.bearer_token_env_var,
-      CODE_GRAPH_TOKEN_VARIABLE,
-      "code graph launch did not take its bearer token from the environment",
+      MANAGED_TOOLS_TOKEN_VARIABLE,
+      "managed-tools launch did not take its bearer token from the environment",
     );
     assert.equal(
       config.developer_instructions,
-      launchProfile.codeGraph.instruction,
-      "code graph launch did not carry the managed instruction",
+      launchProfile.managedTools.instruction,
+      "managed-tools launch did not carry the managed instruction",
     );
   }
   assert.equal(
@@ -3109,33 +3109,33 @@ function appServerArguments(launchProfile) {
   if (launchProfile.agentMaxDepth !== undefined) {
     args.push("-c", `agents.max_depth=${launchProfile.agentMaxDepth}`);
   }
-  if (launchProfile.codeGraph !== undefined) {
-    // Mirrors CodexLaunchProfile: the ByteQuay task MCP endpoint for the CodeGraph tool, its bearer
+  if (launchProfile.managedTools !== undefined) {
+    // Mirrors CodexLaunchProfile: the ByteQuay task MCP endpoint for the managed tools, its bearer
     // token read from the process environment, and the managed instruction as developer text.
     args.push(
       "-c",
-      `mcp_servers.bytequay.url=${JSON.stringify(launchProfile.codeGraph.url)}`,
+      `mcp_servers.bytequay.url=${JSON.stringify(launchProfile.managedTools.url)}`,
       "-c",
-      `mcp_servers.bytequay.bearer_token_env_var=${JSON.stringify(CODE_GRAPH_TOKEN_VARIABLE)}`,
+      `mcp_servers.bytequay.bearer_token_env_var=${JSON.stringify(MANAGED_TOOLS_TOKEN_VARIABLE)}`,
       "-c",
-      `developer_instructions=${JSON.stringify(launchProfile.codeGraph.instruction)}`,
+      `developer_instructions=${JSON.stringify(launchProfile.managedTools.instruction)}`,
     );
   }
   return args;
 }
 
-// A second, short-lived App Server launched the way ByteQuay launches a task with the CodeGraph
-// tool: the effective config must expose exactly the ByteQuay endpoint and the managed instruction,
+// A second, short-lived App Server launched the way ByteQuay launches a task with managed
+// tools: the effective config must expose exactly the ByteQuay endpoint and the managed instruction,
 // and nothing else about the isolation baseline may change.
-async function verifyCodeGraphLaunch(cwd, environment, registerChild, codexHome, taskCwd) {
+async function verifyManagedToolsLaunch(cwd, environment, registerChild, codexHome, taskCwd) {
   const { child, rpc } = await startAppServer(
     cwd,
-    { ...environment, [CODE_GRAPH_TOKEN_VARIABLE]: "probe-token" },
+    { ...environment, [MANAGED_TOOLS_TOKEN_VARIABLE]: "probe-token" },
     registerChild,
-    codeGraphLaunchProfile,
+    managedToolsLaunchProfile,
   );
   try {
-    await verifyPreThreadIsolation(rpc, codexHome, [taskCwd], codeGraphLaunchProfile);
+    await verifyPreThreadIsolation(rpc, codexHome, [taskCwd], managedToolsLaunchProfile);
   } finally {
     await stopProcess(child);
   }
@@ -3935,7 +3935,7 @@ async function liveCompatibilityCheck() {
     await interruptible(
       verifyPreThreadIsolation(rpc, codexHome, [cwdA, cwdB], noChildLaunchProfile),
     );
-    await interruptible(verifyCodeGraphLaunch(root, appServerEnvironment, registerChild, codexHome, cwdA));
+    await interruptible(verifyManagedToolsLaunch(root, appServerEnvironment, registerChild, codexHome, cwdA));
     execA = await interruptible(
       startExecServer(cwdA, executorA.environment, registerChild),
     );

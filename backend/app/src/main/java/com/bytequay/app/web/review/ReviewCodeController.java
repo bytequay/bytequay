@@ -89,18 +89,6 @@ public class ReviewCodeController
         return new ReviewCodeHttpModels.TerminalResponse(code.terminalDirectory(reviewId).toString());
     }
 
-    @GetMapping("/symbols")
-    public ReviewCodeHttpModels.SymbolsResponse symbols(@PathVariable String reviewId, @RequestParam String query, @RequestParam(defaultValue = "50") int limit)
-    {
-        return ReviewCodeHttpModels.symbols(code.symbols(reviewId, query, limit));
-    }
-
-    @GetMapping("/outline")
-    public ReviewCodeHttpModels.SymbolsResponse outline(@PathVariable String reviewId, @RequestParam String path)
-    {
-        return ReviewCodeHttpModels.outline(code.outline(reviewId, path));
-    }
-
     @GetMapping("/runs")
     public ReviewCodeHttpModels.RunsResponse runs(@PathVariable String reviewId)
     {

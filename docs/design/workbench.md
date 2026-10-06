@@ -26,7 +26,12 @@ Summary commit links select the matching published commit; an unpublished or
 removed commit shows an explicit notice. Finding links navigate only when the
 displayed revision matches their anchors; otherwise the finding stays readable
 in Summary. Without a PR, Changes shows the task's local changes and commits.
-Code & Tests continues to read the bound worktree independently of the PR.
+Code & Tests continues to read the bound worktree independently of the PR. Active
+interactive worktrees use the modular IDE inside ByteQuay's own file/editor/tool
+layout, with IDEA-style presets, existing private cards, code overview preview,
+blame and read-only Git history. Closed/noninteractive inspection uses a bounded
+source snapshot and retained logs without starting language services. The
+[Code & Tests contract](code-tests.md) owns saves, execution and lifecycle.
 
 WorkBench is available before a PR exists. A task with an accessible managed
 worktree can read Changes and Code & Tests regardless of its development or

@@ -63,9 +63,6 @@ public class AgentTaskEntity
 
     private String creationFingerprint;
 
-    @Column(nullable = false)
-    private boolean codegraph;
-
     @Column(nullable = false, columnDefinition = "boolean default false")
     private boolean developmentContinuationUnfinished;
 
@@ -162,15 +159,6 @@ public class AgentTaskEntity
     @Column(name = "explore_actions")
     private Long exploreActions;
 
-    @Column(name = "codegraph_calls")
-    private Long codegraphCalls;
-
-    @Column(name = "codegraph_millis")
-    private Long codegraphMillis;
-
-    @Column(name = "codegraph_failures")
-    private Long codegraphFailures;
-
     @Column(columnDefinition = "TEXT")
     private String summaryJson;
 
@@ -207,7 +195,6 @@ public class AgentTaskEntity
         workspaceId = task.workspaceId().orElse(null);
         interactive = task.interactive();
         creationFingerprint = task.creationFingerprint().orElse(null);
-        codegraph = task.codegraph();
         developmentContinuationUnfinished = task.developmentContinuationUnfinished();
         localReviewHead = task.localReviewHead().orElse(null);
         title = task.title();
@@ -241,9 +228,6 @@ public class AgentTaskEntity
         elapsedMillis = task.metrics().elapsed().toMillis();
         toolCalls = task.metrics().counters().toolCalls();
         exploreActions = task.metrics().counters().exploreActions();
-        codegraphCalls = task.metrics().counters().codegraphCalls();
-        codegraphMillis = task.metrics().counters().codegraphMillis();
-        codegraphFailures = task.metrics().counters().codegraphFailures();
         summaryJson = task.summary().map(AgentTaskSummaryJson::encode).orElse(null);
         worktreeRemovedAt = task.worktreeRemovedAt().orElse(null);
         cleanupState = task.cleanupState();
@@ -297,7 +281,6 @@ public class AgentTaskEntity
                 cleanupState,
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure),
-                codegraph,
                 Optional.ofNullable(archivedAt),
                 developmentContinuationUnfinished,
                 Optional.ofNullable(localReviewHead));
@@ -333,7 +316,7 @@ public class AgentTaskEntity
 
     private ToolCounters counters()
     {
-        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(codegraphCalls), zeroIfNull(codegraphMillis), zeroIfNull(codegraphFailures));
+        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions));
     }
 
     private static long zeroIfNull(Long value)

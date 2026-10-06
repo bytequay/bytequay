@@ -121,17 +121,6 @@ class TestAppSettingsService
     }
 
     @Test
-    void codeGraphModeDefaultsToOnAndRoundTrips()
-    {
-        assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.ON);
-
-        settings.saveCodeGraph(new CodeGraphSetting(CodeGraphMode.OFF));
-
-        assertThat(settings.codeGraphMode()).isEqualTo(CodeGraphMode.OFF);
-        assertThat(rows).containsEntry("codegraph.mode", "OFF");
-    }
-
-    @Test
     void preferencesDefaultAndRoundTripAsOneRow()
     {
         assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);

@@ -53,7 +53,6 @@ public record AgentTask(
         CleanupState cleanupState,
         Optional<Instant> deleteAfter,
         Optional<String> cleanupFailure,
-        boolean codegraph,
         Optional<Instant> archivedAt,
         boolean developmentContinuationUnfinished,
         Optional<String> localReviewHead)
@@ -151,7 +150,6 @@ public record AgentTask(
                 CleanupState.RETAINED,
                 Optional.empty(),
                 Optional.empty(),
-                false,
                 Optional.empty(),
                 false,
                 Optional.empty());
@@ -181,21 +179,6 @@ public record AgentTask(
             AgentTaskDefaults defaults,
             Instant now)
     {
-        return created(id, interactive, creationFingerprint, title, titleSource, laneId, taskWorktree, defaults, false, now);
-    }
-
-    public static AgentTask created(
-            TaskId id,
-            boolean interactive,
-            Optional<String> creationFingerprint,
-            String title,
-            TitleSource titleSource,
-            AgentLaneId laneId,
-            TaskWorktree taskWorktree,
-            AgentTaskDefaults defaults,
-            boolean codegraph,
-            Instant now)
-    {
         requireNonNull(taskWorktree, "taskWorktree is null");
         return new AgentTask(
                 id,
@@ -223,7 +206,6 @@ public record AgentTask(
                 CleanupState.RETAINED,
                 Optional.empty(),
                 Optional.empty(),
-                codegraph,
                 Optional.empty(),
                 false,
                 Optional.empty());
@@ -413,7 +395,7 @@ public record AgentTask(
         return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
                 worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
                 terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, codegraph, archivedAt, unfinished, localReviewHead);
+                cleanupFailure, archivedAt, unfinished, localReviewHead);
     }
 
     /** Pins private review edits to the published revision until the user returns to development. */
@@ -426,7 +408,7 @@ public record AgentTask(
         return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
                 worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
                 terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, codegraph, archivedAt, developmentContinuationUnfinished, head);
+                cleanupFailure, archivedAt, developmentContinuationUnfinished, head);
     }
 
     public AgentTask withVersion(long updatedVersion)
@@ -542,7 +524,6 @@ public record AgentTask(
                 updatedCleanupState,
                 updatedDeleteAfter,
                 updatedCleanupFailure,
-                codegraph,
                 archivedAt,
                 !updatedState.terminal() && developmentContinuationUnfinished,
                 localReviewHead);
@@ -582,7 +563,6 @@ public record AgentTask(
                 cleanupState,
                 deleteAfter,
                 cleanupFailure,
-                codegraph,
                 updatedArchivedAt,
                 developmentContinuationUnfinished,
                 localReviewHead);

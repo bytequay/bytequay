@@ -44,7 +44,7 @@ task completed. Broader live delivery checks remain open:
   DeepSeek can be an explicit CI lane or the inherited **Same agent as
   development** lane; model-less CI selects and preflights `deepseek-flash`.
   The omitted-settings default awaits user review. Development/Review provider
-  defaults, issue starts, PR assignment, web search, images, CodeGraph, and
+  defaults, issue starts, PR assignment, web search, images, IDE code queries, and
   subagents remain outside this change.
 - DeepSeek and subscription Codex use one `AgentPermissionPolicy`-based Codex
   launch permission calculation. Attended tasks get the same sandbox, shell,
@@ -387,7 +387,7 @@ One assessment permits one failed-job rerun, whose failure returns to diagnosis.
 
 Interactive development and CI Autofix agents receive the fixed
 `read_pull_request_ci` and `read_ci_raw_log` tools through `PullRequestCiBridge`,
-independently of CodeGraph and delivery settings. Both Codex and Claude receive
+independently of semantic-query availability and delivery settings. Both Codex and Claude receive
 the same tools and instructions. Session tokens bind the root and native children
 to one task; callers cannot choose another task, repository, PR, URL, or path.
 Text-only helpers, review-only sessions, and cherry-pick tasks do not gain them.
@@ -439,7 +439,7 @@ chosen provider, whose creation defaults resolve workspace before global.
 An explicit CI provider overrides inheritance; readiness is still checked at
 CI attachment.
 
-Codex and Claude expose the fixed root readiness tool independently of CodeGraph.
+Codex and Claude expose the fixed root readiness tool independently of IDE code queries.
 Only a successful current-root native tool result is persisted as the turn's
 optional `developmentResult`, atomically with its `development_result` event.
 This is an assessment, separate from provider execution completion. A duplicate
@@ -791,7 +791,8 @@ sandbox. No mutation claim is acquired for indexing or queries. Unavailable or
 unsupported queries let the agent continue using normal source and text search.
 Existing restricted/helper and DeepSeek tool exclusions remain. The old tool
 name has no compatibility alias; this does not create a general tool registry.
-Legacy UI and goal-baseline CodeGraph consumers still await their migration.
+The legacy graph UI and lifecycle are removed. Goal baseline evidence uses
+bounded Git text excerpts without starting an IDE or creating an index.
 
 [Agent Review](agent-review.md) is a separately owned
 extension for PR-owned tasks. It authorizes only its fixed context-read and
@@ -801,7 +802,7 @@ and user publication boundary. It also specifies a narrow shared worktree-sync
 claim, fixed review-session native-tool guard, and provider tool-isolation
 gates. Its implementation must preserve ordinary
 task isolation and interactive-only routes; it adds no model-callable
-GitHub write and does not make CodeGraph mandatory.
+GitHub write and does not require semantic queries.
 Attended review sessions can offer provider-native children for read-only
 exploration in both Claude and Codex only when that provider's review-specific
 caller-identity hook and MCP isolation checks are active. Claude Explore can
@@ -2151,6 +2152,10 @@ sandbox text:
   existing verified process-tree stop. Failed startup or unverified cleanup
   retains ownership for retry and startup recovery. The marker and launch row
   carry the task ID; only that task is blocked by an unresolved recovery.
+  Explicit native test/debug/task dispatch obtains a separate `LOCAL_RUN`
+  worktree claim before launch. The server remains the process owner. The claim
+  is released only after protocol completion and observed execution descendants
+  have exited; paused sessions retain it. See [Code & Tests](code-tests.md).
 - `LOCAL_RUN` owns one user-requested command in a review task's or
   development task's working copy ([Code & Tests](code-tests.md) §11).
   ByteQuay builds its argv: a fixed `/bin/bash -c` wrapper around the
@@ -3901,7 +3906,7 @@ The driver normalizes these App Server events:
 | `item/started` and `item/completed` for `commandExecution` | Command start and terminal result |
 | `item/commandExecution/outputDelta` | Incremental stdout/stderr output |
 | `fileChange` items and `turn/diff/updated` | File change and aggregated diff |
-| `mcpToolCall` and experimental `dynamicToolCall` items | Disabled by the base agent release; the separately gated CodeGraph bridge enables and normalizes only its one fixed optional tool |
+| `mcpToolCall` and experimental `dynamicToolCall` items | Enabled only for the fixed task-authorized bridges, including optional shared IDE code queries; no arbitrary dynamic tool registry |
 | `webSearch` and `imageView` items | Search/view activity and terminal result |
 | synchronous `hook/started` and `hook/completed` notifications | Reserved for a future approved profile; the first-release strict profile requires `hooks/list` to be empty and advertises no Codex hook lifecycle |
 | V1 `collabAgentToolCall` with `tool: "spawnAgent"`, `senderThreadId`, `receiverThreadIds[]`, and `agentsStates` | Child discovery and direct parent relation; other collaboration tools update activity but never manufacture a parent/child edge; child content comes from child history |
@@ -4058,7 +4063,7 @@ rejecting missing files, directories, and symlink escapes. It supplies quoted
 names and canonical paths as text inputs, treating the files as data and keeping
 large CI logs out of the initial prompt. CI logs are outside writable roots.
 The existing task MCP registration supplies `read_ci_memory` independently of
-CodeGraph and without exposing Claude's permission tool. The CI service already
+IDE-query availability and without exposing Claude's permission tool. The CI service already
 passes accepted parent instructions through `managedInstructions`; no provider
 context bridge or new workflow service is needed.
 For DeepSeek, a task-scoped loopback MCP bridge delegates to the same broker
@@ -4080,10 +4085,9 @@ is declined, while a Default-mode user-input request remains unavailable. It
 uses disposable local Git data and does not publish to GitHub. This is native
 adapter evidence; it does not claim a live model repairing a real PR.
 
-ByteQuay adds no general
-custom tool router, semantic Git-command policy, or post-turn Git workflow in
-this phase. The separately gated CodeGraph bridge remains limited to its one
-fixed structural tool.
+ByteQuay adds no general custom tool router. Its fixed task-authorized bridges
+include the optional shared IDE query tool; their existing profile and caller
+guards remain in force.
 
 Each task connection maintains its own root-thread, active-turn, and
 known-child registry. A task event that arrives for an unknown child is held in
@@ -4891,9 +4895,9 @@ these task resources intact.
 
 Workspace deletion does not hold the workspace filesystem lock while deleting tasks, because task
 deletion acquires its task lock first. It rechecks the complete task/worktree inventory under the
-workspace lock before final cleanup. Queued workspace refreshes and CodeGraph preparation must
-recheck their retained workspace/worktree under the corresponding deletion lock, so they cannot
-recreate removed data. Runtime deletion resolves safe paths without recreating missing files, so
+workspace lock before final cleanup. Queued workspace refreshes must recheck
+their retained workspace under that lock, so they cannot recreate removed data.
+IDE startup and cleanup use the same managed-worktree ownership boundary. Runtime deletion resolves safe paths without recreating missing files, so
 partial cleanup can be retried.
 
 ### 10.3 Provider-owned history
@@ -5207,9 +5211,9 @@ proved:
 12. concurrent turn, queue, and Complete requests produce exactly one
    worktree-mutation claim; native App Server command, file, web, and other
    built-in tool calls run through the task-owned process and worktree and produce
-   typed progress and terminal events; no ByteQuay business MCP/dynamic tool,
-   lifecycle hook, or Code Mode host is registered for Codex, except that the
-   CodeGraph bridge enables exactly its one fixed optional structural tool;
+   typed progress and terminal events; only the fixed task-authorized bridges
+   are registered for Codex, including optional IDE code queries, with no
+   arbitrary business-tool registry or Code Mode host;
 13. Claude new/resumed invocation fixtures carry each turn's effective model,
    effort, strict MCP config, empty inherited setting sources, and generated
    sandbox settings; all policies use CLI `auto` mode, with full development,

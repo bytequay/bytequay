@@ -60,11 +60,10 @@ historical checkpoint evidence and explicitly deferred future work.
   stateless, synchronous separate-worktree boundary shared by interactive
   tasks, cherry-pick, and CI Autofix: provision, inspect, and non-destructive
   cleanup that always retains the generated branch.
-- [CodeGraph Service](codegraph-service.md) specifies the optional,
-  fail-open structural exploration capability for managed agent worktrees: a
-  per-repository baseline index that follows the remote default branch, one
-  disposable index per task worktree, one task-bound tool, and
-  ByteQuay-managed instructions without repository-file changes.
+- [Code & Tests](code-tests.md) defines the shared worktree IDE and fixed
+  task-bound semantic query tool. Editor and agent queries use the same language
+  services. Goal planning uses bounded baseline Git text excerpts.
+  [CodeGraph](codegraph-service.md) is retired.
 - [Codex App Server compatibility fixture](codex-app-server-compat.md) records
   the executable v0.151.0 schema and compatibility evidence, together with the
   completed CP1 technical isolation and opt-in local real-model smoke evidence.
@@ -109,7 +108,7 @@ historical checkpoint evidence and explicitly deferred future work.
 - [Code & Tests](code-tests.md) specifies the task-bound WorkBench tab for reading whole
   files, following symbols, running tests, editing source and tests, and a terminal
   in the Agent review working copy. Its [implementation checklist](code-tests-impl-tmp.md)
-  tracks the phased delivery. The [IDE refactor plan](code-tests-ide-refactor.md)
+  tracks delivery and remaining native acceptance checks. The [IDE refactor plan](code-tests-ide-refactor.md)
   records the verified modular-editor approach and migration gates for debugging,
   Git history, Java/Rust/Go support, and retiring CodeGraph.
 - [CI Autofix Service](ci-autofix-service.md) specifies a user-started,
@@ -173,8 +172,8 @@ because ByteQuay cannot infer how an arbitrary repository builds.
   ByteQuay responsible for product state, cross-provider events, and UI.
 - Start with the App Server's native harness, tools, approvals, and event
   stream. ByteQuay-defined model tools and workflow actions require a separate
-  later design. CodeGraph defines one fixed, optional structural-exploration
-  tool. Agent Review separately authorizes its fixed context/local-reporting
+  later design. Code & Tests defines one fixed, optional semantic-query
+  tool shared with the IDE. Agent Review separately authorizes its fixed context/local-reporting
   tools for review-owned tasks, subject to its implementation gates. Neither
   creates a general tool framework or model-callable GitHub publisher.
 - Attended development allows `git` and `gh` under a shared
@@ -188,11 +187,11 @@ because ByteQuay cannot infer how an arbitrary repository builds.
   profiles. Provider login versus API-key authentication does not change
   permissions. See
   [the shared command policy](agent-service.md#shared-development-command-policy).
-- A project-aware command, such as running one test, needs a validation profile:
-  a preflight that names what is missing and an argv builder from a validated
-  selector, never a typed command line. Code & Tests hard-wires the Maven
-  wrapper as the first profile; its run records carry scope and selector text,
-  so another runner adds only its own preflight and builder.
+- Code & Tests delegates test discovery, profiles and debugging to curated
+  language extensions. Explicit run/debug dispatch saves source and obtains
+  the existing worktree execution claim before launch; durable results retain
+  source identity, raw output and honest unknown outcomes. It does not parse
+  arbitrary terminal text into a passing test result.
 - Treat proposed designs as implementation guidance, not compatibility
   requirements for deleted systems.
 

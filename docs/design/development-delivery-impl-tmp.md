@@ -1,5 +1,9 @@
 # Development Delivery Implementation Checklist
 
+Earlier CodeGraph references below are historical implementation checkpoints.
+The [IDE refactor](code-tests.md#shared-code-queries-and-retired-code) supersedes
+that engine with shared language queries and bounded baseline Git excerpts.
+
 Approved behavior is defined in [Development task delivery](development-delivery.md).
 This is a temporary implementation tracker, not a second design. Checkpoints
 organize engineering work; they are not runtime phases or persisted states.

@@ -13,13 +13,9 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.CodeGraphService;
-import com.bytequay.agent.core.CodeSymbol;
-import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
@@ -43,7 +39,6 @@ import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.google.common.base.Splitter;
 import com.google.common.base.Suppliers;
-import com.google.common.collect.ContiguousSet;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSortedSet;
@@ -74,7 +69,6 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.nio.charset.StandardCharsets.UTF_8;
-import static java.util.Comparator.comparingInt;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -89,7 +83,6 @@ public class ReviewCodeService
 {
     static final int MAXIMUM_FILE_BYTES = 2 * 1024 * 1024;
     private static final int BINARY_PROBE_BYTES = 8 * 1024;
-    private static final Pattern TEST_ANNOTATION = Pattern.compile("@(?:[\\w.]+\\.)?(Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\\b");
     private static final Pattern HUNK_HEADER = Pattern.compile("@@ -\\d+(?:,(\\d+))? \\+(\\d+)(?:,(\\d+))? @@");
 
     private final AgentReviewStore store;
@@ -97,8 +90,6 @@ public class ReviewCodeService
     private final ManagedWorktreeService worktrees;
     private final WorkspaceRepositoryService workspaces;
     private final GitCommandRunner git;
-    private final CodeGraphService codeGraph;
-    private final AgentResourceService resources;
     private final ReviewExperiments experiments;
     private final AgentTaskService tasks;
     private final AgentTurnService turns;
@@ -113,8 +104,6 @@ public class ReviewCodeService
             ManagedWorktreeService worktrees,
             WorkspaceRepositoryService workspaces,
             GitCommandRunner git,
-            CodeGraphService codeGraph,
-            AgentResourceService resources,
             ReviewExperiments experiments,
             AgentTaskService tasks,
             AgentTurnService turns,
@@ -128,8 +117,6 @@ public class ReviewCodeService
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
-        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
-        this.resources = requireNonNull(resources, "resources is null");
         this.experiments = requireNonNull(experiments, "experiments is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -193,7 +180,7 @@ public class ReviewCodeService
             List<CodeFileEntry> files = ImmutableSortedSet.copyOf(entries(listed.output(), listed.truncated())).stream()
                     .map(path -> new CodeFileEntry(path, changed.contains(path), added.contains(path), false, false))
                     .collect(toImmutableList());
-            return new CodeFiles(CodeSource.REVISION, revision, codeGraphState(source), Optional.empty(), false, listed.truncated(), files);
+            return new CodeFiles(CodeSource.REVISION, revision, Optional.empty(), false, listed.truncated(), files);
         }
         Path checkout = source.checkout().orElseThrow();
         String head = source.headSha().get();
@@ -212,7 +199,7 @@ public class ReviewCodeService
             boolean notInHead = pathCodes.stream().anyMatch(code -> code.equals("??") || "ARC".indexOf(code.charAt(0)) >= 0);
             files.add(new CodeFileEntry(path, changed.contains(path), added.contains(path), notInHead, !pathCodes.isEmpty()));
         }
-        CodeFiles result = new CodeFiles(CodeSource.WORKING_COPY, head, codeGraphState(source), Optional.of(fingerprint(checkout, head, codes.keySet())),
+        CodeFiles result = new CodeFiles(CodeSource.WORKING_COPY, head, Optional.of(fingerprint(checkout, head, codes.keySet())),
                 experiments.hasSavedExperiment(source.task().taskWorktree().orElseThrow()), listed.truncated() || status.truncated(), files.build());
         requireUnchangedHead(source);
         return result;
@@ -677,102 +664,9 @@ public class ReviewCodeService
         return worktrees.ownedCheckout(task.taskWorktree().orElseThrow());
     }
 
-    public CodeSymbolResult symbols(String reviewId, String query, int limit)
-    {
-        return symbols(source(reviewId), query, limit);
-    }
-
-    public CodeSymbolResult symbols(TaskCodeHost host, String query, int limit)
-    {
-        return symbols(source(host), query, limit);
-    }
-
-    /** Symbols matching a name in the working copy, from the task's code graph. */
-    private CodeSymbolResult symbols(Source source, String query, int limit)
-    {
-        return graphWorktree(source)
-                .map(worktree -> codeGraph.searchSymbols(worktree, resources.require(source.task().id()), query, limit))
-                .orElse(CodeSymbolResult.UNAVAILABLE);
-    }
-
-    /**
-     * One working-copy file's symbols in line order, each marked when it is a JUnit test method and when
-     * the pull request added every line of it.
-     *
-     * <p>CodeGraph records no Java annotations on its nodes, so a method is a test when the lines from
-     * its first line, where its annotations start, to the line naming it carry a JUnit test annotation.
-     */
-    public CodeOutline outline(String reviewId, String path)
-    {
-        checkPath(path);
-        return outline(source(reviewId), path);
-    }
-
-    public CodeOutline outline(TaskCodeHost host, String path)
-    {
-        checkPath(path);
-        return outline(source(host), path);
-    }
-
-    private CodeOutline outline(Source source, String path)
-    {
-        Optional<TaskWorktree> worktree = graphWorktree(source);
-        if (worktree.isEmpty()) {
-            return new CodeOutline(CodeSymbolResult.Status.UNAVAILABLE, ImmutableList.of());
-        }
-        byte[] bytes = readCheckout(source.checkout().orElseThrow(), path);
-        List<String> lines = bytes.length > MAXIMUM_FILE_BYTES ? ImmutableList.of() : new String(bytes, UTF_8).lines().collect(toImmutableList());
-        Set<Integer> addedLines = prFile(source, path).stream()
-                .flatMap(file -> ReviewDiffAnchors.of(ImmutableList.of(file)).hunks(path).stream())
-                .flatMap(hunk -> hunk.lines().stream())
-                .filter(line -> line.kind() == '+')
-                .map(ReviewDiffAnchors.Line::line)
-                .collect(toImmutableSet());
-        CodeSymbolResult result = codeGraph.fileSymbols(worktree.get(), resources.require(source.task().id()), path);
-        requireUnchangedHead(source);
-        return new CodeOutline(result.status(), result.symbols().stream()
-                .sorted(comparingInt(CodeSymbol::startLine))
-                .map(symbol -> new OutlineSymbol(symbol, testMethod(lines, symbol), addedLines.containsAll(ContiguousSet.closed(symbol.startLine(), symbol.endLine()))))
-                .collect(toImmutableList()));
-    }
-
     private static Optional<DiffFile> prFile(Source source, String path)
     {
         return source.diff().get().stream().filter(file -> file.filename().equals(path)).findFirst();
-    }
-
-    private static boolean testMethod(List<String> lines, CodeSymbol symbol)
-    {
-        if (!symbol.kind().equals("method")) {
-            return false;
-        }
-        for (int line = symbol.startLine(); line <= Math.min(symbol.endLine(), lines.size()); line++) {
-            String text = lines.get(line - 1);
-            if (TEST_ANNOTATION.matcher(text).find()) {
-                return true;
-            }
-            if (text.contains(symbol.name() + "(")) {
-                return false;
-            }
-        }
-        return false;
-    }
-
-    private CodeGraphState codeGraphState(Source source)
-    {
-        if (!codeGraph.available()) {
-            return CodeGraphState.UNAVAILABLE;
-        }
-        if (!source.task().codegraph()) {
-            return CodeGraphState.OFF;
-        }
-        return source.checkout().isPresent() ? CodeGraphState.READY : CodeGraphState.UNAVAILABLE;
-    }
-
-    /** The worktree graph reads may use: only a live working copy of a task stamped with the graph, while the helper is installed. */
-    private Optional<TaskWorktree> graphWorktree(Source source)
-    {
-        return codeGraphState(source) == CodeGraphState.READY ? source.task().taskWorktree() : Optional.empty();
     }
 
     private Source source(String reviewId)
@@ -1156,14 +1050,6 @@ public class ReviewCodeService
         REVISION
     }
 
-    /** Whether graph reads can run: {@code OFF} when the helper is installed but the review's task was created without the graph. */
-    public enum CodeGraphState
-    {
-        READY,
-        OFF,
-        UNAVAILABLE
-    }
-
     /**
      * A listing of the working copy or of the reviewed revision.
      *
@@ -1173,7 +1059,6 @@ public class ReviewCodeService
     public record CodeFiles(
             CodeSource source,
             String revision,
-            CodeGraphState codeGraph,
             Optional<String> sourceFingerprint,
             boolean savedExperiment,
             boolean truncated,
@@ -1183,7 +1068,6 @@ public class ReviewCodeService
         {
             requireNonNull(source, "source is null");
             requireNonNull(revision, "revision is null");
-            requireNonNull(codeGraph, "codeGraph is null");
             requireNonNull(sourceFingerprint, "sourceFingerprint is null");
             files = ImmutableList.copyOf(files);
         }
@@ -1201,29 +1085,6 @@ public class ReviewCodeService
             requireNonNull(head, "head is null");
             localPaths = ImmutableList.copyOf(localPaths);
             requireNonNull(fingerprint, "fingerprint is null");
-        }
-    }
-
-    /** A file's symbols; empty unless the status is {@code READY}. */
-    public record CodeOutline(CodeSymbolResult.Status status, List<OutlineSymbol> symbols)
-    {
-        public CodeOutline
-        {
-            requireNonNull(status, "status is null");
-            symbols = ImmutableList.copyOf(symbols);
-        }
-    }
-
-    /**
-     * One outline entry.
-     *
-     * @param added every line of the symbol is an added line in the pull request's patch for its file
-     */
-    public record OutlineSymbol(CodeSymbol symbol, boolean test, boolean added)
-    {
-        public OutlineSymbol
-        {
-            requireNonNull(symbol, "symbol is null");
         }
     }
 

@@ -1,11 +1,17 @@
 # Native runtime verification
 
-The design is committed as `0aaf03806`. Implementation has started in
-`codex/modular-code-tests`; the production editor and CodeGraph have not been
-replaced. Final integration and lifecycle verification remain incomplete. The
-execution boundary is decided: use the real task worktree, allow production and
-test edits during active review, and preserve existing agent behavior. An open
-IDE does not hold an exclusive claim against the agent.
+The production Code & Tests tab now uses the modular IDE for active worktrees
+and a bounded read-only archive viewer for closed/noninteractive inspection.
+CodeMirror and CodeGraph are removed. The execution boundary uses the real task
+worktree, permits production/test edits in active reviews and preserves agent
+behavior. An open IDE does not hold an exclusive mutation claim.
+
+The sections below retain successive verification checkpoints; their earlier
+pending lists describe those checkpoints. The current
+[implementation checklist](../code-tests-impl-tmp.md) identifies remaining native
+acceptance work. In particular, fixture UI and separate backend tests are not a
+production end-to-end pass. Final Go/Rust debugging, larger semantic fixtures and
+native lifecycle/resource measurements remain incomplete.
 
 ## Verified foundation
 
@@ -431,3 +437,22 @@ node-pty module through its archive path; directly loading its unpacked path
 incorrectly duplicates node-pty's own archive-path translation. The full frontend
 gate passes lint, TypeScript, 1,543 tests in 163 files and macOS arm64 packaging.
 The backend is unchanged since the passing native-execution reactor gate.
+
+
+## Legacy editor and graph retirement
+
+Active worktrees use the production modular IDE. Closed/noninteractive inspection
+uses the bounded archive source view with shared cards and retained run logs.
+CodeMirror/Lezer packages, custom Java navigation/test discovery and graph settings
+are removed. Agent queries use the IDE; GoalPlanner uses baseline Git excerpts.
+Backend graph services, eager lifecycle hooks, flags, counters and symbol routes
+are deleted. The task tool transport keeps its authorization and secret handling
+while replacing the obsolete graph-specific token variable name.
+
+The frontend retirement gate passes lint, TypeScript, 1,511 tests in 160 files and
+macOS arm64 packaging. The backend retirement passes the complete `mvn verify`
+reactor. Probe script syntax and `git diff --check` pass. Native fixture processes
+were checked after shutdown and none remained. These results do not complete the
+remaining debugger, production-backend composition or resource acceptance gates.
+The development SQLite compatibility consequence is documented in the canonical
+Code & Tests design; no user database was reset.

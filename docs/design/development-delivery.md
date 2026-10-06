@@ -105,7 +105,7 @@ the exact stash with staging preserved and drops that entry after restoration
 or the disclosed conflict discard. There is at most one temporary stash per task,
 and normally none; cleanup does not create an additional stash.
 The saved review baseline advances with the checkout. Nothing is committed or
-pushed, and no second checkout or CodeGraph index is created.
+pushed, and no second checkout or semantic index is created.
 
 Restoring experiments can conflict with remote changes. In that case ByteQuay
 discards all private experiment changes and the temporary stash, verifies the

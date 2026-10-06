@@ -26,7 +26,6 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentMetrics;
-import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
@@ -49,7 +48,6 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
-import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -191,7 +189,7 @@ class TestLocalRunService
         when(reviewStore.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(reviewRun()));
         when(reviews.task(REVIEW_ID)).thenReturn(task(Optional.empty()));
         when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()));
-        code = new ReviewCodeService(reviewStore, reviews, worktrees, mock(WorkspaceRepositoryService.class), runner, new FakeCodeGraphService(), mock(AgentResourceService.class),
+        code = new ReviewCodeService(reviewStore, reviews, worktrees, mock(WorkspaceRepositoryService.class), runner,
                 new ReviewExperiments(runner, worktrees), tasks, turns, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
                 new WorktreeDiffReader(runner), mock(PullRequestService.class));
         service = service(ImmutableMap.of("JAVA_HOME", jdk.toString(), "PATH", "/usr/bin:/bin", "BYTEQUAY_SESSION_TOKEN", "secret"));
@@ -717,7 +715,7 @@ class TestLocalRunService
     private AgentTask developmentTask(Optional<WorktreeMutationClaim> claim)
     {
         AgentTask task = AgentTask.created(worktree.taskId(), true, Optional.empty(), "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), false, NOW);
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         return claim.map(held -> task.claimWorktreeMutation(held, NOW)).orElse(task);
     }
 
@@ -775,7 +773,7 @@ class TestLocalRunService
     private AgentTask task(Optional<WorktreeMutationClaim> claim, AgentLaneId lane)
     {
         AgentTask task = AgentTask.created(worktree.taskId(), false, Optional.empty(), "Review", TitleSource.USER, lane, worktree,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), false, NOW);
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
         return claim.map(held -> task.claimWorktreeMutation(held, NOW)).orElse(task);
     }
 

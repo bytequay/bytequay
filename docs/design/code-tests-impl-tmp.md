@@ -1,49 +1,28 @@
 # Code & Tests implementation checklist
 
-Temporary tracker for [Code & Tests](code-tests.md). Delete it when every phase
-has shipped.
+Temporary tracker for [Code & Tests](code-tests.md) and its
+[IDE refactor plan](code-tests-ide-refactor.md). Detailed evidence and fixture
+limitations live in the [runtime report](code-tests-ide-verification/runtime-gate.md).
 
-- [x] Phase 0: mechanical extractions (no behaviour change). `fileTree.ts`,
-      `ReviewLineComposer`, `PendingReviewCard`, `utils.MavenModules`; mvn
-      verify and frontend lint/tsc/test green.
-- [x] Phase 1: read. `/files`, `/file`; tab, tree, CodeMirror view. mvn verify,
-      frontend lint/tsc/test and `npm run package` green.
-- [x] Phase 2: navigate. `/symbols`, `/outline`, bundle patch (`patches=2`);
-      palette, outline, ⌘-click chooser, Tests tree. Same gates green. Not yet
-      exercised in the live app (needs a `./dev.sh` restart for main/backend).
-- [ ] Phase 3: run and log. Backend runs, claim, recovery, store, routes and
-      review guards in, `mvn verify` green; frontend run panel aligned (offsets
-      are characters). Seven review findings fixed (stuck claim after a failed
-      final save or release, buffers dropped at a review's next run, bounded
-      Surefire messages, identifier-only class names, claim kept after a failed
-      start, End vs an open Git operation, login-shell cache and pipe hang).
-      Agent-command mirroring (5.4) built: `background` flag from Claude,
-      shell-word detection, window read of every report directory, lane-based
-      Codex skip, mirrored status table; `mvn verify` and frontend
-      lint/tsc/tests green on 2026-09-16. Live gate passed on 2026-09-16 against
-      the dev app (PR 31102): a class run PASSED with 12 rows, a stopped
-      method run STOPPED and released its claim, a second start was refused
-      with 409, and the review agent's `./mvnw` command was mirrored as an
-      AGENT METHOD row. Real traffic: the Codex review of PR 29382 mirrored 7
-      commands (PASSED with 24 rows, FAILED_ASSERTION, failed builds without
-      rows). Claude's first plain `./mvnw` in a session often fails with
-      "Unable to locate a Java Runtime" until the agent exports `JAVA_HOME`
-      itself; those attempts mirror as rowless results, later builds succeed. The one-time rebuild of `agent_task`
-      and `agent_process_launch` ran on the user's database on 2026-09-16:
-      both CHECK lists now accept `LOCAL_RUN`, schema and rows otherwise
-      unchanged, backup in the app data directory.
-- [x] Phase 4: comment and edit. Inline composer and cards verified in the
-      browser pane (pending card at R24, diff-line blocker, Send to agent
-      off-diff); unsaved bar, conflict, discard. Backend `PUT /file`,
-      `POST /discard`, `savedExperiment`, `mutateWorkingCopy`, End's
-      uncommitted refusal; `mvn verify` green.
-- [ ] Phase 5: terminal. Main `ReviewTerminals`, bridge, xterm view with
-      Run | Terminal switch, packaging (layout and an Electron-runtime spawn
-      from the packaged archive confirmed), backend `POST /code/terminal`.
-      Live: `POST /code/terminal` answers the worktree (401 without the
-      session token, 409 for an ended review), and a login-shell PTY spawned
-      there under Electron 41 runs `echo` with Java on PATH and no
-      `BYTEQUAY_*` variables. Missing: typing into the Terminal panel of the
-      running app (the window cannot be driven from the agent).
-- [x] Canonical-design amendments from section 9 are applied to their documents
-      (items 1-6)
+- [x] Pin and package compatible modular VS Code services, server and curated
+  Java/Go/Rust extensions; repair production TextMate loading.
+- [x] ByteQuay file tree/layout, IDEA Light/Darcula presets, scoped keymaps,
+  native editing/navigation, guarded encoded saves and source draft recovery.
+- [x] Existing React private/review cards, revision-aware positioning, reply
+  drafts, review reset/discard and unsent selected-log agent context.
+- [x] Native tests/debug dispatch, existing execution claims, durable test/log
+  evidence, cancellation/recovery handling and reused interactive terminal.
+- [x] Right-side code preview/jump, left-side blame and read-only Git graph,
+  file history and revision/parent diffs.
+- [x] Shared hidden/visible IDE queries for agents; bounded baseline Git text
+  excerpts for GoalPlanner.
+- [x] Active production-tab cutover and bounded read-only archive viewer.
+- [x] Remove CodeMirror/custom Java navigation, CodeGraph service, settings,
+  packaging, tool aliases, lifecycle hooks and graph-only persistence fields.
+- [ ] Remove unused legacy user-Maven run transport while retaining old run
+  evidence and agent command mirroring.
+- [ ] Complete native Go/Rust debugger acceptance, semantic identity across
+  divergent worktrees and larger module/interface/trait fixtures.
+- [ ] Complete real-backend composition and native idle/crash cleanup evidence,
+  including cold/warm timing and resource/package measurements.
+- [ ] Final required backend/frontend gates and committed evidence.

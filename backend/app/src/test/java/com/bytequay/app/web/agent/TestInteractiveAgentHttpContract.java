@@ -164,7 +164,6 @@ class TestInteractiveAgentHttpContract
                         "deleteAfter",
                         "cleanupFailure",
                         "checkoutRemovedAt",
-                        "codegraph",
                         "archivedAt",
                         "interactive",
                         "developmentContinuationUnfinished",

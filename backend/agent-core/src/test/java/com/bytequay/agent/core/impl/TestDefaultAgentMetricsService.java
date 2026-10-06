@@ -194,7 +194,7 @@ class TestDefaultAgentMetricsService
 
         AgentMetrics result = service.finishTurn(turn.id(), TurnState.COMPLETED);
 
-        assertThat(result.counters()).isEqualTo(new ToolCounters(12, 12, 0, 0, 0));
+        assertThat(result.counters()).isEqualTo(new ToolCounters(12, 12));
     }
 
     private static AgentTurnSettings turnSettings()
@@ -269,8 +269,8 @@ class TestDefaultAgentMetricsService
         List<AgentEventEnvelope> events = ImmutableList.of(
                 event(1, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.STARTED, "reading", Optional.empty())),
                 event(2, turn, new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read", Optional.empty())),
-                event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__codegraph_explore", ActivityState.COMPLETED, "graph", Optional.of(1200L))),
-                event(4, turn, new AgentEventPayload.ToolActivity("bytequay/codegraph_explore", ActivityState.FAILED, "graph", Optional.of(300L))),
+                event(3, turn, new AgentEventPayload.ToolActivity("mcp__bytequay__code_query", ActivityState.COMPLETED, "query", Optional.of(1200L))),
+                event(4, turn, new AgentEventPayload.ToolActivity("bytequay/code_query", ActivityState.FAILED, "query", Optional.of(300L))),
                 event(5, turn, new AgentEventPayload.CommandActivity(
                         ActivityState.COMPLETED,
                         ImmutableList.of("rg", "cleanup"),
@@ -288,7 +288,7 @@ class TestDefaultAgentMetricsService
 
         ToolCounters counters = DefaultAgentMetricsService.foldCounters(events, turn);
 
-        assertThat(counters).isEqualTo(new ToolCounters(4, 2, 2, 1500, 1));
+        assertThat(counters).isEqualTo(new ToolCounters(4, 4));
     }
 
     private AgentEventEnvelope event(long sequence, TurnId turnId, AgentEventPayload payload)

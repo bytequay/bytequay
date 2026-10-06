@@ -31,7 +31,6 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CodeQueryService;
 import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.TaskId;
@@ -68,10 +67,6 @@ import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
-import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
-import com.bytequay.app.agent.codegraph.CodeGraphCli;
-import com.bytequay.app.agent.codegraph.CodeGraphProperties;
-import com.bytequay.app.agent.codegraph.PinnedCodeGraphService;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
@@ -87,15 +82,12 @@ import com.bytequay.app.service.goal.GoalReceipts;
 import com.bytequay.app.service.settings.AgentSkillService;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ClaudeAccounts;
-import com.bytequay.app.service.settings.CodeGraphMode;
-import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.store.ModelApiKeyStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -117,7 +109,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import java.util.function.Supplier;
 
 @Configuration(proxyBeanMethods = false)
-@EnableConfigurationProperties({AgentProperties.class, CodeGraphProperties.class})
+@EnableConfigurationProperties(AgentProperties.class)
 public class AgentConfiguration
 {
     @Bean
@@ -144,7 +136,7 @@ public class AgentConfiguration
                 permissions);
     }
 
-    // Unconditional: the endpoint also serves the CodeGraph tool to Codex tasks, so it must exist without the Claude lane.
+    // The managed tool endpoint also serves Codex tasks, so it must exist without the Claude lane.
     @Bean
     public PermissionBroker permissionBroker(
             ObjectMapper objectMapper,
@@ -264,29 +256,6 @@ public class AgentConfiguration
     }
 
     @Bean
-    public PinnedCodeGraphService codeGraphService(
-            CodeGraphProperties properties,
-            AgentProperties agentProperties,
-            WorkspacePaths workspacePaths,
-            GitCommandRunner git)
-    {
-        // The helper may read only its task's source and index below these roots: no other worktree, runtime, log, or provider file.
-        CodeGraphCli cli = new CodeGraphCli(properties.bundleHome(), git, ImmutableList.of(agentProperties.runtimeRoot(), workspacePaths.root()));
-        return new PinnedCodeGraphService(cli, git, agentProperties.runtimeRoot().resolve("codegraph-baselines"));
-    }
-
-    /**
-     * The settings page's read-only baseline readout. A supplier rather than a
-     * direct dependency so the settings controller does not reach into the
-     * turn-path service.
-     */
-    @Bean
-    public Supplier<CodeGraphBaseline> codeGraphBaselines(PinnedCodeGraphService codeGraph)
-    {
-        return codeGraph::baselines;
-    }
-
-    @Bean
     public TaskLogStore taskLogStore(AgentResourceService resourceService)
     {
         return new FileTaskLogStore(resourceService);
@@ -353,8 +322,6 @@ public class AgentConfiguration
             WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
-            CodeGraphService codeGraph,
-            AppSettingsService settings,
             Clock agentClock)
     {
         return new DefaultAgentTaskService(
@@ -362,9 +329,6 @@ public class AgentConfiguration
                 worktreeService,
                 resourceService,
                 driverRegistry,
-                codeGraph,
-                () -> settings.codeGraphMode() == CodeGraphMode.ON,
-                command -> Thread.ofVirtual().name("bytequay-codegraph-prepare").start(command),
                 agentClock);
     }
 
@@ -501,7 +465,6 @@ public class AgentConfiguration
             AgentResourceService resourceService,
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
-            CodeGraphService codeGraph,
             AppSettingsService appSettings,
             GoalReceipts goalReceipts,
             Clock agentClock)
@@ -518,7 +481,6 @@ public class AgentConfiguration
                 resourceService,
                 runtimeRegistry,
                 metricsService,
-                codeGraph,
                 appSettings::taskRuntimeRetention,
                 goalReceipts::capture,
                 agentClock);

@@ -22,14 +22,12 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.CleanupState;
-import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.InvalidAgentRequestException;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.WorktreeMutationClaim;
@@ -74,7 +72,6 @@ public final class DefaultAgentCompletionService
     private final AgentResourceService resourceService;
     private final AgentRuntimeRegistry runtimeRegistry;
     private final AgentMetricsService metricsService;
-    private final CodeGraphService codeGraph;
     private final Supplier<Duration> retentionPeriod;
     // Runs before a task's event log or rows are removed, such as the Goal recording what it has not yet of the task; a failure keeps them.
     private final Consumer<AgentTask> beforeRemoval;
@@ -92,7 +89,6 @@ public final class DefaultAgentCompletionService
             AgentResourceService resourceService,
             AgentRuntimeRegistry runtimeRegistry,
             AgentMetricsService metricsService,
-            CodeGraphService codeGraph,
             Supplier<Duration> retentionPeriod,
             Consumer<AgentTask> beforeRemoval,
             Clock clock)
@@ -109,7 +105,6 @@ public final class DefaultAgentCompletionService
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.runtimeRegistry = requireNonNull(runtimeRegistry, "runtimeRegistry is null");
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
-        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.retentionPeriod = requireNonNull(retentionPeriod, "retentionPeriod is null");
         this.beforeRemoval = requireNonNull(beforeRemoval, "beforeRemoval is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -378,10 +373,8 @@ public final class DefaultAgentCompletionService
                 return;
             }
             AgentTask task = taskStore.require(taskId);
-            TaskResources resources = resourceService.pathsForDeletion(taskId);
+            resourceService.pathsForDeletion(taskId);
             task.taskWorktree().ifPresent(worktreeService::delete);
-            // Wait for an in-flight graph preparation before removing its runtime files.
-            codeGraph.deleteIndex(resources);
             resourceService.delete(taskId);
             unitOfWork.execute(() -> {
                 taskStore.delete(taskId);
@@ -427,8 +420,6 @@ public final class DefaultAgentCompletionService
         }
         task.taskWorktree().ifPresent(worktreeService::cleanup);
         resourceService.deleteWorktreeCache(task.id());
-        // Only after the worktree is gone: a refused cleanup keeps the index for the retry, and retention covers the rest.
-        task.taskWorktree().ifPresent(ignored -> codeGraph.deleteIndex(resourceService.require(task.id())));
         return taskStore.update(task.withWorktreeRemovedAt(Instant.now(clock)));
     }
 

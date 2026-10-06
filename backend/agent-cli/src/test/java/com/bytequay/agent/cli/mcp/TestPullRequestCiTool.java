@@ -50,7 +50,7 @@ class TestPullRequestCiTool
     private Path temporaryDirectory;
 
     @Test
-    void bothProvidersReadFreshTaskBoundCiWithoutAutomationOrCodeGraph()
+    void bothProvidersReadFreshTaskBoundCiWithoutAutomationOrCodeQueries()
             throws Exception
     {
         List<Optional<Long>> reads = new ArrayList<>();

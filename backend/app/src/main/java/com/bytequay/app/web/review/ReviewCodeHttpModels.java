@@ -13,11 +13,8 @@
  */
 package com.bytequay.app.web.review;
 
-import com.bytequay.agent.core.CodeSymbol;
-import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
-import com.bytequay.app.review.ReviewCodeService.CodeOutline;
 import com.bytequay.core.review.LocalRun;
 
 import java.time.Instant;
@@ -39,7 +36,6 @@ final class ReviewCodeHttpModels
         return new FilesResponse(
                 files.source().name(),
                 files.revision(),
-                files.codeGraph().name(),
                 files.sourceFingerprint(),
                 files.savedExperiment(),
                 files.truncated(),
@@ -52,33 +48,6 @@ final class ReviewCodeHttpModels
     {
         return new FileResponse(file.path(), file.content(), file.contentHash(), file.editable(), file.readOnlyReason(), file.unavailableReason(), file.prPatch(),
                 file.lineChanges().stream().map(change -> new LineChangeResponse(change.kind().name(), change.line(), change.count())).collect(toImmutableList()));
-    }
-
-    static SymbolsResponse symbols(CodeSymbolResult result)
-    {
-        return new SymbolsResponse(result.status().name(), result.symbols().stream().map(symbol -> symbol(symbol, false, false)).collect(toImmutableList()));
-    }
-
-    static SymbolsResponse outline(CodeOutline outline)
-    {
-        return new SymbolsResponse(outline.status().name(), outline.symbols().stream()
-                .map(entry -> symbol(entry.symbol(), entry.test(), entry.added()))
-                .collect(toImmutableList()));
-    }
-
-    private static SymbolResponse symbol(CodeSymbol symbol, boolean test, boolean added)
-    {
-        return new SymbolResponse(
-                symbol.name(),
-                symbol.kind(),
-                symbol.qualifiedName(),
-                symbol.path(),
-                symbol.startLine(),
-                symbol.startColumn(),
-                symbol.endLine(),
-                symbol.signature(),
-                test,
-                added);
     }
 
     static RunResponse run(LocalRun run)
@@ -122,7 +91,6 @@ final class ReviewCodeHttpModels
     record FilesResponse(
             String source,
             String revision,
-            String codeGraph,
             Optional<String> sourceFingerprint,
             boolean savedExperiment,
             boolean truncated,
@@ -141,20 +109,6 @@ final class ReviewCodeHttpModels
             List<LineChangeResponse> lineChanges) {}
 
     record LineChangeResponse(String kind, int line, int count) {}
-
-    record SymbolsResponse(String status, List<SymbolResponse> symbols) {}
-
-    record SymbolResponse(
-            String name,
-            String kind,
-            Optional<String> qualifiedName,
-            String path,
-            int startLine,
-            int startColumn,
-            int endLine,
-            Optional<String> signature,
-            boolean test,
-            boolean added) {}
 
     record RunsResponse(List<RunResponse> runs) {}
 

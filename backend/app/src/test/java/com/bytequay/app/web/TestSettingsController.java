@@ -15,13 +15,10 @@ package com.bytequay.app.web;
 
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.spi.AgentLaneId;
-import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.AppTheme;
 import com.bytequay.app.service.settings.ClaudeAccounts;
-import com.bytequay.app.service.settings.CodeGraphMode;
-import com.bytequay.app.service.settings.CodeGraphSetting;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.QuietHours;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -32,9 +29,7 @@ import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.time.Instant;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -53,9 +48,8 @@ class TestSettingsController
 {
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
-    private final AtomicReference<CodeGraphBaseline> baseline = new AtomicReference<>(CodeGraphBaseline.NONE);
     private final ClaudeAccounts claudeAccounts = mock(ClaudeAccounts.class);
-    private final SettingsController controller = new SettingsController(models, settings, claudeAccounts, baseline::get);
+    private final SettingsController controller = new SettingsController(models, settings, claudeAccounts);
 
     /** Boot's own serialization settings, so the test asserts the wire format the renderer parses. */
     private static ObjectMapper appMapper()
@@ -184,15 +178,12 @@ class TestSettingsController
     }
 
     @Test
-    void quietHoursAndCodeGraphModeAreServedAndSaved()
+    void quietHoursAreServedAndSaved()
             throws Exception
     {
         when(settings.quietHours()).thenReturn(QuietHours.DEFAULT);
         QuietHours evening = new QuietHours(true, 1320, 420);
         when(settings.saveQuietHours(evening)).thenReturn(evening);
-        when(settings.codeGraphMode()).thenReturn(CodeGraphMode.ON);
-        CodeGraphSetting off = new CodeGraphSetting(CodeGraphMode.OFF);
-        when(settings.saveCodeGraph(off)).thenReturn(off);
         MockMvc mvc = mvc();
 
         mvc.perform(get("/api/settings/quiet-hours"))
@@ -203,23 +194,5 @@ class TestSettingsController
                         .content("{\"enabled\":true,\"startMinute\":1320,\"endMinute\":420}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(true));
-        mvc.perform(get("/api/settings/codegraph"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.mode").value("ON"));
-        mvc.perform(put("/api/settings/codegraph").contentType(MediaType.APPLICATION_JSON).content("{\"mode\":\"OFF\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.mode").value("OFF"));
-    }
-
-    @Test
-    void codeGraphBaselineIsAReadOnlyReadout()
-            throws Exception
-    {
-        baseline.set(new CodeGraphBaseline(3, Optional.of(Instant.parse("2026-09-10T04:00:00Z"))));
-
-        mvc().perform(get("/api/settings/codegraph/baseline"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.repositories").value(3))
-                .andExpect(jsonPath("$.updatedAt").value("2026-09-10T04:00:00Z"));
     }
 }

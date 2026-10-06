@@ -294,7 +294,7 @@ class TestClaudeCliDriver
     }
 
     @Test
-    void advertisesTheCodeGraphToolAndInstructionOnlyWhenBridged()
+    void advertisesCodeQueriesAndInstructionsOnlyWhenBridged()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();

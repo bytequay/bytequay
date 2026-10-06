@@ -341,7 +341,7 @@ public final class CodexCliDriver
         deepSeekCatalog.ifPresent(DeepSeekModelCatalog::prepare);
         ImmutableMap.Builder<String, String> processEnvironment = ImmutableMap.<String, String>builder().putAll(sessionEnvironment);
         if (deepSeekSecret.isEmpty()) {
-            registration.ifPresent(value -> processEnvironment.put(CodexLaunchProfile.CodeGraphLaunch.TOKEN_VARIABLE, value.token()));
+            registration.ifPresent(value -> processEnvironment.put(CodexLaunchProfile.ManagedToolsLaunch.TOKEN_VARIABLE, value.token()));
         }
         Map<String, String> launchEnvironment = processEnvironment.buildOrThrow();
         SecretRedactor baseRedactor = key.map(redactor::withSecret).orElse(redactor);
@@ -350,7 +350,7 @@ public final class CodexCliDriver
         try {
             Optional<Path> reviewGate = review && childProfile != CodexLaunchProfile.ChildProfile.NONE
                     ? Optional.of(CodexReviewGate.install(codexHome)) : Optional.empty();
-            Optional<CodexLaunchProfile.CodeGraphLaunch> tools = registration.map(value -> new CodexLaunchProfile.CodeGraphLaunch(
+            Optional<CodexLaunchProfile.ManagedToolsLaunch> tools = registration.map(value -> new CodexLaunchProfile.ManagedToolsLaunch(
                     loopback.map(DeepSeekLoopback::mcpEndpoint).orElse(value.endpoint()), value.instruction().orElse(""),
                     guardedReviewTools.map(PermissionBroker.CodexRootTools::mcpNames).orElse(value.toolNames()),
                     deepSeekSecret.isEmpty(), reviewGate));
@@ -372,7 +372,7 @@ public final class CodexCliDriver
                             PROCESS_CANCELLATION_GRACE),
                     objectMapper,
                     launchRedactor,
-                    loopback), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.CodeGraphLaunch::endpoint));
+                    loopback), launchRedactor, deepSeek, tools.map(CodexLaunchProfile.ManagedToolsLaunch::endpoint));
         }
         catch (RuntimeException failure) {
             loopback.ifPresent(DeepSeekLoopback::close);

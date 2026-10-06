@@ -40,7 +40,6 @@ import static java.util.Objects.requireNonNull;
 public class AppSettingsService
 {
     private static final String QUIET_HOURS_KEY = "github.quietHours";
-    private static final String CODEGRAPH_KEY = "codegraph.mode";
     private static final String PREFERENCES_KEY = "app.preferences";
     private static final String DEVELOPMENT_AUTOMATION_KEY = "agent.developmentAutomation";
 
@@ -116,21 +115,6 @@ public class AppSettingsService
             throw new IllegalStateException("quiet hours could not be encoded", failure);
         }
         return quietHours;
-    }
-
-    /** How new agent tasks get a code graph; on by default so the vendored helper is used when present. */
-    public CodeGraphMode codeGraphMode()
-    {
-        return store.get(CODEGRAPH_KEY)
-                .map(CodeGraphMode::valueOf)
-                .orElse(CodeGraphMode.ON);
-    }
-
-    public CodeGraphSetting saveCodeGraph(CodeGraphSetting setting)
-    {
-        requireNonNull(setting, "setting is null");
-        store.put(CODEGRAPH_KEY, setting.mode().name());
-        return setting;
     }
 
     /** True while background GitHub and Jira refresh should stay idle, in local time. */

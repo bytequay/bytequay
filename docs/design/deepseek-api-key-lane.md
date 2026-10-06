@@ -179,7 +179,7 @@ No generated text alone authorizes a GitHub write.
 Advertise only capabilities proven by the DeepSeek lane: development and CI
 worktree turns, task-scoped tools, local commits, tool activity, approvals, and
 resumable turns. Do not advertise web search, subagents, image input, or the
-optional CodeGraph tool in this release. Hidden reasoning text must never enter
+optional IDE code-query tool in this release. Hidden reasoning text must never enter
 normalized events, storage, or the UI. Broader capabilities require a later
 design change and a live compatibility gate.
 

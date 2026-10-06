@@ -193,7 +193,7 @@ and returns monitoring to the selected repository. Git uses `remote.pushDefault=
 branch delivery and the task's draft-PR action explicitly push to `origin`. The draft targets the
 monitored repository's default branch and names a linked head as `<fork-owner>:<branch>`.
 
-Interactive tasks and the CodeGraph baseline start from the fetched monitored default branch:
+Interactive tasks and Goal baseline source evidence use the fetched monitored default branch:
 `upstream/<upstream-default-branch>` when linked, otherwise `origin/<default-branch>`. Their
 physical worktree identity remains the selected repository, so a stale fork default branch does
 not become the task's development base.

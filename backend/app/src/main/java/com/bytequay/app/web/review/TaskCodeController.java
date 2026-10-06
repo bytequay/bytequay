@@ -94,25 +94,6 @@ public class TaskCodeController
         return new ReviewCodeHttpModels.TerminalResponse(code.terminalDirectory(new TaskCodeHost(workspaceId, taskId)).toString());
     }
 
-    @GetMapping("/symbols")
-    public ReviewCodeHttpModels.SymbolsResponse symbols(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestParam String query,
-            @RequestParam(defaultValue = "50") int limit)
-    {
-        return ReviewCodeHttpModels.symbols(code.symbols(new TaskCodeHost(workspaceId, taskId), query, limit));
-    }
-
-    @GetMapping("/outline")
-    public ReviewCodeHttpModels.SymbolsResponse outline(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestParam String path)
-    {
-        return ReviewCodeHttpModels.outline(code.outline(new TaskCodeHost(workspaceId, taskId), path));
-    }
-
     @GetMapping("/runs")
     public ReviewCodeHttpModels.RunsResponse runs(@PathVariable String taskId, @RequestParam String workspaceId)
     {

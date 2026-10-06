@@ -160,10 +160,8 @@ class TestDefaultAgentTurnService
     private DefaultAgentTurnService service;
     private AgentRuntimeRegistry runtimeRegistry;
     private FixedWorktreeService worktrees;
-    private final RecordingCodeGraphService codeGraph = new RecordingCodeGraphService();
     private final AtomicReference<String> managedInstructions = new AtomicReference<>("");
     private final List<AgentTask> instructionTasks = new CopyOnWriteArrayList<>();
-    private boolean codeGraphEnabled = true;
     private boolean codeQueryUnavailable;
     private TaskWorktree queriedWorktree;
     private Optional<Consumer<DevelopmentTurnCompletion>> developmentListener = Optional.empty();
@@ -184,9 +182,6 @@ class TestDefaultAgentTurnService
                 worktrees,
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
-                codeGraph,
-                () -> codeGraphEnabled,
-                Runnable::run,
                 CLOCK);
         TaskId taskId = TaskId.random();
         task = taskService.create(new CreateAgentTaskCommand(
@@ -441,7 +436,7 @@ class TestDefaultAgentTurnService
         driver = new DeterministicAgentDriver(lane);
         taskService = new DefaultAgentTaskService(
                 stores, worktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)),
-                codeGraph, () -> codeGraphEnabled, Runnable::run, CLOCK);
+                CLOCK);
         service = service(driver, runtimeRegistry);
         TaskId taskId = TaskId.random();
         AgentTask deepSeek = taskService.createInteractive(new CreateInteractiveAgentTaskCommand(
@@ -3749,7 +3744,6 @@ class TestDefaultAgentTurnService
                 resources,
                 runtimeRegistry,
                 metrics,
-                codeGraph,
                 () -> Duration.ofDays(7),
                 task -> {},
                 CLOCK);
@@ -3791,13 +3785,10 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void languageQueriesDoNotDependOnTheRetiringGraphIndex()
+    void languageQueriesAreAvailableToNewTasks()
     {
-        codeGraphEnabled = false;
-        codeGraph.available = false;
-        AgentTask withoutGraph = interactiveTask("Without graph");
-        service.start(new StartAgentTurnCommand(withoutGraph.id(), "first", ImmutableList.<AgentAttachment>of(), "key-off"));
-        assertThat(withoutGraph.codegraph()).isFalse();
+        AgentTask newTask = interactiveTask("Code query");
+        service.start(new StartAgentTurnCommand(newTask.id(), "first", ImmutableList.<AgentAttachment>of(), "key-off"));
         assertThat(driver.openedContexts().getFirst().codeQueries()).isPresent();
     }
 

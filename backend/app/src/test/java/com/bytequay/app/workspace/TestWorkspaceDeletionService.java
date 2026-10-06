@@ -19,8 +19,6 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.CodeGraphException;
-import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
@@ -82,7 +80,6 @@ class TestWorkspaceDeletionService
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentCompletionService completion = mock(AgentCompletionService.class);
     private final WorktreeService worktreeService = mock(WorktreeService.class);
-    private final CodeGraphService codeGraph = mock(CodeGraphService.class);
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final ContextSpecCheckService specChecks = mock(ContextSpecCheckService.class);
     private final List<AgentTask> ownedTasks = new ArrayList<>();
@@ -111,7 +108,7 @@ class TestWorkspaceDeletionService
             ownedTasks.removeIf(task -> task.id().equals(invocation.getArgument(0)));
             return null;
         }).when(completion).delete(any());
-        service = new WorkspaceDeletionService(workspaces, tasks, turns, completion, worktreeService, paths, git, codeGraph, models, specChecks);
+        service = new WorkspaceDeletionService(workspaces, tasks, turns, completion, worktreeService, paths, git, models, specChecks);
     }
 
     @Test
@@ -128,7 +125,6 @@ class TestWorkspaceDeletionService
         delete();
 
         verify(completion).delete(task.id());
-        verify(codeGraph).deleteBaseline(PHYSICAL_REPOSITORY);
         verify(models).clearWorkspaceOverrides(WORKSPACE_ID);
         verify(specChecks).deleteWorkspaceData(WORKSPACE_ID);
         verify(workspaces).delete(WORKSPACE_ID);
@@ -142,7 +138,7 @@ class TestWorkspaceDeletionService
         assertThatThrownBy(() -> service.delete(WORKSPACE_ID, false, REPOSITORY.fullName())).isInstanceOf(WorkspaceException.class);
         assertThatThrownBy(() -> service.delete(WORKSPACE_ID, true, "another/project")).isInstanceOf(WorkspaceException.class);
 
-        verifyNoInteractions(tasks, completion, worktreeService, codeGraph, models, specChecks);
+        verifyNoInteractions(tasks, completion, worktreeService, models, specChecks);
         verify(workspaces, never()).delete(any());
         assertThat(paths.repository(workspace)).isDirectory();
     }
@@ -260,23 +256,6 @@ class TestWorkspaceDeletionService
 
         verify(workspaces, never()).delete(any());
         assertThat(paths.repository(workspace)).isDirectory();
-    }
-
-    @Test
-    void keepsTheWorkspaceAfterBaselineFailureAndRetriesWhenCheckoutIsAlreadyAbsent()
-    {
-        doThrow(new CodeGraphException("Baseline is unavailable")).when(codeGraph).deleteBaseline(PHYSICAL_REPOSITORY);
-
-        assertThatThrownBy(this::delete).isInstanceOf(CodeGraphException.class);
-
-        assertThat(paths.workspace(WORKSPACE_ID)).doesNotExist();
-        verify(workspaces, never()).delete(any());
-        verifyNoInteractions(models);
-        doNothing().when(codeGraph).deleteBaseline(PHYSICAL_REPOSITORY);
-
-        delete();
-
-        verify(workspaces).delete(WORKSPACE_ID);
     }
 
     @Test

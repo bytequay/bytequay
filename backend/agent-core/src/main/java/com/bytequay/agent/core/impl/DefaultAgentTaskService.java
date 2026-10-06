@@ -20,7 +20,6 @@ import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.ArchiveAgentTaskCommand;
-import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.CreateInteractiveAgentTaskCommand;
 import com.bytequay.agent.core.InvalidAgentRequestException;
@@ -29,7 +28,6 @@ import com.bytequay.agent.core.RenameAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskNames;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskTitles;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -48,8 +46,6 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Executor;
-import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
 import static com.bytequay.agent.core.impl.AgentFailures.suppressFailure;
@@ -62,9 +58,6 @@ public final class DefaultAgentTaskService
     private final WorktreeService worktreeService;
     private final AgentResourceService resourceService;
     private final AgentDriverRegistry driverRegistry;
-    private final CodeGraphService codeGraph;
-    private final BooleanSupplier codeGraphEnabled;
-    private final Executor codeGraphExecutor;
     private final Clock clock;
 
     public DefaultAgentTaskService(
@@ -72,18 +65,12 @@ public final class DefaultAgentTaskService
             WorktreeService worktreeService,
             AgentResourceService resourceService,
             AgentDriverRegistry driverRegistry,
-            CodeGraphService codeGraph,
-            BooleanSupplier codeGraphEnabled,
-            Executor codeGraphExecutor,
             Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.driverRegistry = requireNonNull(driverRegistry, "driverRegistry is null");
-        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
-        this.codeGraphEnabled = requireNonNull(codeGraphEnabled, "codeGraphEnabled is null");
-        this.codeGraphExecutor = requireNonNull(codeGraphExecutor, "codeGraphExecutor is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -278,13 +265,9 @@ public final class DefaultAgentTaskService
             TaskWorktree worktree,
             Consumer<AgentTask> persistTask)
     {
-        // Stamped once, so a later settings change never alters what a running task was given.
-        boolean codegraph = !laneId.value().startsWith("deepseek-key-")
-                && codeGraph.available() && codeGraphEnabled.getAsBoolean();
-        TaskResources resources;
         AgentTask task;
         try {
-            resources = resourceService.allocate(taskId);
+            resourceService.allocate(taskId);
             task = AgentTask.created(
                     taskId,
                     interactive,
@@ -294,17 +277,12 @@ public final class DefaultAgentTaskService
                     laneId,
                     worktree,
                     defaults,
-                    codegraph,
                     Instant.now(clock));
             persistTask.accept(task);
         }
         catch (RuntimeException failure) {
             rollbackManagedCreation(taskId, worktree, failure);
             throw failure;
-        }
-        // The task exists from here on; preparing its graph index is best-effort and off the request path.
-        if (codegraph) {
-            codeGraphExecutor.execute(() -> codeGraph.prepare(worktree, resources));
         }
         return task;
     }

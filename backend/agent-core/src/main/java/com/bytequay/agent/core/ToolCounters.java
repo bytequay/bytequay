@@ -20,26 +20,21 @@ import static java.lang.Math.addExact;
  * What a turn did with tools, folded from its persisted events when it ended.
  *
  * <p>{@code toolCalls} counts every finished tool or command activity, {@code exploreActions} the
- * subset that read, listed, or searched source, and the {@code codegraph} counters the CodeGraph
- * tool calls with their summed duration, including the first call's index preparation, and how
- * many failed. Task totals are the sum over its turns.
+ * subset that read, listed, or searched source. Task totals are the sum over its turns.
  */
-public record ToolCounters(long toolCalls, long exploreActions, long codegraphCalls, long codegraphMillis, long codegraphFailures)
+public record ToolCounters(long toolCalls, long exploreActions)
 {
-    public static final ToolCounters ZERO = new ToolCounters(0, 0, 0, 0, 0);
+    public static final ToolCounters ZERO = new ToolCounters(0, 0);
 
     public ToolCounters
     {
-        checkArgument(toolCalls >= 0 && exploreActions >= 0 && codegraphCalls >= 0 && codegraphMillis >= 0 && codegraphFailures >= 0, "counters must not be negative");
+        checkArgument(toolCalls >= 0 && exploreActions >= 0, "counters must not be negative");
     }
 
     public ToolCounters plus(ToolCounters other)
     {
         return new ToolCounters(
                 addExact(toolCalls, other.toolCalls),
-                addExact(exploreActions, other.exploreActions),
-                addExact(codegraphCalls, other.codegraphCalls),
-                addExact(codegraphMillis, other.codegraphMillis),
-                addExact(codegraphFailures, other.codegraphFailures));
+                addExact(exploreActions, other.exploreActions));
     }
 }

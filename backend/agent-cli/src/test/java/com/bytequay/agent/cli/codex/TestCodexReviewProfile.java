@@ -42,7 +42,7 @@ class TestCodexReviewProfile
             assertThat(CodexCliDriver.childProfile(configured, false, true, "0.155.9")).isEqualTo(CodexLaunchProfile.ChildProfile.NONE);
         }
         Path gate = CodexReviewGate.install(codexHome);
-        CodexLaunchProfile.CodeGraphLaunch tools = new CodexLaunchProfile.CodeGraphLaunch(
+        CodexLaunchProfile.ManagedToolsLaunch tools = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:9000/mcp"), "Review", ImmutableList.of("review_get_context", "review_save_finding"),
                 true, Optional.of(gate));
         for (CodexLaunchProfile.ChildProfile profile : ImmutableList.of(CodexLaunchProfile.ChildProfile.V1, CodexLaunchProfile.ChildProfile.V2)) {

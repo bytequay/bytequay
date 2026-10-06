@@ -25,7 +25,6 @@ import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.ApprovalId;
 import com.bytequay.agent.core.ApprovalRequest;
-import com.bytequay.agent.core.CodeGraphService;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentAutomation;
@@ -49,7 +48,6 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.app.agent.DevelopmentGitInspector;
 import com.bytequay.app.agent.DevelopmentPublicationFacts;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
-import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.agent.impl.DeterministicAgentDriver;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
@@ -169,16 +167,6 @@ class TestAgentHttpApi
         DeterministicAgentDriver deterministicClaudeAgentDriver()
         {
             return new DeterministicAgentDriver(AgentLaneId.CLAUDE_CLI);
-        }
-
-        // The baseline must not depend on whether the vendored helper is installed on the machine running the gate.
-        @Bean
-        @Primary
-        CodeGraphService absentCodeGraphService()
-        {
-            FakeCodeGraphService codeGraph = new FakeCodeGraphService();
-            codeGraph.available = false;
-            return codeGraph;
         }
 
         @Bean

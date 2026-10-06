@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.agent.codegraph.CodeGraphBaselineRefresher;
-import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -387,7 +385,6 @@ class TestDefaultWorkspaceProvisioningService
                 new ManagedWorkspaceGit(paths, git, credentials, remoteSources),
                 gitHub,
                 credentials,
-                new CodeGraphBaselineRefresher(new FakeCodeGraphService(), paths, git, store, Runnable::run),
                 Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

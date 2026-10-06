@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.agent.codegraph.CodeGraphBaselineRefresher;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.domain.RepoRef;
@@ -42,7 +41,6 @@ public final class DefaultWorkspaceProvisioningService
     private final ManagedWorkspaceGit managedGit;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
-    private final CodeGraphBaselineRefresher baselines;
     private final Clock clock;
 
     public DefaultWorkspaceProvisioningService(
@@ -50,14 +48,12 @@ public final class DefaultWorkspaceProvisioningService
             ManagedWorkspaceGit managedGit,
             GitHubAccountClient gitHub,
             CredentialService credentials,
-            CodeGraphBaselineRefresher baselines,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.managedGit = requireNonNull(managedGit, "managedGit is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
-        this.baselines = requireNonNull(baselines, "baselines is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -80,7 +76,6 @@ public final class DefaultWorkspaceProvisioningService
                 Instant now = clock.instant();
                 Workspace latest = mergeRouting(requireWorkspace(store, workspaceId), currentRouting, now);
                 Workspace synced = store.save(latest.withCodeSyncAt(Optional.of(now), now));
-                baselines.refreshAfterFetch(synced);
                 return WorkspaceCodeSyncResult.success(synced, failedRemoteSources);
             }
             catch (RuntimeException failure) {

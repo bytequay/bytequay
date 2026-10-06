@@ -128,13 +128,13 @@ class TestCodexLaunchProfile
     {
         CodexLaunchProfile.DeepSeekProfile profile = new CodexLaunchProfile.DeepSeekProfile(
                 temporary.resolve("deepseek-models.json"), URI.create("http://127.0.0.1:12345/responses/"));
-        CodexLaunchProfile.CodeGraphLaunch tools = new CodexLaunchProfile.CodeGraphLaunch(
+        CodexLaunchProfile.ManagedToolsLaunch tools = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:12346/task/mcp"), "Task tools", ImmutableList.of("development_result_report"), false);
         List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
                 Optional.of(tools), false, ImmutableList.of(), false, false, Optional.of(profile));
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + tools.endpoint() + "\"");
         assertThat(arguments).contains("mcp_servers.bytequay.tools={\"development_result_report\"={approval_mode=\"approve\"}}");
-        assertThat(arguments).noneMatch(argument -> argument.contains("bearer_token_env_var") || argument.contains("BYTEQUAY_CODEGRAPH_TOKEN"));
+        assertThat(arguments).noneMatch(argument -> argument.contains("bearer_token_env_var") || argument.contains("BYTEQUAY_TOOL_TOKEN"));
     }
 
     @Test
@@ -242,7 +242,7 @@ class TestCodexLaunchProfile
     @Test
     void disablesNativeMemoriesAtProcessAndResumedThreadScope()
     {
-        CodexLaunchProfile.CodeGraphLaunch launch = new CodexLaunchProfile.CodeGraphLaunch(
+        CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:9000/mcp"), "Learn", ImmutableList.of("repository_context_read"));
         for (CodexLaunchProfile.ChildProfile childProfile : CodexLaunchProfile.ChildProfile.values()) {
             assertThat(CodexLaunchProfile.arguments("codex", childProfile, Optional.of(launch), false, ImmutableList.of(), false, false))
@@ -259,7 +259,7 @@ class TestCodexLaunchProfile
     void approvesOnlyTheRegisteredTaskToolInventory()
     {
         List<String> tools = ImmutableList.of("repository_context_read", "repository_context_prepare");
-        CodexLaunchProfile.CodeGraphLaunch launch = new CodexLaunchProfile.CodeGraphLaunch(URI.create("http://127.0.0.1:9000/mcp"), "Learn", tools);
+        CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(URI.create("http://127.0.0.1:9000/mcp"), "Learn", tools);
         List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch),
                 false, ImmutableList.of(), false, false);
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.tools={"
@@ -273,7 +273,7 @@ class TestCodexLaunchProfile
     @Test
     void toolNamesCannotEscapeTheTaskApprovalTable()
     {
-        CodexLaunchProfile.CodeGraphLaunch launch = new CodexLaunchProfile.CodeGraphLaunch(
+        CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:9000/mcp"), "Learn", ImmutableList.of("review_\".other\\tool"));
         assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch),
                 false, ImmutableList.of(), false, false))
@@ -321,7 +321,7 @@ class TestCodexLaunchProfile
         assertThat(arguments).containsSequence("-c", "sandbox_workspace_write.network_access=true");
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN", "GH_HOST", "GH_CONFIG_DIR", "XDG_CONFIG_HOME", "SSH_AUTH_SOCK",
-                        "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "BYTEQUAY_CODEGRAPH_TOKEN", "GH_REPO", "GIT_DIR");
+                        "OPENAI_API_KEY", "CODEX_API_KEY", "ANTHROPIC_API_KEY", "CODEX_HOME", "BYTEQUAY_TOOL_TOKEN", "GH_REPO", "GIT_DIR");
         assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false))
                 .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy());
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
@@ -340,7 +340,7 @@ class TestCodexLaunchProfile
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("GH_HOST", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME",
                         "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
-                        "OPENAI_API_KEY", "CODEX_HOME", "BYTEQUAY_CODEGRAPH_TOKEN");
+                        "OPENAI_API_KEY", "CODEX_HOME", "BYTEQUAY_TOOL_TOKEN");
         assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false,
                 ImmutableList.of(), false, true))
                 .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy())

@@ -14,24 +14,19 @@
 package com.bytequay.app.review;
 
 import com.bytequay.agent.core.AgentMetrics;
-import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurnService;
-import com.bytequay.agent.core.CodeSymbol;
-import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.ProvisionWorktreeCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.app.agent.codegraph.FakeCodeGraphService;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.review.ReviewCodeService.ChangeScope;
@@ -39,11 +34,8 @@ import com.bytequay.app.review.ReviewCodeService.Changes;
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
-import com.bytequay.app.review.ReviewCodeService.CodeGraphState;
-import com.bytequay.app.review.ReviewCodeService.CodeOutline;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewCodeService.LineChange;
-import com.bytequay.app.review.ReviewCodeService.OutlineSymbol;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -136,8 +128,6 @@ class TestReviewCodeService
     private final AgentReviewStore store = mock(AgentReviewStore.class);
     private final AgentReviewService reviews = mock(AgentReviewService.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
-    private final AgentResourceService resources = mock(AgentResourceService.class);
-    private final FakeCodeGraphService codeGraph = new FakeCodeGraphService();
     private final AgentTaskService tasks = mock(AgentTaskService.class);
     private final AgentTurnService turns = mock(AgentTurnService.class);
     private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
@@ -190,9 +180,7 @@ class TestReviewCodeService
         when(reviews.task(REVIEW_ID)).thenReturn(openTask());
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID, repository, 1, REPOSITORY, OptionalLong.empty(), REPOSITORY, "origin", "origin", "main", ImmutableList.of()));
-        Path runtime = directory.resolve("runtime").toAbsolutePath();
-        when(resources.require(taskId)).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider")));
-        service = new ReviewCodeService(store, reviews, worktrees, workspaces, runner, codeGraph, resources, new ReviewExperiments(runner, worktrees), tasks, turns,
+        service = new ReviewCodeService(store, reviews, worktrees, workspaces, runner, new ReviewExperiments(runner, worktrees), tasks, turns,
                 assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests);
         when(reviews.mutateWorkingCopy(eq(REVIEW_ID), any())).thenAnswer(invocation -> {
             Function<AgentTask, ?> mutation = invocation.getArgument(1);
@@ -424,7 +412,7 @@ class TestReviewCodeService
                 return result;
             }
         };
-        ReviewCodeService racing = new ReviewCodeService(store, reviews, worktrees, workspaces, runner, codeGraph, resources,
+        ReviewCodeService racing = new ReviewCodeService(store, reviews, worktrees, workspaces, runner,
                 new ReviewExperiments(runner, worktrees), tasks, turns, assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests);
 
         assertThatThrownBy(() -> racing.files(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
@@ -452,7 +440,6 @@ class TestReviewCodeService
         assertThat(files.sourceFingerprint()).contains(service.workingCopySource(checkout).fingerprint());
         assertThat(service.workingCopySource(checkout).localPaths())
                 .containsExactly("Gone.java", "README.md", "Renamed.java", "Staged.java", MAIN_PATH, "src/test/java/TestNew.java");
-        assertThat(files.codeGraph()).isEqualTo(CodeGraphState.READY);
         assertThat(files.truncated()).isFalse();
         assertThat(files.files()).containsExactly(
                 new CodeFileEntry(".gitignore", false, false, false, false),
@@ -838,120 +825,6 @@ class TestReviewCodeService
     }
 
     @Test
-    void outlineMarksJUnitTestMethodsInLineOrder()
-    {
-        String path = "src/test/java/demo/TestTests.java";
-        write(checkout, path, """
-                package demo;
-
-                class TestOutline
-                {
-                    @Test
-                    void simple()
-                    {
-                    }
-
-                    @org.junit.jupiter.api.Test
-                    void qualified() {}
-
-                    @ParameterizedTest
-                    @ValueSource(ints = 1)
-                    void parameterized(int value) {}
-
-                    @Test
-                    @Timeout(5)
-                    void twoLinesBelow()
-                    {
-                    }
-
-                    @TestInstance(Lifecycle.PER_CLASS)
-                    public String helper()
-                    {
-                        return "@Test";
-                    }
-                }
-                """);
-        CodeSymbol type = symbol("TestOutline", "class", path, 3, 28);
-        CodeSymbol simple = symbol("simple", "method", path, 5, 8);
-        CodeSymbol qualified = symbol("qualified", "method", path, 10, 11);
-        CodeSymbol parameterized = symbol("parameterized", "method", path, 13, 15);
-        CodeSymbol twoLinesBelow = symbol("twoLinesBelow", "method", path, 17, 21);
-        CodeSymbol helper = symbol("helper", "method", path, 23, 27);
-        codeGraph.symbols = CodeSymbolResult.ready(ImmutableList.of(helper, twoLinesBelow, simple, type, parameterized, qualified));
-
-        assertThat(service.outline(REVIEW_ID, path)).isEqualTo(new CodeOutline(CodeSymbolResult.Status.READY, ImmutableList.of(
-                new OutlineSymbol(type, false, false),
-                new OutlineSymbol(simple, true, false),
-                new OutlineSymbol(qualified, true, false),
-                new OutlineSymbol(parameterized, true, false),
-                new OutlineSymbol(twoLinesBelow, true, false),
-                new OutlineSymbol(helper, false, false))));
-        assertThat(codeGraph.symbolReads).containsExactly("file:" + path);
-        assertThatThrownBy(() -> service.outline(REVIEW_ID, "../secret.txt")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.outline(REVIEW_ID, "src/test/java/Missing.java")).isInstanceOf(ReviewNotFoundException.class);
-
-        codeGraph.symbols = CodeSymbolResult.BUSY;
-        assertThat(service.outline(REVIEW_ID, path)).isEqualTo(new CodeOutline(CodeSymbolResult.Status.BUSY, ImmutableList.of()));
-    }
-
-    @Test
-    void outlineMarksMethodsWhoseEveryLineThePullRequestAdded()
-    {
-        write(checkout, OUTLINE_PATH, """
-                class TestOutline
-                {
-                    @Test
-                    void kept()
-                    {
-                        assertThat(1).isOne();
-                    }
-
-                    @Test
-                    void added()
-                    {
-                    }
-                }
-                """);
-        CodeSymbol type = symbol("TestOutline", "class", OUTLINE_PATH, 1, 13);
-        CodeSymbol kept = symbol("kept", "method", OUTLINE_PATH, 3, 7);
-        CodeSymbol added = symbol("added", "method", OUTLINE_PATH, 9, 12);
-        codeGraph.symbols = CodeSymbolResult.ready(ImmutableList.of(type, kept, added));
-
-        assertThat(service.outline(REVIEW_ID, OUTLINE_PATH).symbols()).containsExactly(
-                new OutlineSymbol(type, false, false),
-                new OutlineSymbol(kept, true, false),
-                new OutlineSymbol(added, true, true));
-    }
-
-    @Test
-    void symbolReadsNeedAWorkingCopyOfAGraphTaskAndAnInstalledHelper()
-    {
-        CodeSymbolResult found = CodeSymbolResult.ready(ImmutableList.of(symbol("simple", "method", TEST_PATH, 1, 1)));
-        codeGraph.symbols = found;
-        assertThat(service.symbols(REVIEW_ID, "simple", 20)).isEqualTo(found);
-        assertThat(codeGraph.symbolReads).containsExactly("search:simple:20");
-        codeGraph.symbolReads.clear();
-
-        when(reviews.task(REVIEW_ID)).thenReturn(task(false));
-        assertThat(service.files(REVIEW_ID).codeGraph()).isEqualTo(CodeGraphState.OFF);
-        assertThat(service.symbols(REVIEW_ID, "simple", 20)).isEqualTo(CodeSymbolResult.UNAVAILABLE);
-        assertThat(service.outline(REVIEW_ID, TEST_PATH)).isEqualTo(new CodeOutline(CodeSymbolResult.Status.UNAVAILABLE, ImmutableList.of()));
-
-        AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
-        when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW));
-        assertThat(service.files(REVIEW_ID).codeGraph()).isEqualTo(CodeGraphState.UNAVAILABLE);
-        assertThat(service.symbols(REVIEW_ID, "simple", 20)).isEqualTo(CodeSymbolResult.UNAVAILABLE);
-        assertThat(service.outline(REVIEW_ID, TEST_PATH).status()).isEqualTo(CodeSymbolResult.Status.UNAVAILABLE);
-
-        when(reviews.task(REVIEW_ID)).thenReturn(openTask());
-        codeGraph.available = false;
-        assertThat(service.files(REVIEW_ID).codeGraph()).isEqualTo(CodeGraphState.UNAVAILABLE);
-        assertThat(service.symbols(REVIEW_ID, "simple", 20)).isEqualTo(CodeSymbolResult.UNAVAILABLE);
-        assertThat(service.outline(REVIEW_ID, TEST_PATH).status()).isEqualTo(CodeSymbolResult.Status.UNAVAILABLE);
-        assertThat(codeGraph.symbolReads).isEmpty();
-    }
-
-    @Test
     void aDevelopmentTaskReadsAndEditsAnyFileOfItsWorkingCopyUnderItsClaim()
             throws IOException
     {
@@ -1229,7 +1102,7 @@ class TestReviewCodeService
     private AgentTask developmentTask()
     {
         return AgentTask.created(worktree.taskId(), true, Optional.empty(), "Develop", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), true, NOW);
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private static PullRequestDetail pullRequestDetail(String baseRef)
@@ -1237,11 +1110,6 @@ class TestReviewCodeService
         return new PullRequestDetail(1, REPOSITORY.fullName(), 7, "Task", "https://github.com/owner/repo/pull/7", "open", false, true, "clean", "owner", null, NOW, NOW, null,
                 baseRef, "bytequay/task", "", ImmutableList.of(), ImmutableList.of(), null, ImmutableList.of(), 1, 1, 1, 0, PullRequestDetail.CiStatus.PASSING,
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), true);
-    }
-
-    private static CodeSymbol symbol(String name, String kind, String path, int startLine, int endLine)
-    {
-        return new CodeSymbol(name, kind, Optional.of("demo::" + name), path, startLine, 4, endLine, Optional.empty());
     }
 
     private static void assertUnavailable(CodeFile file, String reason)
@@ -1253,13 +1121,8 @@ class TestReviewCodeService
 
     private AgentTask openTask()
     {
-        return task(true);
-    }
-
-    private AgentTask task(boolean codegraph)
-    {
         AgentTaskDefaults defaults = AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO);
-        return AgentTask.created(worktree.taskId(), false, Optional.empty(), "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, defaults, codegraph, NOW);
+        return AgentTask.created(worktree.taskId(), false, Optional.empty(), "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, defaults, NOW);
     }
 
     private AgentReview review(AgentReview.State state)

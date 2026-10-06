@@ -28,8 +28,6 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.CleanupState;
-import com.bytequay.agent.core.CodeGraphService;
-import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
@@ -41,7 +39,6 @@ import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TaskSummary;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -163,7 +160,7 @@ class TestSqliteAgentStores
                 5,
                 Optional.of(new BigDecimal("0.1873740")),
                 Duration.ofSeconds(3),
-                new ToolCounters(4, 2, 1, 900, 0));
+                new ToolCounters(4, 2));
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(
                 taskId,
@@ -429,20 +426,6 @@ class TestSqliteAgentStores
         assertThat(taskStore.listRecentCompletedInteractive("workspace-a", repository, 3)).containsExactly(newest, first, second);
         assertThatThrownBy(() -> taskStore.listRecentCompletedInteractive("workspace-a", repository, 0)).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> taskStore.listRecentCompletedInteractive(" ", repository, 1)).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
-    void roundTripsWhetherTheTaskGotTheCodeGraph()
-    {
-        Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentTask withGraph = managedTask(now.plusSeconds(1), true);
-        AgentTask withoutGraph = managedTask(now.plusSeconds(2), false);
-        taskStore.insert(withGraph);
-        taskStore.insert(withoutGraph);
-        entityManager.clear();
-
-        assertThat(taskStore.find(withGraph.id()).orElseThrow().codegraph()).isTrue();
-        assertThat(taskStore.find(withoutGraph.id()).orElseThrow().codegraph()).isFalse();
     }
 
     @Test
@@ -1101,29 +1084,6 @@ class TestSqliteAgentStores
         return managedTask(now, AgentPermissionPolicy.AUTO);
     }
 
-    private static AgentTask managedTask(Instant now, boolean codegraph)
-    {
-        TaskId taskId = TaskId.random();
-        TaskWorktree worktree = new TaskWorktree(
-                taskId,
-                "workspace-a",
-                new RepositoryIdentity("bytequay", "sample"),
-                Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
-                "bytequay/task/" + taskId,
-                "0123456789012345678901234567890123456789");
-        return AgentTask.created(
-                taskId,
-                false,
-                Optional.empty(),
-                "Agent task",
-                TitleSource.USER,
-                AgentLaneId.CODEX_CLI,
-                worktree,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                codegraph,
-                now);
-    }
-
     private static AgentTask managedTask(Instant now, AgentPermissionPolicy permissionPolicy)
     {
         TaskId taskId = TaskId.random();
@@ -1180,47 +1140,6 @@ class TestSqliteAgentStores
                 ImmutableList.of(new AgentAttachmentReference("attachment-1", "image.png", "image/png")),
                 Optional.of("priority"),
                 Optional.empty());
-    }
-
-    /** These store tests never touch the graph; the turn service only needs a service that reports itself unavailable. */
-    private static final class NoCodeGraphService
-            implements CodeGraphService
-    {
-        @Override
-        public boolean available()
-        {
-            return false;
-        }
-
-        @Override
-        public void refreshBaseline(RepositoryIdentity repository, Path repositoryDirectory, String defaultBranchCommit) {}
-
-        @Override
-        public void prepare(TaskWorktree worktree, TaskResources resources) {}
-
-        @Override
-        public String explore(TaskWorktree worktree, TaskResources resources, String query)
-        {
-            return "";
-        }
-
-        @Override
-        public CodeSymbolResult searchSymbols(TaskWorktree worktree, TaskResources resources, String query, int limit)
-        {
-            return CodeSymbolResult.UNAVAILABLE;
-        }
-
-        @Override
-        public CodeSymbolResult fileSymbols(TaskWorktree worktree, TaskResources resources, String path)
-        {
-            return CodeSymbolResult.UNAVAILABLE;
-        }
-
-        @Override
-        public void deleteIndex(TaskResources resources) {}
-
-        @Override
-        public void deleteBaseline(RepositoryIdentity repository) {}
     }
 
     private static final class RecordingDriver

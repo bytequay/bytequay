@@ -225,7 +225,7 @@ provider prompts reach ByteQuay's task approval cards; denial or expiry
 refuses the action. A card does not expand the CI task's authority: direct
 GitHub writes and program-owned rebase controls remain prohibited. CI logs
 remain read-only task-owned files;
-the `read_ci_memory` tool is available even with CodeGraph and the Claude lane
+the `read_ci_memory` tool is available even when IDE queries are unavailable and the Claude lane is
 disabled. The tool token grants no Claude permission prompt. Ordinary Codex
 `AUTO` tasks retain their native sandbox and approval route.
 

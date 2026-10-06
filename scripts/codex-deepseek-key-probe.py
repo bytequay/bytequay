@@ -73,7 +73,7 @@ class FakeResponses:
                     names = {tool.get("name") for tool in payload.get("tools", [])}
                     probe.require("exec_command" in names, "Expected Codex model-facing shell tool")
                     changed = shlex.quote(str(workspace / "changed.txt"))
-                    command = fixture.command or ("for key in DEEPSEEK_API_KEY OPENAI_API_KEY GH_TOKEN BYTEQUAY_CODEGRAPH_TOKEN; do "
+                    command = fixture.command or ("for key in DEEPSEEK_API_KEY OPENAI_API_KEY GH_TOKEN BYTEQUAY_TOOL_TOKEN; do "
                                "if printenv \"$key\" >/dev/null; then printf 'LEAKED:%s\\n' \"$key\"; fi; done; "
                                "printf changed > " + changed + "; printf 'WRITE_OK\\n'")
                     arguments = {"cmd": command + fixture.command_suffix}
@@ -230,7 +230,7 @@ def main():
                    "XDG_CONFIG_HOME": str(output / "home/.config"),
                    "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin", "SHELL": "/bin/sh",
                    "LANG": "en_US.UTF-8"}
-    probe.require(not {"DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "BYTEQUAY_CODEGRAPH_TOKEN"}.intersection(environment),
+    probe.require(not {"DEEPSEEK_API_KEY", "OPENAI_API_KEY", "GH_TOKEN", "BYTEQUAY_TOOL_TOKEN"}.intersection(environment),
                   "Codex process environment contains a credential")
     command = None
     roots = []
@@ -255,7 +255,7 @@ def main():
                        "printf changed > changed.txt && " + sandbox_git + " add changed.txt && "
                        + sandbox_git + " commit -qm 'Fixture change' && "
                        + "printf 'COMMIT_OK\\n'")
-        command = ("for key in DEEPSEEK_API_KEY OPENAI_API_KEY GH_TOKEN BYTEQUAY_CODEGRAPH_TOKEN; do "
+        command = ("for key in DEEPSEEK_API_KEY OPENAI_API_KEY GH_TOKEN BYTEQUAY_TOOL_TOKEN; do "
                    "if printenv \"$key\" >/dev/null; then printf 'LEAKED:%s\\n' \"$key\"; fi; done; "
                    "printf 'GIT_CONFIG_GLOBAL=%s GIT_CONFIG_NOSYSTEM=%s\\n' "
                    "\"${GIT_CONFIG_GLOBAL-unset}\" \"${GIT_CONFIG_NOSYSTEM-unset}\"; " + git_command)

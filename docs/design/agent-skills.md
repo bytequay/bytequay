@@ -18,7 +18,7 @@ poor fit for reading a known file or a short list of files, which the agent
 reads itself so the code stays in its own context. They are never used for
 writing: edits, fixes, tests, commits, saved results, and anything posted stay
 with the main agent. Exploration subagents use the session's ByteQuay tools,
-CodeGraph, and every read-only tool the session permits, including read-only
+shared IDE code queries, and every read-only tool the session permits, including read-only
 `git` and `gh` where the session has network access. The recommendation grants
 no capability. A
 development session already offers subagents and remote reads. An attended
@@ -210,13 +210,13 @@ each ordinary, workflow-owned, queued, or resumed turn and for title helpers.
 `AgentSessionContext.managedInstructions` is the provider-neutral contract.
 Real turns receive a `Function<AgentTask, String>` resolver from application
 wiring; title helpers retain the no-argument `Supplier<String>` resolver.
-This is independent of the optional CodeGraph/review tool registration.
+This is independent of the optional IDE-query/review tool registration.
 
 The existing Better Words helper resolves current Global skills for every
 request and passes them to its text-only session on the Development lane. Its
 required rewrite-only format remains part of the composed task instruction.
 
-Codex composes system guidance and applicable enabled user skills with review/CodeGraph guidance in
+Codex composes system guidance and applicable enabled user skills with review/code-query guidance in
 `developerInstructions` on both `thread/start` and `thread/resume`, explicitly
 replacing the previous value. Claude supplies the composition through
 `--append-system-prompt` on each invocation. An explicitly empty adapter

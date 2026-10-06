@@ -326,7 +326,7 @@ final class CodexIsolationGuard
             requireNullValue(shell, "exclude");
             requireNullValue(shell, "set");
             requireNullValue(shell, "filters");
-            verifyOnlyTheCodeGraphServer(config.path("mcp_servers"));
+            verifyOnlyTheManagedToolsServer(config.path("mcp_servers"));
         }
     }
 
@@ -384,8 +384,8 @@ final class CodexIsolationGuard
         }
     }
 
-    /** The effective MCP map holds nothing, or exactly ByteQuay's own task endpoint when this launch exposes the CodeGraph tool. */
-    private void verifyOnlyTheCodeGraphServer(JsonNode servers)
+    /** The effective MCP map holds nothing, or exactly ByteQuay's own task endpoint when this launch exposes the managed tools. */
+    private void verifyOnlyTheManagedToolsServer(JsonNode servers)
     {
         if (codeQueriesEndpoint.isEmpty()) {
             if (!servers.isObject() || !servers.isEmpty()) {

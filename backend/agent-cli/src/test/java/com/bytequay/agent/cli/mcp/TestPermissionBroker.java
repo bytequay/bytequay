@@ -127,7 +127,7 @@ class TestPermissionBroker
     }
 
     @Test
-    void issueContextIsTaskBoundReadOnlyAndRevalidatedForBothProvidersWithoutCodeGraph()
+    void issueContextIsTaskBoundReadOnlyAndRevalidatedForBothProvidersWithoutCodeQueries()
             throws Exception
     {
         AtomicInteger reads = new AtomicInteger();
@@ -376,7 +376,7 @@ class TestPermissionBroker
     }
 
     @Test
-    void developmentReportsAreAvailableWithoutCodeGraphAndRejectExpiredOrInvalidClaims()
+    void developmentReportsAreAvailableWithoutCodeQueriesAndRejectExpiredOrInvalidClaims()
             throws Exception
     {
         AtomicReference<Optional<DevelopmentResultBridge>> active = new AtomicReference<>(Optional.of(

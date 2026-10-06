@@ -154,9 +154,6 @@ class TestSqliteRefinementProvenanceSchemaUpdate
                         elapsed_millis bigint NOT NULL,
                         tool_calls bigint,
                         explore_actions bigint,
-                        codegraph_calls bigint,
-                        codegraph_millis bigint,
-                        codegraph_failures bigint,
                         development_origin_kind varchar(255) CHECK (development_origin_kind IN ('AUTO_COMMIT', 'CREATE_DRAFT_PR')),
                         parent_user_turn_id varchar(255))
                     """);

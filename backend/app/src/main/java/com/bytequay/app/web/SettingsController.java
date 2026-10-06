@@ -13,12 +13,10 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.agent.codegraph.CodeGraphBaseline;
 import com.bytequay.app.service.settings.AgentModelType;
 import com.bytequay.app.service.settings.AppPreferences;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.service.settings.ClaudeAccounts;
-import com.bytequay.app.service.settings.CodeGraphSetting;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelSettings;
 import com.bytequay.app.service.settings.QuietHours;
@@ -33,7 +31,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
-import java.util.function.Supplier;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
 import static java.util.Objects.requireNonNull;
@@ -45,18 +42,15 @@ public class SettingsController
     private final ModelSettingsService models;
     private final AppSettingsService settings;
     private final ClaudeAccounts claudeAccounts;
-    private final Supplier<CodeGraphBaseline> baseline;
 
     public SettingsController(
             ModelSettingsService models,
             AppSettingsService settings,
-            ClaudeAccounts claudeAccounts,
-            Supplier<CodeGraphBaseline> baseline)
+            ClaudeAccounts claudeAccounts)
     {
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.claudeAccounts = requireNonNull(claudeAccounts, "claudeAccounts is null");
-        this.baseline = requireNonNull(baseline, "baseline is null");
     }
 
     /**
@@ -121,24 +115,6 @@ public class SettingsController
         claudeAccounts.remove(id);
         models.refreshCatalogs();
         return models.get();
-    }
-
-    @GetMapping("/codegraph")
-    public CodeGraphSetting codeGraph()
-    {
-        return new CodeGraphSetting(settings.codeGraphMode());
-    }
-
-    @GetMapping("/codegraph/baseline")
-    public CodeGraphBaseline codeGraphBaseline()
-    {
-        return baseline.get();
-    }
-
-    @PutMapping("/codegraph")
-    public CodeGraphSetting saveCodeGraph(@RequestBody CodeGraphSetting request)
-    {
-        return settings.saveCodeGraph(request);
     }
 
     @GetMapping("/app")

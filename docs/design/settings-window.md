@@ -72,7 +72,6 @@ re-presentation plus one real model change.
 | --- | --- |
 | API-key rows, add and remove | `ModelApiKeyStore`, `model_api_keys`, `POST/DELETE /api/settings/api-keys` |
 | Skill list, scopes, add/edit dialog | `AgentSkillScope {GLOBAL, DEVELOPMENT, REVIEW}`, `/api/settings/agent-skills` |
-| Code-graph mode Off/On | `CodeGraphMode`, `GET/PUT /api/settings/codegraph` |
 | Provider readiness rows, `Check` | `AgentProviderStatus`, `refreshAgentProviderReadiness` |
 | GitHub account, masked token, Copy | `CredentialController` |
 | Quiet hours | `QuietHours`, `GET/PUT /api/settings/quiet-hours` |
@@ -106,7 +105,7 @@ the Development value → the existing catalog default.
 
 Review inheritance is an **absent row**, never a written-back copy. Every
 default in this backend is applied at the read site and never persisted
-(`QuietHours.DEFAULT`, `CodeGraphMode.ON`, the `claude` main fallback, the
+(`QuietHours.DEFAULT`, the `claude` main fallback, the
 catalog `defaultModelId`). A settings page that writes "current" values on load
 would freeze implicit inheritance into stored rows.
 
@@ -189,12 +188,9 @@ fixes today's crash when such an id is main and a review starts.
 dialog is a UI change only; the `agent.skills` contract is unchanged. Internal
 ByteQuay guidance stays invisible.
 
-**Agents → Code graph** — mode segmented, baseline index row.
-
-The baseline row needs a small read for repository count and last-updated time;
-`CodeGraphBaselineRefresher` exposes nothing today. Per `codegraph-service.md`
-§12 this stays a read-only readout — `Rebuild` is the one control the design adds
-and it needs explicit approval before it ships.
+The former Code graph settings page is removed. Language services start lazily
+from Code & Tests or a task-bound query; no graph mode or baseline-index readout
+remains. Editor theme and keymap choices live in Code & Tests.
 
 **Integrations → GitHub** — account, masked token, refresh. The account card
 hardcodes the words "personal access token" even for a token imported from the

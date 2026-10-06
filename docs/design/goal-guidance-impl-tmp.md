@@ -1,5 +1,9 @@
 # Agent guided goals implementation plan
 
+Earlier CodeGraph references below are historical implementation checkpoints.
+The [IDE refactor](code-tests.md#shared-code-queries-and-retired-code) supersedes
+that engine with shared language queries and bounded baseline Git excerpts.
+
 Status: complete. Twenty-six implementation slices and a live check on a real
 Goal landed; four items below were left out on 2026-10-06 by the user's
 decision, each marked where it stands with its reason.

@@ -48,8 +48,7 @@ public final class DefaultAgentMetricsService
         implements AgentMetricsService
 {
     private static final int EVENT_PAGE_SIZE = 8;
-    private static final String CODEGRAPH_TOOL = "codegraph_explore";
-    private static final Set<String> CLAUDE_EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS");
+    private static final Set<String> EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS", "code_query", "bytequay/code_query", "mcp__bytequay__code_query");
     private static final Set<CommandActionKind> EXPLORE_ACTIONS =
             ImmutableSet.of(CommandActionKind.READ, CommandActionKind.LIST_FILES, CommandActionKind.SEARCH);
 
@@ -212,24 +211,14 @@ public final class DefaultAgentMetricsService
     {
         long toolCalls = 0;
         long exploreActions = 0;
-        long codegraphCalls = 0;
-        long codegraphMillis = 0;
-        long codegraphFailures = 0;
         for (AgentEventEnvelope event : events) {
             if (!event.turnId().map(turnId::equals).orElse(false)) {
                 continue;
             }
             if (event.payload() instanceof AgentEventPayload.ToolActivity tool && terminal(tool.state())) {
                 toolCalls++;
-                if (CLAUDE_EXPLORE_TOOLS.contains(tool.name())) {
+                if (EXPLORE_TOOLS.contains(tool.name())) {
                     exploreActions++;
-                }
-                if (tool.name().endsWith(CODEGRAPH_TOOL)) {
-                    codegraphCalls++;
-                    codegraphMillis += tool.durationMs().orElse(0L);
-                    if (tool.state() == ActivityState.FAILED) {
-                        codegraphFailures++;
-                    }
                 }
             }
             else if (event.payload() instanceof AgentEventPayload.CommandActivity command && terminal(command.state())) {
@@ -237,7 +226,7 @@ public final class DefaultAgentMetricsService
                 exploreActions += command.actions().stream().filter(action -> EXPLORE_ACTIONS.contains(action.kind())).count();
             }
         }
-        return new ToolCounters(toolCalls, exploreActions, codegraphCalls, codegraphMillis, codegraphFailures);
+        return new ToolCounters(toolCalls, exploreActions);
     }
 
     private static boolean terminal(ActivityState state)

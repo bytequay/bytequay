@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.web.review;
 
-import com.bytequay.agent.core.CodeSymbol;
-import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.review.LocalRunRefusedException;
 import com.bytequay.app.review.LocalRunService;
@@ -22,11 +20,8 @@ import com.bytequay.app.review.ReviewCodeService;
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
-import com.bytequay.app.review.ReviewCodeService.CodeGraphState;
-import com.bytequay.app.review.ReviewCodeService.CodeOutline;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewCodeService.LineChange;
-import com.bytequay.app.review.ReviewCodeService.OutlineSymbol;
 import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.review.LocalRun;
@@ -96,13 +91,13 @@ class TestReviewCodeController
     void listsFilesWithTheWireFieldNames()
             throws Exception
     {
-        when(code.files("review-1")).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, CodeGraphState.OFF, Optional.of("fingerprint"), true, true, ImmutableList.of(
+        when(code.files("review-1")).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("fingerprint"), true, true, ImmutableList.of(
                 new CodeFileEntry("src/test/java/TestCode.java", true, true, false, true))));
 
         mvc.perform(get("/api/agent-review/review-1/code/files"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"source": "WORKING_COPY", "revision": "%s", "codeGraph": "OFF", "sourceFingerprint": "fingerprint", "savedExperiment": true, "truncated": true,
+                        {"source": "WORKING_COPY", "revision": "%s", "sourceFingerprint": "fingerprint", "savedExperiment": true, "truncated": true,
                          "files": [{"path": "src/test/java/TestCode.java", "changedInPr": true, "addedInPr": true, "onlyInWorkingCopy": false, "uncommitted": true}]}
                         """.formatted(HEAD), JsonCompareMode.STRICT));
     }
@@ -186,14 +181,14 @@ class TestReviewCodeController
     void discardsLocalChangesAndListsTheCleanWorkingCopy()
             throws Exception
     {
-        when(code.discard("review-1", HEAD)).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, CodeGraphState.READY, Optional.of("clean"), false, false, ImmutableList.of(
+        when(code.discard("review-1", HEAD)).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("clean"), false, false, ImmutableList.of(
                 new CodeFileEntry("src/test/java/TestCode.java", true, false, false, false))));
         when(code.discard("review-1", "moved")).thenThrow(new ReviewConflictException("Review HEAD changed; experiments were preserved"));
 
         mvc.perform(post("/api/agent-review/review-1/code/discard").contentType(MediaType.APPLICATION_JSON).content("{\"expectedHead\": \"%s\"}".formatted(HEAD)))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"source": "WORKING_COPY", "revision": "%s", "codeGraph": "READY", "sourceFingerprint": "clean", "savedExperiment": false, "truncated": false,
+                        {"source": "WORKING_COPY", "revision": "%s", "sourceFingerprint": "clean", "savedExperiment": false, "truncated": false,
                          "files": [{"path": "src/test/java/TestCode.java", "changedInPr": true, "addedInPr": false, "onlyInWorkingCopy": false, "uncommitted": false}]}
                         """.formatted(HEAD), JsonCompareMode.STRICT));
         mvc.perform(post("/api/agent-review/review-1/code/discard").contentType(MediaType.APPLICATION_JSON).content("{\"expectedHead\": \"moved\"}"))
@@ -216,54 +211,6 @@ class TestReviewCodeController
         mvc.perform(post("/api/agent-review/ended/code/terminal"))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.message").value("The review has ended"));
-    }
-
-    @Test
-    void searchesSymbolsWithTheDefaultLimit()
-            throws Exception
-    {
-        CodeSymbol method = new CodeSymbol("simple", "method", Optional.of("demo::TestCode::simple"), "src/test/java/TestCode.java", 7, 4, 11, Optional.of("void ()"));
-        CodeSymbol type = new CodeSymbol("TestCode", "class", Optional.empty(), "src/test/java/TestCode.java", 5, 0, 20, Optional.empty());
-        when(code.symbols("review-1", "simple", 50)).thenReturn(CodeSymbolResult.ready(ImmutableList.of(method, type)));
-        when(code.symbols("review-1", "simple", 5)).thenReturn(CodeSymbolResult.UPDATING);
-
-        mvc.perform(get("/api/agent-review/review-1/code/symbols").param("query", "simple"))
-                .andExpect(status().isOk())
-                .andExpect(content().json("""
-                        {"status": "READY", "symbols": [
-                          {"name": "simple", "kind": "method", "qualifiedName": "demo::TestCode::simple", "path": "src/test/java/TestCode.java",
-                           "startLine": 7, "startColumn": 4, "endLine": 11, "signature": "void ()", "test": false, "added": false},
-                          {"name": "TestCode", "kind": "class", "qualifiedName": null, "path": "src/test/java/TestCode.java",
-                           "startLine": 5, "startColumn": 0, "endLine": 20, "signature": null, "test": false, "added": false}]}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(get("/api/agent-review/review-1/code/symbols").param("query", "simple").param("limit", "5"))
-                .andExpect(status().isOk())
-                .andExpect(content().json("""
-                        {"status": "UPDATING", "symbols": []}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(get("/api/agent-review/review-1/code/symbols")).andExpect(status().isBadRequest());
-    }
-
-    @Test
-    void outlinesAFileWithTestMarks()
-            throws Exception
-    {
-        CodeSymbol method = new CodeSymbol("simple", "method", Optional.of("demo::TestCode::simple"), "src/test/java/TestCode.java", 7, 4, 11, Optional.of("void ()"));
-        when(code.outline("review-1", "src/test/java/TestCode.java")).thenReturn(new CodeOutline(CodeSymbolResult.Status.READY, ImmutableList.of(new OutlineSymbol(method, true, true))));
-        when(code.outline("review-1", "Busy.java")).thenReturn(new CodeOutline(CodeSymbolResult.Status.BUSY, ImmutableList.of()));
-
-        mvc.perform(get("/api/agent-review/review-1/code/outline").param("path", "src/test/java/TestCode.java"))
-                .andExpect(status().isOk())
-                .andExpect(content().json("""
-                        {"status": "READY", "symbols": [
-                          {"name": "simple", "kind": "method", "qualifiedName": "demo::TestCode::simple", "path": "src/test/java/TestCode.java",
-                           "startLine": 7, "startColumn": 4, "endLine": 11, "signature": "void ()", "test": true, "added": true}]}
-                        """, JsonCompareMode.STRICT));
-        mvc.perform(get("/api/agent-review/review-1/code/outline").param("path", "Busy.java"))
-                .andExpect(status().isOk())
-                .andExpect(content().json("""
-                        {"status": "BUSY", "symbols": []}
-                        """, JsonCompareMode.STRICT));
     }
 
     @Test

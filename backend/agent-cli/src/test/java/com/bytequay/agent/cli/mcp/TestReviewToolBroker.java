@@ -188,7 +188,7 @@ class TestReviewToolBroker
     }
 
     @Test
-    void codexTokensExposeReviewToolsWithoutCodeGraphAndDispatchJsonArguments()
+    void codexTokensExposeReviewToolsWithoutCodeQueriesAndDispatchJsonArguments()
             throws Exception
     {
         AtomicReference<String> received = new AtomicReference<>();

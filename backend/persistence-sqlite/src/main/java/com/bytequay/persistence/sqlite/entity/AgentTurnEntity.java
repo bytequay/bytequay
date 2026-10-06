@@ -187,15 +187,6 @@ public class AgentTurnEntity
     @Column(name = "explore_actions")
     private Long exploreActions;
 
-    @Column(name = "codegraph_calls")
-    private Long codegraphCalls;
-
-    @Column(name = "codegraph_millis")
-    private Long codegraphMillis;
-
-    @Column(name = "codegraph_failures")
-    private Long codegraphFailures;
-
     public AgentTurnEntity() {}
 
     public static AgentTurnEntity fromDomain(AgentTurn turn)
@@ -250,9 +241,6 @@ public class AgentTurnEntity
         elapsedMillis = turn.metrics().elapsed().toMillis();
         toolCalls = turn.metrics().counters().toolCalls();
         exploreActions = turn.metrics().counters().exploreActions();
-        codegraphCalls = turn.metrics().counters().codegraphCalls();
-        codegraphMillis = turn.metrics().counters().codegraphMillis();
-        codegraphFailures = turn.metrics().counters().codegraphFailures();
     }
 
     public AgentTurn toDomain()
@@ -313,7 +301,7 @@ public class AgentTurnEntity
 
     private ToolCounters counters()
     {
-        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions), zeroIfNull(codegraphCalls), zeroIfNull(codegraphMillis), zeroIfNull(codegraphFailures));
+        return new ToolCounters(zeroIfNull(toolCalls), zeroIfNull(exploreActions));
     }
 
     private static long zeroIfNull(Long value)

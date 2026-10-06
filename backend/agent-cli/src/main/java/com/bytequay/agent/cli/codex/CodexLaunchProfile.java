@@ -84,12 +84,12 @@ final class CodexLaunchProfile
     /**
      * Returns the full argument vector for one App Server launch, optionally pointing the process at
      * ByteQuay's task MCP endpoint. A direct broker registration keeps its bearer in
-     * {@link CodeGraphLaunch#TOKEN_VARIABLE}; a proxied registration keeps it outside Codex.
+     * {@link ManagedToolsLaunch#TOKEN_VARIABLE}; a proxied registration keeps it outside Codex.
      */
     static List<String> arguments(
             String executable,
             ChildProfile childProfile,
-            Optional<CodeGraphLaunch> codeQueries,
+            Optional<ManagedToolsLaunch> codeQueries,
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
@@ -101,7 +101,7 @@ final class CodexLaunchProfile
     static List<String> arguments(
             String executable,
             ChildProfile childProfile,
-            Optional<CodeGraphLaunch> codeQueries,
+            Optional<ManagedToolsLaunch> codeQueries,
             boolean textOnly,
             List<String> ciWritableRoots,
             boolean allowGitHubCommands,
@@ -114,7 +114,7 @@ final class CodexLaunchProfile
         boolean reviewChildren = review && childProfile != ChildProfile.NONE;
         checkArgument(!allowGitHubCommands || (!textOnly && !ci && !review), "Restricted Codex profiles cannot use attended network scope");
         checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
-        checkArgument(!reviewChildren || codeQueries.flatMap(CodeGraphLaunch::reviewGate).isPresent(), "Review children require the ByteQuay hook gate");
+        checkArgument(!reviewChildren || codeQueries.flatMap(ManagedToolsLaunch::reviewGate).isPresent(), "Review children require the ByteQuay hook gate");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(executable);
         arguments.add(
                 "app-server",
@@ -186,7 +186,7 @@ final class CodexLaunchProfile
         codeQueries.ifPresent(launch -> {
             arguments.add("-c", "mcp_servers.bytequay.url=" + tomlString(launch.endpoint().toString()));
             if (launch.bearerTokenInEnvironment()) {
-                arguments.add("-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(CodeGraphLaunch.TOKEN_VARIABLE));
+                arguments.add("-c", "mcp_servers.bytequay.bearer_token_env_var=" + tomlString(ManagedToolsLaunch.TOKEN_VARIABLE));
             }
             arguments.add("-c", "mcp_servers.bytequay.default_tools_approval_mode=\"approve\"",
                     // The broker owns authorization for this exact task inventory; other tools retain their native approval policy.
@@ -202,7 +202,7 @@ final class CodexLaunchProfile
      *
      * <p>The process flags remain the outer ceiling; repeating the profile on the thread prevents a
      * resumed provider thread from widening it. The MCP map is pinned empty for an ordinary task; a
-     * CodeGraph launch already carries its one task-scoped endpoint as a process flag, so the thread
+     * managed-tools launch already carries its one task-scoped endpoint as a process flag, so the thread
      * leaves that map alone rather than emptying it.
      */
     static Map<String, Object> threadConfig(
@@ -308,22 +308,22 @@ final class CodexLaunchProfile
         return "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t") + "\"";
     }
 
-    /** What a launch needs to expose the CodeGraph tool: where the task MCP endpoint is and what to tell the model. */
-    record CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment, Optional<Path> reviewGate)
+    /** What a launch needs to expose the managed tools: where the task MCP endpoint is and what to tell the model. */
+    record ManagedToolsLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment, Optional<Path> reviewGate)
     {
-        static final String TOKEN_VARIABLE = "BYTEQUAY_CODEGRAPH_TOKEN";
+        static final String TOKEN_VARIABLE = "BYTEQUAY_TOOL_TOKEN";
 
-        CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames)
+        ManagedToolsLaunch(URI endpoint, String instruction, List<String> toolNames)
         {
             this(endpoint, instruction, toolNames, true, Optional.empty());
         }
 
-        CodeGraphLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment)
+        ManagedToolsLaunch(URI endpoint, String instruction, List<String> toolNames, boolean bearerTokenInEnvironment)
         {
             this(endpoint, instruction, toolNames, bearerTokenInEnvironment, Optional.empty());
         }
 
-        CodeGraphLaunch
+        ManagedToolsLaunch
         {
             requireNonNull(endpoint, "endpoint is null");
             requireNonNull(instruction, "instruction is null");

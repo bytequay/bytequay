@@ -16,8 +16,6 @@ package com.bytequay.app.workspace;
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentTask;
-import com.bytequay.agent.core.CodeGraphService;
-import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -59,7 +57,6 @@ public class WorkspaceDeletionService
     private final WorktreeService worktreeService;
     private final WorkspacePaths paths;
     private final GitCommandRunner git;
-    private final CodeGraphService codeGraph;
     private final ModelSettingsService models;
     private final ContextSpecCheckService specChecks;
 
@@ -71,7 +68,6 @@ public class WorkspaceDeletionService
             WorktreeService worktreeService,
             WorkspacePaths paths,
             GitCommandRunner git,
-            CodeGraphService codeGraph,
             ModelSettingsService models,
             ContextSpecCheckService specChecks)
     {
@@ -82,7 +78,6 @@ public class WorkspaceDeletionService
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.paths = requireNonNull(paths, "paths is null");
         this.git = requireNonNull(git, "git is null");
-        this.codeGraph = requireNonNull(codeGraph, "codeGraph is null");
         this.models = requireNonNull(models, "models is null");
         this.specChecks = requireNonNull(specChecks, "specChecks is null");
     }
@@ -121,7 +116,6 @@ public class WorkspaceDeletionService
             requireIdle(workspaceId, ImmutableList.of());
             verifyDirectory(current, ImmutableList.of());
             deleteDirectory(current);
-            codeGraph.deleteBaseline(new RepositoryIdentity(current.selectedRepository().owner(), current.selectedRepository().repo()));
             models.clearWorkspaceOverrides(workspaceId);
             specChecks.deleteWorkspaceData(workspaceId);
             workspaces.delete(workspaceId);

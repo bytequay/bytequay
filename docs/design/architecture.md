@@ -339,6 +339,13 @@ so a leftover lock file never blocks a restart.
 | `app` | Spring composition, HTTP/SSE, GitHub clients, application services, managed workspace/worktree Git operations, schedulers, configuration, and executable packaging | Provider branching in controllers or direct JPA access from web code |
 
 The frontend remains an npm project and does not become a Maven module.
+Code & Tests has a dedicated `WebContentsView` for Monaco and selected VS Code
+services. ByteQuay keeps its React file tree, review cards, toolbar and bottom
+panel composition. A lazy task-bound server owned by the existing process
+supervisor supplies language extensions. Editor and agent queries share that
+runtime; GoalPlanner reads bounded baseline Git excerpts without an index.
+CodeGraph and the former CodeMirror editor are retired. See
+[Code & Tests](code-tests.md) for execution claims, drafts and idle disposal.
 
 ## 4. Why there are no more modules
 
@@ -374,7 +381,7 @@ extension point currently justified.
    writes require direct explicit authorization from user input or accepted
    automation. Review, CI, cherry-pick, and helpers retain narrower profiles.
    Fixed task tools are
-   defined by their feature designs: CodeGraph exploration, review/local
+   defined by their feature designs: shared IDE code queries, review/local
    reporting, task-scoped CI evidence, and the bounded development publication
    tool. They do not create a general product-tool framework.
 8. Java Platform Module System descriptors are unnecessary; Maven dependency
@@ -652,7 +659,7 @@ React projection implement this end-to-end flow:
    icons, elapsed clocks, queue state, and root/child navigation without
    interpreting raw provider payloads.
 10. Native execution remains in the provider harness. Fixed task tools follow
-    the separately defined CodeGraph, review, local-comment, and development
+    the separately defined IDE-query, review, local-comment, and development
     delivery contracts. Generated draft publication uses its task-bound tool
     and backend-verified destination and lease; an ordinary user turn may
     instead attempt explicitly authorized CLI publishing under the shared
@@ -730,8 +737,8 @@ renderer crashes detach the native surface and expose a reload action.
 - Stock provider tool workloads run through the selected sandbox and approval
   policy. App Server and Claude retain the provider traffic their control loops
   require; endpoint-level OS filtering is not claimed by this first design.
-  Fixed task-tool boundaries are specified separately; the optional CodeGraph
-  tool remains fail-open. Directly owned App
+  Fixed task-tool boundaries are specified separately; the optional shared IDE
+  query tool remains fail-open. Directly owned App
   Server and Claude processes use durable launch intents/markers. Codex first
   verifies current-run agent status, tools, children, and background terminals,
   records finished work on that launch, and stops the per-turn App Server.

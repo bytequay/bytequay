@@ -17,13 +17,12 @@ Memory is what an agent cannot read from the repository at its commit: how to
 build and test where the docs are silent or wrong, why code is the way it is,
 the rules maintainers enforce, corrections of an agent's thinking, how the user
 wants work done, and which specification governs which code. Everything else an
-agent rebuilds each turn with CodeGraph and reading.
+agent rebuilds each turn with semantic queries and source reading.
 
 - **What the notes did.** The notebook held 216 notes: 215 knowledge notes and
   one lesson. One note reached one development task. Ten reviews opened 18
   notes, used them as maps to the right code paths and re-read the code every
-  time; one was wrong because the code had moved on. CodeGraph, on every
-  worktree task, and the review history reads (`commit_prs`, `history`) cover
+  time; one was wrong because the code had moved on. Semantic queries, when available on a worktree task, and the review history reads (`commit_prs`, `history`) cover
   the same ground.
 - **What CodeRabbit keeps.** For each review it rebuilds a code graph and runs
   linters and shell checks in a sandbox. Between reviews it keeps only the
@@ -118,7 +117,7 @@ runs use today: no children, commits, pushes or credentials, on the review model
 setting.
 
 - It reads the filtered threads as untrusted reference data.
-- It may read the repository at the monitored head with CodeGraph and file reads
+- It may read the repository at the monitored head with permitted code queries and file reads
   to scope a rule and confirm it still applies.
 - It saves through one tool:
   - SAVE adds a new rule with its title.
@@ -200,7 +199,7 @@ deleted after the task's retention window.
 
 ### 3.5 Not stored
 
-- **How code works,** call paths and module layout: CodeGraph and reading.
+- **How code works,** call paths and module layout: semantic queries and source reading.
 - **Why a line is the way it is:** looked up on demand from blame, commit and
   pull request, with `commit_prs` and `history` in reviews.
 - **What the docs say:** it arrives as guidelines.

@@ -1,5 +1,9 @@
 # DeepSeek API-key lane implementation checklist
 
+Earlier CodeGraph references below are historical implementation checkpoints.
+The [IDE refactor](code-tests.md#shared-code-queries-and-retired-code) supersedes
+that engine with shared language queries and bounded baseline Git excerpts.
+
 The approved behavior is in [DeepSeek API-key task lane](deepseek-api-key-lane.md).
 This temporary file tracks implementation and verification; it is not another
 design. The approved design is committed as 2e3b3b935. CP1–CP4 recorded the

@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.web.review;
 
-import com.bytequay.agent.core.CodeSymbolResult;
 import com.bytequay.app.review.LocalRunRefusedException;
 import com.bytequay.app.review.LocalRunService;
 import com.bytequay.app.review.ReviewCodeService;
@@ -22,8 +21,6 @@ import com.bytequay.app.review.ReviewCodeService.Changes;
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
-import com.bytequay.app.review.ReviewCodeService.CodeGraphState;
-import com.bytequay.app.review.ReviewCodeService.CodeOutline;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.review.TaskCodeHost;
@@ -76,19 +73,17 @@ class TestTaskCodeController
     void readsAndSavesTheTaskWorkingCopyWithTheReviewRouteShapes()
             throws Exception
     {
-        when(code.files(HOST)).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, CodeGraphState.READY, Optional.of("fingerprint"), false, false, ImmutableList.of(
+        when(code.files(HOST)).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("fingerprint"), false, false, ImmutableList.of(
                 new CodeFileEntry("src/main/java/Code.java", true, false, false, true))));
         when(code.save(HOST, "src/main/java/Code.java", "class Code {}\n", "loaded")).thenReturn(new CodeFile(
                 "src/main/java/Code.java", Optional.of("class Code {}\n"), Optional.of("saved"), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of()));
         when(code.save(HOST, "src/main/java/Code.java", "draft\n", "stale")).thenThrow(new ReviewFileConflictException("disk", Optional.of("class Code { int x; }\n")));
-        when(code.outline(HOST, "src/main/java/Code.java")).thenReturn(new CodeOutline(CodeSymbolResult.Status.BUSY, ImmutableList.of()));
-        when(code.symbols(HOST, "Code", 50)).thenReturn(CodeSymbolResult.UPDATING);
         when(code.terminalDirectory(HOST)).thenReturn(Path.of("/managed/worktrees/task-1"));
 
         mvc.perform(withWorkspace(get(BASE + "/files")))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"source": "WORKING_COPY", "revision": "%s", "codeGraph": "READY", "sourceFingerprint": "fingerprint", "savedExperiment": false, "truncated": false,
+                        {"source": "WORKING_COPY", "revision": "%s", "sourceFingerprint": "fingerprint", "savedExperiment": false, "truncated": false,
                          "files": [{"path": "src/main/java/Code.java", "changedInPr": true, "addedInPr": false, "onlyInWorkingCopy": false, "uncommitted": true}]}
                         """.formatted(HEAD), JsonCompareMode.STRICT));
         mvc.perform(withWorkspace(put(BASE + "/file")).contentType(MediaType.APPLICATION_JSON).content("""
@@ -104,12 +99,6 @@ class TestTaskCodeController
                 .andExpect(content().json("""
                         {"currentHash": "disk", "currentContent": "class Code { int x; }\\n"}
                         """, JsonCompareMode.STRICT));
-        mvc.perform(withWorkspace(get(BASE + "/outline")).param("path", "src/main/java/Code.java"))
-                .andExpect(status().isOk())
-                .andExpect(content().json("{\"status\": \"BUSY\", \"symbols\": []}", JsonCompareMode.STRICT));
-        mvc.perform(withWorkspace(get(BASE + "/symbols")).param("query", "Code"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("UPDATING"));
         mvc.perform(withWorkspace(post(BASE + "/terminal")))
                 .andExpect(status().isOk())
                 .andExpect(content().json("{\"workingDirectory\": \"/managed/worktrees/task-1\"}", JsonCompareMode.STRICT));

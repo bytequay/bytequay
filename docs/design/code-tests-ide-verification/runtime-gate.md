@@ -521,3 +521,14 @@ The final frontend gate passes lint, TypeScript, 1,512 tests in 160 files and
 macOS arm64 packaging. Backend code is unchanged from the complete passing
 reactor verification recorded above. The isolated backend was shut down after
 verification.
+
+
+## Main integration verification
+
+The refactor was rebased onto the current local main, preserving its newer PR
+comment completion and Goal changes. The duplicate authentication-fixture timing
+fix keeps main's version; the Goal checklist keeps its completed status and the
+CodeGraph retirement note. Combined frontend lint, TypeScript, 1,515 tests in
+161 files and macOS arm64 packaging pass. The backend tree is identical to the
+previous complete passing reactor gate. Remaining native acceptance limits above
+are unchanged. Existing development data is not reset as part of integration.

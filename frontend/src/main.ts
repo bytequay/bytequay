@@ -963,6 +963,8 @@ function registerIpc(): void {
   // Starting or updating a review fetches remote refs and waits for provider startup before responding.
   ipcMain.handle('review:start', (_event, workspaceId: string, repo: string, number: number) =>
     review('', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }), signal: AbortSignal.timeout(15 * 60_000) }));
+  ipcMain.handle('review:worktree:prepare', (_event, workspaceId: string, repo: string, number: number) =>
+    review('/worktree', {}, { method: 'POST', body: JSON.stringify({ workspaceId, repo, number }), signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:task:find', async (_event, workspaceId: string, taskId: string) => {
     const response = await fetch(reviewUrl(`/tasks/${encodeURIComponent(taskId)}`, { workspaceId }), { headers: agentHeaders() });
     if (response.status === 204) return null;

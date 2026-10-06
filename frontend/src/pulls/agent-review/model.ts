@@ -27,6 +27,7 @@ import { formatDuration } from '../../agents/transcript';
  * lifecycle beyond open and closed; everything here is read from what already happened.
  */
 type ReviewStatus =
+  | 'prepared'
   | 'running'
   | 'approval'
   | 'queued'
@@ -156,6 +157,9 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
     return queued > 0
       ? { status: 'queued', label, tone: 'running', detail: `${queued} ${queued === 1 ? 'question' : 'questions'} queued`, chip: `${label} · ${queued} queued`, busy: true }
       : { status: 'running', label, tone: 'running', detail, chip: label, busy: true };
+  }
+  if (run === null) {
+    return { status: 'prepared', label: 'Ready to explore', tone: 'neutral', detail: 'working copy ready · agent review not started', chip: null, busy: false };
   }
   if (review.followUpPaused && run !== null && (run.state === 'STOPPED' || run.state === 'RUNNING')) {
     return { status: 'stopped', label: 'Stopped', tone: 'neutral', detail: 'follow-up paused · discussion open', chip: 'Stopped', busy: false };

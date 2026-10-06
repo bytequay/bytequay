@@ -143,6 +143,19 @@ The header’s merge/check-status control shows the actions available for that P
 **Ready for review**, **Rebase and merge**, or **Merge when ready**. Monitoring with the
 bell does not enable automatic CI repair.
 
+## Explore a pull request locally
+
+For a PR in a watched repository, open **WorkBench → Code & Tests** and choose
+**Create worktree to explore**. ByteQuay checks out the PR branch's latest commit
+into a managed local worktree and opens the editor. The local code server runs
+in the background and uses additional memory.
+
+Browse files, edit code, or run tests without starting an agent review. When you
+choose **Start review** in **Summary**, the reviewer reuses this working copy.
+An existing development task's working copy remains available directly. Before
+starting a review, **Summary → Remove worktree** releases a clean exploration
+checkout; saved edits must be discarded first.
+
 <a id="private-review"></a>
 
 ## Ask for a private agent review
@@ -445,7 +458,7 @@ measure of someone’s work.
 - **An agent is unavailable:** open **Settings → Agents → Models**, sign in, choose
   **Check**, and wait for **Ready**. Check the workspace’s model override too.
 - **Commits or files are unavailable:** wait for repository preparation. Code & Tests
-  needs an existing task or review working copy.
+  lets you create a working copy for a PR in a watched repository.
 - **A queue is paused:** address the displayed cause, then **Resume queue**. Inspect
   uncertain delivery before sending the same message again.
 - **A feature differs from this guide:** check your release version and its release

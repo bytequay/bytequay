@@ -132,6 +132,16 @@ public class ReviewController
         return ReviewHttpModels.review(reviews.start(request.workspaceId(), request.repo(), number));
     }
 
+    @PostMapping("/worktree")
+    public ReviewHttpModels.ReviewResponse prepare(@RequestBody ReviewHttpModels.StartRequest request)
+    {
+        requireNotBlank(request.workspaceId(), "workspaceId must not be blank");
+        requireNotBlank(request.repo(), "repo must not be blank");
+        int number = required(request.number(), "number");
+        PullRequestRefUtil.parseRef(request.repo(), number);
+        return ReviewHttpModels.review(reviews.prepare(request.workspaceId(), request.repo(), number));
+    }
+
     @GetMapping("/tasks/{sourceTaskId}")
     public ResponseEntity<ReviewHttpModels.ReviewResponse> findForTask(@PathVariable String sourceTaskId, @RequestParam String workspaceId)
     {

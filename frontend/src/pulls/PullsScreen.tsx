@@ -820,8 +820,8 @@ export default function PullsScreen({
   const codeTaskKey = reviewKey === null || workspaceId === undefined ? null : `${reviewKey}@${workspaceId}`;
   const codeTask = reviewWorkspace === undefined && codeTaskLookup !== null && codeTaskLookup.key === codeTaskKey ? codeTaskLookup.task : null;
   const codeTaskLoading = reviewWorkspace === undefined && codeTaskKey !== null && codeTaskLookup?.key !== codeTaskKey;
-  // The user's own pull request has Code & Tests only while a development task or a review holds a worktree for it.
-  const codeTabShown = codeTask !== null || review !== null;
+  // A watched repository can prepare a working copy before any agent review exists.
+  const codeTabShown = workspaceId !== undefined;
   // Private threads on the conversation's comments belong to the development task Code & Tests reads, else to the review the
   // pane shows. There is no host while the task lookup runs, so one host's threads never show before the other's.
   const threadReview = codeTask !== null || codeTaskLoading || review === null || review.replay !== undefined || review.number === null ? null : review;
@@ -1515,7 +1515,7 @@ export function PullDetailHeader({
             onClick={() => onTab(pr !== null ? 'files' : 'changes')}><Diff size={14} aria-hidden="true" /> Changes</button>
           <button type="button" className={tab === 'review' ? 'is-active' : ''} aria-pressed={tab === 'review'} onClick={() => onTab('review')}><CommentIcon /> Summary</button>
           <button type="button" className={tab === 'code' ? 'is-active' : ''} aria-pressed={tab === 'code'} onClick={() => onTab('code')} disabled={!codeAvailable}
-            title={codeAvailable ? undefined : 'Available when this task has a worktree'}><Code size={14} aria-hidden="true" /> Code &amp; Tests</button>
+            title={codeAvailable ? undefined : 'Watch this repository to explore its code'}><Code size={14} aria-hidden="true" /> Code &amp; Tests</button>
         </nav>
         {tab === 'review' && <div className="pull-detail__summary-toolbar" ref={onSummaryToolbar} />}
         {changesSelected && <div className="pull-detail__changes-tools">

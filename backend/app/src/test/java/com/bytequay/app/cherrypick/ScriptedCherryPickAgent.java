@@ -182,6 +182,12 @@ final class ScriptedCherryPickAgent
     @Override
     public AgentTask create(CreateAgentTaskCommand command)
     {
+        return prepare(command);
+    }
+
+    @Override
+    public AgentTask prepare(CreateAgentTaskCommand command)
+    {
         TaskWorktree worktree = worktrees.provision(new ProvisionWorktreeCommand(
                 command.taskId(),
                 command.workspaceId(),

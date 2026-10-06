@@ -673,11 +673,18 @@ class TestReviewCodeService
     }
 
     @Test
-    void requiresAReviewWithARun()
+    void exploresAndEditsAPreparedWorktreeBeforeAnyReviewRun()
     {
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of());
-        assertThatThrownBy(() -> service.files(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("This review has no run yet");
-        assertThatThrownBy(() -> service.file(REVIEW_ID, TEST_PATH)).isInstanceOf(ReviewConflictException.class);
+        git(repository, "update-ref", "refs/remotes/origin/main", head);
+        assertThat(service.ideWorktree(REVIEW_ID)).isEqualTo(worktree);
+        assertThat(service.terminalDirectory(REVIEW_ID)).isEqualTo(checkout);
+        assertThat(service.files(REVIEW_ID).revision()).isEqualTo(head);
+        CodeFile loaded = service.file(REVIEW_ID, TEST_PATH);
+        assertThat(loaded.content()).contains("test source\n");
+        assertThat(loaded.editable()).isTrue();
+        assertThat(service.save(REVIEW_ID, TEST_PATH, "exploration edit\n", loaded.contentHash().orElseThrow()).content()).contains("exploration edit\n");
+        assertThat(service.changes(REVIEW_ID, ChangeScope.UNCOMMITTED, Optional.empty(), Optional.empty(), Optional.empty()).files()).isNotEmpty();
         assertThatThrownBy(() -> service.files("missing")).isInstanceOf(ReviewNotFoundException.class);
     }
 

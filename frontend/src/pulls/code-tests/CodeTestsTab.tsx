@@ -34,7 +34,7 @@ export type CodeTestsBridge = Pick<Bridge,
   | 'resizeReviewTerminal'
   | 'onReviewTerminalEvent'
   | 'listAgentReviews'
-  | 'startAgentReview'
+  | 'prepareReviewWorktree'
   | 'getAgentReview'
   | 'syncReviewWorktree'
   | 'subscribeAgentReview'
@@ -139,7 +139,7 @@ function NoReview({ detail, workspaceId, bridge, onReviewChange, onOpenEnded }: 
     return (
       <div className="ct-empty agr-empty">
         <div className="agr-empty__title">Code &amp; Tests needs a watched repository</div>
-        <p>Watch {detail.repo} in Workspaces, then start an agent review. Code &amp; Tests reads that review&apos;s working copy.</p>
+        <p>Watch {detail.repo} in Workspaces to create a worktree and explore this pull request&apos;s code.</p>
       </div>
     );
   }
@@ -147,7 +147,7 @@ function NoReview({ detail, workspaceId, bridge, onReviewChange, onOpenEnded }: 
   const start = () => {
     setStarting(true);
     setError(null);
-    void bridge.startAgentReview(workspaceId, detail.repo, detail.number)
+    void bridge.prepareReviewWorktree(workspaceId, detail.repo, detail.number)
       .then(onReviewChange)
       .catch(failure => setError(remoteErrorMessage(failure)))
       .finally(() => setStarting(false));
@@ -157,12 +157,13 @@ function NoReview({ detail, workspaceId, bridge, onReviewChange, onOpenEnded }: 
     <div className="ct-empty agr-empty">
       <div className="agr-empty__title">No working copy yet</div>
       <p>
-        Code &amp; Tests reads the working copy of this pull request&apos;s agent review. Starting a review checks out the
-        pull request&apos;s exact head into a managed worktree. Nothing is posted to GitHub.
+        Create a local worktree from this pull request&apos;s branch to browse files, edit code, and run tests.
+        ByteQuay checks out the latest PR commit. You can start an agent review later using this working copy.
       </p>
+      <p>Opening the editor starts a local code server in the background, which uses additional memory.</p>
       <div className="agr-empty__actions">
         <button type="button" className="agr-action is-primary" disabled={starting} onClick={start}>
-          {starting ? 'Starting…' : 'Start review'}
+          {starting ? 'Creating worktree…' : 'Create worktree to explore'}
         </button>
       </div>
       {error !== null && <div className="agr-error" role="alert">{error}</div>}

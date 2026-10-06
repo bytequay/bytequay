@@ -113,6 +113,14 @@ public final class DefaultAgentTaskService
     {
         requireNonNull(command, "command is null");
         requireReady(command.laneId(), command.defaults().permissionPolicy());
+        return prepare(command);
+    }
+
+    @Override
+    public AgentTask prepare(CreateAgentTaskCommand command)
+    {
+        requireNonNull(command, "command is null");
+        driverRegistry.require(command.laneId());
         if (taskStore.find(command.taskId()).isPresent()) {
             throw new AgentConflictException("Task already exists: " + command.taskId());
         }

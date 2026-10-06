@@ -45,7 +45,7 @@ const reviewDetail = (review: AgentReviewDto): PullRequestDetailDto => ({
   checkRuns: [], unavailableSections: [], viewerCanWrite: false,
 });
 
-export async function runMainScreen(keepMounted = false): Promise<string> {
+export async function runMainScreen(keepMounted = false, explore = false): Promise<string> {
   let detail: PullRequestDetailDto = {
     id: 7, repo: 'owner/repo', number: 7, title: 'Implementation', htmlUrl: null, state: 'open', draft: true,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
@@ -72,6 +72,9 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
     fetchPrs: async () => ({ pullRequests: [row], page: 0, pageSize: 50, totalPullRequests: 1, openPullRequests: 1, hasMore: false }),
     onPullRequestsSynced: () => () => {},
     listWorkspaces: async () => [],
+    findAgentReview: async () => null,
+    findPullRequestTask: async () => null,
+    listAgentReviews: async () => [],
     listLocalReviewComments: async () => [],
     fetchPullRequestDetailByRef: async () => detail,
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
@@ -82,7 +85,7 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'listLocalReviewComments' | 'fetchPullRequestDetailByRef'
     | 'refreshPullRequestDetailByRef' | 'refreshAllPullRequestDetailByRef' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits'
-    | 'refreshPrDiffFiles' | 'recordRecentTouch'>;
+    | 'refreshPrDiffFiles' | 'recordRecentTouch' | 'findAgentReview' | 'findPullRequestTask' | 'listAgentReviews'>;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
   document.body.append(host);
@@ -100,12 +103,20 @@ export async function runMainScreen(keepMounted = false): Promise<string> {
     await settle();
   };
   try {
-    flushSync(() => root.render(<PullsScreen />));
+    flushSync(() => root.render(<PullsScreen repositoryScope={explore ? { workspaceId: 'workspace-1', repository: 'owner/repo' } : undefined} />));
     for (let attempts = 0; attempts < 45 && !host.textContent?.includes('Original description'); attempts++) await settle();
     assert(host.textContent?.includes('Original description') === true && host.querySelector('.attention-visit-status') === null
       && loadHandled()['owner/repo#7'] === undefined,
     'A loaded PR must omit the visit label while its attention notification remains visible');
     button('WorkBench').click(); await settle();
+    if (explore) {
+      assert(!button('Code & Tests').disabled, 'Watched repositories must offer exploration before any task or review exists');
+      button('Code & Tests').click(); await settle();
+      assert(button('Create worktree to explore') !== undefined && host.textContent?.includes('additional memory'),
+        'The Code & Tests tab must offer explicit worktree creation and disclose memory use');
+      return 'Watched PRs offer exploration before a review exists';
+    }
+    assert(button('Code & Tests').disabled, 'Unwatched repositories must not offer local code exploration');
     const firstView = host.querySelector('[aria-label="WorkBench views"] button');
     assert(firstView?.textContent?.trim() === 'Changes' && firstView.getAttribute('aria-pressed') === 'true',
       'Opening WorkBench must select its leftmost Changes tab');

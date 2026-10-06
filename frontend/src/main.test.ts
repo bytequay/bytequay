@@ -217,6 +217,7 @@ it('routes CI detail reads and replies to the authenticated CI API', async () =>
 
 it.each([
   { channel: 'review:start', args: ['workspace-1', 'trinodb/trino', 31102] },
+  { channel: 'review:worktree:prepare', args: ['workspace-1', 'trinodb/trino', 31102] },
   { channel: 'review:resume', args: ['review-1'] },
   { channel: 'review:update', args: ['review-1'] },
   { channel: 'review:code:sync', args: ['review-1', 'a'.repeat(40)] },

@@ -36,7 +36,7 @@ function bridge(): CodeTestsBridge {
     resizeReviewTerminal: vi.fn(),
     onReviewTerminalEvent: vi.fn(),
     listAgentReviews: vi.fn(),
-    startAgentReview: vi.fn(),
+    prepareReviewWorktree: vi.fn(),
     getAgentReview: vi.fn(),
     syncReviewWorktree: vi.fn(),
     subscribeAgentReview: vi.fn(),
@@ -50,13 +50,17 @@ describe('CodeTestsTab', () => {
       onReviewChange={() => {}} active ownReviewStream bridge={bridge()} />);
     expect(html).toContain('Code &amp; Tests needs a watched repository');
     expect(html).not.toContain('Start review');
+    expect(html).not.toContain('Create worktree to explore');
   });
 
-  it('offers Start review when the pull request has no working copy yet', () => {
+  it('offers exploration with a memory notice before starting any review', () => {
     const html = renderToStaticMarkup(<CodeTestsTab detail={detail} workspaceId="workspace-1" review={null}
       onReviewChange={() => {}} active ownReviewStream bridge={bridge()} />);
     expect(html).toContain('No working copy yet');
-    expect(html).toContain('Start review');
+    expect(html).toContain('Create worktree to explore');
+    expect(html).toContain('local code server');
+    expect(html).toContain('additional memory');
+    expect(html).not.toContain('>Start review</button>');
   });
 
   it('opens the modular IDE for an active review', () => {

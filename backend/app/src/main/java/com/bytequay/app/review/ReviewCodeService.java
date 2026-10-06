@@ -678,19 +678,23 @@ public class ReviewCodeService
     {
         AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
         List<ReviewRun> runs = store.listRuns(reviewId);
-        if (runs.isEmpty()) {
-            throw new ReviewConflictException("This review has no run yet");
-        }
-        ReviewRun run = runs.getLast();
         AgentTask task = reviews.task(reviewId);
         Optional<Path> checkout = checkout(task);
         Optional<String> ended = review.state() == AgentReview.State.OPEN ? Optional.empty() : Optional.of("This review has ended — read-only");
+        if (runs.isEmpty()) {
+            Path directory = checkout.orElseGet(() -> repository(task));
+            String head = checkout.isPresent() ? head(directory) : review.worktreeHeadSha().orElseThrow();
+            Supplier<Base> base = Suppliers.memoize(() -> reviewBase(review, Optional.empty(), directory, head));
+            return new Source(task, checkout, Suppliers.memoize(() -> localDiff.diff(directory, base.get().sha(), Optional.of(head)).files()),
+                    () -> Optional.of(base.get().sha()), () -> head, ended);
+        }
+        ReviewRun run = runs.getLast();
         if (live && checkout.isPresent()) {
             Path directory = checkout.orElseThrow();
             String head = head(directory);
             if (!head.equals(run.headSha())) {
                 // Catch-up changes code without changing the frozen review. Derive file marks from the checkout's own committed revision.
-                Supplier<Base> base = Suppliers.memoize(() -> reviewBase(review, run, directory, head));
+                Supplier<Base> base = Suppliers.memoize(() -> reviewBase(review, Optional.of(run), directory, head));
                 return new Source(task, checkout, Suppliers.memoize(() -> localDiff.diff(directory, base.get().sha(), Optional.of(head)).files()),
                         () -> Optional.of(base.get().sha()), () -> head, ended);
             }
@@ -706,15 +710,17 @@ public class ReviewCodeService
         }
     }
 
-    private Base reviewBase(AgentReview review, ReviewRun run, Path checkout, String head)
+    private Base reviewBase(AgentReview review, Optional<ReviewRun> run, Path checkout, String head)
     {
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
         String baseRef = review.number().stream().boxed().findFirst()
                 .flatMap(number -> pullRequests.findPullRequestDetail(review.repo(), number))
-                .flatMap(detail -> Optional.ofNullable(detail.baseRef())).orElse(run.baseRef());
+                .flatMap(detail -> Optional.ofNullable(detail.baseRef())).or(() -> run.map(ReviewRun::baseRef))
+                .orElseThrow(() -> new ReviewConflictException("The pull request base branch is unavailable; refresh the pull request"));
         String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
         Result base = localDiff.read(checkout, "rev-parse", "--verify", "refs/remotes/" + remote + "/" + baseRef + "^{commit}");
-        String tip = base.successful() && !base.truncated() ? base.output().strip() : run.baseSha();
+        String tip = base.successful() && !base.truncated() ? base.output().strip()
+                : run.map(ReviewRun::baseSha).orElseThrow(() -> new ReviewConflictException("The pull request base commit is unavailable"));
         return new Base(localDiff.require(checkout, "merge-base", tip, head).strip(), baseRef);
     }
 
@@ -791,10 +797,15 @@ public class ReviewCodeService
         boolean historical = scope == ChangeScope.COMMITTED || head.isPresent();
         Source source = source(reviewId, !historical);
         List<ReviewRun> runs = store.listRuns(reviewId);
+        if (runs.isEmpty()) {
+            Base defaultBase = reviewBase(store.findReview(reviewId).orElseThrow(), Optional.empty(),
+                    source.checkout().orElseGet(() -> repository(source.task())), source.headSha().get());
+            return changes(source, defaultBase, scope, commit, base, head, Optional.of(reviewId));
+        }
         ReviewRun run = head.map(revision -> runs.reversed().stream().filter(item -> item.headSha().equals(revision)).findFirst()
                 .orElseThrow(() -> new ReviewNotFoundException("No review run exists for this revision"))).orElseGet(runs::getLast);
         Base defaultBase = historical || source.checkout().isEmpty() ? new Base(run.mergeBaseSha(), run.baseRef())
-                : reviewBase(store.findReview(reviewId).orElseThrow(), run, source.checkout().orElseThrow(), source.headSha().get());
+                : reviewBase(store.findReview(reviewId).orElseThrow(), Optional.of(run), source.checkout().orElseThrow(), source.headSha().get());
         return changes(source, defaultBase, scope, commit, base, head, Optional.of(reviewId));
     }
 

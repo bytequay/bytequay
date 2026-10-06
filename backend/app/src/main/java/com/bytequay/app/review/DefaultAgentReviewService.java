@@ -278,26 +278,40 @@ public class DefaultAgentReviewService
     @Override
     public AgentReviewProjection start(String workspaceId, String repo, int number)
     {
+        return prepare(workspaceId, repo, number, true);
+    }
+
+    @Override
+    public AgentReviewProjection prepare(String workspaceId, String repo, int number)
+    {
+        return prepare(workspaceId, repo, number, false);
+    }
+
+    private AgentReviewProjection prepare(String workspaceId, String repo, int number, boolean startReview)
+    {
         String repository = normalize(repo);
         Lock lock = startLocks.get(workspaceId + "/" + repository + "#" + number);
         lock.lock();
         try {
-            Optional<AgentReview> existing = store.findOpenReview(workspaceId, repository, number);
-            if (existing.isPresent()) {
-                return projection(existing.orElseThrow().id());
-            }
             WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
             String monitored = (workspace.monitoredRepository().owner() + "/" + workspace.monitoredRepository().repo()).toLowerCase(Locale.ROOT);
             if (!monitored.equals(repository)) {
                 throw new ReviewInvalidRequestException("Pull request " + repository + "#" + number + " does not belong to this workspace");
             }
+            Optional<AgentReview> existing = store.findOpenReview(workspaceId, repository, number);
+            if (existing.isPresent()) {
+                String reviewId = existing.orElseThrow().id();
+                return locked(reviewId, () -> startReview && store.listRuns(reviewId).isEmpty() ? resume(reviewId) : projection(reviewId));
+            }
             ModelSelection selection = selectModel(workspaceId);
-            WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
+            if (startReview) {
+                WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
+            }
             Snapshot snapshot = snapshot(workspace, repository, number);
             TaskId taskId = TaskId.random();
             String title = "Review " + repository + "#" + number;
             String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
-            AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> tasks.create(new CreateAgentTaskCommand(
+            CreateAgentTaskCommand command = new CreateAgentTaskCommand(
                     taskId,
                     workspaceId,
                     selection.laneId(),
@@ -305,7 +319,8 @@ public class DefaultAgentReviewService
                     snapshot.headSha(),
                     branch,
                     title,
-                    selection.defaults())));
+                    selection.defaults());
+            AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> startReview ? tasks.create(command) : tasks.prepare(command));
             Instant now = Instant.now(clock);
             String reviewId = UUID.randomUUID().toString();
             return locked(reviewId, () -> {
@@ -318,7 +333,7 @@ public class DefaultAgentReviewService
                         task.id().toString(),
                         Optional.empty(),
                         AgentReview.State.OPEN,
-                        false,
+                        !startReview,
                         Optional.empty(),
                         Optional.of(snapshot.headSha()),
                         Optional.of(snapshot.headSha()),
@@ -327,7 +342,9 @@ public class DefaultAgentReviewService
                         now,
                         Optional.empty()));
                 observer.watch(review);
-                startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
+                if (startReview) {
+                    startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
+                }
                 return projection(review.id());
             });
         }

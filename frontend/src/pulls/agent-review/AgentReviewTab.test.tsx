@@ -78,6 +78,15 @@ function draftWith(items: ReviewDraftDto['items']): ReviewDraftDto {
 }
 
 describe('starting a review', () => {
+  it('offers review of an already prepared working copy without claiming a review is running', () => {
+    const html = tab(reviewFixture({ runs: [], followUpPaused: true, activeTurn: null }));
+    expect(html).toContain('Ready to explore');
+    expect(html).toContain('Start review');
+    expect(html).toContain('Remove worktree');
+    expect(html).not.toContain('>Update review</button>');
+    expect(html).not.toContain('>Reviewing</strong>');
+  });
+
   it('offers Start review and separates private availability from publication rights', () => {
     const html = tab(null);
     expect(html).toContain('No agent review yet');

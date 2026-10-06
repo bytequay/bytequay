@@ -55,6 +55,9 @@ public interface AgentTaskService
      */
     AgentTask create(CreateAgentTaskCommand command);
 
+    /** Prepares a workflow-owned working copy without requiring a ready provider or starting a turn. */
+    AgentTask prepare(CreateAgentTaskCommand command);
+
     /**
      * Returns the latest durable representation of a task.
      *

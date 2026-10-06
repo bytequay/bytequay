@@ -14,6 +14,14 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
+it('allows watched PRs to open Code & Tests before a review or task exists', async () => {
+  const result = await runBrowserFixture<string>({
+    prefix: 'bytequay-pull-explore-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullExploreTests', styles: true,
+    body: "const results = await window.webContents.executeJavaScript('PullExploreTests.runMainScreen(false, true)');",
+  });
+  expect(result).toContain('Watched PRs offer exploration');
+}, 30_000);
+
 it('edits PR titles with cancellation, validation, retry, and selection isolation', async () => {
   const result = await runBrowserFixture<string>({
     prefix: 'bytequay-pr-title-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullTitleTests', styles: true,

@@ -477,6 +477,46 @@ class TestDefaultAgentReviewService
     }
 
     @Test
+    void explorationPreparesOnceWithoutAProviderAndLaterReviewReusesItsTask()
+    {
+        Fixture fixture = new Fixture();
+        when(fixture.tasks.prepare(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
+        when(fixture.driver.probe()).thenThrow(new AssertionError("Exploration must not probe the agent provider"));
+
+        AgentReviewProjection prepared = fixture.service.prepare(WORKSPACE, REPO, NUMBER);
+        String reviewId = prepared.review().id();
+        assertThat(prepared.review().followUpPaused()).isTrue();
+        assertThat(prepared.review().worktreeHeadSha()).contains(HEAD);
+        assertThat(prepared.runs()).isEmpty();
+        assertThat(fixture.service.prepare(WORKSPACE, "Owner/Repo", NUMBER).review().id()).isEqualTo(reviewId);
+        fixture.service.reconcile(reviewId);
+        assertThat(fixture.store.listRuns(reviewId)).isEmpty();
+        verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
+
+        AgentReviewProjection started = fixture.service.start(WORKSPACE, REPO, NUMBER);
+        assertThat(started.review().id()).isEqualTo(reviewId);
+        assertThat(started.review().taskId()).isEqualTo(prepared.review().taskId());
+        assertThat(started.review().followUpPaused()).isFalse();
+        assertThat(started.runs()).hasSize(1);
+        assertThat(fixture.service.start(WORKSPACE, REPO, NUMBER).runs()).hasSize(1);
+        verify(fixture.tasks, times(1)).prepare(argThat(command -> command.startCommit().equals(HEAD)));
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.turns, times(1)).start(argThat(command -> command.taskId().equals(TASK_ID)));
+    }
+
+    @Test
+    void explorationRejectsAPullRequestOutsideTheWatchedRepository()
+    {
+        Fixture fixture = new Fixture();
+
+        assertThatThrownBy(() -> fixture.service.prepare(WORKSPACE, "someone/else", NUMBER)).hasMessageContaining("does not belong to this workspace");
+
+        verify(fixture.tasks, never()).prepare(any(CreateAgentTaskCommand.class));
+        verify(fixture.tasks, never()).create(any(CreateAgentTaskCommand.class));
+        verify(fixture.git, never()).run(any(Path.class), anyList());
+    }
+
+    @Test
     void aReplayReviewsItsPastHeadOutsideThePullRequestsReviewsAndEndsWithItsRun()
     {
         Fixture fixture = new Fixture();

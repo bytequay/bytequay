@@ -221,6 +221,21 @@ class TestDefaultAgentTaskService
     }
 
     @Test
+    void preparesWorkingCopyWithoutAReadyProvider()
+    {
+        driver.unavailable();
+
+        AgentTask task = service.prepare(command());
+
+        assertThat(task.state()).isEqualTo(TaskState.OPEN);
+        assertThat(task.interactive()).isFalse();
+        assertThat(task.taskWorktree()).contains(managedWorktrees.provisioned.getFirst());
+        assertThat(service.get(task.id())).isEqualTo(task);
+        assertThatThrownBy(() -> service.create(command())).isInstanceOf(AgentUnavailableException.class);
+        assertThat(managedWorktrees.provisioned).hasSize(1);
+    }
+
+    @Test
     void createsInternalTaskWithManagedWorktreeAndExposesDurableReads()
     {
         AgentTask task = service.create(command());

@@ -586,12 +586,14 @@ export default function AgentReviewTab({
         )}
         {!running && review.state === 'OPEN' && (
           <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
-            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.updateAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }); }}>Update review</button>
+            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.updateAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }); }}>
+            {review.runs.length === 0 ? 'Start review' : 'Update review'}</button>
         )}
         {!running && review.state === 'OPEN' && (
           <button type="button" className="agr-action is-quiet" disabled={busy || recovery || localRun}
             title={localRunReason ?? 'Completes the task and cleans the worktree; the summary, findings and discussion stay'}
-            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.endAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>End review</button>
+            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.endAgentReview(review.id)); recordReviewAttentionAction(review, 'update'); }); }}>
+            {review.runs.length === 0 ? 'Remove worktree' : 'End review'}</button>
         )}
       </div> : null;
   return (

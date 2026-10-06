@@ -1855,6 +1855,7 @@ export type Bridge = JiraBridge & {
   findAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto | null>;
   /** Starts a private review, or returns the open one: one review per workspace and pull request. */
   startAgentReview: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto>;
+  prepareReviewWorktree: (workspaceId: string, repo: string, number: number) => Promise<AgentReviewDto>;
   findTaskAgentReview: (workspaceId: string, taskId: string) => Promise<AgentReviewDto | null>;
   startTaskAgentReview: (workspaceId: string, taskId: string) => Promise<AgentReviewDto>;
   getAgentReview: (reviewId: string) => Promise<AgentReviewDto>;

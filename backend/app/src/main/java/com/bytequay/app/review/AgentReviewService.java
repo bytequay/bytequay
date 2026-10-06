@@ -46,6 +46,9 @@ public interface AgentReviewService
     /** Starts a review, or returns the open one: one review per workspace and pull request. */
     AgentReviewProjection start(String workspaceId, String repo, int number);
 
+    /** Prepares the PR working copy for exploration without starting an agent review. */
+    AgentReviewProjection prepare(String workspaceId, String repo, int number);
+
     /**
      * Starts one side of a replay: a review of a merged pull request's change at a past head, with or without repository memory.
      * It is never the pull request's review, so nothing it finds can be published, and it stays at that head.

@@ -86,7 +86,8 @@
 .jira-menu__check { flex: none; margin-left: auto; color: #0969da; }
 .jira-menu__title { padding: 6px 8px 4px; color: #656d76; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
 .jira-menu__empty { margin: 0; padding: 6px 8px; color: #8c959f; font-size: 12.5px; }
-.jira-scope-menu { width: 360px; padding: 0; border-radius: 12px; }
+/* A site can hold more boards than the window is tall. */
+.jira-scope-menu { width: 360px; max-height: calc(100vh - 130px); padding: 0; border-radius: 12px; overflow-y: auto; }
 .jira-scope-menu .jira-menu__item[aria-pressed=true] { font-weight: 600; }
 .jira-menu__section { padding: 10px 6px 8px; border-bottom: 1px solid #eff1f3; }
 .jira-menu__section h3 { margin: 0 8px 4px; color: #656d76; font-size: 11px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }

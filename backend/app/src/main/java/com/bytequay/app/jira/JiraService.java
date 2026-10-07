@@ -110,9 +110,17 @@ public class JiraService
         checkArgument(boardId > 0, "Invalid board id");
         String key = siteKey(connectionId, cloudId) + ".sprints." + boardId;
         if (refresh) {
-            List<JiraDtos.Sprint> sprints = paged(connectionId, cloudId, "/rest/agile/1.0/board/" + boardId + "/sprint", "values", ImmutableMap.of("state",
-                    "active,future"), item -> JiraMapping.response(item, JiraDtos.Sprint.class));
-            cache.write(key, sprints);
+            try {
+                cache.write(key, paged(connectionId, cloudId, "/rest/agile/1.0/board/" + boardId + "/sprint", "values", ImmutableMap.of("state", "active,future"),
+                        item -> JiraMapping.response(item, JiraDtos.Sprint.class)));
+            }
+            catch (ResponseStatusException failure) {
+                if (failure.getStatusCode() != HttpStatus.UNPROCESSABLE_ENTITY) {
+                    throw failure;
+                }
+                // Jira rejects the sprint list of a board without sprints, such as a Kanban board.
+                cache.write(key, ImmutableList.of());
+            }
         }
         return cache.read(key, JiraDtos.Sprint[].class).map(ImmutableList::copyOf).orElseGet(ImmutableList::of);
     }
@@ -172,7 +180,19 @@ public class JiraService
                 params.put("jql", "assignee = currentUser()");
             }
             nextPageToken.ifPresent(token -> params.put("nextPageToken", token));
-            JsonNode response = get(scope.connectionId(), scope.cloudId(), query(path, params));
+            JsonNode response;
+            try {
+                response = get(scope.connectionId(), scope.cloudId(), query(path, params));
+            }
+            catch (ResponseStatusException failure) {
+                if (failure.getStatusCode() != HttpStatus.UNPROCESSABLE_ENTITY || !path.endsWith("/backlog")) {
+                    throw failure;
+                }
+                // Jira rejects the backlog of a Kanban board that has none; its open tickets are the board's own.
+                // ponytail: one rejected request per refresh of such a board; remember the answer per board if that shows.
+                params.put("jql", "statusCategory != Done" + (scope.mine() ? " AND assignee = currentUser()" : ""));
+                response = get(scope.connectionId(), scope.cloudId(), query("/rest/software/1.0/board/" + scope.boardId() + "/issue", params));
+            }
             Optional<String> next = response.path("isLast").asBoolean() ? Optional.empty() : JiraMapping.text(response, "nextPageToken");
             if (next.isPresent() && next.equals(nextPageToken)) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira repeated a page token. Refresh tickets to start again.");

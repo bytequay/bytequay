@@ -64,6 +64,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -603,6 +604,25 @@ class TestJiraService
         assertThat(recovered.nextPageToken()).isEmpty();
         assertThat(recovered.error()).isEmpty();
         verify(remote, times(2)).request(eq("connection"), eq("cloud"), org.mockito.ArgumentMatchers.contains("nextPageToken=next%2Ftoken"), eq("GET"), any());
+    }
+
+    @Test
+    void boardWithoutSprintsOrBacklogShowsItsOpenTickets()
+            throws Exception
+    {
+        ResponseStatusException rejected = new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "Jira request was rejected (HTTP 400).");
+        doThrow(rejected).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/agile/1.0/board/82/sprint"), eq("GET"), any());
+        doThrow(rejected).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/backlog?"), eq("GET"), any());
+        List<String> requests = new ArrayList<>();
+        doAnswer(call -> {
+            requests.add(URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8));
+            return json("{\"issues\":[" + ticket() + "],\"isLast\":true}");
+        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/issue?"), eq("GET"), any());
+        assertThat(jira.sprints("connection", "cloud", 82, true)).isEmpty();
+        JiraDtos.IssuePage page = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, Optional.empty());
+        assertThat(page.error()).isEmpty();
+        assertThat(page.issues()).extracting(JiraIssue::id).containsExactly("1001");
+        assertThat(requests).singleElement().asString().contains("statusCategory != Done AND assignee = currentUser()");
     }
 
     @Test

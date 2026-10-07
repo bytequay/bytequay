@@ -1119,7 +1119,8 @@ public final class PermissionBroker
         context.review().ifPresent(review -> review.tools().forEach(tool -> tools.add(new ToolDefinition(tool.name(), tool.description(), tool.inputSchema()))));
         context.issueContext().ifPresent(ignored -> tools.add(new ToolDefinition(
                 IssueContextBridge.TOOL_NAME,
-                "Read the accepted issue snapshot and locally cached source observations for this task; missing or stale context is marked. Read-only; no remote fetch",
+                "Read this task's local source context: its accepted issue or ticket snapshot with cached observations, and the Epic, its work list and this "
+                        + "task's work item when the task is Epic work; missing or stale context is marked. Read-only; no remote fetch",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false))));
         context.relatedWork().ifPresent(ignored -> tools.add(new ToolDefinition(RelatedWorkspaceBridge.TOOL_NAME,
                 "Start explicitly requested work in a related workspace, or read the linked conversation's result; root agent only",

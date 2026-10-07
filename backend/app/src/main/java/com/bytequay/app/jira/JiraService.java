@@ -284,6 +284,13 @@ public class JiraService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Ticket is not cached. Refresh it in Jira first.")));
     }
 
+    /** A ticket as any saved connection last cached it; no network. */
+    public Optional<JiraIssue> cachedIssue(String cloudId, String issueId)
+    {
+        return connections.list().stream().flatMap(connection -> cache.read(issueKey(connection.id(), cloudId, issueId), JiraIssue.class).stream()).findFirst()
+                .map(this::metadata);
+    }
+
     public void recordRead(String connectionId, String cloudId, String issueId, int dwellSeconds)
     {
         recent.jiraRead(issue(connectionId, cloudId, issueId), dwellSeconds);

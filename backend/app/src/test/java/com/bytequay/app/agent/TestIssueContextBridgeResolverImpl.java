@@ -22,7 +22,12 @@ import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.core.domain.Epic;
+import com.bytequay.core.domain.EpicChild;
 import com.bytequay.core.domain.GitHubIssueSource;
+import com.bytequay.core.domain.GoalItem;
+import com.bytequay.core.domain.GoalItemKind;
+import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
@@ -30,11 +35,15 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
+import com.bytequay.core.domain.WorkItem;
+import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.EpicStore;
 import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
+import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,6 +57,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.IntStream;
 
@@ -76,7 +86,10 @@ class TestIssueContextBridgeResolverImpl
     private final JiraIssueTaskStore jiraSources = mock(JiraIssueTaskStore.class);
     private final JiraService jira = mock(JiraService.class);
     private final ObjectMapper mapper = new ObjectMapper().registerModule(new Jdk8Module()).registerModule(new JavaTimeModule());
-    private final IssueContextBridgeResolverImpl resolver = new IssueContextBridgeResolverImpl(tasks, sources, workspaces, issues, details, mapper, jiraSources, jira);
+    private final WorkItemStore workItems = mock(WorkItemStore.class);
+    private final EpicStore epics = mock(EpicStore.class);
+    private final IssueContextBridgeResolverImpl resolver = new IssueContextBridgeResolverImpl(tasks, sources, workspaces, issues, details, mapper, jiraSources, jira,
+            workItems, epics);
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
 
     @BeforeEach
@@ -171,6 +184,80 @@ class TestIssueContextBridgeResolverImpl
         when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
         assertThatThrownBy(() -> bridge.read().get()).isInstanceOf(AgentConflictException.class);
         verifyNoInteractions(issues, details);
+    }
+
+    @Test
+    void epicWorkWithoutASourceReadsItsEpicAndItsPlaceInTheWork()
+            throws Exception
+    {
+        when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
+        String epicId = WorkItemLink.issueIdentity("github.com", 900);
+        WorkItem done = work("done", "Cache table metadata", WorkItem.State.DONE, 0, epicId, "", ImmutableList.of(), ImmutableList.of(
+                new WorkItemLink("PULL_REQUEST:github.com:upstream/repo#31", new GoalItem(GoalItemKind.PULL_REQUEST, "upstream/repo#31", "#31", "Cache table metadata", NOW))));
+        WorkItem current = work("current", "Invalidate on DDL", WorkItem.State.WORKING, 1, epicId, "Tables changed by DDL are read again", ImmutableList.of("done"),
+                ImmutableList.of(new WorkItemLink(WorkItemLink.taskIdentity(taskId.toString()), new GoalItem(GoalItemKind.TASK, taskId.toString(), "Task", "Invalidate", NOW))));
+        WorkItem elsewhere = work("elsewhere", "Work of another Epic", WorkItem.State.PLANNED, 0, WorkItemLink.issueIdentity("github.com", 901), "", ImmutableList.of(),
+                ImmutableList.of());
+        when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(current));
+        when(workItems.list("workspace")).thenReturn(ImmutableList.of(elsewhere, current, done));
+        when(sources.findEpic("github.com", 900)).thenReturn(Optional.of(new IssueEpic("github.com", 900, "upstream/repo", 9, true, NOW)));
+        when(issues.find(2, 9)).thenReturn(Optional.of(new RepositoryIssue(900, 9, "Metadata cache", "Epic description", "alice", "",
+                "https://github.com/upstream/repo/issues/9", ImmutableList.of(), ImmutableList.of(), 0, NOW, NOW)));
+        EpicChild child = new EpicChild(WorkItemLink.issueIdentity("github.com", 910), GoalItemKind.ISSUE, "upstream/repo#10", "#10", "Benchmark warm cache", "Open", false,
+                Optional.empty());
+        when(epics.find(epicId)).thenReturn(Optional.of(Epic.of(epicId, "workspace").withChildren(ImmutableList.of(child), NOW, false)));
+
+        IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        assertThat(bridge.instruction()).isEqualTo(IssueContextBridge.EPIC_INSTRUCTION);
+        JsonNode context = mapper.readTree(bridge.read().get());
+        assertThat(context.path("source").asText()).contains("no remote request");
+        assertThat(context.at("/epic/reference").asText()).isEqualTo("#9");
+        assertThat(context.at("/epic/title").asText()).isEqualTo("Metadata cache");
+        assertThat(context.at("/epic/description").asText()).isEqualTo("Epic description");
+        assertThat(context.at("/epic/children/0/reference").asText()).isEqualTo("#10");
+        assertThat(context.at("/epic/children/0/status").asText()).isEqualTo("Open");
+        assertThat(context.at("/epic/work")).extracting(item -> item.path("title").asText()).containsExactly("Cache table metadata", "Invalidate on DDL");
+        assertThat(context.at("/epic/work")).extracting(item -> item.path("current").asBoolean()).containsExactly(false, true);
+        assertThat(context.at("/epic/work/0/state").asText()).isEqualTo("DONE");
+        assertThat(context.at("/epic/work/0/links/0/reference").asText()).isEqualTo("#31");
+        assertThat(context.at("/epic/currentWork/position").asInt()).isEqualTo(2);
+        assertThat(context.at("/epic/currentWork/doneWhen").asText()).isEqualTo("Tables changed by DDL are read again");
+        assertThat(context.at("/epic/currentWork/waitsOn/0").asText()).isEqualTo("Cache table metadata");
+        assertThat(context.at("/epic/currentWork/links")).isEmpty();
+
+        // Its issue left the local store: the Epic's work stays readable.
+        when(issues.find(2, 9)).thenReturn(Optional.empty());
+        JsonNode evicted = mapper.readTree(bridge.read().get());
+        assertThat(evicted.at("/epic/status").asText()).isEqualTo("missing");
+        assertThat(evicted.at("/epic/title").isMissingNode()).isTrue();
+        assertThat(evicted.at("/epic/work")).hasSize(2);
+        // A task of another workspace reads none of this workspace's work.
+        when(task.workspaceId()).thenReturn(Optional.of("other"));
+        assertThat(resolver.resolve(taskId.toString())).isEmpty();
+        assertThatThrownBy(() -> bridge.read().get()).isInstanceOf(AgentConflictException.class);
+    }
+
+    @Test
+    void issueWorkOfAnEpicReadsItsEpicBesideItsIssue()
+            throws Exception
+    {
+        String epicId = WorkItemLink.issueIdentity("github.com", 900);
+        WorkItem current = work("current", "Fix selection", WorkItem.State.WORKING, 0, epicId, "", ImmutableList.of(), ImmutableList.of());
+        when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(current));
+        when(workItems.list("workspace")).thenReturn(ImmutableList.of(current));
+        IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        assertThat(bridge.instruction()).contains(IssueContextBridge.INSTRUCTION, IssueContextBridge.EPIC_INSTRUCTION);
+        JsonNode context = mapper.readTree(bridge.read().get());
+        assertThat(context.at("/acceptedIssue/body").asText()).isEqualTo(SOURCE.body());
+        assertThat(context.at("/epic/status").asText()).isEqualTo("missing");
+        assertThat(context.at("/epic/currentWork/title").asText()).isEqualTo("Fix selection");
+        assertThat(context.at("/epic/work")).hasSize(1);
+    }
+
+    private static WorkItem work(String id, String title, WorkItem.State state, long epicRank, String epicId, String criteria, List<String> blockedBy, List<WorkItemLink> links)
+    {
+        return new WorkItem(id, "workspace", Optional.empty(), title, WorkItem.Kind.DEVELOP, criteria, WorkItem.CompletionRule.MERGED_DELIVERY, state, 0, links,
+                ImmutableList.of(), NOW, NOW, WorkItem.Priority.NORMAL, 0, blockedBy, Optional.of(epicId), epicRank);
     }
 
     @Test

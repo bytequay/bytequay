@@ -14,6 +14,7 @@
 package com.bytequay.app.agent;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.AgentTaskStore;
@@ -84,18 +85,19 @@ public class IssueContextBridgeResolverImpl
                 .or(() -> jiraScope(taskId).map(ignored -> new IssueContextBridge(() -> readJira(taskId), IssueContextBridge.INSTRUCTION)));
     }
 
+    private Optional<AgentTask> readable(String taskId)
+    {
+        return tasks.find(TaskId.valueOf(taskId)).filter(task -> task.interactive() && task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty());
+    }
+
     private Optional<IssueTask> scope(String taskId)
     {
-        return tasks.find(TaskId.valueOf(taskId))
-                .filter(task -> task.interactive() && task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty())
-                .flatMap(task -> sources.findByTaskId(taskId).filter(link -> task.workspaceId().filter(link.workspaceId()::equals).isPresent()));
+        return readable(taskId).flatMap(task -> sources.findByTaskId(taskId).filter(link -> task.workspaceId().filter(link.workspaceId()::equals).isPresent()));
     }
 
     private Optional<JiraIssueTask> jiraScope(String taskId)
     {
-        return tasks.find(TaskId.valueOf(taskId))
-                .filter(task -> task.interactive() && task.state() == TaskState.OPEN && task.worktreeRemovedAt().isEmpty())
-                .flatMap(task -> jiraSources.findByTaskId(taskId).filter(link -> task.workspaceId().filter(link.workspaceId()::equals).isPresent()));
+        return readable(taskId).flatMap(task -> jiraSources.findByTaskId(taskId).filter(link -> task.workspaceId().filter(link.workspaceId()::equals).isPresent()));
     }
 
     private String readJira(String taskId)

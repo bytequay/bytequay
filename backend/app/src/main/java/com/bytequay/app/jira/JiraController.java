@@ -137,17 +137,19 @@ public class JiraController
 
     @GetMapping(SITE + "/issues")
     public JiraDtos.IssuePage issues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
-            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean completed)
+            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean coassigned,
+            @RequestParam(defaultValue = "false") boolean completed)
     {
-        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, false, Optional.empty());
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, coassigned, completed, false, Optional.empty());
     }
 
     @PostMapping(SITE + "/issues/refresh")
     public JiraDtos.IssuePage refreshIssues(@PathVariable String connectionId, @PathVariable String cloudId, @RequestParam long boardId,
-            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean completed,
+            @RequestParam Optional<Long> sprintId, @RequestParam(defaultValue = "true") boolean mine, @RequestParam(defaultValue = "false") boolean coassigned,
+            @RequestParam(defaultValue = "false") boolean completed,
             @RequestParam Optional<String> nextPageToken)
     {
-        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, completed, true, nextPageToken);
+        return jira.issues(connectionId, cloudId, boardId, sprintId, mine, coassigned, completed, true, nextPageToken);
     }
 
     @PostMapping(SITE + "/keys/{key}/refresh")

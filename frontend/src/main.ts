@@ -1815,11 +1815,12 @@ function registerIpc(): void {
   ipcMain.handle('jira:issues', (_event, query: JiraQuery, refresh: boolean) => {
     const params = new URLSearchParams({ boardId: String(query.boardId), mine: String(query.mine) });
     if (query.sprintId !== null) params.set('sprintId', String(query.sprintId));
+    if (query.coassigned) params.set('coassigned', 'true');
     if (query.completed) params.set('completed', 'true');
     if (query.nextPageToken !== undefined) params.set('nextPageToken', query.nextPageToken);
     return backendJson(`${jiraSitePath(query.connectionId, query.cloudId)}/issues${refresh ? '/refresh' : ''}?${params}`, {
       method: refresh ? 'POST' : 'GET', headers: agentHeaders(),
-      // One page needs two bounded Jira reads, each of which may also need an OAuth token read.
+      // A page can read custom fields, tickets, and descriptions, with OAuth token refreshes.
       ...(refresh ? { signal: AbortSignal.timeout(3 * 60_000) } : {}),
     });
   });

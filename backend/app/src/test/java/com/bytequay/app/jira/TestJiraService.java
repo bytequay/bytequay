@@ -302,7 +302,7 @@ class TestJiraService
         doReturn(json("{\"issues\":[" + ticket() + "],\"isLast\":true}")).when(remote)
                 .request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
         jira.poll();
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, Optional.empty()).issues()).extracting(JiraIssue::id).containsExactly("1001");
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, false, Optional.empty()).issues()).extracting(JiraIssue::id).containsExactly("1001");
         verify(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
     }
 
@@ -578,6 +578,50 @@ class TestJiraService
         assertThatThrownBy(() -> jira.editComment("connection", "cloud", "1001", "5", "Again", "U1")).hasMessageContaining("your own");
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void coassignmentQueriesUseSiteFieldsAcrossScopesAndKeepSeparateCaches(boolean mine)
+            throws Exception
+    {
+        doReturn(json("""
+                [{"id":"customfield_123","name":"Co-Assignees","schema":{"type":"array","items":"user"}},
+                 {"id":"customfield_456","name":"Co assignee","schema":{"type":"user"}},
+                 {"id":"customfield_789","name":"Co-assignee","schema":{"type":"string"}},
+                 {"id":"customfield_999","name":"Reviewer","schema":{"type":"user"}}]
+                """)).when(remote).request("connection", "cloud", "/rest/api/3/field", "GET", Optional.empty());
+        List<String> requests = new ArrayList<>();
+        doAnswer(call -> {
+            String path = URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8);
+            requests.add(path);
+            return json("{\"issues\":[" + completedTicket("2001") + "],"
+                    + (path.contains("nextPageToken") ? "\"isLast\":true}" : "\"nextPageToken\":\"next/token\"}"));
+        }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
+        String assignment = "(" + (mine ? "assignee = currentUser() OR " : "") + "cf[123] = currentUser() OR cf[456] = currentUser())";
+        JiraDtos.IssuePage sprint = jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, true, Optional.empty());
+        assertThat(sprint.error()).isEmpty();
+        assertThat(sprint.issues()).extracting(JiraIssue::id).containsExactly("2001");
+        JiraDtos.IssuePage next = jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, true, sprint.nextPageToken());
+        assertThat(next.error()).isEmpty();
+        assertThat(next.nextPageToken()).isEmpty();
+        assertThat(requests).allSatisfy(path -> assertThat(path).contains("/sprint/9/issue?", "jql=" + assignment));
+        assertThat(requests.getLast()).contains("nextPageToken=next/token");
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), mine, false, false, false, Optional.empty()).issues()).isEmpty();
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, false, Optional.empty()).issues()).hasSize(1);
+        verify(remote, times(2)).request("connection", "cloud", "/rest/api/3/field", "GET", Optional.empty());
+        jira.issues("connection", "cloud", 82, Optional.empty(), mine, true, false, true, Optional.empty());
+        assertThat(requests.getLast()).contains("/backlog?", "jql=" + assignment);
+        jira.issues("connection", "cloud", 82, Optional.empty(), mine, true, true, true, Optional.empty());
+        assertThat(requests.getLast()).contains("/board/82/issue?", "jql=statusCategory = Done AND " + assignment + " ORDER BY");
+        doThrow(new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY)).when(remote)
+                .request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/backlog?"), eq("GET"), any());
+        jira.issues("connection", "cloud", 82, Optional.empty(), mine, true, false, true, Optional.empty());
+        assertThat(requests.getLast()).contains("/board/82/issue?", "jql=statusCategory != Done AND " + assignment);
+        doReturn(json("[]")).when(remote).request("connection", "cloud", "/rest/api/3/field", "GET", Optional.empty());
+        JiraDtos.IssuePage failed = jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, true, Optional.empty());
+        assertThat(failed.issues()).isEqualTo(sprint.issues());
+        assertThat(failed.error()).hasValueSatisfying(error -> assertThat(error).contains("No accessible Co-assignee user field"));
+    }
+
     @Test
     void requestsOnePageAtATimeAndPreservesTheCursorAfterFailure()
             throws Exception
@@ -585,21 +629,21 @@ class TestJiraService
         when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenReturn(json("{\"issues\":[" + ticket() + "],\"nextPageToken\":\"next/token\"}"))
                 .thenThrow(new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS));
-        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, Optional.empty());
+        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty());
         assertThat(first.issues()).hasSize(1);
         assertThat(first.nextPageToken()).contains("next/token");
         verify(remote, times(1)).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
 
-        JiraDtos.IssuePage stale = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, first.nextPageToken());
+        JiraDtos.IssuePage stale = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, first.nextPageToken());
         assertThat(stale.issues()).isEqualTo(first.issues());
         assertThat(stale.fetchedAt()).isEqualTo(first.fetchedAt());
         assertThat(stale.nextPageToken()).isEqualTo(first.nextPageToken());
         assertThat(stale.error()).contains("Jira refresh failed. Showing saved tickets. Refresh to try again.");
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, Optional.empty())).isEqualTo(stale);
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, false, Optional.empty())).isEqualTo(stale);
 
         doReturn(json("{\"issues\":[],\"isLast\":true}"))
                 .when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
-        JiraDtos.IssuePage recovered = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, stale.nextPageToken());
+        JiraDtos.IssuePage recovered = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, stale.nextPageToken());
         assertThat(recovered.issues()).isEqualTo(first.issues());
         assertThat(recovered.nextPageToken()).isEmpty();
         assertThat(recovered.error()).isEmpty();
@@ -619,7 +663,7 @@ class TestJiraService
             return json("{\"issues\":[" + ticket() + "],\"isLast\":true}");
         }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/1.0/board/82/issue?"), eq("GET"), any());
         assertThat(jira.sprints("connection", "cloud", 82, true)).isEmpty();
-        JiraDtos.IssuePage page = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, Optional.empty());
+        JiraDtos.IssuePage page = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, true, Optional.empty());
         assertThat(page.error()).isEmpty();
         assertThat(page.issues()).extracting(JiraIssue::id).containsExactly("1001");
         assertThat(requests).singleElement().asString().contains("statusCategory != Done AND assignee = currentUser()");
@@ -637,11 +681,11 @@ class TestJiraService
                     ? json("{\"issues\":[" + completedTicket("2001") + "," + completedTicket("2002") + "],\"isLast\":true}")
                     : json("{\"issues\":[" + completedTicket("2001") + "],\"nextPageToken\":\"next/token + value\"}");
         });
-        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.of(9L), true, true, true, Optional.empty());
+        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, true, Optional.empty());
         assertThat(first.issues()).extracting(JiraIssue::id).containsExactly("2001");
         assertThat(first.nextPageToken()).contains("next/token + value");
         assertThat(requests).hasSize(1);
-        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.of(9L), true, true, true, first.nextPageToken());
+        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, true, first.nextPageToken());
         assertThat(result.issues()).extracting(JiraIssue::id).containsExactly("2001", "2002");
         assertThat(result.nextPageToken()).isEmpty();
         assertThat(requests).allSatisfy(path -> {
@@ -649,18 +693,18 @@ class TestJiraService
             assertThat(path).contains("statusCategory = Done AND assignee = currentUser()", "ORDER BY statusCategoryChangedDate DESC, resolved DESC", "resolutiondate");
         });
         assertThat(requests.get(1)).contains("nextPageToken=next/token + value");
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(45L), true, true, false, Optional.empty()).issues()).hasSize(2);
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, Optional.empty()).issues()).isEmpty();
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(45L), true, false, true, false, Optional.empty()).issues()).hasSize(2);
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, false, Optional.empty()).issues()).isEmpty();
         // A delayed reader with an already consumed cursor uses the newer cached projection.
-        assertThat(jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, first.nextPageToken())).isEqualTo(result);
+        assertThat(jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, first.nextPageToken())).isEqualTo(result);
         assertThat(saved).doesNotContainKey("jira.scopes");
         assertThat(jira.attention()).isEmpty();
         jira.poll();
         assertThat(requests).hasSize(2);
-        JiraDtos.IssuePage refreshed = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, Optional.empty());
+        JiraDtos.IssuePage refreshed = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty());
         assertThat(refreshed.issues()).hasSize(1);
         assertThat(refreshed.nextPageToken()).isEqualTo(first.nextPageToken());
-        jira.issues("connection", "cloud", 82, Optional.empty(), false, true, true, Optional.empty());
+        jira.issues("connection", "cloud", 82, Optional.empty(), false, false, true, true, Optional.empty());
         assertThat(requests.getLast()).contains("statusCategory = Done").doesNotContain("assignee =");
     }
 
@@ -675,7 +719,7 @@ class TestJiraService
         });
         Optional<String> next = Optional.empty();
         for (int page = 0; page < 25; page++) {
-            JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, next);
+            JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, next);
             assertThat(result.issues()).hasSize(page + 1);
             next = result.nextPageToken();
         }
@@ -684,7 +728,7 @@ class TestJiraService
         reopened.put("id", "2001");
         ((ObjectNode) reopened.path("fields")).put("updated", "2026-09-26T02:00:00Z");
         cache.write("connection.cloud.issue.2001", JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", reopened));
-        JiraDtos.IssuePage cached = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, false, Optional.empty());
+        JiraDtos.IssuePage cached = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, false, Optional.empty());
         assertThat(cached.nextPageToken()).isEqualTo(next);
         assertThat(cached.issues()).hasSize(24).noneMatch(issue -> issue.id().equals("2001"));
         assertThat(jira.issue("connection", "cloud", "2001").completedAt()).isEmpty();
@@ -698,11 +742,11 @@ class TestJiraService
                 .thenReturn(json("{\"issues\":[],\"nextPageToken\":\"next\"}"))
                 .thenReturn(json("{\"issues\":[" + completedTicket("2001") + "],\"nextPageToken\":\"last\"}"))
                 .thenReturn(json("{\"issues\":[],\"nextPageToken\":\"last\"}"));
-        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, Optional.empty());
+        JiraDtos.IssuePage first = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty());
         assertThat(first.issues()).isEmpty();
         assertThat(first.nextPageToken()).contains("next");
-        JiraDtos.IssuePage second = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, first.nextPageToken());
-        JiraDtos.IssuePage failed = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, second.nextPageToken());
+        JiraDtos.IssuePage second = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, first.nextPageToken());
+        JiraDtos.IssuePage failed = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, second.nextPageToken());
         assertThat(failed.issues()).isEqualTo(second.issues());
         assertThat(failed.nextPageToken()).isEqualTo(second.nextPageToken());
         assertThat(failed.error()).hasValueSatisfying(error -> assertThat(error).contains("repeated a page token"));
@@ -721,13 +765,13 @@ class TestJiraService
             int page = pages.incrementAndGet();
             return json("{\"issues\":[" + completedTicket("200" + page) + "],\"nextPageToken\":\"page-" + page + "\"}");
         });
-        jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, Optional.empty());
+        jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, true, Optional.empty());
         jira.poll();
         assertThat(pages).hasValue(21);
-        JiraDtos.IssuePage cached = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, Optional.empty());
+        JiraDtos.IssuePage cached = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, false, Optional.empty());
         assertThat(cached.issues()).hasSize(20);
         assertThat(cached.nextPageToken()).contains("page-21");
-        assertThat(jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, cached.nextPageToken()).issues()).hasSize(21);
+        assertThat(jira.issues("connection", "cloud", 82, Optional.empty(), true, false, false, true, cached.nextPageToken()).issues()).hasSize(21);
     }
 
     @Test
@@ -735,7 +779,7 @@ class TestJiraService
     {
         when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Jira could not be reached."));
-        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, Optional.empty());
+        JiraDtos.IssuePage result = jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty());
         assertThat(result.issues()).isEmpty();
         assertThat(result.fetchedAt()).isEmpty();
         assertThat(result.nextPageToken()).isEmpty();
@@ -757,10 +801,10 @@ class TestJiraService
                 .thenReturn(json("{\"issues\":[],\"isLast\":true}"));
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             try {
-                var first = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.empty(), true, true, true, Optional.empty()));
+                var first = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.empty(), true, false, true, true, Optional.empty()));
                 assertThat(started.await(2, SECONDS)).isTrue();
-                var duplicate = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, true, true, Optional.empty()));
-                var sprint = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, Optional.empty()));
+                var duplicate = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, true, Optional.empty()));
+                var sprint = executor.submit(() -> jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty()));
                 assertThat(sprint.get(2, SECONDS).fetchedAt()).isPresent();
                 assertThatThrownBy(() -> duplicate.get(100, MILLISECONDS)).isInstanceOf(TimeoutException.class);
                 release.countDown();
@@ -803,7 +847,7 @@ class TestJiraService
                     {"type":"text","text":"runbook","marks":[{"type":"link","attrs":{"href":"https://example.com/runbook"}}]}]}]}}}]}
                     """);
         });
-        jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, Optional.empty());
+        jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty());
         assertThat(requests).hasSize(2);
         assertThat(requests.getFirst()).doesNotContain("description");
         assertThat(requests.getLast()).contains("id in (1001)", "fields=description");
@@ -819,7 +863,7 @@ class TestJiraService
         cache.write("connection.cloud.issue.1001", JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", fresh));
         when(remote.request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any()))
                 .thenReturn(json("{\"issues\":[" + ticket() + "],\"isLast\":true}"));
-        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, true, Optional.empty()).issues().getFirst().title()).isEqualTo("Already edited");
+        assertThat(jira.issues("connection", "cloud", 82, Optional.of(9L), true, false, false, true, Optional.empty()).issues().getFirst().title()).isEqualTo("Already edited");
         assertThat(jira.issue("connection", "cloud", "1001").title()).isEqualTo("Already edited");
     }
 

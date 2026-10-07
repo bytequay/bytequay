@@ -125,10 +125,10 @@ public class JiraService
         return cache.read(key, JiraDtos.Sprint[].class).map(ImmutableList::copyOf).orElseGet(ImmutableList::of);
     }
 
-    public JiraDtos.IssuePage issues(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean completed,
+    public JiraDtos.IssuePage issues(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean coassigned, boolean completed,
             boolean refresh, Optional<String> nextPageToken)
     {
-        Scope scope = new Scope(segment(connectionId), segment(cloudId), boardId, completed ? Optional.empty() : sprintId, mine, completed);
+        Scope scope = new Scope(segment(connectionId), segment(cloudId), boardId, completed ? Optional.empty() : sprintId, mine, coassigned, completed);
         checkArgument(boardId > 0 && sprintId.map(id -> id > 0).orElse(true), "Invalid board or sprint id");
         checkArgument(nextPageToken.map(token -> !token.isBlank() && token.length() <= 16384).orElse(true), "Invalid page token");
         checkArgument(refresh || nextPageToken.isEmpty(), "Page tokens require a refresh");
@@ -173,11 +173,12 @@ public class JiraService
             Map<String, Object> params = new LinkedHashMap<>();
             params.put("maxResults", 100);
             params.put("fields", BOARD_FIELDS);
+            String assignment = assignmentQuery(scope);
             if (scope.completed()) {
-                params.put("jql", "statusCategory = Done" + (scope.mine() ? " AND assignee = currentUser()" : "") + " ORDER BY statusCategoryChangedDate DESC, resolved DESC");
+                params.put("jql", "statusCategory = Done" + (assignment.isEmpty() ? "" : " AND " + assignment) + " ORDER BY statusCategoryChangedDate DESC, resolved DESC");
             }
-            else if (scope.mine()) {
-                params.put("jql", "assignee = currentUser()");
+            else if (!assignment.isEmpty()) {
+                params.put("jql", assignment);
             }
             nextPageToken.ifPresent(token -> params.put("nextPageToken", token));
             JsonNode response;
@@ -190,7 +191,7 @@ public class JiraService
                 }
                 // Jira rejects the backlog of a Kanban board that has none; its open tickets are the board's own.
                 // ponytail: one rejected request per refresh of such a board; remember the answer per board if that shows.
-                params.put("jql", "statusCategory != Done" + (scope.mine() ? " AND assignee = currentUser()" : ""));
+                params.put("jql", "statusCategory != Done" + (assignment.isEmpty() ? "" : " AND " + assignment));
                 response = get(scope.connectionId(), scope.cloudId(), query("/rest/software/1.0/board/" + scope.boardId() + "/issue", params));
             }
             Optional<String> next = response.path("isLast").asBoolean() ? Optional.empty() : JiraMapping.text(response, "nextPageToken");
@@ -225,6 +226,31 @@ public class JiraService
             cache.write(scope.key(), failed);
             return failed;
         }
+    }
+
+    private String assignmentQuery(Scope scope)
+    {
+        List<String> clauses = new ArrayList<>();
+        if (scope.mine()) {
+            clauses.add("assignee = currentUser()");
+        }
+        if (scope.coassigned()) {
+            // Co-assignee is a site-defined user field; numeric ids avoid ambiguous or renamed JQL field names.
+            JsonNode fields = get(scope.connectionId(), scope.cloudId(), "/rest/api/3/field");
+            List<String> coassignees = nodes(fields).stream()
+                    .filter(field -> field.path("name").asText().matches("(?i)co[\\s_-]*assignees?"))
+                    .filter(field -> field.path("schema").path("type").asText().equals("user")
+                            || (field.path("schema").path("type").asText().equals("array") && field.path("schema").path("items").asText().equals("user")))
+                    .map(field -> field.path("id").asText())
+                    .filter(id -> id.matches("customfield_[0-9]+"))
+                    .map(id -> "cf[" + id.substring("customfield_".length()) + "] = currentUser()")
+                    .collect(toImmutableList());
+            if (coassignees.isEmpty()) {
+                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "No accessible Co-assignee user field was found on this Jira site.");
+            }
+            clauses.addAll(coassignees);
+        }
+        return clauses.size() > 1 ? "(" + String.join(" OR ", clauses) + ")" : String.join("", clauses);
     }
 
     private void refreshWatchedScope(Scope scope)
@@ -609,7 +635,7 @@ public class JiraService
                 if (refreshedBoards.add(board)) {
                     for (JiraDtos.Sprint sprint : sprints(scope.connectionId(), scope.cloudId(), scope.boardId(), true)) {
                         if (sprint.state().equals("active")) {
-                            Scope active = new Scope(scope.connectionId(), scope.cloudId(), scope.boardId(), Optional.of(sprint.id()), true, false);
+                            Scope active = new Scope(scope.connectionId(), scope.cloudId(), scope.boardId(), Optional.of(sprint.id()), true, false, false);
                             remember(active);
                             if (!active.equals(scope)) {
                                 refreshWatchedScope(active);
@@ -840,12 +866,12 @@ public class JiraService
         return siteKey(connectionId, cloudId) + ".issue." + segment(issueId);
     }
 
-    private record Scope(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean completed)
+    private record Scope(String connectionId, String cloudId, long boardId, Optional<Long> sprintId, boolean mine, boolean coassigned, boolean completed)
     {
         String key()
         {
             return siteKey(connectionId, cloudId) + ".scope." + boardId + "."
-                    + (completed ? "completed" : sprintId.map(String::valueOf).orElse("backlog")) + "." + mine;
+                    + (completed ? "completed" : sprintId.map(String::valueOf).orElse("backlog")) + "." + mine + (coassigned ? ".coassigned" : "");
         }
     }
 

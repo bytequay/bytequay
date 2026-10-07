@@ -139,13 +139,16 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
   const [boardId, setBoardId] = useState<number | null>(null);
   const [sprints, setSprints] = useState<JiraSprint[]>([]);
   const [sprintId, setSprintId] = useState<number | null>(null);
-  const [mine, setMine] = useState(true);
+  const [assignment, setAssignment] = useState<'assigned' | 'coassigned' | 'either' | 'all'>('assigned');
+  const mine = assignment === 'assigned' || assignment === 'either';
+  const coassigned = assignment === 'coassigned' || assignment === 'either';
+  const assignmentLabels = { assigned: 'Assigned to me', coassigned: 'Co-assigned to me', either: 'Assigned or co-assigned to me', all: 'All assignees' };
   const [layout, setLayout] = useState<'list' | 'board'>('board');
   const [view, setView] = useState<'current' | 'completed'>('current');
   const [query, setQuery] = useState('');
   // A workflow group, as the board's columns name them; empty shows every status.
   const [status, setStatus] = useState('');
-  const [menu, setMenu] = useState<'scope' | 'status' | null>(null);
+  const [menu, setMenu] = useState<'scope' | 'status' | 'assignment' | null>(null);
   const [page, setPage] = useState<JiraIssuePage>(emptyPage);
   const [selected, setSelected] = useState<JiraLocation | null>(initial);
   const [error, setError] = useState<string | null>(null);
@@ -225,7 +228,7 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
     const request = ++generation.current;
     setLoading(true);
     setError(null);
-    const scope = { connectionId: actualConnectionId, cloudId: actualCloudId, boardId, sprintId, mine, completed: view === 'completed', nextPageToken };
+    const scope = { connectionId: actualConnectionId, cloudId: actualCloudId, boardId, sprintId, mine, coassigned, completed: view === 'completed', nextPageToken };
     if (refresh && nextPageToken === undefined) {
       try {
         const cached = await window.bridge.listJiraIssues(scope);
@@ -241,7 +244,7 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
     }
     catch (cause) { if (request === generation.current) setError(message(cause)); }
     finally { if (request === generation.current) setLoading(false); }
-  }, [actualConnectionId, actualCloudId, boardId, sprintId, mine, view]);
+  }, [actualConnectionId, actualCloudId, boardId, sprintId, mine, coassigned, view]);
   useEffect(() => { setPage(emptyPage); void reload(); return () => { generation.current += 1; }; }, [reload]);
   useEffect(() => {
     if (covered || selected !== null || launch !== null) return;
@@ -282,7 +285,7 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
     catch (cause) { setError(message(cause)); }
   };
   const closeMenu = useCallback(() => setMenu(null), []);
-  const toggleMenu = (next: 'scope' | 'status') => setMenu(current => current === next ? null : next);
+  const toggleMenu = (next: 'scope' | 'status' | 'assignment') => setMenu(current => current === next ? null : next);
   const chooseView = (next: 'current' | 'completed') => { setMenu(null); setView(next); setStatus(''); };
   const chooseSite = (next: JiraConnection, item: JiraSite) => {
     setMenu(null);
@@ -376,7 +379,14 @@ export default function JiraScreen({ workspace }: { workspace?: Pick<WorkspaceDt
         </Popover>}
       </div>
       <span className="jira-toolbar__rule" aria-hidden="true" />
-      <button type="button" className="jira-chip-button jira-mine" aria-pressed={mine} onClick={() => setMine(value => !value)}>{mine && <Check size={12} strokeWidth={2.6} aria-hidden="true" />}Assigned to me</button>
+      <div className="jira-anchor">
+        <button type="button" className="jira-chip-button jira-mine" aria-pressed={assignment !== 'all'} aria-haspopup="dialog" aria-expanded={menu === 'assignment'} onClick={() => toggleMenu('assignment')}>
+          {assignment !== 'all' && <Check size={12} strokeWidth={2.6} aria-hidden="true" />}{assignmentLabels[assignment]}<ChevronDown size={11} aria-hidden="true" />
+        </button>
+        {menu === 'assignment' && <Popover label="Filter assignment" onClose={closeMenu}>
+          {(['assigned', 'coassigned', 'either', 'all'] as const).map(value => <MenuItem key={value} selected={assignment === value} onPick={() => { setMenu(null); setAssignment(value); }}>{assignmentLabels[value]}</MenuItem>)}
+        </Popover>}
+      </div>
       <div className="jira-anchor">
         <button type="button" className="jira-chip-button" aria-haspopup="dialog" aria-expanded={menu === 'status'} onClick={() => toggleMenu('status')}><span className="jira-chip-button__name">Status</span><span className="jira-chip-button__value">{status || 'All'}</span><ChevronDown size={11} strokeWidth={2.4} aria-hidden="true" /></button>
         {menu === 'status' && <Popover label="Filter status" className="jira-status-filter" onClose={closeMenu}>

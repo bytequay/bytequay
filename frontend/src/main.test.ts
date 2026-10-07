@@ -493,6 +493,10 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues?boardId=828&mine=false&completed=true`, expect.objectContaining({ method: 'GET', headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: null, mine: true, completed: true, nextPageToken: 'next/token + value' }, true);
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/refresh?boardId=828&mine=true&completed=true&nextPageToken=next%2Ftoken+%2B+value`, expect.objectContaining({ method: 'POST' }));
+  await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: 11, mine: false, coassigned: true }, true);
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/refresh?boardId=828&mine=false&sprintId=11&coassigned=true`, expect.objectContaining({ method: 'POST' }));
+  await desktop.handlers.get('jira:issues')?.({}, { ...location, boardId: 828, sprintId: null, mine: true, coassigned: true, completed: true }, false);
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues?boardId=828&mine=true&coassigned=true&completed=true`, expect.objectContaining({ method: 'GET' }));
   await desktop.handlers.get('jira:issue')?.({}, location, true, true);
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/refresh?automatic=true`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issue')?.({}, location, true);

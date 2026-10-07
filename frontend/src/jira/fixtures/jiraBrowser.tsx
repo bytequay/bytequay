@@ -253,6 +253,26 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       button('Edit comment in Jira').click(); await until(() => calls.some(call => call.name === 'browser'));
       assert(calls.some(call => call.name === 'browser' && call.args[0] === `${jiraIssue.url}?focusedCommentId=c2`), 'A formatted comment opens in Jira for editing');
     },
+    async 'filters assignments across sprint and completed views'() {
+      await mountPreview(false, false);
+      const assignment = () => { const value = document.querySelector<HTMLButtonElement>('.jira-mine'); assert(value !== null, 'Assignment filter exists'); return value; };
+      for (const [label, mine, coassigned] of [
+        ['Co-assigned to me', false, true], ['Assigned or co-assigned to me', true, true], ['All assignees', false, false], ['Assigned to me', true, false],
+      ] as const) {
+        assignment().click(); await settle(); calls.length = 0;
+        const menu = document.querySelector('[aria-label="Filter assignment"]'); assert(menu !== null, 'Assignment menu opens');
+        button(label, menu).click();
+        await until(() => calls.some(call => call.name === 'issues' && call.args[1] === true));
+        const request = calls.find(call => call.name === 'issues')?.args[0] as JiraQuery;
+        assert(request.mine === mine && request.coassigned === coassigned && request.sprintId === 11, 'Assignment selection queries the current sprint');
+        assert(assignment().textContent === label && document.querySelector('[aria-label="Filter assignment"]') === null, 'Selection labels the control and closes the menu');
+      }
+      assignment().click(); await settle(); menuItem('Co-assigned to me').click(); await settle();
+      calls.length = 0; button('Completed').click();
+      await until(() => calls.some(call => call.name === 'issues' && (call.args[0] as JiraQuery).completed));
+      const request = calls.find(call => call.name === 'issues')?.args[0] as JiraQuery;
+      assert(request.coassigned && !request.mine && request.completed, 'Completed history retains the co-assignment filter');
+    },
     async 'loads current sprint and edits supported fields'() {
       await mountPreview();
       assert(calls.some(call => call.name === 'issues' && (call.args[0] as { sprintId: number; mine: boolean }).sprintId === 11 && (call.args[0] as { mine: boolean }).mine), 'Active sprint must use the assigned-to-me filter');

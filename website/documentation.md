@@ -374,7 +374,9 @@ returns to linked work; **New issue** begins a new issue.
 2. Open **Jira** and use **Site, board and sprint** to choose a board and sprint or
    **Backlog**.
 3. Browse **Current sprint** or **Completed**. Use **Assigned to me**, **Status**,
-   **Search tickets**, and **List** or **Board** to find the work.
+   **Search tickets**, and **List** or **Board** to find the work. The assignment menu
+   also offers **Co-assigned to me**, **Assigned or co-assigned to me**, and
+   **All assignees**. Co-assignment uses the site’s Co-assignee user field.
 4. Open an eligible unfinished leaf ticket and choose **Start development**. Select and
    **Assign workspace** if prompted, then review and submit the task composer.
 5. Use **View task** to return to development. Ticket field edits, comments, and status

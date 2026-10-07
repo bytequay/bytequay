@@ -26,6 +26,7 @@ import {
 import ReferenceCard, { previewMarkdown, stateChip, useHoverCard, type HoverCard, type ReferenceCardItem } from '../ReferenceCard';
 import type { GitHubCodeSnippetDto } from '../types';
 import { once } from '../dataCache';
+import MermaidDiagram from './MermaidDiagram';
 
 type GitHubCodePermalink = {
   href: string;
@@ -958,6 +959,7 @@ function MarkdownBlocks({ markdown, definitions, repository, suggestion, tasksIn
             onChange={tasksInteractive ? () => {} : undefined} /> {inline(block.text, key, definitions, repository)}</label></p>
         );
         if (block.kind === 'code') {
+          if (block.language.toLowerCase() === 'mermaid') return <MermaidDiagram source={block.text} key={key} />;
           if (suggestion && block.language.toLowerCase() === 'suggestion') return <SuggestedChange base={suggestion} text={block.text} key={key} />;
           const isMarkdown = /^(?:md|markdown)$/i.test(block.language);
           return (

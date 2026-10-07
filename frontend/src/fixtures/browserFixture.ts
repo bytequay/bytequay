@@ -31,6 +31,7 @@ export type BrowserFixture = {
   global: string;
   /** Link the stylesheet the lib build emits beside the bundle; layout assertions need it. */
   styles?: boolean;
+  /** Use UTF-8 for bundled dependencies unless a fixture explicitly tests another encoding. */
   charset?: boolean;
   width?: number;
   height?: number;
@@ -56,7 +57,7 @@ export async function runBrowserFixture<T>(fixture: BrowserFixture): Promise<T>
         entry: resolve(fixture.entry), name: fixture.global, formats: ['iife'], fileName: () => 'renderer.js',
       } },
     });
-    const charset = fixture.charset === true ? '<meta charset="UTF-8">' : '';
+    const charset = fixture.charset !== false ? '<meta charset="UTF-8">' : '';
     const styles = fixture.styles === true ? '<link rel="stylesheet" href="style.css">' : '';
     await writeFile(join(directory, 'index.html'), `<!doctype html>${charset}${styles}<body><script src="renderer.js"></script>`);
     if (fixture.preload !== undefined) {

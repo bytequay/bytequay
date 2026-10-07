@@ -39,6 +39,6 @@ it('starts issue development through the existing composer and retains source na
       }
     `,
   });
-  expect(results).toHaveLength(7);
+  expect(results).toHaveLength(9);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

@@ -23,10 +23,12 @@ import eventFixture from '../../agents/fixtures/agent-events-v2.json';
 import { initialAgentTaskState } from '../../agents/model';
 import { getCached, setCached } from '../../dataCache';
 import { runAttentionActions } from '../../home/fixtures/attentionBrowser';
-import type { AgentTaskDto, AgentTurnDto, Bridge, CreateAgentTaskRequest, RepositoryIssueSnapshotDto, WorkspaceIssueDetailDto } from '../../types';
+import type { AgentTaskDto, AgentTurnDto, Bridge, CreateAgentTaskRequest, RepositoryIssueSnapshotDto, WorkspaceDto, WorkspaceIssueDetailDto } from '../../types';
+import { startEpicWork } from '../epics';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
+import WorkspaceShell from '../WorkspaceShell';
 import type { DevelopmentIssue } from '../issueDevelopment';
-import { workspaceAgentTaskRoute, workspaceIssueTaskRoute, workspaceLocationFromRoute } from '../model';
+import { workspaceAgentTaskRoute, workspaceIssueTaskRoute, workspaceLocationFromRoute, workspaceRoute, type WorkspaceTab } from '../model';
 import '../../css/base.css';
 import '../../css/agents.css';
 import '../../css/issues.css';
@@ -377,10 +379,97 @@ async function workAttempt(): Promise<void> {
   finally { flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
 }
 
+async function decidedStart(): Promise<void> {
+  const f = fixture();
+  const host = document.createElement('div'); document.body.append(host);
+  const root = createRoot(host);
+  window.location.hash = '';
+  let taken = 0;
+  const composer = (): HTMLTextAreaElement | null => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
+  try {
+    flushSync(() => root.render(<AgentTasksView key="work" workspaceId={f.workspaceId} bridge={f.bridge} workItemId="work-1" initialDraft="Profile the reader" autoStart
+      onAutoStart={() => { taken += 1; }} onOpenTask={() => {}} onOpenReview={() => {}}
+      onOpenCreatedTask={task => { window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id); }} />));
+    assert(host.textContent?.includes('Starting task…') === true && host.textContent.includes('Profile the reader') && composer() === null,
+      'A decided start shows its message and the task starting from the first frame, with no composer to send from');
+    await settle(); await settle();
+    assert(taken === 1 && f.created.length === 1 && f.created[0].workItemId === 'work-1' && f.created[0].message === 'Profile the reader',
+      `A decided start is taken once and sends the work's message itself: ${taken} ${JSON.stringify(f.created)}`);
+    assert(window.location.hash === workspaceAgentTaskRoute(f.workspaceId, f.created[0].taskId), 'The started task opens');
+
+    flushSync(() => root.render(<AgentTasksView key="issue" workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge} initialDraft="Retry the upload once." autoStart
+      onOpenTask={() => {}} onOpenReview={() => {}} />));
+    await settle(); await settle();
+    assert(Number(f.created.length) === 2 && f.created[1].issueSource?.issueId === 7001 && f.created[1].message === 'Retry the upload once.',
+      'An issue’s decided start waits for the issue and starts as its task');
+
+    f.issue = { ...f.issue, developmentTask: { taskId: 'under-way', workspaceId: f.workspaceId } };
+    flushSync(() => root.render(<AgentTasksView key="under-way" workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge} initialDraft="Retry the upload once." autoStart
+      onOpenTask={() => {}} onOpenReview={() => {}} />));
+    await settle(); await settle();
+    assert(Number(f.created.length) === 2 && window.location.hash === workspaceAgentTaskRoute(f.workspaceId, 'under-way'),
+      'An issue that already has a task opens it, and nothing starts without its source');
+
+    f.issue = { ...f.issue, developmentTask: null, isEpic: true };
+    flushSync(() => root.render(<AgentTasksView key="blocked" workspaceId={f.workspaceId} sourceIssueNumber={7} bridge={f.bridge} initialDraft="Retry the upload once." autoStart
+      onOpenTask={() => {}} onOpenReview={() => {}} />));
+    await settle(); await settle();
+    assert(Number(f.created.length) === 2 && composer()?.value === 'Retry the upload once.' && host.textContent?.includes('Epics organize work') === true,
+      'A decided start that cannot run leaves its message in the composer with the reason');
+    f.issue = { ...f.issue, isEpic: false };
+    button(host, 'Refresh issue').click(); await settle(); await settle();
+    assert(Number(f.created.length) === 2 && !button(host, 'Send — creates the task').disabled, 'Once it was left to the user, clearing what blocked it sends nothing');
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
+}
+
+const WORKSPACE: WorkspaceDto = {
+  id: 'workspace-fork', name: 'me/app', localRepositoryPath: '/managed/workspace-fork/repository', defaultBranch: 'main', upstreamDefaultBranch: 'main',
+  selectedRepositoryId: 41, selectedOwner: 'me', selectedRepo: 'app', upstreamRepositoryId: 40, upstreamOwner: 'upstream', upstreamRepo: 'app',
+  monitoredRepositoryId: 40, monitoredOwner: 'upstream', monitoredRepo: 'app', topology: 'FORK', lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,
+};
+
+async function epicRunThroughWorkspace(): Promise<void> {
+  const f = fixture();
+  // The workspace's pages read more than a composer does; a read this scenario does not name fails, as an unreachable source would.
+  window.bridge = new Proxy(f.bridge as unknown as Bridge, {
+    get: (target, name: string) => Reflect.get(target, name) ?? (name.startsWith('on') ? () => () => {} : async (): Promise<never> => { throw new Error(`${name} is not in this fixture`); }),
+  });
+  const host = document.createElement('div'); document.body.append(host);
+  const failures: string[] = [];
+  const root = createRoot(host, { onUncaughtError: error => { failures.push(String(error)); } });
+  window.location.hash = '';
+  // The router follows the hash; here each page is rendered as it would.
+  const show = (tab: WorkspaceTab): void => flushSync(() => root.render(<WorkspaceShell workspace={WORKSPACE} tab={tab} onSelectTab={() => {}} onWorkspaceChanged={() => {}}
+    initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={null} onSelectAgentTask={() => {}} onSelectPullRequest={() => {}}
+    onSelectIssue={() => {}} />));
+  const composer = (): HTMLTextAreaElement | null => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
+  try {
+    show('home'); await settle();
+    startEpicWork({ workspaceId: f.workspaceId, itemId: 'work-1', draft: 'Profile the reader', send: true });
+    assert(window.location.hash === workspaceRoute(f.workspaceId, 'tasks'), `An Epic's Run opens its workspace's tasks: ${window.location.hash}`);
+    show('tasks');
+    assert(host.textContent?.includes('Starting task…') === true && composer() === null, `The tasks page opens on the task starting: ${failures.join(' | ')}`);
+    await settle(); await settle();
+    assert(f.created.length === 1 && f.created[0].workItemId === 'work-1' && f.created[0].message === 'Profile the reader',
+      `Run starts the work's task without a composer step: ${JSON.stringify(f.created)} ${failures.join(' | ')}`);
+    assert(window.location.hash === workspaceAgentTaskRoute(f.workspaceId, f.created[0].taskId), `Run lands on the task's conversation: ${window.location.hash}`);
+
+    // A start that asks for review, as a Goal's prepared request does, waits in the composer.
+    startEpicWork({ workspaceId: f.workspaceId, itemId: 'work-2', draft: 'A prepared request' });
+    await settle(); await settle();
+    assert(Number(f.created.length) === 1 && composer()?.value === 'A prepared request', `A start without send waits for the user: ${JSON.stringify(f.created)}`);
+    assert(failures.length === 0, `The workspace rendered without errors: ${failures.join(' | ')}`);
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const cases: Array<[string, () => Promise<void>]> = [
     ['Another attempt opens the composer over an ended task and names it', anotherAttempt],
     ['Work without a source opens the composer with its title and names the work', workAttempt],
+    ['A decided start sends itself once, with its source, and is left to the user when blocked', decidedStart],
+    ['An Epic’s Run starts its work’s task through the workspace and lands on it', epicRunThroughWorkspace],
     ['Issue Epic actions, composer, replay and linked workspace navigation', issueToTask],
     ['Source refresh preserves instructions and blocks Epics without launching', refreshAndCancel],
     ['A Goal’s prepared instruction opens the issue composer without launching', preparedInstruction],

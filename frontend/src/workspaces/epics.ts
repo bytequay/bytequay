@@ -206,8 +206,11 @@ export function useEpicLend(workspaceId: string): EpicLend {
   return useSyncExternalStore(subscribeLends, () => lends.get(workspaceId) ?? NO_LEND);
 }
 
-/** Work a Work tab starts: through its issue's composer, or the task composer for work without an issue or ticket. */
-export type EpicStart = { workspaceId: string } & ({ issue: number; instruction: string; replaces?: string } | { itemId: string; draft: string });
+/**
+ * Work a Work tab starts: through its issue's composer, or the task composer for work without an issue or ticket. `send` starts the task
+ * at once with that message; without it the composer waits for the user to review and send.
+ */
+export type EpicStart = { workspaceId: string; send?: boolean } & ({ issue: number; instruction: string; replaces?: string } | { itemId: string; draft: string });
 export const EPIC_START = 'bytequay:epic-start';
 let waitingStart: EpicStart | null = null;
 

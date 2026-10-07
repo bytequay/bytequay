@@ -64,11 +64,11 @@ function editable(target: EventTarget | null): boolean {
 
 /**
  * Opens a Jira ticket's development composer over the page, with an instruction the user reviews and sends; `replaces` starts
- * another attempt after that ended task.
+ * another attempt after that ended task. With `send`, as from an Epic's Run, the composer sends the instruction itself.
  */
-export function startTicket(reference: string, instruction: string, replaces?: string): void {
+export function startTicket(reference: string, instruction: string, replaces?: string, send = false): void {
   const [connectionId, cloudId, issueId] = reference.split(':');
-  zoomReference({ kind: 'jira', connectionId, cloudId, issueId, start: true, draft: instruction, replaces });
+  zoomReference({ kind: 'jira', connectionId, cloudId, issueId, start: true, draft: instruction, replaces, send });
 }
 
 /** Opens a goal item where the app shows it: a pull request, issue or ticket over the page, a task as its screen. */

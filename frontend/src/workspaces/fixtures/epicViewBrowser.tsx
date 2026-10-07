@@ -156,7 +156,7 @@ export async function run(): Promise<boolean> {
     button('Open the task for Invalidate on DDL').click(); await settle();
     assert(calls.at(-1) === 'open task task-1', `Open task opens the attempt under way: ${calls.at(-1)}`);
     button('Run Benchmark warm cache').click(); await settle();
-    assert(calls.at(-1) === 'start work d [Benchmark warm cache]', `Work without a source opens the task composer with its title: ${calls.at(-1)}`);
+    assert(calls.at(-1) === 'start work d [Benchmark warm cache]', `Work without a source starts a task with its title: ${calls.at(-1)}`);
     assert(row('Cache table metadata').querySelector('[aria-label^="Run "]') === null, 'Done work does not run');
 
     element<HTMLButtonElement>('.epic-row__accept', row('Coordinator broadcast')).click(); await settle();
@@ -239,7 +239,7 @@ export async function run(): Promise<boolean> {
     assert(row('Old parent link').querySelector('.epic-row__upstream')?.textContent === 'no longer a child', 'Work whose child the source dropped stays, marked');
     assert(rows().length === 3, 'Nothing joins on its own');
     button('Run Invalidate on DDL').click(); await settle();
-    assert(calls.at(-1) === 'start issue 24931 [Invalidate on DDL] undefined', `Work from an issue starts through the issue's composer: ${calls.at(-1)}`);
+    assert(calls.at(-1) === 'start issue 24931 [Invalidate on DDL] undefined', `Work from an issue starts as the issue's task: ${calls.at(-1)}`);
     button('Run Old parent link').click(); await settle();
     assert(calls.at(-1) === 'start issue 24970 [Old parent link] task-9', `Another attempt names the ended one: ${calls.at(-1)}`);
     assert(row('Docs site update').querySelector('[aria-label^="Run "]') === null, 'An issue of another repository does not run from here');

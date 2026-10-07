@@ -93,6 +93,10 @@ interface AgentTasksViewProps {
   replaces?: string;
   /** The work item a task without a source is for; the task the composer creates becomes its attempt. */
   workItemId?: string;
+  /** The start was already decided, as by an Epic's Run: the composer sends its message itself once it has loaded. */
+  autoStart?: boolean;
+  /** The composer took that start; a composer opened later must not send it again. */
+  onAutoStart?: () => void;
 }
 
 /** A task state reads as prose; the wire enum is never shown to the user. */
@@ -185,7 +189,7 @@ export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumbe
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
  */
 export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpenTask, sourceIssueNumber = null, sourceJira = null, onOpenCreatedTask, initialDraft, replaces,
-  workItemId }: {
+  workItemId, autoStart = false, onAutoStart }: {
   workspaceId: string;
   sourceJira?: JiraIssue | null;
   /** A launch the caller chose; without one the workspace's Development agent decides. */
@@ -200,6 +204,10 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   replaces?: string;
   /** The work item a task without a source is for. */
   workItemId?: string;
+  /** The start was already decided: the message sends itself once the composer has loaded. */
+  autoStart?: boolean;
+  /** The composer took that start. */
+  onAutoStart?: () => void;
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
@@ -223,6 +231,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   const [images, setImages] = useState<DraftImage[]>([]);
   const [operation, setOperation] = useState<'attachment' | 'sending' | null>(null);
   const [startup, setStartup] = useState<AgentTaskStartupPhase | null>(null);
+  const [autoStarting, setAutoStarting] = useState(autoStart);
   const busy = operation !== null;
   const busyRef = useRef(false);
   const imagesRef = useRef<DraftImage[]>([]);
@@ -304,7 +313,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         if (!active) return;
         applyCatalog(settings);
       })
-      .catch(() => { /* the blocker below reports an unusable catalog on its own */ });
+      // The blocker below reports an unusable catalog on its own; a decided start has nothing to send with.
+      .catch(() => { if (active) setAutoStarting(false); });
     return () => { active = false; };
   }, [applyCatalog, bridge, workspaceId]);
 
@@ -486,6 +496,22 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
   }, [blocker, bridge, clearImages, draft, images, issue, sourceJira, sourceBound, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
     workItemId, workspaceId]);
 
+  // A decided start reaches the composer that opens for it, or one already open on the same work; saying it was taken keeps a composer
+  // opened later from sending it again.
+  useEffect(() => {
+    if (!autoStart) return;
+    setAutoStarting(true);
+    onAutoStart?.();
+  }, [autoStart, onAutoStart]);
+  // A decided start is sent once, when the catalog, the automation settings and the source have loaded. Whatever is in its way then
+  // leaves the draft with the user, so a later change such as another provider never sends it.
+  useEffect(() => {
+    if (!autoStarting || catalog === null || sourceLoading || (taskAutomation === null && automationError === null)) return;
+    setAutoStarting(false);
+    // An issue that already has a task opens that task instead, and leaves this composer without its source.
+    if (blocker === null && (sourceIssueNumber === null || issue !== null)) void create();
+  }, [autoStarting, automationError, blocker, catalog, create, issue, sourceIssueNumber, sourceLoading, taskAutomation]);
+
   return {
     /** Everything TaskComposer needs, so a screen spreads it instead of re-listing eighteen props. */
     composer: {
@@ -526,6 +552,8 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
     setDraft,
     blocker,
     busy,
+    /** A decided start is waiting for the composer to load; its page can show the task starting already. */
+    autoStarting,
     startup,
     attaching: operation === 'attachment',
     images,
@@ -704,11 +732,13 @@ export default function AgentTasksView({
   initialDraft,
   replaces,
   workItemId,
+  autoStart,
+  onAutoStart,
 }: AgentTasksViewProps): React.JSX.Element {
   // Resolved when used, not when rendered: a static render has no window to reach.
   const live = useCallback((): AgentBridgePort => explicitBridge ?? window.bridge, [explicitBridge]);
   const creation = useAgentTaskCreation({ workspaceId, initialLaunch: launch, bridge: live, onOpenTask, sourceIssueNumber, onOpenCreatedTask, initialDraft, replaces,
-    workItemId });
+    workItemId, autoStart, onAutoStart });
   const { setTasks } = creation;
   const tasks = useMemo(() => freshest(creation.tasks, taskAttention.tasks), [creation.tasks, taskAttention.tasks]);
   const tasksRef = useRef(tasks);
@@ -755,6 +785,7 @@ export default function AgentTasksView({
       headerAction={headerAction}
       repository={repository}
       {...creation.composer}
+      busy={creation.busy || creation.autoStarting}
       issueAttachment={creation.issueAttachment}
       tasks={tasks}
       items={items}

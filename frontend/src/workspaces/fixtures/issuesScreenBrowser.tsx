@@ -221,8 +221,9 @@ async function epicTabs(): Promise<void> {
     window.location.hash = '';
     host.querySelector<HTMLButtonElement>('[aria-label="Run Port the Iceberg reader"]').click(); await settle();
     const start = takeEpicStart('workspace-1');
-    assert(start !== null && 'itemId' in start && start.itemId === 'c' && start.draft === 'Port the Iceberg reader' && window.location.hash === workspaceRoute('workspace-1'),
-      `Run hands work without a source to its workspace, opening the workspace when another page is on screen: ${JSON.stringify(start)} ${window.location.hash}`);
+    assert(start !== null && 'itemId' in start && start.itemId === 'c' && start.draft === 'Port the Iceberg reader' && start.send === true
+      && window.location.hash === workspaceRoute('workspace-1'),
+      `Run hands work without a source to its workspace to start at once, opening the workspace when another page is on screen: ${JSON.stringify(start)} ${window.location.hash}`);
     host.querySelector<HTMLButtonElement>('[aria-label="Drop Port the Iceberg reader"]').click(); await settle();
     [...document.querySelectorAll<HTMLButtonElement>('dialog.bq-confirm-dialog button')].find(button => button.textContent === 'Drop').click();
     await settle(); await settle();

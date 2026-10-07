@@ -62,8 +62,8 @@ export function EpicWork({ epic, workspaceId, repository, work, onShowSource }: 
   return <EpicView epic={epic} workspaceId={workspaceId} repository={repository ?? lend.repository ?? ''} work={work} needsYou={lend.needsYou} goals={goals}
     epicTitle={(epicId) => lend.epicTitles.get(epicId) ?? null}
     onOpenTask={(taskId) => { window.location.hash = workspaceAgentTaskRoute(workspaceId, taskId); }}
-    onStartIssue={(issue, instruction, replaces) => startEpicWork({ workspaceId, issue, instruction, replaces })}
-    onStartWork={(itemId, draft) => startEpicWork({ workspaceId, itemId, draft })}
+    onStartIssue={(issue, instruction, replaces) => startEpicWork({ workspaceId, issue, instruction, replaces, send: true })}
+    onStartWork={(itemId, message) => startEpicWork({ workspaceId, itemId, draft: message, send: true })}
     onShowSource={onShowSource} />;
 }
 
@@ -83,10 +83,10 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
   /** Names another Epic, for the notice when work moves here from it. */
   epicTitle: (epicId: string) => string | null;
   onOpenTask: (taskId: string) => void;
-  /** Opens the issue's task composer with an instruction the user reviews and sends; `replaces` names the ended attempt. */
+  /** Starts the issue's task with the instruction as its first message; `replaces` names the ended attempt. */
   onStartIssue: (issue: number, instruction: string, replaces?: string) => void;
-  /** Opens the task composer for work without an issue or ticket; the task it creates is the work's attempt. */
-  onStartWork: (itemId: string, draft: string) => void;
+  /** Starts a task for work without an issue or ticket, with this first message; the task is the work's attempt. */
+  onStartWork: (itemId: string, message: string) => void;
   /** Shows the Epic's issue or ticket, in the tab beside this one. */
   onShowSource: () => void;
 }): React.JSX.Element {
@@ -134,7 +134,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
     const joined = await joinEpic(workspaceId, epicId, reference);
     setNotice(joined.movedFrom === null ? null : `Moved here from ${epicTitle(joined.movedFrom) ?? 'another Epic'}`);
   });
-  /** How the work starts: through its issue's or ticket's composer, or the task composer with its title; null when it cannot start here. */
+  /** How the work starts, at once and without a composer step: as its issue's or ticket's task, or a task named by its title; null when it cannot start here. */
   const starter = (item: WorkItemDto): (() => void) | null => {
     const last = item.links.filter((link) => link.kind === 'TASK').at(-1);
     const replaces = last?.state === 'ENDED' ? last.key : undefined;
@@ -146,7 +146,7 @@ export default function EpicView({ epic, workspaceId, repository, work, needsYou
       return issue.key.slice(0, hash) === repository.toLowerCase() ? () => onStartIssue(Number(issue.key.slice(hash + 1)), instruction, replaces) : null;
     }
     const ticket = item.links.find((link) => link.kind === 'JIRA');
-    if (ticket !== undefined) return () => startTicket(ticket.key, instruction, replaces);
+    if (ticket !== undefined) return () => startTicket(ticket.key, instruction, replaces, true);
     return () => onStartWork(item.id, item.title);
   };
 

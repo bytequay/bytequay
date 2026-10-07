@@ -115,9 +115,9 @@ export type ZoomedReference =
   | { kind: 'issue'; repo: string; number: number; workspaceId: string }
   /**
    * `start` also opens the development composer over the ticket, with `draft` as its instruction when given; `replaces` names
-   * the ticket's ended task that composer starts another attempt after.
+   * the ticket's ended task that composer starts another attempt after, and `send` has it send that instruction itself.
    */
-  | ({ kind: 'jira'; start?: boolean; draft?: string; replaces?: string } & JiraLocation);
+  | ({ kind: 'jira'; start?: boolean; draft?: string; replaces?: string; send?: boolean } & JiraLocation);
 
 /**
  * Shows one issue, pull request or Jira ticket over the page or layer that asked for it. Every

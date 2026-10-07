@@ -84,6 +84,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
   const [startReplaces, setStartReplaces] = useState<string>();
   // Epic work without an issue or ticket: the task composer opens with its title, and the task it creates is the work's attempt.
   const [startWork, setStartWork] = useState<{ itemId: string; draft: string }>();
+  // An Epic's Run starts its work at once: the issue or work item whose composer sends that message itself, until the composer takes it.
+  const [startNow, setStartNow] = useState<number | string>();
+  const startTaken = useCallback(() => setStartNow(undefined), []);
   // A spec check a Goal card asked the Memory page to show.
   const [specCheck, setSpecCheck] = useState<SpecCheckRequest>();
   const specShown = useCallback(() => setSpecCheck(undefined), []);
@@ -198,6 +201,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     if (tab !== 'tasks') {
       setOpenCherryPick(null);
       setStartWork(undefined);
+      setStartNow(undefined);
     }
     if (tab !== 'home') setOpenEpic(null);
   }, [tab]);
@@ -224,6 +228,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
     const take = (): void => {
       const start = takeEpicStart(workspace.id);
       if (start === null) return;
+      const target = 'issue' in start ? start.issue : start.itemId;
+      setStartNow(start.send === true ? target : undefined);
       if ('issue' in start) {
         startIssue(start.issue, start.instruction, start.replaces);
         return;
@@ -345,6 +351,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
             initialDraft={sourceIssueNumber === null ? startWork?.draft : startDraft}
             replaces={sourceIssueNumber === null ? undefined : startReplaces}
             workItemId={sourceIssueNumber === null ? startWork?.itemId : undefined}
+            autoStart={startNow !== undefined && startNow === (sourceIssueNumber ?? startWork?.itemId)}
+            onAutoStart={startTaken}
             onOpenCreatedTask={task => {
               setStartWork(undefined);
               window.location.hash = workspaceAgentTaskRoute(task.workspaceId, task.id);

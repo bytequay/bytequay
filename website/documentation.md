@@ -316,8 +316,10 @@ An Epic connects a larger issue or ticket to the work needed to finish it. Its
    them into the Epic, or **Not now** to leave the suggestion for later.
 3. Add a work item by title, or choose **Add existing** to link an issue, ticket,
    pull request, or task. Review proposed work before choosing **Accept**.
-4. Open a work item to inspect its state and linked attempts. Start eligible work
-   and follow the resulting development task; dependencies explain what is waiting.
+4. Open a work item to inspect its state and linked attempts. Choose **Run** on
+   eligible work to start its development task at once and follow it in the task's
+   conversation; the agent can read the Epic, its work list, and the item it is
+   delivering. Dependencies explain what is waiting.
 5. Review completed outcomes. When the Epic is ready, choose **Conclude Epic**
    and record its outcome. Closing the source issue or ticket is a separate action.
 

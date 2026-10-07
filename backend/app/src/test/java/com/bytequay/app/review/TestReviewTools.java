@@ -1122,6 +1122,47 @@ class TestReviewTools
     }
 
     @Test
+    void extraFindingsAreSkippedWithoutBlockingRevisionsOrCompletion()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        call("review_save_summary", summary("summary", "Reject unchecked input"));
+        readSource();
+        List<String> candidates = IntStream.rangeClosed(1, 11).mapToObj(index -> "Unchecked input " + index).collect(toImmutableList());
+        assertThat(call("review_save_investigation", investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), candidates))
+                .path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+
+        ImmutableList.Builder<Map<String, Object>> validations = ImmutableList.builder();
+        for (int index = 1; index <= 10; index++) {
+            JsonNode saved = call("review_save_finding", finding("finding-" + index, candidates.get(index - 1), "A2", ImmutableList.of(evidence("E1"))));
+            assertThat(saved.path("status").asText()).isEqualTo("accepted");
+            validations.add(supported(index, saved.path("findingId").asText(), index == 1 ? 2 : 1));
+        }
+        List<ReviewFinding> retained = store.listFindings(REVIEW_ID);
+        Map<String, Object> extra = finding("extra", candidates.getLast(), "A2", ImmutableList.of(evidence("E1")));
+        JsonNode skipped = call("review_save_finding", extra);
+        assertThat(skipped.path("status").asText()).isEqualTo("skipped");
+        assertThat(skipped.has("error")).isFalse();
+        assertThat(skipped.has("findingId")).isFalse();
+        assertThat(skipped.path("activityLine").asText()).startsWith("Skipped finding");
+        assertThat(skipped.path("next").asText()).contains("REJECTED", "finding limit");
+        int updates = store.runUpdates;
+        assertThat(call("review_save_finding", extra)).isEqualTo(skipped);
+        assertThat(store.runUpdates).isEqualTo(updates);
+        assertThat(store.listFindings(REVIEW_ID)).containsExactlyElementsOf(retained);
+
+        Map<String, Object> revision = ImmutableMap.<String, Object>builder()
+                .putAll(finding("revision", candidates.getFirst(), "A2", ImmutableList.of(evidence("E1"))))
+                .put("findingId", retained.getFirst().id()).put("expectedRevision", 1).buildOrThrow();
+        assertThat(call("review_save_finding", revision).path("revision").asInt()).isEqualTo(2);
+        validations.add(ImmutableMap.of("candidate", 11, "outcome", "REJECTED", "conclusion", "Held back by the finding limit",
+                "evidenceRefs", ImmutableList.of("E1"), "counterevidence", "Ten higher-ranked findings were retained"));
+        assertThat(call("review_finish", finish("finished", validations.build())).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(10);
+        assertThat(store.findRun(RUN_ID).orElseThrow().coverage().orElseThrow().complete()).isTrue();
+    }
+
+    @Test
     void repeatingAnOperationKeyReplaysWithinTheAssignmentAndItsRepair()
     {
         readSource();

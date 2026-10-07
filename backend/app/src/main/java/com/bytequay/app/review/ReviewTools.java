@@ -293,6 +293,8 @@ public class ReviewTools
                                 + "Keep the example brief; retain full reproduction code, commands and results in captured evidence. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published. "
+                                + "Save findings in ranked order; only the first ten new findings per round are retained. "
+                                + "Extra saves return skipped; assess those candidates as REJECTED, explaining they were held back by the limit. "
                                 + "Choose at most " + MAX_EVIDENCE + " decisive evidence entries; reuse their refs in this candidate's SUPPORTED assessment. "
                                 + "Pass memoryIds for the repository memories, such as m12, that shaped the finding.",
                         schema(ImmutableMap.<String, Object>builder()
@@ -638,7 +640,11 @@ public class ReviewTools
                 throw new ReviewInvalidRequestException("validation: new discussion findings require an accepted review; resume or update the review first");
             }
             if (findings.stream().filter(finding -> finding.runId().equals(call.run().id())).count() >= 10) {
-                throw new ReviewInvalidRequestException("finding: select at most ten distinct findings per round");
+                ObjectNode result = objectMapper.createObjectNode().put("status", "skipped")
+                        .put("reason", "This round already has ten findings; the first ten ranked findings were retained")
+                        .put("next", "Do not retry this finding. Assess its candidate as REJECTED, explaining it was held back by the finding limit, then finish the review");
+                store.updateRun(call.run().withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
+                return result;
             }
             Optional<ReviewAnchor> anchor;
             if (wholePullRequest.orElse(false)) {

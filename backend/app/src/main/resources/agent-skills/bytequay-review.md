@@ -94,8 +94,10 @@ discussions, resumed turns, and report repair.
    Do not raise a style preference or a simplification that removes no code,
    confusion, or real cost.
    Select at most ten distinct findings per round, ranked by severity, impact,
-   likelihood, and strength of evidence. Zero defects is valid; never invent or
-   inflate a defect to fill a quota. When validation supports no defect and no
+   likelihood, and strength of evidence. Save them in that order. Extra saves
+   return `skipped`; assess those candidates as rejected because they were held
+   back by the finding limit, then finish normally. Zero defects is valid;
+   never invent or inflate a defect to fill a quota. When validation supports no defect and no
    suggestion, report up to five nits instead: save each true, concrete nit
    candidate as a finding whose title starts with "Nit:", without severity, and
    assess its candidate as supported. Report fewer, or none, rather than pad.

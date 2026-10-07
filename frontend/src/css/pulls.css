@@ -243,6 +243,14 @@
   padding: 6px 8px 24px;
 }
 
+.pulls-list__loading { flex: none; }
+.pulls-list__loading > span {
+  /* Skip fast loads and bridge short gaps between pages without changing the scroll height. */
+  visibility: hidden;
+  transition: visibility 0s 200ms;
+}
+.pulls-list__loading > .is-loading { visibility: visible; }
+
 .pulls-sync-error {
   margin: 2px 4px 5px;
   padding: 8px 10px;

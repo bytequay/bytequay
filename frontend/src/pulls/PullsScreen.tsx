@@ -1079,7 +1079,9 @@ export default function PullsScreen({
             />
           ))}
           <div ref={loadMoreMarker} aria-hidden="true" />
-          {loadingMore && <div className="hp-loading">Loading more…</div>}
+          <div className="hp-loading pulls-list__loading" role="status" aria-hidden={!loadingMore}>
+            <span className={loadingMore ? 'is-loading' : undefined}>Loading more…</span>
+          </div>
         </div>
       </section>}
 

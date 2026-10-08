@@ -92,15 +92,6 @@
 .ct-run.is-open .ct-run__header { border-bottom-color: #e8eaed; }
 .ct-run__toggle { display: inline-flex; width: 18px; height: 18px; flex: none; align-items: center; justify-content: center; border: 0; background: transparent; color: #57606a; cursor: pointer; padding: 0; }
 .ct-run__mode { display: inline-flex; flex: none; align-items: center; gap: 4px; border: 1px solid #cfd5db; border-radius: 6px; background: #fff; color: #1a7f37; padding: 1px 8px; font-size: 12px; }
-.ct-run__modes { display: inline-flex; flex: none; gap: 2px; }
-button.ct-run__mode { border-color: transparent; background: transparent; color: #57606a; cursor: pointer; }
-button.ct-run__mode:hover { background: #eceff2; }
-button.ct-run__mode.is-selected { border-color: #cfd5db; background: #fff; }
-button.ct-run__mode.is-run.is-selected { color: #1a7f37; }
-button.ct-run__mode.is-terminal.is-selected { color: #0550ae; }
-button.ct-run__mode:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.ct-run__terminal-head { display: flex; min-width: 0; flex: 1; align-items: center; gap: 8px; }
-.ct-run__terminal-notice { overflow: hidden; color: #9a6700; font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .ct-terminal { position: relative; height: 100%; background: #fff; }
 .ct-terminal__screen { position: absolute; inset: 4px 0 0 10px; }
 .ct-terminal__status { position: absolute; right: 12px; bottom: 10px; display: flex; align-items: center; gap: 8px; border: 1px solid #d0d7de; border-radius: 6px; background: #f6f8fa; color: #57606a; font-size: 12px; padding: 4px 6px 4px 10px; }
@@ -135,10 +126,6 @@ button.ct-run__mode:focus-visible { outline: 2px solid var(--accent); outline-of
 .ct-run__toolbar { display: flex; min-width: 0; flex: none; align-items: center; gap: 3px; border-bottom: 1px solid #f0f1f3; padding: 1px 9px; }
 .ct-run__action { display: inline-flex; width: 24px; height: 22px; flex: none; align-items: center; justify-content: center; border: 0; border-radius: 5px; background: transparent; color: #57606a; cursor: pointer; padding: 0; }
 .ct-run__action:hover:not(:disabled) { background: #eceff2; }
-.ct-run__action.is-rerun { color: #1a7f37; }
-.ct-run__action.is-rerun:hover:not(:disabled) { background: #dafbe1; }
-.ct-run__action.is-rerun-failed { color: #cf222e; }
-.ct-run__action.is-rerun-failed:hover:not(:disabled) { background: #ffebe9; }
 .ct-run__action:disabled { cursor: default; opacity: .35; }
 .ct-run__action.is-failed-only[aria-pressed='true'] { background: #ffebe9; color: #cf222e; }
 .ct-run__divider { width: 1px; height: 16px; flex: none; margin: 0 4px; background: #e8eaed; }

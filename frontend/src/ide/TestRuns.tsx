@@ -14,7 +14,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import RunPanel from '../pulls/code-tests/RunPanel';
 import { parseLocalRun, parseLocalRunOutput, codeHostKey, type LocalRunDto, type ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
-import { runGate, taskRunGate } from '../pulls/code-tests/runModel';
 import type { IdeContext } from './contracts';
 import type { IdeRuntime } from './runtime';
 
@@ -58,7 +57,9 @@ export default function TestRuns({ context, files, runtime, mode }: {
     return () => { live = false; clearInterval(timer); };
   }, [host]);
   const output = useCallback(async (id: string, after: number) => parseLocalRunOutput(await window.ideWorkbench.request('readCodeRunOutput', host, id, after)), [host]);
-  const gate = context.review ? runGate(context.review, files, runs) : context.task ? taskRunGate(context.task, files, runs) : { hidden: true, blocked: null };
+  const showRunHint = files !== null && (context.review
+    ? context.review.state === 'OPEN' && files.source === 'WORKING_COPY'
+    : context.task?.interactive !== false && context.task?.state === 'OPEN' && context.task.checkoutRemovedAt === null);
   const stop = async (run: LocalRunDto) => {
     try {
       if (runtime.executions.run?.id === run.id) await runtime.executions.stop(run.treeUnverified);
@@ -70,7 +71,7 @@ export default function TestRuns({ context, files, runtime, mode }: {
     {notice && <div className="ide-notice" role="status">{notice}<button onClick={() => setNotice(null)}>Dismiss</button></div>}
     {(['run', 'debug'] as const).map(panel => <div key={panel} className="ide-test-runs" aria-label={panel === 'run' ? 'Run tests' : 'Debug tests'}
       style={{ display: mode === panel ? undefined : 'none' }}>
-      <RunPanel embedded runs={runs.filter(run => testRunPanel(run) === panel)} files={files} gate={gate} terminal={null} hostKind={host.kind}
+      <RunPanel embedded runs={runs.filter(run => testRunPanel(run) === panel)} files={files} showRunHint={showRunHint} hostKind={host.kind}
         onStop={run => { void stop(run); }} readOutput={output} selectedRunId={selected[panel]} onSelectRun={id => setSelected(current => ({ ...current, [panel]: id }))}
         onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
           void window.ideWorkbench.request('run.ask', run.id, text).then(() => setNotice('Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));

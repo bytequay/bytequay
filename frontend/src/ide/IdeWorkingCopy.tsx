@@ -77,7 +77,7 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
     }, true);
     return () => { live = false; clearTimeout(timer); void stream.then(stop => stop(), () => {}); };
   }, [active, open, reviewId, ownReviewStream, bridge]);
-  const gate = review ? runGate(review, files, []) : { hidden: true, blocked: null };
+  const gate = review ? runGate(review, files) : { hidden: true, blocked: null };
   const stale = open && review?.sourceTaskId == null && review?.worktreeSync && review.worktreeSync.state !== 'CURRENT';
   const syncLabel = review?.worktreeSync?.state === 'UNAVAILABLE' ? 'Working copy sync unavailable — retry' : 'Local branch is stale — reset to remote';
   const mutate = async () => {

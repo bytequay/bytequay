@@ -11,7 +11,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgentTaskDto } from '../../types';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
 import type { LocalRunDto, LocalRunMethodDto, LocalRunStatus, ReviewCodeFilesDto } from './contracts';
@@ -155,18 +154,12 @@ export function runIsStale(run: LocalRunDto, files: ReviewCodeFilesDto | null) {
   return files !== null && files.sourceFingerprint !== null && run.sourceFingerprint !== null && files.sourceFingerprint !== run.sourceFingerprint;
 }
 
-/** `hidden` removes run controls (no working copy or an ended review); `blocked` disables them with a reason. */
-export type RunGate = { hidden: boolean; blocked: string | null };
-
-/**
- * Whether a run can start now, following the availability table: the backend refuses the same cases, so this only
- * explains a disabled run control before the click.
- */
-export function runGate(review: AgentReviewDto, files: ReviewCodeFilesDto | null, runs: readonly LocalRunDto[]): RunGate {
+/** Availability of working-copy mutations; the backend enforces the same restrictions. */
+export function runGate(review: AgentReviewDto, files: ReviewCodeFilesDto | null) {
   if (review.state !== 'OPEN' || files === null || files.source !== 'WORKING_COPY') return { hidden: true, blocked: null };
   const claim = review.task.mutationClaim;
   const turnRunning = review.activeTurn !== null && (review.activeTurn.state === 'RUNNING' || review.activeTurn.state === 'ACCEPTED');
-  if (claim === 'LOCAL_RUN' || runs.some(run => run.status === 'RUNNING' || run.treeUnverified)) {
+  if (claim === 'LOCAL_RUN') {
     return { hidden: false, blocked: 'A run is using this working copy' };
   }
   if (claim === 'RECOVERY' || (claim === 'TURN' && !turnRunning)) {
@@ -178,19 +171,5 @@ export function runGate(review: AgentReviewDto, files: ReviewCodeFilesDto | null
     return { hidden: false, blocked: 'The review agent is working' };
   }
   if (review.queuedInputIds.length > 0) return { hidden: false, blocked: 'Remove or resume the queued question' };
-  return { hidden: false, blocked: null };
-}
-
-/** The same gate for a development task's working copy, which only exists while the task keeps its worktree. */
-export function taskRunGate(task: AgentTaskDto, files: ReviewCodeFilesDto | null, runs: readonly LocalRunDto[]): RunGate {
-  if (task.interactive === false || task.state !== 'OPEN' || task.checkoutRemovedAt !== null || files === null) return { hidden: true, blocked: null };
-  const claim = task.mutationClaim?.kind ?? null;
-  if (claim === 'LOCAL_RUN' || runs.some(run => run.status === 'RUNNING' || run.treeUnverified)) {
-    return { hidden: false, blocked: 'A run is using this working copy' };
-  }
-  if (claim === 'TURN') return { hidden: false, blocked: 'The task\'s agent is working' };
-  if (claim === 'RECOVERY') return { hidden: false, blocked: 'The task needs recovery — see the task window' };
-  if (claim === 'COMPLETION') return { hidden: false, blocked: 'The working copy is being updated' };
-  if (task.developmentContinuationUnfinished) return { hidden: false, blocked: 'Development automation is working' };
   return { hidden: false, blocked: null };
 }

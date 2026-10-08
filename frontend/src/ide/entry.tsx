@@ -294,7 +294,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       </nav>
       <div className="ide-tools" style={{ display: bottom === 'history' && !history ? undefined : 'none' }}><Part part={Parts.PANEL_PART} /></div>
       <TestRuns key={codeHostKey(context.host)} context={context} files={files} runtime={runtime} mode={bottom === 'run' || bottom === 'debug' ? bottom : null} />
-      {bottom === 'terminal' && <TerminalView host={context.host} bridge={window.ideWorkbench.terminal} clearRequest={0} />}
+      {bottom === 'terminal' && <TerminalView host={context.host} bridge={window.ideWorkbench.terminal} />}
       {bottom === 'history' && <nav className="ide-toolbar" aria-label="History scope">
         <button onClick={() => { setHistory(null); void gitHistory?.focus().catch(cause => setError(String(cause))); }}>Repository history</button>
         <button disabled={!selected} onClick={() => { setHistory(null); void gitHistory?.focus(selected ?? undefined).catch(cause => setError(String(cause))); }}>Current file history</button>

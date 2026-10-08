@@ -45,11 +45,10 @@ export function followTerminalTheme(terminal: Terminal, element: HTMLElement): (
 }
 
 /** The host's login shell. Unmounting only detaches: the shell keeps running and replays its output on the next attach. */
-export default function TerminalView({ host: codeHost, bridge, clearRequest }: { host: CodeHostRef; bridge: TerminalBridge; clearRequest: number }) {
+export default function TerminalView({ host: codeHost, bridge }: { host: CodeHostRef; bridge: TerminalBridge }) {
   const hostKey = codeHostKey(codeHost);
   const currentHost = useRef(codeHost); currentHost.current = codeHost;
   const host = useRef<HTMLDivElement>(null);
-  const terminal = useRef<Terminal | null>(null);
   const [status, setStatus] = useState<Status>({ kind: 'opening' });
   const [attempt, setAttempt] = useState(0);
 
@@ -61,7 +60,6 @@ export default function TerminalView({ host: codeHost, bridge, clearRequest }: {
     term.loadAddon(fit);
     term.open(element);
     const stopTheme = followTerminalTheme(term, element);
-    terminal.current = term;
     // Hidden panes measure zero, and fitting to zero would shrink the shell to one column.
     const refit = () => {
       if (element.clientWidth > 0 && element.clientHeight > 0) fit.fit();
@@ -109,13 +107,8 @@ export default function TerminalView({ host: codeHost, bridge, clearRequest }: {
       resize.dispose();
       observer.disconnect();
       stopTheme(); term.dispose();
-      terminal.current = null;
     };
   }, [attempt, bridge, hostKey]);
-
-  useEffect(() => {
-    if (clearRequest > 0) terminal.current?.clear();
-  }, [clearRequest]);
 
   return (
     <div className="ct-terminal">

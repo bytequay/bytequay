@@ -21,11 +21,9 @@ import {
   CircleMinus,
   CircleX,
   Clock,
-  Eraser,
   LoaderCircle,
   Play,
   Square,
-  SquareTerminal,
   UserRound,
   X,
 } from 'lucide-react';
@@ -42,15 +40,12 @@ import {
   shownResults,
   statusLabel,
   statusTone,
-  type RunGate,
 } from './runModel';
 import { shortSha } from './codeModel';
 import { usePopoverDismiss } from '../../usePopoverDismiss';
 import TerminalOutput from './TerminalOutput';
-import TerminalView, { type TerminalBridge } from './TerminalView';
 
 type SubTab = 'tests' | 'details';
-type Mode = 'run' | 'terminal';
 type OutputState = { text: string; offset: number; complete: boolean; snapshot: boolean };
 
 const MIN_HEIGHT = 96;
@@ -59,13 +54,13 @@ const MIN_TREE_WIDTH = 160;
 const HISTORY_WIDTH = 380;
 const MIN_LOG_WIDTH = 220;
 
-export function StatusIcon({ run, size = 12 }: { run: LocalRunDto; size?: number }) {
+function StatusIcon({ run }: { run: LocalRunDto }) {
   const tone = statusTone(run.status);
   const label = statusLabel(run.status);
-  if (tone === 'running') return <LoaderCircle className="ct-spin ct-status is-running" size={size} strokeWidth={2} aria-label={label} />;
-  if (tone === 'pass') return <CircleCheck className="ct-status is-pass" size={size} strokeWidth={2} aria-label={label} />;
-  if (tone === 'fail') return <CircleX className="ct-status is-fail" size={size} strokeWidth={2} aria-label={label} />;
-  return <CircleHelp className="ct-status is-neutral" size={size} strokeWidth={2} aria-label={label} />;
+  if (tone === 'running') return <LoaderCircle className="ct-spin ct-status is-running" size={12} strokeWidth={2} aria-label={label} />;
+  if (tone === 'pass') return <CircleCheck className="ct-status is-pass" size={12} strokeWidth={2} aria-label={label} />;
+  if (tone === 'fail') return <CircleX className="ct-status is-fail" size={12} strokeWidth={2} aria-label={label} />;
+  return <CircleHelp className="ct-status is-neutral" size={12} strokeWidth={2} aria-label={label} />;
 }
 
 function RowIcon({ row }: { row: LocalRunMethodDto }) {
@@ -107,8 +102,7 @@ function RunHistory({ runs, files, align, onPick, onClose }: {
 export default function RunPanel({
   runs,
   files,
-  gate,
-  terminal: terminalTarget,
+  showRunHint = false,
   hostKind,
   onStop,
   readOutput,
@@ -119,9 +113,7 @@ export default function RunPanel({
 }: {
   runs: readonly LocalRunDto[];
   files: ReviewCodeFilesDto | null;
-  gate: RunGate;
-  /** The host whose working copy the terminal opens in, or null when it has none. */
-  terminal: { host: CodeHostRef; bridge: TerminalBridge } | null;
+  showRunHint?: boolean;
   /** Whose working copy this is; a development task's agent runs are not mirrored here. */
   hostKind: CodeHostRef['kind'];
   embedded?: boolean;
@@ -134,8 +126,6 @@ export default function RunPanel({
   const [open, setOpen] = useState(true);
   const [selection, setSelection] = useState('');
   const [failureDetail, setFailureDetail] = useState<LocalRunMethodDto | null>(null);
-  const [mode, setMode] = useState<Mode>('run');
-  const [clearRequest, setClearRequest] = useState(0);
   const [height, setHeight] = useState(236);
   // Null keeps the stylesheet's share until the divider is first moved.
   const [treeWidth, setTreeWidth] = useState<number | null>(null);
@@ -271,18 +261,13 @@ export default function RunPanel({
   const firstFailed = run === null ? undefined : failedRows(run)[0];
   const failure = failureDetail ?? firstFailed;
   const output = run === null ? null : outputs.get(run.id) ?? null;
-  const terminal = mode === 'terminal' ? terminalTarget : null;
 
   useLayoutEffect(() => {
     const element = log.current;
     if (element === null || run === null) return;
     if (logFollows.current.runId !== run.id) logFollows.current = { runId: run.id, follows: true };
     if (logFollows.current.follows) element.scrollTop = element.scrollHeight;
-  }, [run?.id, output?.text, subTab, open, terminal]); // eslint-disable-line react-hooks/exhaustive-deps
-  const showMode = (next: Mode) => {
-    setMode(next);
-    setOpen(true);
-  };
+  }, [run?.id, output?.text, subTab, open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <section className={`ct-run${open ? ' is-open' : ''}${embedded ? ' is-embedded' : ''}`} aria-label="Runs">
@@ -293,24 +278,7 @@ export default function RunPanel({
           onClick={() => setOpen(value => !value)}>
           {open ? <ChevronDown size={13} strokeWidth={1.8} aria-hidden="true" /> : <ChevronRight size={13} strokeWidth={1.8} aria-hidden="true" />}
         </button>}
-        {terminalTarget === null ? (
-          !embedded && <span className="ct-run__mode is-run"><Play size={12} strokeWidth={1.8} aria-hidden="true" /> Run</span>
-        ) : (
-          <div className="ct-run__modes" role="group" aria-label="Panel">
-            <button type="button" className={`ct-run__mode is-run${terminal === null ? ' is-selected' : ''}`} aria-pressed={terminal === null}
-              onClick={() => showMode('run')}><Play size={12} strokeWidth={1.8} aria-hidden="true" /> Run</button>
-            <button type="button" className={`ct-run__mode is-terminal${terminal !== null ? ' is-selected' : ''}`} aria-pressed={terminal !== null}
-              onClick={() => showMode('terminal')}><SquareTerminal size={12} strokeWidth={1.8} aria-hidden="true" /> Terminal</button>
-          </div>
-        )}
-        {terminal !== null ? (
-          <div className="ct-run__terminal-head">
-            {gate.blocked !== null && <span className="ct-run__terminal-notice" role="status">{gate.blocked} — commands here share its files</span>}
-            <span className="ct-toolbar__spacer" />
-            <button type="button" className="ct-icon-button" title="Clear terminal" aria-label="Clear terminal"
-              onClick={() => setClearRequest(value => value + 1)}><Eraser size={13} strokeWidth={1.8} aria-hidden="true" /></button>
-          </div>
-        ) : (<>
+        {!embedded && <span className="ct-run__mode"><Play size={12} strokeWidth={1.8} aria-hidden="true" /> Run</span>}
         <div className="ct-run__tabs" role="tablist" aria-label="Runs">
           {shownTabs.map(item => (
             <div key={item.id} className={`ct-run__tab${item.id === selectedRunId ? ' is-selected' : ''}`}>
@@ -347,14 +315,8 @@ export default function RunPanel({
           </div>
         )}
         <span className="ct-run__count">{runs.length === 0 ? 'nothing has run yet' : `${runs.length} ${runs.length === 1 ? 'run' : 'runs'} · newest first`}</span>
-        </>)}
       </header>
-      {open && terminal !== null && (
-        <div className="ct-run__body" style={{ height: embedded ? undefined : height }}>
-          <TerminalView host={terminal.host} bridge={terminal.bridge} clearRequest={clearRequest} />
-        </div>
-      )}
-      {open && terminal === null && (
+      {open && (
         <div className="ct-run__body" style={{ height: embedded ? undefined : height }}>
           {run === null ? (
             <div className="ct-run__empty">
@@ -363,7 +325,7 @@ export default function RunPanel({
                 {hostKind === 'review' ? 'Runs you start and runs the review agent starts share this history.' : 'Runs you start here share this history.'}
                 {' '}Each keeps its initiator, scope, the source version that ran, status, timing, output and exit status.
               </p>
-              {!gate.hidden && <p>Use the play button beside a test in the editor to run or debug it.</p>}
+              {showRunHint && <p>Use the play button beside a test in the editor to run or debug it.</p>}
             </div>
           ) : (
             <>

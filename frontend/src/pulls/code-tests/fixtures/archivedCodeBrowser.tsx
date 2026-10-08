@@ -68,7 +68,7 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
         : { text: 'live output', nextOffset: 2_000_000, skippedBytes: 1_999_989, complete: false };
     };
     const render = () => flushSync(() => root.render(<RunPanel runs={[finished ? { ...run, status: 'FAILED_ASSERTION' } : run]} files={null}
-      gate={{ hidden: false, blocked: null }} terminal={null} hostKind="task" onStop={() => {}}
+      showRunHint hostKind="task" onStop={() => {}}
       readOutput={readOutput} selectedRunId={run.id} onSelectRun={() => {}} />));
     render(); await settle();
     assert(requested.join(',') === '0', 'The active run must request live output');

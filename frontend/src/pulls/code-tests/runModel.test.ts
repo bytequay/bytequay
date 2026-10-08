@@ -12,11 +12,9 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { parseAgentTask } from '../../agents/contracts';
-import contracts from '../../agents/fixtures/agent-contracts-v1.json';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import { parseLocalRun, parseLocalRunOutput, type LocalRunDto, type ReviewCodeFilesDto } from './contracts';
-import { commandLabel, runGate, runIsStale, runLabel, runSummary, shownResults, taskRunGate } from './runModel';
+import { commandLabel, runGate, runIsStale, runLabel, runSummary, shownResults } from './runModel';
 
 function run(overrides: Partial<LocalRunDto> = {}): LocalRunDto {
   return {
@@ -54,49 +52,25 @@ describe('result tree', () => {
 
 describe('run gate', () => {
   it('allows a run only on an idle open review with a working copy', () => {
-    expect(runGate(reviewFixture(), files, [])).toEqual({ hidden: false, blocked: null });
-    expect(runGate(reviewFixture({ state: 'CLOSED' }), files, []).hidden).toBe(true);
-    expect(runGate(reviewFixture(), { ...files, source: 'REVISION' }, []).hidden).toBe(true);
+    expect(runGate(reviewFixture(), files)).toEqual({ hidden: false, blocked: null });
+    expect(runGate(reviewFixture({ state: 'CLOSED' }), files).hidden).toBe(true);
+    expect(runGate(reviewFixture(), { ...files, source: 'REVISION' }).hidden).toBe(true);
   });
 
   it('names what holds the working copy', () => {
     const task = reviewFixture().task;
-    expect(runGate(reviewFixture({ task: { ...task, mutationClaim: 'LOCAL_RUN' } }), files, []).blocked).toBe('A run is using this working copy');
-    expect(runGate(reviewFixture(), files, [run({ status: 'RUNNING', endedAt: null })]).blocked).toBe('A run is using this working copy');
-    expect(runGate(reviewFixture(), files, [run({ treeUnverified: true })]).blocked).toBe('A run is using this working copy');
-    expect(runGate(reviewFixture({ task: { ...task, mutationClaim: 'COMPLETION' } }), files, []).blocked).toBe('The working copy is being updated');
-    expect(runGate(reviewFixture({ activeTurn: { id: 't', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } as never }), files, []).blocked)
+    expect(runGate(reviewFixture({ task: { ...task, mutationClaim: 'LOCAL_RUN' } }), files).blocked).toBe('A run is using this working copy');
+    expect(runGate(reviewFixture({ task: { ...task, mutationClaim: 'COMPLETION' } }), files).blocked).toBe('The working copy is being updated');
+    expect(runGate(reviewFixture({ activeTurn: { id: 't', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } as never }), files).blocked)
       .toBe('The review agent is working');
-    expect(runGate(reviewFixture({ queuedInputIds: ['q'] }), files, []).blocked).toBe('Remove or resume the queued question');
+    expect(runGate(reviewFixture({ queuedInputIds: ['q'] }), files).blocked).toBe('Remove or resume the queued question');
   });
 
   it('treats a paused review whose pass is still RUNNING as idle', () => {
     const review = reviewFixture();
     const running = { ...review.runs[0], state: 'RUNNING' as const };
-    expect(runGate({ ...review, runs: [running], followUpPaused: false }, files, []).blocked).toBe('The review agent is working');
-    expect(runGate({ ...review, runs: [running], followUpPaused: true }, files, []).blocked).toBeNull();
-  });
-});
-
-describe('task run gate', () => {
-  const task = { ...parseAgentTask(contracts.task), interactive: true };
-  const claim = (kind: string) => ({ ...task, mutationClaim: { kind, ownerId: 'owner', acquiredAt: '2026-09-17T00:00:00Z' } });
-
-  it('hides runs unless the task is open with its worktree and files are read', () => {
-    expect(taskRunGate(task, files, [])).toEqual({ hidden: false, blocked: null });
-    expect(taskRunGate({ ...task, state: 'COMPLETED' }, files, []).hidden).toBe(true);
-    expect(taskRunGate({ ...task, checkoutRemovedAt: '2026-09-17T00:00:00Z' }, files, []).hidden).toBe(true);
-    expect(taskRunGate(task, null, []).hidden).toBe(true);
-  });
-
-  it('names what holds the task working copy', () => {
-    expect(taskRunGate(claim('LOCAL_RUN'), files, []).blocked).toBe('A run is using this working copy');
-    expect(taskRunGate(task, files, [run({ status: 'RUNNING', endedAt: null })]).blocked).toBe('A run is using this working copy');
-    expect(taskRunGate(task, files, [run({ treeUnverified: true })]).blocked).toBe('A run is using this working copy');
-    expect(taskRunGate(claim('TURN'), files, []).blocked).toBe('The task\'s agent is working');
-    expect(taskRunGate(claim('RECOVERY'), files, []).blocked).toBe('The task needs recovery — see the task window');
-    expect(taskRunGate(claim('COMPLETION'), files, []).blocked).toBe('The working copy is being updated');
-    expect(taskRunGate({ ...task, developmentContinuationUnfinished: true }, files, []).blocked).toBe('Development automation is working');
+    expect(runGate({ ...review, runs: [running], followUpPaused: false }, files).blocked).toBe('The review agent is working');
+    expect(runGate({ ...review, runs: [running], followUpPaused: true }, files).blocked).toBeNull();
   });
 });
 

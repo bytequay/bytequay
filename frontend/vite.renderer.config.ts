@@ -17,6 +17,7 @@ import { encodingDetector, textmateImports } from './ideBuild';
 
 // https://vitejs.dev/config
 export default defineConfig({
+  cacheDir: 'node_modules/.vite/main',
   plugins: [react(), encodingDetector(), textmateImports()],
   server: {
     host: '127.0.0.1',

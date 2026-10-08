@@ -19,6 +19,8 @@ import { encodingDetector, textmateImports } from './ideBuild';
 export default defineConfig(async () => {
   const { default: importMetaUrlPlugin } = await import('@codingame/esbuild-import-meta-url-plugin');
   return {
+    // The app and editor run separate Vite servers; sharing their optimizer cache loads editor singletons twice.
+    cacheDir: 'node_modules/.vite/ide',
     plugins: [react(), encodingDetector(), textmateImports()],
     // Preserve grammar and Oniguruma URLs when Vite prebundles the native editor.
     optimizeDeps: { esbuildOptions: { plugins: [importMetaUrlPlugin] } },

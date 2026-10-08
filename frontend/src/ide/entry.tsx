@@ -13,6 +13,7 @@
  */
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import LogoLoading from '../LogoLoading';
 import { attachPart, Parts } from '@codingame/monaco-vscode-views-service-override';
 import type { TextEditor } from 'vscode';
 import type { Bridge } from '../types';
@@ -343,7 +344,10 @@ function App() {
     return stop;
   }, []);
   if (error) return <div className="ide-loading" role="alert">{error}</div>;
-  if (!ready || !context) return <div className="ide-loading" role="status">Loading code tools…</div>;
+  if (!ready || !context) return <div className="ct-tools-loading" role="status">
+    <span aria-hidden="true"><LogoLoading size={56} /></span>
+    <span>Loading code tools…</span>
+  </div>;
   return <DraftWorkbench {...ready} context={context} />;
 }
 

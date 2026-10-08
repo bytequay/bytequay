@@ -13,6 +13,7 @@
  */
 import { prepareAgentInput } from '../agents/preparedInput';
 import { useEffect, useRef, useState } from 'react';
+import LogoLoading from '../LogoLoading';
 import { useFindingActions } from '../pulls/agent-review/useFindingActions';
 import { PLACEHOLDER_REVIEW } from '../pulls/PullChanges';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -185,6 +186,9 @@ export default function IdeSurface(props: IdeSurfaceProps) {
     {error ? <div className="ct-empty" role="alert">{error}<button type="button" onClick={() => {
       const currentId = idRef.current;
       void (currentId ? window.ide.close(currentId) : Promise.resolve()).then(() => { idRef.current = null; setId(null); setError(null); setAttempt(value => value + 1); }).catch(failure => setError(String(failure)));
-    }}>Reconnect editor</button></div> : id === null && <div className="ct-empty" role="status">Starting code tools…</div>}
+    }}>Reconnect editor</button></div> : id === null && <div className="ct-tools-loading" role="status">
+      <span aria-hidden="true"><LogoLoading size={56} /></span>
+      <span>Starting code tools…</span>
+    </div>}
   </div>;
 }

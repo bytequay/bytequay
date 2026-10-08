@@ -272,15 +272,18 @@ public final class ClaudeCliDriver
                     || parseVersion(version.stdout()).filter(value -> value.compareTo(Version.parse("2.1.293")) >= 0).isEmpty()) {
                 return ProviderQuotaSnapshot.unavailable("Usage requires Claude Code 2.1.293 or newer.");
             }
-            if (probeAuthentication().readiness() != AgentProviderStatus.Readiness.READY) {
-                return ProviderQuotaSnapshot.unavailable("Sign in to this Claude account in Settings to see usage.");
+            AuthenticationProbe authentication = probeAuthentication();
+            if (authentication.readiness() != AgentProviderStatus.Readiness.READY) {
+                return ProviderQuotaSnapshot.unavailable(authentication.readiness() == AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED
+                        ? "Sign in to this Claude account in Settings to see usage."
+                        : "Claude account status is temporarily unavailable. Try again.");
             }
             return ClaudeQuota.read(supervisor, processSpec(
                     new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-usage"),
                     ImmutableList.of(executable, "--print", "--safe-mode", "--setting-sources=", "--settings", "{\"disableAllHooks\":true}",
                             "--tools=", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--no-chrome", "--input-format=stream-json",
                             "--output-format=stream-json", "--verbose", "--no-session-persistence"),
-                    claudeHome, Duration.ofSeconds(30), OptionalInt.empty(), MAX_DIAGNOSTIC_LINE_BYTES), objectMapper);
+                    claudeHome, Duration.ofMinutes(2), OptionalInt.empty(), MAX_DIAGNOSTIC_LINE_BYTES), objectMapper);
         }
         catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
@@ -292,7 +295,7 @@ public final class ClaudeCliDriver
     public Optional<String> update()
     {
         try {
-            ProviderCli.Result result = run(UPDATE_TIMEOUT, executable, "update");
+            ProviderCli.Result result = run(UPDATE_TIMEOUT, executable, "--bare", "update");
             if (result.exitCode() != 0) {
                 throw new AgentUnavailableException(
                         "Claude CLI update failed: " + redactor.redact(result.combinedOutput()));
@@ -683,7 +686,11 @@ public final class ClaudeCliDriver
     private ProviderCli.Result run(String... command)
             throws InterruptedException
     {
-        return run(PROBE_TIMEOUT, command);
+        // Even auth status can rotate a token and exit before saving it. Read-only probes must never reach the network.
+        return run(PROBE_TIMEOUT, ImmutableList.<String>builder()
+                .add("/usr/bin/sandbox-exec", "-p", "(version 1) (allow default) (deny network*)")
+                .add(command)
+                .build().toArray(String[]::new));
     }
 
     private ProviderCli.Result run(Duration maximumRuntime, String... command)

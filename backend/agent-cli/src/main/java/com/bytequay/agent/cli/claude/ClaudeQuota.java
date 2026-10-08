@@ -25,6 +25,8 @@ import com.bytequay.agent.spi.ProviderQuotaWindow;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
@@ -40,10 +42,13 @@ import java.util.concurrent.TimeoutException;
 
 final class ClaudeQuota
 {
+    private static final Logger log = LoggerFactory.getLogger(ClaudeQuota.class);
+
     private ClaudeQuota() {}
 
     static ProviderQuotaSnapshot read(ProcessSupervisor supervisor, ProcessSpec spec, ObjectMapper mapper)
     {
+        long deadline = System.nanoTime() + spec.maximumRuntime().toNanos();
         CompletableFuture<JsonNode> initialized = new CompletableFuture<>();
         CompletableFuture<JsonNode> usage = new CompletableFuture<>();
         Utf8LineBuffer lines = new Utf8LineBuffer(4 * 1024 * 1024, true, line -> {
@@ -87,6 +92,9 @@ final class ClaudeQuota
             AgentUnavailableException stopped = new AgentUnavailableException("Claude usage query ended before replying");
             initialized.completeExceptionally(stopped);
             usage.completeExceptionally(stopped);
+            if (failure == null && exit.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED) {
+                supervisor.acknowledge(process.launchId());
+            }
         });
         try {
             send(process, "{\"type\":\"control_request\",\"request_id\":\"initialize\",\"request\":{\"subtype\":\"initialize\"}}");
@@ -103,12 +111,27 @@ final class ClaudeQuota
             throw new AgentUnavailableException("Claude usage query unavailable", failure);
         }
         finally {
-            process.cancel();
-            process.exit().whenComplete((exit, failure) -> {
-                if (failure == null && exit.treeTermination() == ProcessExit.TreeTermination.VERIFIED_STOPPED) {
-                    supervisor.acknowledge(process.launchId());
+            // A cached usage reply can precede OAuth refresh. Even EOF makes Claude abandon it after two seconds.
+            Thread.ofVirtual().name("claude-usage-shutdown").start(() -> finish(supervisor, spec, mapper, process, deadline));
+        }
+    }
+
+    private static void finish(ProcessSupervisor supervisor, ProcessSpec spec, ObjectMapper mapper, ManagedProcess process, long deadline)
+    {
+        try {
+            while (!process.exit().toCompletableFuture().isDone() && System.nanoTime() < deadline) {
+                if (!ClaudeCredentialRefresh.pending(supervisor, spec, mapper)) {
+                    process.closeInput();
+                    return;
                 }
-            });
+                Thread.sleep(250);
+            }
+        }
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+        }
+        catch (RuntimeException failure) {
+            log.warn("Unable to confirm Claude credential refresh completion; leaving the probe to its supervised deadline");
         }
     }
 

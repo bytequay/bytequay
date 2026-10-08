@@ -27,23 +27,31 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestClaudeQuota
 {
     private final ObjectMapper mapper = new ObjectMapper();
+
+    @TempDir
+    private Path home;
 
     @Test
     void readsPersonalAndModelWindowsWithoutDuplicatingLegacyModelLimits()
@@ -80,14 +88,73 @@ class TestClaudeQuota
 
     @Test
     void querySendsOnlyControlMessagesAndCleansUpTheProcess()
+            throws Exception
     {
         ProbeProcess process = new ProbeProcess();
-        ProcessSpec spec = new ProcessSpec(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "usage"), ImmutableList.of("claude"), Path.of("/tmp"),
-                ImmutableMap.of(), OptionalInt.empty(), 1024, Duration.ofSeconds(30), Duration.ZERO);
-        assertThat(ClaudeQuota.read(process, spec, mapper).windows()).isEmpty();
+        assertThat(ClaudeQuota.read(process, spec(), mapper).windows()).isEmpty();
         assertThat(process.requests).containsExactly("initialize", "get_usage");
-        assertThat(process.exit.isDone()).isTrue();
-        assertThat(process.acknowledged).isTrue();
+        process.acknowledged.get(3, TimeUnit.SECONDS);
+        assertThat(process.exit.join().reason()).isEqualTo(ProcessExit.Reason.EXITED);
+        assertThat(process.cancelled).isFalse();
+    }
+
+    @Test
+    void cachedUsageDoesNotCloseInputBeforeTheRefreshedCredentialIsSaved()
+            throws Exception
+    {
+        ProbeProcess process = new ProbeProcess();
+        process.credentials = "{\"claudeAiOauth\":{\"refreshToken\":\"old-fabricated-token\",\"expiresAt\":0}}";
+        assertThat(ClaudeQuota.read(process, spec(), mapper).windows()).isEmpty();
+        assertThat(process.credentialRead.await(3, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exit.isDone()).isFalse();
+        assertThat(process.cancelled).isFalse();
+        process.credentials = "{\"claudeAiOauth\":{\"refreshToken\":\"new-fabricated-token\",\"expiresAt\":"
+                + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}";
+        process.acknowledged.get(3, TimeUnit.SECONDS);
+        assertThat(process.exit.join().reason()).isEqualTo(ProcessExit.Reason.EXITED);
+        assertThat(process.cancelled).isFalse();
+    }
+
+    @Test
+    void unreadableCredentialStatusNeverCancelsARefreshInFlight()
+            throws Exception
+    {
+        ProbeProcess process = new ProbeProcess();
+        process.credentials = "unreadable";
+        ClaudeQuota.read(process, spec(), mapper);
+        assertThat(process.credentialRead.await(3, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exit.isDone()).isFalse();
+        assertThat(process.cancelled).isFalse();
+        // The supervisor still owns the finite runtime deadline and verifies its eventual cleanup.
+        process.exit.complete(new ProcessExit(143, ProcessExit.Reason.TIMED_OUT, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
+        process.acknowledged.get(3, TimeUnit.SECONDS);
+    }
+
+    @Test
+    void waitsForTheCliFallbackFileAndActiveRefreshLock()
+            throws Exception
+    {
+        ProbeProcess process = new ProbeProcess();
+        process.credentialExitCode = 44;
+        Path credentials = home.resolve(".credentials.json");
+        Files.writeString(credentials, "{\"claudeAiOauth\":{\"refreshToken\":\"fabricated-token\",\"expiresAt\":0}}");
+        ClaudeQuota.read(process, spec(), mapper);
+        assertThat(process.credentialRead.await(3, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exit.isDone()).isFalse();
+        Files.createDirectory(home.resolve(".oauth_refresh.lock"));
+        Files.writeString(credentials, "{\"claudeAiOauth\":{\"refreshToken\":\"fabricated-token\",\"expiresAt\":"
+                + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}");
+        assertThat(ClaudeCredentialRefresh.pending(process, spec(), mapper)).isTrue();
+        Files.delete(home.resolve(".oauth_refresh.lock"));
+        process.acknowledged.get(3, TimeUnit.SECONDS);
+        assertThat(process.cancelled).isFalse();
+    }
+
+    private ProcessSpec spec()
+    {
+        return new ProcessSpec(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "usage"), ImmutableList.of("claude"), home,
+                ImmutableMap.of("CLAUDE_CONFIG_DIR", home.toString(), "USER", "test-user"),
+                OptionalInt.empty(), 1024, Duration.ofMinutes(2), Duration.ZERO);
     }
 
     private final class ProbeProcess
@@ -96,11 +163,22 @@ class TestClaudeQuota
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final List<String> requests = new ArrayList<>();
         private ProcessOutputSink sink;
-        private boolean acknowledged;
+        private final CompletableFuture<Void> acknowledged = new CompletableFuture<>();
+        private final CountDownLatch credentialRead = new CountDownLatch(1);
+        private volatile String credentials = "{}";
+        private int credentialExitCode;
+        private volatile boolean cancelled;
+        private ProbeProcess credentialOwner;
 
         @Override
         public PreparedProcess prepare(ProcessSpec spec)
         {
+            if (spec.argv().getFirst().equals("/usr/bin/security")) {
+                assertThat(spec.argv()).containsSequence("-a", "test-user", "-w", "-s", ClaudeCredentialRefresh.service(home));
+                ProbeProcess read = new ProbeProcess();
+                read.credentialOwner = this;
+                return read;
+            }
             return this;
         }
 
@@ -113,19 +191,27 @@ class TestClaudeQuota
         @Override
         public void acknowledge(String launchId)
         {
-            acknowledged = true;
+            if (launchId.equals("usage-probe")) {
+                acknowledged.complete(null);
+            }
         }
 
         @Override
         public String launchId()
         {
-            return "usage-probe";
+            return credentialOwner == null ? "usage-probe" : "credential-read";
         }
 
         @Override
         public ManagedProcess start(ProcessOutputSink output)
         {
             sink = output;
+            if (credentialOwner != null) {
+                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(credentialOwner.credentials));
+                exit.complete(new ProcessExit(credentialOwner.credentialExitCode, ProcessExit.Reason.EXITED,
+                        ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
+                credentialOwner.credentialRead.countDown();
+            }
             return this;
         }
 
@@ -159,7 +245,10 @@ class TestClaudeQuota
         }
 
         @Override
-        public void closeInput() {}
+        public void closeInput()
+        {
+            exit.complete(new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
+        }
 
         @Override
         public CompletionStage<ProcessExit> exit()
@@ -170,6 +259,7 @@ class TestClaudeQuota
         @Override
         public void cancel()
         {
+            cancelled = true;
             exit.complete(new ProcessExit(0, ProcessExit.Reason.CANCELLED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, false, false));
         }
 

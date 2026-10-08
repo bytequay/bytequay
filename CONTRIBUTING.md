@@ -88,6 +88,13 @@ stored by ByteQuay. No manual profile path or shell configuration is needed.
 Profiles stay in ByteQuay's application data directory, outside repositories
 and their worktrees, so Git cannot accidentally commit or clean them.
 
+Readiness checks run with network access disabled: Claude's short status command
+can otherwise start token rotation and exit before saving its replacement.
+Usage probes keep their input open while the CLI's refresh lock or stored token
+expiry indicates a pending refresh, including when usage is returned from cache.
+ByteQuay inspects the CLI-owned credential entry for this shutdown check but
+does not persist tokens, refresh them itself, or write the credential store.
+
 Override Development and Review as needed and choose a model under the intended
 Claude account. Account names are shown with the selection. New tasks use that choice; existing tasks keep the
 account they started with, including later turns and resumed sessions. Accounts

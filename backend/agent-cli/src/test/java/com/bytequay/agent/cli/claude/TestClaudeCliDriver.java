@@ -819,6 +819,30 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void checksReadinessWithoutNetworkAccessAndUpdatesWithoutOpeningStoredLogin()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        try (ClaudeCliDriver driver = driver(supervisor)) {
+            assertThat(driver.probe().readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
+            assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec -> assertThat(spec.argv())
+                    .startsWith("/usr/bin/sandbox-exec", "-p", "(version 1) (allow default) (deny network*)", "/fake/claude"));
+            driver.update();
+            assertThat(supervisor.specs().getLast().argv()).containsExactly("/fake/claude", "--bare", "update");
+        }
+    }
+
+    @Test
+    void failedAccountCheckDoesNotTellTheUsageMeterToSignIn()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput("2.1.294 (Claude Code)");
+        supervisor.authenticationTimeout();
+        try (ClaudeCliDriver driver = driver(supervisor)) {
+            assertThat(driver.quota().message()).contains("Claude account status is temporarily unavailable. Try again.");
+        }
+    }
+
+    @Test
     void usesTypedAuthenticationStatusWithoutParsingStderr()
     {
         ScriptedProcessSupervisor loggedIn = new ScriptedProcessSupervisor();
@@ -986,6 +1010,8 @@ class TestClaudeCliDriver
                         .containsEntry("HOME", buildHome.toString())
                         .containsEntry("JAVA_HOME", System.getProperty("java.home"))
                         .doesNotContainKeys("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_BASE_URL"));
+                assertThat(supervisor.specs()).filteredOn(spec -> spec.argv().contains("status"))
+                        .allSatisfy(spec -> assertThat(spec.argv()).startsWith("/usr/bin/sandbox-exec", "-p", "(version 1) (allow default) (deny network*)"));
                 for (String content : supervisor.sandboxSettings) {
                     JsonNode settings = objectMapper.readTree(content);
                     assertThat(settings.path("sandbox").path("filesystem").path("allowWrite"))

@@ -37,7 +37,7 @@ export default function TreeItems({ items, depth, selected, isOpen, onToggle, on
                 ? <ChevronDown className="ct-tree__chevron" size={12} strokeWidth={2} aria-hidden="true" />
                 : <ChevronRight className="ct-tree__chevron" size={12} strokeWidth={2} aria-hidden="true" />}
             </span>
-            <Folder className="ct-tree__icon" size={14} strokeWidth={1.7} aria-hidden="true" />
+            <DirectoryIcon path={item.path} module={item.module} />
             <span className={`ct-tree__name${treeNameClass(item.name)}${item.module ? ' is-module' : ''}`}>{item.name}</span>
           </button>
           {isOpen(item.path) && (
@@ -56,6 +56,19 @@ function treeNameClass(name: string) {
   return name.startsWith('.') ? ' is-dot' : '';
 }
 
+function DirectoryIcon({ path, module }: { path: string; module?: boolean }) {
+  const root = /(?:^|\/)src\/(main|test)\/(java|resources)$/.exec(path);
+  const resources = root?.[2] === 'resources';
+  const build = /(^|\/)target$/.test(path) && !/(^|\/)src\//.test(path);
+  const kind = root ? (root[1] === 'test' ? 'test-source' : resources ? 'resources' : 'source') : build ? 'build' : '';
+  const label = root ? `${root[1] === 'test' ? 'Test' : 'Production'} ${resources ? 'resources' : 'Java sources'}` : build ? 'Build output' : module ? 'Maven module' : 'Directory';
+  return <span className={`ct-tree__icon ct-tree__folder${kind ? ` is-${kind}` : ''}`} role="img" aria-label={label} title={label}>
+    <Folder size={14} strokeWidth={1.7} aria-hidden="true" />
+    {resources && <span className="ct-tree__resource-badge" />}
+    {module && <span className="ct-tree__module-badge" />}
+  </span>;
+}
+
 function FileRow({ entry, depth, selected, onOpen, icon }: {
   entry: ReviewCodeFileEntryDto;
   depth: number;
@@ -68,7 +81,9 @@ function FileRow({ entry, depth, selected, onOpen, icon }: {
       <button type="button" className={`ct-tree__row is-file${isTestFile(entry.path) ? ' is-test-root' : ''}${selected ? ' is-selected' : ''}`} style={{ paddingLeft: 8 + depth * 16 }}
         title={entry.path} aria-current={selected ? 'true' : undefined} onClick={() => onOpen(entry.path)}>
         <span className="ct-tree__twisty" aria-hidden="true" />
-        {icon ?? (isTestFile(entry.path)
+        {icon ?? (fileName(entry.path) === 'pom.xml'
+          ? <span className="ct-tree__icon ct-tree__maven" role="img" aria-label="Maven POM" title="Maven POM">m</span>
+          : isTestFile(entry.path)
           ? <FlaskConical className="ct-tree__icon is-test" size={14} strokeWidth={1.7} aria-hidden="true" />
           : <File className="ct-tree__icon" size={14} strokeWidth={1.7} aria-hidden="true" />)}
         <span className={`ct-tree__name${treeNameClass(fileName(entry.path))}`}>{fileName(entry.path).replace(/\.java$/, '')}</span>

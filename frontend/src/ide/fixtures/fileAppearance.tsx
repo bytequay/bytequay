@@ -36,7 +36,9 @@ export async function verifyFileAppearance() {
   const editors = await getService(IEditorService);
   const models = await getService(ITextModelService);
   const theme = await getService(IWorkbenchThemeService);
-  const paths = ['src/main/java/Example.java', 'src/test/java/Example.java', 'src/main/java/Contract.java', 'src/main/java/Mode.java', 'package_test.go', 'tests/example.rs'];
+  const paths = ['src/main/java/Example.java', 'src/test/java/Example.java', 'src/main/java/Contract.java', 'src/main/java/Mode.java', 'package_test.go', 'tests/example.rs',
+    'src/main/resources/config.xml', 'src/test/resources/config.xml', 'target/build.log', 'pom.xml', 'module/pom.xml',
+    'module/src/main/java/Main.java', 'src/test/resources/target/fixture.xml', 'docs/java/notes.txt'];
   const uri = (path: string) => Uri.parse(`appearance:/project/${path}`);
   const contents = models.registerTextModelContentProvider('appearance', { provideTextContent: async resource => {
     const name = resource.path.split('/').pop()?.split('.')[0];
@@ -50,7 +52,7 @@ export async function verifyFileAppearance() {
   const stop = installTestTabColors(editors);
   const root = createRoot(tree);
   let opened = '';
-  flushSync(() => root.render(<TreeItems items={buildFileTree(paths.map(path => ({ path, changedInPr: false, addedInPr: false, onlyInWorkingCopy: false, uncommitted: false })), file => file.path)}
+  flushSync(() => root.render(<TreeItems items={buildFileTree(paths.map(path => ({ path, changedInPr: false, addedInPr: false, onlyInWorkingCopy: false, uncommitted: false })), file => file.path, { layout: 'ide' })}
     depth={0} selected={paths[1]} isOpen={() => true} onToggle={() => undefined} onOpen={path => { opened = path; }}
     renderFileIcon={path => path.endsWith('.java') ? <JavaFileIcon uri={uri(path).toString()} /> : undefined} />));
   const until = async (test: () => boolean, message: string) => {
@@ -66,6 +68,15 @@ export async function verifyFileAppearance() {
     assert(row(paths[0]).querySelector('[aria-label="Java class"]') !== null, 'Class has its own icon');
     assert(row(paths[0]).querySelector('.ct-tree__name')?.textContent === 'Example', 'Java suffix is hidden only in the label');
     assert(row(paths[4]).querySelector('.ct-tree__name')?.textContent === 'package_test.go', 'Other languages retain their suffix');
+    assert(row('src/main/java').querySelector('[aria-label="Production Java sources"]') !== null, 'Production source root is identified');
+    assert(row('module/src/main/java').querySelector('[aria-label="Production Java sources"]') !== null, 'Nested modules have source roots');
+    assert(row('src/test/java').querySelector('[aria-label="Test Java sources"]') !== null, 'Test source root is identified');
+    for (const scope of ['main', 'test']) assert(row(`src/${scope}/resources`).querySelector('.ct-tree__resource-badge') !== null, 'Resource roots have a distinct badge');
+    assert(row('module').querySelector('[aria-label="Maven module"] .ct-tree__module-badge') !== null, 'Maven module retains its badge');
+    assert(row('target').querySelector('[aria-label="Build output"]') !== null, 'Build output has its own icon');
+    assert(row('src/test/resources/target').querySelector('[aria-label="Build output"]') === null, 'A target directory in resources is not build output');
+    assert(row('docs/java').querySelector('[aria-label="Directory"]') !== null, 'An unrelated java directory remains generic');
+    assert(row('pom.xml').querySelector('[aria-label="Maven POM"]') !== null, 'Maven POM has its own icon');
     row(paths[0]).click(); assert(opened === paths[0], 'Opening uses the full unchanged source path');
     for (const path of [paths[0], paths[1], paths[4], paths[5]]) await editors.openEditor({ resource: uri(path), options: { pinned: true } });
     const group = editors.activeEditorPane?.group;
@@ -85,6 +96,11 @@ export async function verifyFileAppearance() {
       const tint = getComputedStyle(tabs()[1]).backgroundColor;
       assert(tint === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)'), `${name} test tab has the green tint: ${tint}`);
       assert(getComputedStyle(row(paths[1])).backgroundColor === (dark ? 'rgb(52, 75, 54)' : 'rgb(214, 233, 196)'), `${name} selected test row keeps its green tint`);
+      const iconColor = (path: string) => getComputedStyle(row(path).querySelector('.ct-tree__icon')!).color;
+      assert(iconColor('src/main/java') === (dark ? 'rgb(100, 149, 237)' : 'rgb(53, 116, 232)'), `${name} production sources are blue`);
+      assert(iconColor('src/test/java') === (dark ? 'rgb(128, 184, 116)' : 'rgb(57, 131, 73)'), `${name} test sources are green`);
+      assert(iconColor('pom.xml') === iconColor('src/main/java'), `${name} Maven icon uses source blue`);
+      assert(iconColor('target') !== iconColor('docs/java'), `${name} build output is distinct from a generic directory`);
     }
     const moved = group.getEditorByIndex(0);
     assert(moved !== undefined, 'Production file is open');

@@ -45,6 +45,15 @@
 .ct-tree__chevron { flex: none; color: #8c959f; }
 .ct-tree__icon { flex: none; color: #8c959f; }
 .ct-tree__icon.is-test { color: #8250df; }
+.ct-tree__folder { position: relative; display: inline-flex; width: 14px; height: 14px; }
+.ct-tree__folder.is-source, .ct-tree__maven { color: var(--ide-class, var(--fg-link, light-dark(#0969da, #80b6ff))); }
+.ct-tree__folder.is-test-source { color: var(--ide-interface, var(--fg-success, light-dark(#1a7f37, #7dce96))); }
+.ct-tree__folder.is-build { color: var(--fg-orange, light-dark(#bc4c00, #f3b17b)); }
+.ct-tree__folder:is(.is-source, .is-test-source, .is-build) > svg { fill: currentColor; fill-opacity: .12; }
+.ct-tree__resource-badge { position: absolute; right: -1px; bottom: -1px; width: 7px; height: 5px; border-block: 1px solid currentColor; color: var(--ide-enum, var(--fg-warning, light-dark(#9a6700, #eac479))); background: var(--ide-bar, var(--bg-card)); }
+.ct-tree__resource-badge::after { content: ''; position: absolute; left: 0; right: 0; top: 2px; border-top: 1px solid currentColor; }
+.ct-tree__module-badge { position: absolute; right: -1px; bottom: -1px; width: 5px; height: 5px; border: 1px solid var(--ide-class, var(--fg-link, light-dark(#0969da, #80b6ff))); border-radius: 2px; background: var(--ide-bar, var(--bg-card)); }
+.ct-tree__maven { width: 14px; height: 14px; text-align: center; font: italic 700 17px/14px Georgia, serif; }
 .ct-tree__name { overflow: hidden; flex: 0 1 auto; text-overflow: ellipsis; white-space: nowrap; }
 .ct-tree__name.is-dot { color: #656d76; }
 .ct-tree__row.is-selected .ct-tree__name.is-dot { color: #57606a; }

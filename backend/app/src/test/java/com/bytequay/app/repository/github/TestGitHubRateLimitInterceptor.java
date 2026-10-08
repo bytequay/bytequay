@@ -15,6 +15,8 @@ package com.bytequay.app.repository.github;
 
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpRequest;
 import org.springframework.http.HttpStatus;
@@ -258,7 +260,38 @@ class TestGitHubRateLimitInterceptor
         assertThat(interceptor.snapshot("pat").requests()).singleElement().satisfies(count -> {
             assertThat(count.family()).isEqualTo("pr-summary");
             assertThat(count.status()).isEqualTo(200);
+            assertThat(count.costedRequests()).isZero();
+            assertThat(count.reportedCost()).isZero();
         });
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource({
+            "viewer-reactions, query { nodes { reactionGroups { content viewerHasReacted } } }",
+            "review-reactions, query { reviews { reactionGroups { users { totalCount } viewerHasReacted } } }",
+            "review-threads, query { reviewThreads { nodes { id } } }",
+            "pr-summary, query { ...Summary } fragment Summary on PullRequest { number }"})
+    void recordsReportedPointCostsWithoutTreatingMissingCostsAsMeasured(String family, String query)
+    {
+        GitHubRateLimitInterceptor interceptor = interceptor(1);
+        RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.com/graphql").requestInterceptor(interceptor);
+        var server = bindTo(builder).build();
+        String response = "{\"data\":{\"rateLimit\":{\"cost\":3}}}";
+        server.expect(requestTo("https://api.github.com/graphql")).andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.com/graphql")).andRespond(withSuccess("{\"data\":{}}", MediaType.APPLICATION_JSON));
+        RestClient client = builder.build();
+
+        assertThat(GitHubApiSupport.graphql(client, "pat", query, ImmutableMap.of()).body(String.class)).isEqualTo(response);
+        GitHubApiSupport.graphql(client, "pat", query, ImmutableMap.of()).body(String.class);
+
+        assertThat(interceptor.snapshot("pat").requests()).singleElement().satisfies(count -> {
+            assertThat(count.family()).isEqualTo(family);
+            assertThat(count.count()).isEqualTo(2);
+            assertThat(count.reportedCost()).isEqualTo(3);
+            assertThat(count.costedRequests()).isEqualTo(1);
+        });
+        assertThat(interceptor.snapshot("pat").inFlight()).isZero();
         server.verify();
     }
 

@@ -16,6 +16,7 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, PullRequestDetailDto, PullRequestDetailRefreshDto, PullRequestDto } from '../../types';
 import { assert } from '../../fixtures/harness';
+import { ZOOM_REFERENCE } from '../../githubReference';
 import { usePullRequestDetail, type PullRequestDetailSource } from '../usePullRequestDetail';
 
 const cached: PullRequestDetailDto = {
@@ -46,13 +47,13 @@ export async function run(): Promise<string> {
   Date.now = () => now;
   Object.defineProperty(document, 'hidden', { configurable: true, get: () => invisible });
   const firstRead = Promise.withResolvers<PullRequestDetailDto>();
-  const calls: { checksOnly: boolean; answer: ReturnType<typeof Promise.withResolvers<PullRequestDetailRefreshDto>> }[] = [];
+  const calls: { checksOnly: boolean; opened: boolean; answer: ReturnType<typeof Promise.withResolvers<PullRequestDetailRefreshDto>> }[] = [];
   let manualCalls = 0;
   const bridge = {
     fetchPullRequestDetailByRef: async () => firstRead.promise,
-    refreshPullRequestDetailByRef: (_repo, _number, checksOnly) => {
+    refreshPullRequestDetailByRef: (_repo, _number, checksOnly, opened) => {
       const answer = Promise.withResolvers<PullRequestDetailRefreshDto>();
-      calls.push({ checksOnly: checksOnly === true, answer });
+      calls.push({ checksOnly: checksOnly === true, opened: opened === true, answer });
       return answer.promise;
     },
     refreshAllPullRequestDetailByRef: async () => { manualCalls++; return cached; },
@@ -78,7 +79,7 @@ export async function run(): Promise<string> {
     await settle();
   };
   const complete = async (index: number, ciStatus: PullRequestDetailDto['ciStatus'] = 'PENDING') => {
-    calls[index].answer.resolve({ full: true, detail: { ...cached, ciStatus }, status: null });
+    calls[index].answer.resolve({ full: true, detail: { ...cached, title: 'Refreshed PR', ciStatus }, status: null });
     await settle();
   };
   const activity = (version: number) => window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', {
@@ -93,22 +94,23 @@ export async function run(): Promise<string> {
     await settle();
     assert(host.textContent === 'Cached PR', 'Cached detail must render before the remote response');
     await advance(0);
-    assert(Number(calls.length) === 1 && !calls[0].checksOnly, 'Initial stale detail must receive one conditional refresh');
+    assert(Number(calls.length) === 1 && !calls[0].checksOnly && calls[0].opened, 'Opening must request fresh discussion after showing cached detail');
     await advance(60_000);
     assert(Number(calls.length) === 1, 'A slow refresh must not overlap another poll');
     await complete(0);
+    assert(String(host.textContent) === 'Refreshed PR', 'The opening response must replace the cached detail without another click');
     await advance(29_999);
     assert(Number(calls.length) === 1, 'Pending CI must wait thirty seconds');
     await advance(1);
-    assert(Number(calls.length) === 2 && calls[1].checksOnly, 'Pending CI must use the checks-only path');
+    assert(Number(calls.length) === 2 && calls[1].checksOnly && !calls[1].opened, 'Pending CI must use the checks-only path');
     await complete(1);
     await advance(30_000);
-    assert(Number(calls.length) === 3 && !calls[2].checksOnly, 'Metadata and discussions must refresh at sixty seconds');
+    assert(Number(calls.length) === 3 && !calls[2].checksOnly && !calls[2].opened, 'Periodic metadata refresh must keep the slower discussion freshness');
     await complete(2, 'PASSING');
     await advance(30_000);
     assert(Number(calls.length) === 3, 'Settled CI must stop thirty-second checks');
     await advance(30_000);
-    assert(Number(calls.length) === 4 && !calls[3].checksOnly, 'Settled PRs keep the sixty-second discussion refresh');
+    assert(Number(calls.length) === 4 && !calls[3].checksOnly && !calls[3].opened, 'Settled PRs keep polling without repeatedly requesting opening freshness');
     await complete(3);
     activity(1);
     await advance(0);
@@ -133,7 +135,7 @@ export async function run(): Promise<string> {
     assert(Number(calls.length) === 6, 'A hidden PR surface must stop polling');
     flushSync(() => root.render(<Probe active />));
     await settle(); await advance(0);
-    assert(Number(calls.length) === 7, 'Returning to the PR must check current data');
+    assert(Number(calls.length) === 7 && calls[6].opened, 'Returning to the PR must request fresh discussion again');
     await complete(6);
     invisible = true;
     document.dispatchEvent(new Event('visibilitychange'));
@@ -142,7 +144,7 @@ export async function run(): Promise<string> {
     invisible = false;
     document.dispatchEvent(new Event('visibilitychange'));
     await advance(0);
-    assert(Number(calls.length) === 8, 'Returning to the window must resume polling');
+    assert(Number(calls.length) === 8 && calls[7].opened, 'Returning to the window must request fresh discussion again');
     const resetAt = now + 120_000;
     calls[7].answer.reject(new Error(`GitHub core API rate limit reached; retry after ${new Date(resetAt).toISOString()}`));
     await settle();
@@ -151,8 +153,15 @@ export async function run(): Promise<string> {
     await advance(60_000);
     assert(Number(calls.length) === 8, 'Known updates must respect the reported rate-limit pause');
     await advance(61_000);
-    assert(Number(calls.length) === 9, 'Polling must resume after the rate limit resets');
+    assert(Number(calls.length) === 9 && calls[8].opened, 'Opening freshness must survive a failed request and the rate-limit pause');
     await complete(8);
+    window.dispatchEvent(new CustomEvent(ZOOM_REFERENCE, { detail: { kind: 'pull', repo: cached.repo, number: 8 } }));
+    await advance(0);
+    assert(Number(calls.length) === 9, 'Opening a different PR must not refresh this one');
+    window.dispatchEvent(new CustomEvent(ZOOM_REFERENCE, { detail: { kind: 'pull', repo: cached.repo, number: cached.number } }));
+    await advance(0);
+    assert(Number(calls.length) === 10 && calls[9].opened, 'Clicking a notification for an already visible PR must request opening freshness');
+    await complete(9);
     return 'Cached-first detail, separate CI/discussion cadence, immediate changes, no overlap, and visibility/backoff guards';
   }
   finally {

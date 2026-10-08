@@ -492,6 +492,25 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void skipsViewerReactionQueriesWhenDescriptionAndCommentsHaveNoReactions()
+    {
+        Fixture fixture = fixture();
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42"))
+                .andRespond(withSuccess("""
+                        {"node_id":"PR_42","reactions":{"total_count":0}}
+                        """, MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
+                .andRespond(withSuccess("""
+                        [{"id":21,"node_id":"IC_21","body":"No reactions","reactions":{"total_count":0}}]
+                        """, MediaType.APPLICATION_JSON));
+
+        assertThat(fixture.client().fetchPrDescriptionReactions("pat", PULL_REQUEST)).isEmpty();
+        assertThat(fixture.client().fetchPrIssueComments("pat", PULL_REQUEST)).singleElement()
+                .satisfies(comment -> assertThat(comment.payload().reactions()).isEmpty());
+        fixture.verify();
+    }
+
+    @Test
     void groupsReviewCommentsAndEnrichesEveryTimelineBody()
     {
         Fixture fixture = fixture();
@@ -510,6 +529,9 @@ class TestGitHubPullRequestOverviewClient
                         ]
                         """, MediaType.APPLICATION_JSON));
         fixture.graphQl().expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().json("""
+                        {"variables":{"ids":["RC_11"]}}
+                        """))
                 .andRespond(withSuccess("""
                         {"data":{"nodes":[
                           {"id":"RC_11","reactionGroups":[

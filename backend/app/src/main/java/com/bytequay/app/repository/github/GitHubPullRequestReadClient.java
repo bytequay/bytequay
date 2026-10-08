@@ -864,7 +864,7 @@ public class GitHubPullRequestReadClient
         GitHubIssueReactionsResponse response = translating(() -> get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", pr.owner(), pr.repo(), pr.number())
                 .retrieve()
                 .body(GitHubIssueReactionsResponse.class));
-        if (response == null) {
+        if (response == null || toReactions(response.reactions(), null).isEmpty()) {
             return ImmutableList.of();
         }
         Map<String, Set<String>> viewerReactions = fetchViewerReactions(
@@ -1131,6 +1131,7 @@ public class GitHubPullRequestReadClient
     {
         String query = """
                 query($owner:String!,$repo:String!,$number:Int!,$after:String) {
+                  rateLimit { cost }
                   repository(owner:$owner,name:$repo) {
                     pullRequest(number:$number) {
                       reviews(first:100,after:$after) {
@@ -1216,6 +1217,7 @@ public class GitHubPullRequestReadClient
         }
         String query = """
                 query($ids:[ID!]!) {
+                  rateLimit { cost }
                   nodes(ids:$ids) {
                     id
                     ... on Reactable { reactionGroups { content viewerHasReacted } }
@@ -1287,7 +1289,7 @@ public class GitHubPullRequestReadClient
                 pr.number());
         Map<String, Set<String>> viewerReactions = fetchViewerReactions(
                 pat,
-                comments.stream().map(GitHubIssueComment::nodeId).toList());
+                comments.stream().filter(comment -> !toReactions(comment.reactions(), null).isEmpty()).map(GitHubIssueComment::nodeId).toList());
         return comments.stream()
                 .map(comment -> toCommentedTimelineEvent(comment, viewerReactions.get(comment.nodeId())))
                 .collect(toImmutableList());
@@ -1442,7 +1444,7 @@ public class GitHubPullRequestReadClient
         }
         Map<String, Set<String>> viewerReactions = fetchViewerReactions(
                 pat,
-                comments.stream().map(GitHubReviewComment::nodeId).toList());
+                comments.stream().filter(comment -> !toReactions(comment.reactions(), null).isEmpty()).map(GitHubReviewComment::nodeId).toList());
         return toReviewThreadEvents(comments, fetchReviewThreadsByRoot(pat, pr), viewerReactions);
     }
 
@@ -1499,6 +1501,7 @@ public class GitHubPullRequestReadClient
     {
         String query = """
                 query($owner:String!,$repo:String!,$number:Int!,$after:String) {
+                  rateLimit { cost }
                   repository(owner:$owner,name:$repo) {
                     pullRequest(number:$number) {
                       reviewThreads(first:100,after:$after) {

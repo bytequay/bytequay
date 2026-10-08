@@ -32,6 +32,7 @@ import com.bytequay.core.domain.PrActivitySummary;
 import com.bytequay.core.domain.PrCommitLine;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestDetailRefresh;
 import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -69,6 +70,24 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 class TestPullRequestRefreshControllers
 {
     private static final Instant NOW = Instant.parse("2026-08-24T00:00:00Z");
+
+    @Test
+    void openingRequestsFreshDiscussionWithoutForcingTheEntireSnapshot()
+            throws Exception
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
+        when(refresh.refreshOpenedDetail("owner/repo", 7)).thenReturn(PullRequestDetailRefresh.full(detail()));
+
+        standaloneSetup(new PullRequestController(pullRequests, refresh)).build()
+                .perform(post("/prs/detail/refresh").queryParam("repo", "owner/repo").queryParam("number", "7").queryParam("opened", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.full").value(true));
+
+        verify(refresh).refreshOpenedDetail("owner/repo", 7);
+        verifyNoMoreInteractions(refresh);
+        verifyNoInteractions(pullRequests);
+    }
 
     @Test
     void attentionKeepsTheFlatPullRequestShapeAndIncludesCachedActivity()

@@ -176,8 +176,12 @@ public class PullRequestController
     public PullRequestDetailRefresh refreshDetail(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @RequestParam(value = "checksOnly", defaultValue = "false") boolean checksOnly)
+            @RequestParam(value = "checksOnly", defaultValue = "false") boolean checksOnly,
+            @RequestParam(value = "opened", defaultValue = "false") boolean opened)
     {
+        if (opened) {
+            return refreshService.refreshOpenedDetail(repo, number);
+        }
         return checksOnly ? refreshService.refreshChecks(repo, number) : refreshService.refreshDetail(repo, number);
     }
 

@@ -68,6 +68,21 @@ class TestPullRequestRefreshService
     }
 
     @Test
+    void openingReturnsFullDiscussionEvenWhenAnotherViewAlreadyRefreshedTheCache()
+    {
+        PullRequestService pullRequests = mock(PullRequestService.class);
+        when(pullRequests.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7))
+                .thenReturn(new PullRequestService.DetailRefresh(false, detail()));
+
+        PullRequestDetailRefresh result = service(pullRequests).refreshOpenedDetail("owner/repo", 7);
+
+        assertThat(result.full()).isTrue();
+        assertThat(result.detail()).isEqualTo(detail());
+        verify(pullRequests).refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7);
+        verify(pullRequests, never()).refreshAllPullRequestDetailFromGitHub("owner/repo", 7);
+    }
+
+    @Test
     void directDiffRefreshPersistsBeforeReading()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);

@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { ZOOM_REFERENCE, type ZoomedReference } from '../githubReference';
 import {
   mergePullRequestWriteDetail,
   remoteErrorMessage,
@@ -137,6 +138,7 @@ export function usePullRequestDetail(
     let polling = false;
     let ready = false;
     let refreshRequested = true;
+    let refreshOnOpen = true;
     let lastDetailRefresh = 0;
     let retryAt = 0;
     let observedActivity: string | undefined;
@@ -158,15 +160,18 @@ export function usePullRequestDetail(
     const poll = async (): Promise<void> => {
       polling = true;
       let request: Promise<PullRequestDetailRefreshDto> | null = null;
+      let opened = false;
       try {
         while (refreshInFlight.current !== null) {
           await refreshInFlight.current.then((): undefined => undefined, (): undefined => undefined);
         }
         if (cancelled || document.hidden) return;
-        const checksOnly = !refreshRequested && Date.now() - lastDetailRefresh < DETAIL_REFRESH_INTERVAL;
+        opened = refreshOnOpen;
+        refreshOnOpen = false;
+        const checksOnly = !opened && !refreshRequested && Date.now() - lastDetailRefresh < DETAIL_REFRESH_INTERVAL;
         if (!checksOnly) refreshRequested = false;
         const requestMutationVersion = mutationVersion.current;
-        request = window.bridge.refreshPullRequestDetailByRef(repo, number, checksOnly);
+        request = window.bridge.refreshPullRequestDetailByRef(repo, number, checksOnly, opened);
         refreshInFlight.current = request;
         const value = await request;
         if (cancelled) return;
@@ -184,6 +189,7 @@ export function usePullRequestDetail(
         setError(null);
       }
       catch (failure) {
+        refreshOnOpen ||= opened;
         retryAt = Date.now() + pullRequestDetailRefreshDelay(failure);
         // Nobody asked for this poll and the next one retries, so a failure is only worth showing
         // when there is no detail on screen. A refresh the reader asks for still reports it.
@@ -200,6 +206,7 @@ export function usePullRequestDetail(
       clearTimer();
       if (!document.hidden) {
         refreshRequested = true;
+        refreshOnOpen = true;
         schedule(0);
       }
     };
@@ -216,8 +223,13 @@ export function usePullRequestDetail(
       clearTimer();
       schedule(0);
     };
+    const reopened = (event: Event) => {
+      const reference = (event as CustomEvent<ZoomedReference>).detail;
+      if (reference.kind === 'pull' && pullRequestKey(reference) === key) resume();
+    };
     document.addEventListener('visibilitychange', resume);
     window.addEventListener('bytequay:pr-attention-updated', changed);
+    window.addEventListener(ZOOM_REFERENCE, reopened);
 
     // Backend group freshness makes the initial conditional refresh cheap when the cache is current.
     const initialMutationVersion = mutationVersion.current;
@@ -237,6 +249,7 @@ export function usePullRequestDetail(
       cancelled = true;
       document.removeEventListener('visibilitychange', resume);
       window.removeEventListener('bytequay:pr-attention-updated', changed);
+      window.removeEventListener(ZOOM_REFERENCE, reopened);
       clearTimer();
     };
   }, [active, apply, key, number, repo]);

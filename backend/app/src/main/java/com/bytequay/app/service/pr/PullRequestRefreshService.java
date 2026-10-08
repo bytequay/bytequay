@@ -87,6 +87,14 @@ public class PullRequestRefreshService
         return refresh.full() ? PullRequestDetailRefresh.full(refresh.detail()) : PullRequestDetailRefresh.status(refresh.detail());
     }
 
+    public PullRequestDetailRefresh refreshOpenedDetail(String repo, int number)
+    {
+        PullRequestService.DetailRefresh refresh = pullRequests.refreshOpenedPullRequestDetailFromGitHub(repo, number);
+        published(repo, number);
+        // Another view may have refreshed the cache while this view was hidden.
+        return PullRequestDetailRefresh.full(refresh.detail());
+    }
+
     public void warmRecentDetails(int limit)
     {
         pullRequests.warmRecentDetails(limit);

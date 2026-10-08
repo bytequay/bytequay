@@ -122,7 +122,7 @@ public class GitHubPullRequestSummaryClient
                 variables.put("repo" + index, ref.repo());
                 variables.put("number" + index, ref.number());
             }
-            query.append("){ ");
+            query.append("){ rateLimit { cost } ");
             for (int index = 0; index < batch.size(); index++) {
                 query.append("r").append(index).append(":repository(owner:$owner").append(index).append(",name:$repo").append(index)
                         .append("){ pullRequest(number:$number").append(index).append("){ ...Summary } } ");
@@ -169,6 +169,7 @@ public class GitHubPullRequestSummaryClient
     {
         String query = """
                 query($owner:String!,$repo:String!,$number:Int!,$after:String) {
+                  rateLimit { cost }
                   repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
                     reviewThreads(first:100,after:$after) {
                       nodes { id root:comments(first:1) { nodes { author { login } } }
@@ -213,6 +214,7 @@ public class GitHubPullRequestSummaryClient
     {
         String query = """
                 query($id:ID!,$before:String!) {
+                  rateLimit { cost }
                   node(id:$id) { ... on PullRequestReviewThread { comments(last:100,before:$before) { %s } } }
                 }
                 """.formatted(REPLY_FIELDS);

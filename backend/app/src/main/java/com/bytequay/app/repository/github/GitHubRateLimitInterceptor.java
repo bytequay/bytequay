@@ -114,7 +114,7 @@ public final class GitHubRateLimitInterceptor
         catch (IOException | RuntimeException | Error failure) {
             permits.release();
             if (!(failure instanceof GitHubRateLimitException)) {
-                completed(credential, family, resource, 0, started);
+                completed(credential, family, resource, 0, started, Optional.empty());
             }
             throw failure;
         }
@@ -132,7 +132,10 @@ public final class GitHubRateLimitInterceptor
                 json.filter(value -> value.path("id").isIntegralNumber() && value.path("id").longValue() > 0)
                         .ifPresent(value -> bindAccount(credential, request.getURI().getAuthority(), value.path("id").longValue()));
             }
-            observe(credential, resource, status, response.getHeaders(), json);
+            if (resource.equals("graphql")) {
+                tracked.cost = json.flatMap(value -> number(value.path("data").path("rateLimit").path("cost").asText()));
+            }
+            observe(credential, family, resource, status, response.getHeaders(), json);
             return tracked;
         }
         catch (IOException | RuntimeException | Error failure) {
@@ -153,7 +156,7 @@ public final class GitHubRateLimitInterceptor
         }
     }
 
-    private synchronized void observe(String credential, String requestResource, int status, HttpHeaders headers, Optional<JsonNode> json)
+    private synchronized void observe(String credential, String family, String requestResource, int status, HttpHeaders headers, Optional<JsonNode> json)
     {
         AccountBudget budget = budget(credential);
         String resource = Optional.ofNullable(headers.getFirst(RESOURCE)).map(value -> value.toLowerCase(Locale.ROOT))
@@ -176,7 +179,7 @@ public final class GitHubRateLimitInterceptor
             long previous = budget.primary.getOrDefault(resource, 0L);
             budget.primary.put(resource, Math.max(previous, until));
             if (until > previous) {
-                log.warn("GitHub {} API rate limit reached; pausing requests until {}", resource, Instant.ofEpochSecond(until));
+                log.warn("GitHub {} API rate limit reached during {}; pausing requests until {}", resource, family, Instant.ofEpochSecond(until));
             }
         }
         if (secondary) {
@@ -184,7 +187,7 @@ public final class GitHubRateLimitInterceptor
             long until = retryAfter.orElse(now + delay);
             if (until > budget.secondaryUntil) {
                 budget.secondaryUntil = until;
-                log.warn("GitHub secondary API rate limit reached; pausing requests until {}", Instant.ofEpochSecond(until));
+                log.warn("GitHub secondary API rate limit reached during {}; pausing requests until {}", family, Instant.ofEpochSecond(until));
             }
         }
         boolean rejected = bodyLimited || secondary || primary && status >= 400;
@@ -297,7 +300,8 @@ public final class GitHubRateLimitInterceptor
         if (known != null && known != previous) {
             previous.primary.forEach((resource, until) -> known.primary.merge(resource, until, Math::max));
             previous.quotas.forEach(known.quotas::putIfAbsent);
-            previous.requests.forEach((key, totals) -> known.requests.computeIfAbsent(key, ignored -> new Totals()).add(totals.count, totals.nanos));
+            previous.requests.forEach((key, totals) -> known.requests.computeIfAbsent(key, ignored -> new Totals())
+                    .add(totals.count, totals.nanos, totals.reportedCost, totals.costedRequests));
             known.secondaryUntil = Math.max(known.secondaryUntil, previous.secondaryUntil);
             known.secondaryFailures = Math.max(known.secondaryFailures, previous.secondaryFailures);
             known.deferred += previous.deferred;
@@ -311,10 +315,10 @@ public final class GitHubRateLimitInterceptor
         return credentials.computeIfAbsent(credential, ignored -> new AccountBudget());
     }
 
-    private synchronized void completed(String credential, String family, String resource, int status, long started)
+    private synchronized void completed(String credential, String family, String resource, int status, long started, Optional<Long> cost)
     {
         budget(credential).requests.computeIfAbsent(new RequestKey(family, resource, status), ignored -> new Totals())
-                .add(1, System.nanoTime() - started);
+                .add(1, System.nanoTime() - started, cost.orElse(0L), cost.isPresent() ? 1 : 0);
     }
 
     /** Local diagnostics only: no request, credential, URL, or response content is returned. */
@@ -323,7 +327,7 @@ public final class GitHubRateLimitInterceptor
         AccountBudget budget = budget(credential("api.github.com", GitHubApiSupport.authorization(pat)));
         List<RequestCount> requests = budget.requests.entrySet().stream()
                 .map(entry -> new RequestCount(entry.getKey().family(), entry.getKey().resource(), entry.getKey().status(),
-                        entry.getValue().count, entry.getValue().nanos / 1_000_000))
+                        entry.getValue().count, entry.getValue().nanos / 1_000_000, entry.getValue().reportedCost, entry.getValue().costedRequests))
                 .collect(toImmutableList());
         Map<String, Instant> cooldowns = new HashMap<>();
         budget.primary.forEach((resource, until) -> {
@@ -358,7 +362,10 @@ public final class GitHubRateLimitInterceptor
             if (query.contains("fragment Summary on PullRequest")) {
                 return "pr-summary";
             }
-            return query.contains("reviewThreads") ? "review-threads" : "graphql";
+            if (query.contains("reactionGroups")) {
+                return query.contains("viewerHasReacted") && !query.contains("users") ? "viewer-reactions" : "review-reactions";
+            }
+            return query.contains("reviewThreads") || query.contains("PullRequestReviewThread") ? "review-threads" : "graphql";
         }
         if (path.startsWith("/search/")) {
             return "discovery";
@@ -381,7 +388,8 @@ public final class GitHubRateLimitInterceptor
         return path.contains("/events") ? "activity" : "account-and-repository";
     }
 
-    public record RequestCount(String family, String resource, int status, long count, long totalDurationMillis) {}
+    /** Cost is reported only by instrumented GraphQL queries; costedRequests distinguishes missing data from zero cost. */
+    public record RequestCount(String family, String resource, int status, long count, long totalDurationMillis, long reportedCost, long costedRequests) {}
 
     public record Quota(String resource, Optional<Long> limit, Optional<Long> remaining, Optional<Long> used, Optional<Instant> resetAt) {}
 
@@ -402,11 +410,15 @@ public final class GitHubRateLimitInterceptor
     {
         private long count;
         private long nanos;
+        private long reportedCost;
+        private long costedRequests;
 
-        private void add(long count, long nanos)
+        private void add(long count, long nanos, long reportedCost, long costedRequests)
         {
             this.count += count;
             this.nanos += nanos;
+            this.reportedCost += reportedCost;
+            this.costedRequests += costedRequests;
         }
     }
 
@@ -431,6 +443,7 @@ public final class GitHubRateLimitInterceptor
         private final long started;
         private final AtomicBoolean closed = new AtomicBoolean();
         private int status;
+        private Optional<Long> cost = Optional.empty();
         private Optional<byte[]> buffered = Optional.empty();
 
         private TrackedResponse(ClientHttpResponse delegate, String credential, String family, String resource, long started)
@@ -485,7 +498,7 @@ public final class GitHubRateLimitInterceptor
                 delegate.close();
             }
             finally {
-                completed(credential, family, resource, status, started);
+                completed(credential, family, resource, status, started, cost);
                 permits.release();
             }
         }

@@ -2044,6 +2044,22 @@ class TestPullRequestService
         verify(diffStore, never()).saveDefault(anyLong(), any(), any());
     }
 
+    @ParameterizedTest
+    @CsvSource({"60, 2, 0", "600, 11, 0", "60, 31, 1", "600, 31, 1", "60, -1, 1"})
+    void quietDiscussionsUseTheirOwnReconciliationInterval(long freshnessSeconds, long discussionAgeMinutes, int expectedFetches)
+    {
+        Instant now = Instant.now();
+        Optional<Instant> discussionAt = discussionAgeMinutes < 0 ? Optional.empty() : Optional.of(now.minus(Duration.ofMinutes(discussionAgeMinutes)));
+        cacheDetail(stored(), new PrDetailFreshness(Optional.of(now), discussionAt, Optional.of(now), Optional.of(pullRequest().updatedAt())));
+
+        service.refreshPullRequestDetailFromGitHub("owner/repo", 7, Duration.ofSeconds(freshnessSeconds));
+
+        verify(gitHub, times(expectedFetches)).fetchPrIssueComments("pat", PullRequestRef.of("owner", "repo", 7));
+        verify(detailStore, times(expectedFetches)).saveDiscussion(eq(12L), any(), eq(pullRequest().updatedAt()));
+        verify(gitHub, never()).getPullRequest(anyString(), any(), any());
+        verifyNoInteractions(actions);
+    }
+
     @Test
     void checksOnlyRefreshLeavesDiscussionAndDiffUntouched()
     {
@@ -2059,11 +2075,29 @@ class TestPullRequestService
         verify(detailStore, never()).saveDiscussion(anyLong(), any(), any());
     }
 
-    @Test
-    void overlappingDetailRefreshesShareOneInFlightCheckRequest()
+    @ParameterizedTest
+    @ValueSource(ints = {30, 120})
+    void openingRefreshesQuietDiscussionWithOneMinuteDeduplication(int discussionAgeSeconds)
+    {
+        Instant now = Instant.now();
+        cacheDetail(stored(), new PrDetailFreshness(Optional.of(now), Optional.of(now.minusSeconds(discussionAgeSeconds)),
+                Optional.of(now), Optional.of(pullRequest().updatedAt())));
+
+        assertThat(service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7).full()).isEqualTo(discussionAgeSeconds > 60);
+        assertThat(service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7).full()).isFalse();
+
+        verify(gitHub, times(discussionAgeSeconds > 60 ? 1 : 0)).fetchPrIssueComments("pat", PullRequestRef.of("owner", "repo", 7));
+        verify(gitHub, never()).getPullRequest(anyString(), any(), any());
+        verifyNoInteractions(actions);
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void overlappingDetailRefreshesShareChecksAndHonorOpeningFreshness(boolean opened)
             throws Exception
     {
-        cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.now()), Optional.of(Instant.now()), Optional.of(Instant.EPOCH), Optional.of(pullRequest().updatedAt())));
+        cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.now()), Optional.of(Instant.now().minusSeconds(120)),
+                Optional.of(Instant.EPOCH), Optional.of(pullRequest().updatedAt())));
         CountDownLatch entered = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         AtomicReference<Throwable> failure = new AtomicReference<>();
@@ -2084,7 +2118,12 @@ class TestPullRequestService
         assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
         Thread second = Thread.ofVirtual().start(() -> {
             try {
-                service.refreshPullRequestDetailFromGitHub("Owner/Repo", 7);
+                if (opened) {
+                    service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7);
+                }
+                else {
+                    service.refreshPullRequestDetailFromGitHub("Owner/Repo", 7);
+                }
             }
             catch (Throwable error) {
                 failure.compareAndSet(null, error);
@@ -2107,6 +2146,7 @@ class TestPullRequestService
         assertThat(first.isAlive()).isFalse();
         assertThat(second.isAlive()).isFalse();
         verify(actions).refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any());
+        verify(gitHub, times(opened ? 1 : 0)).fetchPrIssueComments("pat", PullRequestRef.of("owner", "repo", 7));
     }
 
     private void cacheDetail(StoredPrDetail initial, PrDetailFreshness initialTimes)

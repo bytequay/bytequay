@@ -63,6 +63,24 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response('{}'));
+  vi.stubGlobal('fetch', fetch);
+  const refresh = desktop.handlers.get('prs:detail:refresh:by-ref');
+
+  await refresh?.({}, 'owner/repo', 7, false, true);
+  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7&opened=true'),
+    expect.objectContaining({ method: 'POST' }));
+  await refresh?.({}, 'owner/repo', 7, false, false);
+  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7'),
+    expect.objectContaining({ method: 'POST' }));
+  await refresh?.({}, 'owner/repo', 7, true);
+  expect(fetch).toHaveBeenLastCalledWith(new URL('http://127.0.0.1:9527/prs/detail/refresh?repo=owner%2Frepo&number=7&checksOnly=true'),
+    expect.objectContaining({ method: 'POST' }));
+});
+
 it.each(['pat:copy', 'workspaces:token:copy'])('reports %s only after the asynchronous clipboard write succeeds', async channel => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');

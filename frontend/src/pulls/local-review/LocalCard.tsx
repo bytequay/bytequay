@@ -44,15 +44,16 @@ export default function LocalCard({ tone = 'local', title, badges, chip, resolve
   </ReviewThreadCard>;
 }
 
-export function LocalCardMessage({ avatar, author, tag, timestamp, menu, children }: {
+export function LocalCardMessage({ avatar, author, tag, timestamp, menu, children, attributes }: {
   avatar: ReactNode;
   author: string;
   tag?: ReactNode;
   timestamp: string | null;
   menu?: ReactNode;
   children: ReactNode;
+  attributes?: Record<`data-${string}`, string>;
 }) {
-  return <ReviewThreadMessage className="" avatar={avatar} author={<strong>{author}</strong>} tag={tag} timestamp={timestamp} menu={menu}>
+  return <ReviewThreadMessage className="" avatar={avatar} author={<strong>{author}</strong>} tag={tag} timestamp={timestamp} menu={menu} attributes={attributes}>
     {children}
   </ReviewThreadMessage>;
 }

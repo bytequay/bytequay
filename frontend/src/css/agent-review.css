@@ -276,7 +276,8 @@
 .agr-timeline :is(.agr-banner, .agr-error, .agr-progress, .agr-none, .agr-pending, .agr-card__empty) { position: relative; margin: 12px 0 16px 44px; }
 .agr-timeline > .agr-learning-history { position: relative; margin: 0 0 16px 44px; border-top: 0; }
 .agr-summary-page__review { scroll-margin-top: 12px; }
-.agr-summary-page > .agr-card__empty, .agr-summary-page > .agt-note { margin: 0 0 16px; padding: 0; }
+.agr-summary-page > .agr-card__empty, .agr-summary-page > .agt-note,
+.agr-summary-page > .review-comment-scroll > .review-comment-content > :is(.agr-card__empty, .agt-note) { margin: 0 0 16px; padding: 0; }
 .agr-pane.is-timeline { display: block; overflow: visible; }
 .agr-pane.is-timeline > .agr-summary { overflow: visible; padding: 0; }
 .agr-pane.is-timeline .agr-progress { border: 1px solid #d8dee4; border-radius: 8px; }

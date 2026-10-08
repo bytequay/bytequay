@@ -262,7 +262,7 @@ export async function run(): Promise<string[]> {
     const commitDisclosure = commitDestination.querySelector<HTMLDetailsElement>('details');
     assert(commitDisclosure !== null, 'Commit destination must be expandable');
     commitDisclosure.open = false;
-    pane.querySelector<HTMLElement>('.agr-summary')?.scrollTo(0, 0);
+    pane.querySelector<HTMLElement>('.agr-summary > .review-comment-scroll')?.scrollTo(0, 0);
     await open('turn-commit', `[data-review-card="${commit.cardId}"]`);
     await open('turn-finding', '[data-finding-id="finding-1"]');
     await open('turn-local', '[data-local-review-thread="local-navigation"]');

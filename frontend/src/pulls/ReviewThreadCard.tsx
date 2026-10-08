@@ -48,7 +48,7 @@ export function ReviewThreadCard({ title, tone = 'github', icon, badges, chip, r
   </Frame>;
 }
 
-export function ReviewThreadMessage({ avatar, author, tag, timestamp, menu, children, reactions, className = 'pr-thread-comment' }: {
+export function ReviewThreadMessage({ avatar, author, tag, timestamp, menu, children, reactions, className = 'pr-thread-comment', attributes }: {
   avatar?: ReactNode;
   author: ReactNode;
   tag?: ReactNode;
@@ -57,8 +57,9 @@ export function ReviewThreadMessage({ avatar, author, tag, timestamp, menu, chil
   children: ReactNode;
   reactions?: ReactNode;
   className?: string;
+  attributes?: Record<`data-${string}`, string>;
 }) {
-  return <div className={`lrc-message${className ? ` ${className}` : ''}`}>
+  return <div className={`lrc-message${className ? ` ${className}` : ''}`} {...attributes}>
     <div className="lrc-message__head">
       {avatar}{author}{tag}<time>{relativeTime(timestamp)}</time>
       {menu && <div className="lrc-message__menu">{menu}</div>}

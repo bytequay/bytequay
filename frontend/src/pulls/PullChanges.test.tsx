@@ -306,7 +306,7 @@ describe('DiffViewer', () => {
     expect(html.match(/aria-label="Review comments outside the visible lines"/g)).toHaveLength(2);
     expect(html).toContain('Outdated</span>');
     for (const body of ['Outdated discussion', 'Hidden-line discussion', 'Unknown-side discussion', 'Missing-line discussion', 'Binary-file discussion']) {
-      expect(html.split(body)).toHaveLength(2);
+      expect(html.split(`<p>${body}</p>`)).toHaveLength(2);
     }
     expect(html.indexOf('Outdated discussion')).toBeGreaterThan(html.indexOf('</table>'));
     expect(html.indexOf('Binary-file discussion')).toBeGreaterThan(html.indexOf('Binary file or diff unavailable.'));

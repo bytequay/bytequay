@@ -138,6 +138,13 @@ repository.
 controls write to GitHub; inspect the outgoing content and selected action first. Your
 own PR cannot be self-approved.
 
+The **Review comment index** at the left edge of **PR** and **WorkBench → Summary** jumps
+to human and agent comments, including private discussions. It shows up to 30 markers,
+starting with the latest comments; scroll up within the index to reach earlier ones. Hover a dash marker
+to see its author and the first 20 words of the comment (up to 240 characters).
+Keyboard focus shows the same preview; Escape dismisses it. Selecting a marker
+opens collapsed discussions. The index follows the current findings filter.
+
 ### Check failures and merging
 
 Expand the failing-check group in **PR**, then choose **Show log** for a GitHub Actions

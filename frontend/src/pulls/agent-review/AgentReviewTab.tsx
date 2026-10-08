@@ -40,6 +40,7 @@ import type {
 } from '../../types';
 import { remoteErrorMessage } from '../PullOverview';
 import MarkdownBody from '../MarkdownBody';
+import ReviewCommentIndex from '../ReviewCommentIndex';
 import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity, { type ReviewAgentPanel } from './ReviewActivity';
@@ -498,7 +499,7 @@ export default function AgentReviewTab({
   if (review === null && detail !== null) {
     const commits = detail.recentActivity.filter(activity => activity.eventType === 'committed').length;
     return (
-      <div className="agr-summary">
+      <ReviewCommentIndex className="agr-summary">
       <LocalComments localReview={localReview} />
       <div className="agr-empty">
         <svg width="26" height="26" viewBox="0 0 16 16" fill="none" aria-hidden="true" className="agr-empty__icon">
@@ -525,7 +526,7 @@ export default function AgentReviewTab({
           pull request&apos;s normal review permissions.
         </div>
       </div>
-      </div>
+      </ReviewCommentIndex>
     );
   }
 
@@ -629,7 +630,7 @@ export default function AgentReviewTab({
       )}
 
       {mode === 'cards' ? (
-        <div className="agr-summary" ref={cardsRef}>
+        <ReviewCommentIndex className="agr-summary" ref={cardsRef} enabled={!timeline}>
           {run !== null && reportRunId !== null && (run.id !== currentRun?.id || summaryRun?.id !== currentExplanation?.id) && <div className="agr-banner is-neutral">
             <span>{run.id === currentRun?.id ? 'Earlier explanation' : isExplanationRun(run) ? 'Saved explanation' : 'Earlier review'} · head {shortSha(run.headSha)}</span>
             <button type="button" className="agr-action" onClick={() => setReportRunId(null)}>Show latest review</button>
@@ -766,7 +767,7 @@ export default function AgentReviewTab({
               defaultOpen={false} />
           ))}
           <LocalComments localReview={localReview} />
-        </div>
+        </ReviewCommentIndex>
       ) : (
         <ReviewActivity
           key={review.id}

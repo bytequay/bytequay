@@ -1749,9 +1749,9 @@
 
 .cmt-composer-hint { font-size: var(--ui-font-size); color: #8c959f; margin-top: 5px; }
 
-.cmt-prog-pr { overflow: auto; min-height: 0; min-width: 0; background: #ffffff; }
+.cmt-prog-pr { display: flex; flex-direction: column; overflow: hidden; min-height: 0; min-width: 0; background: #ffffff; }
 
-.cmt-pr-overview { padding: 10px 12px; }
+.cmt-pr-overview { display: flex; min-height: 0; flex: 1; flex-direction: column; }
 
 .cmt-pr-footnote { font-size: 11px; color: #8c959f; margin: 10px 6px; }
 

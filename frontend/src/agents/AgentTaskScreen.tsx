@@ -36,6 +36,7 @@ import '../css/agents.css';
 import { relativeTime } from '../relativeTime';
 import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
+import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
 import { privateThreadSource } from '../pulls/PrivateThread';
 import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
 import { usePreparedAgentInput } from './preparedInput';
@@ -765,7 +766,7 @@ function SidePanel({
     workspaceId, active: tab === 'review', onReviewChange: setReview, onSelectCommit: (sha, snapshot) => selectCommit('review', sha, snapshot),
     focusFindingId, focusReviewCard: reviewFocus, onNavigateToChanges: navigateToChanges,
   } : undefined;
-  const summaryBody = summaryVisited ? <div className="agr-development-learning" ref={reviewContainer} hidden={tab !== 'review'}>
+  const summaryBody = summaryVisited ? <ReviewCommentIndex className="agr-development-learning" ref={reviewContainer} hidden={tab !== 'review'}>
     {(typeof learning === 'function' ? learning(sha => selectCommit('task', sha), taskReview) : learning) ?? <p className="agr-card__empty">After a turn changes code or commits, the agent will refine the summary here automatically.</p>}
     {localThreads.threads.length > 0 && <section className="agr-local-comments" aria-label="Local review comments">
       <div className="agr-findings__head"><h2>Local review comments</h2><span className="agr-findings__count">{localThreads.threads.length} private discussions</span></div>
@@ -780,7 +781,7 @@ function SidePanel({
         review={review} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} ownStream={tab === 'review'}
         onOpenWorkspace={() => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
         onNavigateToChanges={navigateToChanges} />}
-  </div> : null;
+  </ReviewCommentIndex> : null;
   const changesBody = pullRequest === null && changesVisited ? <div className="pull-detail__changes" hidden={tab !== 'changes'}>
     {changesHost !== null ? <WorktreeChanges key={changesHost.kind === 'review' ? changesHost.reviewId : changesHost.taskId} selection={commitSelection}
         reviewNavigation={reviewNavigation} review={review} onReviewChange={setReview}

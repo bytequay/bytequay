@@ -1,0 +1,24 @@
+.review-comment-layout.review-comment-layout { position: relative; display: flex; width: 100%; height: 100%; min-width: 0; min-height: 0; max-width: none; flex: 1 1 auto; flex-direction: column; overflow: hidden; margin: 0; padding: 0; gap: 0; }
+.review-comment-layout.review-comment-layout[hidden] { display: none; }
+.pull-detail__review > .agr-summary-page.review-comment-layout { overflow: hidden; padding: 0; }
+.review-comment-scroll { min-height: 0; flex: 1; overflow: auto; }
+.review-comment-content { min-width: 0; }
+.pr-overview > .review-comment-scroll > .review-comment-content { width: 100%; max-width: 900px; margin: 0 auto; padding: 24px 34px 64px; }
+.agr-summary > .review-comment-scroll > .review-comment-content { padding: 18px max(34px, calc((100% - 864px) / 2)) 40px; }
+.agr-summary-page > .review-comment-scroll > .review-comment-content { padding: 18px max(34px, calc((100% - 864px) / 2)) 48px; }
+.agr-development-learning > .review-comment-scroll > .review-comment-content { display: flex; flex-direction: column; gap: 24px; padding: 20px 34px; }
+.review-comment-index { --review-index-row-height: 12px; position: absolute; left: 6px; top: 50%; z-index: 2; transform: translateY(-50%); display: flex; flex-direction: column; max-height: 70%; padding: 4px 0; }
+.review-comment-index ol { max-height: calc(30 * var(--review-index-row-height)); overflow-y: auto; overscroll-behavior-y: contain; scrollbar-width: thin; margin: 0; padding: 0; list-style: none; }
+.review-comment-index button { display: flex; width: 22px; height: var(--review-index-row-height); align-items: center; justify-content: center; border: 0; border-radius: 0; background: transparent; color: var(--fg-dim, #8c959f); padding: 0; cursor: pointer; }
+.review-comment-index__dash { display: block; width: 10px; height: 2px; border-radius: 1px; background: currentColor; }
+.review-comment-index:is(:hover, :focus-within) button { width: 36px; }
+.review-comment-index:is(:hover, :focus-within) .review-comment-index__dash { width: 18px; }
+.review-comment-index button:is(:hover, :focus-visible, .is-preview) { color: var(--text-1); }
+.review-comment-index button:is(:hover, :focus-visible, .is-preview) .review-comment-index__dash { width: 28px; }
+.review-comment-index button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+[data-review-comment]:focus { outline: none; }
+.review-comment-index__preview { position: absolute; left: 100%; width: 320px; padding-left: 6px; }
+.review-comment-index__preview-card { padding: 10px 12px; border: 1px solid var(--line-default, #d0d7de); border-radius: 12px; background: var(--bg-elevated); color: var(--text-1); box-shadow: 0 6px 20px rgb(0 0 0 / 12%); font-size: 13px; line-height: 1.5; }
+.review-comment-index__preview strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.review-comment-index__preview p { margin: 6px 0 0; color: var(--fg-muted, #57606a); overflow-wrap: anywhere; }
+[data-review-comment] { scroll-margin-block: 16px; }

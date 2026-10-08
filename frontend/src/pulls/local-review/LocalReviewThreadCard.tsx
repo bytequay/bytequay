@@ -18,6 +18,7 @@ import CopyLinkButton from '../../CopyLinkButton';
 import BetterWordsButton from '../BetterWordsButton';
 import MarkdownBody from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
+import { commentIndexTarget } from '../ReviewCommentIndex';
 import { shortPath } from '../agent-review/model';
 import LocalCard, { LocalCardMessage, SummaryCardTitle } from './LocalCard';
 import { localReviewConversation } from './conversation';
@@ -99,6 +100,8 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
     </LocalCardMessage>}
     {thread.messages.map(message => <LocalCardMessage key={message.id} timestamp={message.createdAt}
       author={message.author === 'USER' ? 'You' : 'Agent'}
+      attributes={commentIndexTarget(message.author === 'USER' ? 'human' : 'agent',
+        `${message.author === 'USER' ? 'You' : 'Agent'} · ${learning?.title ?? `${thread.path}:${range}`} · ${thread.resolved ? 'Resolved' : 'Open'} · ${outdated ? 'Outdated' : ''}`, message.body)}
       avatar={<Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />}
       menu={message.author === 'USER' && message.deliveryState !== null && message.deliveryState !== 'COMPLETED'
         && <span className="pr-local-review__delivery">{message.deliveryState === 'UNSENT' ? 'Not sent'

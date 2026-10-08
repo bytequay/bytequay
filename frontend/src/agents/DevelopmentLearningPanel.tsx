@@ -17,6 +17,7 @@ import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
 import type { AgentTaskDto, AgentTurnDto, Bridge, DevelopmentLearningSummaryDto } from '../types';
 import MarkdownBody from '../pulls/MarkdownBody';
+import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
 import ReviewComposer from '../pulls/agent-review/ReviewComposer';
 import { CommitEvent, TimelineEvent } from '../pulls/agent-review/SummaryTimeline';
 import { TaskReviewControls, TaskReviewSection, useTaskReview, type TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
@@ -120,7 +121,7 @@ export default function DevelopmentLearningPanel({ task, repository, refreshKey,
           }} />}
     </article>;
   };
-  return <section className="agr-summary-page" aria-label="Development summary">
+  return <ReviewCommentIndex className="agr-summary-page" aria-label="Development summary">
     <div className="agr-summary-strip">
       <div className="agr-summary-strip__facts">
         {refining && <span className="agr-summary-strip__refining" role="status"><span className="agr-spinner" aria-hidden="true" />
@@ -164,5 +165,5 @@ export default function DevelopmentLearningPanel({ task, repository, refreshKey,
         <TaskReviewSection options={review} state={reviewer} />
       </div>}
     </div>
-  </section>;
+  </ReviewCommentIndex>;
 }

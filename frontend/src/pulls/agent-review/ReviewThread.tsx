@@ -13,6 +13,7 @@
  */
 import Avatar from '../../Avatar';
 import MarkdownBody from '../MarkdownBody';
+import { commentIndexTarget } from '../ReviewCommentIndex';
 import { LocalCardMessage, ReviewerAvatar } from '../local-review/LocalCard';
 import type { AgentReviewDto, ReviewMessageDto } from './contracts';
 import { queued } from './model';
@@ -40,6 +41,7 @@ export default function ReviewThread({ review, messages, viewerLogin, viewerAvat
         const mine = message.author === 'USER';
         return (
           <LocalCardMessage key={message.id} timestamp={message.createdAt} author={mine ? 'You' : 'Agent review'}
+            attributes={commentIndexTarget(mine ? 'human' : 'agent', mine ? 'You' : 'Agent review', message.body)}
             avatar={mine ? <Avatar login={viewerLogin || 'You'} avatarUrl={viewerAvatarUrl} size={22} allowGitHubFallback={false} /> : <ReviewerAvatar />}
             menu={queued(review, message) && (
               <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>

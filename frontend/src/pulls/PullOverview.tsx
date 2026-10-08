@@ -46,6 +46,7 @@ import MarkdownBody, { GitHubReferenceLink, linkIssueNumbers, toggleMarkdownTask
 import { EMPTY_TIMELINE_PAYLOAD } from './model';
 import { PullRequestIcon } from './PullRowItem';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
+import ReviewCommentIndex, { commentIndexTarget } from './ReviewCommentIndex';
 import MarkdownEditor from './MarkdownEditor';
 import { PrivateThreadControls, PrivateThreadForward, PrivateThreadsToggle, PrivateThreadTab, privateThreadKey, withMention, type PrivateThreads } from './PrivateThread';
 import type { TaskDiscussionDto } from '../agents/discussions/contracts';
@@ -125,7 +126,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
   timeline.sort((left, right) => left.at.localeCompare(right.at));
 
   return (
-    <div className="pr-overview pull-request-overview">
+    <ReviewCommentIndex className="pr-overview pull-request-overview">
       <section className="pr-overview__summary">
         <div className="pr-overview__title">
           <PullTitle key={`${detail.repo.toLowerCase()}#${detail.number}`} pr={pr} detail={detail} onDetailUpdate={onDetailUpdate} />
@@ -205,7 +206,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
           await submitPullRequestComment(window.bridge, pr.repo, pr.number, body, onDetailChange);
         }}
       />
-    </div>
+    </ReviewCommentIndex>
   );
 }
 
@@ -929,14 +930,15 @@ function CommentCard({ activity, viewerLogin, privateThreads, pr, onDetailUpdate
   }
   if (privateThreads !== undefined && threadKey !== null && privateThreads.forward === threadKey) {
     return (
-      <div className="pr-card pr-private-card">
+      <div className="pr-card pr-private-card" {...commentIndexTarget(activity.payload.actorBot ? 'agent' : 'human', actor, body)}>
         <PrivateThreadForward threads={privateThreads} threadKey={threadKey} author={actor} avatarUrl={activity.payload.actorAvatarUrl}
           timestamp={activity.timestamp} body={body} repository={pr.repo} viewerLogin={viewerLogin} />
       </div>
     );
   }
   return (
-    <ReviewThreadCard className="pr-comment-card" resolved={false} controls={null}>
+    <ReviewThreadCard className="pr-comment-card" resolved={false} controls={null}
+      attributes={commentIndexTarget(activity.payload.actorBot ? 'agent' : 'human', actor, body)}>
       <ReviewThreadMessage timestamp={activity.timestamp}
         author={<UserAvatar login={actor} avatarUrl={activity.payload.actorAvatarUrl} size={22} showLogin />}
         tag={<>{activity.payload.actorBot && <span className="pr-bot">Bot</span>}
@@ -1174,6 +1176,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
         {commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
       </div>} controls={controls}>
       {payload.comments.map(comment => <ThreadComment comment={comment} fallbackUrl={payload.htmlUrl ?? pr.htmlUrl} suggestion={suggestion}
+        indexLabel={`${threadLocation(payload.path, targetLine, payload.side, startLine)} · ${resolved ? 'Resolved' : 'Open'} · ${payload.outdated ? 'Outdated · ' : ''}`}
         viewerLogin={viewerLogin} pr={pr} onDetailUpdate={onDetailUpdate} onQuote={quoteReply} edit={edit} onEditChange={setEdit}
         privateThreads={privateThreads}
         onDraftReply={rootCommentId === undefined || rootCommentId === null ? undefined
@@ -1183,12 +1186,13 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   );
 }
 
-function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDetailUpdate, onQuote, edit, onEditChange, privateThreads, onDraftReply }: {
+function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDetailUpdate, onQuote, edit, onEditChange, privateThreads, onDraftReply, indexLabel }: {
   comment: PullTimelineCommentDto;
   privateThreads?: PrivateThreads;
   onDraftReply?: (thread: TaskDiscussionDto) => void;
   fallbackUrl: string;
   suggestion?: SuggestionBase;
+  indexLabel: string;
   viewerLogin?: string;
   pr: PullRequestDto;
   onDetailUpdate: PullDetailUpdater;
@@ -1211,12 +1215,14 @@ function ThreadComment({ comment, fallbackUrl, suggestion, viewerLogin, pr, onDe
   );
   const threadKey = privateThreads === undefined || commentId === null || !comment.body ? null : privateThreadKey('review_comment', commentId);
   if (privateThreads !== undefined && threadKey !== null && privateThreads.forward === threadKey) {
-    return <PrivateThreadForward threads={privateThreads} threadKey={threadKey} author={displayActor(comment.actor ?? 'github')}
+    return <div {...commentIndexTarget(comment.actorBot ? 'agent' : 'human', `${comment.actor ?? 'github'} · ${indexLabel}`, comment.body ?? '')}>
+      <PrivateThreadForward threads={privateThreads} threadKey={threadKey} author={displayActor(comment.actor ?? 'github')}
       avatarUrl={comment.actorAvatarUrl} timestamp={comment.timestamp} body={comment.body ?? ''} repository={pr.repo}
-      viewerLogin={viewerLogin} onDraftReply={onDraftReply} />;
+      viewerLogin={viewerLogin} onDraftReply={onDraftReply} /></div>;
   }
   return (
-    <ReviewThreadMessage timestamp={comment.timestamp} author={<>
+    <ReviewThreadMessage timestamp={comment.timestamp}
+      attributes={commentIndexTarget(comment.actorBot ? 'agent' : 'human', `${comment.actor ?? 'github'} · ${indexLabel}`, comment.body ?? '')} author={<>
         <UserAvatar login={comment.actor ?? 'github'} avatarUrl={comment.actorAvatarUrl} size={22} showLogin />
         {comment.actorBot && <span className="pr-bot">Bot</span>}
       </>}

@@ -76,9 +76,7 @@ export function effortLabel(effort: string): string {
 /**
  * What the user can actually do about a provider that is not ready.
  *
- * ByteQuay never installs or signs in on the user's behalf: both are interactive and belong to
- * the user's own shell. So every state resolves to a command they run themselves plus a re-probe,
- * and `retry` is always offered because a probe can go stale the moment it finishes.
+ * Sign-in commands come from the provider probe so they target the same profile as task execution.
  */
 type ProviderRemedy = {
   kind: 'install' | 'login' | 'report' | 'retry';
@@ -91,11 +89,6 @@ type ProviderRemedy = {
 const INSTALL_COMMANDS: Record<string, string> = {
   codex: 'npm install -g @openai/codex',
   claude: 'npm install -g @anthropic-ai/claude-code',
-};
-
-const LOGIN_COMMANDS: Record<string, string> = {
-  codex: 'codex login',
-  claude: 'claude auth login',
 };
 
 /** As in the composer's picker: keep the preferred effort when the model offers it, else take the model's default. */
@@ -148,8 +141,8 @@ export function providerRemedy(readiness: AgentProviderReadiness, laneId = INTER
       return {
         kind: 'login',
         title: 'Sign in',
-        detail: 'Sign in in your own terminal, then check again.',
-        command: LOGIN_COMMANDS[laneId] ?? null,
+        detail: 'Open settings and choose Sign in for this provider to reconnect its ByteQuay profile.',
+        command: null,
       };
     case 'UNSUPPORTED':
       return {

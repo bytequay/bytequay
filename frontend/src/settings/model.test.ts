@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { MINUTE_OPTIONS, formatMinuteOfDay, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, providerStatusLabel } from './model';
+import { MINUTE_OPTIONS, formatMinuteOfDay, isDeepSeekKeyLane, laneLabel, providerAvailable, providerRemedy, providerStatusLabel, remedyCommand } from './model';
 
 describe('settings model helpers', () => {
   it('formats minutes of day as 12-hour times', () => {
@@ -46,14 +46,19 @@ describe('settings model helpers', () => {
 });
 
 describe('provider remedies', () => {
-  it('offers the command the user runs themselves, never one ByteQuay runs for them', () => {
+  it('offers installation commands and requires the provider profile for sign-in', () => {
     expect(providerRemedy('CLI_MISSING').kind).toBe('install');
     expect(providerRemedy('CLI_MISSING').command).toBe('npm install -g @openai/codex');
-    expect(providerRemedy('AUTHENTICATION_REQUIRED').kind).toBe('login');
-    // The probe shells out to `codex login status`, so this is the command that clears it.
-    expect(providerRemedy('AUTHENTICATION_REQUIRED').command).toBe('codex login');
     expect(providerRemedy('CLI_MISSING', 'claude').command).toBe('npm install -g @anthropic-ai/claude-code');
-    expect(providerRemedy('AUTHENTICATION_REQUIRED', 'claude').command).toBe('claude auth login');
+    for (const lane of ['codex', 'claude', 'claude-account-work']) {
+      const remedy = providerRemedy('AUTHENTICATION_REQUIRED', lane);
+      expect(remedy.kind).toBe('login');
+      expect(remedy.detail).toContain('ByteQuay profile');
+      expect(remedyCommand({ signInCommand: null }, remedy)).toBeNull();
+      const signInCommand = lane === 'codex' ? "CODEX_HOME='/bytequay/codex-home' codex login"
+        : "CLAUDE_CONFIG_DIR='/bytequay/claude-home' claude auth login";
+      expect(remedyCommand({ signInCommand }, remedy)).toBe(signInCommand);
+    }
   });
 
   it('routes an undriveable CLI to a report and everything else to a re-probe', () => {

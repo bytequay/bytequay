@@ -24,6 +24,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -53,6 +54,9 @@ class TestSqlitePullRequestWorkspaceScope
 
     @Autowired
     private JdbcTemplate jdbc;
+
+    @Autowired
+    private EntityManager entityManager;
 
     @Autowired
     private SqlitePrViewStateStore viewStateStore;
@@ -150,6 +154,44 @@ class TestSqlitePullRequestWorkspaceScope
         store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 0, true, "clean", null, "feature",
                 ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("CHANGES_REQUESTED"), ImmutableMap.of("reviews", "reviews-v2"));
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isAfter(summaryChanged.activityAt());
+    }
+
+    @Test
+    void unchangedSummaryAndDetailKeepAcknowledgedFactsAfterReload()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1, "merged", RETENTION_CUTOFF, RETENTION_CUTOFF);
+        PullRequest row = store.saveObserved(fetched);
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 4, null, "unknown", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "summary-v1"));
+        // Detail ignores an old failed check after a successful rerun; the summary rollup can still include it.
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 4, null, "unknown", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("checks", "checks-v1"));
+        PullRequest acknowledged = store.findById(row.id()).orElseThrow();
+
+        for (int refresh = 0; refresh < 3; refresh++) {
+            entityManager.flush();
+            entityManager.clear();
+            store.saveObserved(fetched);
+            store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 4, null, "unknown", null, "feature",
+                    ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "summary-v1"));
+            assertThat(store.findById(row.id()).orElseThrow()).isEqualTo(acknowledged);
+            store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 4, null, "unknown", null, "feature",
+                    ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("checks", "checks-v1"));
+            assertThat(store.findById(row.id()).orElseThrow()).isEqualTo(acknowledged);
+        }
+
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.FAILING, 1, 0, 4, null, "unknown", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("summary", "summary-v2"));
+        PullRequest changed = store.findById(row.id()).orElseThrow();
+        assertThat(changed.ciStatus()).isEqualTo(PullRequestDetail.CiStatus.FAILING);
+        assertThat(changed.activityAt()).isAfter(acknowledged.activityAt());
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 4, null, "unknown", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("checks", "checks-v1"));
+        assertThat(store.findById(row.id()).orElseThrow()).isEqualTo(changed);
+        store.updateEnrichment(row.id(), row.updatedAt(), PullRequestDetail.CiStatus.PASSING, 1, 0, 4, null, "unknown", null, "feature",
+                ImmutableList.of(), PullRequest.Origin.AUTHORED, Optional.empty(), Optional.of("APPROVED"), ImmutableMap.of("checks", "checks-v2"));
+        assertThat(store.findById(row.id()).orElseThrow().ciStatus()).isEqualTo(PullRequestDetail.CiStatus.PASSING);
+        assertThat(store.findById(row.id()).orElseThrow().activityAt()).isAfter(changed.activityAt());
     }
 
     @Test

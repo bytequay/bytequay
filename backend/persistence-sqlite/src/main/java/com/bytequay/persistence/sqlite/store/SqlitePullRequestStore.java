@@ -441,6 +441,11 @@ public class SqlitePullRequestStore
                 return;
             }
             Map<String, String> previousFingerprints = Optional.ofNullable(entity.getActivityFingerprints()).orElse(ImmutableMap.of());
+            // Summary rollups and detailed checks can disagree; replaying an unchanged source must not overwrite newer enrichment.
+            if (!activityFingerprints.isEmpty() && activityFingerprints.entrySet().stream()
+                    .allMatch(entry -> Objects.equals(previousFingerprints.get(entry.getKey()), entry.getValue()))) {
+                return;
+            }
             // Review decisions use different summary/detail semantics; their source fingerprints detect actual review changes.
             if (entity.getCiStatus() != ciStatus
                     || !Objects.equals(entity.getHeadPushedAt(), headPushedAt)

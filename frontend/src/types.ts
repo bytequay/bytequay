@@ -1888,6 +1888,8 @@ export type Bridge = WorkItemBridge & JiraBridge & {
   resumeAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   /** Refreshes the pull request now and follows its head. */
   updateAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  /** Regenerates the change intention and commit explanations at the latest committed head. */
+  refreshAgentReviewExplanation: (reviewId: string, runId: string, expectedRevision: number) => Promise<AgentReviewDto>;
   /** Completes the task, closes the review, then cleans the worktree. */
   endAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   /** The private threads the review's task holds on its pull request's GitHub comments. */

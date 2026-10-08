@@ -64,6 +64,9 @@ public interface AgentReviewService
     /** Refreshes the pull request now and follows its head; a replay keeps its head and only resumes. */
     AgentReviewProjection update(String reviewId);
 
+    /** Regenerates only the displayed change explanation at the latest committed head. */
+    AgentReviewProjection refreshExplanation(String reviewId, String runId, int expectedRevision);
+
     /** Completes the task, closes the review durably, then requests clean worktree cleanup. */
     AgentReviewProjection end(String reviewId);
 

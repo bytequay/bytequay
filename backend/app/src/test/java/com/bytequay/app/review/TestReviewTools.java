@@ -53,6 +53,8 @@ import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidate;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
 import com.bytequay.core.review.ReviewCoverage;
@@ -60,9 +62,11 @@ import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
+import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
+import com.bytequay.core.review.ReviewValidation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,6 +92,8 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -101,7 +107,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
-import static com.bytequay.core.review.ReviewStep.Kind.CHECK_NITS;
+import static com.bytequay.app.review.ReviewTestData.discoveryCandidate;
+import static com.bytequay.app.review.ReviewTestData.perspectives;
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -115,6 +122,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -756,6 +764,7 @@ class TestReviewTools
         assertThat(bridge.tools()).extracting(ReviewTool::name).containsExactly(
                 "review_get_context",
                 "review_save_summary",
+                "review_record_discovery",
                 "review_save_investigation",
                 "review_save_finding",
                 "review_reply",
@@ -774,13 +783,13 @@ class TestReviewTools
         assertThat(schema.path("properties").size()).isEqualTo(3);
         assertThat(schema.path("required")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("operationKey", "purpose", "commits")));
         assertThat(summary.description()).doesNotContain("combined result", "critical findings", "supporting evidence");
-        assertThat(bridge.instruction()).contains("only purpose", "design/implementation", "exact replacement", "RIGHT-side", "omit severity");
+        assertThat(bridge.instruction()).contains("Save purpose", "design/implementation", "exact replacement", "RIGHT-side", "omit severity");
         assertThat(bridge.instruction()).contains("build that module from this", "rebuilt from the worktree, not reported", "the recovery that was tried");
         assertThat(bridge.instruction()).contains("drive the changed code end", "Never call a test unavailable without running it", "never attempted is not unavailable");
         assertThat(bridge.instruction()).contains("at most 120 prose words", "at most 35", "executed or only traced from source");
         assertThat(bridge.instruction()).contains("Warnings are only for checks that could not", "stays with the candidate conclusion");
-        assertThat(bridge.instruction()).contains("up to five nit candidates", "reject the nit candidates as held", "rather than pad", "save it with scope pull_request");
-        assertThat(bridge.instruction()).contains("at most two concurrent read-only children", "You own every save", "verify each delegated conclusion");
+        assertThat(bridge.instruction()).contains("review_record_discovery", "selectedFindingIds", "uses scope pull_request");
+        assertThat(bridge.instruction()).contains("at most four children running", "The main agent owns every save", "verify every delegated conclusion");
         // Only the tool that reads may be called by an exploration child; the child gate refuses the rest.
         assertThat(bridge.tools().stream().filter(ReviewTool::childCallable)).extracting(ReviewTool::name).containsExactly("review_get_context");
         ReviewTool finish = bridge.tools().stream().filter(tool -> tool.name().equals("review_finish")).findFirst().orElseThrow();
@@ -823,7 +832,7 @@ class TestReviewTools
         call("review_save_summary", summary("summary", "Guard input"));
         List<String> refs = ImmutableList.of("E1", ref);
 
-        assertThat(call("review_save_investigation", investigation("investigate", ImmutableList.of(DIFF_PATH), refs, ImmutableList.of(CANDIDATE)))
+        assertThat(discoverAndSeal(investigation("investigate", ImmutableList.of(DIFF_PATH), refs, ImmutableList.of(CANDIDATE)))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         JsonNode saved = call("review_save_finding", finding("finding", "Unchecked input", "A2", ImmutableList.of(evidence("E1"), evidence(ref))));
@@ -999,7 +1008,7 @@ class TestReviewTools
     void retainedSummarySectionsRemainAvailableToTheirSavedDiscussions()
     {
         ReviewSummary saved = new ReviewSummary(1, "Keep state", ImmutableList.of(), "Old combined result", Optional.of("Recorded evidence"), ImmutableList.of("old-finding"));
-        store.updateRun(run().withSummary(saved, NOW));
+        store.updateRun(run(RUN_ID, 1, PATCH, false).withSummary(saved, NOW));
         assertThat(call("review_save_summary", summary("revise-intention", "Explain the new intention")).path("revision").asInt()).isEqualTo(2);
         ReviewSummary revised = store.findRun(RUN_ID).orElseThrow().summary().orElseThrow();
         assertThat(revised.purpose()).isEqualTo("Explain the new intention");
@@ -1119,44 +1128,32 @@ class TestReviewTools
     }
 
     @Test
-    void extraFindingsAreSkippedWithoutBlockingRevisionsOrCompletion()
+    void savesEverySupportedClaimAndSelectsAtMostTenAfterValidation()
     {
         store.updateRun(run(RUN_ID, 1, PATCH, false));
         call("review_save_summary", summary("summary", "Reject unchecked input"));
         readSource();
-        List<String> candidates = IntStream.rangeClosed(1, 11).mapToObj(index -> "Unchecked input " + index).collect(toImmutableList());
-        assertThat(call("review_save_investigation", investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), candidates))
+        List<String> hypotheses = IntStream.rangeClosed(1, 11).mapToObj(index -> "Unchecked input " + index).collect(toImmutableList());
+        assertThat(discoverAndSeal(investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), hypotheses))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
-
-        ImmutableList.Builder<Map<String, Object>> validations = ImmutableList.builder();
-        for (int index = 1; index <= 10; index++) {
-            JsonNode saved = call("review_save_finding", finding("finding-" + index, candidates.get(index - 1), "A2", ImmutableList.of(evidence("E1"))));
+        List<Map<String, Object>> validations = new ArrayList<>();
+        List<String> ids = new ArrayList<>();
+        for (int index = 1; index <= 11; index++) {
+            JsonNode saved = call("review_save_finding", finding("finding-" + index, hypotheses.get(index - 1), "A2", ImmutableList.of(evidence("E1"))));
             assertThat(saved.path("status").asText()).isEqualTo("accepted");
-            validations.add(supported(index, saved.path("findingId").asText(), index == 1 ? 2 : 1));
+            ids.add(saved.path("findingId").asText());
+            validations.add(supported(index, ids.getLast(), 1));
         }
-        List<ReviewFinding> retained = store.listFindings(REVIEW_ID);
-        Map<String, Object> extra = finding("extra", candidates.getLast(), "A2", ImmutableList.of(evidence("E1")));
-        JsonNode skipped = call("review_save_finding", extra);
-        assertThat(skipped.path("status").asText()).isEqualTo("skipped");
-        assertThat(skipped.has("error")).isFalse();
-        assertThat(skipped.has("findingId")).isFalse();
-        assertThat(skipped.path("activityLine").asText()).startsWith("Skipped finding");
-        assertThat(skipped.path("next").asText()).contains("REJECTED", "finding limit");
-        int updates = store.runUpdates();
-        assertThat(call("review_save_finding", extra)).isEqualTo(skipped);
-        assertThat(store.runUpdates()).isEqualTo(updates);
-        assertThat(store.listFindings(REVIEW_ID)).containsExactlyElementsOf(retained);
-
-        Map<String, Object> revision = ImmutableMap.<String, Object>builder()
-                .putAll(finding("revision", candidates.getFirst(), "A2", ImmutableList.of(evidence("E1"))))
-                .put("findingId", retained.getFirst().id()).put("expectedRevision", 1).buildOrThrow();
-        assertThat(call("review_save_finding", revision).path("revision").asInt()).isEqualTo(2);
-        validations.add(ImmutableMap.of("candidate", 11, "outcome", "REJECTED", "conclusion", "Held back by the finding limit",
-                "evidenceRefs", ImmutableList.of("E1"), "counterevidence", "Ten higher-ranked findings were retained"));
-        assertThat(call("review_finish", finish("finished", validations.build())).path("status").asText()).isEqualTo("accepted");
-        assertThat(store.listFindings(REVIEW_ID)).hasSize(10);
-        assertThat(store.findRun(RUN_ID).orElseThrow().coverage().orElseThrow().complete()).isTrue();
+        assertThat(call("review_finish", with(finish("too-many", validations), "too-many", "selectedFindingIds", ids))
+                .at("/error/field").asText()).isEqualTo("selectedFindingIds");
+        List<String> selected = ids.subList(1, 11);
+        assertThat(call("review_finish", with(finish("finished", validations), "finished", "selectedFindingIds", selected))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(11).allMatch(finding -> finding.origin() == ReviewFinding.Origin.AUTOMATIC);
+        ReviewValidation validation = store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().validation().orElseThrow();
+        assertThat(validation.selectedFindingIds()).containsExactlyElementsOf(selected);
+        assertThat(validation.candidates()).allMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED);
     }
 
     @Test
@@ -1197,6 +1194,7 @@ class TestReviewTools
     @Test
     void saveSummaryValidatesScopeAndRevisesOnEachAcceptedSave()
     {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
         Map<String, Object> foreignCommit = ImmutableMap.<String, Object>of(
                 "operationKey", "out-of-scope",
                 "purpose", "Explains the change",
@@ -1221,6 +1219,116 @@ class TestReviewTools
         assertThat(stored.criticalFindingIds()).isEmpty();
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"VALIDATE", "COLLECT_EVIDENCE"})
+    void laterPassesCannotRewriteTheInitialExplanation(String kind)
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        Map<String, Object> input = summary("initial-explanation", "Original intention");
+        assertThat(call("review_save_summary", input).path("status").asText()).isEqualTo("accepted");
+        readSource();
+        assertThat(discoverAndSeal(investigation("initial-map", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of()))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_save_summary", input).path("revision").asInt()).isEqualTo(1);
+        advance(ReviewStep.Kind.valueOf(kind));
+        ReviewRun before = store.findRun(RUN_ID).orElseThrow();
+
+        assertThat(call("review_save_summary", summary("rewrite", "Changed explanation")).at("/error/field").asText()).isEqualTo("summary");
+        assertThat(store.findRun(RUN_ID)).contains(before);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("changeExplanationRequired").asBoolean()).isFalse();
+    }
+
+    @Test
+    void subsequentReviewKeepsExplanationButRequiresItsOwnMapAndValidation()
+    {
+        ReviewRun original = store.findRun(RUN_ID).orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW);
+        store.updateRun(original);
+        store.insertRun(run("run-2", 2, PATCH, false));
+
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "summary"));
+        assertThat(context.path("runId").asText()).isEqualTo(RUN_ID);
+        assertThat(context.path("headSha").asText()).isEqualTo(HEAD_SHA);
+        assertThat(context.path("retained").asBoolean()).isTrue();
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("changeExplanationRequired").asBoolean()).isFalse();
+        assertThat(call("review_save_summary", summary("rewrite", "Unneeded explanation")).at("/error/field").asText()).isEqualTo("summary");
+        assertThat(call("review_record_discovery", ImmutableMap.of("operationKey", "no-map", "candidates", ImmutableList.of(candidateInput(CANDIDATE)),
+                "perspectives", ImmutableList.of())).at("/error/field").asText()).isEqualTo("changeMap");
+        readSource();
+        assertThat(discoverAndSeal(investigation("current-map", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE)))
+                .path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+        assertThat(call("review_finish", finish("current-verdict", ImmutableList.of(assessment(1, "REJECTED")))).path("status").asText()).isEqualTo("accepted");
+
+        assertThat(store.findRun(RUN_ID)).contains(original.withVersion(original.version() + 1));
+        assertThat(store.findRun("run-2").orElseThrow().summary()).isEmpty();
+        assertThat(store.findRun("run-2").orElseThrow().coverage().orElseThrow().complete()).isTrue();
+    }
+
+    @Test
+    void explicitRefreshSavesOnlyExplanationAndPublishesItAfterAcceptance()
+    {
+        ReviewRun original = store.updateRun(store.findRun(RUN_ID).orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
+        ReviewFinding retained = store.insertFinding(resolvedFinding());
+        store.insertRun(run("refresh", 2, PATCH, false).replaceCurrentStep(ReviewStep.explanation(), NOW));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("kind").asText()).isEqualTo("EXPLAIN");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("changeExplanationRequired").asBoolean()).isTrue();
+        readSource();
+        for (String tool : ImmutableList.of("review_save_finding", "review_withdraw_finding", "review_record_discovery", "review_save_investigation", "review_finish")) {
+            assertThat(call(tool, ImmutableMap.of()).at("/error/field").asText()).as(tool).isEqualTo("assignment");
+        }
+        Map<String, Object> input = summary("refresh-explanation", "New intention from the current source");
+        JsonNode saved = call("review_save_summary", input);
+        assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_save_summary", input)).isEqualTo(saved);
+        JsonNode draft = call("review_get_context", ImmutableMap.of("kind", "summary"));
+        assertThat(draft.path("runId").asText()).isEqualTo("refresh");
+        assertThat(draft.path("draft").asBoolean()).isTrue();
+        assertThat(ReviewCards.explanationRun(store.listRuns(REVIEW_ID))).contains(original);
+        ReviewRun refresh = store.findRun("refresh").orElseThrow();
+        assertThat(refresh.coverage()).isEmpty();
+        assertThat(refresh.investigation()).isEmpty();
+        store.updateRun(refresh.ended(ReviewRun.State.FAILED, Optional.of("Provider failed"), NOW));
+        assertThat(ReviewCards.explanationRun(store.listRuns(REVIEW_ID))).contains(original);
+        ReviewRun accepted = store.updateRun(store.findRun("refresh").orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
+        assertThat(ReviewCards.explanationRun(store.listRuns(REVIEW_ID))).contains(accepted);
+        assertThat(store.findRun(RUN_ID)).contains(original);
+        assertThat(store.listFindings(REVIEW_ID)).containsExactly(retained);
+
+        store.insertRun(run("later-review", 3, PATCH, false));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "summary")).path("runId").asText()).isEqualTo("refresh");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("changeExplanationRequired").asBoolean()).isFalse();
+        assertThat(call("review_save_summary", summary("automatic-rewrite", "Should not replace explicit refresh"))
+                .at("/error/field").asText()).isEqualTo("summary");
+    }
+
+    @Test
+    void explanationCardDiscussionAllowsRepliesWithoutFindingOrSummaryWrites()
+    {
+        ReviewRun refreshed = store.updateRun(run(RUN_ID, 1, PATCH, false).replaceCurrentStep(ReviewStep.explanation(), NOW)
+                .withSummary(new ReviewSummary(1, "Refreshed intention", ImmutableList.of(new ReviewSummary.CommitExplanation(COMMIT_SHA, "Commit implementation")),
+                        "", Optional.empty(), ImmutableList.of()), NOW).ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
+        String target = RUN_ID + ":purpose";
+        discussSummary(target);
+        assertThat(call("review_reply", ImmutableMap.of("operationKey", "clarify", "target", target, "body", "This explains the committed change"))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_save_finding", ImmutableMap.of()).at("/error/field").asText()).isEqualTo("assignment");
+        assertThat(call("review_withdraw_finding", ImmutableMap.of()).at("/error/field").asText()).isEqualTo("assignment");
+        assertThat(call("review_save_summary", summary("rewrite", "Unrequested rewrite")).at("/error/field").asText()).isEqualTo("summary");
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary()).isEqualTo(refreshed.summary());
+        assertThat(store.listFindings(REVIEW_ID)).isEmpty();
+    }
+
+    @Test
+    void retryCanCreateTheInitialExplanationIfTheFirstAttemptNeverSavedIt()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false).ended(ReviewRun.State.FAILED, Optional.empty(), NOW));
+        store.insertRun(run("retry", 2, PATCH, false));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("changeExplanationRequired").asBoolean()).isTrue();
+        assertThat(call("review_save_summary", summary("initial-explanation", "First saved explanation")).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary()).isEmpty();
+        assertThat(store.findRun("retry").orElseThrow().summary().orElseThrow().purpose()).isEqualTo("First saved explanation");
+    }
+
     @Test
     void finishRecordsPartialCoverageWithoutPretendingTheMissingSummaryIsComplete()
     {
@@ -1238,7 +1346,8 @@ class TestReviewTools
                 "investigationStep", 1,
                 "complete", false,
                 "omissions", ImmutableList.of("the generated sources were skipped"),
-                "validations", ImmutableList.of(assessment(1, "UNRESOLVED")));
+                "validations", ImmutableList.of(assessment(1, "UNRESOLVED")),
+                "selectedFindingIds", ImmutableList.of(), "selectionExplanation", "No settled claims");
         JsonNode accepted = call("review_finish", honest);
 
         assertThat(accepted.path("status").asText()).isEqualTo("accepted");
@@ -1275,6 +1384,7 @@ class TestReviewTools
     @Test
     void intentionAndCommitCardsKeepIndependentDiscussions()
     {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
         Map<String, Object> report = ImmutableMap.<String, Object>builder()
                 .put("operationKey", "report").put("purpose", "Avoid losing parser state")
                 .put("commits", ImmutableList.of(ImmutableMap.of("sha", COMMIT_SHA, "explanation", "Keep the parser snapshot"))).buildOrThrow();
@@ -1307,9 +1417,8 @@ class TestReviewTools
     }
 
     @Test
-    void generalFollowUpCannotWriteSummaryCardsOrReplayTheirWrites()
+    void discussionCanClarifyButCannotRewriteTheRetainedExplanation()
     {
-        call("review_save_summary", summary("summary", "Input change"));
         store.updateRun(store.findRun(RUN_ID).orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
         ReviewSummary original = store.findRun(RUN_ID).orElseThrow().summary().orElseThrow();
         when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
@@ -1319,7 +1428,7 @@ class TestReviewTools
                     .at("/error/message").asText()).contains("question sent from that card", "review_save_finding");
         }
         Map<String, Object> revision = summary("revise", "Clarified intention");
-        assertThat(call("review_save_summary", revision).at("/error/field").asText()).isEqualTo("target");
+        assertThat(call("review_save_summary", revision).at("/error/field").asText()).isEqualTo("summary");
         assertThat(store.findRun(RUN_ID).orElseThrow().summary()).contains(original);
         assertThat(store.listMessages(REVIEW_ID)).isEmpty();
 
@@ -1329,14 +1438,14 @@ class TestReviewTools
         JsonNode saved = call("review_reply", reply);
         assertThat(saved.path("status").asText()).isEqualTo("accepted");
         assertThat(call("review_reply", reply)).isEqualTo(saved);
-        assertThat(call("review_save_summary", revision).path("revision").asInt()).isEqualTo(2);
+        assertThat(call("review_save_summary", revision).at("/error/field").asText()).isEqualTo("summary");
 
         when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
                 new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.empty()));
         assertThat(call("review_reply", reply).at("/error/field").asText()).isEqualTo("target");
-        assertThat(call("review_save_summary", revision).at("/error/field").asText()).isEqualTo("target");
+        assertThat(call("review_save_summary", revision).at("/error/field").asText()).isEqualTo("summary");
         assertThat(store.listMessages(REVIEW_ID)).hasSize(1);
-        assertThat(store.findRun(RUN_ID).orElseThrow().summary().orElseThrow().revision()).isEqualTo(2);
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary()).contains(original);
     }
 
     @Test
@@ -1656,16 +1765,16 @@ class TestReviewTools
         assertThat(store.listFindings(REVIEW_ID)).isEmpty();
         assertThat(call("review_finish", finish("early-finish", ImmutableList.of())).at("/error/field").asText()).isEqualTo("validation");
         call("review_save_summary", summary("summary", "Guard input"));
-        assertThat(call("review_save_investigation", investigation("draft", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of("Input bypasses a guard")))
+        assertThat(discoverAndSeal(investigation("draft", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of("Input bypasses a guard")))
                 .path("next").asText()).contains("End this investigation turn");
-        assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().candidates()).containsExactly("Input bypasses a guard");
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().candidates()).extracting(ReviewCandidate::hypothesis)
+                .containsExactly("Input bypasses a guard");
         assertThat(store.findRun(RUN_ID).orElseThrow().validationStarted()).isFalse();
     }
 
     @Test
     void completedValidationMustCoverCandidatesAndEveryNewFinding()
     {
-        call("review_save_summary", summary("summary", "Reject unchecked input"));
         readSource();
         String findingId = call("review_save_finding", finding("finding", "Unchecked input", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
         assertThat(call("review_finish", finish("missing-candidate", ImmutableList.of())).at("/error/field").asText()).isEqualTo("validations");
@@ -1680,25 +1789,222 @@ class TestReviewTools
     }
 
     @Test
-    void nitCheckPreservesCandidatesAndRequiresValidationBeforeSavingFindings()
+    void blockedPerspectiveCanSealButCannotClaimCompleteCoverage()
     {
-        call("review_save_summary", summary("summary", "Reject unchecked input"));
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
         readSource();
-        assertThat(call("review_finish", finish("no-findings", ImmutableList.of(assessment(1, "REJECTED")))).path("status").asText()).isEqualTo("accepted");
-        advance(CHECK_NITS);
-        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("kind").asText()).isEqualTo("CHECK_NITS");
-        assertThat(call("review_save_finding", finding("too-early", "Nit: Clarify the name", "A2", ImmutableList.of(evidence("E1"))))
-                .at("/error/field").asText()).isEqualTo("validation");
-        assertThat(call("review_save_investigation", investigation("lost-candidate", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of()))
-                .at("/error/field").asText()).isEqualTo("candidates");
-        assertThat(call("review_save_investigation", investigation("nits", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
-                ImmutableList.of(CANDIDATE, "Nit: Clarify the name"))).path("status").asText()).isEqualTo("accepted");
+        call("review_save_summary", summary("summary", "Input change"));
+        List<Map<String, Object>> perspectives = Arrays.stream(ReviewPerspectiveAssessment.Perspective.values())
+                .map(perspective -> ImmutableMap.<String, Object>of("perspective", perspective.name(), "question", "Does input respect caller ownership?",
+                        "responsibilities", ImmutableList.of("Caller ownership"), "paths", ImmutableList.of(DIFF_PATH), "evidenceRefs", ImmutableList.of("E1"),
+                        "status", perspective == ReviewPerspectiveAssessment.Perspective.INTERACTIONS ? "BLOCKED" : "CHECKED",
+                        "explanation", "The remote caller contract is unavailable"))
+                .collect(toImmutableList());
+        assertThat(call("review_record_discovery", ImmutableMap.of("operationKey", "map", "changeMap", "Input ownership across callers",
+                "contextEvidenceRefs", ImmutableList.of("E1"), "candidates", ImmutableList.of(), "perspectives", ImmutableList.of()))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_record_discovery", ImmutableMap.of("operationKey", "coverage", "candidates", ImmutableList.of(), "perspectives", perspectives))
+                .path("status").asText()).isEqualTo("accepted");
+        Map<String, Object> seal = ImmutableMap.of("operationKey", "seal", "reviewedFiles", ImmutableList.of(DIFF_PATH), "answers", ImmutableList.of());
+        assertThat(call("review_save_investigation", seal).path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
-        String findingId = call("review_save_finding", finding("nit", "Nit: Clarify the name", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
-        Map<String, Object> result = new LinkedHashMap<>(finish("validated-nit", ImmutableList.of(assessment(1, "REJECTED"), supported(2, findingId, 1))));
-        result.put("investigationStep", 3);
-        assertThat(call("review_finish", result).path("status").asText()).isEqualTo("accepted");
-        assertThat(store.listFindings(REVIEW_ID)).singleElement().extracting(ReviewFinding::title).isEqualTo("Nit: Clarify the name");
+        assertThat(call("review_finish", finish("invalid-complete", ImmutableList.of())).at("/error/field").asText()).isEqualTo("perspectives");
+        assertThat(call("review_finish", incomplete("blocked", ImmutableList.of())).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.findRun(RUN_ID).orElseThrow().coverage().orElseThrow().complete()).isFalse();
+    }
+
+    @Test
+    void validationReadsOnlyItsSealedReportEvenWhenADraftExists()
+    {
+        readSource();
+        ReviewRun current = store.findRun(RUN_ID).orElseThrow();
+        ReviewInvestigation sealed = current.latestSealedInvestigation().orElseThrow().investigation().orElseThrow();
+        ReviewInvestigation draft = new ReviewInvestigation("Unsealed draft", sealed.reviewedFiles(), sealed.contextEvidenceRefs(),
+                ImmutableList.of(sealed.candidates().getFirst(), discoveryCandidate(2, "Unsealed concern")),
+                sealed.validations(), sealed.answers(), sealed.verification(), sealed.perspectives());
+        store.updateRun(current.withInvestigation(draft, NOW));
+        JsonNode input = call("review_get_context", ImmutableMap.of("kind", "investigation"));
+        assertThat(input.path("candidates")).hasSize(1);
+        assertThat(input.path("changeMap").asText()).isEqualTo(sealed.changeMap());
+        assertThat(call("review_finish", finish("wrong-input", ImmutableList.of(assessment(1, "REJECTED"), assessment(2, "REJECTED"))))
+                .at("/error/field").asText()).isEqualTo("validations");
+        assertThat(call("review_finish", finish("sealed-input", ImmutableList.of(assessment(1, "REJECTED"))))
+                .path("status").asText()).isEqualTo("accepted");
+    }
+
+    @Test
+    void sharedRootCauseUsesOneFindingAndSelectionRejectsUnassessedIds()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        assertThat(discoverAndSeal(investigation("investigate", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
+                ImmutableList.of(CANDIDATE, "A second caller reaches the same unchecked input"))).path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+        String id = call("review_save_finding", finding("finding", "Unchecked input", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
+        List<Map<String, Object>> validations = ImmutableList.of(supported(1, id, 1), supported(2, id, 1));
+        assertThat(call("review_finish", with(finish("unknown", validations), "unknown", "selectedFindingIds", ImmutableList.of("unknown")))
+                .at("/error/field").asText()).isEqualTo("selectedFindingIds");
+        assertThat(call("review_finish", with(finish("duplicate", validations), "duplicate", "selectedFindingIds", ImmutableList.of(id, id)))
+                .at("/error/field").asText()).isEqualTo("selectedFindingIds");
+        assertThat(call("review_finish", with(finish("selected", validations), "selected", "selectedFindingIds", ImmutableList.of(id)))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(1);
+    }
+
+    @Test
+    void discoveryRequiresASourceBackedMapBeforeSavingAnyCheckpoint()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        readSource();
+        int writes = store.runUpdates();
+        Map<String, Object> candidates = ImmutableMap.of("operationKey", "no-map", "candidates", ImmutableList.of(candidateInput(CANDIDATE)),
+                "perspectives", ImmutableList.of());
+        assertThat(call("review_record_discovery", candidates).at("/error/field").asText()).isEqualTo("changeMap");
+        assertThat(call("review_record_discovery", with(candidates, "no-refs", "changeMap", "Input ownership")).at("/error/field").asText())
+                .isEqualTo("changeMap");
+        assertThat(call("review_record_discovery", with(candidates, "only-refs", "contextEvidenceRefs", ImmutableList.of("E1")))
+                .at("/error/field").asText()).isEqualTo("changeMap");
+        Map<String, Object> map = ImmutableMap.of("operationKey", "map", "changeMap", "Input ownership", "contextEvidenceRefs", ImmutableList.of("E1"),
+                "candidates", ImmutableList.of(), "perspectives", ImmutableList.of());
+        assertThat(call("review_record_discovery", with(map, "map-and-candidate", "candidates", ImmutableList.of(candidateInput(CANDIDATE))))
+                .at("/error/field").asText()).isEqualTo("changeMap");
+        assertThat(call("review_record_discovery", with(map, "map-and-assessments", "perspectives", checkedPerspectives()))
+                .at("/error/field").asText()).isEqualTo("changeMap");
+        assertThat(call("review_record_discovery", with(map, "blank-map", "changeMap", "  ")).at("/error/field").asText()).isEqualTo("changeMap");
+        for (List<String> refs : ImmutableList.of(ImmutableList.<String>of(), ImmutableList.of("E99"))) {
+            assertThat(call("review_record_discovery", with(map, "invalid-refs", "contextEvidenceRefs", refs)).at("/error/field").asText())
+                    .isEqualTo("contextEvidenceRefs");
+        }
+        assertThat(store.runUpdates()).isEqualTo(writes);
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation()).isEmpty();
+        call("review_save_summary", summary("summary", "Input change"));
+        assertThat(call("review_save_investigation", ImmutableMap.of("operationKey", "no-map-seal", "reviewedFiles", ImmutableList.of(DIFF_PATH),
+                "answers", ImmutableList.of())).at("/error/field").asText()).isEqualTo("changeMap");
+    }
+
+    @Test
+    void changeMapRequiresFrozenSourceEvidenceEvenWhenMetadataWasRead()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        PullRequestDetail detail = pullRequestDetail(42, "Input change", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.PR)).thenReturn(new SelectedPullRequestReader.Read(detail,
+                Optional.of(NOW), Optional.of(NOW), Optional.of(HEAD_SHA), false, false, false, false));
+        String metadataRef = call("review_get_context", ImmutableMap.of("kind", "pr")).path("evidenceRef").asText();
+        Map<String, Object> map = ImmutableMap.of("operationKey", "metadata-map", "changeMap", "The PR describes changed input handling",
+                "contextEvidenceRefs", ImmutableList.of(metadataRef), "candidates", ImmutableList.of(), "perspectives", ImmutableList.of());
+        int writes = store.runUpdates();
+        assertThat(call("review_record_discovery", map).at("/error/field").asText()).isEqualTo("contextEvidenceRefs");
+        assertThat(store.runUpdates()).isEqualTo(writes);
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation()).isEmpty();
+        verifyNoInteractions(git);
+
+        String sourceRef = call("review_get_context", ImmutableMap.of("kind", "source", "path", DIFF_PATH)).path("evidenceRef").asText();
+        assertThat(call("review_record_discovery", with(map, "source-map", "contextEvidenceRefs", ImmutableList.of(metadataRef, sourceRef)))
+                .path("status").asText()).isEqualTo("accepted");
+        ReviewInvestigation saved = store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow();
+        assertThat(saved.contextEvidenceRefs()).containsExactly(metadataRef, sourceRef);
+        writes = store.runUpdates();
+        assertThat(call("review_record_discovery", map).at("/error/field").asText()).isEqualTo("contextEvidenceRefs");
+        assertThat(store.runUpdates()).isEqualTo(writes);
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation()).contains(saved);
+    }
+
+    @Test
+    void earlyChangeMapCanBeReadRevisedAndSealedWithoutLosingDiscoveries()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        readSource();
+        String initialMap = "R1: Trace the changed input through its caller";
+        Map<String, Object> first = ImmutableMap.of("operationKey", "map-only", "changeMap", initialMap, "contextEvidenceRefs", ImmutableList.of("E1"),
+                "candidates", ImmutableList.of(), "perspectives", ImmutableList.of());
+        JsonNode saved = call("review_record_discovery", first);
+        assertThat(saved.path("status").asText()).isEqualTo("accepted");
+        assertThat(saved.path("candidateCount").asInt()).isZero();
+        JsonNode context = call("review_get_context", ImmutableMap.of("kind", "investigation"));
+        assertThat(context.path("changeMap").asText()).isEqualTo(initialMap);
+        assertThat(context.path("contextEvidenceRefs")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("E1")));
+        assertThat(context.path("candidates")).isEmpty();
+        assertThat(store.findRun(RUN_ID).orElseThrow().summary()).isEmpty();
+        assertThat(call("review_record_discovery", ImmutableMap.of("operationKey", "hypothesis", "candidates", ImmutableList.of(candidateInput(CANDIDATE)),
+                "perspectives", checkedPerspectives())).path("candidateCount").asInt()).isEqualTo(1);
+        ReviewInvestigation before = store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow();
+        assertThat(before.changeMap()).isEqualTo(initialMap);
+        assertThat(before.contextEvidenceRefs()).containsExactly("E1");
+
+        when(git.run(repository, "show", BASE_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\ngamma\n", false));
+        String baseRef = call("review_get_context", ImmutableMap.of("kind", "source", "path", DIFF_PATH, "revision", "base")).path("evidenceRef").asText();
+        String revisedMap = "R1: The changed caller adds a decision before the existing consumer; compare both revisions";
+        List<String> refs = ImmutableList.of("E1", baseRef);
+        Map<String, Object> replacement = ImmutableMap.of("operationKey", "revise-map", "changeMap", revisedMap, "contextEvidenceRefs", refs,
+                "candidates", ImmutableList.of(), "perspectives", ImmutableList.of());
+        Map<String, Object> invalidCandidate = new LinkedHashMap<>(candidateInput("An unsupported replacement concern"));
+        invalidCandidate.put("evidenceRefs", ImmutableList.of("E99"));
+        int writes = store.runUpdates();
+        assertThat(call("review_record_discovery", with(replacement, "invalid-revision", "candidates", ImmutableList.of(invalidCandidate)))
+                .at("/error/field").asText()).isEqualTo("evidenceRefs");
+        assertThat(store.runUpdates()).isEqualTo(writes);
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation()).contains(before);
+        assertThat(call("review_record_discovery", replacement).path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_record_discovery", first)).isEqualTo(saved);
+        ReviewRun current = store.findRun(RUN_ID).orElseThrow();
+        ReviewInvestigation revised = current.investigation().orElseThrow();
+        assertThat(revised.changeMap()).isEqualTo(revisedMap);
+        assertThat(revised.contextEvidenceRefs()).containsExactlyElementsOf(refs);
+        assertThat(revised.candidates()).isEqualTo(before.candidates());
+        assertThat(revised.perspectives()).isEqualTo(before.perspectives());
+        assertThat(current.latestSealedInvestigation()).isEmpty();
+        assertThat(current.currentStep().orElseThrow().sealed()).isFalse();
+
+        call("review_save_summary", summary("summary", "Input change"));
+        Map<String, Object> seal = ImmutableMap.of("operationKey", "seal-map", "reviewedFiles", ImmutableList.of(DIFF_PATH), "answers", ImmutableList.of());
+        assertThat(call("review_save_investigation", with(seal, "late-map", "changeMap", "A replacement supplied only at sealing"))
+                .at("/error/field").asText()).isEqualTo("changeMap");
+        assertThat(call("review_save_investigation", with(seal, "late-refs", "contextEvidenceRefs", ImmutableList.of("E1")))
+                .at("/error/field").asText()).isEqualTo("changeMap");
+        assertThat(call("review_save_investigation", seal).path("status").asText()).isEqualTo("accepted");
+        ReviewInvestigation sealed = store.findRun(RUN_ID).orElseThrow().latestSealedInvestigation().orElseThrow().investigation().orElseThrow();
+        assertThat(sealed.changeMap()).isEqualTo(revisedMap);
+        assertThat(sealed.contextEvidenceRefs()).containsExactlyElementsOf(refs);
+        assertThat(sealed.candidates()).isEqualTo(before.candidates());
+    }
+
+    @Test
+    void discoveryCheckpointsAreAppendOnlyIdempotentAndSeparateFromTheSealedReport()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        readSource();
+        assertThat(call("review_record_discovery", ImmutableMap.of("operationKey", "map", "changeMap", "Input ownership",
+                "contextEvidenceRefs", ImmutableList.of("E1"), "candidates", ImmutableList.of(), "perspectives", ImmutableList.of()))
+                .path("status").asText()).isEqualTo("accepted");
+        Map<String, Object> input = ImmutableMap.of("operationKey", "first-batch", "candidates", ImmutableList.of(candidateInput(CANDIDATE)),
+                "perspectives", ImmutableList.of());
+        JsonNode recorded = call("review_record_discovery", input);
+        assertThat(recorded.path("status").asText()).isEqualTo("accepted");
+        assertThat(call("review_record_discovery", input)).isEqualTo(recorded);
+        ReviewRun draft = store.findRun(RUN_ID).orElseThrow();
+        assertThat(draft.latestSealedInvestigation()).isEmpty();
+        assertThat(draft.currentStep().orElseThrow().sealed()).isFalse();
+        ReviewCandidate candidate = draft.investigation().orElseThrow().candidates().getFirst();
+        assertThat(candidate.number()).isEqualTo(1);
+        assertThat(candidate.originStep()).isEqualTo(1);
+        assertThat(candidate.originTurnId()).isEqualTo(capturedTurn.toString());
+        assertThat(call("review_record_discovery", with(input, "first-batch", "candidates", ImmutableList.of(candidateInput("A changed claim"))))
+                .at("/error/field").asText()).isEqualTo("operationKey");
+        store.updateRun(draft.replaceCurrentStep(draft.currentStep().orElseThrow().forRepair(), NOW));
+        assertThat(call("review_record_discovery", input)).isEqualTo(recorded);
+        assertThat(call("review_record_discovery", with(input, "second-batch", "candidates", ImmutableList.of(candidateInput("Simplify ownership"))))
+                .path("candidateCount").asInt()).isEqualTo(2);
+        call("review_save_summary", summary("summary", "Input change"));
+        Map<String, Object> seal = ImmutableMap.of("operationKey", "seal", "reviewedFiles", ImmutableList.of(DIFF_PATH), "answers", ImmutableList.of());
+        assertThat(call("review_save_investigation", seal).at("/error/field").asText()).isEqualTo("perspectives");
+        assertThat(call("review_save_investigation", investigation("replace", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of()))
+                .at("/error/field").asText()).isEqualTo("candidates");
+        assertThat(discoverAndSeal(investigation("sealed", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of()))
+                .path("status").asText()).isEqualTo("accepted");
+        ReviewRun sealed = store.findRun(RUN_ID).orElseThrow();
+        assertThat(sealed.latestSealedInvestigation().orElseThrow().investigation().orElseThrow().candidates()).hasSize(2);
+        assertThat(sealed.investigation().orElseThrow().candidates().getFirst()).isEqualTo(candidate);
     }
 
     @ParameterizedTest
@@ -1765,9 +2071,11 @@ class TestReviewTools
     @Test
     void carriedFindingNeedsCurrentEvidenceAndAssessmentBeforeCompletion()
     {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
         ReviewFinding original = resolvedFinding();
         ReviewFinding carried = new ReviewFinding("carried", REVIEW_ID, "earlier-run", 1, original.title(), original.body(), original.severity(),
-                original.anchor(), original.evidence(), 1, ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), true, 0, NOW, NOW);
+                original.anchor(), original.evidence(), 1, ReviewFinding.State.OPEN, Optional.empty(), "a".repeat(40), true, 0, NOW, NOW,
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
         store.insertFinding(carried);
         JsonNode old = call("review_get_context", ImmutableMap.of("kind", "findings", "target", "carried"));
         assertThat(old.path("body").asText()).isEqualTo(carried.body());
@@ -1776,6 +2084,11 @@ class TestReviewTools
         assertThat(old.at("/historicalEvidence/0/ref").isMissingNode()).isTrue();
         call("review_save_summary", summary("summary", "Reject unchecked input"));
         readSource();
+        assertThat(discoverAndSeal(investigation("missing-carried", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of()))
+                .at("/error/field").asText()).isEqualTo("candidates");
+        assertThat(discoverAndSeal(investigation("carried", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of("Reassess carried")))
+                .path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
         assertThat(call("review_finish", finish("ignore-carried", ImmutableList.of(assessment(1, "REJECTED")))).at("/error/field").asText())
                 .isEqualTo("validations");
         assertThat(call("review_finish", finish("claim-carried", ImmutableList.of(supported(1, "carried", 1)))).at("/error/field").asText())
@@ -1803,14 +2116,14 @@ class TestReviewTools
         for (int index = 1; index <= 31; index++) {
             store.insertFinding(new ReviewFinding("carried-" + index, REVIEW_ID, "earlier-run", index, "Concern " + index,
                     original.body(), original.severity(), original.anchor(), original.evidence(), 1, ReviewFinding.State.OPEN,
-                    Optional.empty(), "a".repeat(40), true, 0, NOW, NOW));
+                    Optional.empty(), "a".repeat(40), true, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC));
         }
         bridge = tools.bridge(TASK_ID).orElseThrow();
         assertThat(bridge.tools().stream().map(ReviewTool::inputSchema).collect(toImmutableList())).isEqualTo(initialSchemas);
         call("review_save_summary", summary("summary", "Reassess prior claims"));
         readSource();
         List<String> candidates = IntStream.rangeClosed(1, 31).mapToObj(index -> "Reassess carried-" + index).collect(toImmutableList());
-        assertThat(call("review_save_investigation", investigation("investigate", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), candidates))
+        assertThat(discoverAndSeal(investigation("investigate", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), candidates))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         for (int index = 1; index <= 31; index++) {
@@ -1826,7 +2139,6 @@ class TestReviewTools
     @Test
     void rejectedHypothesisCanProduceACompleteZeroFindingReview()
     {
-        call("review_save_summary", summary("summary", "Guarded input behavior"));
         readSource();
         List<Map<String, Object>> validations = ImmutableList.of(assessment(1, "REJECTED"));
         assertThat(call("review_finish", finish("finished", validations)).path("status").asText()).isEqualTo("accepted");
@@ -1914,7 +2226,6 @@ class TestReviewTools
     @Test
     void aWarningMustCiteTheOutputOfACommandThatWasRun()
     {
-        call("review_save_summary", summary("summary", "Guarded input behavior"));
         readSource();
         List<Map<String, Object>> validations = ImmutableList.of(assessment(1, "REJECTED"));
         String text = "Live Snowflake tests stopped at login: the account credentials were not supplied.";
@@ -1945,7 +2256,6 @@ class TestReviewTools
     @Test
     void unavailableTestsAreWarningsWithoutBypassingCandidateValidation()
     {
-        call("review_save_summary", summary("summary", "Clarify the key encoding"));
         readSource();
         String findingId = call("review_save_finding", finding("finding", "Clarify encoding", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
         commandRan(TurnId.random(), "SnowflakeSQLException: Incorrect username or password was specified.");
@@ -1973,12 +2283,14 @@ class TestReviewTools
     }
 
     @Test
-    void fullCoverageUsesFrozenPathsWithoutOpeningTheWorkspace()
+    void fullCoverageSealingUsesFrozenPathsWithoutReopeningTheWorkspace()
     {
         store.updateRun(run(RUN_ID, 1, PATCH, false));
         call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+        clearInvocations(git, workspaces);
 
-        JsonNode investigation = call("review_save_investigation", investigation("collect", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()));
+        JsonNode investigation = discoverAndSeal(investigation("collect", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()));
 
         assertThat(investigation.path("status").asText()).isEqualTo("accepted");
         verify(workspaces, never()).requireReadableRepository(WORKSPACE_ID);
@@ -1995,10 +2307,10 @@ class TestReviewTools
         assertThat(call("review_save_summary", ImmutableMap.of("operationKey", "duplicate", "purpose", "Input change", "commits", ImmutableList.of(commit, commit)))
                 .at("/error/field").asText()).isEqualTo("commits");
         call("review_save_summary", summary("summary", "Input change"));
-        assertThat(call("review_save_investigation", investigation("omitted", ImmutableList.of(), ImmutableList.of(), ImmutableList.of("The new input might bypass validation")))
+        readSource();
+        assertThat(discoverAndSeal(investigation("omitted", ImmutableList.of(), ImmutableList.of(), ImmutableList.of("The new input might bypass validation")))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
-        readSource();
         Map<String, Object> withWarning = ImmutableMap.<String, Object>builder()
                 .putAll(finish("missing-file", ImmutableList.of(assessment(1, "REJECTED"))))
                 .put("warnings", ImmutableList.of())
@@ -2010,20 +2322,20 @@ class TestReviewTools
     @Test
     void investigationValidatesContextAndCannotBeChangedDuringValidation()
     {
-        assertThat(call("review_save_investigation", investigation("wrong-stage", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()))
+        assertThat(discoverAndSeal(investigation("wrong-stage", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()))
                 .at("/error/field").asText()).isEqualTo("validation");
         store.updateRun(run(RUN_ID, 1, PATCH, false));
-        assertThat(call("review_save_investigation", investigation("missing-summary", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()))
+        assertThat(discoverAndSeal(investigation("missing-summary", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()))
                 .at("/error/field").asText()).isEqualTo("summary");
         call("review_save_summary", summary("summary", "Input change"));
-        assertThat(call("review_save_investigation", investigation("foreign-path", ImmutableList.of("elsewhere.txt"), ImmutableList.of(), ImmutableList.of()))
+        assertThat(discoverAndSeal(investigation("foreign-path", ImmutableList.of("elsewhere.txt"), ImmutableList.of(), ImmutableList.of()))
                 .at("/error/field").asText()).isEqualTo("reviewedFiles");
-        assertThat(call("review_save_investigation", investigation("foreign-ref", ImmutableList.of(DIFF_PATH), ImmutableList.of("E99"), ImmutableList.of()))
+        assertThat(discoverAndSeal(investigation("foreign-ref", ImmutableList.of(DIFF_PATH), ImmutableList.of("E99"), ImmutableList.of()))
                 .at("/error/field").asText()).isEqualTo("contextEvidenceRefs");
-        assertThat(call("review_save_investigation", investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of(CANDIDATE)))
+        assertThat(discoverAndSeal(investigation("initial", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of(CANDIDATE)))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
-        assertThat(call("review_save_investigation", investigation("replaced", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of("Unrelated new claim")))
+        assertThat(discoverAndSeal(investigation("replaced", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of("Unrelated new claim")))
                 .at("/error/field").asText()).isEqualTo("validation");
         assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).path("candidates")).hasSize(1);
     }
@@ -2053,7 +2365,6 @@ class TestReviewTools
     @Test
     void supportedVerdictMustNameTheExactInvestigationAndFindingRevision()
     {
-        call("review_save_summary", summary("summary", "Input change"));
         readSource();
         String findingId = call("review_save_finding", finding("finding", "Unchecked input", "A2", ImmutableList.of(evidence("E1")))).path("findingId").asText();
         Map<String, Object> staleInvestigation = new LinkedHashMap<>(finish("stale-investigation", ImmutableList.of(supported(1, findingId, 1))));
@@ -2074,18 +2385,18 @@ class TestReviewTools
         call("review_save_summary", summary("summary", "Input change"));
         readSource();
         Map<String, Object> investigation = investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE));
-        JsonNode first = call("review_save_investigation", investigation);
+        JsonNode first = discoverAndSeal(investigation);
         assertThat(first.path("status").asText()).isEqualTo("accepted");
-        assertThat(call("review_save_investigation", investigation)).isEqualTo(first);
+        assertThat(discoverAndSeal(investigation)).isEqualTo(first);
         assertThat(call("review_save_summary", summary("changed-summary", "Another intention")).at("/error/field").asText()).isEqualTo("assignment");
-        assertThat(call("review_save_investigation", investigation("changed", ImmutableList.of(), ImmutableList.of(), ImmutableList.of()))
+        assertThat(discoverAndSeal(investigation("changed", ImmutableList.of(), ImmutableList.of(), ImmutableList.of()))
                 .at("/error/field").asText()).isEqualTo("assignment");
         advance(VALIDATE);
         Map<String, Object> validation = finish("finished", ImmutableList.of(assessment(1, "REJECTED")));
         JsonNode second = call("review_finish", validation);
         assertThat(second.path("status").asText()).isEqualTo("accepted");
         assertThat(call("review_finish", validation)).isEqualTo(second);
-        assertThat(call("review_save_summary", summary("changed-summary", "Another intention")).at("/error/field").asText()).isEqualTo("assignment");
+        assertThat(call("review_save_summary", summary("changed-summary", "Another intention")).at("/error/field").asText()).isEqualTo("summary");
         assertThat(call("review_save_finding", finding("late", "Unchecked input", "A2", ImmutableList.of(evidence("E1"))))
                 .at("/error/field").asText()).isEqualTo("assignment");
     }
@@ -2095,12 +2406,16 @@ class TestReviewTools
     {
         ReviewRun initial = run(RUN_ID, 1, PATCH, false);
         assertThat(ReviewPrompts.reviewRequest(review(AgentReview.State.OPEN), initial, Optional.empty(), ImmutableList.of(), "reviewer"))
-                .contains("Use up to two read-only subagents", "Keep edits, tests, review decisions and saved reports in the main agent");
-        assertThat(ReviewPrompts.stepRequest(run())).contains("Use up to two read-only subagents", "verification recipe", "Reuse completed checks");
+                .contains("Default to two concurrent read-only subagents", "Keep edits, tests, review decisions and saved reports in the main agent");
+        assertThat(ReviewPrompts.stepRequest(run())).contains("Default to two concurrent read-only subagents", "verification recipe", "Reuse completed checks",
+                "After each batch, reassess", "within the current review step");
+        assertThat(ReviewPrompts.stepRequest(initial.withStep(ReviewStep.initial().next(COLLECT_EVIDENCE), NOW)))
+                .contains("Default to two concurrent read-only subagents", "After each batch, reassess", "do not repeat settled checks",
+                        "or restart broad discovery during evidence collection");
         ReviewRun repair = run().replaceCurrentStep(run().currentStep().orElseThrow().forRepair(), NOW);
-        assertThat(ReviewPrompts.stepRequest(repair)).contains("Use up to two read-only subagents", "do not repeat completed checks");
+        assertThat(ReviewPrompts.stepRequest(repair)).contains("Default to two concurrent read-only subagents", "do not repeat completed checks");
         assertThat(ReviewPrompts.stepRequest(initial.replaceCurrentStep(ReviewStep.initial().withInvestigation(run().investigation().orElseThrow()), NOW)))
-                .doesNotContain("Use up to two read-only subagents").contains("already saved and sealed");
+                .doesNotContain("Default to two concurrent read-only subagents").contains("already saved and sealed");
     }
 
     @Test
@@ -2114,11 +2429,11 @@ class TestReviewTools
         Map<String, Object> input = investigation("handoff", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE));
         String recipe = "Use mvn -Dtest=TestWidget#rejectsNull test with TMPDIR=/tmp; the reproduction failed because null was accepted. Restore only experiment edits.";
         for (List<String> invalid : ImmutableList.<List<String>>of(ImmutableList.of(), ImmutableList.of("E1"), ImmutableList.of("unknown"))) {
-            assertThat(call("review_save_investigation", with(input, "invalid-" + invalid, "verification",
+            assertThat(discoverAndSeal(with(input, "invalid-" + invalid, "verification",
                     ImmutableMap.of("recipe", recipe, "commandEvidenceRefs", invalid))).at("/error/field").asText()).isEqualTo("commandEvidenceRefs");
         }
         Map<String, Object> verification = ImmutableMap.of("recipe", recipe, "commandEvidenceRefs", ImmutableList.of(commandRef));
-        assertThat(call("review_save_investigation", with(input, "handoff", "verification", verification)).path("status").asText()).isEqualTo("accepted");
+        assertThat(discoverAndSeal(with(input, "handoff", "verification", verification)).path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).path("verification")).isEqualTo(objectMapper.valueToTree(verification));
         assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().withValidations(ImmutableList.of()).verification()).isPresent();
@@ -2129,12 +2444,24 @@ class TestReviewTools
         requested.put("omissions", ImmutableList.of("Need caller evidence"));
         assertThat(call("review_finish", requested).path("status").asText()).isEqualTo("accepted");
         advance(COLLECT_EVIDENCE);
-        assertThat(call("review_save_investigation", investigation("answer", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE),
+        ReviewInvestigation prior = store.findRun(RUN_ID).orElseThrow().latestSealedInvestigation().orElseThrow().investigation().orElseThrow();
+        assertThat(call("review_record_discovery", ImmutableMap.of("operationKey", "collect-discovery", "candidates",
+                ImmutableList.of(candidateInput("A cancellation path needs inspection")), "perspectives", ImmutableList.of()))
+                .path("candidateCount").asInt()).isEqualTo(2);
+        ReviewRun collecting = store.findRun(RUN_ID).orElseThrow();
+        ReviewInvestigation draft = collecting.investigation().orElseThrow();
+        assertThat(draft.changeMap()).isEqualTo(prior.changeMap());
+        assertThat(draft.contextEvidenceRefs()).isEqualTo(prior.contextEvidenceRefs());
+        assertThat(draft.verification()).isEqualTo(prior.verification());
+        assertThat(draft.candidates()).extracting(ReviewCandidate::number).containsExactly(1, 2);
+        assertThat(draft.candidates().getFirst()).isEqualTo(prior.candidates().getFirst());
+        assertThat(collecting.latestSealedInvestigation().orElseThrow().investigation()).contains(prior);
+        assertThat(discoverAndSeal(investigation("answer", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE),
                 ImmutableList.of(ImmutableMap.of("candidate", 1, "attempted", "Inspected caller", "evidenceRefs", ImmutableList.of("E1")))))
                 .path("status").asText()).isEqualTo("accepted");
         assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).path("verification")).isEqualTo(objectMapper.valueToTree(verification));
         store.updateRun(run(RUN_ID, 1, PATCH, false).withVersion(store.findRun(RUN_ID).orElseThrow().version()));
-        assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).isNull()).isTrue();
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).path("candidates")).isEmpty();
     }
 
     @Test
@@ -2147,15 +2474,16 @@ class TestReviewTools
         Map<String, Object> answer = ImmutableMap.of("candidate", 1, "attempted", "Traced the caller guard", "evidenceRefs", ImmutableList.of("E1"));
         for (List<Map<String, Object>> answers : ImmutableList.<List<Map<String, Object>>>of(ImmutableList.of(), ImmutableList.of(answer, answer),
                 ImmutableList.of(ImmutableMap.<String, Object>of("candidate", 1, "attempted", "No check completed", "evidenceRefs", ImmutableList.of())))) {
-            assertThat(call("review_save_investigation", investigation("missing-answer", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
+            assertThat(discoverAndSeal(investigation("missing-answer", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
                     ImmutableList.of(CANDIDATE), answers)).at("/error/field").asText()).isEqualTo("answers");
         }
         assertThat(call("review_save_investigation", investigation("replaced", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
                 ImmutableList.of("A different claim"), ImmutableList.of(answer))).at("/error/field").asText()).isEqualTo("candidates");
-        assertThat(call("review_save_investigation", investigation("collected", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
+        assertThat(discoverAndSeal(investigation("collected", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
                 ImmutableList.of(CANDIDATE, "A newly discovered cleanup hypothesis"), ImmutableList.of(answer))).path("status").asText()).isEqualTo("accepted");
         ReviewRun collected = store.findRun(RUN_ID).orElseThrow();
-        assertThat(collected.investigation().orElseThrow().candidates()).containsExactly(CANDIDATE, "A newly discovered cleanup hypothesis");
+        assertThat(collected.investigation().orElseThrow().candidates()).extracting(ReviewCandidate::hypothesis)
+                .containsExactly(CANDIDATE, "A newly discovered cleanup hypothesis");
         assertThat(collected.investigation().orElseThrow().answers().getFirst().evidenceRefs()).containsExactly("E1");
         advance(VALIDATE);
         assertThat(call("review_finish", finish("old-input", ImmutableList.of(assessment(1, "REJECTED")))).at("/error/field").asText()).isEqualTo("investigationStep");
@@ -2174,7 +2502,7 @@ class TestReviewTools
         requestEvidence();
         Map<String, Object> answer = ImmutableMap.of("candidate", 1, "attempted", "Attempted to run the integration test", "evidenceRefs", ImmutableList.of(),
                 "limitation", "The required service is unavailable");
-        assertThat(call("review_save_investigation", investigation("blocked-check", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
+        assertThat(discoverAndSeal(investigation("blocked-check", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
                 ImmutableList.of(CANDIDATE), ImmutableList.of(answer))).path("status").asText()).isEqualTo("accepted");
         assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().answers().getFirst().limitation()).contains("The required service is unavailable");
         advance(VALIDATE);
@@ -2188,22 +2516,22 @@ class TestReviewTools
     @Test
     void validatorCanRequestInvestigationOfANewHypothesisWithoutChangingItsInput()
     {
-        call("review_save_summary", summary("summary", "Input change"));
         readSource();
         Map<String, Object> invalid = ImmutableMap.<String, Object>builder()
                 .putAll(incomplete("new-rejected", ImmutableList.of(assessment(1, "REJECTED"), assessment(2, "REJECTED"))))
-                .put("newCandidates", ImmutableList.of("A cleanup path may retain memory")).buildOrThrow();
+                .put("newCandidates", ImmutableList.of(candidateInput("A cleanup path may retain memory"))).buildOrThrow();
         assertThat(call("review_finish", invalid).at("/error/field").asText()).isEqualTo("newCandidates");
         Map<String, Object> report = ImmutableMap.<String, Object>builder()
                 .putAll(incomplete("new-hypothesis", ImmutableList.of(assessment(1, "REJECTED"), needsEvidence(2))))
-                .put("newCandidates", ImmutableList.of("A cleanup path may retain memory")).buildOrThrow();
+                .put("newCandidates", ImmutableList.of(candidateInput("A cleanup path may retain memory"))).buildOrThrow();
         assertThat(call("review_finish", report).path("status").asText()).isEqualTo("accepted");
-        assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().candidates()).containsExactly(CANDIDATE);
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().candidates()).extracting(ReviewCandidate::hypothesis)
+                .containsExactly(CANDIDATE);
         advance(COLLECT_EVIDENCE);
         Map<String, Object> answer = ImmutableMap.of("candidate", 2, "attempted", "Traced the cleanup path", "evidenceRefs", ImmutableList.of("E1"));
         assertThat(call("review_save_investigation", investigation("lost-new", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
                 ImmutableList.of(CANDIDATE), ImmutableList.of(answer))).at("/error/field").asText()).isEqualTo("candidates");
-        assertThat(call("review_save_investigation", investigation("investigated-new", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
+        assertThat(discoverAndSeal(investigation("investigated-new", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"),
                 ImmutableList.of(CANDIDATE, "A cleanup path may retain memory"), ImmutableList.of(answer))).path("status").asText()).isEqualTo("accepted");
     }
 
@@ -2212,7 +2540,7 @@ class TestReviewTools
     {
         store.updateRun(run(RUN_ID, 1, PATCH, false));
         call("review_save_summary", summary("summary", "Input change"));
-        call("review_save_investigation", investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()));
+        discoverAndSeal(investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()));
         assertThat(store.findRun(RUN_ID).orElseThrow().coverage()).isEmpty();
         advance(VALIDATE);
         assertThat(call("review_finish", finish("finished", ImmutableList.of())).path("status").asText()).isEqualTo("accepted");
@@ -2246,14 +2574,15 @@ class TestReviewTools
                 ReviewRun.State.RUNNING, previous.summary(), Optional.empty(), Optional.empty(), ImmutableList.of(ReviewStep.initial()), false,
                 ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
         store.insertRun(next);
+        when(git.run(repository, "show", nextHead + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta\ngamma\n", false));
         when(git.run(repository, "diff", "--name-only", "--no-renames", "-z", HEAD_SHA, nextHead, "--"))
                 .thenReturn(new GitCommandRunner.Result(0, DIFF_PATH + "\0image.png\0", false));
-        assertThat(call("review_save_investigation", investigation("partial", ImmutableList.of("image.png"), ImmutableList.of(), ImmutableList.of()))
+        assertThat(discoverAndSeal(investigation("partial", ImmutableList.of("image.png"), ImmutableList.of(), ImmutableList.of()))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         assertThat(call("review_finish", finish("skipped-revert", ImmutableList.of())).at("/error/field").asText()).isEqualTo("reviewedFiles");
         store.updateRun(next.withVersion(store.findRun(next.id()).orElseThrow().version()));
-        assertThat(call("review_save_investigation", investigation("all", ImmutableList.of(DIFF_PATH, "image.png"), ImmutableList.of(), ImmutableList.of()))
+        assertThat(discoverAndSeal(investigation("all", ImmutableList.of(DIFF_PATH, "image.png"), ImmutableList.of(), ImmutableList.of()))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         assertThat(call("review_finish", finish("covered", ImmutableList.of())).path("status").asText()).isEqualTo("accepted");
@@ -2266,7 +2595,8 @@ class TestReviewTools
 
     private static Map<String, Object> finish(String key, List<Map<String, Object>> validations)
     {
-        return ImmutableMap.of("operationKey", key, "investigationStep", 1, "complete", true, "omissions", ImmutableList.of(), "validations", validations);
+        return ImmutableMap.of("operationKey", key, "investigationStep", 1, "complete", true, "omissions", ImmutableList.of(), "validations", validations,
+                "selectedFindingIds", ImmutableList.of(), "selectionExplanation", "All supported claims were assessed for final comments");
     }
 
     private static Map<String, Object> investigation(String key, List<String> files, List<String> refs, List<String> candidates)
@@ -2283,7 +2613,8 @@ class TestReviewTools
     private static Map<String, Object> incomplete(String key, List<Map<String, Object>> validations)
     {
         return ImmutableMap.of("operationKey", key, "investigationStep", 1, "complete", false,
-                "omissions", ImmutableList.of("The remaining hypothesis has not been settled"), "validations", validations);
+                "omissions", ImmutableList.of("The remaining hypothesis has not been settled"), "validations", validations,
+                "selectedFindingIds", ImmutableList.of(), "selectionExplanation", "All supported claims were assessed for final comments");
     }
 
     private static Map<String, Object> evidenceRequest()
@@ -2299,7 +2630,6 @@ class TestReviewTools
 
     private void requestEvidence()
     {
-        call("review_save_summary", summary("summary", "Input change"));
         readSource();
         assertThat(call("review_finish", incomplete("request", ImmutableList.of(needsEvidence(1)))).path("status").asText()).isEqualTo("accepted");
         advance(COLLECT_EVIDENCE);
@@ -2336,6 +2666,62 @@ class TestReviewTools
                 ReviewMessage.Author.USER, "Explain this card", 1, RUN_ID, Optional.of(capturedTurn.toString()), Optional.empty(), 0, NOW);
         when(assignments.resolve(REVIEW_ID, Optional.of(capturedTurn))).thenAnswer(_ ->
                 new ReviewToolAssignment.Binding(store.findRun(RUN_ID).orElseThrow(), Optional.empty(), Optional.of(question)));
+    }
+
+    /** Exercise discovery and sealing together in tests focused on the report's other fields. */
+    private JsonNode discoverAndSeal(Map<String, Object> input)
+    {
+        Map<String, Object> seal = new LinkedHashMap<>(input);
+        Object hypotheses = seal.remove("candidates");
+        Object map = seal.remove("changeMap");
+        Object contextRefs = seal.remove("contextEvidenceRefs");
+        ReviewRun current = store.listRuns(REVIEW_ID).getLast();
+        if (current.currentStep().filter(step -> step.kind() != VALIDATE && !step.sealed()).isPresent() && ReviewCards.hasExplanation(store, current)) {
+            if (!current.evidence().containsKey("E1")) {
+                readSource();
+            }
+            JsonNode draft = call("review_get_context", ImmutableMap.of("kind", "investigation"));
+            List<Map<String, Object>> added = new ArrayList<>();
+            JsonNode claims = objectMapper.valueToTree(hypotheses);
+            for (int index = draft.path("candidates").size(); index < claims.size(); index++) {
+                String hypothesis = claims.get(index).asText();
+                Optional<ReviewFinding> carried = store.listFindings(REVIEW_ID).stream()
+                        .filter(finding -> !finding.runId().equals(current.id()) && hypothesis.equals("Reassess " + finding.id())).findFirst();
+                Map<String, Object> item = new LinkedHashMap<>(candidateInput(hypothesis));
+                carried.ifPresent(finding -> item.put("carriedFindingId", finding.id()));
+                added.add(item);
+            }
+            if (objectMapper.valueToTree(contextRefs).isEmpty()) {
+                contextRefs = ImmutableList.of("E1");
+            }
+            JsonNode mapped = call("review_record_discovery", ImmutableMap.of("operationKey", "map-" + input.get("operationKey"),
+                    "changeMap", map, "contextEvidenceRefs", contextRefs, "candidates", ImmutableList.of(), "perspectives", ImmutableList.of()));
+            if (mapped.has("error")) {
+                return mapped;
+            }
+            JsonNode recorded = call("review_record_discovery", ImmutableMap.of("operationKey", "discover-" + input.get("operationKey"),
+                    "candidates", added, "perspectives", checkedPerspectives()));
+            if (recorded.has("error")) {
+                return recorded;
+            }
+            assertThat(recorded.path("status").asText()).isEqualTo("accepted");
+        }
+        return call("review_save_investigation", seal);
+    }
+
+    private static List<Map<String, Object>> checkedPerspectives()
+    {
+        return Arrays.stream(ReviewPerspectiveAssessment.Perspective.values())
+                .map(perspective -> ImmutableMap.<String, Object>of("perspective", perspective.name(), "question", "How does input affect this responsibility?",
+                        "responsibilities", ImmutableList.of("Input validation"), "paths", ImmutableList.of(DIFF_PATH), "evidenceRefs", ImmutableList.of("E1"),
+                        "status", "CHECKED", "explanation", "Traced the changed input and its callers"))
+                .collect(toImmutableList());
+    }
+
+    private static Map<String, Object> candidateInput(String hypothesis)
+    {
+        return ImmutableMap.of("perspective", "BEHAVIOR", "responsibility", "Input validation", "hypothesis", hypothesis,
+                "evidenceRefs", ImmutableList.of("E1"), "nextCheck", "Trace the caller guard");
     }
 
     private JsonNode call(String tool, Map<String, Object> arguments)
@@ -2432,7 +2818,7 @@ class TestReviewTools
     private static ReviewRun run(String id, int ordinal, String patch, boolean validating)
     {
         ReviewInvestigation investigation = new ReviewInvestigation("Account for changed input behavior", ImmutableList.of(DIFF_PATH), ImmutableList.of(),
-                ImmutableList.of(CANDIDATE), ImmutableList.of(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(discoveryCandidate(1, CANDIDATE)), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
         ReviewStep initial = ReviewStep.initial();
         return new ReviewRun(
                 id,
@@ -2448,7 +2834,8 @@ class TestReviewTools
                 ImmutableList.of(new DiffFile(DIFF_PATH, "modified", 1, 0, patch)),
                 ImmutableList.of(),
                 ReviewRun.State.RUNNING,
-                Optional.empty(),
+                validating ? Optional.of(new ReviewSummary(1, "Input change", ImmutableList.of(new ReviewSummary.CommitExplanation(COMMIT_SHA, "adds the beta line")),
+                        "", Optional.empty(), ImmutableList.of())) : Optional.empty(),
                 Optional.empty(),
                 validating ? Optional.of(investigation) : Optional.empty(),
                 validating ? ImmutableList.of(initial.withInvestigation(investigation), initial.next(VALIDATE)) : ImmutableList.of(initial),
@@ -2481,7 +2868,9 @@ class TestReviewTools
                 false,
                 0,
                 NOW,
-                NOW);
+                NOW,
+                ImmutableList.of(),
+                ReviewFinding.Origin.AUTOMATIC);
     }
 
     private WorkspaceRepositoryContext workspaceRepository()

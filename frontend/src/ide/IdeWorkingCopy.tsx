@@ -18,7 +18,6 @@ import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import type { AgentTaskDto } from '../types';
-import { latestRun } from '../pulls/agent-review/model';
 import { pollVisible } from './pollVisible';
 
 export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, comments, active, ownReviewStream, bridge }: {
@@ -59,7 +58,7 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
       const next = await bridge.getAgentReview(reviewId);
       if (!live || request !== revision) return;
       callback.current(next);
-      if (next.activeTurn === null && next.task.mutationClaim === null && latestRun(next)?.state === 'RUNNING') {
+      if (next.activeTurn === null && next.task.mutationClaim === null && next.runs.at(-1)?.state === 'RUNNING') {
         clearTimeout(timer); timer = setTimeout(() => { void read().catch(() => {}); }, 200);
       }
     };

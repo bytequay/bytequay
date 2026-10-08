@@ -49,21 +49,48 @@ export type ReviewCandidateValidationDto = {
   request: { question: string; check: string; resolvesWhen: string } | null;
 };
 
+export type ReviewPerspective = 'BEHAVIOR' | 'INTERACTIONS' | 'DESIGN';
+
+export type ReviewCandidateDto = {
+  number: number;
+  perspective: ReviewPerspective;
+  responsibility: string;
+  hypothesis: string;
+  evidenceRefs: string[];
+  nextCheck: string;
+  carriedFindingId: string | null;
+  originStep: number;
+  originTurnId: string;
+  attributedSource: string | null;
+};
+
+export type ReviewPerspectiveAssessmentDto = {
+  perspective: ReviewPerspective;
+  question: string;
+  responsibilities: string[];
+  paths: string[];
+  evidenceRefs: string[];
+  status: 'CHECKED' | 'NOT_APPLICABLE' | 'BLOCKED';
+  explanation: string;
+};
+
 export type ReviewInvestigationDto = {
   changeMap: string;
   reviewedFiles: string[];
   contextEvidenceRefs: string[];
-  candidates: string[];
+  candidates: ReviewCandidateDto[];
+  perspectives: ReviewPerspectiveAssessmentDto[];
   validations: ReviewCandidateValidationDto[];
   answers: Array<{ candidate: number; attempted: string; evidenceRefs: string[]; limitation: string | null }>;
 };
 
 export type ReviewStepDto = {
   number: number;
-  kind: 'INVESTIGATE' | 'CHECK_NITS' | 'COLLECT_EVIDENCE' | 'VALIDATE';
+  kind: 'INVESTIGATE' | 'COLLECT_EVIDENCE' | 'VALIDATE' | 'EXPLAIN';
   repair: boolean;
   investigation: ReviewInvestigationDto | null;
-  validation: { investigationStep: number; candidates: ReviewCandidateValidationDto[]; coverage: ReviewCoverageDto; newCandidates: string[] } | null;
+  validation: { investigationStep: number; candidates: ReviewCandidateValidationDto[]; coverage: ReviewCoverageDto;
+    newCandidates: ReviewCandidateDto[]; selectedFindingIds: string[]; selectionExplanation: string } | null;
 };
 
 export type ReviewRunDto = {
@@ -101,6 +128,7 @@ export type ReviewFindingDto = {
   id: string;
   label: string;
   runId: string;
+  origin: 'AUTOMATIC' | 'DISCUSSION';
   title: string;
   body: string;
   severity: string | null;
@@ -309,6 +337,22 @@ function parseCandidateValidation(value: unknown, retained = false): ReviewCandi
   };
 }
 
+function parseCandidate(value: unknown): ReviewCandidateDto {
+  const candidate = object(value, 'review candidate');
+  return {
+    number: count(candidate.number, 'candidate number'),
+    perspective: oneOf(candidate.perspective, ['BEHAVIOR', 'INTERACTIONS', 'DESIGN'] as const, 'review perspective'),
+    responsibility: text(candidate.responsibility, 'candidate responsibility'),
+    hypothesis: text(candidate.hypothesis, 'candidate hypothesis'),
+    evidenceRefs: strings(candidate.evidenceRefs),
+    nextCheck: text(candidate.nextCheck, 'candidate next check'),
+    carriedFindingId: optionalText(candidate.carriedFindingId),
+    originStep: count(candidate.originStep, 'candidate origin step'),
+    originTurnId: text(candidate.originTurnId, 'candidate origin turn'),
+    attributedSource: optionalText(candidate.attributedSource),
+  };
+}
+
 function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
   if (value === null || value === undefined) return null;
   const investigation = object(value, 'review investigation');
@@ -316,7 +360,19 @@ function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
     changeMap: text(investigation.changeMap, 'change map'),
     reviewedFiles: strings(investigation.reviewedFiles),
     contextEvidenceRefs: strings(investigation.contextEvidenceRefs),
-    candidates: strings(investigation.candidates),
+    candidates: list(investigation.candidates).map(parseCandidate),
+    perspectives: list(investigation.perspectives).map(value => {
+      const assessment = object(value, 'perspective assessment');
+      return {
+        perspective: oneOf(assessment.perspective, ['BEHAVIOR', 'INTERACTIONS', 'DESIGN'] as const, 'review perspective'),
+        question: text(assessment.question, 'perspective question'),
+        responsibilities: strings(assessment.responsibilities),
+        paths: strings(assessment.paths),
+        evidenceRefs: strings(assessment.evidenceRefs),
+        status: oneOf(assessment.status, ['CHECKED', 'NOT_APPLICABLE', 'BLOCKED'] as const, 'perspective status'),
+        explanation: text(assessment.explanation, 'perspective explanation'),
+      };
+    }),
     validations: list(investigation.validations).map(item => parseCandidateValidation(item, true)),
     answers: list(investigation.answers).map(item => {
       const answer = object(item, 'evidence answer');
@@ -333,14 +389,16 @@ function parseStep(value: unknown): ReviewStepDto {
   if (validation !== null && coverage === null) throw new Error('Malformed validation coverage from the review service');
   return {
     number: count(step.number, 'review step number'),
-    kind: oneOf(step.kind, ['INVESTIGATE', 'CHECK_NITS', 'COLLECT_EVIDENCE', 'VALIDATE'] as const, 'review step kind'),
+    kind: oneOf(step.kind, ['INVESTIGATE', 'COLLECT_EVIDENCE', 'VALIDATE', 'EXPLAIN'] as const, 'review step kind'),
     repair: flag(step.repair),
     investigation: parseInvestigation(step.investigation),
     validation: validation === null || coverage === null ? null : {
       investigationStep: count(validation.investigationStep, 'validated investigation step'),
       candidates: list(validation.candidates).map(item => parseCandidateValidation(item)),
       coverage,
-      newCandidates: strings(validation.newCandidates),
+      newCandidates: list(validation.newCandidates).map(parseCandidate),
+      selectedFindingIds: strings(validation.selectedFindingIds),
+      selectionExplanation: text(validation.selectionExplanation, 'selection explanation'),
     },
   };
 }
@@ -391,6 +449,7 @@ function parseFinding(value: unknown): ReviewFindingDto {
     id: text(finding.id, 'finding id'),
     label: text(finding.label, 'finding label'),
     runId: text(finding.runId, 'finding run'),
+    origin: oneOf(finding.origin, ['AUTOMATIC', 'DISCUSSION'] as const, 'finding origin'),
     title: text(finding.title, 'finding title'),
     body: text(finding.body, 'finding body'),
     severity: optionalText(finding.severity),

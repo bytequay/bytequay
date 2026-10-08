@@ -313,9 +313,14 @@
                 <strong>WorkBench → Summary → Start review</strong>.
               </li>
               <li>
-                Read the change explanation and findings. Choose
+                Read the change explanation and selected findings. Choose
                 <strong>View in Changes</strong> to inspect the relevant code,
                 or <strong>Ask reviewer</strong> to discuss a finding privately.
+                Open <strong>Review details</strong> to inspect the recorded
+                candidates, evidence, and coverage of behavior, interactions,
+                and design. Progress checkpoints remain provisional until the
+                review finishes; other recorded findings stay available in these
+                details.
               </li>
               <li>
                 Choose <strong>Add to my review</strong> to copy a finding into
@@ -324,6 +329,13 @@
               </li>
               <li>
                 Use <strong>Update review</strong> after the PR changes.
+                Later reviews refresh the findings and their supporting
+                investigation. The saved change explanation stays attached
+                to its original commits and reviewed head.
+                Use the refresh icon beside <strong>Change intention</strong>
+                to regenerate the intention and commit summaries from the latest
+                committed version, independently of findings. The existing
+                explanation stays visible until refresh succeeds.
                 <strong>End review</strong> ends the reviewer task and releases
                 its working copy; saved findings and discussions remain.
               </li>

@@ -238,6 +238,7 @@ it.each([
   { channel: 'review:worktree:prepare', args: ['workspace-1', 'trinodb/trino', 31102] },
   { channel: 'review:resume', args: ['review-1'] },
   { channel: 'review:update', args: ['review-1'] },
+  { channel: 'review:explanation:refresh', args: ['review-1', 'run-1', 2] },
 ])('allows a slow Git synchronization to finish through $channel without retrying it', async ({ channel, args }) => {
   await import('./main');
   await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
@@ -277,6 +278,21 @@ it('still reports a refused review update without retrying it', async () => {
 
   await expect(desktop.handlers.get('review:update')?.({}, 'review-1')).rejects.toThrow('The review task is busy');
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('refreshes only the explanation using its displayed owner and revision', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const value = runningReviewFixture();
+  const fetch = vi.fn(async () => new Response(JSON.stringify(value), { headers: { 'Content-Type': 'application/json' } }));
+  vi.stubGlobal('fetch', fetch);
+
+  await expect(desktop.handlers.get('review:explanation:refresh')?.({}, 'review/one', 'run/one', 3)).resolves.toEqual(parseAgentReview(value));
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/agent-review/review%2Fone/explanation/refresh', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ runId: 'run/one', expectedRevision: 3 }),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+  }));
 });
 
 it('routes Code & Tests reads and writes to the review or the development task that hosts the working copy', async () => {

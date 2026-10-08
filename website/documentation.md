@@ -175,11 +175,19 @@ what to share. First watch the repository and configure a ready Review model in
 **Settings → Agents → Models**.
 
 1. Open a PR and select **WorkBench → Summary → Start review**.
-2. Read the change explanation and findings. Choose **View in Changes** to inspect the
-   relevant code, or **Ask reviewer** to discuss a finding privately.
+2. Read the change explanation and selected findings. Choose **View in Changes** to
+   inspect the relevant code, or **Ask reviewer** to discuss a finding privately.
+   Open **Review details** to inspect the recorded candidates, evidence, and coverage
+   of behavior, interactions, and design. Progress checkpoints remain provisional
+   until the review finishes; other recorded findings stay available in these details.
 3. Choose **Add to my review** to copy a finding into your editable pending review.
    Inspect it and use **Submit review** when you want to publish it.
-4. Use **Update review** after the PR changes. **End review** ends the reviewer task and
+4. Use **Update review** after the PR changes. Later reviews refresh the findings and
+   their supporting investigation. The saved change explanation stays attached to
+   its original commits and reviewed head. Use the refresh icon beside **Change intention**
+   to regenerate the intention and commit summaries from the latest committed version,
+   independently of findings. The existing explanation stays visible until refresh succeeds.
+   **End review** ends the reviewer task and
    releases its working copy; saved findings and discussions remain.
 
 For development before a PR exists, open the task’s **WorkBench → Summary → Review

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState, type ReactNode } from 'react';
-import { Diff, MessageSquare } from 'lucide-react';
+import { Diff, MessageSquare, RefreshCw } from 'lucide-react';
 import { relativeTime } from '../../relativeTime';
 import MarkdownBody from '../MarkdownBody';
 import LocalCard, { LocalCardMessage, ReviewerAvatar, SummaryCardTitle } from '../local-review/LocalCard';
@@ -20,7 +20,7 @@ import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import ReviewDetails from './ReviewDetails';
 import type { AgentReviewDto, ReviewFindingDto, ReviewRunDto } from './contracts';
-import { askLabel, askQueues, provisional, shortSha } from './model';
+import { askLabel, askQueues, isExplanationRun, latestExplanationRun, latestRun, shortSha } from './model';
 
 type SummaryCard = { id: string; title: string; body: ReactNode; pending?: boolean; kind?: 'purpose' | 'commit' | 'history'; commit?: ReviewRunDto['commits'][number] };
 type AskAboutCard = (message: string, targetRevision: number, cardId: string) => Promise<void>;
@@ -29,8 +29,11 @@ function bullets(items: string[]): string {
   return [...new Set(items)].map(item => `- ${item}`).join('\n');
 }
 
-function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk, ordinal, onSelectCommit }: {
+function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, busy, onAsk, ordinal, onSelectCommit, retainedFindings, refreshControl, refreshStatus }: {
+  refreshControl?: ReactNode;
+  refreshStatus?: ReactNode;
   ordinal?: number;
+  retainedFindings?: ReactNode;
   onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
   card: SummaryCard;
   review: AgentReviewDto;
@@ -45,6 +48,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   const [text, setText] = useState('');
   const [error, setError] = useState<string | null>(null);
   const revision = run.summary?.revision ?? 1;
+  const provisional = run.state !== 'ACCEPTED' || (!isExplanationRun(run) && (run.coverage?.complete !== true || run.coverage.omissions.length > 0));
   const messages = review.messages.filter(message => message.findingId === null && (
     message.cardId === card.id || (message.cardId == null && card.id === `${run.id}:purpose`
       && (message.runId == null || message.runId === run.id))
@@ -81,7 +85,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
             if (details) details.open = true;
             setMessageOpen(value => !value);
           }}>···</button>}
-      </> : card.kind === 'purpose' ? <SummaryCardTitle /> : <span className="lrc__title">{card.title}</span>}
+      </> : card.kind === 'purpose' ? <span className="agr-explanation__heading"><SummaryCardTitle />{refreshControl}</span> : <span className="lrc__title">{card.title}</span>}
       badges={commit ? <>
         {card.pending && <span className="agr-pill is-pending">not yet read</span>}
         {!composing && ask}
@@ -91,11 +95,11 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
         </button>}
       </> : compact ? <>
         <span className="agr-explanation__meta">{review.task.laneLabel} · {relativeTime(run.endedAt ?? run.createdAt)}</span>
-        {provisional(review) && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
+        {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
       </> : undefined}
       controls={<>
         {card.kind === 'purpose' && <footer className="agr-explanation__footer">
-          <ReviewDetails run={run} repository={review.repo} compact />{!composing && ask}
+          <ReviewDetails run={run} repository={review.repo} compact retainedFindings={retainedFindings} />{!composing && ask}
         </footer>}
         {(composing || !compact) && <footer className={`lrc__foot${composing ? ' is-composing' : ''}`}>
           {composing ? <ReviewComposer repository={review.repo} value={text} autoFocus busy={busy}
@@ -105,11 +109,12 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
           {error && <span className="lrc__error" role="alert">{error}</span>}
         </footer>}
       </>}>
+      {card.kind === 'purpose' && refreshStatus}
       {messageOpen && <pre className="agr-explanation__message">{message.join('\n').trim()}</pre>}
       {card.body !== null && <LocalCardMessage timestamp={run.endedAt ?? run.createdAt} author="Agent review" avatar={<ReviewerAvatar />}
         tag={<span className="lrc-message__meta">{review.task.laneLabel}</span>}
         menu={<>{card.pending && <span className="agr-pill is-pending">not yet read</span>}
-          {provisional(review) && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
+          {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
           <span className="agr-card__refs">head {shortSha(run.headSha)}</span></>}>
         {card.body}
       </LocalCardMessage>}
@@ -118,17 +123,46 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
   </article>;
 }
 
-export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding, onSelectCommit }: {
+export default function ReviewSummaryCard({ review, run, findings, viewerLogin, viewerAvatarUrl, busy, onAsk, onSelectFinding, onSelectCommit, retainedFindings, onRefresh, refreshDisabledReason }: {
   review: AgentReviewDto;
   run: ReviewRunDto | null;
   findings: ReviewFindingDto[];
+  retainedFindings?: ReactNode;
   viewerLogin: string;
   viewerAvatarUrl: string | null;
   busy: boolean;
   onAsk: AskAboutCard;
   onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
   onSelectFinding: (finding: ReviewFindingDto) => void;
+  onRefresh?: () => Promise<void>;
+  refreshDisabledReason?: string;
 }) {
+  const [startingRefresh, setStartingRefresh] = useState(false);
+  const [refreshError, setRefreshError] = useState<{ runId: string; revision: number; message: string } | null>(null);
+  const currentRefreshError = refreshError?.runId === run?.id && refreshError?.revision === run?.summary?.revision ? refreshError?.message ?? null : null;
+  const refreshRun = latestExplanationRun(review);
+  const refreshing = startingRefresh || refreshRun?.state === 'RUNNING';
+  const refreshFailure = refreshRun !== null && ['FAILED', 'INCOMPLETE', 'STOPPED'].includes(refreshRun.state)
+    ? refreshRun.outcome ?? (refreshRun.state === 'STOPPED' ? 'Explanation refresh stopped. Your saved explanation is unchanged.' : 'Could not refresh the explanation. Your saved explanation is unchanged.') : null;
+  const refresh = async () => {
+    if (onRefresh === undefined || run?.summary == null || refreshing || busy || refreshDisabledReason !== undefined) return;
+    setStartingRefresh(true);
+    setRefreshError(null);
+    try { await onRefresh(); }
+    catch (failure) { setRefreshError({ runId: run.id, revision: run.summary.revision,
+      message: failure instanceof Error ? failure.message : 'Could not refresh the explanation.' }); }
+    finally { setStartingRefresh(false); }
+  };
+  const refreshControl = onRefresh === undefined ? undefined : <button type="button" className="agr-explanation__refresh"
+    aria-label="Refresh change intention and commit summaries" aria-busy={refreshing}
+    title={refreshing ? 'Refreshing change intention and commit summaries…' : refreshDisabledReason ?? 'Refresh change intention and commit summaries'}
+    disabled={busy || refreshing || refreshDisabledReason !== undefined} onClick={event => { event.preventDefault(); void refresh(); }}>
+    {refreshing ? <span className="agr-spinner" aria-hidden="true" /> : <RefreshCw size={14} aria-hidden="true" />}
+  </button>;
+  const refreshStatus = onRefresh === undefined ? undefined : refreshing
+    ? <p className="agr-explanation__refresh-status" role="status">Refreshing change intention and commit summaries…</p>
+    : (currentRefreshError ?? refreshFailure) !== null
+      ? <p className="agr-explanation__refresh-status lrc__error" role="alert">{currentRefreshError ?? refreshFailure}</p> : undefined;
   const summary = run?.summary;
   if (run === null && review.state === 'OPEN') {
     return <p className="agr-card__empty">Your working copy is ready in Code &amp; Tests. Start review when you want an agent to review this pull request.</p>;
@@ -173,7 +207,7 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
       ...(run.coverage?.omissions.length ? ['**Not reviewed**', bullets(run.coverage.omissions)] : []),
     ].join('\n\n')) },
     { id: `${run.id}:critical-issues`, title: 'Critical issues', body: critical.length === 0
-      ? markdown(run.coverage?.complete
+      ? markdown(summary.criticalFindingIds.length > 0 ? 'No critical findings selected for the result.' : run.coverage?.complete
         ? `None found. The agent explicitly recorded zero critical issues for the ${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} in scope.`
         : 'None recorded yet.')
       : <ul className="agr-critical">{critical.map(finding => <li key={finding.id}>
@@ -183,8 +217,10 @@ export default function ReviewSummaryCard({ review, run, findings, viewerLogin, 
       </li>)}</ul> },
   ].filter(card => review.messages.some(message => message.findingId === null && message.cardId === card.id));
   const renderCard = (card: SummaryCard, ordinal?: number) => <SummarySectionCard key={card.id} card={card} review={review} run={run}
-    ordinal={ordinal} onSelectCommit={onSelectCommit} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
+    refreshControl={refreshControl} refreshStatus={refreshStatus}
+    ordinal={ordinal} onSelectCommit={onSelectCommit} retainedFindings={retainedFindings} viewerLogin={viewerLogin} viewerAvatarUrl={viewerAvatarUrl} busy={busy} onAsk={onAsk} />;
   return <div className="agr-review-timeline">
+    {run.id !== latestRun(review)?.id && <p className="agr-learning-cards__scope">{isExplanationRun(run) ? 'Change explanation' : 'Original change explanation'} · head {shortSha(run.headSha)}</p>}
     {renderCard(purpose)}
     <div className="agr-review-timeline__commits">{commits.map((card, index) => renderCard(card, index + 1))}</div>
     {earlier.length > 0 && <details className="agr-learning-history"><summary>Earlier discussions · {earlier.length}</summary>

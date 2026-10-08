@@ -29,9 +29,9 @@ final class ReviewToolActivity
         String line = switch (tool) {
             case "review_get_context" -> context(arguments, result);
             case "review_save_summary" -> "Saved summary";
+            case "review_record_discovery" -> "Recorded discovery";
             case "review_save_investigation" -> "Saved investigation";
-            case "review_save_finding" -> (result.path("status").asText().equals("skipped") ? "Skipped finding (limit reached)" : "Saved finding")
-                    + quoted(" · ", arguments.path("title").asText(""));
+            case "review_save_finding" -> "Saved finding" + quoted(" · ", arguments.path("title").asText(""));
             case "review_reply" -> "Replied in discussion";
             case "review_withdraw_finding" -> "Withdrew finding";
             case "review_finish" -> "Finished review";

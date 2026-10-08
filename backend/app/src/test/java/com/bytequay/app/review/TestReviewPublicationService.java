@@ -20,16 +20,21 @@ import com.bytequay.core.domain.PullRequestDetail.CiStatus;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewDraft;
 import com.bytequay.core.review.ReviewDraftItem;
 import com.bytequay.core.review.ReviewDraftItem.Source;
 import com.bytequay.core.review.ReviewDraftStore;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
+import com.bytequay.core.review.ReviewValidation;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,7 +51,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.stream.IntStream;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -145,7 +152,8 @@ class TestReviewPublicationService
     {
         ReviewFinding lines = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
         ReviewFinding whole = new ReviewFinding("f-whole", REVIEW_ID, RUN_ID, 2, "Nit: commit subject", "Commit message: name the behavior, not the file.", Optional.empty(),
-                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW);
+                Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN, Optional.empty(), REVIEWED_HEAD, false, 0, NOW, NOW,
+                ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
         reviews.put(lines);
         reviews.put(whole);
 
@@ -183,6 +191,119 @@ class TestReviewPublicationService
         assertThat(item.included()).isTrue();
         assertThat(item.publication()).isEmpty();
         assertThat(reviews.findFinding(FINDING_ID)).contains(open);
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void anUnselectedSupportedFindingCanBeExplicitlyAddedAtItsValidatedRevision()
+    {
+        ReviewFinding finding = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Guard the null case");
+        reviews.put(finding);
+        reviews.setRun(acceptedReport(finding, true, false));
+
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+
+        assertThat(draft.items()).singleElement().satisfies(item -> {
+            assertThat(item.findingId()).contains(FINDING_ID);
+            assertThat(item.findingRevision()).hasValue(1);
+        });
+        ReviewFinding revised = finding.revised(finding.title(), "New claim after acceptance", finding.severity(), finding.anchor(),
+                finding.evidence(), REVIEWED_HEAD, NOW);
+        reviews.put(revised);
+        ReviewDraft cleared = service.removeItem(REPO, NUMBER, draft.version(), lastItemId(draft));
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, cleared.version(), REVIEW_ID, FINDING_ID))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source revision");
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void anAcceptedOriginDoesNotMakeAnUnselectedUnsupportedFindingPromotable()
+    {
+        ReviewFinding finding = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Unsupported claim");
+        reviews.put(finding);
+        reviews.setRun(acceptedReport(finding, false, false));
+
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source revision");
+
+        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void anAcceptedExplanationRefreshCannotAuthorizeAFinding()
+    {
+        ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "A discussion claim");
+        reviews.put(new ReviewFinding(original.id(), original.reviewId(), original.runId(), original.ordinal(), original.title(), original.body(),
+                original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(), original.validatedHeadSha(),
+                original.outdated(), original.version(), original.createdAt(), original.updatedAt(), original.memories(), ReviewFinding.Origin.DISCUSSION));
+        reviews.setRun(run(ReviewRun.State.ACCEPTED).withStep(ReviewStep.explanation(), NOW));
+
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source commit");
+
+        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void acceptedSelectionKeepsDiscussionRevisionsPromotableWithoutRewritingUserDrafts()
+    {
+        ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Original finding");
+        reviews.put(original);
+        reviews.setRun(acceptedReport(original, true, true));
+        ReviewFinding revised = original.revised(original.title(), "Clarified after discussion", original.severity(), original.anchor(),
+                original.evidence(), REVIEWED_HEAD, NOW);
+        reviews.put(revised);
+
+        ReviewDraft promoted = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+        assertThat(promoted.items().getFirst().findingRevision()).hasValue(2);
+        assertThat(promoted.items().getFirst().body()).isEqualTo("Clarified after discussion");
+        ReviewDraft edited = service.editItem(REPO, NUMBER, promoted.version(), lastItemId(promoted), "My own wording", true);
+        reviews.put(revised.revised(revised.title(), "Another clarification", revised.severity(), revised.anchor(), revised.evidence(), REVIEWED_HEAD, NOW));
+
+        assertThat(service.draft(REPO, NUMBER)).isEqualTo(edited);
+        assertThat(edited.items().getFirst().body()).isEqualTo("My own wording");
+        assertThat(edited.items().getFirst().findingRevision()).hasValue(2);
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void supersededValidationSupportDoesNotAuthorizePromotion()
+    {
+        ReviewFinding finding = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Superseded claim");
+        reviews.put(finding);
+        ReviewRun earlierSupport = acceptedReport(finding, true, false);
+        ReviewInvestigation report = earlierSupport.latestSealedInvestigation().orElseThrow().investigation().orElseThrow();
+        ReviewStep collection = earlierSupport.currentStep().orElseThrow().next(ReviewStep.Kind.COLLECT_EVIDENCE).withInvestigation(report);
+        ReviewValidation rejection = validation(3, finding, false, false);
+        reviews.setRun(earlierSupport.withStep(collection, NOW).withStep(collection.next(ReviewStep.Kind.VALIDATE).withValidation(rejection), NOW));
+
+        assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID))
+                .isInstanceOf(ReviewConflictException.class).hasMessageContaining("accepted review of its source revision");
+
+        assertThat(service.draft(REPO, NUMBER).items()).isEmpty();
+        verifyNoInteractions(pullRequests);
+    }
+
+    @Test
+    void acceptedReassessmentCanSupportAFindingFromAFailedOriginRun()
+    {
+        ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Reassessed claim");
+        ReviewFinding carried = new ReviewFinding(original.id(), original.reviewId(), "failed-run", original.ordinal(), original.title(), original.body(),
+                original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(), original.validatedHeadSha(),
+                false, original.version(), original.createdAt(), original.updatedAt(), original.memories(), original.origin());
+        reviews.put(carried);
+        ReviewRun failed = new ReviewRun("failed-run", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", CURRENT_HEAD, CURRENT_HEAD, REVIEWED_HEAD,
+                Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.FAILED, Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(), false, Map.of(), Map.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
+        reviews.setRun(acceptedReport(carried, true, false));
+        reviews.runs.addFirst(failed);
+
+        ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
+
+        assertThat(draft.items().getFirst().findingId()).contains(FINDING_ID);
+        assertThat(draft.items().getFirst().findingRevision()).hasValue(carried.revision());
         verifyNoInteractions(pullRequests);
     }
 
@@ -583,11 +704,31 @@ class TestReviewPublicationService
         ReviewFinding original = finding(FINDING_ID, 1, "src/A.java", 1, 1, "Provisional claim");
         ReviewFinding provisional = new ReviewFinding(original.id(), original.reviewId(), "running-run", original.ordinal(), original.title(), original.body(),
                 original.severity(), original.anchor(), original.evidence(), original.revision(), original.state(), original.stateReason(),
-                original.validatedHeadSha(), false, original.version(), original.createdAt(), original.updatedAt());
+                original.validatedHeadSha(), false, original.version(), original.createdAt(), original.updatedAt(), ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
         reviews.put(provisional);
 
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID)).hasMessageContaining("accepted review of its source revision");
         verifyNoInteractions(pullRequests);
+    }
+
+    private static ReviewRun acceptedReport(ReviewFinding finding, boolean supported, boolean selected)
+    {
+        ReviewInvestigation investigation = new ReviewInvestigation("Check the guard", ImmutableList.of("src/Service.java"), ImmutableList.of(),
+                ImmutableList.of(ReviewTestData.discoveryCandidate(1, "The guard may be missing")), ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), ReviewTestData.perspectives());
+        ReviewStep sealed = ReviewStep.initial().withInvestigation(investigation);
+        return run(ReviewRun.State.ACCEPTED).withStep(sealed, NOW)
+                .withStep(sealed.next(ReviewStep.Kind.VALIDATE).withValidation(validation(1, finding, supported, selected)), NOW);
+    }
+
+    private static ReviewValidation validation(int investigationStep, ReviewFinding finding, boolean supported, boolean selected)
+    {
+        ReviewCandidateValidation assessment = new ReviewCandidateValidation(1,
+                supported ? ReviewCandidateValidation.Outcome.SUPPORTED : ReviewCandidateValidation.Outcome.REJECTED,
+                supported ? "The changed path misses the guard" : "The caller guarantees the guard", ImmutableList.of(), "Traced all relevant callers",
+                supported ? Optional.of(finding.id()) : Optional.empty(), supported ? Optional.of(finding.revision()) : Optional.empty(), Optional.empty());
+        return new ReviewValidation(investigationStep, ImmutableList.of(assessment), new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW),
+                ImmutableList.of(), selected ? ImmutableList.of(finding.id()) : ImmutableList.of(), selected ? "Recommend this finding" : "Not selected");
     }
 
     private static ReviewDraftItem manual(String path, int line, String body)
@@ -615,7 +756,7 @@ class TestReviewPublicationService
                 false,
                 0,
                 NOW,
-                NOW);
+                NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
     }
 
     private static ReviewRun run(ReviewRun.State state)
@@ -696,7 +837,7 @@ class TestReviewPublicationService
             implements AgentReviewStore
     {
         private final Map<String, ReviewFinding> findings = new HashMap<>();
-        private final List<ReviewRun> runs = new ArrayList<>(List.of(run(ReviewRun.State.ACCEPTED)));
+        private final List<ReviewRun> runs = new ArrayList<>(ImmutableList.of(run(ReviewRun.State.ACCEPTED)));
         private final AgentReview review = new AgentReview(REVIEW_ID, "workspace-1", REPO, OptionalInt.of(NUMBER), OptionalLong.of(PR_ID), "task-1", Optional.empty(),
                 AgentReview.State.OPEN, false, Optional.of(RUN_ID), Optional.of(REVIEWED_HEAD), Optional.of(REVIEWED_HEAD), 0, NOW, NOW, Optional.empty());
 
@@ -757,7 +898,24 @@ class TestReviewPublicationService
         public Optional<ReviewRun> findRun(String runId) { throw new UnsupportedOperationException(); }
 
         @Override
-        public List<ReviewRun> listRuns(String reviewId) { return REVIEW_ID.equals(reviewId) ? ImmutableList.copyOf(runs) : ImmutableList.of(); }
+        public List<ReviewRun> listRuns(String reviewId)
+        {
+            if (!REVIEW_ID.equals(reviewId)) {
+                return ImmutableList.of();
+            }
+            return runs.stream().map(run -> {
+                if (run.state() != ReviewRun.State.ACCEPTED || !run.steps().isEmpty()) {
+                    return run;
+                }
+                List<ReviewFinding> selected = findings.values().stream().filter(finding -> finding.runId().equals(run.id())).collect(toImmutableList());
+                ReviewValidation validation = new ReviewValidation(1, IntStream.range(0, selected.size())
+                        .mapToObj(index -> new ReviewCandidateValidation(index + 1, ReviewCandidateValidation.Outcome.SUPPORTED, "Confirmed against source",
+                                ImmutableList.of(), "No counterexample", Optional.of(selected.get(index).id()), Optional.of(selected.get(index).revision()), Optional.empty()))
+                        .collect(toImmutableList()), new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW), ImmutableList.of(),
+                        selected.stream().map(ReviewFinding::id).collect(toImmutableList()), "Select the supported findings");
+                return run.withStep(ReviewStep.initial(), NOW).withStep(ReviewStep.initial().next(ReviewStep.Kind.VALIDATE).withValidation(validation), NOW);
+            }).collect(toImmutableList());
+        }
 
         @Override
         public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit) { throw new UnsupportedOperationException(); }

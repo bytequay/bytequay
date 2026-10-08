@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { AgentReviewDto } from '../contracts';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -205,11 +206,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     await scenario('Reassessed findings open the validated revision instead of their original run', async () => {
       const requests: Parameters<Bridge['readWorktreeChanges']>[1][] = [];
       const finding = { ...review.findings[0], revision: 2, validatedHeadSha: head };
-      const updatedReview = { ...review, findings: [finding], runs: [...review.runs, { ...review.runs[0],
+      const updatedReview: AgentReviewDto = { ...review, findings: [finding], runs: [...review.runs, { ...review.runs[0],
         id: 'updated-run', ordinal: 2, headSha: head, mergeBaseSha: base, steps: [{ number: 2, kind: 'VALIDATE' as const,
           repair: false, investigation: null, validation: { investigationStep: 1, candidates: [{ candidate: 1,
             outcome: 'SUPPORTED' as const, conclusion: 'Still present', evidenceRefs: [], counterevidence: '', findingId: finding.id,
-            findingRevision: finding.revision, request: null }], coverage: { complete: true, omissions: [], warnings: [], recordedAt: '' }, newCandidates: [] } }],
+            findingRevision: finding.revision, request: null }], coverage: { complete: true, omissions: [], warnings: [], recordedAt: '' }, newCandidates: [], selectedFindingIds: [finding.id], selectionExplanation: 'Still present.' } }],
       }] };
       install({ readWorktreeChanges: async (_host, request) => { requests.push(request); return { ...changes, scope: request.scope }; } });
       flushSync(() => root.render(<WorktreeChanges host={{ kind: 'review', reviewId: review.id }} review={updatedReview}

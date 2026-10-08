@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { findingInResults } from './agent-review/model';
 import { Fragment, type CSSProperties, type MouseEvent as ReactMouseEvent, type ReactNode, type RefObject, useEffect, useId, useMemo, useReducer, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, ChevronRight, FileDiff, Folder, GitCommitHorizontal, PanelLeft } from 'lucide-react';
@@ -252,7 +253,7 @@ export function DiffViewer({
 
   // A saved finding's coordinates belong to its validated revision, including when a newer PR is shown.
   const requestedNavigation = agentReview?.navigation ?? null;
-  const navigationFinding = agentReview?.review.findings.find(finding => finding.id === requestedNavigation?.findingId);
+  const navigationFinding = agentReview?.review.findings.find(finding => finding.id === requestedNavigation?.findingId && findingInResults(agentReview.review, finding));
   const navigationHeadSha = agentReview?.headSha ?? headSha;
   const navigation = requestedNavigation !== null && commitRange === null && !loading && navigationHeadSha !== undefined
     && navigationFinding?.validatedHeadSha === navigationHeadSha
@@ -835,7 +836,7 @@ function DiffFileCard({
   const findingHeadSha = agentReview?.headSha ?? headSha;
   const fileFindings = (fullDiff && agentReview !== undefined
     ? agentReview.review.findings.filter(finding =>
-      finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated
+      findingInResults(agentReview.review, finding) && finding.path === file.filename && finding.state !== 'WITHDRAWN' && !finding.outdated
         && (findingHeadSha === undefined || finding.validatedHeadSha === findingHeadSha))
     : []);
   const findingActions = useFindingActions({

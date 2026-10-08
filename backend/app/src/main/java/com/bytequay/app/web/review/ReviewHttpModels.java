@@ -141,7 +141,8 @@ final class ReviewHttpModels
                 finding.validatedHeadSha(),
                 finding.version(),
                 finding.updatedAt(),
-                finding.memories());
+                finding.memories(),
+                finding.origin().name());
     }
 
     private static EvidenceResponse evidence(ReviewEvidence evidence)
@@ -305,7 +306,8 @@ final class ReviewHttpModels
             String validatedHeadSha,
             long version,
             Instant updatedAt,
-            List<ReviewFinding.MemoryCitation> memories) {}
+            List<ReviewFinding.MemoryCitation> memories,
+            String origin) {}
 
     record EvidenceResponse(String ref, String source, String provenance, String excerpt, String explanation) {}
 
@@ -374,6 +376,8 @@ final class ReviewHttpModels
     record StartRequest(String workspaceId, String repo, Integer number) {}
 
     record StopRuntimeRequest(String generation) {}
+
+    record RefreshExplanationRequest(String runId, Integer expectedRevision) {}
 
     /** A private question on the summary or one finding, with the revision the user was looking at. */
     record AskRequest(String findingId, String cardId, Integer targetRevision, String message) {}

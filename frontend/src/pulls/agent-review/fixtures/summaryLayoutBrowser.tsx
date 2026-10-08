@@ -20,7 +20,7 @@ import { PullDetailHeader } from '../../PullsScreen';
 import { pr } from '../../fixtures/pullRequest';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
-import { reviewFixture, runningReviewFixture } from './review';
+import { candidateFixture, reviewFixture, runningReviewFixture } from './review';
 import '../../../css/base.css';
 import '../../../css/pulls.css';
 import '../../../css/markdown-editor.css';
@@ -30,17 +30,19 @@ export function preview(host: HTMLElement) {
   const review = runningReviewFixture();
   const run = review.runs[0];
   const commits = run.commits.slice(0, 3);
-  const value: AgentReviewDto = { ...review, messages: [], findings: reviewFixture().findings.slice(0, 2).map((finding, index) => ({ ...finding,
-    state: index === 0 ? 'OPEN' as const : 'RESOLVED' as const })), runs: [{ ...run, commits,
-    createdAt: new Date(Date.now() - 1_803_000).toISOString(), summary: run.summary === null ? null : { ...run.summary,
-      commits: commits.map(commit => ({ sha: commit.sha, explanation: 'Keep the parsed field path attached to the sort order. Resolve the exact nested field before writing metadata, preserving existing behavior for top-level columns.' })) },
-    investigation: { changeMap: 'Follow the sort field from parsing to storage.', reviewedFiles: ['src/SortField.java'], contextEvidenceRefs: [], candidates: ['Check nested lookup'], validations: [], answers: [] },
+  const original = reviewFixture().runs[0];
+  const value: AgentReviewDto = { ...review, observedHeadSha: 'b'.repeat(40), messages: [], findings: reviewFixture().findings.slice(0, 2).map((finding, index) => ({ ...finding,
+    state: index === 0 ? 'OPEN' as const : 'RESOLVED' as const })), runs: [{ ...original, commits,
+    summary: original.summary === null ? null : { ...original.summary, commits: original.summary.commits.slice(0, 3) } },
+  { ...run, id: 'run-2', ordinal: 2, commits, headSha: 'b'.repeat(40),
+    createdAt: new Date(Date.now() - 1_803_000).toISOString(), summary: null,
+    investigation: { changeMap: 'Follow the sort field from parsing to storage.', reviewedFiles: ['src/SortField.java'], contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('Check nested lookup')], validations: [], answers: [] },
     steps: [{ number: 2, kind: 'VALIDATE' as const, repair: false, investigation: null, validation: null }],
   }] };
   const previous = window.bridge;
   const calls: string[] = [];
   const bridge = { subscribeAgentReview: async () => () => {}, getAgentReview: async () => value,
-    askAgentReview: async (_id, _finding, _revision, body, cardId) => { calls.push(`${cardId}:${body}`); return value; },
+    askAgentReview: async (_id, _finding, revision, body, cardId) => { calls.push(`${cardId}:rev${revision}:${body}`); return value; },
     stopAgentReview: async () => { calls.push('stop'); return value; },
   } satisfies Pick<Bridge, 'subscribeAgentReview' | 'getAgentReview' | 'askAgentReview' | 'stopAgentReview'>;
   Object.defineProperty(window, 'bridge', { configurable: true, writable: true, value: bridge });
@@ -82,6 +84,10 @@ export async function run() {
     assert(toolbar?.querySelector('.agr-strip') !== null && !host.querySelector('.agr-pane > .agr-strip'), 'Review controls must share the WorkBench tab row');
     const intention = host.querySelector<HTMLElement>('.agr-explanation.is-purpose');
     const commits = [...host.querySelectorAll<HTMLElement>('.agr-explanation.is-commit')];
+    assert(host.textContent?.includes('Original change explanation · head d9a0c41') === true && !intention?.textContent?.includes('Provisional'),
+      'The retained explanation must identify its original head and keep its accepted status');
+    assert(host.querySelector('[data-review-card="run-2:details"]')?.textContent?.includes('Follow the sort field from parsing to storage.') === true,
+      'Current review details must remain visible beside the original explanation');
     assert(intention !== null && commits.length === 3 && commits[0].getBoundingClientRect().left > intention.getBoundingClientRect().left,
       'Commits must nest beneath the intention');
     assert(commits[2].getBoundingClientRect().bottom - host.getBoundingClientRect().top < 600, 'The intention and three commits must fit on one screen');
@@ -100,7 +106,8 @@ export async function run() {
     assert(question !== null, 'The compact question icon must open its own composer');
     changeInput(question, 'Explain the boundary'); await settle();
     button('.agr-explanation.is-commit .agr-composer button', 'Queue question').click(); await settle();
-    assert(fixture.calls[0]?.includes(`commit:${fixture.review.runs[0].commits[0].sha}:Explain the boundary`), 'Questions must retain their commit target');
+    assert(fixture.calls[0] === `${fixture.review.runs[0].id}:commit:${fixture.review.runs[0].commits[0].sha}:rev1:Explain the boundary`,
+      'Questions must retain their original run, commit and summary revision');
     button('.agr-explanation.is-commit button', 'Diff').click(); await settle();
     assert(fixture.calls[1] === `diff:${fixture.review.runs[0].commits[0].sha}:${fixture.review.runs[0].headSha}`, 'Diff must retain the frozen head');
     for (const width of [600, 420]) {

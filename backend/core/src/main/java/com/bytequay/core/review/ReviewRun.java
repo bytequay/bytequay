@@ -98,6 +98,11 @@ public record ReviewRun(
         return !state.terminal();
     }
 
+    public boolean explanationOnly()
+    {
+        return !steps.isEmpty() && steps.getFirst().kind() == ReviewStep.Kind.EXPLAIN;
+    }
+
     public ReviewRun withVersion(long updatedVersion)
     {
         return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, outcome, updatedVersion, updatedAt, endedAt);
@@ -128,6 +133,12 @@ public record ReviewRun(
         return copy(
                 turnIds, state, summary, coverage, Optional.of(updatedInvestigation), steps, completionRepairUsed,
                 operations, evidence, outcome, version, now, endedAt);
+    }
+
+    /** The immutable report and its assignment number must always be read together. */
+    public Optional<ReviewStep> latestSealedInvestigation()
+    {
+        return steps.stream().filter(step -> step.investigation().isPresent()).reduce((first, last) -> last);
     }
 
     public Optional<ReviewStep> currentStep()
@@ -217,7 +228,7 @@ public record ReviewRun(
     public enum State
     {
         RUNNING,
-        /** Valid summary and coverage were recorded and every contributing turn settled successfully. */
+        /** The assigned report was recorded and every contributing turn settled successfully. */
         ACCEPTED,
         /** Turns settled without a valid report, or the report was refused and the repair budget is spent. */
         INCOMPLETE,

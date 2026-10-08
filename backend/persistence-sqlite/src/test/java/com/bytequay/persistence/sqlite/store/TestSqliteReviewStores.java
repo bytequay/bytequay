@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.DiffFile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
@@ -29,6 +30,7 @@ import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewOperation;
+import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
@@ -45,6 +47,7 @@ import org.springframework.test.context.DynamicPropertySource;
 
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -52,7 +55,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-
 class TestSqliteReviewStores
         extends AbstractTestSqliteStore
 {
@@ -149,10 +151,10 @@ class TestSqliteReviewStores
                 .withSummary(SUMMARY, NOW.plusSeconds(2))
                 .withCoverage(COVERAGE, NOW.plusSeconds(3))
                 .withInvestigation(new ReviewInvestigation("Follow the new publication count", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
-                        ImmutableList.of("The count might never reach callers"),
+                        ImmutableList.of(candidate("The count might never reach callers")),
                         ImmutableList.of(new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The caller receives the unchanged value",
                                 ImmutableList.of("ev-1"), "No cleanup in caller", Optional.of("finding-1"), Optional.of(1), Optional.empty())),
-                        ImmutableList.of(), Optional.empty()), NOW.plusSeconds(3))
+                        ImmutableList.of(), Optional.empty(), perspectives()), NOW.plusSeconds(3))
                 .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.empty()), NOW.plusSeconds(3))
                 .withOperation("review_finding:finding-1", new ReviewOperation("sha256:9f1c", "created"), NOW.plusSeconds(4))
                 .withEvidence("ev-2", COMMAND_EVIDENCE, NOW.plusSeconds(5))
@@ -178,7 +180,8 @@ class TestSqliteReviewStores
 
         // A finding about the whole pull request has no lines, and keeps none through storage; the memories it cites survive.
         ReviewFinding whole = new ReviewFinding("finding-whole", "review-1", "run-1", 2, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),
-                Optional.empty(), ImmutableList.of(CONTEXT_EVIDENCE), 1, ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW)
+                Optional.empty(), ImmutableList.of(CONTEXT_EVIDENCE), 1, ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW,
+                ImmutableList.of(), ReviewFinding.Origin.DISCUSSION)
                 .withMemories(ImmutableList.of(new ReviewFinding.MemoryCitation("m12", "Name the behavior in commit subjects. (PR #31201 @alice)")));
         store.insertFinding(whole);
         entityManager.clear();
@@ -255,28 +258,28 @@ class TestSqliteReviewStores
     }
 
     @Test
-    void roundTripsTheSealedEvidenceRequestAndResponseWithANitCheck()
+    void roundTripsTheSealedEvidenceRequestResponseAndFinalSelection()
     {
         AgentReview review = newReview("review-loop", "workspace-a", "bytequay/sample", 7, "task-loop", NOW);
         ReviewInvestigation initial = new ReviewInvestigation("Caller lifetime", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
-                ImmutableList.of("The resource may leak"), ImmutableList.of(), ImmutableList.of(),
-                Optional.of(new ReviewVerification("Run the focused check using the recorded temporary directory", ImmutableList.of("ev-1"))));
+                ImmutableList.of(candidate("The resource may leak")), ImmutableList.of(), ImmutableList.of(),
+                Optional.of(new ReviewVerification("Run the focused check using the recorded temporary directory", ImmutableList.of("ev-1"))), perspectives());
         ReviewCandidateValidation request = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE, "Ownership is unknown",
                 ImmutableList.of("ev-1"), "The caller may close the resource", Optional.empty(), Optional.empty(),
                 Optional.of(new ReviewEvidenceRequest("Who closes the resource?", "Read the caller finally block", "Guaranteed cleanup rejects the leak")));
-        ReviewValidation validation = new ReviewValidation(1, ImmutableList.of(request), COVERAGE, ImmutableList.of());
+        ReviewValidation validation = new ReviewValidation(1, ImmutableList.of(request), COVERAGE, ImmutableList.of(), ImmutableList.of(), "Awaiting evidence");
         ReviewInvestigation response = new ReviewInvestigation(initial.changeMap(), initial.reviewedFiles(), ImmutableList.of("ev-1", "ev-2"), initial.candidates(),
                 ImmutableList.of(), ImmutableList.of(new ReviewEvidenceAnswer(1, "Read all callers", ImmutableList.of("ev-2"), Optional.of("Integration fixture unavailable"))),
-                initial.verification());
+                initial.verification(), initial.perspectives());
         ReviewRun run = newRun("run-loop", review.id())
                 .replaceCurrentStep(ReviewStep.initial().withInvestigation(initial), NOW)
                 .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.of(validation)), NOW)
                 .withStep(new ReviewStep(3, ReviewStep.Kind.COLLECT_EVIDENCE, true, Optional.of(response), Optional.empty()), NOW)
                 .withInvestigation(response, NOW)
                 .withStep(new ReviewStep(4, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.of(new ReviewValidation(3,
-                        ImmutableList.of(new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.REJECTED, "The caller closes it", ImmutableList.of("ev-2"),
-                                "Every caller has guaranteed cleanup", Optional.empty(), Optional.empty(), Optional.empty())), COVERAGE, ImmutableList.of()))), NOW)
-                .withStep(new ReviewStep(5, ReviewStep.Kind.CHECK_NITS, false, Optional.empty(), Optional.empty()), NOW)
+                        ImmutableList.of(new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "One caller misses cleanup", ImmutableList.of("ev-2"),
+                                "Other callers guarantee cleanup", Optional.of("finding-1"), Optional.of(2), Optional.empty())),
+                        COVERAGE, ImmutableList.of(), ImmutableList.of("finding-1"), "Select the missing cleanup"))), NOW)
                 .withCompletionRepairUsed(NOW);
         store.insertReview(review);
         store.insertRun(run);
@@ -287,32 +290,25 @@ class TestSqliteReviewStores
         assertThat(restored.steps().get(1).validation()).contains(validation);
         assertThat(restored.steps().get(2).investigation()).contains(response);
         assertThat(restored.steps().get(2).key(run.id())).isEqualTo("review-step:run-loop:3:repair");
-        assertThat(restored.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.CHECK_NITS);
+        assertThat(restored.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.VALIDATE);
+        assertThat(restored.currentStep().orElseThrow().validation().orElseThrow().selectedFindingIds()).containsExactly("finding-1");
     }
 
     @Test
-    void retainedReportsRemainReadableWithoutInventingValidationEvidence()
+    void changeMapCheckpointRoundTripsWithoutBecomingASealedReport()
     {
-        AgentReview review = newReview("review-retained", "workspace-a", "bytequay/sample", 7, "task-retained", NOW);
+        AgentReview review = newReview("review-draft", "workspace-a", "bytequay/sample", 7, "task-draft", NOW);
+        ReviewInvestigation draft = new ReviewInvestigation("Trace the publication counter from initialization to its callers", ImmutableList.of(), ImmutableList.of("ev-1"),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
+        ReviewRun run = newRun("run-draft", review.id()).withInvestigation(draft, NOW);
         store.insertReview(review);
-        store.insertRun(newRun("run-retained", review.id()).ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));
-        String investigation = """
-                {"changeMap":"Caller lifetime","reviewedFiles":[],"contextEvidenceRefs":[],"candidates":["Potential leak"],
-                 "validations":[{"candidate":1,"conclusion":"Caller does not close the resource","findingId":"finding-1"}]}
-                """;
-        entityManager.createNativeQuery("UPDATE agent_review_run SET steps_json = NULL, investigation_json = :investigation WHERE id = :id")
-                .setParameter("investigation", investigation).setParameter("id", "run-retained").executeUpdate();
+        store.insertRun(run);
         entityManager.clear();
-
-        ReviewRun retained = store.findRun("run-retained").orElseThrow();
-        assertThat(retained.steps()).isEmpty();
-        assertThat(retained.state()).isEqualTo(ReviewRun.State.ACCEPTED);
-        ReviewCandidateValidation candidate = retained.investigation().orElseThrow().validations().getFirst();
-        assertThat(candidate.conclusion()).isEqualTo("Caller does not close the resource");
-        assertThat(candidate.findingId()).contains("finding-1");
-        assertThat(candidate.findingRevision()).isEmpty();
-        assertThat(candidate.evidenceRefs()).isEmpty();
-        assertThat(candidate.outcome()).isEqualTo(ReviewCandidateValidation.Outcome.UNRESOLVED);
+        ReviewRun restored = store.findRun(run.id()).orElseThrow();
+        assertThat(restored.investigation()).contains(draft);
+        assertThat(restored.evidence()).containsEntry("ev-1", CONTEXT_EVIDENCE);
+        assertThat(restored.latestSealedInvestigation()).isEmpty();
+        assertThat(restored.currentStep().orElseThrow().sealed()).isFalse();
     }
 
     @Test
@@ -571,6 +567,20 @@ class TestSqliteReviewStores
                 Optional.empty());
     }
 
+    private static ReviewCandidate candidate(String hypothesis)
+    {
+        return new ReviewCandidate(1, ReviewPerspectiveAssessment.Perspective.INTERACTIONS, "Resource lifetime", hypothesis, ImmutableList.of("ev-1"),
+                "Trace caller cleanup", Optional.empty(), 1, "turn-1", Optional.of("lifetime explorer"));
+    }
+
+    private static List<ReviewPerspectiveAssessment> perspectives()
+    {
+        return java.util.Arrays.stream(ReviewPerspectiveAssessment.Perspective.values())
+                .map(perspective -> new ReviewPerspectiveAssessment(perspective, "Is the resource closed?", ImmutableList.of("Cleanup"), ImmutableList.of(REVIEW_TOOLS),
+                        ImmutableList.of("ev-1"), ReviewPerspectiveAssessment.Status.CHECKED, "Read the cleanup path"))
+                .collect(com.google.common.collect.ImmutableList.toImmutableList());
+    }
+
     private static ReviewFinding newFinding(String id, String reviewId, String runId)
     {
         ReviewAnchor anchor = new ReviewAnchor(
@@ -600,7 +610,9 @@ class TestSqliteReviewStores
                 false,
                 0,
                 NOW,
-                NOW.plusSeconds(4));
+                NOW.plusSeconds(4),
+                ImmutableList.of(),
+                ReviewFinding.Origin.AUTOMATIC);
     }
 
     private static ReviewMessage newMessage(String id, Optional<String> findingId, ReviewMessage.Author author, String body, Instant createdAt)

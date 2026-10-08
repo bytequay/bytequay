@@ -989,6 +989,10 @@ function registerIpc(): void {
     review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:update', (_event, reviewId: string) =>
     review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
+  ipcMain.handle('review:explanation:refresh', (_event, reviewId: string, runId: string, expectedRevision: number) =>
+    review(`/${encodeURIComponent(reviewId)}/explanation/refresh`, {}, {
+      method: 'POST', body: JSON.stringify({ runId, expectedRevision }), signal: AbortSignal.timeout(15 * 60_000),
+    }));
   // Ending removes the shells' working directory, so they go first.
   ipcMain.handle('review:end', (_event, reviewId: string) => {
     codeTerminals.close(`review:${reviewId}`);

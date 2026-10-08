@@ -18,9 +18,9 @@ import { describe, expect, it } from 'vitest';
 import AgentReviewTab from './AgentReviewTab';
 import ReviewFindingCard from './ReviewFindingCard';
 import ReviewSummaryCard from './ReviewSummaryCard';
-import { reviewFixture, runningReviewFixture } from './fixtures/review';
-import { shownRun } from './model';
-import type { AgentReviewDto, ReviewCandidateValidationDto, ReviewDraftDto, ReviewFindingDto, ReviewInvestigationDto } from './contracts';
+import { candidateFixture, explanationRunFixture, reviewFixture, runningReviewFixture } from './fixtures/review';
+import { explanationRun, latestRun } from './model';
+import type { AgentReviewDto, ReviewCandidateValidationDto, ReviewDraftDto, ReviewFindingDto, ReviewInvestigationDto, ReviewStepDto } from './contracts';
 import { parseAgentReview } from './contracts';
 import type { PullRequestDetailDto, UserProfileDto } from '../../types';
 
@@ -68,7 +68,7 @@ function card(review: AgentReviewDto, finding: ReviewFindingDto, projection: 're
 
 function summary(review: AgentReviewDto): string {
   return renderToStaticMarkup(
-    <ReviewSummaryCard review={review} run={shownRun(review)} findings={review.findings}
+    <ReviewSummaryCard review={review} run={explanationRun(review) ?? latestRun(review)} findings={review.findings}
       viewerLogin="jackchen" viewerAvatarUrl={null} busy={false}
       onAsk={async () => {}} onSelectFinding={() => {}} />);
 }
@@ -107,7 +107,7 @@ describe('the status strip', () => {
   it('shows the saved review pass and scope facts beside the status', () => {
     const running = runningReviewFixture();
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace the changed path.', reviewedFiles: ['src/A.java'],
-      contextEvidenceRefs: [], candidates: ['Check the boundary'], validations: [], answers: [] };
+      contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('Check the boundary')], validations: [], answers: [] };
     const review: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], investigation, steps: [
       { number: 1, kind: 'INVESTIGATE', repair: false, investigation, validation: null },
       { number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
@@ -169,7 +169,7 @@ describe('the status strip', () => {
     expect(html).not.toContain('>Resume</button>');
     expect(html).not.toContain('>Run review again</button>');
     expect(html).toContain('>Update review</button>');
-    expect(html).toContain('Any saved work below is provisional.');
+    expect(html).toContain('Saved work from this attempt is provisional.');
   });
 
   it('shows recovery and disables further execution while an interrupted turn retains its claim', () => {
@@ -224,7 +224,8 @@ describe('banners', () => {
     const html = tab({ ...review, runs: [...review.runs, { ...review.runs[0], id: 'failed-run', state: 'FAILED',
       summary: null, coverage: null, outcome: 'The review tools could not save the report' }] });
     expect(html).toContain('The review tools could not save the report');
-    expect(html).toContain('The previous completed review is shown below.');
+    expect(html).toContain('Saved work from this attempt is provisional.');
+    expect(html).toContain('Original change explanation · head d9a0c41');
     expect(html).toContain('Change intention');
     expect(html).not.toContain('finished ');
   });
@@ -291,13 +292,13 @@ describe('a finding about the whole pull request', () => {
 });
 
 describe('review details', () => {
-  it('shows assessed scope and final validation evidence without promoting draft candidates', () => {
+  it('shows assessed scope, recorded candidates, and validation evidence in review details', () => {
     const original = reviewFixture({ findings: [] });
     const run = original.runs[0];
-    const review = parseAgentReview({ ...original, runs: [{ ...run, scope: 'INCREMENTAL', changedFiles: 0,
+    const review = parseAgentReview({ ...original, runs: [{ ...run, scope: 'INCREMENTAL', changedFiles: 0, steps: [],
       investigation: { changeMap: 'Provider ownership spans the **factory and scan**.',
         reviewedFiles: ['src/Factory.java'], contextEvidenceRefs: ['context-1'],
-        candidates: ['Draft leak hypothesis', 'Draft delegation hypothesis'],
+        perspectives: [], candidates: [candidateFixture('Draft leak hypothesis'), candidateFixture('Draft delegation hypothesis', 2)],
         validations: [{ candidate: 1, outcome: 'REJECTED', conclusion: 'The caller releases its reference in `finally`; E25 verifies cleanup.', findingId: null },
           { candidate: 2, outcome: 'SUPPORTED', conclusion: 'The delegated context drops the reservation.', findingId: 'finding-1' }] },
       evidence: [{ ref: 'context-1', source: 'src/UnchangedCaller.java:14–28', provenance: 'Frozen source',
@@ -318,7 +319,11 @@ describe('review details', () => {
     expect(html).toContain('2 of 2 candidates checked');
     expect(html).toContain('1 supported · 1 rejected');
     expect(html).toContain('The caller releases its reference');
-    expect(html).not.toContain('Draft leak hypothesis');
+    expect(html).toContain('Draft leak hypothesis');
+    expect(html).toContain('Recorded candidates · 2');
+    expect(html).toContain('Behavior and contracts');
+    expect(html).toContain('Interactions and operating constraints');
+    expect(html).toContain('Design and verification');
     expect(html).not.toContain('data-finding-id=');
     const partial = tab({ ...review, runs: [{ ...review.runs[0], investigation: null }] });
     expect(partial).toContain('Frozen head: PASS; release removed: FAIL (reference remains)');
@@ -327,10 +332,49 @@ describe('review details', () => {
     expect(tab(retained)).toContain('1 unresolved');
   });
 
+  it('retains supported unselected findings in details without counting them as selected results', () => {
+    const original = reviewFixture();
+    const source = original.runs[0];
+    const review: AgentReviewDto = { ...original, runs: [{ ...source, steps: source.steps.map((step): ReviewStepDto => ({ ...step,
+      validation: step.validation === null ? null : { ...step.validation, selectedFindingIds: [], selectionExplanation: 'Useful context, below the reporting threshold.' },
+    })) }] };
+    const html = tab(review);
+    expect(html).toContain('Other recorded findings · 3');
+    expect(html).toContain('No selected findings');
+    expect(html).toContain('No findings were selected for the main result.');
+    expect(html).toContain('Add to my review');
+    expect(html).toContain('Useful context, below the reporting threshold.');
+    expect(html).toContain('0 open · 0 resolved');
+  });
+
+  it('renders unsealed discovery provenance and all three perspective statuses', () => {
+    const running = runningReviewFixture();
+    const investigation: ReviewInvestigationDto = { changeMap: 'Changed teardown responsibility.', reviewedFiles: ['src/Factory.java'],
+      contextEvidenceRefs: [], candidates: [{ ...candidateFixture('The callback may outlive its owner'), attributedSource: 'PR discussion' }],
+      perspectives: [
+        { perspective: 'BEHAVIOR', question: 'Who owns teardown?', responsibilities: ['R1'], paths: ['src/Factory.java'], evidenceRefs: [], status: 'CHECKED', explanation: 'Inspected teardown.' },
+        { perspective: 'INTERACTIONS', question: 'Can cancellation overlap?', responsibilities: ['R1'], paths: [], evidenceRefs: [], status: 'BLOCKED', explanation: 'Caller source unavailable.' },
+        { perspective: 'DESIGN', question: 'Is the change relevant to tests?', responsibilities: ['R1'], paths: [], evidenceRefs: [], status: 'NOT_APPLICABLE', explanation: 'No test harness changed.' },
+      ], validations: [], answers: [] };
+    const review = parseAgentReview({ ...running, runs: [{ ...running.runs[0], investigation,
+      steps: [{ number: 1, kind: 'INVESTIGATE', repair: false, investigation: null, validation: null }] }] });
+    expect(review.runs[0].investigation?.candidates[0]).toMatchObject({ originStep: 1, originTurnId: 'turn-1', attributedSource: 'PR discussion' });
+    const html = tab(review);
+    expect(html).toContain('Unsealed checkpoint');
+    expect(html).toContain('Behavior and contracts · Checked');
+    expect(html).toContain('Interactions and operating constraints · Blocked');
+    expect(html).toContain('Design and verification · Not applicable');
+    expect(html).toContain('attributed source: PR discussion');
+    expect(html).toContain('Next check');
+    expect(html).toContain('Other recorded findings · 1');
+    expect(html).not.toContain('Sealed investigation');
+    expect(() => parseAgentReview({ ...review, runs: [{ ...review.runs[0], investigation: { ...investigation, candidates: ['unstructured'] } }] })).toThrow('review candidate');
+  });
+
   it('shows evidence requests and their answers without calling unresolved claims rejected', () => {
     const original = reviewFixture({ findings: [] });
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace provider ownership.', reviewedFiles: ['src/Factory.java'], contextEvidenceRefs: ['E1'],
-      candidates: ['Provider teardown may retain memory'], validations: [], answers: [] };
+      perspectives: [], candidates: [candidateFixture('Provider teardown may retain memory')], validations: [], answers: [] };
     const coverage = { complete: false, omissions: ['Cleanup could not be verified'], recordedAt: '2026-09-06T16:15:00Z' };
     const claim: ReviewCandidateValidationDto = { candidate: 1, outcome: 'NEEDS_EVIDENCE', conclusion: 'The final owner has not been established.', evidenceRefs: ['E1'],
       counterevidence: 'One caller releases its reference, but the factory also retains one.', findingId: null, findingRevision: null,
@@ -342,11 +386,11 @@ describe('review details', () => {
       investigation: { ...investigation, answers: [answer] }, steps: [
         { number: 1, kind: 'INVESTIGATE', repair: false, investigation, validation: null },
         { number: 2, kind: 'VALIDATE', repair: false, investigation: null,
-          validation: { investigationStep: 1, candidates: [claim], coverage, newCandidates: ['The cancellation path may also retain the provider.'] } },
+          validation: { investigationStep: 1, candidates: [claim], coverage, newCandidates: [candidateFixture('The cancellation path may also retain the provider.', 2)], selectedFindingIds: [], selectionExplanation: '' } },
         { number: 3, kind: 'COLLECT_EVIDENCE', repair: false, investigation: { ...investigation, answers: [answer] }, validation: null },
         { number: 4, kind: 'VALIDATE', repair: false, investigation: null,
           validation: { investigationStep: 3, candidates: [{ ...claim, outcome: 'UNRESOLVED',
-            conclusion: 'The available source does not settle the cleanup behavior.', request: null }], coverage } },
+            conclusion: 'The available source does not settle the cleanup behavior.', request: null }], coverage, newCandidates: [], selectedFindingIds: [], selectionExplanation: '' } },
       ] }] });
     const html = tab(review);
     expect(html).toContain('Review passes · 4');
@@ -382,6 +426,65 @@ describe('review details', () => {
 describe('the summary card', () => {
   const review = reviewFixture();
 
+  it('offers an accessible explanation refresh and disables it while the task is occupied or closed', () => {
+    const label = 'aria-label="Refresh change intention and commit summaries"';
+    expect(tab(review)).toContain(label);
+    for (const value of [runningReviewFixture(), { ...review, state: 'CLOSED' as const },
+      { ...review, task: { ...review.task, mutationClaim: 'LOCAL_RUN' as const } },
+      { ...review, task: { ...review.task, mutationClaim: 'RECOVERY' as const } }]) {
+      const withOwner = { ...value, runs: review.runs };
+      expect(tab(withOwner)).toMatch(/aria-label="Refresh change intention and commit summaries"[^>]*disabled=""/);
+    }
+  });
+
+  it.each(['RUNNING', 'FAILED', 'STOPPED', 'INCOMPLETE'] as const)('preserves the saved explanation during a %s refresh', state => {
+    const refresh = explanationRunFixture({ state, outcome: state === 'RUNNING' ? null : 'The refresh did not finish.' });
+    const html = tab({ ...review, runs: [...review.runs, refresh] });
+    expect(html).toContain('data-review-card="run-1:purpose"');
+    expect(html).not.toContain('Refreshed change intention.');
+    expect(html).not.toContain('data-review-card="explanation-1:purpose"');
+    expect(html).toContain('3 findings');
+    if (state === 'RUNNING') expect(html).toContain('role="status">Refreshing change intention and commit summaries…');
+    else {
+      expect(html).toContain('role="alert">The refresh did not finish.');
+      expect(html).toContain('Finished');
+      expect(html).not.toContain('Could not finish');
+    }
+  });
+
+  it('shows an accepted refreshed explanation without inventing review coverage or replacing the findings details', () => {
+    const refreshed = { ...review, runs: [...review.runs, explanationRunFixture()] };
+    const html = tab(refreshed);
+    expect(html).toContain('data-review-card="explanation-1:purpose"');
+    expect(html).toContain('data-review-card="run-1:details"');
+    expect(html).toContain('Refreshed change intention.');
+    expect(html).toContain('Explanation refresh completed.');
+    expect(html).toContain('3 findings');
+    expect(summary(refreshed)).not.toContain('Provisional');
+    expect(summary(refreshed)).not.toContain('Complete coverage has not been recorded.');
+  });
+
+  it.each(['RUNNING', 'ACCEPTED', 'FAILED'] as const)('retains the original explanation beside the %s current run without a new summary', state => {
+    const original = review.runs[0];
+    const current: AgentReviewDto['runs'][number] = { ...original, id: 'run-2', ordinal: 2, headSha: 'b'.repeat(40), summary: null, state,
+      investigation: { changeMap: 'Fresh map for the updated head.', reviewedFiles: [], contextEvidenceRefs: [],
+        perspectives: [], candidates: [], validations: [], answers: [] },
+      coverage: { complete: state === 'ACCEPTED', omissions: [], warnings: ['Current check could not run.'], recordedAt: original.createdAt },
+      outcome: state === 'FAILED' ? 'Current review failed.' : null };
+    const updated = { ...review, observedHeadSha: current.headSha, runs: [original, current] };
+    const html = tab(updated);
+    expect(html).toContain('Original change explanation · head d9a0c41');
+    expect(html).toContain('data-review-card="run-1:purpose"');
+    expect(html).toContain('data-review-card="run-2:details"');
+    expect(html).toContain('Fresh map for the updated head.');
+    expect(html).toContain('Current check could not run.');
+    expect(html).not.toContain('No summary was saved');
+    expect(html).not.toContain('0 of 5 commit explanations saved');
+    expect(summary(updated)).not.toContain('Provisional');
+    if (state === 'FAILED') expect(html).toContain('Current review failed.');
+    if (state === 'ACCEPTED') expect(html).toContain('Finished');
+  });
+
   it('shows verification warnings inside the intention card without blocking a finished review', () => {
     const warning = 'Live Snowflake authentication tests were not run because account credentials were unavailable.';
     const accepted = parseAgentReview({ ...review, runs: [{ ...review.runs[0], coverage: {
@@ -397,7 +500,7 @@ describe('the summary card', () => {
     expect(card(accepted, accepted.findings[0])).toContain('Post comment now');
   });
 
-  it('shows only the displayed report’s warnings when another attempt has no summary', () => {
+  it('keeps explanation warnings attached to their original report', () => {
     const completed: AgentReviewDto['runs'][number] = { ...review.runs[0], coverage: {
       complete: true, omissions: [], warnings: ['Original environment limitation'], recordedAt: '2026-09-06T16:15:00Z',
     } };
@@ -406,7 +509,7 @@ describe('the summary card', () => {
     const html = summary({ ...review, runs: [completed, failed] });
     expect(html).toContain('Original environment limitation');
     expect(html).not.toContain('Later environment limitation');
-    expect(summary({ ...review, runs: [completed, { ...review.runs[0], id: 'run-3' }] })).not.toContain('Verification warning');
+    expect(summary({ ...review, runs: [completed, { ...review.runs[0], id: 'run-3', ordinal: 3 }] })).toContain('Original environment limitation');
   });
 
   it('omits the warning when coverage has no warnings, including older reports', () => {

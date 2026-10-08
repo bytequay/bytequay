@@ -12,11 +12,24 @@
  * limitations under the License.
  */
 import MarkdownBody from '../MarkdownBody';
+import type { ReactNode } from 'react';
 import { evidenceTarget, validationTarget, ReviewEvidenceLink } from './ReviewEvidenceLinks';
-import type { ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
-import { shortSha } from './model';
+import type { ReviewCandidateDto, ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
+import { isExplanationRun, shortSha } from './model';
 
 const OUTCOMES = { SUPPORTED: 'Supported', REJECTED: 'Rejected', NEEDS_EVIDENCE: 'Needs evidence', UNRESOLVED: 'Unresolved' } as const;
+const PERSPECTIVES = { BEHAVIOR: 'Behavior and contracts', INTERACTIONS: 'Interactions and operating constraints', DESIGN: 'Design and verification' } as const;
+
+function Candidates({ candidates, repository, runId }: { candidates: ReviewCandidateDto[]; repository: string; runId: string }) {
+  return <ol className="agr-review-details__conclusions">{candidates.map(candidate => <li key={candidate.number} value={candidate.number}>
+    <strong>{PERSPECTIVES[candidate.perspective]} · {candidate.responsibility}</strong>
+    <MarkdownBody body={candidate.hypothesis} repository={repository} />
+    <p>Recorded in pass {candidate.originStep}{candidate.attributedSource !== null ? ` · attributed source: ${candidate.attributedSource}` : ''}</p>
+    {candidate.carriedFindingId !== null && <p>Reassesses an existing finding.</p>}
+    {candidate.evidenceRefs.length > 0 && <p>Initial evidence: {candidate.evidenceRefs.map(ref => <ReviewEvidenceLink key={ref} target={evidenceTarget(runId, ref)}>{ref}</ReviewEvidenceLink>)}</p>}
+    <strong>Next check</strong><MarkdownBody body={candidate.nextCheck} repository={repository} />
+  </li>)}</ol>;
+}
 
 function ValidationConclusions({ validations, repository, runId, step }: { validations: ReviewCandidateValidationDto[]; repository: string; runId: string; step: number }) {
   const counts = Object.entries(OUTCOMES).flatMap(([outcome, label]) => {
@@ -48,10 +61,20 @@ function EvidenceAnswers({ answers, repository }: { answers: ReviewInvestigation
   </li>)}</ol>;
 }
 
-export default function ReviewDetails({ run, repository, compact = false }: { run: ReviewRunDto; repository: string; compact?: boolean }) {
+export default function ReviewDetails({ run, repository, compact = false, retainedFindings }: { run: ReviewRunDto; repository: string; compact?: boolean; retainedFindings?: ReactNode }) {
+  if (isExplanationRun(run)) return <details className={`agr-review-details${compact ? ' is-compact' : ''}`}>
+    <summary>Explanation details · {run.commits.length} {run.commits.length === 1 ? 'commit' : 'commits'} · head <code>{shortSha(run.headSha)}</code></summary>
+    <div className="agr-review-details__body">
+      <p>Change intention and commit summaries · {run.baseRef}@{shortSha(run.baseSha)} → {shortSha(run.headSha)}</p>
+      <p>{run.state === 'ACCEPTED' ? 'Explanation refresh completed.' : run.state === 'RUNNING' ? 'Explanation refresh is in progress.' : 'Explanation refresh did not complete.'}</p>
+      {run.outcome !== null && <MarkdownBody body={run.outcome} repository={repository} />}
+    </div>
+  </details>;
   const investigation = run.investigation;
   const validations = investigation?.validations ?? [];
   const evidence = run.evidence;
+  const currentStep = run.steps.at(-1);
+  const unsealed = currentStep !== undefined && currentStep.kind !== 'VALIDATE' && currentStep.investigation === null;
   return <details className={`agr-review-details${compact ? ' is-compact' : ''}`}>
     <summary>{compact ? <>
       <span>{run.commits.length} {run.commits.length === 1 ? 'commit' : 'commits'}</span>
@@ -67,8 +90,29 @@ export default function ReviewDetails({ run, repository, compact = false }: { ru
         {run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · {run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → {shortSha(run.headSha)}
       </p>
       {investigation !== null && <>
+        <p><strong>Discovery · {unsealed ? 'Unsealed checkpoint' : 'Sealed investigation'}</strong></p>
         <h3>Change understanding</h3>
         <MarkdownBody body={investigation.changeMap} repository={repository} />
+        <details>
+          <summary>Review perspectives</summary>
+          {Object.entries(PERSPECTIVES).map(([key, label]) => {
+            const assessment = investigation.perspectives.find(item => item.perspective === key);
+            return <section key={key}>
+              <h4>{label} · {assessment === undefined ? 'Not recorded' : { CHECKED: 'Checked', NOT_APPLICABLE: 'Not applicable', BLOCKED: 'Blocked' }[assessment.status]}</h4>
+              {assessment !== undefined && <>
+                <MarkdownBody body={assessment.question} repository={repository} />
+                <MarkdownBody body={assessment.explanation} repository={repository} />
+                {assessment.responsibilities.length > 0 && <p>Responsibilities: {assessment.responsibilities.join(', ')}</p>}
+                {assessment.paths.length > 0 && <ul className="agr-review-details__files">{assessment.paths.map(path => <li key={path}><code>{path}</code></li>)}</ul>}
+                {assessment.evidenceRefs.length > 0 && <p>Evidence: {assessment.evidenceRefs.map(ref => <ReviewEvidenceLink key={ref} target={evidenceTarget(run.id, ref)}>{ref}</ReviewEvidenceLink>)}</p>}
+              </>}
+            </section>;
+          })}
+        </details>
+        <details>
+          <summary>Recorded candidates · {investigation.candidates.length}</summary>
+          <Candidates candidates={investigation.candidates} repository={repository} runId={run.id} />
+        </details>
         <details>
           <summary>Changed files assessed · {investigation.reviewedFiles.length}</summary>
           <ul className="agr-review-details__files">{investigation.reviewedFiles.map(path => <li key={path}><code>{path}</code></li>)}</ul>
@@ -88,21 +132,24 @@ export default function ReviewDetails({ run, repository, compact = false }: { ru
       {run.steps.length > 0 && <details>
         <summary>Review passes · {run.steps.length}</summary>
         {run.steps.map(step => <details key={step.number}>
-          <summary>{step.number}. {{ INVESTIGATE: 'Investigation', CHECK_NITS: 'Nit check', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation' }[step.kind]}
+          <summary>{step.number}. {{ INVESTIGATE: 'Investigation', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation', EXPLAIN: 'Explanation' }[step.kind]}
             {step.repair ? ' · report correction' : ''}{step.investigation === null && step.validation === null ? ' · no report recorded' : ''}</summary>
           {step.investigation !== null && <>
             <p>{step.investigation.reviewedFiles.length} changed {step.investigation.reviewedFiles.length === 1 ? 'file' : 'files'} assessed
               {' · '}{step.investigation.candidates.length} candidate {step.investigation.candidates.length === 1 ? 'claim' : 'claims'}</p>
             <EvidenceAnswers answers={step.investigation.answers} repository={repository} />
+            <Candidates candidates={step.investigation.candidates} repository={repository} runId={run.id} />
           </>}
           {step.validation !== null && <>
             <p>Checked the evidence from pass {step.validation.investigationStep}.</p>
             {step.validation.newCandidates.length > 0 && <>
               <strong>New hypotheses to investigate</strong>
-              <ul>{step.validation.newCandidates.map(candidate => <li key={candidate}><MarkdownBody body={candidate} repository={repository} /></li>)}</ul>
+              <Candidates candidates={step.validation.newCandidates} repository={repository} runId={run.id} />
             </>}
             {step.validation.candidates.length === 0 && <p>No candidate defects required validation.</p>}
             <ValidationConclusions validations={step.validation.candidates} repository={repository} runId={run.id} step={step.number} />
+            <p>{step.validation.selectedFindingIds.length} findings selected for the result.</p>
+            {step.validation.selectionExplanation && <MarkdownBody body={step.validation.selectionExplanation} repository={repository} />}
           </>}
         </details>)}
       </details>}
@@ -116,6 +163,7 @@ export default function ReviewDetails({ run, repository, compact = false }: { ru
         ? 'Complete coverage was recorded for the review scope.' : 'Complete coverage has not been recorded.'}</p>
       {(run.coverage?.omissions.length ?? 0) > 0 && <><h3>Not reviewed</h3>
         <ul>{run.coverage?.omissions.map(omission => <li key={omission}>{omission}</li>)}</ul></>}
+      {retainedFindings}
     </div>
   </details>;
 }

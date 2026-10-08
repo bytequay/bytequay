@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgentReviewDto, ReviewFindingDto, ReviewRunDto } from '../contracts';
+import type { AgentReviewDto, ReviewCandidateDto, ReviewCandidateValidationDto, ReviewFindingDto, ReviewRunDto } from '../contracts';
 
 /**
  * One illustrative review, used by the static render harness and the component tests.
@@ -61,18 +61,33 @@ const RUN: ReviewRunDto = {
   summary: SUMMARY,
   coverage: { complete: true, omissions: [], warnings: [], recordedAt: '2026-09-06T16:15:00Z' },
   investigation: null,
-  steps: [],
+  steps: [{ number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: {
+    investigationStep: 1, candidates: ['finding-1', 'finding-2', 'finding-3'].map((findingId, index): ReviewCandidateValidationDto => ({
+      candidate: index + 1, outcome: 'SUPPORTED', conclusion: 'Confirmed against source.', evidenceRefs: [], counterevidence: '',
+      findingId, findingRevision: 1, request: null,
+    })), newCandidates: [], selectedFindingIds: ['finding-1', 'finding-2', 'finding-3'], selectionExplanation: 'Prioritized by impact.',
+    coverage: { complete: true, omissions: [], warnings: [], recordedAt: '2026-09-06T16:15:00Z' },
+  } }],
   evidence: [],
   outcome: null,
   createdAt: '2026-09-06T16:03:00Z',
   endedAt: '2026-09-06T16:15:00Z',
 };
 
+export function explanationRunFixture(overrides: Partial<ReviewRunDto> = {}): ReviewRunDto {
+  return { ...RUN, id: 'explanation-1', ordinal: 2, turnIds: ['explanation-turn-1'],
+    coverage: null, investigation: null, steps: [{ number: 1, kind: 'EXPLAIN', repair: false, investigation: null, validation: null }],
+    summary: { ...SUMMARY, purpose: 'Refreshed change intention.',
+      commits: SUMMARY.commits.map(commit => ({ ...commit, explanation: `Refreshed explanation for ${commit.sha}.` })), criticalFindingIds: [] },
+    ...overrides };
+}
+
 const FINDINGS: ReviewFindingDto[] = [
   {
     id: 'finding-1',
     label: 'F-1',
     runId: 'run-1',
+    origin: 'AUTOMATIC',
     title: 'Nested sort-field lookup matches leaf names across struct levels',
     body: '`resolveNestedFieldId` descends by the first path segment, then falls back to matching the remaining path by '
       + 'leaf name anywhere below. With two structs that both contain a `zip` field (`address.zip` and '
@@ -123,6 +138,7 @@ const FINDINGS: ReviewFindingDto[] = [
     id: 'finding-2',
     label: 'F-2',
     runId: 'run-1',
+    origin: 'AUTOMATIC',
     title: 'sorted_by accepts a path through a list element without an error',
     body: 'The new check rejects map paths but only inspects the first segment for lists. A path like `items.price` '
       + '(`items` is a `list<struct>`) passes validation and later fails deep inside Iceberg with an unrelated message.',
@@ -153,6 +169,7 @@ const FINDINGS: ReviewFindingDto[] = [
     id: 'finding-3',
     label: 'F-3',
     runId: 'run-1',
+    origin: 'AUTOMATIC',
     title: 'Only two-level nesting is tested',
     body: 'The new test creates a struct one level deep. The resolution loop is recursive, so a three-level path '
       + '(`a.b.c`) exercises a branch that currently has no coverage.',
@@ -180,6 +197,12 @@ const FINDINGS: ReviewFindingDto[] = [
     memories: [],
   },
 ];
+
+export function candidateFixture(hypothesis: string, number = 1): ReviewCandidateDto {
+  return { number, perspective: 'BEHAVIOR', responsibility: 'R1', hypothesis, evidenceRefs: ['E1'],
+    nextCheck: 'Trace the caller and verify the expected behavior.', carriedFindingId: null, originStep: 1,
+    originTurnId: 'turn-1', attributedSource: null };
+}
 
 export function reviewFixture(overrides: Partial<AgentReviewDto> = {}): AgentReviewDto {
   return {

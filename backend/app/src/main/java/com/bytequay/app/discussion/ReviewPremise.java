@@ -14,10 +14,12 @@
 package com.bytequay.app.discussion;
 
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.app.review.ReviewSelection;
 import com.bytequay.core.discussion.TaskDiscussion;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
@@ -47,7 +49,7 @@ final class ReviewPremise
     private ReviewPremise() {}
 
     /**
-     * The newest summary, every finding, and the newest investigation's candidates with their latest assessment, as JSON
+     * The visible complete explanation, every finding, and the newest investigation's candidates with their latest assessment, as JSON
      * under its own delimiter. A review with no results yet still renders, because the code is a thread's real premise.
      *
      * @throws AgentConflictException when the premise is over the seed budget
@@ -55,17 +57,21 @@ final class ReviewPremise
     static String render(List<ReviewRun> runs, List<ReviewFinding> findings)
     {
         ObjectNode premise = JsonNodeFactory.instance.objectNode();
-        newest(runs, run -> run.summary().isPresent()).ifPresent(run -> {
-            ReviewSummary summary = run.summary().orElseThrow();
-            premise.put("head", run.headSha()).put("purpose", head(summary.purpose(), PURPOSE_CHARACTERS, TRUNCATED));
-            ArrayNode commits = premise.putArray("commits");
-            summary.commits().forEach(commit -> commits.addObject()
-                    .put("sha", commit.sha())
-                    .put("explanation", head(commit.explanation(), EXPLANATION_CHARACTERS, TRUNCATED)));
-        });
+        newest(runs, run -> run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED && run.hasCompleteSummary())
+                .or(() -> runs.stream().filter(run -> !run.explanationOnly() && run.hasCompleteSummary()).min(Comparator.comparingInt(ReviewRun::ordinal)))
+                .ifPresent(run -> {
+                    ReviewSummary summary = run.summary().orElseThrow();
+                    premise.put("explanationRunId", run.id()).put("explanationHead", run.headSha())
+                            .put("purpose", head(summary.purpose(), PURPOSE_CHARACTERS, TRUNCATED));
+                    ArrayNode commits = premise.putArray("commits");
+                    summary.commits().forEach(commit -> commits.addObject()
+                            .put("sha", commit.sha())
+                            .put("explanation", head(commit.explanation(), EXPLANATION_CHARACTERS, TRUNCATED)));
+                });
         ArrayNode saved = premise.putArray("findings");
         findings.stream().sorted(Comparator.comparing(ReviewFinding::createdAt)).forEach(finding -> {
-            ObjectNode item = saved.addObject().put("title", head(finding.title(), TITLE_CHARACTERS, TRUNCATED));
+            ObjectNode item = saved.addObject().put("id", finding.id()).put("title", head(finding.title(), TITLE_CHARACTERS, TRUNCATED))
+                    .put("revision", finding.revision()).put("origin", finding.origin().name()).put("selected", ReviewSelection.selected(finding, runs));
             finding.severity().ifPresent(severity -> item.put("severity", severity));
             item.put("state", finding.state().name());
             if (finding.outdated()) {
@@ -75,8 +81,7 @@ final class ReviewPremise
             item.put("body", head(finding.body(), BODY_CHARACTERS, TRUNCATED));
         });
         ArrayNode candidates = premise.putArray("candidates");
-        newest(runs, run -> run.investigation().isPresent()).flatMap(ReviewRun::investigation)
-                .ifPresent(investigation -> addCandidates(candidates, investigation));
+        newest(runs, run -> run.latestSealedInvestigation().isPresent()).ifPresent(run -> addCandidates(candidates, run));
         String json = premise.toString();
         if (json.length() > TaskDiscussion.MAX_SEED_CHARACTERS) {
             throw new AgentConflictException("This review is too long to ask about");
@@ -84,13 +89,18 @@ final class ReviewPremise
         return "--- review so far ---\n\n" + json;
     }
 
-    private static void addCandidates(ArrayNode candidates, ReviewInvestigation investigation)
+    private static void addCandidates(ArrayNode candidates, ReviewRun run)
     {
+        ReviewStep sealed = run.latestSealedInvestigation().orElseThrow();
+        ReviewInvestigation investigation = sealed.investigation().orElseThrow();
         for (int index = 0; index < investigation.candidates().size(); index++) {
             int number = index + 1;
-            ObjectNode item = candidates.addObject().put("claim", head(investigation.candidates().get(index), CLAIM_CHARACTERS, TRUNCATED));
-            // A later assessment of the same candidate supersedes the earlier one.
-            investigation.validations().stream().filter(validation -> validation.candidate() == number).reduce((earlier, later) -> later)
+            ObjectNode item = candidates.addObject().put("number", number)
+                    .put("perspective", investigation.candidates().get(index).perspective().name())
+                    .put("claim", head(investigation.candidates().get(index).hypothesis(), CLAIM_CHARACTERS, TRUNCATED));
+            run.steps().stream().flatMap(step -> step.validation().stream()).filter(report -> report.investigationStep() == sealed.number())
+                    .reduce((earlier, later) -> later).stream().flatMap(report -> report.candidates().stream()).filter(validation -> validation.candidate() == number)
+                    .findFirst()
                     .ifPresent(validation -> item.put("outcome", validation.outcome().name())
                             .put("conclusion", head(validation.conclusion(), CONCLUSION_CHARACTERS, TRUNCATED)));
         }

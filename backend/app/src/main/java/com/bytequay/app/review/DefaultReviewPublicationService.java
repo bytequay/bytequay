@@ -29,6 +29,7 @@ import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
 import com.google.common.collect.ImmutableList;
 import com.google.common.util.concurrent.Striped;
 import org.slf4j.Logger;
@@ -483,8 +484,10 @@ public class DefaultReviewPublicationService
             throw new ReviewConflictException(reason);
         });
         boolean validated = reviews.listRuns(finding.reviewId()).stream()
-                .filter(run -> run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(finding.validatedHeadSha()))
-                .anyMatch(run -> run.id().equals(finding.runId()) || run.steps().stream().flatMap(step -> step.validation().stream())
+                .filter(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(finding.validatedHeadSha()))
+                .anyMatch(run -> (run.id().equals(finding.runId()) && (finding.origin() == ReviewFinding.Origin.DISCUSSION
+                        || run.currentStep().flatMap(ReviewStep::validation).filter(report -> report.selectedFindingIds().contains(finding.id())).isPresent()))
+                        || run.currentStep().flatMap(ReviewStep::validation).stream()
                         .flatMap(validation -> validation.candidates().stream())
                         .anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
                                 && candidate.findingId().equals(Optional.of(finding.id())) && candidate.findingRevision().equals(Optional.of(finding.revision()))));
@@ -501,7 +504,7 @@ public class DefaultReviewPublicationService
             return Optional.of("This finding belongs to a different pull request");
         }
         List<ReviewRun> runs = reviews.listRuns(finding.reviewId());
-        if (runs.stream().noneMatch(run -> run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(commit))) {
+        if (runs.stream().noneMatch(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED && run.headSha().equals(commit))) {
             return Optional.of("This finding needs an accepted review of its source commit before publication");
         }
         return Optional.empty();

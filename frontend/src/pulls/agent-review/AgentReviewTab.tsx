@@ -39,6 +39,7 @@ import type {
   UserProfileDto,
 } from '../../types';
 import { remoteErrorMessage } from '../PullOverview';
+import MarkdownBody from '../MarkdownBody';
 import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity, { type ReviewAgentPanel } from './ReviewActivity';
@@ -48,7 +49,7 @@ import { recordReviewAttentionAction, useFindingActions } from './useFindingActi
 import ReviewSummaryCard from './ReviewSummaryCard';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha, shownRun } from './model';
+import { explanationRun, findingInResults, isExplanationRun, latestRun, newCommits, openFindings, provisional, reviewElapsed, reviewProgress, reviewRecoveryRequired, reviewRunning, reviewStatus, reviewWorktreeNotice, shortSha } from './model';
 
 export type ReviewNavigationTarget = {
   path: string;
@@ -60,7 +61,7 @@ export type ReviewNavigationTarget = {
   token: number;
 };
 
-type PendingAction = 'resume' | 'other';
+type PendingAction = 'resume' | 'refresh' | 'other';
 
 /** A placeholder for the hook's contract while no review exists; its actions are never reachable. */
 const EMPTY_REVIEW = {
@@ -170,11 +171,13 @@ export default function AgentReviewTab({
       : reviewStatus(review);
   const progress = review === null ? null : reviewProgress(review);
   const compactProgress = review === null ? null : reviewProgress(review, true);
-  const currentRun = review === null ? null : shownRun(review);
+  const currentRun = review === null ? null : latestRun(review);
   const worktreeNotice = review === null ? null : reviewWorktreeNotice(review);
   const run = review?.runs.find(item => item.id === reportRunId) ?? currentRun;
+  const currentExplanation = review === null ? null : explanationRun(review);
+  const summaryRun = reportRunId !== null && run?.summary != null && (!isExplanationRun(run) || run.state === 'ACCEPTED') ? run : currentExplanation ?? currentRun;
   const findings = review === null ? [] : openFindings(review);
-  const withdrawn = review === null ? [] : review.findings.filter(finding => finding.state === 'WITHDRAWN');
+  const withdrawn = review === null ? [] : review.findings.filter(finding => finding.state === 'WITHDRAWN' && findingInResults(review, finding));
 
   useEffect(() => {
     if (!running) return;
@@ -235,7 +238,7 @@ export default function AgentReviewTab({
       // but adopt the durable state so the next deliberate action does not repeat the same stale command.
       const reviewId = currentReviewId.current;
       if (reviewId !== null) await refresh(reviewId, conversationRef.current.latestTurnId, true).catch(() => {});
-      setError(remoteErrorMessage(failure));
+      if (pending !== 'refresh') setError(remoteErrorMessage(failure));
       if (propagate) throw failure;
     }
     finally {
@@ -310,7 +313,7 @@ export default function AgentReviewTab({
         try {
           const updated = await refresh(reviewId, next.turnId, false, next.sequence);
           // The review observer settles after the task event. One follow-up covers a read that reached it first.
-          if (live && updated !== null && updated.activeTurn === null && updated.task.mutationClaim === null && latestRun(updated)?.state === 'RUNNING') {
+          if (live && updated !== null && updated.activeTurn === null && updated.task.mutationClaim === null && updated.runs.at(-1)?.state === 'RUNNING') {
             if (settlingRefresh !== undefined) clearTimeout(settlingRefresh);
             settlingRefresh = setTimeout(() => { if (live) void refresh(reviewId, next.turnId).catch(() => {}); }, 200);
           }
@@ -553,6 +556,14 @@ export default function AgentReviewTab({
     }
   });
 
+  const retained = review.findings.filter(finding => !findingInResults(review, finding));
+  const retainedFindings = retained.length === 0 ? undefined : <details>
+    <summary>Other recorded findings · {retained.length}</summary>
+    <p>These findings are retained outside the selected result. Unfinished findings remain provisional; supported findings from a completed review can be published explicitly.</p>
+    {retained.map(finding => <ReviewFindingCard key={finding.id} review={review} finding={finding}
+      viewerLogin={viewer?.login ?? ''} viewerAvatarUrl={viewer?.avatarUrl ?? null} projection="review"
+      actions={{ ...actions, onNavigate: undefined }} busy={busy || recovery || findingActions.busy} defaultOpen={false} />)}
+  </details>;
   const progressIcons = [GitCommitHorizontal, File, CircleAlert];
   const toolbar = mode === 'cards' && !timeline ? <div className="agr-strip" aria-label="Review progress">
         <span className={`agr-strip__status is-${status?.tone ?? 'neutral'}`} title={`${status?.label} · ${status?.detail}`}>
@@ -619,8 +630,8 @@ export default function AgentReviewTab({
 
       {mode === 'cards' ? (
         <div className="agr-summary" ref={cardsRef}>
-          {run !== null && run.id !== currentRun?.id && <div className="agr-banner is-neutral">
-            <span>Earlier review · head {shortSha(run.headSha)}</span>
+          {run !== null && reportRunId !== null && (run.id !== currentRun?.id || summaryRun?.id !== currentExplanation?.id) && <div className="agr-banner is-neutral">
+            <span>{run.id === currentRun?.id ? 'Earlier explanation' : isExplanationRun(run) ? 'Saved explanation' : 'Earlier review'} · head {shortSha(run.headSha)}</span>
             <button type="button" className="agr-action" onClick={() => setReportRunId(null)}>Show latest review</button>
           </div>}
           {waiting && (
@@ -637,7 +648,7 @@ export default function AgentReviewTab({
               <span className="agr-banner__chip">Could not finish</span>
               <div className="agr-banner__text">
                 {status.detail}{' '}
-                {provisional(review) ? 'Any saved work below is provisional.' : 'The previous completed review is shown below.'}
+                {provisional(review) ? 'Saved work from this attempt is provisional.' : 'The previous completed review is shown below.'}
               </div>
               {onOpenWorkspace !== undefined && <button type="button" className="agr-action is-quiet" onClick={onOpenWorkspace}>See what happened</button>}
             </div>
@@ -662,15 +673,29 @@ export default function AgentReviewTab({
             </div>
           )}
 
-          {!timeline && run !== null && run.summary === null && <ReviewDetails run={run} repository={review.repo} />}
+          {run !== null && (timeline || run.id !== summaryRun?.id || run.summary === null) && <>
+            {(run.coverage?.warnings.length ?? 0) > 0 && <aside className="agr-banner is-warn agr-summary-card__warnings" aria-label="Verification warning">
+              <strong className="agr-banner__chip">Verification warning</strong>
+              <div className="agr-banner__text"><MarkdownBody body={[...new Set(run.coverage?.warnings)].map(warning => `- ${warning}`).join('\n')} repository={review.repo} /></div>
+            </aside>}
+            <div data-review-card={timeline ? undefined : `${run.id}:details`}><ReviewDetails run={run} repository={review.repo} retainedFindings={retainedFindings} /></div>
+          </>}
           {!timeline && <ReviewSummaryCard
             review={review}
-            run={run}
+            run={summaryRun}
             onSelectCommit={onSelectCommit}
-            findings={review.findings}
+            findings={findings}
+            retainedFindings={run?.id === summaryRun?.id ? retainedFindings : undefined}
             viewerLogin={viewer?.login ?? ''}
             viewerAvatarUrl={viewer?.avatarUrl ?? null}
             busy={busy || recovery}
+            onRefresh={summaryRun !== null && summaryRun.id === currentExplanation?.id ? () => run_(async () => {
+              onReviewChange(await window.bridge.refreshAgentReviewExplanation(review.id, summaryRun.id, summaryRun.summary?.revision ?? 1));
+              setReportRunId(null);
+              recordReviewAttentionAction(review, 'prompt');
+            }, 'refresh', true) : undefined}
+            refreshDisabledReason={review.state === 'CLOSED' ? 'This review has ended' : recovery ? 'Recover the agent runtime first'
+              : localRunReason ?? (running ? 'Wait for the current agent work to finish' : undefined)}
             onAsk={(text, revision, cardId) => run_(async () => {
               onReviewChange(await window.bridge.askAgentReview(review.id, null, revision, text, cardId));
               recordReviewAttentionAction(review, 'prompt');
@@ -701,9 +726,9 @@ export default function AgentReviewTab({
 
           {findings.length === 0 && status?.status === 'nofindings' && (
             <div className="agr-none">
-              <div className="agr-none__title">No inline findings</div>
+              <div className="agr-none__title">{retained.length > 0 ? 'No selected findings' : 'No inline findings'}</div>
               <p>
-                The agent recorded complete coverage of the review scope. Complete means the scope was
+                {retained.length > 0 ? 'No findings were selected for the main result. Other recorded findings remain in Review details. ' : ''}The agent recorded complete coverage of the review scope. Complete means the scope was
                 reviewed, not that the pull request is guaranteed correct.
               </p>
             </div>
@@ -821,6 +846,9 @@ function scrollToFinding(findingId: string) {
   const element = document.querySelector(`.agr-summary [data-finding-id="${CSS.escape(findingId)}"]`);
   const card = element?.querySelector('details');
   if (card !== null && card !== undefined) card.open = true;
+  for (let ancestor = element?.parentElement; ancestor; ancestor = ancestor.parentElement) {
+    if (ancestor instanceof HTMLDetailsElement) ancestor.open = true;
+  }
   element?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 

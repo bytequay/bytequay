@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { AgentReviewDto } from '../agent-review/contracts';
-import { latestRun } from '../agent-review/model';
+import { reviewRunning } from '../agent-review/model';
 import type { LocalRunDto, LocalRunMethodDto, LocalRunStatus, ReviewCodeFilesDto } from './contracts';
 
 const STATUS_LABELS: Record<LocalRunStatus, string> = {
@@ -166,8 +166,7 @@ export function runGate(review: AgentReviewDto, files: ReviewCodeFilesDto | null
     return { hidden: false, blocked: 'The working copy needs recovery — see Summary' };
   }
   if (claim === 'COMPLETION') return { hidden: false, blocked: 'The working copy is being updated' };
-  const reviewRun = latestRun(review);
-  if (review.activeTurn !== null || (reviewRun?.state === 'RUNNING' && !review.followUpPaused)) {
+  if (review.activeTurn !== null || reviewRunning(review)) {
     return { hidden: false, blocked: 'The review agent is working' };
   }
   if (review.queuedInputIds.length > 0) return { hidden: false, blocked: 'Remove or resume the queued question' };

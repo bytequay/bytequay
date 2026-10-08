@@ -1,0 +1,131 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.review;
+
+import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
+
+import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
+import static com.bytequay.core.review.ReviewStep.Kind.EXPLAIN;
+import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
+import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class TestReviewPrompts
+{
+    @Test
+    void explicitExplanationRefreshHasNoReviewWork()
+    {
+        assertThat(ReviewPrompts.stepRequest(run(EXPLAIN)))
+                .contains("user requested a refresh", "explanation-only assignment", "frozen diff and source", "every actual commit",
+                        "review_save_summary, then end the turn", "Do not run discovery, validation, tests, or findings review")
+                .doesNotContain("Default to two", "seal review_save_investigation", "selectedFindingIds");
+        assertThat(ReviewPrompts.INSTRUCTION).contains("EXPLAIN", "replaces the usual discovery and", "Later normal reviews still");
+    }
+
+    @Test
+    void acceptedExplanationQuestionsRemainReplyOnly()
+    {
+        ReviewRun explanation = run(EXPLAIN).ended(ReviewRun.State.ACCEPTED, Optional.empty(), Instant.EPOCH);
+        assertThat(ReviewPrompts.question("run:purpose", 2, explanation, "Why did the intent change?"))
+                .contains("Question about run:purpose (revision 2, reviewed head head)", "Why did the intent change?",
+                        "review_reply targeting run:purpose", "answer with review_reply only", "do not save, revise or withdraw findings",
+                        "Keep the original change explanation unchanged")
+                .doesNotContain("You may revise", "review_save_finding");
+        assertThat(ReviewPrompts.question("finding-1", 1, run(VALIDATE).ended(ReviewRun.State.ACCEPTED, Optional.empty(), Instant.EPOCH), "Is it a bug?"))
+                .contains("review_reply targeting finding-1", "You may revise or withdraw its finding", "review_save_finding")
+                .doesNotContain("answer with review_reply only");
+    }
+
+    @Test
+    void initialRequestSeparatesDiscoveryFromValidation()
+    {
+        AgentReview review = new AgentReview("review", "workspace", "acme/widgets", OptionalInt.of(42), OptionalLong.empty(), "task", Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        String request = ReviewPrompts.reviewRequest(review, run(INVESTIGATE), Optional.empty(), ImmutableList.of(), "reviewer");
+        assertThat(request).contains("BEHAVIOR, INTERACTIONS and DESIGN", "review_record_discovery", "without replacing candidates", "Do not save findings yet");
+        assertThat(request).contains("saved neutral responsibility map", "before reconciling", "before filtering", "delegation is unavailable");
+        assertThat(request).contains("For a small change, map it yourself", "one read-only mapping child", "while you read intent and repository rules",
+                "save the neutral map before handing it to complementary reviewers", "mapping child counts toward the concurrent child limit",
+                "Start complementary reviewers only after the parent verifies and saves the map");
+        assertThat(request).contains("Default to two concurrent read-only subagents", "use zero or one for a small change",
+                "Expand to three or four only when the saved map identifies independent unanswered responsibility questions",
+                "provider capacity permits", "time remains to inspect their reports and seal", "at most four children running, including any mapping helper",
+                "coverage perspectives, not fixed agent roles", "After each batch, reassess uncovered responsibilities, conflicting evidence and missing context",
+                "follow up with a suitable existing child when supported", "start focused children for the remaining useful questions",
+                "not a total child quota", "existing turn budget");
+        assertThat(request).doesNotContain("selectedFindingIds");
+        assertThat(request).contains("assignment.changeExplanationRequired", "alongside the map in this first pass",
+                "retain the original explanation; do not call review_save_summary", "Later reviews focus on findings even when commits change");
+    }
+
+    @Test
+    void validationSelectsFromSupportedPoolAndCollectionPreservesDiscovery()
+    {
+        assertThat(ReviewPrompts.stepRequest(run(VALIDATE)))
+                .contains("Save every supported finding draft", "selectedFindingIds", "selectionExplanation", "Unselected support is not rejection",
+                        "NEEDS_EVIDENCE", "Reuse completed checks", "Do not rewrite the change explanation or call review_save_summary");
+        assertThat(ReviewPrompts.stepRequest(run(COLLECT_EVIDENCE)))
+                .contains("Preserve candidate numbering", "review_record_discovery before filtering", "Reuse the saved map",
+                        "both changeMap and contextEvidenceRefs", "review_get_context kind source ref in a revised map", "End this turn after sealing",
+                        "Do not rewrite the change explanation or call review_save_summary");
+        assertThat(ReviewPrompts.INSTRUCTION).contains("assignment.changeExplanationRequired", "even after new commits or rewritten history",
+                "original explanation is historical", "clarify the retained explanation");
+        assertThat(ReviewPrompts.INSTRUCTION).contains("Defects, concrete suggestions and useful nits may coexist", "BLOCKED", "around 70%");
+        assertThat(ReviewPrompts.INSTRUCTION).contains("Default to two concurrent read-only children", "Expand to three or four only when the saved map",
+                "Keep at most four children running", "The parent allocates every batch", "After each batch, reassess uncovered responsibilities",
+                "when the provider supports it", "not a limit of two child batches");
+        assertThat(ReviewPrompts.INSTRUCTION).doesNotContain("at most two concurrent read-only children", "one child investigates INTERACTIONS and the other DESIGN");
+        assertThat(ReviewPrompts.INSTRUCTION).doesNotContain("CHECK_NITS", "Nit check:", "Extra saves", "CodeRabbit");
+    }
+
+    @Test
+    void discoveryCheckpointsOwnTheMapBeforeInvestigationSeals()
+    {
+        assertThat(ReviewPrompts.stepRequest(run(INVESTIGATE)))
+                .contains("Read any saved investigation map before extending it", "nonblank changeMap and nonempty contextEvidenceRefs",
+                        "frozen scope and intent, the main flow, relevant callers, owners, sibling implementations and tests, and unresolved context gaps",
+                        "ready for starting discovery and remains revisable",
+                        "at least one current-run review_get_context kind source ref", "PR, discussion and command refs may supplement but cannot replace frozen source",
+                        "source-read provenance, not semantic relevance or research depth", "The first checkpoint must have empty candidates and perspectives arrays",
+                        "Candidate and perspective writes require a map saved in a prior checkpoint", "record them after the map checkpoint before filtering",
+                        "omit both map fields to preserve them or supply both to revise them",
+                        "Do not pass changeMap or contextEvidenceRefs to the seal");
+        assertThat(ReviewPrompts.INSTRUCTION)
+                .contains("The first review_record_discovery checkpoint must include nonblank changeMap",
+                        "one current-run review_get_context kind source ref", "refs may supplement but cannot replace frozen source",
+                        "source-read provenance, not semantic relevance or research depth",
+                        "The first checkpoint must contain only the map and its evidence", "a map saved in a prior checkpoint",
+                        "A map revision may accompany later candidates or assessments", "The checkpoint gate controls tool writes",
+                        "It seals the stored changeMap, contextEvidenceRefs and discovery draft",
+                        "do not pass changeMap, contextEvidenceRefs or a replacement candidate list");
+    }
+
+    private static ReviewRun run(ReviewStep.Kind kind)
+    {
+        return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(new ReviewStep(1, kind, false, Optional.empty(), Optional.empty())), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(),
+                0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+    }
+}

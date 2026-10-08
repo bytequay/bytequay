@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { reviewFixture } from '../agent-review/fixtures/review';
+import { explanationRunFixture, reviewFixture } from '../agent-review/fixtures/review';
 import { parseLocalRun, parseLocalRunOutput, type LocalRunDto, type ReviewCodeFilesDto } from './contracts';
 import { commandLabel, runGate, runIsStale, runLabel, runSummary, shownResults } from './runModel';
 
@@ -71,6 +71,13 @@ describe('run gate', () => {
     const running = { ...review.runs[0], state: 'RUNNING' as const };
     expect(runGate({ ...review, runs: [running], followUpPaused: false }, files).blocked).toBe('The review agent is working');
     expect(runGate({ ...review, runs: [running], followUpPaused: true }, files).blocked).toBeNull();
+  });
+
+  it('waits for explanation refresh completion even after its provider turn settles', () => {
+    const review = reviewFixture();
+    const explaining = explanationRunFixture({ state: 'RUNNING' });
+    expect(runGate({ ...review, runs: [...review.runs, explaining] }, files).blocked).toBe('The review agent is working');
+    expect(runGate({ ...review, runs: [...review.runs, { ...explaining, state: 'ACCEPTED' }] }, files).blocked).toBeNull();
   });
 });
 

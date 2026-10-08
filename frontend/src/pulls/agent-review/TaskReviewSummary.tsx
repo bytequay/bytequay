@@ -159,7 +159,8 @@ function reviewEvent(review: AgentReviewDto): string {
   if (status.status === 'recovery') return 'needs its runtime recovered';
   if (status.status === 'stopped') return 'was stopped';
   if (status.status === 'failed') return 'could not finish';
-  if (status.status === 'nofindings') return `found no issues in ${run === null ? 'the changes' : commitCount(run.commits.length)}`;
+  if (status.status === 'nofindings') return review.findings.length > 0 ? 'finished with no findings selected; recorded findings remain in Review details'
+    : `found no issues in ${run === null ? 'the changes' : commitCount(run.commits.length)}`;
   return `left ${findings} local review ${findings === 1 ? 'comment' : 'comments'}`;
 }
 

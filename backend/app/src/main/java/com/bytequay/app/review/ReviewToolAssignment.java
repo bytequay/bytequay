@@ -95,7 +95,8 @@ public class ReviewToolAssignment
         if (pendingDiscussion) {
             throw new ReviewConflictException("discussion: its question is still being saved; retry this tool call");
         }
-        return new Binding(latest, Optional.empty(), Optional.empty());
+        ReviewRun findingsRun = runs.reversed().stream().filter(run -> !run.explanationOnly()).findFirst().orElse(latest);
+        return new Binding(findingsRun, Optional.empty(), Optional.empty());
     }
 
     private Optional<TurnId> discussionTurn(ReviewMessage message, TaskId taskId)

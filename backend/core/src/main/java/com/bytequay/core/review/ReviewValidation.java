@@ -23,7 +23,13 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Assessments refer to the exact sealed investigation step that the validator received. */
-public record ReviewValidation(int investigationStep, List<ReviewCandidateValidation> candidates, ReviewCoverage coverage, List<String> newCandidates)
+public record ReviewValidation(
+        int investigationStep,
+        List<ReviewCandidateValidation> candidates,
+        ReviewCoverage coverage,
+        List<ReviewCandidate> newCandidates,
+        List<String> selectedFindingIds,
+        String selectionExplanation)
 {
     public ReviewValidation
     {
@@ -31,7 +37,11 @@ public record ReviewValidation(int investigationStep, List<ReviewCandidateValida
         candidates = ImmutableList.copyOf(candidates);
         checkArgument(candidates.stream().map(ReviewCandidateValidation::candidate).distinct().count() == candidates.size(), "candidate assessments are duplicated");
         requireNonNull(coverage, "coverage is null");
-        newCandidates = newCandidates == null ? ImmutableList.of() : ImmutableList.copyOf(newCandidates);
+        newCandidates = ImmutableList.copyOf(newCandidates);
+        selectedFindingIds = ImmutableList.copyOf(selectedFindingIds);
+        checkArgument(selectedFindingIds.size() <= 10 && selectedFindingIds.stream().distinct().count() == selectedFindingIds.size(),
+                "selectedFindingIds must contain at most ten unique findings");
+        checkArgument(!requireNonNull(selectionExplanation, "selectionExplanation is null").isBlank(), "selectionExplanation is blank");
         checkArgument(!coverage.complete() || candidates.stream().noneMatch(value -> value.outcome() == NEEDS_EVIDENCE || value.outcome() == UNRESOLVED),
                 "complete coverage cannot contain unresolved candidates");
     }

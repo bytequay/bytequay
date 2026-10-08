@@ -204,6 +204,8 @@
 .agr-explanation.is-purpose > .lrc { background: linear-gradient(#f0f9f2, #fff 120px); }
 .agr-explanation.is-purpose > .lrc > .lrc__head { background: transparent; }
 .agr-explanation__meta { color: #8c959f; font-size: 11.5px; }
+.agr-explanation__heading { display: flex; flex: 1 1 150px; min-width: 0; align-items: center; gap: 4px; }
+.agr-explanation__heading > .lrc__title { flex: 0 1 auto; white-space: normal; }
 .agr-explanation .agr-pill { padding: 0 7px; font-size: 11px; }
 .agr-explanation__footer { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 4px 12px; padding: 5px 10px 5px 14px; color: #59636e; font-size: 12px; }
 .agr-explanation__footer > .lrc__ask { display: inline-flex; min-height: 24px; align-items: center; gap: 5px; margin: 0 0 0 auto; border: 1px solid #d0d7de; padding: 2px 8px; font-size: 12px; }
@@ -216,8 +218,10 @@
 .agr-explanation.is-commit > .lrc > .lrc__head > :is(.lrc__icon, .lrc__chip) { display: none; }
 .agr-explanation.is-commit > .lrc > .lrc-message { padding-left: 40px; }
 .agr-explanation__ordinal { display: inline-grid; width: 20px; height: 20px; flex: none; place-items: center; border-radius: 50%; background: #eef6ff; color: #0969da; font-size: 11px; font-weight: 600; }
-.agr-explanation__ask, .agr-explanation__diff { display: inline-flex; min-width: 26px; min-height: 26px; flex: none; align-items: center; justify-content: center; gap: 5px; margin: 0; border: 0; border-radius: 5px; background: transparent; color: #59636e; padding: 3px 5px; font: inherit; font-size: 12px; }
-.agr-explanation__diff:hover { background: #f0f1f3; }
+.agr-explanation__ask, .agr-explanation__diff, .agr-explanation__refresh { display: inline-flex; min-width: 26px; min-height: 26px; flex: none; align-items: center; justify-content: center; gap: 5px; margin: 0; border: 0; border-radius: 5px; background: transparent; color: #59636e; padding: 3px 5px; font: inherit; font-size: 12px; }
+.agr-explanation__diff:hover, .agr-explanation__refresh:hover:not(:disabled) { background: #f0f1f3; }
+.agr-explanation__refresh-status { margin: 0; padding: 4px 14px; color: #59636e; font-size: 12px; }
+.agr-explanation__refresh-status.lrc__error { color: #cf222e; }
 .agr-explanation__ask > span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .agr-explanation__message { margin: 0; padding: 8px 14px 8px 40px; background: #f6f8fa; color: #59636e; font: 12px/1.5 var(--font-mono); white-space: pre-wrap; overflow-wrap: anywhere; }
 @container (max-width: 640px) {

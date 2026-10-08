@@ -161,6 +161,9 @@ export async function run(): Promise<string[]> {
     results.push('Actual review workspace replays compact green cards and preserves ordinary input');
 
     button(pane, 'Summary').click(); await settle();
+    assert(pane.querySelector(`[data-review-card="${original.id}:purpose"]`) !== null,
+      'The default explanation must belong to the first complete report');
+    request('turn-review').querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); await settle();
     const intention = pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:purpose"]`);
     const rows = [...pane.querySelectorAll<HTMLElement>('.agr-explanation.is-commit .lrc__head')];
     const commitCards = current.commits.map(commit => pane.querySelector<HTMLElement>(`[data-review-card="${current.id}:commit:${commit.sha}"]`));

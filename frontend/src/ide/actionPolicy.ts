@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { findingInResults } from '../pulls/agent-review/model';
 import type { IdeContext } from './contracts';
 import { codeHostKey, parseCodeHost } from '../pulls/code-tests/contracts';
 
@@ -117,7 +118,7 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
     return;
   }
   if (method.startsWith('finding.')) {
-    const finding = review?.findings.find(item => item.id === args[0]);
+    const finding = review?.findings.find(item => item.id === args[0] && findingInResults(review, item));
     if (!finding) throw new Error('Unknown finding');
     if (['finding.reopen', 'finding.add', 'finding.remove'].includes(method)) count(args, 1);
     else {
@@ -132,7 +133,7 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
   }
   if (['askAgentReview', 'resolveAgentReviewFinding', 'reopenAgentReviewFinding'].includes(method)) {
     if (!review || args[0] !== review.id) throw new Error('Different review');
-    const finding = review.findings.find(item => item.id === args[1]);
+    const finding = review.findings.find(item => item.id === args[1] && findingInResults(review, item));
     if (!finding) throw new Error('Unknown finding');
     integer(args[2]);
     if (method === 'askAgentReview') { count(args, 4); if (args[2] !== finding.revision) throw new Error('Finding changed'); text(args[3]); }
@@ -184,7 +185,7 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
 
   switch (method) {
     case 'comments.refresh': count(args, 0); return;
-    case 'comments.finding': count(args, 1); if (!review?.findings.some(item => item.id === args[0])) throw new Error('Unknown finding'); return;
+    case 'comments.finding': count(args, 1); if (!review?.findings.some(item => item.id === args[0] && findingInResults(review, item))) throw new Error('Unknown finding'); return;
     case 'comments.reply': case 'comments.resolve': case 'comments.retry': {
       count(args, 2);
       const thread = comments.localReview.threads.find(item => item.id === args[0]);

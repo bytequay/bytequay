@@ -57,28 +57,37 @@ type ReviewProgressView = {
 };
 
 export function latestRun(review: AgentReviewDto): ReviewRunDto | null {
-  return review.runs.length === 0 ? null : review.runs[review.runs.length - 1];
+  return review.runs.findLast(run => !isExplanationRun(run)) ?? null;
 }
 
-function acceptedRun(review: AgentReviewDto): ReviewRunDto | null {
-  return review.runs.filter(run => run.state === 'ACCEPTED' && completeCoverage(run)).at(-1) ?? null;
+export function isExplanationRun(run: ReviewRunDto): boolean {
+  return run.steps[0]?.kind === 'EXPLAIN';
+}
+
+export function latestExplanationRun(review: AgentReviewDto): ReviewRunDto | null {
+  return review.runs.findLast(isExplanationRun) ?? null;
 }
 
 function completeCoverage(run: ReviewRunDto): boolean {
   return run.coverage?.complete === true && run.coverage.omissions.length === 0;
 }
 
-/** The run whose summary and findings the pane shows: the newest one that has anything to show. */
-export function shownRun(review: AgentReviewDto): ReviewRunDto | null {
-  const latest = latestRun(review);
-  if (latest !== null && (latest.summary !== null || latest.state === 'RUNNING')) return latest;
-  return acceptedRun(review) ?? latest;
+/** Only an accepted explicit refresh replaces the first complete explanation. */
+export function explanationRun(review: AgentReviewDto): ReviewRunDto | null {
+  const complete = review.runs.filter(run => run.summary !== null
+    && run.summary.commits.length === run.commits.length
+    && new Set(run.summary.commits.map(commit => commit.sha)).size === run.commits.length
+    && run.summary.commits.every(explanation => run.commits.some(commit => commit.sha === explanation.sha)));
+  return complete.filter(run => isExplanationRun(run) && run.state === 'ACCEPTED')
+    .reduce<ReviewRunDto | null>((latest, run) => latest === null || run.ordinal > latest.ordinal ? run : latest, null)
+    ?? complete.filter(run => !isExplanationRun(run))
+    .reduce<ReviewRunDto | null>((first, run) => first === null || run.ordinal < first.ordinal ? run : first, null);
 }
 
 export function reviewRunning(review: AgentReviewDto): boolean {
   return review.state === 'OPEN'
     && ((review.activeTurn !== null && (review.activeTurn.state === 'RUNNING' || review.activeTurn.state === 'ACCEPTED'))
-      || (!review.followUpPaused && latestRun(review)?.state === 'RUNNING' && review.task.mutationClaim === null));
+      || (!review.followUpPaused && review.runs.at(-1)?.state === 'RUNNING' && review.task.mutationClaim === null));
 }
 
 /** A turn can end before its provider is verified stopped; its retained claim still blocks execution. */
@@ -87,9 +96,18 @@ export function reviewRecoveryRequired(review: AgentReviewDto): boolean {
     && (review.task.mutationClaim === 'RECOVERY' || (review.task.mutationClaim === 'TURN' && !reviewRunning(review)));
 }
 
-/** Findings the user can still act on; a withdrawn one is history, not a card to publish. */
+/** Automatic cards use the sealed selection; explicit discussion and user history remain visible. */
+export function findingInResults(review: AgentReviewDto, finding: ReviewFindingDto): boolean {
+  if (review.draft?.items.some(item => item.findingId === finding.id && item.published)) return true;
+  const source = review.runs.find(run => run.id === finding.runId);
+  if (source?.state !== 'ACCEPTED' || !completeCoverage(source)) return false;
+  return finding.origin === 'DISCUSSION'
+    || source.steps.findLast(step => step.validation !== null)?.validation?.selectedFindingIds.includes(finding.id) === true;
+}
+
+/** Selected and discussion findings the user can still act on. */
 export function openFindings(review: AgentReviewDto): ReviewFindingDto[] {
-  return review.findings.filter(finding => finding.state !== 'WITHDRAWN');
+  return review.findings.filter(finding => finding.state !== 'WITHDRAWN' && findingInResults(review, finding));
 }
 
 /**
@@ -97,7 +115,7 @@ export function openFindings(review: AgentReviewDto): ReviewFindingDto[] {
  * the wait is not blank, and it is never publishable.
  */
 export function provisional(review: AgentReviewDto): boolean {
-  const run = shownRun(review);
+  const run = latestRun(review);
   return run !== null && (run.state !== 'ACCEPTED' || !completeCoverage(run));
 }
 
@@ -106,7 +124,7 @@ function liveScope(review: AgentReviewDto): boolean {
 }
 
 export function newCommits(review: AgentReviewDto): boolean {
-  const run = shownRun(review);
+  const run = latestRun(review);
   const head = review.observedHeadSha;
   return liveScope(review) && run !== null && head !== null && head !== run.headSha;
 }
@@ -114,7 +132,7 @@ export function newCommits(review: AgentReviewDto): boolean {
 export function reviewWorktreeNotice(review: AgentReviewDto): { label: string; message: string } | null {
   const sync = review.worktreeSync;
   if (sync == null || !liveScope(review)) return null;
-  const run = shownRun(review);
+  const run = latestRun(review);
   const assessment = run === null ? '' : ` Review results still cover ${shortSha(run.headSha)}.`;
   if (sync.state === 'CURRENT') {
     if (!newCommits(review)) return null;
@@ -149,9 +167,11 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
       return { status: 'approval', label: 'Waiting for approval', tone: 'warn', detail: 'the run waits until you answer', chip: 'Needs approval', busy: false };
     }
     const queued = review.queuedInputIds.length;
-    const label = run?.state === 'RUNNING' && (review.activeTurn === null || run.turnIds.includes(review.activeTurn.id))
+    const explanation = latestExplanationRun(review);
+    const explaining = explanation?.state === 'RUNNING' && (review.activeTurn === null || explanation.turnIds.includes(review.activeTurn.id));
+    const label = explaining ? 'Refreshing explanation' : run?.state === 'RUNNING' && (review.activeTurn === null || run.turnIds.includes(review.activeTurn.id))
       ? 'Reviewing' : 'Running';
-    const detail = run === null
+    const detail = explaining ? `explaining ${explanation.commits.length} ${explanation.commits.length === 1 ? 'commit' : 'commits'} at ${shortSha(explanation.headSha)}` : run === null
       ? 'starting the review'
       : `reviewing ${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} at ${shortSha(run.headSha)}`;
     return queued > 0
@@ -180,7 +200,7 @@ export function reviewStatus(review: AgentReviewDto): ReviewStatusView {
   if (run !== null && run.state === 'ACCEPTED') {
     const scope = `${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'} · ${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}`;
     return findings.length === 0
-      ? { status: 'nofindings', label: 'Finished', tone: 'ready', detail: 'complete coverage · no inline findings', chip: 'No findings', busy: false }
+      ? { status: 'nofindings', label: 'Finished', tone: 'ready', detail: review.findings.length > 0 ? 'complete coverage · no findings selected' : 'complete coverage · no inline findings', chip: review.findings.length > 0 ? 'None selected' : 'No findings', busy: false }
       : { status: 'ready', label: 'Finished', tone: 'ready', detail: `complete coverage · ${scope}`, chip: findingChip, busy: false };
   }
   return { status: 'running', label: 'Reviewing', tone: 'running', detail: 'preparing the review', chip: 'Reviewing', busy: true };
@@ -192,21 +212,25 @@ export function reviewProgress(review: AgentReviewDto, compact = false): ReviewP
   if (run === null) return null;
   const step = run.steps.at(-1);
   const phaseName = step === undefined ? 'Preparation' : {
-    INVESTIGATE: 'Investigation', CHECK_NITS: 'Nit check', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation',
+    INVESTIGATE: 'Investigation', COLLECT_EVIDENCE: 'Evidence collection', VALIDATE: 'Validation', EXPLAIN: 'Explanation',
   }[step.kind];
   const phase = step === undefined && run.state !== 'RUNNING' ? 'Review pass not recorded'
     : `${compact ? `${phaseName} pass` : `${run.state === 'RUNNING' ? 'Current pass' : 'Last pass'}: ${phaseName}`}${step?.repair ? ' · correcting report' : ''}`;
   const commits = new Set(run.commits.map(commit => commit.sha));
   const explained = new Set(run.summary?.commits.filter(commit => commits.has(commit.sha)).map(commit => commit.sha) ?? []);
-  const facts = [compact ? `${explained.size}/${run.commits.length}` : `${explained.size} of ${run.commits.length} commit explanations saved`];
+  const originalExplanation = explanationRun(review);
+  const facts = [originalExplanation !== null && originalExplanation.id !== run.id
+    ? `${run.commits.length} ${run.commits.length === 1 ? 'commit' : 'commits'}${compact ? '' : ' in this review'}`
+    : compact ? `${explained.size}/${run.commits.length}` : `${explained.size} of ${run.commits.length} commit explanations saved`];
   const investigationStep = run.steps.findLast(value => value.investigation !== null);
-  const investigation = investigationStep?.investigation ?? run.investigation;
+  const collecting = step !== undefined && step.kind !== 'VALIDATE' && step.investigation === null;
+  const investigation = collecting ? run.investigation : investigationStep?.investigation ?? run.investigation;
   if (investigation !== null) {
     facts.push(compact ? `${investigation.reviewedFiles.length} ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'}`
       : `${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} reported assessed in this run`);
   }
   // A new validation assignment supersedes a sealed report being corrected, even before it has a replacement.
-  const validation = step?.kind === 'VALIDATE' && step.validation === null ? undefined : run.steps.findLast(value => value.validation !== null
+  const validation = collecting || step?.kind === 'VALIDATE' && step.validation === null ? undefined : run.steps.findLast(value => value.validation !== null
     && (investigationStep === undefined || value.validation?.investigationStep === investigationStep.number))?.validation;
   const conclusions = validation?.candidates ?? (run.steps.length === 0 ? investigation?.validations : undefined);
   if (investigation !== null) {
@@ -244,7 +268,8 @@ export function reviewProgress(review: AgentReviewDto, compact = false): ReviewP
  */
 export function reviewElapsed(review: AgentReviewDto, now: number): string | null {
   if (reviewRecoveryRequired(review)) return null;
-  const run = latestRun(review);
+  const explanation = latestExplanationRun(review);
+  const run = explanation?.state === 'RUNNING' && reviewRunning(review) ? explanation : latestRun(review);
   if (run === null) return null;
   if (run.endedAt !== null) {
     const ended = Date.parse(run.endedAt);
@@ -309,8 +334,10 @@ export function findingPublication(review: AgentReviewDto, finding: ReviewFindin
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
   if (finding.state === 'RESOLVED') return { kind: 'blocked', reason: 'Excluded from publication' };
   const accepted = review.runs.some(run => run.state === 'ACCEPTED' && completeCoverage(run) && run.headSha === finding.validatedHeadSha
-    && (run.id === finding.runId || run.steps.some(step => step.validation?.candidates.some(candidate => candidate.outcome === 'SUPPORTED'
-      && candidate.findingId === finding.id && candidate.findingRevision === finding.revision))));
+      && ((run.id === finding.runId && (finding.origin === 'DISCUSSION'
+        || run.steps.findLast(step => step.validation !== null)?.validation?.selectedFindingIds.includes(finding.id)))
+        || run.steps.findLast(step => step.validation !== null)?.validation?.candidates.some(candidate => candidate.outcome === 'SUPPORTED'
+          && candidate.findingId === finding.id && candidate.findingRevision === finding.revision)));
   if (!accepted) {
     return { kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' };
   }
@@ -378,15 +405,16 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
     const run = review.runs.find(item => item.turnIds.includes(turnId));
     const followUp = run !== undefined && run.turnIds.indexOf(turnId) > 0;
     const incremental = run?.scope === 'INCREMENTAL';
+    const explaining = run !== undefined && isExplanationRun(run);
     const scope = run ? `${run.commits.length} ${incremental ? 'new ' : ''}${run.commits.length === 1 ? 'commit' : 'commits'} across `
       + `${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}` : 'the pull request';
     return {
-      action: followUp ? 'Follow-up review' : incremental ? 'Review new commits' : 'Review pull request',
+      action: explaining ? 'Refresh explanation' : followUp ? 'Follow-up review' : incremental ? 'Review new commits' : 'Review pull request',
       topic: `${review.repo}#${review.number}`,
-      body: followUp ? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,
-      detail: run ? `Private · Review ${run.ordinal} · Head ${shortSha(run.headSha)}` : 'Private review',
+      body: explaining ? `Regenerate the change intention and commit summaries for ${scope}.` : followUp ? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,
+      detail: run ? `Private · ${explaining ? 'Explanation' : 'Review'} ${run.ordinal} · Head ${shortSha(run.headSha)}` : 'Private review',
       turnId,
-      target: run ? { kind: 'card', runId: run.id, cardId: `${run.id}:purpose` } : undefined,
+      target: run ? { kind: 'card', runId: run.id, cardId: `${run.id}:${run.summary === null || explaining && run.state !== 'ACCEPTED' ? 'details' : 'purpose'}` } : undefined,
     };
   });
   return [...questions, ...generated];

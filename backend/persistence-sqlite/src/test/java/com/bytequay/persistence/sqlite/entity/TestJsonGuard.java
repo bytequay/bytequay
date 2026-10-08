@@ -74,11 +74,13 @@ class TestJsonGuard
     void decodesReviewValidationStoredWithoutWarnings()
     {
         ReviewValidation validation = REVIEW.read("""
-                {"investigationStep":1,"candidates":[],"newCandidates":[],
+                {"investigationStep":1,"candidates":[],"newCandidates":[],"selectedFindingIds":[],"selectionExplanation":"No supported findings",
                  "coverage":{"complete":true,"omissions":[],"recordedAt":"2026-09-14T00:00:00Z"}}""", ReviewValidation.class, "validation");
 
         assertThat(validation.coverage().complete()).isTrue();
         assertThat(validation.coverage().warnings()).isEmpty();
+        assertThat(validation.selectedFindingIds()).isEmpty();
+        assertThat(validation.selectionExplanation()).isEqualTo("No supported findings");
     }
 
     private static ApprovalRequest request(List<ProviderApprovalRequest.Decision> decisions, Optional<String> taskScope)

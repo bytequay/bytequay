@@ -208,11 +208,14 @@ public class ReviewReplayService
 
     private SideView side(Side side)
     {
-        Optional<ReviewRun> run = store.findReview(side.reviewId()).flatMap(review -> store.listRuns(review.id()).stream().max(Comparator.comparingInt(ReviewRun::ordinal)));
-        String state = run.map(value -> value.active() ? "RUNNING" : value.state() == ReviewRun.State.ACCEPTED ? "DONE" : value.state().name()).orElse("GONE");
-        boolean waiting = run.filter(ReviewRun::active).isPresent() && reviews.get(side.reviewId()).pendingApprovals() > 0;
+        List<ReviewRun> runs = store.findReview(side.reviewId()).map(review -> store.listRuns(review.id())).orElse(ImmutableList.of());
+        Optional<ReviewRun> run = runs.stream().filter(value -> !value.explanationOnly()).max(Comparator.comparingInt(ReviewRun::ordinal));
+        boolean active = runs.stream().anyMatch(ReviewRun::active);
+        String state = active ? "RUNNING" : run.map(value -> value.state() == ReviewRun.State.ACCEPTED ? "DONE" : value.state().name()).orElse("GONE");
+        boolean waiting = active && reviews.get(side.reviewId()).pendingApprovals() > 0;
         List<FindingView> findings = store.findReview(side.reviewId()).isEmpty() ? ImmutableList.of() : store.listFindings(side.reviewId()).stream()
                 .filter(finding -> finding.state() != ReviewFinding.State.WITHDRAWN)
+                .filter(finding -> ReviewSelection.selected(finding, runs))
                 .map(finding -> new FindingView(finding.id(), finding.label(), finding.title(), finding.severity(), finding.anchor().map(anchor -> anchor.path()),
                         finding.anchor().map(anchor -> anchor.side()), finding.anchor().map(anchor -> anchor.startLine()), finding.anchor().map(anchor -> anchor.endLine())))
                 .collect(toImmutableList());

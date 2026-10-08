@@ -70,6 +70,7 @@ import com.bytequay.core.review.ReviewDraftStore;
 import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
+import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
@@ -107,7 +108,6 @@ import java.util.function.Supplier;
 
 import static com.bytequay.agent.spi.AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.ACCEPT;
-import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.CHECK_NITS;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.COLLECT_EVIDENCE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_COVERAGE;
 import static com.bytequay.app.review.DefaultAgentReviewService.CompletionAction.INCOMPLETE_REPORT;
@@ -418,6 +418,7 @@ public class DefaultAgentReviewService
             AgentReview review = requireOpen(reviewId);
             requireNoLocalRun(tasks.get(TaskId.valueOf(review.taskId())));
             Optional<ReviewRun> active = latestRun(reviewId).filter(ReviewRun::active);
+            boolean explaining = active.filter(ReviewRun::explanationOnly).isPresent();
             if (active.isPresent()) {
                 review = settle(review, active.orElseThrow(), tasks.get(TaskId.valueOf(review.taskId())));
             }
@@ -426,7 +427,10 @@ public class DefaultAgentReviewService
             if (resumed.isPresent()) {
                 review = settle(review, resumed.orElseThrow(), tasks.get(TaskId.valueOf(review.taskId())));
             }
-            Optional<ReviewRun> latest = latestRun(reviewId);
+            if (explaining) {
+                return projection(reviewId);
+            }
+            Optional<ReviewRun> latest = latestFindingsRun(store.listRuns(reviewId));
             boolean retry = latest.map(run -> run.state() != ReviewRun.State.ACCEPTED && !run.active()).orElse(true);
             followHead(review, retry);
             return projection(reviewId);
@@ -466,6 +470,65 @@ public class DefaultAgentReviewService
             store.updateReview(current.withObservedHead(head, Instant.now(clock)));
             return resume(reviewId);
         });
+    }
+
+    @Override
+    public AgentReviewProjection refreshExplanation(String reviewId, String runId, int expectedRevision)
+    {
+        checkArgument(runId != null && !runId.isBlank(), "runId must not be blank");
+        checkArgument(expectedRevision > 0, "expectedRevision must be positive");
+        AgentReview review = locked(reviewId, () -> requireExplanationRefresh(reviewId, runId, expectedRevision));
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
+        OptionalInt number = review.number();
+        Snapshot snapshot;
+        if (review.replay().isPresent()) {
+            snapshot = frozen(store.listRuns(reviewId).getFirst());
+        }
+        else if (review.sourceTaskId().isPresent()) {
+            AgentTask source = sourceTask(review);
+            number = number.isPresent() ? number : sourcePullRequest(source, review.repo());
+            snapshot = localSnapshot(source, workspace, number);
+        }
+        else {
+            refresh.refreshAllDetail(review.repo(), number.orElseThrow());
+            snapshot = snapshot(workspace, review.repo(), number.orElseThrow());
+        }
+        OptionalInt refreshedNumber = number;
+        return locked(reviewId, () -> {
+            AgentReview current = requireExplanationRefresh(reviewId, runId, expectedRevision);
+            if (!current.observedHeadSha().equals(review.observedHeadSha()) && !current.observedHeadSha().equals(Optional.of(snapshot.headSha()))) {
+                throw new ReviewConflictException("The change moved while refreshing its explanation; reload and try again");
+            }
+            AgentTask task = tasks.get(TaskId.valueOf(current.taskId()));
+            turns.synchronizeWorktree(task.id(), task.version(),
+                    claimed -> moveWorktree(claimed, current.worktreeHeadSha().or(() -> latestRun(reviewId).map(ReviewRun::headSha)), snapshot.headSha(), workspace));
+            Instant now = Instant.now(clock);
+            AgentReview synchronizedReview = requireOpen(reviewId).withObservedHead(snapshot.headSha(), now).withWorktreeHead(snapshot.headSha(), now)
+                    .withFollowUpPaused(false, now);
+            if (synchronizedReview.number().isEmpty() && refreshedNumber.isPresent()) {
+                synchronizedReview = synchronizedReview.withPullRequest(refreshedNumber.getAsInt(), snapshot.pullRequestId(), now);
+            }
+            store.updateReview(synchronizedReview);
+            syncFailures.remove(reviewId);
+            ReviewRun run = insertRun(current, snapshot, store.listRuns(reviewId).size() + 1, ReviewRun.Scope.FULL, Optional.empty(), ReviewStep.explanation());
+            startFollowup(run, tasks.get(task.id()));
+            return projection(reviewId);
+        });
+    }
+
+    private AgentReview requireExplanationRefresh(String reviewId, String runId, int expectedRevision)
+    {
+        AgentReview review = requireOpen(reviewId);
+        List<ReviewRun> runs = store.listRuns(reviewId);
+        ReviewRun explanation = ReviewCards.explanationRun(runs).orElseThrow(() -> new ReviewConflictException("The initial change explanation is not ready"));
+        if (!explanation.id().equals(runId) || explanation.summary().orElseThrow().revision() != expectedRevision) {
+            throw new ReviewConflictException("The change explanation was revised; reload before refreshing it");
+        }
+        LocalRunService.requireIdle(turns, runs, review, tasks.get(TaskId.valueOf(review.taskId())));
+        if (runs.stream().anyMatch(ReviewRun::active)) {
+            throw new ReviewConflictException("Finish or stop the current review before refreshing its explanation");
+        }
+        return review;
     }
 
     @Override
@@ -523,7 +586,7 @@ public class DefaultAgentReviewService
         return locked(reviewId, () -> {
             AgentReview review = requireOpen(reviewId);
             ReviewRun run = cardId.map(id -> ReviewCards.requireRun(store, reviewId, id))
-                    .orElseGet(() -> latestRun(reviewId).orElseThrow(() -> new ReviewConflictException("The review has no run yet")));
+                    .orElseGet(() -> latestFindingsRun(store.listRuns(reviewId)).orElseThrow(() -> new ReviewConflictException("The review has no findings run yet")));
             String label;
             String reassessmentNote = "";
             if (findingId.isPresent()) {
@@ -544,7 +607,7 @@ public class DefaultAgentReviewService
                 }
                 label = cardId.orElse("summary");
             }
-            String prompt = ReviewPrompts.question(label, targetRevision, run.headSha(), text)
+            String prompt = ReviewPrompts.question(label, targetRevision, run, text)
                     + reassessmentNote
                     + cardId.map(id -> "\n\nSelected card:\n" + ReviewCards.content(run, id)).orElse("");
             String messageId = UUID.randomUUID().toString();
@@ -956,11 +1019,6 @@ public class DefaultAgentReviewService
         }
         ReviewStep step = run.currentStep().orElseThrow();
         return switch (action) {
-            case CHECK_NITS -> {
-                ReviewRun next = store.updateRun(run.withStep(step.next(ReviewStep.Kind.CHECK_NITS), now));
-                startFollowup(next, task);
-                yield review;
-            }
             case VALIDATE, COLLECT_EVIDENCE -> {
                 ReviewStep.Kind kind = action == VALIDATE ? ReviewStep.Kind.VALIDATE : ReviewStep.Kind.COLLECT_EVIDENCE;
                 ReviewRun next = store.updateRun(run.withStep(step.next(kind), now));
@@ -972,6 +1030,10 @@ public class DefaultAgentReviewService
                 yield review;
             }
             case ACCEPT -> {
+                if (run.explanationOnly()) {
+                    store.updateRun(run.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
+                    yield review;
+                }
                 AgentReview advanced = review.withLatestCompletedRun(run.id(), now);
                 ReviewRun completed = run.withCoverage(step.validation().orElseThrow().coverage(), now);
                 store.acceptRun(advanced, completed.ended(ReviewRun.State.ACCEPTED, Optional.empty(), now));
@@ -980,13 +1042,18 @@ public class DefaultAgentReviewService
             case INCOMPLETE_COVERAGE -> incomplete(review, run, step.validation().filter(ReviewValidation::needsEvidence).isPresent()
                     ? "The evidence follow-up limit was exhausted; candidates remain unresolved"
                     : "The review has unresolved candidates or incomplete coverage");
-            case INCOMPLETE_REPORT -> incomplete(review, run, "The agent stopped before saving a complete review report");
+            case INCOMPLETE_REPORT -> incomplete(review, run, run.explanationOnly()
+                    ? "The agent stopped before saving a complete change explanation"
+                    : "The agent stopped before saving a complete review report");
         };
     }
 
     private CompletionAction completionAction(ReviewRun run)
     {
         ReviewStep step = run.currentStep().orElseThrow();
+        if (run.explanationOnly()) {
+            return run.hasCompleteSummary() ? ACCEPT : step.repair() ? INCOMPLETE_REPORT : REPAIR;
+        }
         if (step.validation().isPresent()) {
             ReviewValidation validation = step.validation().orElseThrow();
             if (!currentValidation(run, validation)) {
@@ -995,19 +1062,16 @@ public class DefaultAgentReviewService
             if (validation.needsEvidence() && run.steps().stream().filter(value -> value.kind() == ReviewStep.Kind.COLLECT_EVIDENCE).count() < 2) {
                 return COLLECT_EVIDENCE;
             }
-            if (!validation.coverage().complete() || !validation.coverage().omissions().isEmpty()) {
+            if (!validation.coverage().complete() || !validation.coverage().omissions().isEmpty()
+                    || !run.latestSealedInvestigation().orElseThrow().investigation().orElseThrow().completePerspectives()) {
                 return INCOMPLETE_COVERAGE;
-            }
-            if (validation.candidates().stream().noneMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED)
-                    && run.steps().stream().noneMatch(value -> value.kind() == ReviewStep.Kind.CHECK_NITS)) {
-                return CHECK_NITS;
             }
             return ACCEPT;
         }
         if (run.coverage().filter(coverage -> !coverage.complete() || !coverage.omissions().isEmpty()).isPresent()) {
             return INCOMPLETE_COVERAGE;
         }
-        if (step.investigation().isPresent() && run.hasCompleteSummary()) {
+        if (step.investigation().isPresent() && ReviewCards.hasExplanation(store, run)) {
             return VALIDATE;
         }
         return step.repair() ? INCOMPLETE_REPORT : REPAIR;
@@ -1018,7 +1082,7 @@ public class DefaultAgentReviewService
         ReviewStep step = run.currentStep().orElseThrow();
         // A stale sealed report needs a new identity: replaying its old operation key would restore the stale result.
         boolean stale = step.validation().filter(report -> !currentValidation(run, report)).isPresent()
-                || (step.investigation().isPresent() && !run.hasCompleteSummary());
+                || (step.investigation().isPresent() && !ReviewCards.hasExplanation(store, run));
         ReviewRun repairing = stale
                 ? run.withStep(step.next(step.kind()).forRepair(), Instant.now(clock))
                 : run.replaceCurrentStep(step.forRepair(), Instant.now(clock));
@@ -1028,11 +1092,12 @@ public class DefaultAgentReviewService
     /** Tool admission checks again at acceptance, since a retained finding can be edited between writes. */
     private boolean currentValidation(ReviewRun run, ReviewValidation validation)
     {
-        Optional<ReviewStep> investigation = run.steps().stream().filter(step -> step.investigation().isPresent()).reduce((first, second) -> second);
-        if (!run.hasCompleteSummary() || investigation.isEmpty() || investigation.orElseThrow().number() != validation.investigationStep()) {
+        Optional<ReviewStep> investigation = run.latestSealedInvestigation();
+        if (!ReviewCards.hasExplanation(store, run) || investigation.isEmpty() || investigation.orElseThrow().number() != validation.investigationStep()) {
             return false;
         }
-        int existingCandidates = investigation.orElseThrow().investigation().orElseThrow().candidates().size();
+        ReviewInvestigation report = investigation.orElseThrow().investigation().orElseThrow();
+        int existingCandidates = report.candidates().size();
         int candidates = existingCandidates + validation.newCandidates().size();
         if (validation.candidates().size() != candidates || validation.candidates().stream().anyMatch(candidate -> candidate.candidate() > candidates)) {
             return false;
@@ -1045,6 +1110,10 @@ public class DefaultAgentReviewService
                 return false;
             }
             if (candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED) {
+                Optional<String> carriedFinding = report.candidates().get(candidate.candidate() - 1).carriedFindingId();
+                if (carriedFinding.isPresent() && !carriedFinding.equals(candidate.findingId())) {
+                    return false;
+                }
                 Optional<ReviewFinding> finding = candidate.findingId().flatMap(store::findFinding);
                 if (finding.isEmpty() || !finding.orElseThrow().reviewId().equals(run.reviewId()) || finding.orElseThrow().state() == ReviewFinding.State.WITHDRAWN
                         || finding.orElseThrow().outdated() || !finding.orElseThrow().validatedHeadSha().equals(run.headSha())
@@ -1054,9 +1123,19 @@ public class DefaultAgentReviewService
                 }
             }
         }
+        if (validation.selectedFindingIds().stream().anyMatch(id -> store.findFinding(id)
+                .filter(finding -> finding.reviewId().equals(run.reviewId()) && finding.runId().equals(run.id())
+                        && finding.origin() == ReviewFinding.Origin.AUTOMATIC)
+                .filter(finding -> validation.candidates().stream().anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
+                        && candidate.findingId().equals(Optional.of(id)) && candidate.findingRevision().equals(Optional.of(finding.revision()))))
+                .isEmpty())) {
+            return false;
+        }
         return !validation.coverage().complete() || store.listFindings(run.reviewId()).stream()
-                .filter(finding -> finding.state() == ReviewFinding.State.OPEN)
-                .allMatch(finding -> validation.candidates().stream()
+                .filter(finding -> finding.state() == ReviewFinding.State.OPEN
+                        || (finding.runId().equals(run.id()) && finding.origin() == ReviewFinding.Origin.AUTOMATIC && finding.state() != ReviewFinding.State.WITHDRAWN))
+                .allMatch(finding -> (finding.runId().equals(run.id()) || report.candidates().stream()
+                        .anyMatch(candidate -> candidate.carriedFindingId().equals(Optional.of(finding.id())))) && validation.candidates().stream()
                         .anyMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
                                 && candidate.findingId().equals(Optional.of(finding.id()))));
     }
@@ -1131,8 +1210,8 @@ public class DefaultAgentReviewService
     private void followHead(AgentReview review, boolean retry)
     {
         List<ReviewRun> runs = store.listRuns(review.id());
-        Optional<ReviewRun> latest = runs.isEmpty() ? Optional.empty() : Optional.of(runs.getLast());
-        if (latest.map(ReviewRun::active).orElse(false) || review.observedHeadSha().isEmpty()) {
+        Optional<ReviewRun> latest = latestFindingsRun(runs);
+        if (runs.stream().anyMatch(ReviewRun::active) || review.observedHeadSha().isEmpty()) {
             return;
         }
         String head = review.observedHeadSha().orElseThrow();
@@ -1159,7 +1238,7 @@ public class DefaultAgentReviewService
             store.updateReview(review.withObservedHead(snapshot.headSha(), Instant.now(clock)));
         }
         Optional<ReviewRun> previous = runs.stream()
-                .filter(run -> run.state() == ReviewRun.State.ACCEPTED && run.hasCompleteSummary()
+                .filter(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED
                         && run.coverage().filter(coverage -> coverage.complete() && coverage.omissions().isEmpty()).isPresent())
                 .reduce((first, second) -> second);
         // Compared with the fetched head: a retry can find a newer head than the observed one, and every run must sit where the worktree does.
@@ -1234,32 +1313,8 @@ public class DefaultAgentReviewService
                 && previous.orElseThrow().baseSha().equals(snapshot.baseSha())
                 && previous.orElseThrow().mergeBaseSha().equals(snapshot.mergeBaseSha())
                 && git.run(workspace.repository(), "merge-base", "--is-ancestor", previous.orElseThrow().headSha(), snapshot.headSha()).successful();
-        ReviewRun run = store.insertRun(new ReviewRun(
-                UUID.randomUUID().toString(),
-                review.id(),
-                ordinal,
-                incremental ? ReviewRun.Scope.INCREMENTAL : ReviewRun.Scope.FULL,
-                snapshot.baseRef(),
-                snapshot.baseSha(),
-                snapshot.mergeBaseSha(),
-                snapshot.headSha(),
-                previous.map(ReviewRun::headSha),
-                snapshot.commits(),
-                snapshot.diff(),
-                ImmutableList.of(),
-                ReviewRun.State.RUNNING,
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                ImmutableList.of(ReviewStep.initial()),
-                false,
-                ImmutableMap.of(),
-                ImmutableMap.of(),
-                Optional.empty(),
-                0,
-                now,
-                now,
-                Optional.empty()));
+        ReviewRun run = insertRun(review, snapshot, ordinal, incremental ? ReviewRun.Scope.INCREMENTAL : ReviewRun.Scope.FULL,
+                previous.map(ReviewRun::headSha), ReviewStep.initial());
         AgentTurn turn;
         try {
             for (ReviewFinding finding : findings) {
@@ -1288,6 +1343,15 @@ public class DefaultAgentReviewService
         if (!current.turnIds().contains(turn.id().toString())) {
             store.updateRun(current.withTurn(turn.id().toString(), Instant.now(clock)));
         }
+    }
+
+    private ReviewRun insertRun(AgentReview review, Snapshot snapshot, int ordinal, ReviewRun.Scope scope, Optional<String> priorHead, ReviewStep step)
+    {
+        Instant now = Instant.now(clock);
+        return store.insertRun(new ReviewRun(
+                UUID.randomUUID().toString(), review.id(), ordinal, scope, snapshot.baseRef(), snapshot.baseSha(), snapshot.mergeBaseSha(), snapshot.headSha(), priorHead,
+                snapshot.commits(), snapshot.diff(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(step), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, now, now, Optional.empty()));
     }
 
     /**
@@ -1581,6 +1645,11 @@ public class DefaultAgentReviewService
         return runs.isEmpty() ? Optional.empty() : Optional.of(runs.getLast());
     }
 
+    private static Optional<ReviewRun> latestFindingsRun(List<ReviewRun> runs)
+    {
+        return runs.stream().filter(run -> !run.explanationOnly()).reduce((first, second) -> second);
+    }
+
     private AgentReview requireReview(String reviewId)
     {
         return store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
@@ -1622,7 +1691,6 @@ public class DefaultAgentReviewService
     enum CompletionAction
     {
         VALIDATE,
-        CHECK_NITS,
         COLLECT_EVIDENCE,
         REPAIR,
         ACCEPT,

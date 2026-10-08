@@ -205,6 +205,13 @@ public class ReviewController
         return ReviewHttpModels.review(reviews.update(reviewId));
     }
 
+    @PostMapping("/{reviewId}/explanation/refresh")
+    public ReviewHttpModels.ReviewResponse refreshExplanation(@PathVariable String reviewId, @RequestBody ReviewHttpModels.RefreshExplanationRequest request)
+    {
+        requireNotBlank(request.runId(), "runId must not be blank");
+        return ReviewHttpModels.review(reviews.refreshExplanation(reviewId, request.runId(), required(request.expectedRevision(), "expectedRevision")));
+    }
+
     @PostMapping("/{reviewId}/end")
     public ReviewHttpModels.ReviewResponse end(@PathVariable String reviewId)
     {

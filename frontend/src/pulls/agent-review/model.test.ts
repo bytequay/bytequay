@@ -17,6 +17,8 @@ import {
   askQueues,
   draftItemFor,
   draftCommentCommit,
+  explanationRun,
+  findingInResults,
   findingPill,
   findingPublication,
   latestRun,
@@ -34,9 +36,8 @@ import {
   reviewStatus,
   shortPath,
   shortSha,
-  shownRun,
 } from './model';
-import { reviewFixture, runningReviewFixture } from './fixtures/review';
+import { candidateFixture, explanationRunFixture, reviewFixture, runningReviewFixture } from './fixtures/review';
 import { parseAgentReview } from './contracts';
 import type { AgentReviewDto, ReviewDraftDto, ReviewFindingDto, ReviewInvestigationDto, ReviewMessageDto, ReviewStepDto } from './contracts';
 
@@ -137,12 +138,12 @@ describe('review status', () => {
       { number: 2, kind: 'COLLECT_EVIDENCE', repair: false, investigation: null, validation: null },
     ] }] };
     expect(reviewStatus(collecting)).toMatchObject({ label: 'Reviewing', chip: 'Reviewing' });
-    const checkingNits = parseAgentReview({ ...collecting, runs: [{ ...collecting.runs[0], steps: [
+    const collectingAgain = parseAgentReview({ ...collecting, runs: [{ ...collecting.runs[0], steps: [
       ...collecting.runs[0].steps,
-      { number: 3, kind: 'CHECK_NITS', repair: false, investigation: null, validation: null },
+      { number: 3, kind: 'COLLECT_EVIDENCE', repair: false, investigation: null, validation: null },
     ] }] });
-    expect(reviewStatus(checkingNits)).toMatchObject({ label: 'Reviewing', chip: 'Reviewing' });
-    expect(reviewProgress(checkingNits)?.phase).toBe('Current pass: Nit check');
+    expect(reviewStatus(collectingAgain)).toMatchObject({ label: 'Reviewing', chip: 'Reviewing' });
+    expect(reviewProgress(collectingAgain)?.phase).toBe('Current pass: Evidence collection');
     expect(reviewStatus({ ...collecting, queuedInputIds: ['q1'] }).chip).toBe('Reviewing · 1 queued');
     expect(reviewStatus({ ...validating, activeTurn: { id: 'discussion-turn', state: 'RUNNING', startedAt: null, cancellationRequestedAt: null } }).label).toBe('Running');
     expect(reviewRequests(validating).find(request => request.turnId === 'turn-1')?.action).toBe('Follow-up review');
@@ -165,7 +166,8 @@ describe('review status', () => {
     const review = reviewFixture();
     const failed = { ...review, runs: [...review.runs, { ...review.runs[0], id: 'failed-run', state: 'FAILED' as const,
       summary: null, coverage: null, outcome: 'The current scope could not be reviewed' }] };
-    expect(shownRun(failed)?.id).toBe('run-1');
+    expect(latestRun(failed)?.id).toBe('failed-run');
+    expect(explanationRun(failed)?.id).toBe('run-1');
     expect(reviewStatus(failed)).toMatchObject({ status: 'failed', detail: 'The current scope could not be reviewed' });
   });
 
@@ -217,7 +219,7 @@ describe('review progress', () => {
   it('shows the current persisted pass and reported scope without inventing a completion percentage', () => {
     const running = runningReviewFixture();
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace the changed path.', reviewedFiles: ['src/A.java', 'src/B.java'],
-      contextEvidenceRefs: [], candidates: ['First hypothesis', 'Second hypothesis'], validations: [], answers: [] };
+      contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('First hypothesis'), candidateFixture('Second hypothesis', 2)], validations: [], answers: [] };
     const review: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], steps: [
       { number: 1, kind: 'INVESTIGATE', repair: false, investigation, validation: null },
       { number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: null },
@@ -232,15 +234,15 @@ describe('review progress', () => {
       { ...review.runs[0].steps[1], repair: true }] }] })?.phase).toBe('Current pass: Validation · correcting report');
   });
 
-  it('retains concrete evidence requests, unavailable checks and omissions without treating them as accepted coverage', () => {
+  it('keeps a new discovery checkpoint separate from the preceding validation result', () => {
     const running = runningReviewFixture();
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace the changed path.', reviewedFiles: ['src/A.java'],
-      contextEvidenceRefs: [], candidates: ['First hypothesis'], validations: [], answers: [] };
+      contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('First hypothesis')], validations: [], answers: [] };
     const validation: NonNullable<ReviewStepDto['validation']> = { investigationStep: 1, candidates: [{ candidate: 1, outcome: 'NEEDS_EVIDENCE',
       conclusion: 'A boundary check is missing.', evidenceRefs: ['E1'], counterevidence: 'Checked the guard.', findingId: null,
       findingRevision: null, request: { question: 'Does the boundary fail?', check: 'Run a focused test.', resolvesWhen: 'The output shows the result.' } }],
       coverage: { complete: false, omissions: ['Boundary behavior unresolved'], warnings: ['Remote check unavailable'], recordedAt: '2026-09-06T16:15:00Z' },
-      newCandidates: [] };
+      newCandidates: [], selectedFindingIds: [], selectionExplanation: '' };
     const review: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], investigation, steps: [
       { number: 1, kind: 'INVESTIGATE', repair: false, investigation, validation: null },
       { number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation },
@@ -249,14 +251,14 @@ describe('review progress', () => {
     expect(reviewProgress(review)).toEqual({
       phase: 'Current pass: Evidence collection',
       facts: ['2 of 5 commit explanations saved', '1 changed file reported assessed in this run', '1 candidate claim recorded'],
-      gaps: ['1 specific check requested', '1 unavailable check', '1 unresolved or unreviewed item'],
+      gaps: [],
     });
   });
 
   it('does not carry an earlier validation into a new evidence investigation', () => {
     const running = runningReviewFixture();
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace the changed path.', reviewedFiles: ['src/A.java'],
-      contextEvidenceRefs: [], candidates: ['First hypothesis'], validations: [], answers: [] };
+      contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('First hypothesis')], validations: [], answers: [] };
     const answer: ReviewInvestigationDto['answers'][number] = {
       candidate: 1, attempted: 'Checked the boundary.', evidenceRefs: ['E2'], limitation: null,
     };
@@ -265,7 +267,7 @@ describe('review progress', () => {
         counterevidence: '', findingId: null, findingRevision: null,
         request: { question: 'Does it fail?', check: 'Run the boundary test.', resolvesWhen: 'The output settles it.' } }],
       coverage: { complete: false, omissions: ['Boundary unresolved'], warnings: [], recordedAt: '2026-09-06T16:15:00Z' },
-      newCandidates: [] };
+      newCandidates: [], selectedFindingIds: [], selectionExplanation: '' };
     const review: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], investigation: { ...investigation, answers: [answer] }, steps: [
       { number: 1, kind: 'INVESTIGATE', repair: false, investigation, validation: null },
       { number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: oldValidation },
@@ -282,12 +284,12 @@ describe('review progress', () => {
   it('does not present a superseded validation report as the current result during repair', () => {
     const running = runningReviewFixture();
     const investigation: ReviewInvestigationDto = { changeMap: 'Trace the changed path.', reviewedFiles: ['src/A.java'],
-      contextEvidenceRefs: [], candidates: ['First hypothesis'], validations: [], answers: [] };
+      contextEvidenceRefs: [], perspectives: [], candidates: [candidateFixture('First hypothesis')], validations: [], answers: [] };
     const oldValidation: NonNullable<ReviewStepDto['validation']> = { investigationStep: 1,
       candidates: [{ candidate: 1, outcome: 'SUPPORTED', conclusion: 'Earlier conclusion.', evidenceRefs: ['E1'],
         counterevidence: '', findingId: 'finding-1', findingRevision: 1, request: null }],
       coverage: { complete: true, omissions: [], warnings: ['Earlier unavailable check'], recordedAt: '2026-09-06T16:15:00Z' },
-      newCandidates: [] };
+      newCandidates: [], selectedFindingIds: [], selectionExplanation: '' };
     const review: AgentReviewDto = { ...running, runs: [{ ...running.runs[0], investigation, steps: [
       { number: 1, kind: 'INVESTIGATE', repair: false, investigation, validation: null },
       { number: 2, kind: 'VALIDATE', repair: false, investigation: null, validation: oldValidation },
@@ -306,17 +308,83 @@ describe('review progress', () => {
     const failed: AgentReviewDto = { ...accepted, runs: [...accepted.runs, { ...accepted.runs[0], id: 'run-2',
       state: 'INCOMPLETE', summary: null, coverage: null, steps: [], investigation: null, outcome: 'No report' }] };
     expect(reviewProgress(failed)).toEqual({
-      phase: 'Review pass not recorded', facts: ['0 of 5 commit explanations saved'], gaps: ['Complete review result not accepted'],
+      phase: 'Review pass not recorded', facts: ['5 commits in this review'], gaps: ['Complete review result not accepted'],
     });
   });
 });
 
 describe('run selection', () => {
-  it('shows the newest run that has something to show', () => {
+  it('adopts only the latest accepted complete explicit refresh without replacing the findings baseline', () => {
+    const original = reviewFixture();
+    const refresh = explanationRunFixture({ headSha: 'a'.repeat(40) });
+    const next = { ...original, observedHeadSha: refresh.headSha, runs: [...original.runs, refresh] };
+    expect(explanationRun(parseAgentReview(next))?.id).toBe(refresh.id);
+    expect(latestRun(next)?.id).toBe(original.runs[0].id);
+    expect(newCommits(next)).toBe(true);
+    expect(provisional(next)).toBe(false);
+    expect(openFindings(next)).toEqual(openFindings(original));
+    expect(reviewStatus(next).status).toBe('newcommits');
+    const laterReview: AgentReviewDto['runs'][number] = { ...original.runs[0], id: 'later-review', ordinal: 3, summary: null };
+    const laterRefresh = { ...refresh, id: 'later-refresh', ordinal: 4 };
+    expect(explanationRun({ ...next, runs: [...next.runs, laterReview] })?.id).toBe(refresh.id);
+    expect(explanationRun({ ...next, runs: [...next.runs, laterReview, laterRefresh] })?.id).toBe(laterRefresh.id);
+  });
+
+  it.each(['RUNNING', 'FAILED', 'STOPPED', 'INCOMPLETE'] as const)('retains the prior complete explanation through a %s refresh', state => {
+    const original = reviewFixture();
+    const accepted = explanationRunFixture();
+    const attempted = explanationRunFixture({ id: 'next-explanation', ordinal: 3, state });
+    expect(explanationRun({ ...original, runs: [...original.runs, attempted] })?.id).toBe(original.runs[0].id);
+    expect(explanationRun({ ...original, runs: [...original.runs, accepted, attempted] })?.id).toBe(accepted.id);
+  });
+
+  it('rejects an accepted refresh with incomplete commit explanations', () => {
+    const original = reviewFixture();
+    const refresh = explanationRunFixture();
+    expect(explanationRun({ ...original, runs: [...original.runs, { ...refresh, summary: refresh.summary === null ? null
+      : { ...refresh.summary, commits: refresh.summary.commits.slice(1) } }] })?.id).toBe(original.runs[0].id);
+  });
+
+  it('keeps refresh execution busy without presenting it as finding review or losing the saved review progress', () => {
+    const original = reviewFixture();
+    const refresh = explanationRunFixture({ state: 'RUNNING', endedAt: null });
+    const value: AgentReviewDto = { ...original, runs: [...original.runs, refresh], activeTurn: null, followUpPaused: false };
+    expect(reviewRunning(value)).toBe(true);
+    expect(reviewStatus(value)).toMatchObject({ label: 'Refreshing explanation', busy: true });
+    expect(reviewProgress(value)).toEqual(reviewProgress(original));
+    expect(reviewElapsed(value, Date.parse(refresh.createdAt) + 9000)).toBe('9s');
+    expect(reviewRequests(value).find(request => request.turnId === refresh.turnIds[0])).toMatchObject({
+      action: 'Refresh explanation', target: { kind: 'card', runId: refresh.id, cardId: `${refresh.id}:details` },
+    });
+    const failed = { ...value, runs: [...original.runs, { ...refresh, state: 'FAILED' as const }] };
+    expect(reviewStatus(failed)).toEqual(reviewStatus(original));
+  });
+
+  it('keeps the current run separate from the original change explanation', () => {
     const review = reviewFixture();
-    expect(shownRun(review)?.id).toBe('run-1');
+    expect(explanationRun(review)?.id).toBe('run-1');
     expect(latestRun(review)?.id).toBe('run-1');
-    expect(shownRun(reviewFixture({ runs: [] }))).toBeNull();
+    expect(explanationRun(reviewFixture({ runs: [] }))).toBeNull();
+    const current: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', ordinal: 2, summary: null, state: 'FAILED',
+      headSha: 'a'.repeat(40), coverage: null };
+    const updated = { ...review, observedHeadSha: current.headSha, runs: [...review.runs, current] };
+    expect(latestRun(updated)).toBe(current);
+    expect(explanationRun(updated)?.id).toBe('run-1');
+    expect(provisional(updated)).toBe(true);
+    expect(newCommits(updated)).toBe(false);
+  });
+
+  it('selects the earliest complete explanation using its own commit identities regardless of run outcome', () => {
+    const review = reviewFixture();
+    const first = review.runs[0];
+    const summary = first.summary;
+    if (summary === null) throw new Error('Fixture needs a complete explanation');
+    const later = { ...first, id: 'run-2', ordinal: 2 };
+    expect(explanationRun({ ...review, runs: [later, { ...first, state: 'FAILED' }] })?.id).toBe(first.id);
+    for (const commits of [summary.commits.slice(1), [...summary.commits, summary.commits[0]],
+      summary.commits.map(() => summary.commits[0]), summary.commits.map((commit, index) => index === 0 ? { ...commit, sha: 'unknown' } : commit)]) {
+      expect(explanationRun({ ...review, runs: [{ ...first, summary: { ...summary, commits } }, later] })?.id).toBe(later.id);
+    }
   });
 
   it('marks results provisional until their run is accepted', () => {
@@ -364,7 +432,7 @@ describe('publication eligibility', () => {
 
   it('does not promote a new hypothesis merely because an earlier accepted run shares its head', () => {
     const latest: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', state: 'RUNNING', summary: null, coverage: null };
-    const hypothesis = { ...finding, runId: latest.id };
+    const hypothesis = { ...finding, id: 'new-hypothesis', runId: latest.id };
     expect(findingPublication({ ...review, runs: [...review.runs, latest], findings: [hypothesis] }, hypothesis))
       .toMatchObject({ kind: 'blocked', reason: 'Publishing unlocks when validation and complete coverage are accepted' });
   });
@@ -374,7 +442,7 @@ describe('publication eligibility', () => {
     const validated: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', headSha: reassessed.validatedHeadSha,
       steps: [{ number: 1, kind: 'VALIDATE', repair: false, investigation: null, validation: { investigationStep: 1,
         candidates: [{ candidate: 1, outcome: 'SUPPORTED', conclusion: 'Verified at the new commit', evidenceRefs: [], counterevidence: '',
-          findingId: finding.id, findingRevision: finding.revision, request: null }], coverage: review.runs[0].coverage, newCandidates: [] } }] };
+          findingId: finding.id, findingRevision: finding.revision, request: null }], coverage: review.runs[0].coverage, newCandidates: [], selectedFindingIds: [], selectionExplanation: '' } }] };
     const accepted = { ...review, runs: [...review.runs, validated], findings: [reassessed] };
     expect(findingPublication(accepted, reassessed)).toEqual({ kind: 'publishable' });
     expect(findingPublication(accepted, { ...reassessed, revision: 2 }).kind).toBe('blocked');
@@ -400,7 +468,8 @@ describe('publication eligibility', () => {
     for (const state of ['RUNNING', 'INCOMPLETE'] as const) {
       const latest: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', state, summary: null, coverage: null };
       const attempted: AgentReviewDto = { ...review, runs: [...review.runs, latest] };
-      if (state === 'INCOMPLETE') expect(shownRun(attempted)?.id).toBe('run-1');
+      expect(explanationRun(attempted)?.id).toBe('run-1');
+      expect(latestRun(attempted)?.id).toBe('run-2');
       expect(findingPublication(attempted, finding)).toEqual({ kind: 'publishable' });
     }
   });
@@ -546,6 +615,13 @@ describe('review request topics', () => {
 
 
 describe('review request navigation and generated turns', () => {
+  it('opens current review details for an update that reuses the original explanation', () => {
+    const review = reviewFixture();
+    const current: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', ordinal: 2, summary: null, turnIds: ['update-turn'] };
+    expect(reviewRequests({ ...review, runs: [...review.runs, current] }).find(request => request.turnId === 'update-turn')?.target)
+      .toEqual({ kind: 'card', runId: current.id, cardId: `${current.id}:details` });
+  });
+
   it('renders initial, incremental and completion-repair requests from durable turn identities', () => {
     const review = reviewFixture();
     const original = review.runs[0];
@@ -591,5 +667,44 @@ describe('review request navigation and generated turns', () => {
       { ...review.messages[0], author: 'AGENT', turnId: 'ordinary-turn', body: 'Review pull request' },
     ] });
     expect(requests).toEqual([]);
+  });
+});
+
+
+describe('sealed result selection', () => {
+  it('shows only selected automatic findings and accepted discussion findings, retaining every record', () => {
+    const original = reviewFixture();
+    const source = original.runs[0];
+    const review: AgentReviewDto = { ...original, runs: [{ ...source, steps: source.steps.map(step => ({ ...step,
+      validation: step.validation === null ? null : { ...step.validation, selectedFindingIds: ['finding-1'] },
+    })) }] };
+    expect(openFindings(review).map(finding => finding.id)).toEqual(['finding-1']);
+    expect(review.findings).toHaveLength(3);
+    expect(findingPublication(review, review.findings[1]).kind).toBe('publishable');
+    expect(findingInResults(review, { ...review.findings[1], state: 'RESOLVED' })).toBe(false);
+    expect(findingInResults(review, { ...review.findings[0], state: 'RESOLVED' })).toBe(true);
+    expect(findingInResults(review, { ...review.findings[1], origin: 'DISCUSSION' })).toBe(true);
+    expect(findingInResults({ ...review, runs: [{ ...review.runs[0], state: 'RUNNING' }] }, review.findings[0])).toBe(false);
+    expect(findingInResults({ ...review, runs: [{ ...review.runs[0], state: 'INCOMPLETE' }] }, { ...review.findings[1], origin: 'DISCUSSION' })).toBe(false);
+    expect(findingInResults({ ...review, draft: draft([draftItem({ findingId: 'finding-2', published: false })]) }, review.findings[1])).toBe(false);
+    expect(findingInResults({ ...review, draft: draft([draftItem({ findingId: 'finding-2', published: true })]) }, review.findings[1])).toBe(true);
+    const updated: AgentReviewDto = { ...review, runs: [...review.runs, { ...source, id: 'run-2', state: 'RUNNING', steps: [] }] };
+    expect(openFindings(updated).map(finding => finding.id)).toEqual(['finding-1']);
+  });
+
+  it('preserves selected discussion edits but requires exact final support to publish unselected findings', () => {
+    const original = reviewFixture();
+    const source = original.runs[0];
+    const review: AgentReviewDto = { ...original, runs: [{ ...source, steps: source.steps.map(step => ({ ...step,
+      validation: step.validation === null ? null : { ...step.validation, selectedFindingIds: ['finding-1'] },
+    })) }] };
+    expect(findingPublication(review, { ...review.findings[0], revision: 2 }).kind).toBe('publishable');
+    expect(findingPublication(review, { ...review.findings[1], revision: 2 }).kind).toBe('blocked');
+    const sealed = source.steps[0].validation;
+    if (sealed === null) throw new Error('Fixture needs a sealed validation');
+    const rejected = { ...review, runs: [{ ...review.runs[0], steps: [...review.runs[0].steps, { ...source.steps[0], number: 4,
+      validation: { ...sealed, selectedFindingIds: ['finding-1'], candidates: [] },
+    }] }] };
+    expect(findingPublication(rejected, review.findings[1]).kind).toBe('blocked');
   });
 });

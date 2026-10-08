@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { findingInResults } from '../pulls/agent-review/model';
 import { prepareAgentInput } from '../agents/preparedInput';
 import { useEffect, useRef, useState } from 'react';
 import LogoLoading from '../LogoLoading';
@@ -51,7 +52,7 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
   const { comments, host, review } = props;
   const args = request.args;
   if (request.method.startsWith('finding.')) {
-    const finding = review?.findings.find(item => item.id === args[0]);
+    const finding = review?.findings.find(item => item.id === args[0] && findingInResults(review, item));
     if (!finding) throw new Error('The finding is no longer available');
     switch (request.method) {
       case 'finding.ask': return findings.actions.onAsk(finding, args[1] as string);

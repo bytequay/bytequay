@@ -66,7 +66,7 @@ export async function runExploration(): Promise<string> {
     button.click(); await settle();
     assert(host.querySelector('[role="alert"]')?.textContent === 'Cannot fetch PR branch' && !button.disabled, 'Failed creation must show a retryable error');
     button.click(); await settle();
-    assert(button.disabled && button.textContent === 'Creating worktree…', 'Pending preparation must disable duplicate clicks');
+    assert(button.disabled && String(button.textContent) === 'Creating worktree…', 'Pending preparation must disable duplicate clicks');
     button.click(); await settle();
     assert(Number(attempts) === 2 && Number(opened) === 0, 'Wait for preparation before opening the editor');
     finish(prepared); await settle(); await settle();

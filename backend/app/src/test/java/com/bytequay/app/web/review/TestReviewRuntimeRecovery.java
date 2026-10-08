@@ -141,12 +141,30 @@ class TestReviewRuntimeRecovery
     }
 
     @Test
+    void explanationRefreshBindsTheDisplayedRunAndRevisionWithoutUpdatingTheReview()
+            throws Exception
+    {
+        when(reviews.refreshExplanation(REVIEW_ID, "run-1", 3)).thenReturn(projection());
+        MockMvc mvc = standaloneSetup(controller).build();
+
+        mvc.perform(post("/api/agent-review/{reviewId}/explanation/refresh", REVIEW_ID)
+                        .contentType("application/json")
+                        .content("{\"runId\":\"run-1\",\"expectedRevision\":3}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(REVIEW_ID));
+
+        verify(reviews).refreshExplanation(REVIEW_ID, "run-1", 3);
+        verifyNoMoreInteractions(reviews);
+        verifyNoInteractions(turns);
+    }
+
+    @Test
     void resolvingRemembersTheReasonForTheFindingsFileOnlyWhenAsked()
             throws Exception
     {
         ReviewFinding finding = new ReviewFinding("finding-1", REVIEW_ID, "run-1", 1, "Unchecked input", "Body", Optional.empty(),
                 Optional.of(new ReviewAnchor("src/App.java", "RIGHT", 3, 4, ImmutableList.of("parse(input)"))), ImmutableList.of(), 1, ReviewFinding.State.OPEN,
-                Optional.empty(), "a".repeat(40), false, 0, NOW, NOW);
+                Optional.empty(), "a".repeat(40), false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
         when(reviews.get(REVIEW_ID)).thenReturn(projection(ImmutableList.of(), ImmutableList.of(finding)));
         MockMvc mvc = standaloneSetup(controller).build();
 

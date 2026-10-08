@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { findingInResults } from '../agent-review/model';
 import { useRef, useState, type ReactNode } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { useReviewDraft } from '../ReviewDrafts';
@@ -180,7 +181,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
     : [];
 
   // A mapped line still needs semantic reassessment before an outdated finding returns to file views.
-  const findingsHere = findings?.review.findings.filter(finding => finding.path === path && finding.state !== 'WITHDRAWN' && !finding.outdated) ?? [];
+  const findingsHere = findings?.review.findings.filter(finding => findingInResults(findings.review, finding) && finding.path === path && finding.state !== 'WITHDRAWN' && !finding.outdated) ?? [];
   const placedFindings = findingsHere.filter(finding => findingOnLines(finding, clean, context.reviewedHead, lines));
   const findingCard = (finding: ReviewFindingDto) => findings === undefined ? null : (
     <FindingCard review={findings.review} finding={finding} viewer={options.viewer} busy={findingActions.busy} error={findingActions.error}

@@ -32,11 +32,14 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewConflictException;
+import com.bytequay.core.review.ReviewCoverage;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
+import com.bytequay.core.review.ReviewValidation;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
@@ -53,10 +56,12 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
+import java.util.stream.IntStream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -180,6 +185,28 @@ class TestReviewReplayService
     }
 
     @Test
+    void explanationRefreshDoesNotReplaceTheReplayResult()
+    {
+        when(github.replay("token", REPOSITORY, NUMBER)).thenReturn(Optional.of(pull(Optional.of(firstHead))));
+        service.start(WORKSPACE, "trinodb/trino", NUMBER);
+        sideOf("review-with", ReviewRun.State.INCOMPLETE);
+        ReviewRun result = store.listRuns("review-with").getFirst().ended(ReviewRun.State.INCOMPLETE, Optional.of("Missing caller evidence"), MemoryFixtures.NOW);
+        ReviewRun refresh = new ReviewRun("refresh", "review-with", 2, ReviewRun.Scope.FULL, "master", fork, fork, firstHead,
+                Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(ReviewStep.explanation()), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0,
+                MemoryFixtures.NOW, MemoryFixtures.NOW, Optional.empty());
+        when(store.listRuns("review-with")).thenReturn(ImmutableList.of(result, refresh));
+
+        assertThat(service.list(WORKSPACE).getFirst().sides().getFirst().state()).isEqualTo("RUNNING");
+
+        when(store.listRuns("review-with")).thenReturn(ImmutableList.of(result, refresh.ended(ReviewRun.State.ACCEPTED, Optional.empty(), MemoryFixtures.NOW)));
+        ReviewReplayService.SideView side = service.list(WORKSPACE).getFirst().sides().getFirst();
+        assertThat(side.state()).isEqualTo("INCOMPLETE");
+        assertThat(side.outcome()).contains("Missing caller evidence");
+        assertThat(side.findings()).isEmpty();
+    }
+
+    @Test
     void refusesWhatItCannotCompare()
     {
         assertThatThrownBy(() -> service.start(WORKSPACE, "trinodb/other", NUMBER)).isInstanceOf(ReviewInvalidRequestException.class)
@@ -222,13 +249,25 @@ class TestReviewReplayService
         AgentReview review = new AgentReview(reviewId, WORKSPACE, "trinodb/trino", OptionalInt.empty(), OptionalLong.empty(), "task-" + reviewId, Optional.empty(),
                 AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, MemoryFixtures.NOW, MemoryFixtures.NOW, Optional.empty(),
                 Optional.of(new AgentReview.Replay("replay", NUMBER, reviewId.equals("review-with"), FIRST_REVIEW)));
+        List<ReviewFinding> scopedFindings = Arrays.stream(findings)
+                .map(finding -> new ReviewFinding(finding.id(), reviewId, "run-" + reviewId, finding.ordinal(), finding.title(), finding.body(), finding.severity(),
+                        finding.anchor(), finding.evidence(), finding.revision(), finding.state(), finding.stateReason(), finding.validatedHeadSha(), finding.outdated(),
+                        finding.version(), finding.createdAt(), finding.updatedAt(), finding.memories(), finding.origin()))
+                .collect(toImmutableList());
+        ReviewValidation validation = new ReviewValidation(1, IntStream.range(0, scopedFindings.size())
+                .mapToObj(index -> new ReviewCandidateValidation(index + 1, ReviewCandidateValidation.Outcome.SUPPORTED, "Confirmed the documentation gap",
+                        ImmutableList.of(), "No existing documentation", Optional.of(scopedFindings.get(index).id()), Optional.of(1), Optional.empty()))
+                .collect(toImmutableList()), new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), MemoryFixtures.NOW), ImmutableList.of(),
+                scopedFindings.stream().filter(finding -> finding.origin() == ReviewFinding.Origin.AUTOMATIC).map(ReviewFinding::id).collect(toImmutableList()),
+                "Select supported automatic findings");
         when(store.findReview(reviewId)).thenReturn(Optional.of(review));
         when(store.listRuns(reviewId)).thenReturn(ImmutableList.of(new ReviewRun("run-" + reviewId, reviewId, 1, ReviewRun.Scope.FULL, "master", fork, fork, firstHead,
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), state, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(ReviewStep.initial()), false, ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, MemoryFixtures.NOW, MemoryFixtures.NOW,
+                ImmutableList.of(ReviewStep.initial(), ReviewStep.initial().next(ReviewStep.Kind.VALIDATE).withValidation(validation)), false,
+                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, MemoryFixtures.NOW, MemoryFixtures.NOW,
                 state.terminal() ? Optional.of(MemoryFixtures.NOW) : Optional.empty())));
         if (findings.length > 0) {
-            when(store.listFindings(reviewId)).thenReturn(ImmutableList.copyOf(findings));
+            when(store.listFindings(reviewId)).thenReturn(scopedFindings);
         }
     }
 
@@ -236,7 +275,7 @@ class TestReviewReplayService
     {
         return new ReviewFinding(id, "review", "run", 1, "Missing documentation", "The property is not documented.", Optional.of("Medium"),
                 Optional.of(new ReviewAnchor(path, "RIGHT", startLine, endLine, ImmutableList.of("line"))), ImmutableList.of(), 1, ReviewFinding.State.OPEN,
-                Optional.empty(), firstHead, false, 0, MemoryFixtures.NOW, MemoryFixtures.NOW);
+                Optional.empty(), firstHead, false, 0, MemoryFixtures.NOW, MemoryFixtures.NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
     }
 
     private static AgentReviewProjection projection(String reviewId)

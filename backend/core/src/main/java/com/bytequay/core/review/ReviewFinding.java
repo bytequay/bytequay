@@ -50,7 +50,8 @@ public record ReviewFinding(
         long version,
         Instant createdAt,
         Instant updatedAt,
-        List<MemoryCitation> memories)
+        List<MemoryCitation> memories,
+        Origin origin)
 {
     public ReviewFinding
     {
@@ -71,29 +72,7 @@ public record ReviewFinding(
         requireNonNull(createdAt, "createdAt is null");
         requireNonNull(updatedAt, "updatedAt is null");
         memories = ImmutableList.copyOf(memories);
-    }
-
-    public ReviewFinding(
-            String id,
-            String reviewId,
-            String runId,
-            int ordinal,
-            String title,
-            String body,
-            Optional<String> severity,
-            Optional<ReviewAnchor> anchor,
-            List<ReviewEvidence> evidence,
-            int revision,
-            State state,
-            Optional<String> stateReason,
-            String validatedHeadSha,
-            boolean outdated,
-            long version,
-            Instant createdAt,
-            Instant updatedAt)
-    {
-        this(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated, version, createdAt,
-                updatedAt, ImmutableList.of());
+        requireNonNull(origin, "origin is null");
     }
 
     /** The label shown on cards, derived from the review-local ordinal. */
@@ -106,7 +85,7 @@ public record ReviewFinding(
     public ReviewFinding withMemories(List<MemoryCitation> cited)
     {
         return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated,
-                version, createdAt, updatedAt, cited);
+                version, createdAt, updatedAt, cited, origin);
     }
 
     public ReviewFinding withVersion(long updatedVersion)
@@ -129,7 +108,8 @@ public record ReviewFinding(
                 updatedVersion,
                 createdAt,
                 updatedAt,
-                memories);
+                memories,
+                origin);
     }
 
     /** An evidence-backed agent revision at the current reviewed scope clears pending reassessment. */
@@ -160,7 +140,8 @@ public record ReviewFinding(
                 version,
                 createdAt,
                 now,
-                memories);
+                memories,
+                origin);
     }
 
     public ReviewFinding withState(State updatedState, Optional<String> reason, Instant now)
@@ -183,7 +164,8 @@ public record ReviewFinding(
                 version,
                 createdAt,
                 now,
-                memories);
+                memories,
+                origin);
     }
 
     /** A new source scope requires another conclusion even when the location maps exactly. */
@@ -207,7 +189,14 @@ public record ReviewFinding(
                 version,
                 createdAt,
                 now,
-                memories);
+                memories,
+                origin);
+    }
+
+    public enum Origin
+    {
+        AUTOMATIC,
+        DISCUSSION
     }
 
     public enum State

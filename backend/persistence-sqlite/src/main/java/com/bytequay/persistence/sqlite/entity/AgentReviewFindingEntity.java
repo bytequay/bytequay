@@ -81,6 +81,10 @@ public class AgentReviewFindingEntity
     @Enumerated(EnumType.STRING)
     private ReviewFinding.State state;
 
+    @Column(nullable = false, columnDefinition = "varchar(255) DEFAULT 'AUTOMATIC'")
+    @Enumerated(EnumType.STRING)
+    private ReviewFinding.Origin origin;
+
     @Column(name = "state_reason", columnDefinition = "TEXT")
     private String stateReason;
 
@@ -126,6 +130,7 @@ public class AgentReviewFindingEntity
         memoriesJson = finding.memories().isEmpty() ? null : REVIEW.write(finding.memories(), "finding memories");
         revision = finding.revision();
         state = finding.state();
+        origin = finding.origin();
         stateReason = finding.stateReason().orElse(null);
         validatedHeadSha = finding.validatedHeadSha();
         outdated = finding.outdated();
@@ -153,6 +158,7 @@ public class AgentReviewFindingEntity
                 version,
                 createdAt,
                 updatedAt,
-                Optional.ofNullable(memoriesJson).map(json -> REVIEW.read(json, MEMORIES, "finding memories")).orElse(ImmutableList.of()));
+                Optional.ofNullable(memoriesJson).map(json -> REVIEW.read(json, MEMORIES, "finding memories")).orElse(ImmutableList.of()),
+                origin);
     }
 }

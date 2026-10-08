@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
+import type { ReviewStepDto } from '../pulls/agent-review/contracts';
 import { reviewFixture } from '../pulls/agent-review/fixtures/review';
 import { validateIdeAction } from './actionPolicy';
 import type { IdeContext } from './contracts';
@@ -40,6 +41,16 @@ describe('IDE action boundary', () => {
     expect(() => validateIdeAction('finding.ask', ['finding-1', 'Explain this'], context, true)).not.toThrow();
     expect(() => validateIdeAction('finding.resolve', ['finding-1', 'Verified', 'yes'], context, true)).toThrow('remember choice');
     expect(() => validateIdeAction('finding.post', ['finding-1', 'Publish'], context, true)).toThrow('cannot publish');
+  });
+
+  it('does not expose unselected or unfinished findings as IDE action targets', () => {
+    const source = review.runs[0];
+    const unselected = { ...context, review: { ...review, runs: [{ ...source, steps: source.steps.map((step): ReviewStepDto => ({ ...step,
+      validation: step.validation === null ? null : { ...step.validation, selectedFindingIds: [] },
+    })) }] } };
+    expect(() => validateIdeAction('finding.ask', ['finding-1', 'Explain this'], unselected, true)).toThrow('Unknown finding');
+    const unfinished = { ...context, review: { ...review, runs: [{ ...source, state: 'RUNNING' as const }] } };
+    expect(() => validateIdeAction('finding.ask', ['finding-1', 'Explain this'], unfinished, true)).toThrow('Unknown finding');
   });
 
   it('retains backend version checks at the private finding boundary', () => {

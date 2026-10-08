@@ -18,6 +18,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** The reviewer's change model, assessed scope, and hypotheses; candidate numbers are one-based list positions. */
@@ -25,10 +26,11 @@ public record ReviewInvestigation(
         String changeMap,
         List<String> reviewedFiles,
         List<String> contextEvidenceRefs,
-        List<String> candidates,
+        List<ReviewCandidate> candidates,
         List<ReviewCandidateValidation> validations,
         List<ReviewEvidenceAnswer> answers,
-        Optional<ReviewVerification> verification)
+        Optional<ReviewVerification> verification,
+        List<ReviewPerspectiveAssessment> perspectives)
 {
     public ReviewInvestigation
     {
@@ -38,11 +40,22 @@ public record ReviewInvestigation(
         contextEvidenceRefs = ImmutableList.copyOf(contextEvidenceRefs);
         candidates = ImmutableList.copyOf(candidates);
         validations = ImmutableList.copyOf(validations);
-        answers = answers == null ? ImmutableList.of() : ImmutableList.copyOf(answers);
+        answers = ImmutableList.copyOf(answers);
+        perspectives = ImmutableList.copyOf(perspectives);
+        checkArgument(perspectives.stream().map(ReviewPerspectiveAssessment::perspective).distinct().count() == perspectives.size(), "perspectives are duplicated");
+        for (int index = 0; index < candidates.size(); index++) {
+            checkArgument(candidates.get(index).number() == index + 1, "candidate numbers must match their one-based positions");
+        }
+    }
+
+    public boolean completePerspectives()
+    {
+        return perspectives.size() == ReviewPerspectiveAssessment.Perspective.values().length
+                && perspectives.stream().noneMatch(value -> value.status() == ReviewPerspectiveAssessment.Status.BLOCKED);
     }
 
     public ReviewInvestigation withValidations(List<ReviewCandidateValidation> conclusions)
     {
-        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions, answers, verification);
+        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions, answers, verification, perspectives);
     }
 }

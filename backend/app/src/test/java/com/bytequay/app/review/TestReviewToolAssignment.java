@@ -221,6 +221,30 @@ class TestReviewToolAssignment
     }
 
     @Test
+    void explanationRefreshKeepsStepAndCardBindingsButGenericInputUsesTheFindingsRun()
+    {
+        ReviewRun explanation = run("refresh", ReviewStep.explanation());
+        when(reviews.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of(run, explanation));
+        AgentTurn refresh = activate("review-step:refresh:1");
+
+        ReviewToolAssignment.Binding assigned = assignments.resolve(REVIEW_ID, Optional.of(refresh.id()));
+        assertThat(assigned.run()).isSameAs(explanation);
+        assertThat(assigned.step()).contains(ReviewStep.explanation());
+
+        AgentTurn input = activate("user-input-1");
+        assertThat(assignments.resolve(REVIEW_ID, Optional.of(input.id())).run()).isSameAs(run);
+
+        AgentTurn question = activate("review-ask:message-1");
+        ReviewMessage message = new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("refresh:purpose"), ReviewMessage.Author.USER,
+                "Explain the intention", 1, explanation.id(), Optional.of(question.id().toString()), Optional.empty(), 0, NOW);
+        when(reviews.listMessages(REVIEW_ID)).thenReturn(ImmutableList.of(message));
+        ReviewToolAssignment.Binding discussion = assignments.resolve(REVIEW_ID, Optional.of(question.id()));
+        assertThat(discussion.run()).isSameAs(explanation);
+        assertThat(discussion.discussion()).contains(message);
+        assertThat(discussion.step()).isEmpty();
+    }
+
+    @Test
     void anEndedReviewRejectsEvenItsPreviouslyAcceptedTurn()
     {
         AgentTurn turn = activate("review-step:run-1:1");

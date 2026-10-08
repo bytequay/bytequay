@@ -15,6 +15,7 @@ package com.bytequay.core.review;
 
 import java.util.Optional;
 
+import static com.bytequay.core.review.ReviewStep.Kind.EXPLAIN;
 import static com.bytequay.core.review.ReviewStep.Kind.INVESTIGATE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
 import static com.google.common.base.Preconditions.checkArgument;
@@ -34,6 +35,7 @@ public record ReviewStep(
         requireNonNull(kind, "kind is null");
         requireNonNull(investigation, "investigation is null");
         requireNonNull(validation, "validation is null");
+        checkArgument(kind != EXPLAIN || (investigation.isEmpty() && validation.isEmpty()), "explanation cannot submit a findings report");
         checkArgument(kind != VALIDATE || investigation.isEmpty(), "validation cannot submit investigation");
         checkArgument(kind == VALIDATE || validation.isEmpty(), "investigation cannot submit validation");
     }
@@ -41,6 +43,11 @@ public record ReviewStep(
     public static ReviewStep initial()
     {
         return new ReviewStep(1, INVESTIGATE, false, Optional.empty(), Optional.empty());
+    }
+
+    public static ReviewStep explanation()
+    {
+        return new ReviewStep(1, EXPLAIN, false, Optional.empty(), Optional.empty());
     }
 
     public ReviewStep next(Kind nextKind)
@@ -78,8 +85,8 @@ public record ReviewStep(
 
     public enum Kind
     {
+        EXPLAIN,
         INVESTIGATE,
-        CHECK_NITS,
         COLLECT_EVIDENCE,
         VALIDATE
     }

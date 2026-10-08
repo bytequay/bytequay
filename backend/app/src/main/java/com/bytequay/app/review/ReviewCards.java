@@ -18,12 +18,29 @@ import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewSummary;
 
+import java.util.Comparator;
+import java.util.List;
 import java.util.Optional;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
 
 /** Stable card identities retain the reviewed run while a newer review is being produced. */
 final class ReviewCards
 {
     private ReviewCards() {}
+
+    static Optional<ReviewRun> explanationRun(List<ReviewRun> runs)
+    {
+        return runs.stream().filter(ReviewRun::explanationOnly)
+                .filter(run -> run.state() == ReviewRun.State.ACCEPTED && run.hasCompleteSummary()).max(Comparator.comparingInt(ReviewRun::ordinal))
+                .or(() -> runs.stream().filter(run -> !run.explanationOnly() && run.hasCompleteSummary()).min(Comparator.comparingInt(ReviewRun::ordinal)));
+    }
+
+    static boolean hasExplanation(AgentReviewStore store, ReviewRun run)
+    {
+        return run.hasCompleteSummary()
+                || explanationRun(store.listRuns(run.reviewId()).stream().filter(previous -> previous.ordinal() < run.ordinal()).collect(toImmutableList())).isPresent();
+    }
 
     static ReviewRun requireRun(AgentReviewStore store, String reviewId, String cardId)
     {

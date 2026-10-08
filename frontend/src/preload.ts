@@ -502,6 +502,7 @@ const bridge: Bridge = {
   stopAgentReviewRuntime: (reviewId, generation) => ipcRenderer.invoke('review:runtime:stop', reviewId, generation),
   resumeAgentReview: reviewId => ipcRenderer.invoke('review:resume', reviewId),
   updateAgentReview: reviewId => ipcRenderer.invoke('review:update', reviewId),
+  refreshAgentReviewExplanation: (reviewId, runId, expectedRevision) => ipcRenderer.invoke('review:explanation:refresh', reviewId, runId, expectedRevision),
   endAgentReview: reviewId => ipcRenderer.invoke('review:end', reviewId),
   listReviewCommentThreads: reviewId => ipcRenderer.invoke('review:comment-threads:list', reviewId),
   askReviewCommentThread: (reviewId, key, question) => ipcRenderer.invoke('review:comment-threads:ask', reviewId, key, question),

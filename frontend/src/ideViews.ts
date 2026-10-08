@@ -74,6 +74,12 @@ function connectionFrom(value: unknown): IdeConnection {
   return data as IdeConnection;
 }
 
+function isGitHubAvatar(url: URL): boolean {
+  return url.protocol === 'https:' && !url.port && !url.username && !url.password
+    && (url.hostname === 'avatars.githubusercontent.com'
+      || (url.hostname === 'github.com' && /^\/[a-z\d-]+\.png$/i.test(url.pathname)));
+}
+
 /** Native view ownership, resource access and idle cleanup live in main, outside repository-controlled content. */
 export class IdeViews {
   private readonly editors = new Map<string, Editor>();
@@ -315,6 +321,10 @@ export class IdeViews {
       const serve = async (request: Request): Promise<Response> => {
         try {
           const url = new URL(request.url);
+          // Shared PR cards load public avatars without the desktop's GitHub session or credentials.
+          if (request.method === 'GET' && isGitHubAvatar(url)) {
+            return await view.webContents.session.fetch(url.href, { bypassCustomProtocolHandlers: true, credentials: 'omit' });
+          }
           const isApp = url.protocol === 'bytequay-ide:' && url.hostname === 'app';
           if (!isApp && url.hostname !== 'ide-assets.bytequay.invalid') return new Response('Forbidden', { status: 403 });
           const target = await realpath(isApp ? path.join(dist, decodeURIComponent(url.pathname)) : decodeURIComponent(url.pathname));
@@ -337,7 +347,7 @@ export class IdeViews {
         const url = new URL(details.url);
         const local = ['http:', 'ws:'].includes(url.protocol) && (url.host === connection.authority || url.host === dev?.host);
         const resource = url.protocol === 'https:' && url.hostname === 'ide-assets.bytequay.invalid';
-        callback({ cancel: !local && !resource && !['bytequay-ide:', 'data:', 'blob:'].includes(url.protocol) });
+        callback({ cancel: !local && !resource && !isGitHubAvatar(url) && !['bytequay-ide:', 'data:', 'blob:'].includes(url.protocol) });
       });
       view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
       view.webContents.on('will-navigate', event => event.preventDefault());

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { IdeViews } from './ideViews';
 import type { LocalRunDto, WorktreeChangesDto } from './pulls/code-tests/contracts';
@@ -30,7 +31,7 @@ type MockView = {
     destroyed: boolean; mainFrame: object; isDestroyed: () => boolean;
     loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>;
     emit: (name: string, ...args: unknown[]) => void;
-    session: { protocol: { handle: ReturnType<typeof vi.fn> } };
+    session: { protocol: { handle: ReturnType<typeof vi.fn> }; fetch: ReturnType<typeof vi.fn>; webRequest: { onBeforeRequest: ReturnType<typeof vi.fn> } };
   };
 };
 vi.mock('electron', async () => {
@@ -53,7 +54,7 @@ vi.mock('electron', async () => {
         isDestroyed: () => this.webContents.destroyed,
         close: vi.fn(() => { this.webContents.destroyed = true; }),
         loadURL: vi.fn(async (): Promise<void> => undefined), send: vi.fn(), setWindowOpenHandler: vi.fn(),
-        session: { protocol: { handle: vi.fn((scheme: string) => this.handled.add(scheme)),
+        session: { fetch: vi.fn(async () => new Response('avatar')), protocol: { handle: vi.fn((scheme: string) => this.handled.add(scheme)),
           isProtocolHandled: vi.fn(async (scheme: string) => this.handled.has(scheme)),
           unhandle: vi.fn((scheme: string) => { if (!this.handled.delete(scheme)) throw new Error(`Failed to unhandle protocol: ${scheme}`); }) }, setPermissionRequestHandler: vi.fn(),
           setPermissionCheckHandler: vi.fn(), webRequest: { onBeforeRequest: vi.fn() } },
@@ -92,6 +93,37 @@ it('deduplicates worktree opens and keeps native credentials out of renderer URL
   expect(invoke('ide:bootstrap', child())).toEqual({ connection, context: null });
   expect(() => invoke('ide:bootstrap', parent())).toThrow('Unknown IDE view');
   expect(() => invoke('ide:present', { sender, senderFrame: {} }, first, null)).toThrow('Unknown IDE owner');
+});
+
+it('loads public GitHub avatars through the IDE policies without allowing arbitrary remote requests', async () => {
+  await invoke('ide:open', parent(), host);
+  const session = desktop.views[0].webContents.session;
+  const serve = session.protocol.handle.mock.calls.find(([scheme]) => scheme === 'https')?.[1] as (request: Request) => Promise<Response>;
+  const filter = session.webRequest.onBeforeRequest.mock.calls[0][0] as (details: { url: string }, callback: (result: { cancel: boolean }) => void) => void;
+  for (const url of ['https://avatars.githubusercontent.com/u/123?v=4', 'https://avatars.githubusercontent.com/in/123?v=4', 'https://github.com/ravi-moreau.png?size=44']) {
+    const callback = vi.fn();
+    filter({ url }, callback);
+    expect(callback).toHaveBeenCalledWith({ cancel: false });
+    expect(await (await serve(new Request(url))).text()).toBe('avatar');
+    expect(session.fetch).toHaveBeenLastCalledWith(url, { bypassCustomProtocolHandlers: true, credentials: 'omit' });
+  }
+  session.fetch.mockClear();
+  for (const url of ['https://example.com/avatar.png', 'https://github.com/login', 'https://github.com/owner/repo.png',
+    'https://avatars.githubusercontent.com.evil.example/u/123', 'https://avatars.githubusercontent.com:8443/u/123', 'http://avatars.githubusercontent.com/u/123']) {
+    const callback = vi.fn();
+    filter({ url }, callback);
+    expect(callback).toHaveBeenCalledWith({ cancel: true });
+  }
+  expect((await serve(new Request('https://example.com/avatar.png'))).status).toBe(403);
+  expect((await serve(new Request('https://avatars.githubusercontent.com/u/123', { method: 'POST' }))).status).toBe(403);
+  expect(session.fetch).not.toHaveBeenCalled();
+  const html = readFileSync('ide/index.html', 'utf8');
+  const policy = html.match(/http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1] ?? '';
+  const images = policy.split(';').find(directive => directive.trim().startsWith('img-src '));
+  expect(images).toContain('https://avatars.githubusercontent.com');
+  expect(images).toContain('https://github.com');
+  expect(policy.replace(images ?? '', '')).not.toContain('https://avatars.githubusercontent.com');
+  expect(policy.replace(images ?? '', '')).not.toContain('https://github.com');
 });
 
 it('stops a hidden idle worktree even if the parent keeps reporting hidden bounds', async () => {

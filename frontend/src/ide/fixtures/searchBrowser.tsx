@@ -19,10 +19,13 @@ import { attachPart, Parts } from '@codingame/monaco-vscode-views-service-overri
 import { IWorkbenchThemeService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/themes/common/workbenchThemeService.service';
 import { InMemoryFileSystemProvider } from '@codingame/monaco-vscode-api/vscode/vs/platform/files/common/inMemoryFilesystemProvider';
 import { VSBuffer } from '@codingame/monaco-vscode-api/vscode/vs/base/common/buffer';
+import { match } from '@codingame/monaco-vscode-api/vscode/vs/base/common/glob';
+import { matchesFuzzy } from '@codingame/monaco-vscode-api/vscode/vs/base/common/filters';
 import { SymbolKind } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/languages';
 import { WorkspaceSymbolProviderRegistry } from '@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/search/common/search';
 import { ISearchService } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/search/common/search.service';
 import { SearchProviderType, TextSearchMatch, SearchRange, type ISearchResultProvider } from '@codingame/monaco-vscode-api/vscode/vs/workbench/services/search/common/search';
+import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/model';
 import { languages, Uri } from 'monaco-editor';
 import Search from '../Search';
 import { assert, settle, changeInput } from '../../fixtures/harness';
@@ -43,6 +46,11 @@ export async function verifySearch() {
     ['core/query-engine/src/test/java/TestQueryService.java', 'class TestQueryService {\n    int queryLimit;\n    void test() { queryLimit++; }\n}'],
     ['tools/query_test.go', 'package tests\n// query usage'],
     ['rust/tests/query.rs', '// query usage'],
+    ['plugin/iceberg/src/test/resources/iceberg/metadata/00000-data.json', '{"name":"IcebergMetadata"}'],
+    ['plugin/iceberg/src/test/java/ATestIcebergMetadata.java', 'class ATestIcebergMetadata {}'],
+    ['plugin/iceberg/src/main/java/IcebergMetadataColumn.java', 'class IcebergMetadataColumn {}'],
+    ['plugin/iceberg/src/main/java/IcebergMetadata.java', 'class IcebergMetadata {}'],
+    ['src/main/java/Stalled.java', 'class Stalled {}'],
   ]);
   const mainPath = [...sources.keys()][0];
   const memory = new InMemoryFileSystemProvider();
@@ -53,11 +61,24 @@ export async function verifySearch() {
     await files.writeFile(uri(path), VSBuffer.fromString(value));
   }
   let cancelled = false;
+  let slowSymbols = false;
+  let symbolsCancelled = false;
+  let releaseSymbols: (() => void) | undefined;
+  let textSearches = 0;
+  let outlineCalls = 0;
+  let outlineCancelled = false;
+  let releaseOutline: (() => void) | undefined;
+  let stalledModel: ITextModel | undefined;
   let release: (() => void) | undefined;
   const provider: ISearchResultProvider = {
     getAIName: async () => undefined, clearCache: async () => {},
-    fileSearch: async query => ({ messages: [], results: [...sources.keys()].filter(path => path.toLowerCase().includes(query.filePattern?.toLowerCase() ?? '')).map(path => ({ resource: uri(path) })) }),
+    fileSearch: async query => {
+      assert(query.maxResults === 30, 'File discovery requests at most 30 matches');
+      return { messages: [], results: [...sources.keys()].filter(path => matchesFuzzy(query.filePattern ?? '', path, true)).map(path => ({ resource: uri(path) })) };
+    },
     textSearch: async (query, onProgress, token) => {
+      textSearches++;
+      assert(query.maxResults !== undefined && query.maxResults <= 30, 'Content search requests only the remaining result slots');
       assert(!query.contentPattern.isRegExp && !query.contentPattern.isCaseSensitive, 'Text queries use native literal, case-insensitive search');
       if (query.contentPattern.pattern === 'failure') throw new Error('Fixture text search failure');
       if (query.contentPattern.pattern === 'slow') {
@@ -65,6 +86,7 @@ export async function verifySearch() {
         await new Promise<void>(resolve => { release = resolve; });
       }
       for (const [path, content] of sources) {
+        if (query.includePattern && !match(query.includePattern, path)) continue;
         const results = content.split('\n').flatMap((line, i) => {
           const column = line.toLowerCase().indexOf(query.contentPattern.pattern.toLowerCase());
           return column < 0 ? [] : [new TextSearchMatch(line, new SearchRange(i, column, i, column + query.contentPattern.pattern.length))];
@@ -75,18 +97,37 @@ export async function verifySearch() {
     },
   };
   const searches = [search.registerSearchResultProvider(workspace.scheme, SearchProviderType.file, provider), search.registerSearchResultProvider(workspace.scheme, SearchProviderType.text, provider)];
-  const classSymbols = [...sources.keys()].filter(path => path.endsWith('.java')).map(path => ({ name: path.includes('/test/') ? 'TestQueryService' : 'QueryService', kind: SymbolKind.Class,
+  const classSymbols = [...sources.keys()].filter(path => path.endsWith('.java')).map(path => ({ name: path.split('/').at(-1)?.replace(/\.java$/, '') ?? '', kind: SymbolKind.Class,
     containerName: 'example.query', location: { uri: uri(path), range: { startLineNumber: 1, startColumn: 7, endLineNumber: 1, endColumn: 19 } } }));
-  const symbols = WorkspaceSymbolProviderRegistry.register({ provideWorkspaceSymbols: query => [
-    ...classSymbols.filter(symbol => symbol.name.toLowerCase().includes(query.toLowerCase())),
-    { ...classSymbols[0], name: 'QueryExternal', location: { ...classSymbols[0].location, uri: Uri.parse('search-fixture:/external/QueryExternal.java') } },
-  ] });
-  const outline = languages.registerDocumentSymbolProvider('java', { provideDocumentSymbols: model => [{
-    name: model.uri.path.includes('/test/') ? 'TestQueryService' : 'QueryService', detail: '', tags: [], kind: languages.SymbolKind.Class,
-    range: model.getFullModelRange(), selectionRange: { startLineNumber: 1, startColumn: 7, endLineNumber: 1, endColumn: 19 },
-    children: [{ name: 'queryLimit', detail: '', tags: [], kind: languages.SymbolKind.Field,
-      range: { startLineNumber: 2, startColumn: 5, endLineNumber: 2, endColumn: 20 }, selectionRange: { startLineNumber: 2, startColumn: 9, endLineNumber: 2, endColumn: 19 } }],
-  }] });
+  const symbols = WorkspaceSymbolProviderRegistry.register({ provideWorkspaceSymbols: async (query, token) => {
+    if (slowSymbols) {
+      slowSymbols = false;
+      token.onCancellationRequested(() => { symbolsCancelled = true; });
+      await new Promise<void>(resolve => { releaseSymbols = resolve; });
+    }
+    if (query === 'Bulk') return Array.from({ length: 1000 }, (_, i) => ({ ...classSymbols[0],
+      name: `Bulk${i}`, location: { ...classSymbols[0].location, uri: uri(`${i < 500 ? 'src/test' : 'src/main'}/java/Bulk${i}.java`) },
+    }));
+    return [
+      ...classSymbols.filter(symbol => symbol.name.toLowerCase().includes(query.toLowerCase())),
+      { ...classSymbols[0], name: 'QueryExternal', location: { ...classSymbols[0].location, uri: Uri.parse('search-fixture:/external/QueryExternal.java') } },
+    ];
+  } });
+  const outline = languages.registerDocumentSymbolProvider('java', { provideDocumentSymbols: async (model, token) => {
+    outlineCalls++;
+    const result: languages.DocumentSymbol[] = [{
+      name: model.uri.path.split('/').at(-1)?.replace(/\.java$/, '') ?? '', detail: '', tags: [], kind: languages.SymbolKind.Class,
+      range: model.getFullModelRange(), selectionRange: { startLineNumber: 1, startColumn: 7, endLineNumber: 1, endColumn: 19 },
+      children: [{ name: 'queryLimit', detail: '', tags: [], kind: languages.SymbolKind.Field,
+        range: { startLineNumber: 2, startColumn: 5, endLineNumber: 2, endColumn: 20 }, selectionRange: { startLineNumber: 2, startColumn: 9, endLineNumber: 2, endColumn: 19 } }],
+    }];
+    if (model.uri.path.endsWith('/Stalled.java')) {
+      stalledModel = model;
+      token.onCancellationRequested(() => { outlineCancelled = true; });
+      await new Promise<void>(resolve => { releaseOutline = resolve; });
+    }
+    return result;
+  } });
   const root = createRoot(shell);
   flushSync(() => root.render(<Search editors={codeEditors} workspace={workspace} files={{ source: 'WORKING_COPY', revision: 'fixture', truncated: false, sourceFingerprint: null, savedExperiment: false,
     files: [...sources.keys(), 'core/query-engine/pom.xml', 'tools/go.mod', 'rust/Cargo.toml'].map(path => ({ path, changedInPr: false, addedInPr: false, onlyInWorkingCopy: false, uncommitted: false })) }} />));
@@ -122,6 +163,41 @@ export async function verifySearch() {
       Object.assign(window, { searchCapture: dark ? 'dark' : 'light' });
       await until(() => (window as unknown as { searchCaptured: string }).searchCaptured === (dark ? 'dark' : 'light'), 'Capture the search popup');
     }
+    changeInput(input(), 'IcebergMetadata');
+    await until(() => idle() && rows().some(row => row.title.endsWith('/IcebergMetadata.java:1')), 'Exact class is available among fuzzy path matches');
+    assert(rows()[0].querySelector('.ide-search-title')?.textContent === 'IcebergMetadata', 'Exact production class ranks first');
+    const icebergClasses = rows().filter(row => row.dataset.kind === 'class');
+    assert(icebergClasses.length === 3 && icebergClasses.at(-1)?.classList.contains('is-test'), 'Production classes precede an alphabetically earlier test class');
+    assert(!rows().some(row => row.title.includes('00000-data.json')), 'All excludes path-only fixtures and data text matches');
+    category('Files');
+    await until(() => idle() && rows().length === 4, 'Files retains fuzzy path matches');
+    assert(rows()[0].title.endsWith('/IcebergMetadata.java:1'), 'Exact filename ranks above UUID fixture paths');
+    category('Text');
+    await until(() => idle() && rows().some(row => row.title.includes('00000-data.json')), 'Text can still search test data');
+    category('All'); changeInput(input(), 'iceberg/metadata');
+    await until(() => idle() && rows().some(row => row.title.includes('00000-data.json')), 'Explicit paths still find resources in All');
+    const textBefore = textSearches, outlinesBefore = outlineCalls;
+    changeInput(input(), 'Bulk');
+    await until(() => idle() && rows().length === 30, 'Large result sets stop at 30');
+    assert(rows().every(row => row.dataset.kind === 'class' && !row.classList.contains('is-test')), 'The best production classes survive a thousand results with tests first');
+    assert(textSearches === textBefore && outlineCalls === outlinesBefore, 'Enough name matches skip content scanning and outline loading');
+    slowSymbols = true; changeInput(input(), 'queryLimit');
+    await until(() => releaseSymbols !== undefined, 'A slow symbol request starts');
+    await until(() => idle() && rows().some(row => row.dataset.kind === 'field'), 'A stuck workspace provider cannot prevent outline fallback or completion');
+    assert(symbolsCancelled && popup()?.textContent?.includes('still loading'), 'Slow symbols are cancelled with an explicit partial result');
+    changeInput(input(), 'query');
+    await until(() => idle() && rows().some(row => row.dataset.kind === 'class'), 'A new search completes before the old symbol provider returns');
+    const freshResults = popup()?.textContent;
+    releaseSymbols?.(); await settle();
+    assert(popup()?.textContent === freshResults, 'Late symbol results cannot overwrite a newer search');
+    changeInput(input(), 'Stalled');
+    await until(() => releaseOutline !== undefined, 'An outline provider starts a slow request');
+    changeInput(input(), 'query');
+    await until(() => idle() && rows().some(row => row.dataset.kind === 'class'), 'New searches are independent of a stuck outline');
+    assert(outlineCancelled, 'Replacing the query cancels outline work');
+    await until(() => stalledModel?.isDisposed() === true, 'Cancellation releases the temporary file model before the outline provider returns');
+    releaseOutline?.(); await settle();
+    assert(!rows().some(row => row.title.includes('Stalled.java')), 'Cancelled outlines cannot publish late results');
     category('Classes'); await until(() => idle() && rows().length === 2, 'Classes filter contains only types');
     category('Symbols'); await until(() => idle() && rows().some(row => row.dataset.kind === 'field'), 'Symbols filter includes fields');
     assert(rows().every(row => !['text', 'file'].includes(row.dataset.kind ?? '')), 'Symbols exclude text and file matches');
@@ -145,7 +221,14 @@ export async function verifySearch() {
     await until(() => idle() && rows().some(row => row.title === `${mainPath}:2`), 'Project search completes after an unsaved edit');
     assert(!rows().some(row => row.title.endsWith('TestQueryService.java:2')), 'Project search suppresses stale disk matches in dirty files');
     changeInput(input(), 'slow');
-    await until(() => release !== undefined, 'A slow search starts'); key('Escape'); await settle();
+    await until(() => release !== undefined, 'A slow search starts');
+    changeInput(input(), 'unsaved');
+    await until(() => idle() && rows().length === 2, 'Replacement text search completes while the previous provider is still pending');
+    assert(cancelled, 'Typing a new query cancels the previous native search');
+    release?.(); await settle();
+    assert(rows().length === 2 && rows().every(row => row.textContent?.includes('unsaved')), 'Late text results cannot replace the current query');
+    release = undefined; cancelled = false; changeInput(input(), 'slow');
+    await until(() => release !== undefined, 'Another slow search starts'); key('Escape'); await settle();
     assert(cancelled && !popup(), 'Escape cancels pending native search and restores the editor'); release?.();
     await commands.executeCommand('workbench.action.findInFiles'); await settle(); changeInput(input(), 'failure');
     await until(() => idle() && popup()?.textContent?.includes('Fixture text search failure') === true, 'Search errors are visible');

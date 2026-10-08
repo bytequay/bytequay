@@ -76,13 +76,18 @@ Code & Tests offers IDEA Light and Darcula themes with Atom One-style syntax
 colors. License headers and imports fold on first open; expand them with the
 gutter arrows. Symbol search, callers, and usages remain available through the
 editor shortcuts and context menu. Press **Shift twice** or **⌘⇧F**,
-or click **Search**, to open Search Everywhere. Results put classes first, then
-fields and other symbols, files, and matching source lines. Module names appear
+or click **Search**, to open Search Everywhere. Results put normal classes before
+test classes, then fields and other symbols, files, and matching source lines.
+The popup shows up to 30 matches and skips content search when name matches fill it.
+Exact names rank first within each group. Module names appear
 on the right; test-file rows are green. Filter with **Classes**, **Files**,
 **Symbols**, or **Text**. **⌘F** opens the same popup for text in the current file,
 including unsaved edits. Use **↑/↓** and **Enter** to open a result, or **Escape**
 to close. Search respects project ignore and exclude settings; refine the query
-when results are limited. **⌘-click** a method to show its usages
+when results are limited. **All** favors names and source code; use **Files** for
+paths or **Text** to search other content, including fixtures and logs. Changing
+the query cancels the previous search; slow searches finish with the available
+results and a notice. **⌘-click** a method to show its usages
 with filenames, line numbers, and source lines; test-file results are green.
 Select a result to jump there, or press **Escape** to close the popup.
 Working-copy reset and discard are in the

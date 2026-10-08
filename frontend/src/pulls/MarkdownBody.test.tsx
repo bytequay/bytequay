@@ -312,6 +312,44 @@ describe('MarkdownBody', () => {
     expect(toggleMarkdownTask(body, 0, true)).toBe('```html\n<!-- unfinished\n```\n- [x] Visible');
   });
 
+  it('keeps truncated bot code spans from exposing later HTML metadata and formatting', () => {
+    const body = '<details><summary>Pre-merge checks</summary>\n\n'
+      + '| Check | Explanation |\n| --- | --- |\n| Linked issues | Uses `DeltaLakeTab… |\n\n</details>\n\n'
+      + '<!-- pre_merge_checks_walkthrough_end -->\n\n'
+      + '<!-- hidden template\n```html\n<strong>hidden</strong>\n```\n-->\n\n'
+      + '- [ ] <!-- {"checkboxId":"fix"} --> Fix all pre-merge checks with AI\n'
+      + '<!-- autopilot:start -->\n'
+      + '- [ ] <!-- {"checkboxId":"autopilot"} --> <strong title="Keep fixing findings">Autopilot</strong> · Keep fixing findings\n'
+      + '<!-- autopilot:end -->\n<!-- tips_start -->\n\n---\n\n'
+      + '<sub>Comment `@coderabbitai help` to get the list of available commands.</sub>\n\n<!-- tips_end -->';
+    const html = renderToStaticMarkup(<MarkdownBody body={body} onTaskToggle={() => {}} />);
+
+    expect(html).not.toContain('&lt;');
+    expect(html).not.toMatch(/checkboxId|autopilot:start|tips_start|pre_merge_checks_walkthrough_end|hidden/);
+    expect(html.match(/data-markdown-task=""/g)).toHaveLength(2);
+    expect(html).toContain('<strong>Autopilot</strong> · Keep fixing findings');
+    expect(html).toContain('<sub>Comment <code>@coderabbitai help</code> to get the list of available commands.</sub>');
+    expect(toggleMarkdownTask(body, 1, true)).toBe(body.replace('- [ ] <!-- {"checkboxId":"autopilot"}', '- [x] <!-- {"checkboxId":"autopilot"}'));
+  });
+
+  it.each(['```', '~~~~'])('preserves HTML-looking source and blank lines inside %s code fences', fence => {
+    const source = '<!-- visible in code -->\n\n<strong>Literal</strong> <sub>source</sub>';
+    const html = renderToStaticMarkup(<MarkdownBody body={`${fence}text\n${source}\n${fence}\n\n<!-- hidden -->\nAfter`} />);
+
+    expect(html.match(/<pre>[^]*<\/pre>/)?.[0].replace(/<[^>]+>/g, '')).toBe(renderToStaticMarkup(<>{source}</>));
+    expect(html).not.toContain('hidden');
+    expect(html).toContain('<p>After</p>');
+  });
+
+  it('renders only allowed HTML formatting without copying attributes or interpreting code as tags', () => {
+    const html = renderToStaticMarkup(<MarkdownBody body={'<STRONG onclick="alert(1)">Bold <sub style="color:red">small</sub></STRONG>\n\n'
+      + '`<strong>literal</strong>` and `multiple\nlines`'} />);
+
+    expect(html).toContain('<strong>Bold <sub>small</sub></strong>');
+    expect(html).not.toMatch(/onclick|style=/);
+    expect(html).toContain('<code>&lt;strong&gt;literal&lt;/strong&gt;</code> and <code>multiple lines</code>');
+  });
+
   it('renders code and links nested inside bold text', () => {
     const body = '- **`RedirectionAwareViewHandle`** — record for view redirection\n'
       + '- **[`MetadataManager.getRedirectedViewName()`](cci:1://file:///src/MetadataManager.java:2061:4-2102:5)** — redirect resolution';

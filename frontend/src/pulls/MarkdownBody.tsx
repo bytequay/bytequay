@@ -276,8 +276,31 @@ function stripHtml(value: string) {
 }
 
 function htmlToMarkdown(value: string) {
+  const lines = value.split('\n');
+  const parts: string[] = [];
+  let prose: string[] = [];
+  let insideComment = false;
+  for (let index = 0; index < lines.length; index++) {
+    const fence = insideComment ? null : openingFence(lines[index]);
+    if (!fence) {
+      insideComment = withoutHtmlComments(lines[index], insideComment).insideComment;
+      prose.push(lines[index]);
+      continue;
+    }
+    parts.push(htmlProseToMarkdown(prose.join('\n')));
+    prose = [];
+    const start = index++;
+    while (index < lines.length && !closesFence(lines[index], fence)) index++;
+    parts.push(lines.slice(start, index + 1).join('\n'));
+  }
+  parts.push(htmlProseToMarkdown(prose.join('\n')));
+  return parts.join('\n');
+}
+
+// A truncated inline code span must not protect HTML in later paragraphs. Fences are handled separately.
+function htmlProseToMarkdown(value: string) {
   return decodeEntities(value
-    .replace(/\\[!-/:-@[-`{-~]|(?<!`)(`+)(?!`)[^]*?(?<!`)\1(?!`)|```[^]*$|&(?:lt|gt|#(?:x0*3[ce]|0*(?:60|62)));/gi,
+    .replace(/\\[!-/:-@[-`{-~]|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\1(?!`)|&(?:lt|gt|#(?:x0*3[ce]|0*(?:60|62)));/gi,
       part => part.startsWith('&') ? `\\${part}` : part.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;'))
     .replace(/<!--[^]*?-->/g, '')
     .replace(/<(https?:\/\/[^>\s]+)>/gi, '$1')
@@ -289,7 +312,8 @@ function htmlToMarkdown(value: string) {
       (_match, href: string, label: string) => `[${stripHtml(label)}](${href})`)
     .replace(/<br\s*\/?\s*>/gi, '\n')
     .replace(/<\/(?:p|div|li|tr|table)>/gi, '\n')
-    .replace(/<(?!\/?(?:details|summary)[\s>])[^>]+>/g, ''));
+    .replace(/<(\/?)(strong|sub)(?:\s[^>]*)?>/gi, (_tag, closing: string, name: string) => `<${closing}${name.toLowerCase()}>`)
+    .replace(/<(?!\/?(?:details|summary|strong|sub)[\s>])[^>]+>/g, ''));
 }
 
 function decodeEntities(value: string) {
@@ -326,7 +350,7 @@ export function tableAlignments(line: string) {
 
 // Like GitHub, `_` emphasis cannot open or close inside a word, so ICEBERG_FILESYSTEM_ERROR stays literal.
 // Its content admits only intraword underscores, which keeps an unclosed `_` from scanning the rest of the text.
-const INLINE_TOKEN = /(\\[!-/:-@[-`{-~]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*(?:\\.|[^*\\]|\*(?!\*))+?\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:\\.|[^_\\]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|(?<!`)(`+)(?!`)[^]*?(?<!`)\2(?!`)|\[(?:\\.|[^\]\\])+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)/gu;
+const INLINE_TOKEN = /(\\[!-/:-@[-`{-~]|\[!\[[^\]]*\]\([^)]+\)\]\([^)]+\)|!\[[^\]]*\]\([^)]+\)|\*\*(?:\\.|[^*\\]|\*(?!\*))+?\*\*|(?<=^|[\s\p{P}\p{S}])_(?!\s)(?:\\.|[^_\\]|(?<=[^\s\p{P}\p{S}])_(?=[^\s\p{P}\p{S}]))+?(?<!\s)_(?=$|[\s\p{P}\p{S}])|(?<!`)(`+)(?!`)(?:(?!\n[ \t]*\n)[^])*?(?<!`)\2(?!`)|\[(?:\\.|[^\]\\])+\]\([^)]+\)|\[[^\]]+\]\[[^\]]*\]|\[[^\]]+\]|https?:\/\/[^\s<>()\]]*[^\s<>()\].,!?;:'"]|@[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?|<(strong|sub)>[^]*?<\/\3>)/gu;
 
 export function parseGitHubCodePermalink(value: string, repository?: string): GitHubCodePermalink | null {
   if (!repository) return null;
@@ -550,6 +574,11 @@ function inline(
   return parts.filter(Boolean).map((part, index) => {
     const key = `${keyPrefix}-${index}`;
     if (/^\\[!-/:-@[-`{-~]$/.test(part)) return <Fragment key={key}>{part.slice(1)}</Fragment>;
+    const html = part.match(/^<(strong|sub)>([^]*)<\/\1>$/);
+    if (html) {
+      const Tag = html[1] as 'strong' | 'sub';
+      return <Tag key={key}>{inline(html[2], `${key}-html`, definitions, repository)}</Tag>;
+    }
     const linkedImage = part.match(/^\[!\[([^\]]*)\]\(([^)]+)\)\]\(([^)]+)\)$/);
     if (linkedImage) return (
       <a className="md-image-link" key={key} href={linkedImage[3]} onClick={event => {

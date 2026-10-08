@@ -106,7 +106,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [execution, setExecution] = useState(runtime.executions.run);
   const [executionError, setExecutionError] = useState(runtime.executions.error);
   const [bottom, setBottom] = useState<'run' | 'debug' | 'terminal' | 'history'>('run');
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(true);
   const column = useResizablePane(285, 180, 650);
   const panel = useResizablePane(270, 100, 900, 'start', 'y');
   const [history, setHistory] = useState<HistoryComparison | null>(null);
@@ -166,7 +166,6 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       else return;
       setPanelCollapsed(false);
     };
-    showPanel(runtime.panels.getActivePaneComposite(1)?.getId());
     const panel = runtime.panels.onDidPaneCompositeOpen(event => { if (event.viewContainerLocation === 1) showPanel(event.composite.getId()); });
     return () => { editor.dispose(); changed.dispose(); saved.dispose(); tests.dispose(); debug.dispose(); panel.dispose(); clearInterval(timer); document.removeEventListener('input', report); };
   }, [runtime]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -223,6 +222,10 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     comments.onComment({ type: 'finish' });
   };
   const selectBottom = async (value: typeof bottom) => {
+    if (bottom === value && !panelCollapsed) {
+      setPanelCollapsed(true);
+      return;
+    }
     setBottom(value);
     setPanelCollapsed(false);
     if (value === 'history') {

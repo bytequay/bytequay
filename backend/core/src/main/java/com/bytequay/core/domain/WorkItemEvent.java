@@ -26,7 +26,7 @@ public record WorkItemEvent(String operationId, String fingerprint, String actio
         checkText(operationId, "operationId");
         requireNonNull(fingerprint, "fingerprint is null");
         checkText(action, "action");
-        checkText(detail, "detail", 20000);
+        checkText(detail, "detail", 150000);
         requireNonNull(at, "at is null");
     }
 }

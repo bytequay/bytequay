@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type { WorkItemDto } from '../goals/contracts';
 import { workspaceRoute } from '../workspaces/model';
 
 export type JiraSite = { id: string; name: string; url: string };
@@ -98,8 +99,7 @@ export type JiraBridge = {
   assignJiraWorkspace: (location: JiraLocation, workspaceId: string) => Promise<JiraIssueDetail>;
   listJiraAttention: () => Promise<JiraIssue[]>;
   /** Work types a new child of the ticket can have; read from Jira when the create form opens. */
-  listJiraChildTypes: (location: JiraLocation) => Promise<{ id: string; name: string }[]>;
-  createJiraChild: (location: JiraLocation, issueTypeId: string, summary: string) => Promise<JiraIssueDetail>;
+  createLocalJiraChild: (location: JiraLocation, id: string, title: string, description: string) => Promise<WorkItemDto>;
   listJiraLinkTypes: (connectionId: string, cloudId: string) => Promise<JiraLinkType[]>;
   /** `outward` reads the ticket at `location` with the type's outward description, as in "blocks `key`". */
   linkJiraIssue: (location: JiraLocation, typeId: string, outward: boolean, key: string) => Promise<JiraIssueDetail>;

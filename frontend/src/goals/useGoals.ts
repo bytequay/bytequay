@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getCached, setCached } from '../dataCache';
 import type { ContextBuildViewDto } from '../repository-context/contracts';
-import { issueUrl } from '../repository-context/specChecks';
+import { workItemRoute } from '../workitems/contracts';
 import type { ModelChoice } from '../settings/ModelsPage';
 import type { AgentModelSettingDto, Bridge, ModelSettingsDto } from '../types';
 import type {
@@ -35,7 +35,7 @@ export type GoalBridge = Pick<Bridge, 'listWorkItems' | 'createWorkItem' | 'deci
   | 'addGoalItem' | 'removeGoalItem' | 'searchGoalCandidates' | 'startGoal' | 'listGoalExchanges' | 'askGoal' | 'retryGoalExchange' | 'stopGoalExchange' | 'reassessGoal' | 'summarizeGoalWork' | 'acceptGoalDefinition'
   | 'acceptGoalCourse' | 'acceptGoalPlan' | 'startGoalRecommendation' | 'dismissGoalRecommendation' | 'listGoalKnowledge' | 'openGoalLesson' | 'readGoalLesson' | 'finishGoalLesson'
   | 'setGoalTopic' | 'listGoalGaps' | 'addGoalGap' | 'openInAppBrowser' | 'getGoalModel' | 'setGoalModel' | 'clearGoalModel' | 'getModelSettings'
-  | 'getRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'rememberGoalNote'>;
+  | 'getRepositoryContextBuild' | 'stopRepositoryContextBuild' | 'rememberGoalNote' | 'specWorkItem'>;
 
 /** The model a goal's agent uses, with the configured models to choose from. */
 export type GoalModel = { setting: AgentModelSettingDto; settings: ModelSettingsDto };
@@ -92,8 +92,8 @@ export type Goals = {
   model: (goalId: string) => Promise<GoalModel>;
   /** Gives the goal its own model, or with null makes it follow the workspace's Development model again. */
   chooseModel: (goalId: string, choice: ModelChoice | null) => Promise<AgentModelSettingDto>;
-  /** Opens a gap's drafted issue on GitHub's form, for the user to file; answers whether its body was cut and copied to the clipboard instead. */
-  fileIssue: (repository: string, draft: NonNullable<GoalGapDto['draft']>) => Promise<boolean>;
+  /** Opens the same local work item saved by the spec check. */
+  openGap: (gap: GoalGapDto) => Promise<void>;
   /** Reads the goals again now, as when an answer may have floated a card. */
   refresh: () => void;
   /** Opens a lesson of the goal's course, writing it the first time. */
@@ -339,9 +339,9 @@ export function useGoals(workspaceId: string, bridge: () => GoalBridge = windowB
     model,
     chooseModel: (goalId, choice) => (choice === null ? bridge().clearGoalModel(workspaceId, goalId)
       : bridge().setGoalModel(workspaceId, goalId, choice.configId, choice.model, choice.effort)),
-    fileIssue: (repository, draft) => {
-      const { url, cut } = issueUrl(repository, draft);
-      return (cut ? navigator.clipboard.writeText(draft.body) : Promise.resolve()).then(() => bridge().openInAppBrowser(url)).then(() => cut);
+    openGap: async gap => {
+      const item = await bridge().specWorkItem(workspaceId, gap.checkId, gap.candidateId);
+      window.location.hash = workItemRoute(workspaceId, item.id);
     },
     refresh,
     openLesson,

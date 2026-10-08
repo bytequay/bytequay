@@ -116,7 +116,7 @@ const conversation: Omit<Goals, 'goals' | 'pinned'> = {
     changed();
     return server.gaps;
   },
-  fileIssue: unexpected,
+  openGap: unexpected,
   summarize: unexpected,
   pause: async (_goalId, paused) => {
     server.goal = { ...server.goal, paused };
@@ -399,8 +399,7 @@ const LESSON: GoalLessonDto = { id: 'lesson-1', state: 'READY', failure: null, c
 const GAP: GoalGapDto = { checkId: 'check-1', candidateId: 'gap-1', module: 'plugin/trino-delta-lake/', title: 'Checkpoints drop rows a deletion vector removed',
   rule: 'The checkpoint reconciles actions by path and deletion vector.', specUrl: 'https://github.com/delta-io/delta/blob/master/PROTOCOL.md',
   test: { path: 'plugin/trino-delta-lake/src/test/java/io/trino/plugin/deltalake/TestCheckpointDeletionVectors.java', command: './mvnw test', exitCode: 1 },
-  draft: { title: 'Checkpoint drops rows removed by a deletion vector', body: 'A valid commit order loses rows.', labels: ['bug'] }, workItemId: null, state: null,
-  filed: 31252 };
+  draft: { title: 'Checkpoint drops rows removed by a deletion vector', body: 'A valid commit order loses rows.', labels: ['bug'] }, workItemId: null, state: null };
 
 /**
  * The reference journey: a vague Iceberg goal clarified into a definition, research and the course fitted to it, a lesson read in the Goal
@@ -470,7 +469,7 @@ export async function reference(): Promise<boolean> {
     button('Guide').click(); await settle();
     assert(text().includes('Gaps the spec check reproduced · 1') && text().includes('Checkpoints drop rows a deletion vector removed'),
       'The reproduced gap shows with the issue the user filed for it');
-    button('Add to goal with #31252').click(); await settle(); await settle();
+    button('Add to goal').click(); await settle(); await settle();
     assert(server.gaps[0].workItemId === 'work-1' && text().includes('Work: planned'), 'The gap becomes the goal\'s work');
 
     // Practice on the gap's issue opens a prepared composer, and its merged pull request is recorded on the goal.

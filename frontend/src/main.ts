@@ -13,6 +13,7 @@
  */
 import type { JiraLocation, JiraQuery, JiraTokenRequest } from './jira/contracts';
 import { parseTeamActivity, parseTeamContributors, parseTeamCreateInput, parseTeamInput, parseTeamMemberInput, parseTeamQuery, parseTeams, teamId, teamMemberId } from './teams/contracts';
+import { parseUnifiedWorkItem, type Publication } from './workitems/contracts';
 import { parseConcludedEpics, parseEpicJoin, parseEpicRecord, parseWorkItem, type CreateWorkItem, type WorkItemDecision, parseGoal, parseGoalExchange, parseGoalGap, parseGoalItem, parseGoalKnowledgeNote, parseGoalLesson, parseGoalRecommendation, parseList, type GoalItemKind, type GoalPatch } from './goals/contracts';
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, Notification, screen, shell } from 'electron';
 import fs from 'node:fs';
@@ -1846,10 +1847,8 @@ function registerIpc(): void {
   ipcMain.handle('jira:issue:workspace', (_event, location: JiraLocation, workspaceId: string) =>
     backendJson(`${jiraIssuePath(location)}/workspace`, jsonInit('PUT', { workspaceId }, agentHeaders())));
   ipcMain.handle('jira:attention', () => backendJson(`${backendBase()}/api/jira/attention`, { headers: agentHeaders() }));
-  ipcMain.handle('jira:issue:child-types', (_event, location: JiraLocation) =>
-    backendJson(`${jiraIssuePath(location)}/child-types`, { method: 'POST', headers: agentHeaders() }));
-  ipcMain.handle('jira:issue:child', (_event, location: JiraLocation, issueTypeId: string, summary: string) =>
-    backendJson(`${jiraIssuePath(location)}/children`, jsonInit('POST', { issueTypeId, summary }, agentHeaders())));
+  ipcMain.handle('jira:issue:local-child', (_event, location: JiraLocation, id: string, title: string, description: string) =>
+    backendJson(`${jiraIssuePath(location)}/local-children`, jsonInit('POST', { id, title, description }, agentHeaders())).then(parseWorkItem));
   ipcMain.handle('jira:link-types', (_event, connectionId: string, cloudId: string) =>
     backendJson(`${jiraSitePath(connectionId, cloudId)}/link-types`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('jira:issue:link', (_event, location: JiraLocation, typeId: string, outward: boolean, key: string) =>
@@ -1875,6 +1874,16 @@ function registerIpc(): void {
       jsonInit('PATCH', { isEpic })));
   const goalsUrl = (workspaceId: string, path = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/goals${path}`;
   const workItemsUrl = (workspaceId: string, suffix = '') => `${backendBase()}/api/workspaces/${encodeURIComponent(workspaceId)}/work-items${suffix}`;
+  ipcMain.handle('work-items:catalog', (_event, workspaceId: string) =>
+    backendJson(workItemsUrl(workspaceId, '/catalog')).then(items => parseList(items, parseUnifiedWorkItem, 'work items')));
+  ipcMain.handle('work-items:publish', (_event, workspaceId: string, id: string, request: Publication) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(id)}/publish`), jsonInit('POST', request)).then(parseWorkItem));
+  ipcMain.handle('work-items:reconcile', (_event, workspaceId: string, id: string, destination: Publication, key: string) =>
+    backendJson(workItemsUrl(workspaceId, `/${encodeURIComponent(id)}/reconcile`), jsonInit('POST', { destination, key })).then(parseWorkItem));
+  ipcMain.handle('work-items:jira-types', (_event, workspaceId: string, connectionId: string, cloudId: string, project: string) =>
+    backendJson(`${workItemsUrl(workspaceId, '/jira-types')}?${new URLSearchParams({ connectionId, cloudId, project })}`, { method: 'POST' }));
+  ipcMain.handle('work-items:spec', (_event, workspaceId: string, checkId: string, candidateId: string) =>
+    backendJson(workItemsUrl(workspaceId, '/spec'), jsonInit('POST', { checkId, candidateId })).then(parseWorkItem));
   ipcMain.handle('work-items:list', (_event, workspaceId: string) =>
     backendJson(workItemsUrl(workspaceId)).then(items => parseList(items, parseWorkItem, 'work items')));
   ipcMain.handle('work-items:create', (_event, workspaceId: string, request: CreateWorkItem) =>

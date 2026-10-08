@@ -16,7 +16,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ZOOM_REFERENCE } from '../githubReference';
 import AppSidebar from '../AppSidebar';
-import JiraScreen from '../jira/JiraScreen';
+import WorkItemsScreen from '../workitems/WorkItemsScreen';
 import WatchedReposGrid from '../home/WatchedReposGrid';
 import type { WorkspaceDto } from '../types';
 import { RetiredWorkspaceCards, WorkspaceCards } from './WorkspacesPage';
@@ -277,13 +277,15 @@ describe('watched repository workspace UI', () => {
     const issues = renderToStaticMarkup(<WorkspaceShell {...props} tab="issues" />);
 
     expect(pulls).toContain('upstream/project');
+    expect(issues).toContain('GitHub issues');
     expect(issues).toContain('Open issues');
     expect(issues).toContain('upstream/project');
+    expect(issues).toContain('aria-label="Work item sources"');
   });
 
-  it('opens the shared Jira screen with the selected workspace', () => {
+  it('opens Jira inside Work items with the selected workspace', () => {
     const value = workspace('FORK');
-    let jira: ReactElement<Parameters<typeof JiraScreen>[0]> | undefined;
+    let jira: ReactElement<Parameters<typeof WorkItemsScreen>[0]> | undefined;
     function CaptureJira(): null {
       // Every workspace page sits inside the goal layer.
       jira = WorkspaceShell({
@@ -295,7 +297,8 @@ describe('watched repository workspace UI', () => {
       return null;
     }
     renderToStaticMarkup(<CaptureJira />);
-    expect(jira?.type).toBe(JiraScreen);
+    expect(jira?.type).toBe(WorkItemsScreen);
+    expect(jira?.props.tab).toBe('jira');
     expect(jira?.props.workspace).toBe(value);
   });
 

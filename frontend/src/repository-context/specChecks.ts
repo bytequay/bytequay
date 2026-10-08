@@ -46,8 +46,6 @@ export function moduleRows(modules: ContextSpecModuleDto[], filter: string): Con
   const words = filter.trim().toLowerCase().split(/\s+/).filter(Boolean);
   return modules.filter(module => words.every(word => module.directory.toLowerCase().includes(word) || (module.page ?? '').toLowerCase().includes(word)));
 }
-// ponytail: GitHub rejects very long addresses; a longer draft is cut in the form and copied whole to the clipboard.
-const MAX_ISSUE_URL = 7500;
 
 export const TYPE_LABEL: Record<ContextSpecCandidateDto['type'], string> = { BUG: 'Bug', FEATURE_REQUEST: 'Feature request', IMPROVEMENT: 'Improvement' };
 export const TYPE_TONE: Record<ContextSpecCandidateDto['type'], 'red' | 'purple' | 'blue'> = { BUG: 'red', FEATURE_REQUEST: 'purple', IMPROVEMENT: 'blue' };
@@ -101,23 +99,4 @@ export function codeLink(repository: string, sha: string, location: string): str
 export function findingFile(directory: string, code: string[]): string | null {
   const paths = code.map(location => /^(.+?):\d+(?:-\d+)?$/.exec(location)?.[1] ?? location);
   return paths.find(path => path.startsWith(directory)) ?? paths[0] ?? null;
-}
-
-/** GitHub's new-issue form pre-filled with the draft; a body too long for the address is cut there, and cut says so. */
-export function issueUrl(repository: string, draft: NonNullable<ContextSpecCandidateDto['draft']>): { url: string; cut: boolean } {
-  const address = (body: string) => {
-    const query = new URLSearchParams({ title: draft.title, body });
-    if (draft.labels.length > 0) query.set('labels', draft.labels.join(','));
-    return `https://github.com/${repository}/issues/new?${query.toString()}`;
-  };
-  if (address(draft.body).length <= MAX_ISSUE_URL) return { url: address(draft.body), cut: false };
-  const note = '\n\n… The full report is on the clipboard; paste it over this one.';
-  let low = 0;
-  let high = draft.body.length;
-  while (low < high) {
-    const middle = Math.ceil((low + high) / 2);
-    if (address(draft.body.slice(0, middle) + note).length <= MAX_ISSUE_URL) low = middle;
-    else high = middle - 1;
-  }
-  return { url: address(draft.body.slice(0, low) + note), cut: true };
 }

@@ -27,7 +27,7 @@ import { goalHas, goalPicked, goalRef, needsYouKeys, numberedKey } from '../goal
 import { useGoals } from '../goals/useGoals';
 import type { GoalToggle } from '../home/AttentionList';
 import { visibleAttention, type AttentionItem } from '../home/attention';
-import JiraScreen, { JiraTicketLayer } from '../jira/JiraScreen';
+import { JiraTicketLayer } from '../jira/JiraScreen';
 import { jiraIssueLocation } from '../jira/contracts';
 import type { NavigationMode } from '../navigationHistory';
 import PullsScreen from '../pulls/PullsScreen';
@@ -39,6 +39,7 @@ import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import EpicDrawer from './EpicDrawer';
 import { EPIC_START, epicIdentity, lendEpicWorkspace, takeEpicStart, useConcludedEpics } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
+import WorkItemsScreen from '../workitems/WorkItemsScreen';
 import { useWorkspaceAttention } from './workspaceAttention';
 import type { WorkspaceDto } from '../types';
 import {
@@ -288,8 +289,8 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         />
       );
     }
-    if (tab === 'issues') {
-      return <WorkspaceIssuesScreen
+    if (tab === 'issues' || tab === 'jira') {
+      return <WorkItemsScreen workspace={workspace} tab={tab} github={<WorkspaceIssuesScreen
         workspaceId={workspace.id}
         repository={monitoredRepository}
         initialIssueNumber={initialIssueNumber}
@@ -299,10 +300,7 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
           window.location.hash = workspaceIssueTaskRoute(workspace.id, number);
         }}
         onViewTask={link => { window.location.hash = workspaceAgentTaskRoute(link.workspaceId, link.taskId); }}
-      />;
-    }
-    if (tab === 'jira') {
-      return <JiraScreen workspace={workspace} />;
+      />} />;
     }
     if (tab === 'context') {
       return <MemoryPage workspace={workspace} spec={specCheck} onSpecShown={specShown} />;

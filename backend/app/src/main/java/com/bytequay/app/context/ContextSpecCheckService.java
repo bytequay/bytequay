@@ -33,6 +33,8 @@ import com.bytequay.app.repository.github.GitHubSearchResponse;
 import com.bytequay.app.review.MavenCommands;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalSpecChecks;
+import com.bytequay.app.service.goal.WorkItemView;
+import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.context.ContextLimits;
@@ -93,10 +95,11 @@ public class ContextSpecCheckService
     private final MemoryService memories;
     private final ObjectProvider<GoalSpecChecks> goals;
     private final Clock clock;
+    private final ObjectProvider<SpecWorkItems> workItems;
 
     public ContextSpecCheckService(WorkspaceRepositoryService workspaces, GitCommandRunner git, ContextSpecCheckStore checks, ContextBuildService builds,
             ContextBuildStore buildStore, GitHubRepoClient github, CredentialService credentials, AgentTaskStore tasks, TaskLogStore logs,
-            WorktreeService worktrees, MemoryService memories, ObjectProvider<GoalSpecChecks> goals, Clock clock)
+            WorktreeService worktrees, MemoryService memories, ObjectProvider<GoalSpecChecks> goals, Clock clock, ObjectProvider<SpecWorkItems> workItems)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
@@ -111,6 +114,12 @@ public class ContextSpecCheckService
         this.memories = requireNonNull(memories, "memories is null");
         this.goals = requireNonNull(goals, "goals is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.workItems = requireNonNull(workItems, "workItems is null");
+    }
+
+    public WorkItemView workItem(String workspaceId, String checkId, String candidateId)
+    {
+        return workItems.getObject().save(workspaceId, checkId, candidateId);
     }
 
     /** The pages the directory's code links at the monitored branch head. A local read only. */
@@ -395,6 +404,9 @@ public class ContextSpecCheckService
                     result.summary().orElseThrow(), result.impact().orElseThrow(), result.proposal().orElseThrow()), result.labels()));
         }
         Candidate settled = candidate.withResult(result.outcome(), test, Optional.of(result.reason()), draft);
+        if (settled.status() == Status.CONFIRMED) {
+            workItems.getObject().save(build.workspaceId(), check.directory(), settled);
+        }
         checks.save(build.workspaceId(), Optional.of(check), check.withCandidate(settled));
         return settled;
     }

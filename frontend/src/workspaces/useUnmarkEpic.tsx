@@ -16,11 +16,10 @@ import React, { useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import type { Bridge } from '../types';
 
-type Pending = { leaving: number | null; deleted: number; unmark: () => void };
+type Pending = { leaving: number | null; unmark: () => void };
 
 /**
- * Asks before unmarking an Epic that has work, because its Epic view goes with the marker: the work that exists only there is deleted, and
- * work in a Goal or with a task stays without the Epic. An Epic without work is unmarked at once.
+ * Asks before unmarking an Epic that has work, because its Epic view goes with the marker: the work stays in Work items without the Epic. An Epic without work is unmarked at once.
  */
 export function useUnmarkEpic(bridge: () => Pick<Bridge, 'listWorkItems'> = () => window.bridge): {
   request: (workspaceId: string | null, epicId: string, unmark: () => void) => void;
@@ -35,21 +34,15 @@ export function useUnmarkEpic(bridge: () => Pick<Bridge, 'listWorkItems'> = () =
     void Promise.resolve().then(() => bridge().listWorkItems(workspaceId)).then((items) => {
       const work = items.filter((item) => item.epicId === epicId);
       if (work.length === 0) unmark();
-      else setPending({ leaving: work.length, deleted: work.filter((item) => item.goalId === null && !item.links.some((link) => link.kind === 'TASK')).length, unmark });
-    }, () => setPending({ leaving: null, deleted: 0, unmark }));
+      else setPending({ leaving: work.length, unmark });
+    }, () => setPending({ leaving: null, unmark }));
   };
   const dialog = pending === null ? null : (
     <ConfirmDialog title="Unmark as Epic?" confirmLabel="Unmark" destructive onCancel={() => setPending(null)} onConfirm={() => {
       setPending(null);
       pending.unmark();
     }}>
-      {pending.leaving === null
-        ? <p>Its Epic view goes with it. Work that exists only there is deleted; work in a Goal or with a task stays.</p>
-        : <p>
-          Its Epic view goes with it: {pending.leaving === 1 ? 'its work item leaves' : `its ${pending.leaving} work items leave`} the Epic
-          {pending.deleted > 0 && <>, and {pending.deleted === pending.leaving ? (pending.deleted === 1 ? 'it exists' : 'they exist') : `${pending.deleted} that ${pending.deleted === 1 ? 'exists' : 'exist'}`} only
-            there {pending.deleted === 1 ? 'is' : 'are'} deleted</>}. Work in a Goal or with a task stays.
-        </p>}
+      <p>{pending.leaving === null ? 'Its work leaves the Epic.' : `${pending.leaving} work items leave the Epic.`} All work items, descriptions and task history stay in Work items.</p>
     </ConfirmDialog>
   );
   return { request, dialog };

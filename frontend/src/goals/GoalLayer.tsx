@@ -207,7 +207,7 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       onStartIssue={onStartIssue}
       onStartTicket={startTicket}
       onSpecCheck={onSpecCheck}
-      onFileIssue={(draft) => goals.fileIssue(repository, draft)}
+      onOpenGap={(draft) => goals.openGap(draft)}
       search={goals.search}
     />
   );

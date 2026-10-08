@@ -117,7 +117,7 @@ export function workspaceLocationFromRoute(hash: string): {
     .exec(hash);
   if (!match) return null;
   const tab = match[2] as WorkspaceTab | undefined;
-  if (hash.includes('?') && tab !== 'jira') return null;
+  if (hash.includes('?') && tab !== 'jira' && tab !== 'issues') return null;
   const agentTaskId = match[3];
   const reviewId = match[5];
   const cherryPickId = match[7];

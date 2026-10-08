@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.jira;
 
+import com.bytequay.app.service.goal.WorkItemView;
 import com.fasterxml.jackson.annotation.JsonUnwrapped;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
@@ -230,17 +231,10 @@ public class JiraController
         return jira.assignWorkspace(connectionId, cloudId, issueId, request.workspaceId());
     }
 
-    /** Reads Jira for the create form; like the refresh routes it is a POST, so every GET stays cache-only. */
-    @PostMapping(ISSUE + "/child-types")
-    public List<JiraDtos.Choice> childTypes(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId)
+    @PostMapping(ISSUE + "/local-children")
+    public WorkItemView createLocalChild(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Child request)
     {
-        return jira.childTypes(connectionId, cloudId, issueId);
-    }
-
-    @PostMapping(ISSUE + "/children")
-    public JiraDtos.Detail createChild(@PathVariable String connectionId, @PathVariable String cloudId, @PathVariable String issueId, @RequestBody Child request)
-    {
-        return jira.createChild(connectionId, cloudId, issueId, request.issueTypeId(), request.summary());
+        return jira.createLocalChild(connectionId, cloudId, issueId, request.id(), request.title(), request.description());
     }
 
     @PostMapping(SITE + "/link-types")
@@ -282,7 +276,7 @@ public class JiraController
 
     public record Workspace(String workspaceId) {}
 
-    public record Child(String issueTypeId, String summary) {}
+    public record Child(String id, String title, String description) {}
 
     public record Link(String typeId, boolean outward, String key) {}
 }

@@ -109,7 +109,7 @@ together.
 3. Choose **Watch repository**, or **Create fork and watch** if the setup calls for a
    new personal fork.
 4. Open the workspace. Use its sidebar to switch between **Tasks**, **Pull requests**,
-   **Issues**, **Jira**, **Commits**, and **Memory**. Commits becomes available after
+   **Work items**, **Commits**, and **Memory**. Commits becomes available after
    the repository has cloned.
 
 **Unwatch** moves the workspace to **Workspaces → Retired** and retains local history.
@@ -357,33 +357,50 @@ what has already been learned about a repository.
    specification URL.
 3. Choose **Reproduce up to** and start **Check against spec** with a ready agent
    provider.
-4. Open the report under **Spec checks** and inspect each **Failing test** and **Issue
-   draft**.
-5. Choose **Open issue** to open a prefilled GitHub issue form. Inspect and submit it
-   there yourself, or use **Copy body** or **Dismiss**.
+4. Open the report under **Spec checks** and inspect each **Failing test** and **Work
+   item description**. Confirmed findings are saved as local work items with the full
+   specification, reproduction, test source, and output.
+5. Choose **Open local work item** to develop the finding or publish it later.
+   **Copy body** and **Dismiss** remain available.
 
 Only reproduced findings are shown as confirmed gaps. Unreproduced candidates and
 already-reported issues remain separate. **Stop check** stops a running investigation.
 
 <a id="issues-and-jira"></a>
 
-## Start from an issue or Jira ticket
+## Work items: local, GitHub, and Jira
 
-Use existing issue or ticket context as the starting point for development, so the task
-stays connected to the requested change.
+Open a workspace’s **Work items** and choose **GitHub issues**, **Jira**, or **Local**.
+GitHub keeps its issue list and detail pane; Jira keeps its board, filters, and ticket
+views. **Local** lists private work, with search and an option to include closed items.
+**New work item** saves only on your Mac. Add the description and acceptance criteria,
+then choose **Start development** to open a task with that context retained.
+
+Agents can list and read the same work items and create local follow-ups. New Epic
+subtasks and confirmed spec findings also start locally. Removing Epic membership
+preserves the item and its history. Development may deliver a pull request without
+publishing any issue or ticket.
+
+To expose local work, choose **Publish…**, select GitHub or a connected Jira site,
+project key, and work type, inspect the preview, then **Publish to GitHub** or
+**Publish to Jira**. The title and description are sent; task conversations and local
+history are not. Publication keeps the same local item and links its remote source.
+If a request has an uncertain outcome, use **Link an existing issue or ticket** to
+reconcile it before trying another publication. Jira projects requiring additional
+creation fields may reject publication; the local item remains available.
 
 ### GitHub issues
 
-Open a workspace’s **Issues**, find the issue, and choose its **Start development**
+Open a workspace’s **Work items**, find the GitHub issue, and choose **Start development**
 action when available. Review the prepared task composer and submit it. **View task**
-returns to linked work; **New issue** begins a new issue.
+returns to linked work. New work always starts locally.
 
 ### Jira
 
 1. Open **Settings → Integrations → Jira → Add account**. Enter the **Jira site**,
    **Atlassian account email**, and **API token**, then choose **Connect account**.
    Follow **Required token permissions** for the required scopes.
-2. Open **Jira** and use **Site, board and sprint** to choose a board and sprint or
+2. Choose **Work items → Jira** and use **Site, board and sprint** to choose a board and sprint or
    **Backlog**.
 3. Browse **Current sprint** or **Completed**. Use **Assigned to me**, **Status**,
    **Search tickets**, and **List** or **Board** to find the work. The assignment menu
@@ -391,8 +408,9 @@ returns to linked work; **New issue** begins a new issue.
    **All assignees**. Co-assignment uses the site’s Co-assignee user field.
 4. Open an eligible unfinished leaf ticket and choose **Start development**. Select and
    **Assign workspace** if prompted, then review and submit the task composer.
-5. Use **View task** to return to development. Ticket field edits, comments, and status
-   transitions are separate user actions.
+5. Assigned tickets appear in **Work items → Jira**. Use **View task** to return to development.
+   **Add subtask** creates local work under the ticket’s ByteQuay Epic. Ticket field
+   edits, comments, and status transitions are separate user actions.
 
 **Open in Jira** handles fields and operations the app does not support. Browser sign-in
 is shown only when configured. Replace an expired token in settings.

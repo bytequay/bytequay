@@ -100,7 +100,7 @@ function Fixture(): React.JSX.Element {
   return (
     <div style={{ height: 800 }}>
       <GoalPanel mode="board" view={view} onView={setView} lesson={lesson} onLesson={setLesson} conversation={conversation} onStart={async () => {}}
-        onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false}
+        onOpenTask={() => {}} repository="trinodb/trino" goals={[goal]} goal={goal} needsYou={new Set()} onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onOpenGap={async () => {}}
         onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} workItems={[item]} onCreateWork={async () => item} onDecide={async () => item}
         onOrder={async () => {}} onLink={async () => item} onOpenItem={() => {}} search={async () => []} />
     </div>

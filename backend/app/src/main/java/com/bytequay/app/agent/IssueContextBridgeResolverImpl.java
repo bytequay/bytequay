@@ -100,11 +100,13 @@ public class IssueContextBridgeResolverImpl
     @Override
     public Optional<IssueContextBridge> resolve(String taskId)
     {
-        Optional<WorkItem> epicWork = epicWork(taskId);
-        String instruction = epicWork.isPresent() ? IssueContextBridge.INSTRUCTION + "\n" + IssueContextBridge.EPIC_INSTRUCTION : IssueContextBridge.INSTRUCTION;
+        Optional<WorkItem> taskWork = taskWork(taskId);
+        String instruction = taskWork.filter(item -> item.epicId().isPresent()).isPresent()
+                ? IssueContextBridge.INSTRUCTION + "\n" + IssueContextBridge.EPIC_INSTRUCTION : IssueContextBridge.INSTRUCTION;
         return scope(taskId).map(ignored -> new IssueContextBridge(() -> read(taskId), instruction))
                 .or(() -> jiraScope(taskId).map(ignored -> new IssueContextBridge(() -> readJira(taskId), instruction)))
-                .or(() -> epicWork.map(ignored -> new IssueContextBridge(() -> readEpicWork(taskId), IssueContextBridge.EPIC_INSTRUCTION)));
+                .or(() -> taskWork.map(ignored -> new IssueContextBridge(() -> readWork(taskId), IssueContextBridge.WORK_INSTRUCTION
+                        + (taskWork.orElseThrow().epicId().isPresent() ? "\n" + IssueContextBridge.EPIC_INSTRUCTION : ""))));
     }
 
     private Optional<AgentTask> readable(String taskId)
@@ -122,19 +124,20 @@ public class IssueContextBridgeResolverImpl
         return readable(taskId).flatMap(task -> jiraSources.findByTaskId(taskId).filter(link -> task.workspaceId().filter(link.workspaceId()::equals).isPresent()));
     }
 
-    /** The work of an Epic this task is an attempt of; the task of any other work has no Epic to read. */
-    private Optional<WorkItem> epicWork(String taskId)
+    /** Retained work is readable only by its own live task in the same workspace. */
+    private Optional<WorkItem> taskWork(String taskId)
     {
         return readable(taskId).flatMap(task -> workItems.findByIdentity(WorkItemLink.taskIdentity(taskId))
-                .filter(item -> item.epicId().isPresent() && task.workspaceId().filter(item.workspaceId()::equals).isPresent()));
+                .filter(item -> task.workspaceId().filter(item.workspaceId()::equals).isPresent()));
     }
 
-    private String readEpicWork(String taskId)
+    private String readWork(String taskId)
     {
-        WorkItem item = epicWork(taskId).orElseThrow(() -> new AgentConflictException("This task no longer has readable Epic context."));
+        WorkItem item = taskWork(taskId).orElseThrow(() -> new AgentConflictException("This task no longer has readable work-item context."));
         ObjectNode result = objectMapper.createObjectNode();
         result.put("source", "ByteQuay local data only; no remote request was made.");
-        result.set("epic", epic(item));
+        result.set("workItem", objectMapper.valueToTree(item));
+        item.epicId().ifPresent(ignored -> result.set("epic", epic(item)));
         return result.toString();
     }
 
@@ -247,7 +250,10 @@ public class IssueContextBridgeResolverImpl
             entry.put("body", comment.body().substring(0, Math.min(comment.body().length(), MAXIMUM_EVENT_BODY)));
             entry.put("bodyTruncated", comment.body().length() > MAXIMUM_EVENT_BODY);
         });
-        epicWork(taskId).ifPresent(item -> result.set("epic", epic(item)));
+        taskWork(taskId).ifPresent(item -> {
+            result.set("workItem", objectMapper.valueToTree(item));
+            item.epicId().ifPresent(ignored -> result.set("epic", epic(item)));
+        });
         return result.toString();
     }
 
@@ -320,7 +326,10 @@ public class IssueContextBridgeResolverImpl
             entry.put("sourceUrl", event.payload().sourceUrl());
             entry.put("milestone", event.payload().milestoneTitle());
         }
-        epicWork(taskId).ifPresent(item -> result.set("epic", epic(item)));
+        taskWork(taskId).ifPresent(item -> {
+            result.set("workItem", objectMapper.valueToTree(item));
+            item.epicId().ifPresent(ignored -> result.set("epic", epic(item)));
+        });
         return result.toString();
     }
 }

@@ -22,11 +22,12 @@ import type { ContextBuildViewDto, ContextSpecCheckDto } from '../repository-con
 import { RunLine, SpecCheckDrawer, SpecFinding, type SpecCheckActions, type SpecCheckData } from '../repository-context/ContextSpecCheck';
 import { Icon, Spinner } from '../repository-context/icons';
 import { activeCheck, checkActive, checkProgress, modelLine, plural, shortDate, shortSha } from '../repository-context/model';
-import { CHECK_STATE, checkSummary, issueUrl, openFindings, type SpecCheckRequest } from '../repository-context/specChecks';
+import { CHECK_STATE, checkSummary, openFindings, type SpecCheckRequest } from '../repository-context/specChecks';
 import type { MemoryDto, MemoryKind, MemoryPageDto, MemoryPullDto } from './contracts';
 import { MemoryDrawer } from './MemoryDrawer';
 import { ReplayDrawer, ReplaysSection } from './ReplaysSection';
 import { replayRunning, type ReplayDto } from './replays';
+import { workItemRoute } from '../workitems/contracts';
 import { workspaceReviewTaskRoute } from '../workspaces/model';
 import {
   age, flagged, fromTask, KIND_LABEL, kilobytes, matches, MEMORY_CHANGED, memoryFlags, sourceChip, titleRepeated, type MemoryKindFilter, type MemorySourceFilter,
@@ -174,13 +175,9 @@ export default function MemoryPage({ workspace, spec, onSpecShown }: {
       if (rule !== null) await load();
       say(rule === null ? 'Finding dismissed · nothing was sent to GitHub' : 'Finding dismissed · your rule is in memory · nothing was sent to GitHub');
     }),
-    // Opening GitHub's form writes nothing; the user files the issue there.
-    openIssue: candidate => void perform(async () => {
-      if (candidate.draft === null) return;
-      const { url, cut } = issueUrl(repository, candidate.draft);
-      if (cut) await navigator.clipboard.writeText(candidate.draft.body);
-      await window.bridge.openInAppBrowser(url);
-      say(cut ? 'The issue form opened with a shortened body · the full report is on the clipboard' : 'The issue form opened on GitHub · file it there');
+    openIssue: (check, candidate) => void perform(async () => {
+      const item = await window.bridge.specWorkItem(workspaceId, check.id, candidate.id);
+      window.location.hash = workItemRoute(workspaceId, item.id);
     }),
     say,
   };

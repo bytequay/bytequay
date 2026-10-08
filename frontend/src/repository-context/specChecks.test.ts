@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseDismissContextSpecFindingRequest, specCheckDirectory, type ContextSpecCandidateDto, type ContextSpecCheckDto, type ContextSpecSourceDto } from './contracts';
-import { checkSummary, codeLink, defaultPicks, findingFile, issueUrl, moduleRows, openFindings, pageLabel, specAddress } from './specChecks';
+import { checkSummary, codeLink, defaultPicks, findingFile, moduleRows, openFindings, pageLabel, specAddress } from './specChecks';
 
 const candidate = (id: string, type: ContextSpecCandidateDto['type'], status: ContextSpecCandidateDto['status'],
   patch: Partial<ContextSpecCandidateDto> = {}): ContextSpecCandidateDto => ({ id, type, predicted: type === 'BUG' ? 'DIVERGES' : type === 'FEATURE_REQUEST' ? 'REFUSES' : 'SKIPS_SHOULD',
@@ -85,20 +85,6 @@ describe('spec check directory', () => {
 });
 
 describe('spec check links', () => {
-  it('pre-fills GitHub’s form and cuts a body too long for the address', () => {
-    const draft = { title: 'Checkpoint keys removes by path only', body: 'Summary\n\n### Specification\n> MUST key by path and deletion vector', labels: ['bug', 'delta-lake'] };
-    const short = issueUrl('trinodb/trino', draft);
-    const url = new URL(short.url);
-    expect(short.cut).toBe(false);
-    expect(url.origin + url.pathname).toBe('https://github.com/trinodb/trino/issues/new');
-    expect([url.searchParams.get('title'), url.searchParams.get('body'), url.searchParams.get('labels')]).toEqual([draft.title, draft.body, 'bug,delta-lake']);
-    const long = issueUrl('trinodb/trino', { ...draft, body: 'x'.repeat(40_000), labels: [] });
-    expect(long.cut).toBe(true);
-    expect(long.url.length).toBeLessThanOrEqual(7500);
-    expect(new URL(long.url).searchParams.get('body')).toMatch(/^x+\n\n… The full report is on the clipboard; paste it over this one\.$/);
-    expect(new URL(long.url).searchParams.has('labels')).toBe(false);
-  });
-
   it('links code lines at the check’s baseline and takes only HTTPS spec addresses', () => {
     expect(codeLink('o/r', 'abc', 'core/A.java:12-40')).toBe('https://github.com/o/r/blob/abc/core/A.java#L12-L40');
     expect(codeLink('o/r', 'abc', 'core/A.java:7')).toBe('https://github.com/o/r/blob/abc/core/A.java#L7');

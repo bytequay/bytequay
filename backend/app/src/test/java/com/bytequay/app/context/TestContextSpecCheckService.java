@@ -41,6 +41,7 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalSpecChecks;
+import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.core.domain.RepoRef;
@@ -55,6 +56,7 @@ import com.google.common.collect.Lists;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import java.nio.file.Files;
@@ -107,9 +109,17 @@ class TestContextSpecCheckService
     private final List<AgentEventEnvelope> events = new ArrayList<>();
     private final InMemoryMemoryStore memoryStore = new InMemoryMemoryStore();
     private final MemoryService memories = new MemoryService(memoryStore, new InMemoryAppSettingsStore(), mapper, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final SpecWorkItems localWork = mock(SpecWorkItems.class);
     private final ContextSpecCheckService service = new ContextSpecCheckService(workspaces, git, store, builds, buildStore, mock(GitHubRepoClient.class),
             mock(CredentialService.class), tasks, logs, worktrees, memories, new DefaultListableBeanFactory().getBeanProvider(GoalSpecChecks.class),
-            Clock.fixed(NOW, ZoneOffset.UTC));
+            Clock.fixed(NOW, ZoneOffset.UTC), specWorkItems());
+
+    private ObjectProvider<SpecWorkItems> specWorkItems()
+    {
+        DefaultListableBeanFactory factory = new DefaultListableBeanFactory();
+        factory.registerSingleton("specWorkItems", localWork);
+        return factory.getBeanProvider(SpecWorkItems.class);
+    }
 
     @BeforeEach
     void setUp()
@@ -287,6 +297,7 @@ class TestContextSpecCheckService
         Candidate settled = service.saveResult(build, TURN, confirmed(COMMAND, ImmutableList.of("delta-lake")));
 
         assertThat(settled.status()).isEqualTo(Status.CONFIRMED);
+        verify(localWork).save(WORKSPACE, "plugin/trino-delta-lake/", settled);
         assertThat(settled.test().orElseThrow().exitCode()).isEqualTo(1);
         assertThat(settled.test().orElseThrow().command()).isEqualTo(COMMAND);
         assertThat(settled.test().orElseThrow().source()).contains("keysByDeletionVector");

@@ -27,9 +27,9 @@ it('finds one closed pull request by number or title words and learns from it on
   expect(results).toEqual([{ name: 'Find one closed pull request by number or title words and learn from it' }]);
 }, 30_000);
 
-it('shows confirmed findings on the page and opens GitHub only on an explicit click', async () => {
+it('shows confirmed findings on the page and opens their retained local work', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-spec-findings-',
     entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 900,
     body: 'const results = await window.webContents.executeJavaScript("MemoryPageTests.runFindings()");' });
-  expect(results).toEqual([{ name: 'Inline spec findings and explicit GitHub form action' }]);
+  expect(results).toEqual([{ name: 'Inline spec findings and retained local work' }]);
 }, 30_000);

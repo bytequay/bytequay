@@ -17,19 +17,11 @@ import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.context.ContextSpecModule;
-import com.bytequay.app.context.ContextText;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.core.domain.Goal;
-import com.bytequay.core.domain.GoalItem;
-import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
-import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.WorkItem;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalRecommendationStore;
 import com.bytequay.core.store.GoalStore;
-import com.bytequay.core.store.RepositoryIssueStore;
-import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -39,17 +31,14 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
-import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 import static java.util.stream.Collectors.joining;
 
@@ -61,8 +50,6 @@ import static java.util.stream.Collectors.joining;
 public class GoalSpecChecks
 {
     static final int MAX_MODULES = 15;
-    // A gap's issue is filed by the user moments before the list reads it, so it is among the issues updated last.
-    private static final int RECENT_ISSUES = 100;
     private static final Logger log = LoggerFactory.getLogger(GoalSpecChecks.class);
 
     private final GoalStore goals;
@@ -71,9 +58,6 @@ public class GoalSpecChecks
     private final ObjectProvider<ContextSpecCheckService> checks;
     private final ObjectProvider<ContextBuildService> builds;
     private final ObjectProvider<GoalConversationService> conversations;
-    private final WorkspaceStore workspaces;
-    private final RepositoryIssueStore issues;
-    private final CredentialService credentials;
     private final Clock clock;
     private final Map<String, Modules> modules = new ConcurrentHashMap<>();
     private final Object writes = new Object();
@@ -81,8 +65,7 @@ public class GoalSpecChecks
     private record Modules(String sha, List<ContextSpecModule> found) {}
 
     public GoalSpecChecks(GoalStore goals, GoalRecommendationStore recommendations, ObjectProvider<WorkItemService> work, ObjectProvider<ContextSpecCheckService> checks,
-            ObjectProvider<ContextBuildService> builds, ObjectProvider<GoalConversationService> conversations, WorkspaceStore workspaces, RepositoryIssueStore issues,
-            CredentialService credentials, Clock clock)
+            ObjectProvider<ContextBuildService> builds, ObjectProvider<GoalConversationService> conversations, Clock clock)
     {
         this.goals = requireNonNull(goals, "goals is null");
         this.recommendations = requireNonNull(recommendations, "recommendations is null");
@@ -90,9 +73,6 @@ public class GoalSpecChecks
         this.checks = requireNonNull(checks, "checks is null");
         this.builds = requireNonNull(builds, "builds is null");
         this.conversations = requireNonNull(conversations, "conversations is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.issues = requireNonNull(issues, "issues is null");
-        this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -162,63 +142,31 @@ public class GoalSpecChecks
         List<ContextSpecCheck.Candidate> confirmed = check.get().candidates().stream()
                 .filter(candidate -> candidate.status() == ContextSpecCheck.Status.CONFIRMED && candidate.dismissed().isEmpty())
                 .collect(toImmutableList());
-        Optional<Workspace> workspace = workspaces.findById(workspaceId);
-        List<RepositoryIssue> recent = workspace.isEmpty() || confirmed.stream().allMatch(candidate -> candidate.draft().isEmpty()) ? ImmutableList.of()
-                : issues.findPage(workspace.get().monitoredRepositoryId(), workspace.get().monitoredRepository(), 0, RECENT_ISSUES).issues();
         return confirmed.stream()
                 .map(candidate -> {
-                    Optional<WorkItemView> item = Optional.ofNullable(items.get(gapItem(module, candidate.id())));
-                    Optional<Integer> filed = workspace.flatMap(found -> candidate.draft()
-                            .flatMap(draft -> filed(recent, draft.title(), check.get().startedAt(), item, found.monitoredRepository().fullName())));
+                    Optional<WorkItemView> item = Optional.ofNullable(items.get(SpecWorkItems.identity(workspaceId, module, candidate)))
+                            .filter(found -> found.goalId().filter(goalId::equals).isPresent());
                     return new GoalGap(check.get().id(), candidate.id(), module, candidate.title(), candidate.rule(), candidate.specUrl(), candidate.test(),
-                            candidate.draft(), item.map(WorkItemView::id), item.map(WorkItemView::state), filed);
+                            candidate.draft(), item.map(WorkItemView::id), item.map(WorkItemView::state));
                 })
                 .collect(toImmutableList());
     }
 
-    /**
-     * The issue the user filed from a gap's draft: the newest open issue the list holds with the draft's exact title, opened after the check by
-     * the signed-in account. Nothing once the gap's work links it or is concluded.
-     */
-    private Optional<Integer> filed(List<RepositoryIssue> recent, String title, Instant after, Optional<WorkItemView> item, String repository)
-    {
-        if (item.filter(found -> found.state() == WorkItem.State.DONE || found.state() == WorkItem.State.DROPPED).isPresent()) {
-            return Optional.empty();
-        }
-        Optional<String> login = credentials.cachedLogin();
-        return recent.stream()
-                .filter(issue -> issue.title().strip().equals(title.strip()) && issue.createdAt().isAfter(after) && login.map(issue.author()::equalsIgnoreCase).orElse(true))
-                .max(Comparator.comparing(RepositoryIssue::createdAt)).map(RepositoryIssue::number)
-                .filter(number -> item.stream().flatMap(found -> found.links().stream())
-                        .noneMatch(link -> link.kind() == GoalItemKind.ISSUE && link.key().equalsIgnoreCase(GoalItem.numberedKey(repository, number))));
-    }
-
-    /**
-     * Adds a reproduced gap to the goal as Develop work under merged delivery, done once its reproduction test passes and the fix merges.
-     * The issue the user filed from its draft joins that work; adding it again only links an issue filed since. The draft stays the user's to
-     * file.
-     */
+    /** Adopts the same local finding into the Goal, retaining its full report and any explicit publication links. */
     public WorkItemView adopt(String workspaceId, String goalId, String candidateId)
     {
         GoalGap gap = gaps(workspaceId, goalId).stream().filter(found -> found.candidateId().equals(candidateId)).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Gap not found"));
-        String title = gap.draft().map(ContextSpecCheck.Draft::title).orElse(gap.title());
-        String criteria = gap.test().map(test -> "The reproduction test " + test.path() + " passes (" + test.command() + "), and the fix that makes it pass merges.")
-                .orElse("The gap is fixed, tested and merged.") + "\nSpecification: " + gap.specUrl();
-        WorkItemView item = work.getObject().create(workspaceId, gapItem(gap.module(), candidateId), Optional.of(goalId), ContextText.excerpt(title, 500),
-                WorkItem.Kind.DEVELOP, criteria, WorkItem.CompletionRule.MERGED_DELIVERY);
-        if (gap.filed().isEmpty()) {
-            return item;
+        WorkItemView item = checks.getObject().workItem(workspaceId, gap.checkId(), candidateId);
+        String id = item.id();
+        if (item.goalId().isEmpty()) {
+            item = work.getObject().change(workspaceId, item.id(), new WorkItemCommand("adopt:" + goalId + ":" + id, item.revision(), WorkItemCommand.Action.MOVE,
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(goalId), "Adopted spec finding", Optional.empty(), Optional.empty(), false));
         }
-        // The filed issue joins the gap's work, so a task started from the issue becomes its attempt rather than a second work item.
-        String repository = workspaces.findById(workspaceId).orElseThrow().monitoredRepository().fullName();
-        return work.getObject().link(workspaceId, item.id(), item.revision(), GoalItemKind.ISSUE, GoalItem.numberedKey(repository, gap.filed().orElseThrow()));
-    }
-
-    /** One work item per gap, whichever check of its module reported it. */
-    private static String gapItem(String module, String candidateId)
-    {
-        return UUID.nameUUIDFromBytes(("gap:" + module + ":" + candidateId).getBytes(UTF_8)).toString();
+        if (!item.goalId().filter(goalId::equals).isPresent()) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Finding already belongs to another Goal");
+        }
+        return item;
     }
 
     /** The modules a spec check may name, the ones whose own code cites a page in the most sections first. */

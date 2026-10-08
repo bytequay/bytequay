@@ -67,6 +67,7 @@ import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
+import com.bytequay.agent.spi.WorkItemBridge;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
@@ -149,6 +150,7 @@ public class AgentConfiguration
             BridgeResolver<IssueContextBridge> issueContexts,
             BridgeResolver<MemoryBridge> memories,
             BridgeResolver<RelatedWorkspaceBridge> relatedWork,
+            BridgeResolver<WorkItemBridge> workItems,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new PermissionBroker(
@@ -163,7 +165,7 @@ public class AgentConfiguration
                 localReviews,
                 pullRequestChecks,
                 issueContexts,
-                memories, relatedWork);
+                memories, relatedWork, workItems);
     }
 
     @Bean(destroyMethod = "close")

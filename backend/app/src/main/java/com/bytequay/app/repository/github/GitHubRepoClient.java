@@ -26,6 +26,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -44,6 +45,7 @@ import java.util.function.Function;
 import static com.bytequay.app.repository.github.GitHubApiSupport.get;
 import static com.bytequay.app.repository.github.GitHubApiSupport.issueTypeName;
 import static com.bytequay.app.repository.github.GitHubApiSupport.requireBody;
+import static com.bytequay.app.repository.github.GitHubApiSupport.send;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -267,14 +269,36 @@ public class GitHubRepoClient
                 Math.max(0, value.comments()), value.createdAt(), value.updatedAt());
     }
 
+    public GitHubIssueSource publishWorkItem(String pat, RepoRef repo, String title, String body)
+    {
+        checkArgument(!title.isBlank() && title.length() <= 256, "GitHub titles must contain 1–256 characters");
+        return translating(() -> {
+            IssueResponse issue = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("title", title, "body", body),
+                    "/repos/{owner}/{repo}/issues", repo.owner(), repo.repo()).body(IssueResponse.class), "Empty issue creation response from GitHub");
+            return new GitHubIssueSource("github.com", issue.id(), repo.fullName(), issue.number(),
+                    "https://github.com/" + repo.fullName() + "/issues/" + issue.number(), issue.title(), Optional.ofNullable(issue.body()).orElse(body), issue.updatedAt());
+        });
+    }
+
     public GitHubIssueSource fetchOpenIssueSource(String pat, RepoRef repo, int issueNumber)
+    {
+        return fetchIssueSource(pat, repo, issueNumber, true);
+    }
+
+    public GitHubIssueSource fetchIssueSource(String pat, RepoRef repo, int issueNumber)
+    {
+        return fetchIssueSource(pat, repo, issueNumber, false);
+    }
+
+    private GitHubIssueSource fetchIssueSource(String pat, RepoRef repo, int issueNumber, boolean requireOpen)
     {
         checkArgument(issueNumber > 0, "issueNumber must be positive");
         return translating(() -> {
             IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
                     .retrieve().body(IssueResponse.class), "Empty issue response from GitHub");
-            if (!"open".equals(issue.state()) || issue.pullRequest() != null || issue.number() != issueNumber) {
-                throw new AgentConflictException("This source is not an open issue. Refresh issues before starting development.");
+            if (requireOpen && !"open".equals(issue.state()) || issue.pullRequest() != null || issue.number() != issueNumber) {
+                throw new AgentConflictException(requireOpen ? "This source is not an open issue. Refresh issues before starting development."
+                        : "This source is not a GitHub issue.");
             }
             return new GitHubIssueSource("github.com", issue.id(), repo.fullName(), issueNumber,
                     "https://github.com/" + repo.fullName() + "/issues/" + issueNumber,

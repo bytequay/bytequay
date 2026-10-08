@@ -88,16 +88,17 @@ describe('app sidebar', () => {
     expect(workspace).not.toContain('aria-label="All workspaces"');
   });
 
-  it('shows connected Jira below the global navigation and within a workspace', () => {
+  it('keeps global Jira discovery and combines workspace sources in Work items', () => {
     const connectedApp = render('jira', null, { jiraConnected: true });
-    const connectedWorkspace = render('workspaces', WORKSPACE, { jiraConnected: true, workspaceTab: 'jira' });
+    const connectedWorkspace = render('workspaces', WORKSPACE, { jiraConnected: true, workspaceTab: 'issues' });
     expect(navLabels(app, 'Application navigation')).toEqual(['Pull requests']);
     expect(navLabels(connectedApp, 'Application navigation')).toEqual(['Pull requests', 'Jira']);
     expect(connectedApp).toContain('aria-label="Jira" aria-current="page"');
-    expect(navLabels(workspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Issues', 'Commits', 'Memory']);
-    expect(navLabels(connectedWorkspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Issues', 'Jira', 'Commits',
+    expect(navLabels(workspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Work items', 'Commits', 'Memory']);
+    expect(navLabels(connectedWorkspace, 'Workspace navigation')).toEqual(['Workspace home', 'Tasks', 'Pull requests', 'Work items', 'Commits',
       'Memory']);
-    expect(connectedWorkspace).toContain('aria-label="Jira" aria-current="page"');
+    expect(connectedWorkspace).toContain('aria-label="Work items" aria-current="page"');
+    expect(render('workspaces', WORKSPACE, { workspaceTab: 'jira' })).toContain('aria-label="Work items" aria-current="page"');
     expect(app).not.toContain('aria-label="Jira"');
     expect(workspace).not.toContain('aria-label="Jira"');
   });

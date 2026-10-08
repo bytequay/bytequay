@@ -208,7 +208,7 @@ class TestIssueContextBridgeResolverImpl
         when(epics.find(epicId)).thenReturn(Optional.of(Epic.of(epicId, "workspace").withChildren(ImmutableList.of(child), NOW, false)));
 
         IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
-        assertThat(bridge.instruction()).isEqualTo(IssueContextBridge.EPIC_INSTRUCTION);
+        assertThat(bridge.instruction()).contains(IssueContextBridge.WORK_INSTRUCTION, IssueContextBridge.EPIC_INSTRUCTION);
         JsonNode context = mapper.readTree(bridge.read().get());
         assertThat(context.path("source").asText()).contains("no remote request");
         assertThat(context.at("/epic/reference").asText()).isEqualTo("#9");
@@ -252,6 +252,24 @@ class TestIssueContextBridgeResolverImpl
         assertThat(context.at("/epic/status").asText()).isEqualTo("missing");
         assertThat(context.at("/epic/currentWork/title").asText()).isEqualTo("Fix selection");
         assertThat(context.at("/epic/work")).hasSize(1);
+    }
+
+    @Test
+    void standaloneLocalWorkRetainsItsDescriptionWithoutAnEpicOrRemoteSource()
+            throws Exception
+    {
+        when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.empty());
+        WorkItem item = new WorkItem("local", "workspace", Optional.empty(), "Private repair", WorkItem.Kind.DEVELOP, "Reproduction and full acceptance criteria",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.WORKING, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
+                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
+        when(workItems.findByIdentity(WorkItemLink.taskIdentity(taskId.toString()))).thenReturn(Optional.of(item));
+        IssueContextBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        assertThat(bridge.instruction()).isEqualTo(IssueContextBridge.WORK_INSTRUCTION);
+        JsonNode result = mapper.readTree(bridge.read().get());
+        assertThat(result.at("/workItem/id").asText()).isEqualTo("local");
+        assertThat(result.at("/workItem/acceptanceCriteria").asText()).isEqualTo(item.acceptanceCriteria());
+        assertThat(result.has("epic")).isFalse();
+        verifyNoInteractions(issues, details);
     }
 
     private static WorkItem work(String id, String title, WorkItem.State state, long epicRank, String epicId, String criteria, List<String> blockedBy, List<WorkItemLink> links)

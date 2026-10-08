@@ -17,18 +17,11 @@ import com.bytequay.app.context.ContextBuildService;
 import com.bytequay.app.context.ContextSpecCheck;
 import com.bytequay.app.context.ContextSpecCheckService;
 import com.bytequay.app.context.ContextSpecModule;
-import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.workitem.SpecWorkItems;
 import com.bytequay.core.domain.Goal;
-import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalRecommendation;
-import com.bytequay.core.domain.RepoRef;
-import com.bytequay.core.domain.RepositoryIssue;
-import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItem;
-import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.GoalStore;
-import com.bytequay.core.store.RepositoryIssueStore;
-import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,9 +33,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -64,11 +55,8 @@ class TestGoalSpecChecks
     private final GoalConversationService conversation = mock(GoalConversationService.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final WorkItemService work = mock(WorkItemService.class);
-    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
-    private final RepositoryIssueStore issues = mock(RepositoryIssueStore.class);
-    private final CredentialService credentials = mock(CredentialService.class);
     private final GoalSpecChecks specChecks = new GoalSpecChecks(goals, cards, beans.getBeanProvider(WorkItemService.class), beans.getBeanProvider(ContextSpecCheckService.class),
-            beans.getBeanProvider(ContextBuildService.class), beans.getBeanProvider(GoalConversationService.class), workspaces, issues, credentials,
+            beans.getBeanProvider(ContextBuildService.class), beans.getBeanProvider(GoalConversationService.class),
             Clock.fixed(NOW, ZoneOffset.UTC));
 
     @BeforeEach
@@ -143,12 +131,7 @@ class TestGoalSpecChecks
         assertThat(specChecks.gaps("workspace", "goal-1")).as("only reproduced gaps").hasSize(1);
         assertThat(open.open()).isTrue();
         assertThat(open.workItemId()).isEmpty();
-        specChecks.adopt("workspace", "goal-1", "c-1");
-        String id = UUID.nameUUIDFromBytes("gap:plugin/trino-delta-lake/:c-1".getBytes(UTF_8)).toString();
-        verify(work).create("workspace", id, Optional.of("goal-1"), "Checkpoint loses rows with deletion vectors", WorkItem.Kind.DEVELOP,
-                "The reproduction test plugin/trino-delta-lake/src/test/java/TestCheckpoint.java passes (mvn -Dtest=TestCheckpoint test), and the fix that makes it pass "
-                        + "merges.\nSpecification: " + PROTOCOL, WorkItem.CompletionRule.MERGED_DELIVERY);
-
+        String id = SpecWorkItems.identity("workspace", "plugin/trino-delta-lake/", gap);
         when(work.list("workspace")).thenReturn(ImmutableList.of(new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows", WorkItem.Kind.DEVELOP,
                 "Passes", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.DONE, 3, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
                 WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0)));
@@ -172,51 +155,31 @@ class TestGoalSpecChecks
     }
 
     @Test
-    void theIssueTheUserFiledFromAGapsDraftIsOfferedAndJoinsTheGapsWork()
+    void aGoalAdoptsTheExactRetainedLocalFinding()
     {
         cards.save(cards.find("card-1").orElseThrow().checking("check-1", NOW).done(NOW));
         ContextSpecCheck.Candidate gap = candidate(ContextSpecCheck.Status.CONFIRMED, "Checkpoint keys actions by path only", Optional.empty());
         when(gap.id()).thenReturn("c-1");
-        when(gap.rule()).thenReturn("");
+        when(gap.rule()).thenReturn("Keep deletion vectors");
         when(gap.specUrl()).thenReturn(PROTOCOL);
+        when(gap.code()).thenReturn(ImmutableList.of("src/checkpoint.java:1"));
         when(gap.test()).thenReturn(Optional.empty());
-        when(gap.draft()).thenReturn(Optional.of(new ContextSpecCheck.Draft("Checkpoint loses rows with deletion vectors", "Body", ImmutableList.of("bug"))));
-        ContextSpecCheck check = check(ContextSpecCheck.State.DONE, gap);
-        when(check.startedAt()).thenReturn(NOW);
-        when(checks.checks("workspace")).thenReturn(ImmutableList.of(check));
-        Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
-        when(workspace.monitoredRepositoryId()).thenReturn(1L);
-        when(workspace.monitoredRepository()).thenReturn(RepoRef.of("trinodb", "trino"));
-        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace));
-        when(credentials.cachedLogin()).thenReturn(Optional.of("jack"));
-        when(issues.findPage(1, RepoRef.of("trinodb", "trino"), 0, 100)).thenReturn(new RepositoryIssuePage(1, RepoRef.of("trinodb", "trino"), ImmutableList.of(
-                issue(31301, "Checkpoint loses rows with deletion vectors", "jack", NOW.plusSeconds(60)),
-                issue(31302, "Checkpoint loses rows with deletion vectors", "someone", NOW.plusSeconds(90)),
-                issue(31200, "Checkpoint loses rows with deletion vectors", "jack", NOW.minusSeconds(60)),
-                issue(31303, "Checkpoint loses rows", "jack", NOW.plusSeconds(120))), 0, 100, 4, false, Optional.of(NOW)));
-        when(work.list("workspace")).thenReturn(ImmutableList.of());
-        assertThat(specChecks.gaps("workspace", "goal-1").getFirst().filed()).as("the user's own issue, filed after the check, under the draft's title").contains(31301);
-
-        String id = UUID.nameUUIDFromBytes("gap:plugin/trino-delta-lake/:c-1".getBytes(UTF_8)).toString();
-        WorkItemView created = new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows with deletion vectors", WorkItem.Kind.DEVELOP, "Fixed",
-                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 2, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
+        when(gap.draft()).thenReturn(Optional.of(new ContextSpecCheck.Draft("Checkpoint loses rows", "Full reproduction", ImmutableList.of("bug"))));
+        ContextSpecCheck completed = check(ContextSpecCheck.State.DONE, gap);
+        when(checks.checks("workspace")).thenReturn(ImmutableList.of(completed));
+        String id = SpecWorkItems.identity("workspace", "plugin/trino-delta-lake/", gap);
+        WorkItemView local = new WorkItemView(id, "workspace", Optional.empty(), "Checkpoint loses rows", WorkItem.Kind.DEVELOP, "Full reproduction",
+                WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), NOW, NOW,
                 WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
-        when(work.create(eq("workspace"), eq(id), any(), any(), any(), any(), any())).thenReturn(created);
-        specChecks.adopt("workspace", "goal-1", "c-1");
-        verify(work).link("workspace", id, 2, GoalItemKind.ISSUE, "trinodb/trino#31301");
-
-        when(work.list("workspace")).thenReturn(ImmutableList.of(new WorkItemView(id, "workspace", Optional.of("goal-1"), "Checkpoint loses rows", WorkItem.Kind.DEVELOP,
-                "Fixed", WorkItem.CompletionRule.MERGED_DELIVERY, WorkItem.State.PLANNED, 3, ImmutableList.of(new GoalItemView(GoalItemKind.ISSUE, "trinodb/trino#31301",
-                "#31301", "Checkpoint loses rows", GoalItemState.IDLE, "Open", false, Optional.empty(), Optional.empty(),
-                Optional.of(NOW), Optional.empty())), ImmutableList.of(), NOW, NOW,
-                WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0)));
-        assertThat(specChecks.gaps("workspace", "goal-1").getFirst().filed()).as("once linked, nothing is offered").isEmpty();
-    }
-
-    private static RepositoryIssue issue(int number, String title, String author, Instant created)
-    {
-        return new RepositoryIssue(number, number, title, "", author, "", "https://github.com/trinodb/trino/issues/" + number, ImmutableList.of(), ImmutableList.of(), 0,
-                created, created);
+        WorkItemView adopted = new WorkItemView(id, "workspace", Optional.of("goal-1"), local.title(), local.kind(), local.acceptanceCriteria(), local.completionRule(),
+                local.state(), 1, local.links(), local.history(), NOW, NOW, local.priority(), 0, ImmutableList.of(), Optional.empty(), 0);
+        when(work.list("workspace")).thenReturn(ImmutableList.of(local));
+        assertThat(specChecks.gaps("workspace", "goal-1").getFirst().workItemId()).as("local work still offers Add to Goal").isEmpty();
+        when(checks.workItem("workspace", "check-1", "c-1")).thenReturn(local);
+        when(work.change(eq("workspace"), eq(id), any())).thenReturn(adopted);
+        assertThat(specChecks.adopt("workspace", "goal-1", "c-1")).isEqualTo(adopted);
+        when(work.list("workspace")).thenReturn(ImmutableList.of(adopted));
+        assertThat(specChecks.gaps("workspace", "goal-1").getFirst().workItemId()).contains(id);
     }
 
     private static ContextSpecCheck check(ContextSpecCheck.State state, ContextSpecCheck.Candidate... candidates)

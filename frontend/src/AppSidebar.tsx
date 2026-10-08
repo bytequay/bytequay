@@ -91,8 +91,7 @@ const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode 
   { tab: 'home', label: 'Workspace home', icon: <LayoutDashboard size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'tasks', label: 'Tasks', icon: <SquareCheck size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'prs', label: 'Pull requests', icon: <PullsIcon /> },
-  { tab: 'issues', label: 'Issues', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
-  { tab: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
+  { tab: 'issues', label: 'Work items', icon: <CircleDot size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'commits', label: 'Commits', icon: <GitBranch size={16} strokeWidth={1.7} aria-hidden="true" /> },
   { tab: 'context', label: 'Memory', icon: <BookMarked size={16} strokeWidth={1.7} aria-hidden="true" /> },
 ];
@@ -190,7 +189,7 @@ export default function AppSidebar({
       key: tab,
       label,
       icon,
-      active: workspaceTab === tab,
+      active: workspaceTab === tab || tab === 'issues' && workspaceTab === 'jira',
       disabled: reason !== null,
       title: reason ?? label,
       badge: tab === 'context' && memoryNeeds > 0 ? { count: memoryNeeds, label: `${memoryNeeds} need you` } : undefined,

@@ -338,7 +338,7 @@ export async function run(): Promise<boolean> {
     assert(unmarked() === 1 && document.querySelector('dialog.bq-confirm-dialog') === null, 'An Epic without work unmarks at once');
     button('Unmark the Epic').click(); await wait(20);
     const confirm = element<HTMLDialogElement>('dialog.bq-confirm-dialog');
-    assert(confirm.textContent?.includes('its 2 work items leave the Epic, and 1 that exists only there is deleted') === true, `Confirm says what goes: ${confirm.textContent}`);
+    assert(confirm.textContent?.includes('2 work items leave the Epic. All work items, descriptions and task history stay') === true, `Confirm says what goes: ${confirm.textContent}`);
     assert(unmarked() === 1, 'Nothing is unmarked before the user confirms');
     button('Unmark').click(); await settle();
     assert(unmarked() === 2, 'Confirming unmarks it');

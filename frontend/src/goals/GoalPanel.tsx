@@ -112,8 +112,8 @@ export type GoalPanelProps = {
   onStartTicket: (ticket: string, instruction: string, replaces?: string) => void;
   /** Shows a module's spec check on the Memory page. */
   onSpecCheck: (spec: SpecCheckRequest) => void;
-  /** Opens a gap's drafted issue on GitHub's form, for the user to file; answers whether the body was cut and copied instead. */
-  onFileIssue: (draft: NonNullable<GoalGapDto['draft']>) => Promise<boolean>;
+  /** Opens the local work item retaining a spec check's complete finding. */
+  onOpenGap: (gap: GoalGapDto) => Promise<void>;
   search: (query: string) => Promise<GoalItemDto[]>;
 };
 
@@ -151,7 +151,7 @@ export function GoalPanel(props: GoalPanelProps): React.JSX.Element {
   const views: GoalPanelView[] = goal?.course != null ? ['guide', 'lessons', 'work'] : ['guide', 'work'];
   const guide = (lessonId?: string): React.JSX.Element => <GoalGuide key={goal?.id ?? 'next'} goal={goal} repository={props.repository} conversation={props.conversation}
     now={props.now} onStart={props.onStart} onOpenTask={props.onOpenTask} onLesson={openLesson} onBack={props.onBack} onStartIssue={props.onStartIssue}
-    onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck} onFileIssue={props.onFileIssue} onReview={setSelected} lessonId={lessonId} />;
+    onStartTicket={props.onStartTicket} onSpecCheck={props.onSpecCheck} onOpenGap={props.onOpenGap} onReview={setSelected} lessonId={lessonId} />;
   return (
     <GoalRepository value={props.repository}>
     <div className={`goal-panel is-${mode}`} role="dialog" aria-label={goal === null ? 'Goal' : `Goal: ${goal.title}`}>
@@ -304,9 +304,9 @@ function GoalTitle({ goal, onRename }: { goal: GoalDto; onRename: GoalPanelProps
  * The agent's side of the goal: "What do you want to achieve?" while there is nothing to go on, then the conversation, the
  * question's suggested answers and a definition to accept. The opening is written locally; only a message asks the model.
  */
-function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onFileIssue, onReview,
+function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, onLesson, onBack, onStartIssue, onStartTicket, onSpecCheck, onOpenGap, onReview,
   lessonId }: Pick<GoalPanelProps, 'goal' | 'repository' | 'conversation' | 'now' | 'onStart' | 'onOpenTask' | 'onLesson' | 'onBack' | 'onStartIssue' | 'onStartTicket'
-    | 'onSpecCheck' | 'onFileIssue'> & {
+    | 'onSpecCheck' | 'onOpenGap'> & {
   onReview: (workItemId: string) => void;
   /** The lesson open beside the conversation, which the messages sent from here are about. */
   lessonId?: string;
@@ -365,7 +365,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
         {goal?.course != null && <Course goal={goal} onLesson={onLesson} />}
         {conversation.notes.length > 0 && <Notes notes={conversation.notes} onRemember={conversation.rememberNote} />}
         {goal !== null && goal.topics.length > 0 && <Known topics={goal.topics} onCorrect={conversation.correctTopic} />}
-        {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onFileIssue} onReview={onReview} />}
+        {conversation.gaps.length > 0 && <Gaps gaps={conversation.gaps} onAdd={conversation.addGap} onFile={onOpenGap} onReview={onReview} />}
         {opening ? (
           <div className="goal-guide__opening">
             {onBack !== undefined && <button type="button" className="goal-link goal-guide__back" onClick={onBack}>Back to the current goal</button>}
@@ -442,7 +442,7 @@ const TURN_MARGIN = 12;
 function Gaps({ gaps, onAdd, onFile, onReview }: {
   gaps: GoalGapDto[];
   onAdd: (candidateId: string) => Promise<void>;
-  onFile: (draft: NonNullable<GoalGapDto['draft']>) => Promise<boolean>;
+  onFile: (gap: GoalGapDto) => Promise<void>;
   onReview: (workItemId: string) => void;
 }): React.JSX.Element {
   const [note, setNote] = useState<string | null>(null);
@@ -455,17 +455,13 @@ function Gaps({ gaps, onAdd, onFile, onReview }: {
         {gap.test !== null && <span className="goal-muted">{gap.test.path}</span>}
         {gap.draft !== null && <button type="button" className="goal-link" onClick={() => {
           setNote(null);
-          void onFile(gap.draft).then((cut) => setNote(cut ? 'The issue form opened with a shortened body; the full report is on the clipboard.'
-            : 'The issue form opened on GitHub; file it there.'), failed('The issue form did not open'));
-        }}>File issue</button>}
+          void onFile(gap).catch(failed('The local work item did not open'));
+        }}>Open local work item</button>}
         {gap.workItemId === null
           ? <button type="button" className="goal-link" onClick={() => { setNote(null); void onAdd(gap.candidateId).catch(failed('The gap was not added')); }}>
-            {gap.filed === null ? 'Add to goal' : `Add to goal with #${gap.filed}`}</button>
+            Add to goal</button>
           : <button type="button" className="goal-link" onClick={() => onReview(gap.workItemId)}>Work: {gap.state?.toLowerCase() ?? 'open'}</button>}
-        {/* Adding again links an issue the user filed since, so a task started from it joins the gap's work. */}
-        {gap.workItemId !== null && gap.filed !== null && <button type="button" className="goal-link" onClick={() => {
-          setNote(null); void onAdd(gap.candidateId).catch(failed('The issue was not linked'));
-        }}>Link #{gap.filed} to its work</button>}
+
       </div>)}
       {note !== null && <p className="goal-muted" role="status">{note}</p>}
     </section>

@@ -27,7 +27,7 @@ and the resulting changes close enough to inspect together.
 | Goals | Clarify an objective, research or learn about the repository, and track accepted outcomes. |
 | Epics | Group related work, break it into useful items, follow attempts, and review progress toward a shared result. |
 | Code and tests | Inspect and edit the task's working copy, run supported development tools, and examine their output. |
-| Issues and Jira | Bring existing requests into the workspace and connect them to development work. |
+| Work items | Read GitHub issues, Jira tickets, and private local work together; retain their context through development and optional publication. |
 | Memory and specifications | Retain useful repository guidance and compare code with its intended behavior. |
 | Related workspaces and backports | Follow changes across related repositories and choose where they should be carried next. |
 | Circles | Keep a personal view of the people and work that matter to you. |
@@ -43,6 +43,13 @@ available behavior. The website provides short guides and representative app vie
 Repositories, source requests, tasks, commits, and pull requests should be easy
 to move between. A conversation and its code belong to the same work. Switching
 views should preserve useful context and unfinished input.
+
+New work created by ByteQuay starts as a private local work item, including agent
+follow-ups, Epic subtasks, and confirmed specification findings. GitHub issues and
+Jira tickets share its workspace view and agent reading tools. Starting development
+keeps the description, source, accepted criteria, and attempts connected. Publishing
+a local item to GitHub or Jira is a separate explicit action and preserves its local
+identity; delivering a pull request does not require publishing the item.
 
 ### Make the change understandable
 

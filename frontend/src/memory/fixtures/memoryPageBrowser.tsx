@@ -77,6 +77,12 @@ export function mount(withFindings = false) {
     getModelSettings: async () => { throw new Error('No configured model'); },
     getRepositoryContextSpecModules: async () => { calls.push('modules'); return []; },
     getRepositoryContextSpecSources: async () => [],
+    specWorkItem: async (_workspace, checkId, candidateId) => {
+      calls.push(`local:${checkId}:${candidateId}`);
+      return { id: 'local-finding', workspaceId: 'workspace', goalId: null, title: finding.title, kind: 'DEVELOP', acceptanceCriteria: finding.draft?.body ?? '',
+        completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, links: [], history: [], createdAt: completedCheck.startedAt, updatedAt: completedCheck.startedAt,
+        priority: 'NORMAL', rank: 0, blockedBy: [] };
+    },
     openInAppBrowser: async (url: string) => { opened.push(url); },
     dismissRepositoryContextSpecFinding: async (_workspace, checkId, candidateId, request) => {
       calls.push('dismiss');
@@ -147,11 +153,10 @@ export async function runFindings() {
     assert(panel.textContent?.includes('A dismissed result') === false && panel.textContent?.includes('An unconfirmed result') === false,
       'Dismissed and unconfirmed results are not presented as findings');
     assert(openedCount() === 0, 'Rendering findings does not contact GitHub');
-    button(findings()[0], 'Open GitHub issue form').click(); await settle();
-    const url = new URL(view.opened[0]);
-    assert(url.origin + url.pathname === 'https://github.com/trinodb/trino/issues/new', 'Action opens the issue form, not a publication endpoint');
-    assert(url.searchParams.get('title') === finding.draft?.title && url.searchParams.get('body') === finding.draft?.body, 'Form carries the selected draft');
-    assert(findings().length === 2 && !view.calls.includes('dismiss'), 'Opening the form does not mark a finding filed');
+    button(findings()[0], 'Open local work item').click(); await settle();
+    assert(view.opened.length === 0, 'A finding opens locally without contacting GitHub');
+    assert(window.location.hash.includes('work=local-finding'), 'The full finding is opened as a work item');
+    assert(view.calls.includes(`local:check-1:${finding.id}`), 'The selected finding supplies its durable source identity');
     button(findings()[0], 'Copy body').click(); await settle();
     assert(view.copied[0] === finding.draft?.body, 'Copy body remains available on the page');
     panel.querySelector<HTMLButtonElement>('.rcp-review')?.click(); await settle();
@@ -165,8 +170,8 @@ export async function runFindings() {
       assert(findings().length === remaining && panel.textContent?.includes(`Findings · ${remaining}`) === true, 'Dismiss updates the visible findings and count');
     }
     assert(panel.textContent?.includes('No confirmed findings to review.') === true, 'Last dismissal leaves a clear empty state');
-    assert(openedCount() === 1, 'Dismissal publishes nothing');
-    return [{ name: 'Inline spec findings and explicit GitHub form action' }];
+    assert(openedCount() === 0, 'Dismissal publishes nothing');
+    return [{ name: 'Inline spec findings and retained local work' }];
   } finally { view.close(); }
 }
 

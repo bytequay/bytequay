@@ -266,13 +266,13 @@ class TestJiraService
     {
         JiraIssue issue = JiraMapping.issue("connection", "cloud", "https://example.atlassian.net", ticket());
         cache.write("connection.cloud.issue.1001", issue);
-        cache.write("workspace.cloud.1001", "workspace");
         when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "ByteQuay")));
         when(workspaces.findById("other-workspace")).thenReturn(Optional.of(workspace("other-workspace", "Other")));
         WorkItem owner = new WorkItem("work", "workspace", Optional.of("goal"), issue.title(), WorkItem.Kind.DEVELOP, "", WorkItem.CompletionRule.MERGED_DELIVERY,
                 WorkItem.State.PLANNED, 0, ImmutableList.of(), ImmutableList.of(), UPDATED, UPDATED, WorkItem.Priority.NORMAL, 0, ImmutableList.of(), Optional.empty(), 0);
         when(workItems.findByIdentity(WorkItemLink.jiraIdentity("cloud", "1001"))).thenReturn(Optional.of(owner));
-        // Launches there would be refused by the work item, and here by the assignment.
+        assertThat(jira.assignedWorkspace("cloud", "1001")).contains("workspace");
+        // Publication already binds the workspace; no separate ticket assignment is needed.
         assertThatThrownBy(() -> jira.assignWorkspace("connection", "cloud", "1001", "other-workspace")).hasMessageContaining("work item belongs to another workspace");
         assertThat(jira.issue("connection", "cloud", "1001").workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
         assertThat(jira.assignWorkspace("connection", "cloud", "1001", "workspace").issue().workspace()).contains(new JiraDtos.WorkspaceLink("workspace", "ByteQuay"));
@@ -443,25 +443,25 @@ class TestJiraService
     }
 
     @Test
-    void newChildUsesTheParentProjectAndATypeOneLevelBelowIt()
+    void childrenAreLocalAndPublicationIsSeparate()
             throws Exception
     {
-        doReturn(json("{\"id\":\"1001\",\"fields\":{\"project\":{\"id\":\"100\"},\"issuetype\":{\"hierarchyLevel\":1}}}")).when(remote)
-                .request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/1001?fields=project"), eq("GET"), any());
-        doReturn(json("""
-                {"issueTypes":[{"id":"1","name":"Epic","hierarchyLevel":1},{"id":"2","name":"Story","hierarchyLevel":0},
-                  {"id":"3","name":"Task","hierarchyLevel":0},{"id":"4","name":"Subtask","hierarchyLevel":-1,"subtask":true}]}
-                """)).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/createmeta/100/issuetypes?"), eq("GET"), any());
-        assertThat(jira.childTypes("connection", "cloud", "1001")).containsExactly(new JiraDtos.Choice("2", "Story"), new JiraDtos.Choice("3", "Task"));
+        jira.detail("connection", "cloud", "1001", true);
+        cache.write("workspace.cloud.1001", "workspace");
+        cache.write("goal.cloud.1001", true);
+        when(workspaces.findById("workspace")).thenReturn(Optional.of(workspace("workspace", "Workspace")));
+        jira.createLocalChild("connection", "cloud", "1001", "child-id", "Verify the flag", "Preserve the parent context");
+        verify(workService).createInEpic("workspace", "child-id", WorkItemLink.jiraIdentity("cloud", "1001"), "Verify the flag",
+                WorkItem.Kind.DEVELOP, "Preserve the parent context", WorkItem.CompletionRule.MERGED_DELIVERY);
+        verify(remote, never()).request(anyString(), anyString(), eq("/rest/api/3/issue"), eq("POST"), any());
 
-        jira.createChild("connection", "cloud", "1001", "3", "  Add the flag ");
-        verify(remote).request("connection", "cloud", "/rest/api/3/issue", "POST", Optional.of(ImmutableMap.of("fields", ImmutableMap.of("project", ImmutableMap.of("id", "100"),
-                "parent", ImmutableMap.of("id", "1001"), "issuetype", ImmutableMap.of("id", "3"), "summary", "Add the flag"))));
-        assertThatThrownBy(() -> jira.createChild("connection", "cloud", "1001", "3", " ")).isInstanceOf(IllegalArgumentException.class);
-        when(remote.request("connection", "cloud", "/rest/api/3/issue", "POST", Optional.of(ImmutableMap.of("fields", ImmutableMap.of("project", ImmutableMap.of("id", "100"),
-                "parent", ImmutableMap.of("id", "1001"), "issuetype", ImmutableMap.of("id", "3"), "summary", "Needs a team")))))
-                .thenThrow(new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY));
-        assertThatThrownBy(() -> jira.createChild("connection", "cloud", "1001", "3", "Needs a team")).hasMessageContaining("create it in Jira");
+        doReturn(json("{\"issueTypes\":[{\"id\":\"3\",\"name\":\"Task\"},{\"id\":\"4\",\"name\":\"Subtask\",\"subtask\":true}],\"isLast\":true}"))
+                .when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/api/3/issue/createmeta/ENG/issuetypes?"), eq("GET"), any());
+        assertThat(jira.publicationTypes("connection", "cloud", "ENG")).containsExactly(new JiraDtos.Choice("3", "Task"));
+        doReturn(json("{\"id\":\"1002\",\"key\":\"ENG-2\"}")).when(remote).request(eq("connection"), eq("cloud"), eq("/rest/api/3/issue"), eq("POST"), any());
+        JiraIssueSource published = jira.publishWorkItem("connection", "cloud", "ENG", "3", "Verify the flag", "Full local description");
+        assertThat(published.body()).isEqualTo("Full local description");
+        assertThat(published.url()).isEqualTo("https://example.atlassian.net/browse/ENG-2");
     }
 
     @Test

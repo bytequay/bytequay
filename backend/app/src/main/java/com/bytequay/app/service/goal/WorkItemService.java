@@ -232,8 +232,8 @@ public class WorkItemService
     }
 
     /**
-     * Rejects a task for work that is concluded, belongs to another workspace, or has an issue or ticket, before task creation prepares a
-     * worktree. Work with a source starts from it, so its task becomes the source's attempt.
+     * Rejects a task for work that is concluded, belongs to another workspace, or has an issue or ticket, before preparing a worktree.
+     * Published work starts through its source, which attaches the attempt to the same retained work item.
      */
     public void requireAttemptable(String workspaceId, String id)
     {
@@ -288,6 +288,43 @@ public class WorkItemService
                             kind == GoalItemKind.PULL_REQUEST || kind == GoalItemKind.ISSUE ? key.toLowerCase(Locale.ROOT) : key)))
                     .forEach(item -> saveLinks(item, Optional.empty(), item.epicId(), ImmutableList.of(), "Removed from Goal; work and history retained"));
             return null;
+        });
+    }
+
+    /** Atomically binds the previewed revision before any remote request. A lost response cannot silently publish twice. */
+    public WorkItem beginPublication(String workspaceId, String id, long revision, String operationId, String destination)
+    {
+        return unitOfWork.execute(() -> {
+            WorkItem item = requireItem(workspaceId, id);
+            requireRevision(item, revision);
+            checkArgument(item.history().stream().noneMatch(event -> event.action().equals("PUBLISH_STARTED")
+                    && item.history().stream().noneMatch(done -> done.operationId().equals(event.operationId() + ":settled"))),
+                    "A publication may already have succeeded. Link the existing issue or ticket before publishing again.");
+            record(workspaceId, id, operationId, "PUBLISH_STARTED", destination);
+            return item;
+        });
+    }
+
+    public void publicationRejected(String workspaceId, String id, String operationId)
+    {
+        record(workspaceId, id, operationId + ":settled", "PUBLISH_REJECTED", "The destination rejected this publication; the item remains local.");
+    }
+
+    /** Publication preserves local identity, scope and attempts, even for work that has already finished. */
+    public WorkItemView published(String workspaceId, String id, WorkItemLink source, String operationId)
+    {
+        return unitOfWork.execute(() -> {
+            WorkItem item = requireItem(workspaceId, id);
+            items.findByIdentity(source.identity()).ifPresent(owner -> checkArgument(owner.id().equals(id), "Source belongs to another work item"));
+            if (item.links().stream().noneMatch(link -> link.identity().equals(source.identity()))) {
+                Instant now = clock.instant();
+                WorkItem updated = new WorkItem(id, workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(), item.state(),
+                        item.revision() + 1, ImmutableList.<WorkItemLink>builder().addAll(item.links()).add(source).build(), item.history(), item.createdAt(), now,
+                        item.priority(), item.rank(), item.blockedBy(), item.epicId(), item.epicRank());
+                update(updated, item.revision());
+            }
+            record(workspaceId, id, operationId + ":settled", "PUBLISHED", "Linked " + source.reference().label());
+            return view(requireItem(workspaceId, id));
         });
     }
 
@@ -613,12 +650,7 @@ public class WorkItemService
         });
     }
 
-    /**
-     * Takes work out of its Epic. Work that exists only for the Epic is deleted; work that also belongs to a Goal or holds a task attempt stays,
-     * without the Epic.
-     *
-     * @return the work that stayed, or empty when it was deleted
-     */
+    /** Takes work out of its Epic while retaining its local identity, context and history. */
     public Optional<WorkItemView> removeFromEpic(String workspaceId, String id)
     {
         return unitOfWork.execute(() -> {
@@ -640,29 +672,20 @@ public class WorkItemService
     }
 
     /**
-     * Deletes the leaving work that exists only for its Epic and takes the rest out of it. Waiting that only a shared Epic allowed ends with it,
-     * and nothing keeps waiting on deleted work.
+     * Removes Epic membership while retaining every independent work item. Waiting that only a shared Epic allowed ends with it.
      *
      * @return the leaving work that stayed
      */
     private List<WorkItem> release(String workspaceId, List<WorkItem> leaving, String reason)
     {
         Set<String> leavingIds = leaving.stream().map(WorkItem::id).collect(toImmutableSet());
-        Set<String> deleted = leaving.stream().filter(item -> item.goalId().isEmpty() && !attempted(item)).map(WorkItem::id).collect(toImmutableSet());
         Map<String, WorkItem> all = items.list(workspaceId).stream().collect(toImmutableMap(WorkItem::id, item -> item));
-        leaving.stream().filter(item -> deleted.contains(item.id())).forEach(items::delete);
         Instant now = clock.instant();
         ImmutableList.Builder<WorkItem> kept = ImmutableList.builder();
         for (WorkItem item : all.values()) {
-            if (deleted.contains(item.id())) {
-                continue;
-            }
             boolean left = leavingIds.contains(item.id());
             Optional<String> epicId = left ? Optional.empty() : item.epicId();
             List<String> blockedBy = item.blockedBy().stream().filter(blocker -> {
-                if (deleted.contains(blocker)) {
-                    return false;
-                }
                 if (!left && !leavingIds.contains(blocker)) {
                     return true;
                 }
@@ -694,11 +717,6 @@ public class WorkItemService
         return item.goalId().isPresent() && item.goalId().equals(blocker.goalId()) || epicId.isPresent() && epicId.equals(blockerEpic);
     }
 
-    private static boolean attempted(WorkItem item)
-    {
-        return item.links().stream().anyMatch(link -> link.reference().kind() == GoalItemKind.TASK);
-    }
-
     private WorkItemView view(WorkItem item)
     {
         List<GoalItemView> links = item.links().stream().map(link -> references.view(item.workspaceId(), link.reference())).collect(toImmutableList());
@@ -707,7 +725,7 @@ public class WorkItemService
                 item.epicId(), item.epicRank());
     }
 
-    private WorkItem requireItem(String workspaceId, String id)
+    public WorkItem requireItem(String workspaceId, String id)
     {
         WorkItem item = items.find(id).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Work item not found"));
         requireItemWorkspace(item, workspaceId);

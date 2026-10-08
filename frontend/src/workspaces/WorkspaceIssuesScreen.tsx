@@ -62,6 +62,7 @@ import type {
 } from '../types';
 import { EpicTabs, workProgress } from './EpicTabs';
 import { EpicWork } from './EpicView';
+import { workItemRoute } from '../workitems/contracts';
 import '../css/issues.css';
 
 type Issue = RepositoryIssueSnapshotDto['issues'][number];
@@ -566,8 +567,8 @@ export default function WorkspaceIssuesScreen({ workspaceId, repository, initial
                 {overlay
                   ? <ZoomActions {...zoom} label="issue details" className="pull-detail__icon-action" />
                   : <button className="pull-detail__review-action" type="button"
-                    onClick={() => { void window.bridge.openInAppBrowser(`https://github.com/${repository}/issues/new`); }}>
-                    New issue
+                    onClick={() => { window.location.hash = workItemRoute(workspaceId, 'new'); }}>
+                    New local work item
                   </button>}
               </div>
             </div>

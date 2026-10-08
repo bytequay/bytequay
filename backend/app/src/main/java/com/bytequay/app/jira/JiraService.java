@@ -15,10 +15,13 @@ package com.bytequay.app.jira;
 
 import com.bytequay.app.agent.JiraIssueLocks;
 import com.bytequay.app.service.goal.WorkItemService;
+import com.bytequay.app.service.goal.WorkItemView;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.app.service.settings.AppSettingsService;
 import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.RecentReason;
+import com.bytequay.core.domain.WorkItem;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.WorkItemStore;
@@ -397,10 +400,11 @@ public class JiraService
         return cache.read("goal." + segment(cloudId) + "." + segment(issueId), Boolean.class).orElse(false);
     }
 
-    /** The workspace a ticket belongs to: its development task's, or the one the user assigned. */
+    /** Publication keeps the workspace of the local work item, even before its first Jira development attempt. */
     public Optional<String> assignedWorkspace(String cloudId, String issueId)
     {
         return tasks.findBySource(cloudId, issueId).map(link -> link.workspaceId())
+                .or(() -> workItems.findByIdentity(WorkItemLink.jiraIdentity(cloudId, issueId)).map(WorkItem::workspaceId))
                 .or(() -> cache.read("workspace." + segment(cloudId) + "." + segment(issueId), String.class));
     }
 
@@ -441,38 +445,38 @@ public class JiraService
         });
     }
 
-    /** Work types a new child of this ticket can have: subtask types under a standard ticket, standard types under an epic. */
-    public List<JiraDtos.Choice> childTypes(String connectionId, String cloudId, String issueId)
+    public List<JiraDtos.Choice> publicationTypes(String connectionId, String cloudId, String project)
     {
-        JsonNode parent = get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", "project,issuetype")));
-        int level = parent.path("fields").path("issuetype").path("hierarchyLevel").asInt();
-        JsonNode types = get(connectionId, cloudId, query("/rest/api/3/issue/createmeta/" + segment(parent.path("fields").path("project").path("id").asText()) + "/issuetypes",
-                ImmutableMap.of("maxResults", 200)));
-        return nodes(types.path("issueTypes")).stream().filter(type -> type.path("hierarchyLevel").asInt() == level - 1).map(JiraMapping::choice).collect(toImmutableList());
+        checkArgument(project.matches("[A-Z][A-Z0-9_]*"), "Enter a Jira project key such as ENG");
+        return paged(connectionId, cloudId, "/rest/api/3/issue/createmeta/" + segment(project) + "/issuetypes", "issueTypes", ImmutableMap.of(),
+                type -> type.path("subtask").asBoolean() ? Optional.<JiraDtos.Choice>empty() : Optional.of(JiraMapping.choice(type)))
+                .stream().flatMap(Optional::stream).collect(toImmutableList());
     }
 
-    public JiraDtos.Detail createChild(String connectionId, String cloudId, String issueId, String issueTypeId, String summary)
+    public JiraIssueSource publishWorkItem(String connectionId, String cloudId, String project, String type, String title, String body)
     {
-        checkArgument(issueTypeId != null && issueTypeId.matches("[0-9]+"), "Invalid work type");
-        checkArgument(summary != null && !summary.isBlank() && summary.strip().length() <= 255, "Summary must contain 1–255 characters");
-        return JiraIssueLocks.withLock(cloudId, issueId, () -> {
-            JsonNode parent = get(connectionId, cloudId, query(issuePath(issueId), ImmutableMap.of("fields", "project")));
-            try {
-                write(connectionId, cloudId, "/rest/api/3/issue", "POST", ImmutableMap.of("fields", ImmutableMap.of(
-                        "project", ImmutableMap.of("id", parent.path("fields").path("project").path("id").asText()),
-                        "parent", ImmutableMap.of("id", parent.path("id").asText()),
-                        "issuetype", ImmutableMap.of("id", issueTypeId),
-                        "summary", summary.strip())));
-            }
-            catch (ResponseStatusException e) {
-                if (HttpStatus.UNPROCESSABLE_ENTITY.equals(e.getStatusCode())) {
-                    throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY,
-                            "Jira did not accept the new work item. Its project may require fields ByteQuay does not set; create it in Jira.");
-                }
-                throw e;
-            }
-            return afterWrite(connectionId, cloudId, issueId, RecentReason.EDITED);
-        });
+        checkArgument(project.matches("[A-Z][A-Z0-9_]*") && type.matches("[0-9]+"), "Invalid Jira project or work type");
+        checkArgument(!title.isBlank() && title.length() <= 255, "Jira titles must contain 1–255 characters");
+        String siteUrl = connections.site(connectionId, cloudId).url();
+        JsonNode created = write(connectionId, cloudId, "/rest/api/3/issue", "POST", ImmutableMap.of("fields", ImmutableMap.of(
+                "project", ImmutableMap.of("key", project), "issuetype", ImmutableMap.of("id", type),
+                "summary", title, "description", JiraMapping.document(body))));
+        String id = created.path("id").asText();
+        String key = created.path("key").asText();
+        checkArgument(id.matches("[0-9]+") && key.matches(KEY), "Jira creation returned no ticket identity; check Jira before trying again");
+        // Retain the successful response without making another network request that could lose its receipt.
+        return new JiraIssueSource(connectionId, cloudId, id, key, siteUrl + "/browse/" + key, title, body, Instant.now());
+    }
+
+    public WorkItemView createLocalChild(String connectionId, String cloudId, String issueId, String id, String title, String description)
+    {
+        JiraIssue parent = issue(connectionId, cloudId, issueId);
+        String workspaceId = parent.workspace().orElseThrow(() -> new IllegalArgumentException("Assign a ByteQuay workspace before adding local work")).id();
+        if (!parent.isEpic()) {
+            epic(connectionId, cloudId, issueId, true);
+        }
+        return work.getObject().createInEpic(workspaceId, id, WorkItemLink.jiraIdentity(cloudId, issueId), title,
+                WorkItem.Kind.DEVELOP, description, WorkItem.CompletionRule.MERGED_DELIVERY);
     }
 
     public List<JiraDtos.LinkType> linkTypes(String connectionId, String cloudId)
@@ -812,8 +816,7 @@ public class JiraService
     private JiraIssue metadata(JiraIssue issue)
     {
         Optional<JiraDtos.TaskLink> task = tasks.findBySource(issue.cloudId(), issue.id()).map(link -> new JiraDtos.TaskLink(link.taskId(), link.workspaceId()));
-        Optional<JiraDtos.WorkspaceLink> workspace = task.map(JiraDtos.TaskLink::workspaceId)
-                .or(() -> cache.read("workspace." + segment(issue.cloudId()) + "." + segment(issue.id()), String.class))
+        Optional<JiraDtos.WorkspaceLink> workspace = assignedWorkspace(issue.cloudId(), issue.id())
                 .flatMap(workspaces::findById).map(value -> new JiraDtos.WorkspaceLink(value.id(), value.name()));
         return issue.withMetadata(isEpic(issue.cloudId(), issue.id()), task, workspace);
     }

@@ -71,6 +71,18 @@ Hibernate owns the current schema. Migration-history machinery requires a real
 released-data migration contract. Developer setup and operational commands live
 in [CONTRIBUTING](../CONTRIBUTING.md), not in this architecture overview.
 
+The work-item catalog projects cached GitHub issues, workspace-assigned Jira tickets,
+and local work through one contract. Remote identities already linked to local work
+appear once. Local work owns its description, planning membership, history, and task
+attempts independently of remote publication or Epic membership. Confirmed spec
+findings retain their complete evidence in that same local model.
+
+Agent work-item access is a task-scoped capability: reads stay within the task's
+workspace and creation always saves locally. The desktop publication action binds a
+previewed revision to an explicit provider destination before sending it. Its durable
+receipt links the remote identity to the existing item. An uncertain outcome blocks
+another create until the user reconciles the existing issue or ticket.
+
 ## Agent execution
 
 Application features reuse the current agent service. Provider adapters translate

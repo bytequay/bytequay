@@ -13,9 +13,15 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.jira.JiraDtos;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.service.goal.WorkItemCommand;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.app.service.goal.WorkItemView;
+import com.bytequay.app.workitem.SpecWorkItems;
+import com.bytequay.app.workitem.UnifiedWorkItem;
+import com.bytequay.app.workitem.WorkItemCatalog;
+import com.bytequay.app.workitem.WorkItemPublicationService;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.WorkItem;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -25,6 +31,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -38,11 +45,60 @@ import static java.util.Objects.requireNonNull;
 public class WorkItemController
 {
     private final WorkItemService items;
+    private final WorkItemCatalog catalog;
+    private final WorkItemPublicationService publications;
+    private final JiraService jira;
+    private final SpecWorkItems specs;
 
-    public WorkItemController(WorkItemService items)
+    public WorkItemController(WorkItemService items, WorkItemCatalog catalog, WorkItemPublicationService publications, JiraService jira, SpecWorkItems specs)
     {
         this.items = requireNonNull(items, "items is null");
+        this.catalog = requireNonNull(catalog, "catalog is null");
+        this.publications = requireNonNull(publications, "publications is null");
+        this.jira = requireNonNull(jira, "jira is null");
+        this.specs = requireNonNull(specs, "specs is null");
     }
+
+    @PostMapping("/spec")
+    public WorkItemView spec(@PathVariable String workspaceId, @RequestBody SpecFinding request)
+    {
+        return specs.save(workspaceId, request.checkId(), request.candidateId());
+    }
+
+    public record SpecFinding(String checkId, String candidateId) {}
+
+    @GetMapping("/catalog")
+    public List<UnifiedWorkItem> catalog(@PathVariable String workspaceId)
+    {
+        return catalog.list(workspaceId);
+    }
+
+    @GetMapping("/catalog/{id}")
+    public UnifiedWorkItem read(@PathVariable String workspaceId, @PathVariable String id)
+    {
+        return catalog.read(workspaceId, id);
+    }
+
+    @PostMapping("/{itemId}/publish")
+    public WorkItemView publish(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody WorkItemPublicationService.Publication request)
+    {
+        return publications.publish(workspaceId, itemId, request);
+    }
+
+    @PostMapping("/{itemId}/reconcile")
+    public WorkItemView reconcile(@PathVariable String workspaceId, @PathVariable String itemId, @RequestBody Reconcile request)
+    {
+        return publications.reconcile(workspaceId, itemId, request.destination(), request.key());
+    }
+
+    @PostMapping("/jira-types")
+    public List<JiraDtos.Choice> types(@PathVariable String workspaceId, @RequestParam String connectionId, @RequestParam String cloudId, @RequestParam String project)
+    {
+        items.list(workspaceId);
+        return jira.publicationTypes(connectionId, cloudId, project);
+    }
+
+    public record Reconcile(WorkItemPublicationService.Publication destination, String key) {}
 
     @GetMapping
     public List<WorkItemView> list(@PathVariable String workspaceId)
@@ -117,6 +173,6 @@ public class WorkItemController
     /** A source, task or pull request to put in the Epic. */
     public record JoinEpic(String epicId, GoalItemKind kind, String key) {}
 
-    /** The work that stayed, without its Epic; empty when it existed only for the Epic and was deleted. */
+    /** The retained work without its Epic. */
     public record RemovedFromEpic(Optional<WorkItemView> item) {}
 }

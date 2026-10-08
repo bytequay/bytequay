@@ -61,7 +61,7 @@ public record WorkItem(
         checkText(title, "title", 500);
         requireNonNull(kind, "kind is null");
         requireNonNull(acceptanceCriteria, "acceptanceCriteria is null");
-        checkArgument(acceptanceCriteria.length() <= 10000, "acceptance criteria are too long");
+        checkArgument(acceptanceCriteria.length() <= 65536, "acceptance criteria are too long");
         requireNonNull(completionRule, "completionRule is null");
         requireNonNull(state, "state is null");
         checkArgument(revision >= 0, "revision is negative");

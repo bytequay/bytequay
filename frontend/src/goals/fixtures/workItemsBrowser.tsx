@@ -48,7 +48,7 @@ async function decisionsSurviveFailure(): Promise<void> {
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
-      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onOpenGap={async () => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onOrder={async () => {}} onLink={async () => item}
       onDecide={async (_item, command) => {
         decisions.push(command);
@@ -105,7 +105,7 @@ async function finishedWorkKeepsItsSummary(): Promise<void> {
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="org/repo" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
-      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onOpenGap={async () => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
       onSummarize={async (summarized) => { asked.push(summarized.id); }} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onOrder={async () => {}} onLink={async () => item} onDecide={async () => item} />;
   }
@@ -150,7 +150,7 @@ async function anotherAttemptAfterAnEndedTask(): Promise<void> {
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={[item]} needsYou={new Set()}
       onClose={() => {}} onSwitch={() => {}} onStartIssue={(issue, instruction, replaces) => started.push([issue, instruction, replaces])}
       onStartTicket={(ticket, instruction, replaces) => tickets.push([ticket, instruction, replaces])}
-      onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
+      onSpecCheck={() => {}} onOpenGap={async () => {}} onNew={() => {}} onCreate={async () => {}} onRename={async () => {}} onPause={async () => {}}
       onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => item} onOrder={async () => {}} onLink={async () => item} onDecide={async () => item} />;
   }
@@ -194,7 +194,7 @@ async function orderAndBlockers(): Promise<void> {
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
-      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onOpenGap={async () => {}} onNew={() => {}} onCreate={async () => {}}
       onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => items[0]} onLink={async () => items[0]}
       onOrder={async (_goalId, ids) => { orders.push(ids); setItems((current) => current.map((item) => ({ ...item, rank: ids.indexOf(item.id) }))); }}
@@ -268,7 +268,7 @@ async function viewsPutReadyWorkFirst(): Promise<void> {
       conversation={{ loaded: true, exchanges: [], notes: [], gaps: [], addGap: async () => {}, error: null, model: null, chooseModel: async () => {}, reassess: async () => {}, ask: async () => {}, retry: async () => {}, stop: async () => {}, accept: async () => {}, acceptPlan: async () => { throw new Error('No plan change'); }, acceptCourse: async () => {},
         openLesson: async () => { throw new Error('No lesson'); }, readLesson: async () => { throw new Error('No lesson'); }, finishLesson: async () => {}, correctTopic: async () => {}, researchRun: async () => IDLE_RUN, stopResearch: async () => IDLE_RUN }}
       repository="trinodb/trino" goal={goal} goals={[goal]} workItems={items} needsYou={new Set()}
-      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onFileIssue={async () => false} onNew={() => {}} onCreate={async () => {}}
+      onClose={() => {}} onSwitch={() => {}} onStartIssue={() => {}} onStartTicket={() => {}} onSpecCheck={() => {}} onOpenGap={async () => {}} onNew={() => {}} onCreate={async () => {}}
       onRename={async () => {}} onPause={async () => {}} onSummarize={async () => {}} onDelete={async () => {}} onAdd={async () => {}} onOpenItem={() => {}}
       search={async () => []} onCreateWork={async () => items[0]} onLink={async () => items[0]} onOrder={async () => {}} onDecide={async () => items[0]} />));
     await settle();

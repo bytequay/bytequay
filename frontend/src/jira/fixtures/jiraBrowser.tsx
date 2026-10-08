@@ -132,8 +132,11 @@ export async function mountPreview(offline = false, openIssue = true, body = jir
     commentJiraIssue: async (_location, body, operationId, parentId) => { record('comment', body, operationId, parentId); if (commentFails) { commentFails = false; throw new Error('Connection lost; draft retained'); } detail = { ...detail, comments: [...detail.comments, { id: `posted-${detail.comments.length}`, parentId: parentId ?? null, body, author: { accountId: 'me', displayName: 'Alex Chen', avatarUrl: null }, created: issue.updatedAt, updated: issue.updatedAt, mine: true, editableText: body }] }; return { ...detail, issue }; },
     editJiraComment: async (_location, commentId, body, expectedUpdated) => { record('edit', commentId, body, expectedUpdated); detail = { ...detail, comments: detail.comments.map(value => value.id === commentId ? { ...value, body, editableText: body, updated: issue.updatedAt } : value) }; return { ...detail, issue }; },
     moveJiraIssue: async (_location, sprintId, boardId, expectedUpdatedAt) => { record('sprint', sprintId, boardId, expectedUpdatedAt); return { ...detail, issue }; },
-    listJiraChildTypes: async () => [{ id: '10003', name: 'Subtask' }, { id: '10004', name: 'Bug subtask' }],
-    createJiraChild: async (_location, issueTypeId, summary) => { record('child', issueTypeId, summary); detail = { ...detail, children: [...detail.children, { id: '1030', key: 'ENG-1030', title: summary, type: 'Subtask', status: { id: 'todo', name: 'To do', category: 'new' }, priority: null, assignee: null }] }; issue = { ...issue, hasChildren: true }; return { ...detail, issue }; },
+    createLocalJiraChild: async (_location, id, title, description) => {
+      record('local-child', title, description);
+      return { id, workspaceId: 'workspace', goalId: null, title, kind: 'DEVELOP', acceptanceCriteria: description, completionRule: 'MERGED_DELIVERY',
+        state: 'PLANNED', revision: 0, links: [], history: [], createdAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z', priority: 'NORMAL', rank: 0, blockedBy: [] };
+    },
     listJiraLinkTypes: async () => [{ id: '10000', name: 'Blocks', inward: 'is blocked by', outward: 'blocks' }, { id: '10003', name: 'Relates', inward: 'relates to', outward: 'relates to' }],
     linkJiraIssue: async (_location, typeId, outward, key) => { record('link', typeId, outward, key); detail = { ...detail, links: [...detail.links, { id: 'l3', relation: outward ? 'blocks' : 'is blocked by', issue: { id: '1013', key, title: 'Upgrade the metastore client', type: 'Task', status: { id: 'todo', name: 'To do', category: 'new' }, priority: null, assignee: null } }] }; return { ...detail, issue }; },
     listWorkspaces: async () => workspaces,
@@ -711,7 +714,7 @@ export async function run(richDescription: string): Promise<{ name: string; erro
     async 'lists subtasks and linked work items, creates a subtask and links a ticket'() {
       await mountPreview();
       const related = (id: string, key: string, title: string): JiraIssueDetail['children'][number] => ({ id, key, title, type: 'Subtask', status: { id: 'progress', name: 'In Progress', category: 'indeterminate' }, priority: { id: '2', name: 'P2' }, assignee: { accountId: 'sam', displayName: 'Sam Rivera', avatarUrl: null } });
-      issue = { ...issue, hasChildren: true };
+      issue = { ...issue, hasChildren: true, workspace: { id: 'workspace', name: 'Trino' } };
       detail = { ...detail, children: [related('1011', 'ENG-1011', 'Test the rollout against the query history table of the online cluster before enabling remote split generation for every customer')],
         links: [{ id: 'l1', relation: 'relates to', issue: { ...related('1000', 'ENG-1000', 'Connector reliability'), type: 'Epic' } }, { id: 'l2', relation: 'is blocked by', issue: related('1012', 'ENG-1012', 'Upgrade the metastore client') }] };
       button('Refresh ticket').click(); await until(() => document.querySelectorAll('.jira-work-item').length === 3);
@@ -727,14 +730,6 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       window.addEventListener(ZOOM_REFERENCE, listen); row.click(); window.removeEventListener(ZOOM_REFERENCE, listen);
       assert(JSON.stringify(zoomed) === JSON.stringify({ kind: 'jira', connectionId: 'connection', cloudId: 'site', issueId: '1011' }), 'A subtask opens as its own ticket over this one');
 
-      button('+ Add subtask').click(); await until(() => document.querySelector('select[aria-label="Work type"]') !== null);
-      const summary = document.querySelector<HTMLInputElement>('input[aria-label="New subtask"]'); assert(summary !== null && document.activeElement === summary, 'The new subtask summary is focused');
-      choose(select('Work type'), '10004'); edit(summary, '  Verify the rollout flag '); await settle(); button('Create').click(); await until(() => calls.some(call => call.name === 'child'));
-      const created = calls.find(call => call.name === 'child'); assert(created?.args[0] === '10004' && created.args[1] === 'Verify the rollout flag', 'Create sends the chosen work type and the trimmed summary');
-      await until(() => subtasks.querySelectorAll('.jira-work-item').length === 2 && summary.value === '', 'The new subtask appears and the form stays ready for another');
-      await keyPress('Escape'); await until(() => document.querySelector('input[aria-label="New subtask"]') === null, 'Escape closes the create form');
-      assert(document.querySelector('dialog.jira-detail[open]') !== null, 'Escape in the form keeps the ticket open');
-
       button('+ Link ticket').click(); await until(() => document.querySelector<HTMLSelectElement>('select[aria-label="Link relationship"]')?.options.length === 4);
       assert([...select('Link relationship').options].map(option => option.textContent).join('|') === 'Relationship…|blocks|is blocked by|relates to', 'A symmetric link type is offered once');
       const target = document.querySelector<HTMLInputElement>('input[aria-label="Work item to link"]'); assert(target !== null, 'Link form asks for the other ticket');
@@ -742,6 +737,14 @@ export async function run(richDescription: string): Promise<{ name: string; erro
       choose(select('Link relationship'), '10000:inward'); await settle(); button('Link').click(); await until(() => calls.some(call => call.name === 'link'));
       const linked = calls.find(call => call.name === 'link'); assert(linked?.args[0] === '10000' && linked.args[1] === false && linked.args[2] === 'ENG-1013', 'An inward relation sends the key a pasted link names');
       await until(() => document.querySelector('input[aria-label="Work item to link"]') === null && links.querySelectorAll('.jira-work-item').length === 3, 'The link appears and the form closes');
+
+      button('+ Add subtask').click(); await until(() => document.querySelector('input[aria-label="New subtask"]') !== null);
+      const summary = document.querySelector<HTMLInputElement>('input[aria-label="New subtask"]'); assert(summary !== null && document.activeElement === summary, 'The new subtask summary is focused');
+      edit(summary, '  Verify the rollout flag '); await settle(); button('Create').click(); await until(() => calls.some(call => call.name === 'local-child'));
+      const created = calls.find(call => call.name === 'local-child'); assert(created?.args[0] === 'Verify the rollout flag', 'Create saves the trimmed title locally');
+      assert(detail.children.length === 1, 'No child was created in Jira');
+      await until(() => document.querySelector('input[aria-label="New subtask"]') === null, 'The local creation form closes');
+
     },
     async 'rewrites Jira comments replies and edits only in their drafts'() {
       await mountPreview(); commentFails = false;

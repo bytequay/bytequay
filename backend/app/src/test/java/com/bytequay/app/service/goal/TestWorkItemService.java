@@ -93,6 +93,32 @@ class TestWorkItemService
     }
 
     @Test
+    void publicationClaimsThePreviewAndRetainsLocalContextAcrossAttemptsAndExposure()
+    {
+        String id = UUID.randomUUID().toString();
+        String body = "Reproduction and acceptance criteria\n" + "evidence\n".repeat(4000);
+        WorkItemView created = service.create("workspace", id, Optional.empty(), "Private investigation", WorkItem.Kind.DEVELOP, body,
+                WorkItem.CompletionRule.MERGED_DELIVERY);
+        assertThat(created.acceptanceCriteria()).isEqualTo(body);
+        assertThat(created.links()).isEmpty();
+        assertThatThrownBy(() -> service.beginPublication("workspace", id, 9, "publish-1", "GITHUB:org/repo")).hasMessageContaining("changed");
+        service.beginPublication("workspace", id, created.revision(), "publish-1", "GITHUB:org/repo");
+        assertThatThrownBy(() -> service.beginPublication("workspace", id, find(id).revision(), "publish-2", "GITHUB:org/repo"))
+                .hasMessageContaining("may already have succeeded");
+        WorkItemLink published = GoalReferenceReader.issueLink(new GitHubIssueSource("github.com", 43, "org/repo", 7,
+                "https://github.com/org/repo/issues/7", "Private investigation", body, NOW), NOW);
+        WorkItemView exposed = service.published("workspace", id, published, "publish-1");
+        assertThat(exposed.id()).isEqualTo(created.id());
+        assertThat(exposed.acceptanceCriteria()).isEqualTo(body);
+        assertThat(exposed.links()).extracting(GoalItemView::key).containsExactly("org/repo#7");
+        assertThat(service.list("workspace")).hasSize(1);
+        assertThat(exposed.history()).anyMatch(event -> event.operationId().equals("publish-1:settled"));
+        service.beginPublication("workspace", id, exposed.revision(), "publish-jira", "JIRA:cloud:ENG");
+        service.publicationRejected("workspace", id, "publish-jira");
+        service.beginPublication("workspace", id, find(id).revision(), "publish-jira-retry", "JIRA:cloud:ENG");
+    }
+
+    @Test
     void oneSourceTaskAndPullRemainOneOutcomeAndMissingEvidenceNeverCompletesIt()
     {
         WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#1", "ISSUE:github.com:42");
@@ -372,15 +398,15 @@ class TestWorkItemService
     }
 
     @Test
-    void takingWorkOutOfItsEpicDeletesWhatExistsOnlyForItAndKeepsGoalOrAttemptedWork()
+    void takingWorkOutOfItsEpicKeepsItsIdentityContextAndGoalMembership()
     {
         WorkItemView planned = epicWork(EPIC, "Benchmark the cache");
         WorkItemView waiting = epicWork(EPIC, "Publish the numbers");
         service.change("workspace", waiting.id(), arrange(waiting, WorkItemCommand.Action.BLOCK, Optional.empty(), planned.id()));
-        assertThat(service.removeFromEpic("workspace", planned.id())).as("planning that existed only for the Epic goes").isEmpty();
-        assertThat(service.list("workspace")).extracting(WorkItemView::id).containsExactly(waiting.id());
+        assertThat(service.removeFromEpic("workspace", planned.id()).orElseThrow().epicId()).isEmpty();
+        assertThat(service.list("workspace")).extracting(WorkItemView::id).containsExactly(planned.id(), waiting.id());
         WorkItemView released = find(waiting.id());
-        assertThat(released.blockedBy()).as("nothing waits on deleted work").isEmpty();
+        assertThat(released.blockedBy()).as("nothing waits across unrelated work").isEmpty();
         assertThat(released.history().getLast().detail()).isEqualTo("No longer waits on Benchmark the cache, which left the Epic");
 
         WorkItemView goalWork = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Goal work", WorkItem.Kind.DEVELOP, "Done",
@@ -398,7 +424,7 @@ class TestWorkItemService
     }
 
     @Test
-    void unmarkingAnEpicDeletesItsOwnWorkKeepsAttemptedWorkAndEndsWaitingOnlyTheEpicAllowed()
+    void unmarkingAnEpicKeepsAllWorkAndEndsWaitingOnlyTheEpicAllowed()
     {
         WorkItemView quick = epicWork(EPIC, "Quick idea");
         WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#3", "ISSUE:github.com:3");
@@ -412,7 +438,7 @@ class TestWorkItemService
 
         service.releaseEpic("workspace", EPIC);
 
-        assertThat(service.list("workspace")).extracting(WorkItemView::id).containsExactlyInAnyOrder(attempted.id(), unrelated.id());
+        assertThat(service.list("workspace")).extracting(WorkItemView::id).containsExactlyInAnyOrder(quick.id(), attempted.id(), unrelated.id());
         WorkItemView stayed = find(attempted.id());
         assertThat(stayed.epicId()).isEmpty();
         assertThat(stayed.blockedBy()).isEmpty();

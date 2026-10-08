@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { workItemRoute } from '../workitems/contracts';
 import { Fragment, useCallback, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Bookmark, Bug, Check, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, ClipboardList, Columns3, CornerDownRight, Equal, ExternalLink, Flag, FolderGit2, List, LoaderCircle, Minus, Pencil, Play, RefreshCw, Reply, Search, UserRound, UsersRound, X, Zap } from 'lucide-react';
 import MarkdownBody from '../pulls/MarkdownBody';
@@ -508,10 +509,8 @@ function JiraWorkItemRow({ item, onOpen }: { item: JiraRelatedIssue; onOpen: () 
 /** Subtasks, or an epic's child work items, linked work items and the parent; each row opens its ticket over this one. */
 function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDetail; location: JiraLocation; busy: boolean; mutate: (action: () => Promise<JiraIssueDetail>, success?: () => void) => Promise<void> }) {
   const [form, setForm] = useState<'child' | 'link' | null>(null);
-  const [childTypes, setChildTypes] = useState<{ id: string; name: string }[] | null>(null);
   const [linkTypes, setLinkTypes] = useState<JiraLinkType[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [typeId, setTypeId] = useState('');
   const [summary, setSummary] = useState('');
   const [relation, setRelation] = useState('');
   const [key, setKey] = useState('');
@@ -529,16 +528,25 @@ function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDe
   const open = (item: { id: string }) => zoomReference({ kind: 'jira', ...location, issueId: item.id });
   const show = (next: 'child' | 'link') => {
     setForm(next); setLoadError(null);
-    // Work types and link types come from Jira only when a form needs them.
-    if (next === 'child' && childTypes === null) void window.bridge.listJiraChildTypes(location).then(value => { setChildTypes(value); setTypeId(value[0]?.id ?? ''); }).catch(cause => setLoadError(message(cause)));
+    // Link types come from Jira only when the form needs them.
     if (next === 'link' && linkTypes === null) void window.bridge.listJiraLinkTypes(location.connectionId, location.cloudId).then(setLinkTypes).catch(cause => setLoadError(message(cause)));
   };
   // Escape closes the form, not the ticket.
   const escape = (event: React.KeyboardEvent) => { if (event.key === 'Escape') { event.preventDefault(); setForm(null); } };
-  const create = () => { const text = summary.trim(); if (text && typeId) void mutate(() => window.bridge.createJiraChild(location, typeId, text), () => setSummary('')); };
+  const [creatingChild, setCreatingChild] = useState(false);
+  const [childId, setChildId] = useState(() => crypto.randomUUID());
+  const create = async () => {
+    if (!summary.trim() || creatingChild) return;
+    setCreatingChild(true); setLoadError(null);
+    try {
+      const item = await window.bridge.createLocalJiraChild(location, childId, summary.trim(), `Parent: ${issue.key} — ${issue.title}\n\n${issue.body}`);
+      setChildId(crypto.randomUUID()); setSummary(''); setForm(null);
+      window.location.hash = workItemRoute(item.workspaceId, item.id);
+    }
+    catch (cause) { setLoadError(message(cause)); }
+    finally { setCreatingChild(false); }
+  };
   const link = () => { const [id, side] = relation.split(':'); if (target && id && linkError === null) void mutate(() => window.bridge.linkJiraIssue(location, id, side === 'outward', target), () => { setKey(''); setForm(null); }); };
-  const typeName = childTypes?.find(value => value.id === typeId)?.name ?? noun;
-  const childNote = loadError ?? (childTypes === null ? 'Loading work types…' : childTypes.length === 0 ? `Jira offers no work type for a ${noun} here.` : null);
   const linkNote = loadError ?? linkError;
   return <div className="jira-work">
     {detail.hierarchyLevel >= 0 && <section aria-label={title}>
@@ -546,14 +554,13 @@ function JiraWorkItems({ detail, location, busy, mutate }: { detail: JiraIssueDe
         {form !== 'child' && <button type="button" className="jira-add" disabled={busy} onClick={() => show('child')}>+ Add {noun}</button>}</div>
       {detail.children.map(child => <JiraWorkItemRow key={child.id} item={child} onOpen={() => open(child)} />)}
       {detail.childrenTruncated && <p className="jira-work__note">Only the first {detail.children.length} are shown. Open Jira to see the rest.</p>}
-      {form === 'child' && <form className="jira-work__form" onKeyDown={escape} onSubmit={event => { event.preventDefault(); create(); }}>
+      {form === 'child' && <form className="jira-work__form" onKeyDown={escape} onSubmit={event => { event.preventDefault(); void create(); }}>
         <div className="jira-work__fields">
-          {childTypes !== null && childTypes.length > 1 && <select className="jira-field" aria-label="Work type" value={typeId} disabled={busy} onChange={event => setTypeId(event.target.value)}>{childTypes.map(value => <option key={value.id} value={value.id}>{value.name}</option>)}</select>}
           <input className="jira-field" aria-label={`New ${noun}`} placeholder={`${epic ? 'Child work item' : 'Subtask'} summary`} maxLength={255} autoFocus value={summary} onChange={event => setSummary(event.target.value)} />
-          <button type="submit" className="jira-btn is-primary" disabled={busy || !typeId || !summary.trim()}>Create</button>
+          <button type="submit" className="jira-btn is-primary" disabled={busy || creatingChild || !issue.workspace || !summary.trim()}>Create</button>
           <button type="button" className="jira-btn" disabled={busy} onClick={() => setForm(null)}>Cancel</button>
         </div>
-        <p className={`jira-work__hint${loadError ? ' is-error' : ''}`}>{childNote ?? `Creates a ${typeName} under ${issue.key} in Jira. ↵ to create · Esc to cancel`}</p>
+        <p className={`jira-work__hint${loadError ? ' is-error' : ''}`}>{loadError ?? (issue.workspace ? 'Creates private local work under this Epic. Publish later from Work items.' : 'Assign this ticket to a ByteQuay workspace first.')}</p>
       </form>}
     </section>}
     <section aria-label="Linked work items">

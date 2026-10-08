@@ -40,6 +40,7 @@ import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
+import com.bytequay.agent.spi.WorkItemBridge;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -149,6 +150,7 @@ public final class PermissionBroker
     private final BridgeResolver<PullRequestCiBridge> pullRequestChecks;
     private final BridgeResolver<IssueContextBridge> issueContexts;
     private final BridgeResolver<MemoryBridge> memories;
+    private final BridgeResolver<WorkItemBridge> workItems;
     private final BridgeResolver<RelatedWorkspaceBridge> relatedWork;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
@@ -250,6 +252,17 @@ public final class PermissionBroker
             BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
             BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts,
+                memories, relatedWork, BridgeResolver.none());
+    }
+
+    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
+            BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
+            DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork, BridgeResolver<WorkItemBridge> workItems)
+    {
+        this.workItems = requireNonNull(workItems, "workItems is null");
         this.relatedWork = requireNonNull(relatedWork, "relatedWork is null");
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null")
@@ -491,6 +504,7 @@ public final class PermissionBroker
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
         Optional<MemoryBridge> memory = restricted ? Optional.empty() : memories.resolve(taskId);
+        Optional<WorkItemBridge> work = restricted ? Optional.empty() : workItems.resolve(taskId);
         Optional<RelatedWorkspaceBridge> related = restricted || review.isPresent() ? Optional.empty() : relatedWork.resolve(taskId);
         // Claude's attended review gate uses this flag. Codex registers no permission tools and
         // gates its children through its own launch-time PreToolUse hook.
@@ -499,7 +513,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeQueries, review, development, localReview, pullRequestCi, issueContext, memory, related,
+                codeQueries, review, development, localReview, pullRequestCi, issueContext, memory, related, work,
                 reviewChildren, new AtomicReference<>());
     }
 
@@ -516,6 +530,7 @@ public final class PermissionBroker
                         context.pullRequestCi().map(PullRequestCiBridge::instruction),
                         context.issueContext().map(IssueContextBridge::instruction),
                         context.memory().map(ignored -> MemoryBridge.INSTRUCTION),
+                        context.workItems().map(ignored -> WorkItemBridge.INSTRUCTION),
                         context.relatedWork().map(ignored -> RelatedWorkspaceBridge.INSTRUCTION))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
@@ -582,6 +597,7 @@ public final class PermissionBroker
             case CodeQueryBridge.TOOL_NAME -> codeQueriesExplore(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
             case RelatedWorkspaceBridge.TOOL_NAME -> relatedWork(request.id(), params.arguments(), context);
+            case WorkItemBridge.TOOL_NAME -> workItems(request.id(), params.arguments(), context);
             case MemoryBridge.TOOL_NAME -> memory(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
@@ -663,6 +679,21 @@ public final class PermissionBroker
         catch (JsonProcessingException | RuntimeException failure) {
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(
                     "Related work failed: " + Optional.ofNullable(failure.getMessage()).orElse("Request rejected")))), true));
+        }
+    }
+
+    private McpHttpResponse workItems(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.workItems().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        try {
+            String result = context.workItems().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (JsonProcessingException | RuntimeException failure) {
+            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Work item call failed: " + reason))), true));
         }
     }
 
@@ -1223,6 +1254,15 @@ public final class PermissionBroker
                         .put("destinations", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
                                 "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))).buildOrThrow(),
                         "required", ImmutableList.of("action", "operationKey"), "additionalProperties", false))));
+        context.workItems().ifPresent(ignored -> tools.add(new ToolDefinition(WorkItemBridge.TOOL_NAME,
+                "LIST or READ unified local, GitHub and Jira work items in this workspace; CREATE private local work only. Never publishes",
+                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                        "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "READ", "CREATE")),
+                        "id", ImmutableMap.of("type", "string"), "query", ImmutableMap.of("type", "string"),
+                        "offset", ImmutableMap.of("type", "integer", "minimum", 0), "operationKey", ImmutableMap.of("type", "string"),
+                        "title", ImmutableMap.of("type", "string", "maxLength", 500),
+                        "description", ImmutableMap.of("type", "string", "maxLength", 65536), "epicId", ImmutableMap.of("type", "string")),
+                        "required", ImmutableList.of("action"), "additionalProperties", false))));
         context.memory().ifPresent(ignored -> tools.add(memoryTool(false)));
         context.pullRequestCi().ifPresent(ignored -> {
             tools.add(new ToolDefinition(
@@ -1608,6 +1648,7 @@ public final class PermissionBroker
             Optional<IssueContextBridge> issueContext,
             Optional<MemoryBridge> memory,
             Optional<RelatedWorkspaceBridge> relatedWork,
+            Optional<WorkItemBridge> workItems,
             boolean reviewChildren,
             AtomicReference<CodexRootTools> codexReviewTools)
     {
@@ -1628,6 +1669,7 @@ public final class PermissionBroker
             requireNonNull(issueContext, "issueContext is null");
             requireNonNull(memory, "memory is null");
             requireNonNull(relatedWork, "relatedWork is null");
+            requireNonNull(workItems, "workItems is null");
         }
     }
 

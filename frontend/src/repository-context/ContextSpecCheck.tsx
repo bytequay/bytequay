@@ -33,7 +33,7 @@ export type SpecCheckActions = {
   stop: (taskId: string) => void;
   /** With a rule, the user's words are also remembered for the finding's file. */
   dismissFinding: (check: ContextSpecCheckDto, candidateId: string, reason: string, rule: string | null) => void;
-  openIssue: (candidate: ContextSpecCandidateDto) => void;
+  openIssue: (check: ContextSpecCheckDto, candidate: ContextSpecCandidateDto) => void;
   say: (text: string) => void;
 };
 
@@ -274,7 +274,7 @@ export function SpecFinding({ data, actions, busy, check, candidate }: {
       <div className="rcp-mini-label">TEST</div><pre className="rcp-finding__pre">{candidate.test.source}</pre>
       <div className="rcp-mini-label">OUTPUT</div><pre className="rcp-finding__pre">{candidate.test.output}</pre>
     </Disclosure>}
-    {candidate.draft !== null && <Disclosure label={`Issue draft${candidate.draft.labels.length > 0 ? ` · ${candidate.draft.labels.join(', ')}` : ''}`}>
+    {candidate.draft !== null && <Disclosure label={`Work item description${candidate.draft.labels.length > 0 ? ` · ${candidate.draft.labels.join(', ')}` : ''}`}>
       <pre className="rcp-finding__pre">{candidate.draft.body}</pre></Disclosure>}
     {dismissing
       ? <div className="rcp-finding__dismiss">
@@ -291,12 +291,12 @@ export function SpecFinding({ data, actions, busy, check, candidate }: {
           placeholder="Why this is fine here, as a rule agents get for this file, such as a deviation kept on purpose" />}
       </div>
       : <div className="rcp-finding__actions">
-        <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--xs" disabled={busy || candidate.draft === null} onClick={() => actions.openIssue(candidate)}>
-          <Icon name="link" size={12} />Open GitHub issue form</button>
+        <button type="button" className="rcp-btn rcp-btn--primary rcp-btn--xs" disabled={busy || candidate.draft === null} onClick={() => actions.openIssue(check, candidate)}>
+          <Icon name="link" size={12} />Open local work item</button>
         {candidate.draft !== null && <button type="button" className="rcp-btn rcp-btn--secondary rcp-btn--xs"
           onClick={() => void navigator.clipboard.writeText(candidate.draft?.body ?? '').then(() => actions.say('Issue body copied'))}>Copy body</button>}
         <button type="button" className="rcp-link" onClick={() => setDismissing(true)}>Dismiss</button>
-        <span className="rcp-finding__hint">Opens a prefilled form on GitHub. Nothing is published until you submit it.</span>
+        <span className="rcp-finding__hint">Saved locally with the full finding and failing test. Publish later from Work items.</span>
       </div>}
   </div>;
 }

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type { WorkItemBridge } from './workitems/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
 import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
@@ -1374,7 +1375,7 @@ export type RecentDraftRequest = {
   body: string;
 };
 
-export type Bridge = JiraBridge & {
+export type Bridge = WorkItemBridge & JiraBridge & {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;

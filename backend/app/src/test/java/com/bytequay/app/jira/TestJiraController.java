@@ -262,15 +262,12 @@ class TestJiraController
     void childAndLinkRoutesReachJiraOnlyThroughPosts()
             throws Exception
     {
-        when(jira.childTypes("connection", "cloud", "10001")).thenReturn(ImmutableList.of(new JiraDtos.Choice("3", "Task")));
-        JsonNode types = mapper.readTree(mvc.perform(post(ISSUE + "/child-types")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
-        assertThat(types.at("/0/name").asText()).isEqualTo("Task");
-        mvc.perform(get(ISSUE + "/child-types")).andExpect(status().isMethodNotAllowed());
         mvc.perform(post(SITE + "/link-types")).andExpect(status().isOk());
         verify(jira).linkTypes("connection", "cloud");
-        mvc.perform(post(ISSUE + "/children").contentType(MediaType.APPLICATION_JSON).content("{\"issueTypeId\":\"3\",\"summary\":\"Add the flag\"}"))
+        mvc.perform(post(ISSUE + "/local-children").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"id\":\"child-id\",\"title\":\"Add the flag\",\"description\":\"Preserve context\"}"))
                 .andExpect(status().isOk());
-        verify(jira).createChild("connection", "cloud", "10001", "3", "Add the flag");
+        verify(jira).createLocalChild("connection", "cloud", "10001", "child-id", "Add the flag", "Preserve context");
         mvc.perform(post(ISSUE + "/links").contentType(MediaType.APPLICATION_JSON).content("{\"typeId\":\"10000\",\"outward\":false,\"key\":\"APP-8\"}"))
                 .andExpect(status().isOk());
         verify(jira).link("connection", "cloud", "10001", "10000", false, "APP-8");

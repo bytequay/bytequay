@@ -531,10 +531,8 @@ it('routes Jira reads and versioned writes through the authenticated native API'
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/comments/5`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ body: 'Updated', expectedUpdated: '2026-09-26T01:00:00.000+0000' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issue:workspace')?.({}, location, 'workspace-one');
   expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/workspace`, expect.objectContaining({ method: 'PUT', body: JSON.stringify({ workspaceId: 'workspace-one' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
-  await desktop.handlers.get('jira:issue:child-types')?.({}, location);
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/child-types`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
-  await desktop.handlers.get('jira:issue:child')?.({}, location, '10003', 'Add the flag');
-  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/children`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ issueTypeId: '10003', summary: 'Add the flag' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
+  await expect(desktop.handlers.get('jira:issue:local-child')?.({}, location, 'local-id', 'Add the flag', 'Context')).rejects.toThrow('Malformed work item');
+  expect(fetch).toHaveBeenLastCalledWith(`${base}/issues/7/local-children`, expect.objectContaining({ method: 'POST', body: JSON.stringify({ id: 'local-id', title: 'Add the flag', description: 'Context' }), headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:link-types')?.({}, 'connection/one', 'site/one');
   expect(fetch).toHaveBeenLastCalledWith(`${base}/link-types`, expect.objectContaining({ method: 'POST', headers: { 'X-ByteQuay-Session': 'test-session' } }));
   await desktop.handlers.get('jira:issue:link')?.({}, location, '10000', false, 'ENG-8');

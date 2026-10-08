@@ -32,6 +32,7 @@ import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.SessionAccess;
+import com.bytequay.agent.spi.WorkItemBridge;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -205,6 +206,41 @@ class TestPermissionBroker
             assertThat(helper.toolNames()).isEmpty();
             assertThat(helper.instruction()).isEmpty();
             assertThat(localReviewCall(broker, helper.token(), IssueContextBridge.TOOL_NAME, "{}").at("/error/code").intValue()).isEqualTo(-32602);
+        }
+    }
+
+    @Test
+    void unifiedWorkToolsReachBothProvidersAndAreWithheldFromTextOnlyHelpers()
+            throws Exception
+    {
+        AtomicReference<String> called = new AtomicReference<>();
+        WorkItemBridge bridge = new WorkItemBridge(raw -> { called.set(raw); return "Retained context known-secret"; });
+        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
+                BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), ignored -> Optional.of(bridge));
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
+        AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
+        try (McpRegistration codex = broker.registerTools("task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty()).orElseThrow();
+                McpRegistration claude = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                        SessionAccess.FULL, approvals, redactor, Optional.empty())) {
+            for (McpRegistration provider : ImmutableList.of(codex, claude)) {
+                assertThat(provider.instruction()).hasValueSatisfying(value -> assertThat(value).contains(WorkItemBridge.INSTRUCTION));
+                JsonNode listed = broker.handle(provider.token(), objectMapper.readTree("""
+                        {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
+                        """)).body().orElseThrow();
+                JsonNode definition = listed.at("/result/tools").findParents("name").stream()
+                        .filter(tool -> tool.path("name").asText().equals(WorkItemBridge.TOOL_NAME)).findFirst().orElseThrow();
+                assertThat(definition.at("/inputSchema/properties/action/enum").toString()).isEqualTo("[\"LIST\",\"READ\",\"CREATE\"]");
+                assertThat(definition.at("/inputSchema/properties/source").isMissingNode()).isTrue();
+                JsonNode result = localReviewCall(broker, provider.token(), WorkItemBridge.TOOL_NAME, "{\"action\":\"READ\"}");
+                assertThat(result.at("/result/content/0/text").asText()).isEqualTo("Retained context [REDACTED]");
+                assertThat(called.get()).isEqualTo("{\"action\":\"READ\"}");
+            }
+        }
+        try (McpRegistration helper = broker.register("task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                SessionAccess.TEXT_ONLY, approvals, redactor, Optional.empty())) {
+            assertThat(helper.toolNames()).doesNotContain(WorkItemBridge.TOOL_NAME);
+            assertThat(localReviewCall(broker, helper.token(), WorkItemBridge.TOOL_NAME, "{}").at("/error/code").intValue()).isEqualTo(-32602);
         }
     }
 

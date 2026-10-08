@@ -385,7 +385,8 @@ final class ClaudeProtocol
             @JsonProperty("run_in_background") Optional<Boolean> runInBackground,
             Optional<JsonNode> todos,
             Optional<String> url,
-            Optional<String> query)
+            Optional<String> query,
+            Optional<String> name)
     {
         ToolInput
         {
@@ -398,6 +399,7 @@ final class ClaudeProtocol
             requireNonNull(todos, "todos is null");
             requireNonNull(url, "url is null");
             requireNonNull(query, "query is null");
+            requireNonNull(name, "name is null");
         }
     }
 

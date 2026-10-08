@@ -77,6 +77,15 @@ Application features reuse the current agent service. Provider adapters translat
 Codex and Claude activity into a common conversation, while retaining meaningful
 differences in capabilities and permissions.
 
+Task tools support live discovery: `bytequay_list_tools` returns names and
+descriptions, `bytequay_get_tool` returns current usage and parameter schemas,
+and `bytequay_call_tool` invokes a tool within the task's existing permissions.
+Codex conversations persist the stable dispatcher instead of individual review
+write-tool schemas, so resumed turns can discover changed capabilities. Child
+agents retain their read-only review scope. Conversations created with the old
+fixed tool contract must be replaced once; their saved provider tool list cannot
+be updated on resume.
+
 Agent tasks use managed local worktrees. The application retains ownership of
 those working copies, execution lifetimes, approvals, and queued input. Provider
 completion and process cleanup are separate facts: an uncertain cleanup must not

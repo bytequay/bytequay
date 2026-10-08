@@ -33,7 +33,8 @@ final class CodexReviewGate
     static final String INSTRUCTION = """
             In this Codex review, children may use review_get_context, code_query and repository_memory SEARCH/READ
             when listed, native shell tools for read-only source searches, and send_message to share findings with the main agent.
-            Use the MCP repository_memory tool for reads; the unqualified dynamic tool belongs to the main agent.
+            Use the MCP repository_memory tool for reads; the unqualified bytequay_call_tool belongs to the main agent.
+            Children may inspect bytequay_list_tools and bytequay_get_tool, but discovery does not expand this scope.
             Shell commands retain the native sandbox. Children must not edit files, run tests, commit, publish, save review
             results, REPORT or REMEMBER repository memory, request broader permissions, or delegate further work.
             Include this exploration scope in each child's self-contained assignment. Return conclusions, source references

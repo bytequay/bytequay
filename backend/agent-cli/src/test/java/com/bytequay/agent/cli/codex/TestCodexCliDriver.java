@@ -3010,6 +3010,17 @@ class TestCodexCliDriver
     }
 
     @Test
+    void rejectsOutdatedRootToolDefinitionsBeforeStartingTheProvider()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionRef outdated = new AgentSessionRef(new AgentLaneId("codex"), 2, "thread-1");
+        assertThatThrownBy(() -> driver.open(context(Optional.of(outdated), new AtomicReference<>()), event -> {}))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("outdated tool list", "Start a new task");
+        assertThat(supervisor.servers()).isEmpty();
+    }
+
+    @Test
     void guardedReviewUsesReadOnlyMcpAndStickyRootToolsAcrossResume()
             throws Exception
     {
@@ -3029,7 +3040,7 @@ class TestCodexCliDriver
         for (int index = 0; index < 2; index++) {
             AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
             try (AgentSession session = driver.open(context(reference, approval), event -> {})) {
-                assertThat(session.reference().contractVersion()).isEqualTo(2);
+                assertThat(session.reference().contractVersion()).isEqualTo(3);
                 assertThat(driver.reviewChildAgents(Optional.of(session.reference()), Optional.empty())).isTrue();
                 assertThat(driver.reviewChildAgents(Optional.of(new AgentSessionRef(
                         session.reference().laneId(), 1, session.reference().providerValue())), Optional.empty())).isFalse();
@@ -3042,34 +3053,35 @@ class TestCodexCliDriver
                 assertThat(thread.path("config").path("bypass_hook_trust").asBoolean()).isTrue();
                 assertThat(thread.path("config").path("features").path("multi_agent_v2").asBoolean()).isTrue();
                 if (index == 0) {
-                    assertThat(thread.path("dynamicTools").findValuesAsText("name")).containsExactly("review_finish");
+                    assertThat(thread.path("dynamicTools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly(PermissionBroker.CALL_TOOL);
                 }
                 else {
                     assertThat(thread.path("dynamicTools").isMissingNode()).isTrue();
                 }
                 List<String> arguments = supervisor.serverArgv().getLast();
-                assertThat(arguments).contains("mcp_servers.bytequay.tools={\"review_get_context\"={approval_mode=\"approve\"}}");
+                assertThat(arguments).contains("mcp_servers.bytequay.tools={\"review_get_context\"={approval_mode=\"approve\"},"
+                        + "\"bytequay_list_tools\"={approval_mode=\"approve\"},\"bytequay_get_tool\"={approval_mode=\"approve\"}}");
                 String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
-                assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_get_context");
+                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly("review_get_context", "bytequay_list_tools", "bytequay_get_tool");
                 AppServerProcess server = supervisor.servers().getLast();
                 session.start(command("Review privately"));
                 server.emit("{\"id\":201,\"method\":\"item/tool/call\",\"params\":{"
                         + "\"threadId\":\"thread-1\",\"turnId\":\"" + server.activeTurn() + "\","
-                        + "\"callId\":\"root-write\",\"tool\":\"review_finish\",\"namespace\":null,\"arguments\":{}}}");
+                        + "\"callId\":\"root-write\",\"tool\":\"bytequay_call_tool\",\"namespace\":null,\"arguments\":{\"name\":\"review_finish\",\"arguments\":{}}}}");
                 awaitCondition(() -> server.result(201) != null);
                 assertThat(server.result(201).path("success").asBoolean()).isTrue();
                 assertThat(server.result(201).at("/contentItems/0/text").asText()).isEqualTo("finished");
                 server.emit("{\"id\":203,\"method\":\"item/tool/call\",\"params\":{"
                         + "\"threadId\":\"thread-1\",\"turnId\":\"stale-turn\","
-                        + "\"callId\":\"stale-write\",\"tool\":\"review_finish\",\"namespace\":null,\"arguments\":{}}}");
+                        + "\"callId\":\"stale-write\",\"tool\":\"bytequay_call_tool\",\"namespace\":null,\"arguments\":{\"name\":\"review_finish\",\"arguments\":{}}}}");
                 awaitCondition(() -> server.error(203) != null);
                 server.emitV2Started("child-thread", "/fixture-child");
                 server.emit("{\"id\":202,\"method\":\"item/tool/call\",\"params\":{"
                         + "\"threadId\":\"child-thread\",\"turnId\":\"child-turn\","
-                        + "\"callId\":\"child-write\",\"tool\":\"review_finish\",\"namespace\":null,\"arguments\":{}}}");
+                        + "\"callId\":\"child-write\",\"tool\":\"bytequay_call_tool\",\"namespace\":null,\"arguments\":{\"name\":\"review_finish\",\"arguments\":{}}}}");
                 awaitCondition(() -> server.error(202) != null);
                 server.emit("{\"id\":204,\"method\":\"item/commandExecution/requestApproval\",\"params\":{"
                         + "\"threadId\":\"child-thread\",\"turnId\":\"child-turn\",\"itemId\":\"child-shell\","
@@ -3104,11 +3116,11 @@ class TestCodexCliDriver
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
             try (AgentSession session = driver.open(context(reference, new AtomicReference<>()), event -> {})) {
-                assertThat(session.reference().contractVersion()).isEqualTo(2);
+                assertThat(session.reference().contractVersion()).isEqualTo(3);
                 AppServerProcess server = supervisor.servers().getLast();
                 JsonNode thread = server.threadRequests().getFirst();
                 if (index == 0) {
-                    assertThat(thread.path("dynamicTools").findValuesAsText("name")).containsExactly(RelatedWorkspaceBridge.TOOL_NAME);
+                    assertThat(thread.path("dynamicTools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly(PermissionBroker.CALL_TOOL);
                 }
                 else {
                     assertThat(thread.path("dynamicTools").isMissingNode()).isTrue();
@@ -3116,19 +3128,19 @@ class TestCodexCliDriver
                 session.start(command("Investigate in Iceberg"));
                 server.emit("""
                         {"id":301,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
-                        "callId":"root","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                        "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
                         """.formatted(server.activeTurn()));
                 awaitCondition(() -> server.result(301) != null);
                 assertThat(server.result(301).path("success").asBoolean()).isTrue();
                 server.emit("""
                         {"id":302,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"stale",
-                        "callId":"stale","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                        "callId":"stale","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
                         """);
                 awaitCondition(() -> server.error(302) != null);
                 server.emitV2Started("child-thread", "/fixture-child");
                 server.emit("""
                         {"id":303,"method":"item/tool/call","params":{"threadId":"child-thread","turnId":"child-turn",
-                        "callId":"child","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                        "callId":"child","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
                         """);
                 awaitCondition(() -> server.error(303) != null);
                 assertThat(calls).hasValue(index + 1);
@@ -3299,7 +3311,7 @@ class TestCodexCliDriver
         try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
             reference = session.reference();
         }
-        assertThat(reference.contractVersion()).isEqualTo(2);
+        assertThat(reference.contractVersion()).isEqualTo(3);
 
         localReview.set(true);
         try (AgentSession session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {})) {
@@ -3311,14 +3323,21 @@ class TestCodexCliDriver
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsAll(LocalReviewBridge.TOOL_NAMES);
+            assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsAll(LocalReviewBridge.TOOL_NAMES);
             session.start(command("Explain this comment"));
-            // The thread still lists the root tool it started with; this turn does not serve it.
+            // The dispatcher survives a scope change, but only current capabilities can run.
             server.emit("""
                     {"id":301,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
-                    "callId":"root","tool":"related_workspace_work","namespace":null,"arguments":{}}}
+                    "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"related_workspace_work","arguments":{}}}}
                     """.formatted(server.activeTurn()));
-            awaitCondition(() -> server.error(301) != null);
+            awaitCondition(() -> server.result(301) != null);
+            assertThat(server.result(301).path("success").asBoolean()).isFalse();
+            server.emit("""
+                    {"id":302,"method":"item/tool/call","params":{"threadId":"thread-1","turnId":"%s",
+                    "callId":"root","tool":"bytequay_call_tool","namespace":null,"arguments":{"name":"list_local_review_comments","arguments":{}}}}
+                    """.formatted(server.activeTurn()));
+            awaitCondition(() -> server.result(302) != null);
+            assertThat(server.result(302).path("success").asBoolean()).isTrue();
         }
     }
 
@@ -3344,14 +3363,17 @@ class TestCodexCliDriver
                 List<String> arguments = supervisor.serverArgv().getLast();
                 assertThat(arguments).filteredOn(argument -> argument.startsWith("mcp_servers.bytequay.tools="))
                         .containsExactly("mcp_servers.bytequay.tools={"
-                                + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_spec_search\"={approval_mode=\"approve\"}}");
+                                + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_spec_search\"={approval_mode=\"approve\"},"
+                                + "\"bytequay_list_tools\"={approval_mode=\"approve\"},\"bytequay_get_tool\"={approval_mode=\"approve\"},"
+                                + "\"bytequay_call_tool\"={approval_mode=\"approve\"}}");
                 assertThat(arguments).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
                 assertThat(arguments).contains("approval_policy=\"on-request\"");
                 String token = supervisor.environments().getLast().get("BYTEQUAY_TOOL_TOKEN");
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
-                assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactlyElementsOf(names);
+                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactlyElementsOf(ImmutableList.<String>builder().addAll(names)
+                        .add("bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL).build());
                 assertThat(supervisor.servers().getLast().threadRequests().getFirst().path("approvalsReviewer").asText()).isEqualTo("auto_review");
                 reference = Optional.of(session.reference());
             }
@@ -3422,7 +3444,8 @@ class TestCodexCliDriver
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactlyElementsOf(bridged.toolNames());
+            assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactlyElementsOf(ImmutableList.<String>builder().addAll(bridged.toolNames())
+                    .add("bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL).build());
             reference = Optional.of(session.reference());
             session.close();
             assertThat(broker.handle(token, objectMapper.readTree("{}")).status()).isEqualTo(401);
@@ -3455,7 +3478,8 @@ class TestCodexCliDriver
         List<String> arguments = supervisor.serverArgv().getFirst();
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.url=\"" + MCP_ENDPOINT + "\"");
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.bearer_token_env_var=\"BYTEQUAY_TOOL_TOKEN\"");
-        assertThat(arguments).containsSequence("-c", "developer_instructions=\"use the graph\"");
+        assertThat(arguments).anySatisfy(argument -> assertThat(argument).startsWith("developer_instructions=")
+                .contains("use the graph", "bytequay_list_tools", "bytequay_get_tool"));
         Map<String, String> environment = supervisor.environments().stream()
                 .filter(candidate -> candidate.containsKey("BYTEQUAY_TOOL_TOKEN"))
                 .findFirst()
@@ -3466,7 +3490,7 @@ class TestCodexCliDriver
         // The thread leaves the MCP map to the launch flags instead of emptying it.
         assertThat(supervisor.server().threadRequests().getFirst().path("config").has("mcp_servers")).isFalse();
         assertThat(supervisor.server().threadRequests().getFirst().path("developerInstructions").asText())
-                .startsWith(DEVELOPMENT_POLICY).contains("native update_plan").endsWith("Keep explanations concise\n\nuse the graph");
+                .startsWith(DEVELOPMENT_POLICY).contains("native update_plan", "Keep explanations concise", "bytequay_list_tools").endsWith("use the graph");
         // Opening ran the isolation guard against the effective config, which exposes exactly this server.
         session.close();
     }

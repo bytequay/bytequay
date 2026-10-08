@@ -140,9 +140,10 @@ class TestReviewToolBroker
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
-                assertThat(listed.at("/result/tools").findValuesAsText("name"))
+                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList())
                         .containsAll(LocalReviewBridge.TOOL_NAMES)
-                        .allMatch(name -> LocalReviewBridge.TOOL_NAMES.contains(name) || name.equals("permission_prompt"));
+                        .allMatch(name -> LocalReviewBridge.TOOL_NAMES.contains(name)
+                                || ImmutableList.of("permission_prompt", "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL).contains(name));
                 JsonNode unavailable = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"review_finish","arguments":{}}}
                         """)).body().orElseThrow();
@@ -203,12 +204,12 @@ class TestReviewToolBroker
         McpRegistration registration = broker.registerTools("review-task", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
         assertThat(registration.review()).isPresent();
-        assertThat(registration.instruction()).contains("Review policy: report through the review tools.");
+        assertThat(registration.instruction()).hasValueSatisfying(value -> assertThat(value).contains("Review policy: report through the review tools."));
 
         JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """)).body().orElseThrow();
-        assertThat(listed.at("/result/tools")).hasSize(2);
+        assertThat(listed.at("/result/tools")).hasSize(5);
         assertThat(listed.at("/result/tools/0/name").asText()).isEqualTo("review_save_finding");
         assertThat(listed.at("/result/tools/0/inputSchema/required/0").asText()).isEqualTo("operationKey");
 
@@ -260,12 +261,12 @@ class TestReviewToolBroker
                 SecretRedactor.fromEnvironment(ImmutableMap.of()),
                 Optional.of(new CodeQueryBridge(query -> "graph", "use the graph")));
         assertThat(registration.review()).isPresent();
-        assertThat(registration.instruction()).contains("Review policy: report through the review tools.\n\nuse the graph");
+        assertThat(registration.instruction()).hasValueSatisfying(value -> assertThat(value).contains("Review policy: report through the review tools.\n\nuse the graph"));
 
         JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """)).body().orElseThrow();
-        assertThat(listed.at("/result/tools")).hasSize(4);
+        assertThat(listed.at("/result/tools")).hasSize(7);
 
         JsonNode refused = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"permission_prompt","arguments":{"tool_name":"Bash","input":{"command":"git push origin HEAD"}}}}

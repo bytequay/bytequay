@@ -20,6 +20,8 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -31,7 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestCodexDevelopmentResult
 {
-    private final ObjectMapper json = new ObjectMapper();
+    private final ObjectMapper json = new ObjectMapper().registerModule(new Jdk8Module());
     private final CodexProtocolCodec codec = new CodexProtocolCodec(json);
     private final CodexEventMapper mapper = new CodexEventMapper(Path.of("/tmp"),
             SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
@@ -62,6 +64,30 @@ class TestCodexDevelopmentResult
     }
 
     @Test
+    void acceptsDispatchedReportsOnlyForTheNamedToolAndSuccessfulRootCompletion()
+            throws Exception
+    {
+        for (String type : ImmutableList.of("mcpToolCall", "dynamicToolCall")) {
+            ObjectNode event = json.valueToTree(notification("item/completed", "native-turn", "completed", "null", bridge));
+            ObjectNode tool = (ObjectNode) event.at("/params/item");
+            tool.put("type", type).put("tool", "bytequay_call_tool");
+            ObjectNode arguments = tool.putObject("arguments").put("name", DevelopmentResultBridge.TOOL_NAME);
+            arguments.putObject("arguments").put("readyForDelivery", true);
+            tool.put("success", true);
+            tool.putArray("contentItems").addObject().put("type", "inputText").put("text", tool.at("/result/content/0/text").asText());
+            CodexProtocol.Notification completed = codec.decodeNotification(event.toString());
+            assertThat(mapper.developmentResult(completed, true, "native-turn", Optional.of(bridge))).isPresent();
+            assertThat(mapper.developmentResult(completed, false, "native-turn", Optional.of(bridge))).isEmpty();
+            assertThat(mapper.developmentResult(completed, true, "stale-turn", Optional.of(bridge))).isEmpty();
+            arguments.put("name", "read_issue_context");
+            assertThat(mapper.developmentResult(codec.decodeNotification(event.toString()), true, "native-turn", Optional.of(bridge))).isEmpty();
+            arguments.put("name", DevelopmentResultBridge.TOOL_NAME);
+            tool.put("status", "failed").put("success", false);
+            assertThat(mapper.developmentResult(codec.decodeNotification(event.toString()), true, "native-turn", Optional.of(bridge))).isEmpty();
+        }
+    }
+
+    @Test
     void rejectsFailedStartedAndStaleReceipts()
             throws Exception
     {
@@ -83,7 +109,7 @@ class TestCodexDevelopmentResult
         return codec.decodeNotification("""
                 {"method":"%s","params":{"threadId":"root-thread","turnId":"%s","item":{
                 "type":"mcpToolCall","id":"tool-1","server":"bytequay","tool":"report_development_result",
-                "status":"%s","error":%s,"result":{"content":[{"type":"text","text":%s}]}}}}
+                "arguments":{},"status":"%s","error":%s,"result":{"content":[{"type":"text","text":%s}]}}}}
                 """.formatted(method, nativeTurn, status, error, receipt));
     }
 }

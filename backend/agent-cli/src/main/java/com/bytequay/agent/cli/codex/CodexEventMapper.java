@@ -14,12 +14,14 @@
 package com.bytequay.agent.cli.codex;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.mcp.ToolActivityLine;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderUsageSample;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -107,17 +109,32 @@ final class CodexEventMapper
             Optional<DevelopmentResultBridge> development)
     {
         if (!rootThread || !notification.turnId().filter(nativeTurnId::equals).isPresent()
-                || !(notification instanceof CodexProtocol.ItemCompletedNotification completed)
-                || !(completed.params().item() instanceof CodexProtocol.McpToolCallItem tool)
-                || !tool.server().equals("bytequay") || !tool.tool().equals(DevelopmentResultBridge.TOOL_NAME)
-                || tool.status() != CodexProtocol.ActivityStatus.COMPLETED || tool.error().isPresent()) {
+                || !(notification instanceof CodexProtocol.ItemCompletedNotification completed)) {
             return Optional.empty();
         }
-        return development.flatMap(bridge -> tool.result().flatMap(result -> DevelopmentResultTool.readReceipt(result, bridge, redactor)))
+        CodexProtocol.ThreadItem item = completed.params().item();
+        Optional<JsonNode> receipt = switch (item) {
+            case CodexProtocol.McpToolCallItem tool when tool.server().equals("bytequay")
+                    && taskToolName(tool.tool(), tool.arguments()).equals(DevelopmentResultBridge.TOOL_NAME)
+                    && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.error().isEmpty() -> tool.result();
+            case CodexProtocol.DynamicToolCallItem tool when tool.tool().equals(PermissionBroker.CALL_TOOL)
+                    && taskToolName(tool.tool(), tool.arguments()).equals(DevelopmentResultBridge.TOOL_NAME)
+                    && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.success().orElse(false) -> tool.contentItems()
+                    .filter(content -> content.isArray() && content.size() == 1 && content.path(0).path("type").asText().equals("inputText"))
+                    .map(content -> content.path(0).path("text"));
+            default -> Optional.empty();
+        };
+        return development.flatMap(bridge -> receipt.flatMap(result -> DevelopmentResultTool.readReceipt(result, bridge, redactor)))
                 .map(report -> new ProviderAgentEvent.DevelopmentResult(
-                        Optional.of(tool.id() + ":development-result"),
+                        Optional.of(item.id() + ":development-result"),
                         report,
-                        source(notification, Optional.of(tool.id()), ThreadLineage.NONE)));
+                        source(notification, Optional.of(item.id()), ThreadLineage.NONE)));
+    }
+
+    private static String taskToolName(String tool, Optional<JsonNode> arguments)
+    {
+        return tool.equals(PermissionBroker.CALL_TOOL)
+                ? arguments.map(value -> value.path("name")).filter(JsonNode::isTextual).map(JsonNode::asText).orElse(tool) : tool;
     }
 
     List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean rootThread, ThreadLineage lineage)
@@ -301,7 +318,7 @@ final class CodexEventMapper
             case CodexProtocol.FileChangeItem fileChange ->
                 mapFileChanges(fileChange, started, source);
             case CodexProtocol.McpToolCallItem tool -> ImmutableList.of(tool(
-                    tool.server() + "/" + tool.tool(),
+                    tool.server() + "/" + (tool.server().equals("bytequay") ? taskToolName(tool.tool(), tool.arguments()) : tool.tool()),
                     tool.status(),
                     eventId,
                     started,
@@ -311,7 +328,7 @@ final class CodexEventMapper
                     !started && tool.server().equals("bytequay") && tool.status() == CodexProtocol.ActivityStatus.COMPLETED && tool.error().isEmpty()
                             ? tool.result().flatMap(ToolActivityLine::fromResult) : Optional.empty()));
             case CodexProtocol.DynamicToolCallItem tool -> ImmutableList.of(tool(
-                    tool.tool(),
+                    taskToolName(tool.tool(), tool.arguments()),
                     tool.status(),
                     eventId,
                     started,

@@ -14,6 +14,7 @@
 package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.development.DevelopmentResultTool;
+import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.mcp.ToolActivityLine;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
@@ -279,7 +280,7 @@ final class ClaudeEventMapper
                 ToolCall call = tools.get(result.toolUseId());
                 if (call == null) {
                     call = new ToolCall("tool", new ClaudeProtocol.ToolInput(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
+                            Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()),
                             message.parentToolUseId());
                 }
                 activeTools.remove(result.toolUseId());
@@ -300,7 +301,9 @@ final class ClaudeEventMapper
                                 source(completed.parentToolUseId(), Optional.of(result.toolUseId())))));
                     }
                 }
-                if (call.name().equals("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME)) {
+                if (call.name().equals("mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME)
+                        || (call.name().equals("mcp__bytequay__" + PermissionBroker.CALL_TOOL)
+                                && call.input().name().filter(DevelopmentResultBridge.TOOL_NAME::equals).isPresent())) {
                     tools.remove(result.toolUseId());
                     if (!result.error() && call.parentToolUseId().isEmpty() && message.parentToolUseId().isEmpty()) {
                         development.flatMap(bridge -> DevelopmentResultTool.readReceipt(result.content(), bridge, redactor))

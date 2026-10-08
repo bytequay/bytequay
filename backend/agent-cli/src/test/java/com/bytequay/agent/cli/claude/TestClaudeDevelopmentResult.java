@@ -61,6 +61,24 @@ class TestClaudeDevelopmentResult
     }
 
     @Test
+    void dispatchedReportsStillRequireTheNamedToolAndARootCaller()
+            throws Exception
+    {
+        for (String name : ImmutableList.of(DevelopmentResultBridge.TOOL_NAME, "read_issue_context")) {
+            for (boolean child : ImmutableList.of(false, true)) {
+                ClaudeEventMapper mapper = mapper();
+                mapper.map(ClaudeProtocol.decode(json, """
+                        {"type":"assistant","session_id":"session-1","uuid":"start","parent_tool_use_id":%s,
+                        "message":{"role":"assistant","content":[{"type":"tool_use","id":"tool-1",
+                        "name":"mcp__bytequay__bytequay_call_tool","input":{"name":"%s","arguments":{"readyForDelivery":true}}}]}}
+                        """.formatted(child ? "\"parent-1\"" : "null", name)));
+                assertThat(finish(mapper, bridge, child, false).stream().anyMatch(ProviderAgentEvent.DevelopmentResult.class::isInstance))
+                        .isEqualTo(!child && name.equals(DevelopmentResultBridge.TOOL_NAME));
+            }
+        }
+    }
+
+    @Test
     void rejectsChildFailedUnknownAndStaleResults()
             throws Exception
     {

@@ -96,7 +96,7 @@ class TestPermissionBroker
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
                 assertThat(registration.toolNames()).as(taskId)
-                        .containsExactlyElementsOf(listed.at("/result/tools").findValuesAsText("name").stream()
+                        .containsExactlyElementsOf(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList().stream()
                                 .filter(name -> !name.equals("permission_prompt"))
                                 .toList())
                         .doesNotContain("permission_prompt");
@@ -104,7 +104,7 @@ class TestPermissionBroker
                     assertThat(registration.toolNames()).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME);
                 }
                 if (taskId.equals("review")) {
-                    assertThat(registration.toolNames()).containsExactly("review_extra_evidence");
+                    assertThat(registration.toolNames()).containsExactly("review_extra_evidence", "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
                 }
                 Optional<McpRegistration> codex = broker.registerTools(
                         taskId, temporaryDirectory, policy,
@@ -118,7 +118,7 @@ class TestPermissionBroker
                         JsonNode codexListed = broker.handle(tools.token(), objectMapper.readTree("""
                                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                                 """)).body().orElseThrow();
-                        assertThat(codexListed.at("/result/tools").findValuesAsText("name")).as(taskId).containsExactlyElementsOf(registration.toolNames());
+                        assertThat(codexListed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).as(taskId).containsExactlyElementsOf(registration.toolNames());
                         assertThat(tools.instruction()).isEqualTo(registration.instruction());
                     }
                 }
@@ -152,15 +152,15 @@ class TestPermissionBroker
                         SessionAccess.FULL, approvals, redactor, Optional.empty())) {
             codexToken = codex.token();
             claudeToken = claude.token();
-            assertThat(codex.instruction()).contains(IssueContextBridge.INSTRUCTION);
-            assertThat(claude.instruction()).contains(IssueContextBridge.INSTRUCTION);
-            assertThat(claude.toolNames()).containsExactly(IssueContextBridge.TOOL_NAME);
+            assertThat(codex.instruction()).hasValueSatisfying(value -> assertThat(value).contains(IssueContextBridge.INSTRUCTION));
+            assertThat(claude.instruction()).hasValueSatisfying(value -> assertThat(value).contains(IssueContextBridge.INSTRUCTION));
+            assertThat(claude.toolNames()).containsExactly(IssueContextBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
             assertThat(reads).hasValue(0);
             for (String token : ImmutableList.of(codexToken, claudeToken)) {
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
-                assertThat(listed.at("/result/tools").findValuesAsText("name")).contains(IssueContextBridge.TOOL_NAME);
+                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).contains(IssueContextBridge.TOOL_NAME);
                 JsonNode definition = listed.at("/result/tools").findParents("name").stream()
                         .filter(tool -> tool.path("name").asText().equals(IssueContextBridge.TOOL_NAME)).findFirst().orElseThrow();
                 assertThat(definition.at("/inputSchema/properties").isEmpty()).isTrue();
@@ -230,8 +230,8 @@ class TestPermissionBroker
         try (McpRegistration claude = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
                 SessionAccess.FULL, approvals, redactor, Optional.empty())) {
-            assertThat(claude.toolNames()).containsExactly(MemoryBridge.TOOL_NAME);
-            assertThat(claude.instruction()).contains(MemoryBridge.INSTRUCTION);
+            assertThat(claude.toolNames()).containsExactly(MemoryBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
+            assertThat(claude.instruction()).hasValueSatisfying(value -> assertThat(value).contains(MemoryBridge.INSTRUCTION));
             JsonNode listed = broker.handle(claude.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
@@ -309,7 +309,7 @@ class TestPermissionBroker
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
-                assertThat(listed.at("/result/tools").findValuesAsText("name"))
+                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList())
                         .contains(LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL, DevelopmentResultBridge.TOOL_NAME);
                 assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, "{}").at("/result/content/0/text").textValue()).contains("comment-1");
                 assertThat(localReviewCall(broker, token, LocalReviewBridge.REPLY_TOOL, """
@@ -363,7 +363,7 @@ class TestPermissionBroker
         try (McpRegistration registration = localOnly.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
-            assertThat(registration.instruction()).contains(LocalReviewBridge.INSTRUCTION);
+            assertThat(registration.instruction()).hasValueSatisfying(value -> assertThat(value).contains(LocalReviewBridge.INSTRUCTION));
         }
     }
 
@@ -396,7 +396,7 @@ class TestPermissionBroker
                 JsonNode listed = broker.handle(token, objectMapper.readTree("""
                         {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                         """)).body().orElseThrow();
-                assertThat(listed.at("/result/tools").findValuesAsText("name")).contains(DevelopmentResultBridge.TOOL_NAME);
+                assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).contains(DevelopmentResultBridge.TOOL_NAME);
                 for (JsonNode tool : listed.at("/result/tools")) {
                     if (tool.path("name").asText().equals(DevelopmentResultBridge.TOOL_NAME)) {
                         assertThat(tool.at("/inputSchema/properties").size()).isEqualTo(2);
@@ -497,7 +497,7 @@ class TestPermissionBroker
             JsonNode listed = broker.handle(token, objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME);
+            assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).contains(DevelopmentResultBridge.PUBLISH_TOOL_NAME);
 
             JsonNode created = publishCall(broker, token, """
                     {"title":"Add a thing","body":"Why it changed"}
@@ -573,7 +573,7 @@ class TestPermissionBroker
         JsonNode listed = broker.handle(bridged.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """)).body().orElseThrow();
-        assertThat(listed.at("/result/tools")).hasSize(2);
+        assertThat(listed.at("/result/tools")).hasSize(5);
         assertThat(listed.at("/result/tools/1/name").asText()).isEqualTo("code_query");
         assertThat(listed.at("/result/tools/1/inputSchema/required/0").asText()).isEqualTo("operation");
 
@@ -632,7 +632,7 @@ class TestPermissionBroker
         JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """)).body().orElseThrow();
-        assertThat(listed.at("/result/tools")).hasSize(1);
+        assertThat(listed.at("/result/tools")).hasSize(4);
         assertThat(listed.at("/result/tools/0/name").asText()).isEqualTo("code_query");
         JsonNode called = broker.handle(registration.token(), objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"code_query","arguments":{"operation":"SYMBOLS","path":"src/main.go","limit":20,"query":"routes"}}}
@@ -676,8 +676,8 @@ class TestPermissionBroker
             JsonNode listRequest = objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """);
-            assertThat(broker.handle(first.token(), listRequest).body().orElseThrow().at("/result/tools").findValuesAsText("name"))
-                    .containsExactly("read_ci_memory");
+            assertThat(broker.handle(first.token(), listRequest).body().orElseThrow().at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList())
+                    .containsExactly("read_ci_memory", "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
             JsonNode readRequest = objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_ci_memory","arguments":{}}}
                     """);
@@ -720,8 +720,8 @@ class TestPermissionBroker
             JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_context");
-            assertThat(registration.toolNames()).containsExactlyElementsOf(listed.at("/result/tools").findValuesAsText("name"));
+            assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly("review_context", "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
+            assertThat(registration.toolNames()).containsExactlyElementsOf(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList());
             JsonNode denied = broker.handle(registration.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"read_ci_memory","arguments":{}}}
                     """)).body().orElseThrow();
@@ -753,16 +753,14 @@ class TestPermissionBroker
                 SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")), Optional.empty()).orElseThrow()) {
             token = registration.token();
             PermissionBroker.CodexRootTools guarded = broker.guardCodexRootTools(registration);
-            assertThat(guarded.mcpNames()).containsExactly("review_get_context");
-            assertThat(guarded.rootNames()).containsExactly("review_finish");
+            assertThat(guarded.mcpNames()).containsExactly("review_get_context", "bytequay_list_tools", "bytequay_get_tool");
             assertThat(guarded.rootTools()).singleElement().satisfies(tool ->
                     assertThat(tool).containsEntry("type", "function")
-                            .containsEntry("name", "review_finish")
-                            .containsEntry("inputSchema", ImmutableMap.of("type", "object")));
+                            .containsEntry("name", PermissionBroker.CALL_TOOL));
             JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
-            assertThat(listed.at("/result/tools").findValuesAsText("name")).containsExactly("review_get_context");
+            assertThat(listed.at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList()).containsExactly("review_get_context", "bytequay_list_tools", "bytequay_get_tool");
             JsonNode read = localReviewCall(broker, token, "review_get_context", "{}");
             assertThat(read.at("/result/content/0/text").asText()).isEqualTo("context");
             JsonNode blocked = broker.handle(registration.token(), objectMapper.readTree("""
@@ -777,8 +775,7 @@ class TestPermissionBroker
             assertThat(broker.callCodexRootTool(token, "review_get_context", objectMapper.createObjectNode())
                     .body().orElseThrow().at("/error/code").asInt()).isEqualTo(-32602);
             assertThat(writes).hasValue(0);
-            JsonNode saved = broker.callCodexRootTool(token, "review_finish", objectMapper.createObjectNode())
-                    .body().orElseThrow();
+            JsonNode saved = rootToolCall(broker, token, "review_finish", "{}");
             assertThat(saved.at("/result/content/0/text").asText()).isEqualTo("saved [REDACTED]");
             assertThat(reads).hasValue(1);
             assertThat(writes).hasValue(1);
@@ -808,13 +805,13 @@ class TestPermissionBroker
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
             PermissionBroker.CodexRootTools guarded = broker.guardCodexRootTools(registration);
-            assertThat(guarded.mcpNames()).containsExactly("review_get_context", MemoryBridge.TOOL_NAME);
-            assertThat(guarded.rootNames()).containsExactly(MemoryBridge.TOOL_NAME);
+            assertThat(guarded.mcpNames()).containsExactly("review_get_context", MemoryBridge.TOOL_NAME, "bytequay_list_tools", "bytequay_get_tool");
             JsonNode listed = broker.handle(registration.token(), objectMapper.readTree("""
                     {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                     """)).body().orElseThrow();
             assertThat(listed.at("/result/tools/1/inputSchema/properties/action/enum")).isEqualTo(objectMapper.valueToTree(ImmutableList.of("SEARCH", "READ")));
-            assertThat(objectMapper.valueToTree(guarded.rootTools()).at("/0/inputSchema/properties/action/enum"))
+            assertThat(objectMapper.readTree(localReviewCall(broker, registration.token(), "bytequay_get_tool",
+                    "{\"name\":\"repository_memory\"}").at("/result/content/0/text").asText()).at("/inputSchema/properties/action/enum"))
                     .isEqualTo(objectMapper.valueToTree(ImmutableList.of("SEARCH", "READ", "REPORT", "REMEMBER")));
             for (String action : ImmutableList.of("SEARCH", "READ")) {
                 assertThat(localReviewCall(broker, registration.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"" + action + "\"}")
@@ -825,8 +822,7 @@ class TestPermissionBroker
             }
             assertThat(calls).containsExactly("{\"action\":\"SEARCH\"}", "{\"action\":\"READ\"}");
             for (String action : ImmutableList.of("REPORT", "REMEMBER")) {
-                assertThat(broker.callCodexRootTool(registration.token(), MemoryBridge.TOOL_NAME, objectMapper.readTree("{\"action\":\"" + action + "\"}"))
-                        .body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("memory result");
+                assertThat(rootToolCall(broker, registration.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"" + action + "\"}").at("/result/content/0/text").asText()).isEqualTo("memory result");
             }
             assertThat(calls).hasSize(4);
         }
@@ -849,12 +845,10 @@ class TestPermissionBroker
         try (var registration = broker.registerTools("task-related", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
             var guard = broker.guardCodexRootTools(registration);
-            assertThat(guard.rootNames()).containsExactly(RelatedWorkspaceBridge.TOOL_NAME);
             assertThat(guard.mcpNames()).doesNotContain(RelatedWorkspaceBridge.TOOL_NAME);
             assertThat(localReviewCall(broker, registration.token(), RelatedWorkspaceBridge.TOOL_NAME, "{}").at("/error/code").asInt()).isEqualTo(-32602);
             assertThat(starts).hasValue(0);
-            assertThat(broker.callCodexRootTool(registration.token(), RelatedWorkspaceBridge.TOOL_NAME, objectMapper.createObjectNode())
-                    .body().orElseThrow().at("/result/content/0/text").asText()).isEqualTo("linked [REDACTED]");
+            assertThat(rootToolCall(broker, registration.token(), RelatedWorkspaceBridge.TOOL_NAME, "{}").at("/result/content/0/text").asText()).isEqualTo("linked [REDACTED]");
             assertThat(starts).hasValue(1);
         }
         Path runtime = Files.createDirectories(temporaryDirectory.resolve("related runtime"));
@@ -1032,7 +1026,7 @@ class TestPermissionBroker
         McpHttpResponse listed = broker.handle(token, objectMapper.readTree("""
                 {"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}
                 """));
-        assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(2);
+        assertThat(listed.body().orElseThrow().at("/result/tools")).hasSize(5);
         assertThat(listed.body().orElseThrow().at("/result/tools/1/name").asText())
                 .isEqualTo("read_ci_memory");
 
@@ -1563,6 +1557,13 @@ class TestPermissionBroker
         request.set("params", params);
         String result = broker.handle(token, request).body().orElseThrow().at("/result/content/0/text").asText();
         return objectMapper.readTree(result).get("behavior").asText();
+    }
+
+    private JsonNode rootToolCall(PermissionBroker broker, String token, String name, String arguments)
+            throws Exception
+    {
+        return broker.callCodexRootTool(token, PermissionBroker.CALL_TOOL,
+                objectMapper.valueToTree(ImmutableMap.of("name", name, "arguments", objectMapper.readTree(arguments)))).body().orElseThrow();
     }
 
     private String token(McpRegistration registration)

@@ -90,6 +90,20 @@ import static java.util.Objects.requireNonNull;
 /** Serves ByteQuay's task-scoped MCP tools. */
 public final class PermissionBroker
 {
+    public static final String CALL_TOOL = "bytequay_call_tool";
+    private static final String LIST_TOOLS = "bytequay_list_tools";
+    private static final String GET_TOOL = "bytequay_get_tool";
+    private static final String TOOL_DISCOVERY_INSTRUCTION = """
+            Discover ByteQuay capabilities with bytequay_list_tools at the start of a turn. Choose the tools relevant
+            to the request, then use bytequay_get_tool with name to read each tool's current description and inputSchema,
+            including required parameters and allowed values. Use bytequay_call_tool with name and arguments to run it.
+            ByteQuay tool names in task instructions refer to this catalog; they need not be directly exposed functions.
+            Check the catalog and details before reporting a ByteQuay tool as unavailable.
+            Recheck details after resuming; saved tool descriptions can be outdated. Discovery does not grant permission
+            or require using every tool. Existing task scope, user authorization and tool-specific rules still apply.
+            In Codex, use the unqualified bytequay_call_tool when available; it belongs to the main agent. Exploration
+            children use their directly available read tools and report missing capabilities to the main agent.
+            """;
     private static final Duration APPROVAL_TIMEOUT = Duration.ofMinutes(5);
     /** Root-only gate for review sessions; see {@code review-child-gate.sh} for what it refuses and why. */
     private static final String CHILD_GATE_SCRIPT = readChildGateScript();
@@ -334,7 +348,7 @@ public final class PermissionBroker
             }
             writeOwnerOnly(settingsFile, sandboxSettings(
                     context.scope(), runtimeDirectory.toRealPath(), worktree, environment, childGate));
-            List<String> toolNames = tools(context).stream()
+            List<String> toolNames = exposedTools(context).stream()
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
                     .collect(toImmutableList());
@@ -390,7 +404,7 @@ public final class PermissionBroker
             return Optional.empty();
         }
         contexts.put(token, context);
-        List<String> toolNames = tools(context).stream().map(ToolDefinition::name).collect(toImmutableList());
+        List<String> toolNames = exposedTools(context).stream().map(ToolDefinition::name).collect(toImmutableList());
         return Optional.of(new McpRegistration(
                 token, requireNonNull(endpoint.get(), "endpoint URI is null"), toolNames, managedInstruction(context), context.review(), context.development(),
                 Optional.empty(), Optional.empty(), () -> contexts.remove(token)));
@@ -414,17 +428,16 @@ public final class PermissionBroker
             readable = tools(context).stream().map(ToolDefinition::name).filter(name -> !name.equals(RelatedWorkspaceBridge.TOOL_NAME)).collect(ImmutableSet.toImmutableSet());
         }
         Set<String> childTools = readable;
-        List<ToolDefinition> all = tools(context);
         // Memory reads use the shared MCP token; its mutating actions still require a root-bound dynamic call.
-        List<String> mcpNames = all.stream().map(ToolDefinition::name)
+        List<String> mcpNames = tools(context).stream().map(ToolDefinition::name)
                 .filter(name -> childTools.contains(name) || (context.review().isPresent() && name.equals(MemoryBridge.TOOL_NAME)))
                 .collect(toImmutableList());
-        List<Map<String, Object>> rootTools = all.stream().filter(tool -> !childTools.contains(tool.name()))
-                .map(tool -> ImmutableMap.<String, Object>of(
-                        "type", "function", "name", tool.name(), "description", tool.description(), "inputSchema", tool.inputSchema()))
-                .collect(toImmutableList());
-        CodexRootTools guarded = new CodexRootTools(mcpNames, rootTools,
-                all.stream().map(ToolDefinition::name).filter(name -> !childTools.contains(name)).collect(ImmutableSet.toImmutableSet()));
+        mcpNames = ImmutableList.<String>builder().addAll(mcpNames).add(LIST_TOOLS, GET_TOOL).build();
+        // Codex persists this schema for the conversation. Concrete tools and their schemas are discovered at call time.
+        ToolDefinition dispatcher = callToolDefinition();
+        List<Map<String, Object>> rootTools = ImmutableList.of(ImmutableMap.of(
+                "type", "function", "name", dispatcher.name(), "description", dispatcher.description(), "inputSchema", dispatcher.inputSchema()));
+        CodexRootTools guarded = new CodexRootTools(mcpNames, rootTools);
         context.codexReviewTools().set(guarded);
         return guarded;
     }
@@ -433,8 +446,7 @@ public final class PermissionBroker
     public McpHttpResponse callCodexRootTool(String token, String name, JsonNode arguments)
     {
         PermissionContext context = contexts.get(requireNonNull(token, "token is null"));
-        CodexRootTools guarded = context == null ? null : context.codexReviewTools().get();
-        if (guarded == null || context == null || !guarded.rootNames().contains(name) || arguments == null || !arguments.isObject()) {
+        if (context == null || !name.equals(CALL_TOOL) || arguments == null || !arguments.isObject()) {
             return error(null, -32602, "Unknown tool or invalid arguments");
         }
         try {
@@ -446,13 +458,12 @@ public final class PermissionBroker
         }
     }
 
-    public record CodexRootTools(List<String> mcpNames, List<Map<String, Object>> rootTools, Set<String> rootNames)
+    public record CodexRootTools(List<String> mcpNames, List<Map<String, Object>> rootTools)
     {
         public CodexRootTools
         {
             mcpNames = ImmutableList.copyOf(mcpNames);
             rootTools = ImmutableList.copyOf(rootTools);
-            rootNames = ImmutableSet.copyOf(rootNames);
         }
     }
 
@@ -496,6 +507,8 @@ public final class PermissionBroker
     private static Optional<String> managedInstruction(PermissionContext context)
     {
         String joined = Stream.of(
+                        tools(context).stream().anyMatch(tool -> !tool.name().equals("permission_prompt"))
+                                ? Optional.of(TOOL_DISCOVERY_INSTRUCTION) : Optional.<String>empty(),
                         context.review().map(ReviewBridge::instruction),
                         context.codeQueries().map(CodeQueryBridge::instruction),
                         context.development().map(DevelopmentResultBridge::instruction),
@@ -534,7 +547,7 @@ public final class PermissionBroker
                         new ServerInfo("bytequay", "1")));
                 case "notifications/initialized" -> new McpHttpResponse(202, Optional.empty());
                 case "ping" -> response(request.id(), ImmutableMap.of());
-                case "tools/list" -> response(request.id(), new ToolsResult(tools(context).stream()
+                case "tools/list" -> response(request.id(), new ToolsResult(exposedTools(context).stream()
                         .filter(tool -> guarded == null || guarded.mcpNames().contains(tool.name()))
                         .map(tool -> guarded != null && context.review().isPresent() && tool.name().equals(MemoryBridge.TOOL_NAME) ? memoryTool(true) : tool)
                         .collect(toImmutableList())));
@@ -562,6 +575,8 @@ public final class PermissionBroker
     {
         ToolCallParams params = objectMapper.treeToValue(request.params(), ToolCallParams.class);
         return switch (params.name()) {
+            case LIST_TOOLS, GET_TOOL -> describeTools(request.id(), params, context);
+            case CALL_TOOL -> callDiscoveredTool(request.id(), params.arguments(), context);
             case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeQueryBridge.TOOL_NAME -> codeQueriesExplore(request.id(), params.arguments(), context);
@@ -576,6 +591,43 @@ public final class PermissionBroker
             case LocalReviewBridge.LIST_TOOL, LocalReviewBridge.REPLY_TOOL, LocalReviewBridge.RESOLVE_TOOL -> localReviewTool(request.id(), params, context);
             default -> reviewTool(request.id(), params, context);
         };
+    }
+
+    private McpHttpResponse describeTools(JsonNode id, ToolCallParams params, PermissionContext context)
+            throws JsonProcessingException
+    {
+        JsonNode arguments = params.arguments();
+        boolean list = params.name().equals(LIST_TOOLS);
+        if (!arguments.isObject() || (list ? !arguments.isEmpty() : arguments.size() != 1 || !arguments.path("name").isTextual())) {
+            return error(id, -32602, list ? "bytequay_list_tools accepts no arguments" : "bytequay_get_tool requires name");
+        }
+        List<ToolDefinition> available = tools(context).stream().filter(tool -> !tool.name().equals("permission_prompt")).collect(toImmutableList());
+        Object result;
+        if (list) {
+            result = available.stream().map(tool -> ImmutableMap.of("name", tool.name(), "description", tool.description())).collect(toImmutableList());
+        }
+        else {
+            Optional<ToolDefinition> tool = available.stream().filter(value -> value.name().equals(arguments.path("name").asText())).findFirst();
+            if (tool.isEmpty()) {
+                return error(id, -32602, "Unknown tool in this task. Use bytequay_list_tools to discover available tools");
+            }
+            result = tool.orElseThrow();
+        }
+        return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(objectMapper.writeValueAsString(result)))), false));
+    }
+
+    private McpHttpResponse callDiscoveredTool(JsonNode id, JsonNode arguments, PermissionContext context)
+            throws JsonProcessingException
+    {
+        if (!arguments.isObject() || arguments.size() != 2 || !arguments.path("name").isTextual() || !arguments.path("arguments").isObject()) {
+            return error(id, -32602, "bytequay_call_tool requires name and an arguments object. Read bytequay_get_tool for the tool's parameters");
+        }
+        String name = arguments.path("name").asText();
+        // Only concrete capabilities in this task can run; discovery, permission callbacks and recursive dispatch cannot.
+        if (name.equals("permission_prompt") || tools(context).stream().noneMatch(tool -> tool.name().equals(name))) {
+            return error(id, -32602, "Unknown tool in this task. Use bytequay_list_tools to discover available tools");
+        }
+        return callTool(new McpRequest("2.0", id, "tools/call", arguments), context);
     }
 
     private McpHttpResponse readIssueContext(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -1107,6 +1159,34 @@ public final class PermissionBroker
                         "additionalProperties", true));
     }
 
+    private static List<ToolDefinition> exposedTools(PermissionContext context)
+    {
+        List<ToolDefinition> available = tools(context);
+        if (available.stream().noneMatch(tool -> !tool.name().equals("permission_prompt"))) {
+            return available;
+        }
+        return ImmutableList.<ToolDefinition>builder().addAll(available)
+                .add(new ToolDefinition(LIST_TOOLS,
+                        "List this task's current ByteQuay tool names and descriptions. Choose relevant tools, then read bytequay_get_tool for usage and parameters",
+                        ImmutableMap.of("type", "object", "properties", ImmutableMap.of(), "additionalProperties", false)))
+                .add(new ToolDefinition(GET_TOOL,
+                        "Read one task tool's current description and complete inputSchema, including required parameters and allowed values. Does not run the tool",
+                        ImmutableMap.of("type", "object", "properties", ImmutableMap.of("name", ImmutableMap.of("type", "string", "minLength", 1)),
+                                "required", ImmutableList.of("name"), "additionalProperties", false)))
+                .add(callToolDefinition()).build();
+    }
+
+    private static ToolDefinition callToolDefinition()
+    {
+        return new ToolDefinition(CALL_TOOL,
+                "Run one current ByteQuay task tool. Discover names with bytequay_list_tools and read usage and parameters with bytequay_get_tool first. "
+                        + "Pass its name and arguments object. Existing permissions apply; review and related-work changes belong to the main agent",
+                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                        "name", ImmutableMap.of("type", "string", "minLength", 1),
+                        "arguments", ImmutableMap.of("type", "object", "additionalProperties", true)),
+                        "required", ImmutableList.of("name", "arguments"), "additionalProperties", false));
+    }
+
     private static List<ToolDefinition> tools(PermissionContext context)
     {
         ImmutableList.Builder<ToolDefinition> tools = ImmutableList.builder();
@@ -1454,6 +1534,7 @@ public final class PermissionBroker
             readable = tools(context).stream().map(ToolDefinition::name).filter(name -> !name.equals(RelatedWorkspaceBridge.TOOL_NAME))
                     .filter(name -> SHELL_SAFE_TOOL_NAME.matcher(name).matches()).map(name -> "mcp__bytequay__" + name).collect(toImmutableList());
         }
+        readable = ImmutableList.<String>builder().addAll(readable).add("mcp__bytequay__" + LIST_TOOLS, "mcp__bytequay__" + GET_TOOL).build();
         return CHILD_GATE_SCRIPT.replace("@REVIEW_ONLY@", String.valueOf(context.review().isPresent()))
                 .replace("@CHILD_TOOLS@", readable.isEmpty() ? "mcp__bytequay__none" : String.join("|", readable));
     }

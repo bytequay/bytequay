@@ -143,7 +143,7 @@ public final class CodexCliDriver
     private static final Logger log = LoggerFactory.getLogger(CodexCliDriver.class);
     private static final AgentLaneId LANE_ID = new AgentLaneId("codex");
     private static final int CONTRACT_VERSION = 1;
-    private static final int REVIEW_DYNAMIC_CONTRACT_VERSION = 2;
+    private static final int REVIEW_DYNAMIC_CONTRACT_VERSION = 3;
     private static final String PLAN_INSTRUCTION = """
             For work with multiple meaningful steps, use the native update_plan tool to maintain one concise plan.
             Update its step statuses as work progresses and revise it when the approach changes. ByteQuay displays
@@ -611,6 +611,9 @@ public final class CodexCliDriver
     {
         requireNonNull(context, "context is null");
         requireNonNull(events, "events is null");
+        if (context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == 2)) {
+            throw new AgentUnavailableException("This Codex conversation has an outdated tool list. Start a new task to use live tool discovery");
+        }
         requireAvailable();
         String runningVersion = rememberAppServerVersion();
         // The process runs in the task worktree so its sandbox grants writes there
@@ -2085,7 +2088,7 @@ public final class CodexCliDriver
                         new AgentUnavailableException("Codex request does not belong to the active turn"));
             }
             if (serverRequest instanceof CodexProtocol.DynamicToolCallRequest dynamic) {
-                if (guardedReviewTools.isEmpty()) {
+                if (codeQueries.isEmpty()) {
                     return CompletableFuture.failedFuture(new AgentUnavailableException("This tool is not available in this turn"));
                 }
                 if (!dynamic.threadId().equals(reference.providerValue()) || !dynamic.params().namespace().isEmpty()) {

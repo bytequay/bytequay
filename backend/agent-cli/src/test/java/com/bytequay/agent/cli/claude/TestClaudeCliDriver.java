@@ -283,7 +283,9 @@ class TestClaudeCliDriver
                 assertThat(receipt.path("treeTermination").asText()).isEqualTo("VERIFIED_STOPPED");
             }
             assertThat(turnSpecs.getLast().argv()).containsSequence("--resume", session.reference().providerValue());
-            assertThat(turnSpecs.getLast().argv()).containsSequence("--append-system-prompt", AgentCommandPolicy.reviewInstructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\n" + review.instruction());
+            List<String> argv = turnSpecs.getLast().argv();
+            assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1))
+                    .contains(AgentCommandPolicy.reviewInstructions(), ClaudeCliDriver.PLAN_INSTRUCTION, review.instruction(), "bytequay_list_tools");
             assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Command command
                             && command.state() == ProviderAgentEvent.ActivityState.COMPLETED)
                     .hasSize(2);
@@ -317,7 +319,8 @@ class TestClaudeCliDriver
         AgentSession session = driver.open(bridged, event -> {});
         await(session.start(command("first")));
         ProcessSpec spec = supervisor.turns().getFirst().spec();
-        assertThat(spec.argv()).containsSequence("--append-system-prompt", DEVELOPMENT_POLICY + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION + "\n\nuse the graph");
+        assertThat(spec.argv().get(spec.argv().indexOf("--append-system-prompt") + 1))
+                .contains(DEVELOPMENT_POLICY, ClaudeCliDriver.PLAN_INSTRUCTION, "use the graph", "bytequay_list_tools", "bytequay_get_tool");
         int allowed = spec.argv().indexOf("--allowedTools");
         assertThat(allowed).isPositive();
         assertThat(spec.argv().get(allowed + 1)).contains("mcp__bytequay__code_query");
@@ -1230,7 +1233,8 @@ class TestClaudeCliDriver
                     "mcp__bytequay__" + LocalReviewBridge.REPLY_TOOL,
                     "mcp__bytequay__" + LocalReviewBridge.RESOLVE_TOOL,
                     "mcp__bytequay__" + DevelopmentResultBridge.TOOL_NAME,
-                    "mcp__bytequay__" + DevelopmentResultBridge.PUBLISH_TOOL_NAME);
+                    "mcp__bytequay__" + DevelopmentResultBridge.PUBLISH_TOOL_NAME,
+                    "mcp__bytequay__bytequay_list_tools", "mcp__bytequay__bytequay_get_tool", "mcp__bytequay__bytequay_call_tool");
             assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(LocalReviewBridge.INSTRUCTION, DevelopmentResultBridge.INSTRUCTION);
         }
         driver.close();
@@ -1306,14 +1310,15 @@ class TestClaudeCliDriver
             List<String> argv = turn.spec().argv();
             assertThat(argv).contains("--disable-slash-commands");
             assertThat(argv).containsSequence("--permission-mode", "auto");
-            assertThat(argv).containsSequence("--append-system-prompt", AgentCommandPolicy.reviewInstructions() + "\n\n" + ClaudeCliDriver.PLAN_INSTRUCTION
-                    + "\n\nKeep explanations concise\n\nReview this PR");
+            assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1)).contains(AgentCommandPolicy.reviewInstructions(),
+                    ClaudeCliDriver.PLAN_INSTRUCTION, "Keep explanations concise", "Review this PR", "bytequay_list_tools", "bytequay_get_tool");
             assertThat(argv.stream().filter("--append-system-prompt"::equals)).hasSize(1);
             String nativeTools = argv.get(argv.indexOf("--tools") + 1);
             assertThat(nativeTools.split(",")).contains("Bash", "Read", "TaskOutput", "TaskStop")
                     .doesNotContain("Agent", "Task", "Skill", "Workflow", "SendMessage", "RemoteTrigger", "ScheduleWakeup");
             assertThat(argv.get(argv.indexOf("--allowedTools") + 1).split(","))
-                    .containsExactly("mcp__bytequay__review_finish", "mcp__bytequay__review_extra_evidence");
+                    .containsExactly("mcp__bytequay__review_finish", "mcp__bytequay__review_extra_evidence",
+                            "mcp__bytequay__bytequay_list_tools", "mcp__bytequay__bytequay_get_tool", "mcp__bytequay__bytequay_call_tool");
         }
         resumed.close();
         driver.close();

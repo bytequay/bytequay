@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check review child read/write boundaries and root tools across a native resume.
+"""Check live tool discovery and review child boundaries across a native resume.
 
 Run: python3 scripts/codex-review-dynamic-resume-probe.py
 Requires macOS, Python 3.9+, Codex 0.159.3+, and permission to bind a loopback socket.
@@ -23,7 +23,7 @@ spec = importlib.util.spec_from_file_location("completion_probe", Path(__file__)
 probe = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(probe)
 
-TOOL = "review_save_finding"
+TOOL = "bytequay_call_tool"
 
 
 def child_request(request):
@@ -75,6 +75,10 @@ class Fixture:
                     elif method == "tools/list":
                         result = {"tools": [{"name": "review_get_context", "description": "Read fixture context",
                                              "inputSchema": {"type": "object", "properties": {}}},
+                                            {"name": "bytequay_list_tools", "description": "List current task tools",
+                                             "inputSchema": {"type": "object", "properties": {}}},
+                                            {"name": "bytequay_get_tool", "description": "Read current usage and parameters",
+                                             "inputSchema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
                                             {"name": "repository_memory", "description": "Read fixture memory",
                                              "inputSchema": {"type": "object", "properties": {
                                                  "action": {"type": "string", "enum": ["SEARCH", "READ"]}}}}]}
@@ -84,7 +88,13 @@ class Fixture:
                             name += ":" + body["params"]["arguments"]["action"]
                         with fixture.lock:
                             fixture.mcp_calls.append(name)
-                        result = {"content": [{"type": "text", "text": "Fixture read"}], "isError": False}
+                        current = "review_record_discovery" if fixture.resumed else "review_save_finding"
+                        parameter = "changeMap" if fixture.resumed else "finding"
+                        details = {"name": current, "description": "Save private fixture data", "inputSchema": {
+                            "type": "object", "properties": {parameter: {"type": "string"}}, "required": [parameter]}}
+                        text = json.dumps([{"name": current, "description": details["description"]}]) if name == "bytequay_list_tools" else (
+                            json.dumps(details) if name == "bytequay_get_tool" else "Fixture read")
+                        result = {"content": [{"type": "text", "text": text}], "isError": False}
                     elif method == "resources/list":
                         result = {"resources": []}
                     else:
@@ -102,10 +112,12 @@ class Fixture:
                 calls = [item for item in body.get("input", []) if item.get("type") == "function_call"]
                 if resumed:
                     calls = [item for item in calls if item.get("call_id", "").startswith("resumed_")]
-                    sequence = [] if child else [(TOOL, {"finding": "resumed root"}, None),
-                                                  ("repository_memory", {"action": "REMEMBER"}, None)]
+                    sequence = [] if child else [("bytequay_list_tools", {}, "mcp__bytequay"),
+                                                  ("bytequay_get_tool", {"name": "review_record_discovery"}, "mcp__bytequay"),
+                                                  (TOOL, {"name": "review_record_discovery", "arguments": {"changeMap": "resumed root"}}, None),
+                                                  (TOOL, {"name": "repository_memory", "arguments": {"action": "REMEMBER"}}, None)]
                 elif child:
-                    sequence = [(TOOL, {"finding": "child attempt"}, None),
+                    sequence = [(TOOL, {"name": "review_save_finding", "arguments": {"finding": "child attempt"}}, None),
                                 ("exec_command", {"cmd": shlex.quote(shutil.which("rg")) + " -n decimal source.txt",
                                                   "workdir": str(fixture.output / "workspace")}, None),
                                 ("review_get_context", {}, "mcp__bytequay"),
@@ -116,8 +128,10 @@ class Fixture:
                 else:
                     sequence = [("spawn_agent", {"message": "Inspect the fixture", "task_name": "fixture_child",
                                                   "fork_turns": "none"}, "collaboration"),
-                                (TOOL, {"finding": "initial root"}, None),
-                                ("repository_memory", {"action": "REMEMBER"}, None)]
+                                ("bytequay_list_tools", {}, "mcp__bytequay"),
+                                ("bytequay_get_tool", {"name": "review_save_finding"}, "mcp__bytequay"),
+                                (TOOL, {"name": "review_save_finding", "arguments": {"finding": "initial root"}}, None),
+                                (TOOL, {"name": "repository_memory", "arguments": {"action": "REMEMBER"}}, None)]
                 stage = len(calls)
                 if stage < len(sequence):
                     name, arguments, namespace = sequence[stage]
@@ -163,7 +177,7 @@ def run_turn(app, thread_id, text, request_id, callback_text):
                 continue
             answered.add(event["id"])
             params = event["params"]
-            exact_root = params["threadId"] == thread_id and params["turnId"] == turn["id"] and params["tool"] in (TOOL, "repository_memory")
+            exact_root = params["threadId"] == thread_id and params["turnId"] == turn["id"] and params["tool"] == TOOL
             app.send({"id": event["id"], "result": {"contentItems": [{"type": "inputText", "text": callback_text}],
                                                    "success": exact_root}})
         completed = any(event.get("method") == "turn/completed" and
@@ -220,10 +234,10 @@ def main():
                    "approvalPolicy": "on-request", "approvalsReviewer": "auto_review", "sandbox": "workspace-write",
                    "ephemeral": False, "config": {"bypass_hook_trust": True,
                                                   "features": {"hooks": True, "multi_agent_v2": True, "multi_agent": False}},
-                   "dynamicTools": [{"type": "function", "name": TOOL, "description": "Save a fixture finding",
-                                     "inputSchema": {"type": "object", "properties": {"finding": {"type": "string"}}}},
-                                    {"type": "function", "name": "repository_memory", "description": "Root memory access",
-                                     "inputSchema": {"type": "object", "properties": {"action": {"type": "string"}}}}]}
+                   "dynamicTools": [{"type": "function", "name": TOOL, "description": "Run a discovered task tool",
+                                     "inputSchema": {"type": "object", "properties": {"name": {"type": "string"},
+                                                      "arguments": {"type": "object", "additionalProperties": True}},
+                                                     "required": ["name", "arguments"], "additionalProperties": False}}]}
         with probe.AppServer(arguments, environment, output, "initial") as app:
             root = app.request("thread/start", initial, "start")["result"]["thread"]
             app.request("mcpServerStatus/list", {"threadId": root["id"]}, "mcp")
@@ -257,10 +271,14 @@ def main():
         for name, turn_id in (("initial", first_turn), ("resumed", second_turn)):
             notifications = json.loads((output / (name + "-notifications.json")).read_text())
             callbacks = [event["params"] for event in notifications if event.get("method") == "item/tool/call"]
-            probe.require(len(callbacks) == 2 and {call["tool"] for call in callbacks} == {TOOL, "repository_memory"} and
+            probe.require(len(callbacks) == 2 and {call["tool"] for call in callbacks} == {TOOL} and
                           all(call["threadId"] == root["id"] and call["turnId"] == turn_id for call in callbacks),
                           name + " callback was not bound to the exact root thread and turn")
-        probe.require(mcp_calls == ["review_get_context", "repository_memory:READ"], "Child read was denied or a write reached the shared MCP endpoint")
+            expected = "review_record_discovery" if name == "resumed" else "review_save_finding"
+            probe.require([call["arguments"]["name"] for call in callbacks] == [expected, "repository_memory"], "Dispatcher did not use the current catalog")
+        probe.require(sorted(mcp_calls) == sorted(["review_get_context", "repository_memory:READ", "bytequay_list_tools",
+                                                  "bytequay_get_tool", "bytequay_list_tools", "bytequay_get_tool"]),
+                      "Discovery or child read was denied, or a write reached the shared MCP endpoint")
         outputs = {item["call_id"]: item.get("output", "") for request in requests if child_request(request)
                    for item in request.get("input", []) if item.get("type") == "function_call_output"}
         probe.require("decimal-sentinel" in outputs.get("child_1", ""), "Child source search did not run")
@@ -271,7 +289,7 @@ def main():
             event.get("method") == "item/completed" and event.get("params", {}).get("item", {}).get("id") == "child_6" and
             event["params"]["item"].get("agentThreadId") == root["id"] and event["params"]["item"].get("kind") == "interacted"
             for event in notifications), "Child message was not delivered to the root")
-        print("Native child search, memory read and message succeeded; memory writes and delegation were denied; resumed root retained its write tool.", flush=True)
+        print("Resumed root discovered and called a new tool through the unchanged dispatcher; child writes and further delegation were denied.", flush=True)
     finally:
         fixture.close()
 

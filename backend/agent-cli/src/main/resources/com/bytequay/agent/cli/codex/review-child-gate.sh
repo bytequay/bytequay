@@ -9,7 +9,7 @@ name=$(printf '%s' "$payload" | /usr/bin/plutil -extract tool_name raw -o - - 2>
 }
 printf '%s' "$payload" | /usr/bin/plutil -extract agent_id raw -o /dev/null - 2>/dev/null || exit 0
 case "$name" in
-  mcp__bytequay__review_get_context|mcp__bytequay__code_query) exit 0 ;;
+  mcp__bytequay__review_get_context|mcp__bytequay__code_query|mcp__bytequay__bytequay_list_tools|mcp__bytequay__bytequay_get_tool) exit 0 ;;
   mcp__bytequay__repository_memory|repository_memory)
     action=$(printf '%s' "$payload" | /usr/bin/plutil -extract tool_input.action raw -o - - 2>/dev/null)
     case "$action" in SEARCH|READ) exit 0 ;; esac

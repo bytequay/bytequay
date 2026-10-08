@@ -191,6 +191,7 @@ const referenceRecordBindings = [
     component("id"),
     component("server"),
     component("tool"),
+    component("arguments"),
     component("status"),
     component("durationMs"),
     component("result"),
@@ -198,7 +199,8 @@ const referenceRecordBindings = [
   ]),
   recordBinding("DynamicToolCallItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "dynamicToolCall"),
-  ], [component("id"), component("tool"), component("status")]),
+  ], [component("id"), component("tool"), component("arguments"), component("status"),
+    component("success"), component("contentItems")]),
   recordBinding("CollabAgentToolCallItem", "decode", [
     schemaSource("v2", "ThreadItem", "type", "collabAgentToolCall"),
   ], [
@@ -1559,6 +1561,7 @@ function resolveBindingSource(source, bundles) {
 }
 
 function allowsNull(schema, bundle, visited = new Set()) {
+  if (schema === true) return true;
   if (!schema) return false;
   if (schema.$ref) {
     if (visited.has(schema.$ref)) return false;
@@ -1593,6 +1596,7 @@ function nonNullVariant(schema, bundle) {
 }
 
 function sampleValue(schema, bundle, visited = new Set()) {
+  if (schema === true) return {};
   if (schema.default !== undefined && schema.default !== null) return schema.default;
   if (schema.$ref) {
     if (visited.has(schema.$ref)) return {};

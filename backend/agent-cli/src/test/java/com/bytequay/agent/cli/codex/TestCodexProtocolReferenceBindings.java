@@ -234,6 +234,15 @@ class TestCodexProtocolReferenceBindings
             JsonNode component = binding.path("components").get(index);
             boolean required = component.path("required").asBoolean();
             boolean nullable = component.path("nullable").asBoolean();
+            // Our tool dispatcher accepts object arguments even though the protocol permits any JSON value.
+            if (type.equals(CodexProtocol.DynamicToolCallParams.class) && actual.getName().equals("arguments")) {
+                nullable = false;
+            }
+            // Older saved thread history may omit the optional lineage metadata we consume.
+            if (type.equals(CodexProtocol.HistoryThread.class) && actual.getName().equals("source")) {
+                required = false;
+                nullable = true;
+            }
             boolean optional = actual.getType().equals(Optional.class);
             assertThat(optional)
                     .as(description + " " + actual.getName() + " optionality")

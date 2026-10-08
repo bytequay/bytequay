@@ -481,7 +481,7 @@ class TestCodexEventMapper
 
         ProviderAgentEvent.Tool mcp = only("""
                 {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"mcp-1",
-                "server":"docs","tool":"lookup","status":"completed","durationMs":20},
+                "server":"docs","tool":"lookup","arguments":{},"status":"completed","durationMs":20},
                 "threadId":"thread-1","turnId":"turn-1"}}
                 """, ProviderAgentEvent.Tool.class);
         assertThat(mcp.duration()).contains(Duration.ofMillis(20));

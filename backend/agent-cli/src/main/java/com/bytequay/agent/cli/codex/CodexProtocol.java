@@ -486,6 +486,7 @@ final class CodexProtocol
             String id,
             String server,
             String tool,
+            @JsonProperty(required = true) Optional<JsonNode> arguments,
             ActivityStatus status,
             Optional<Long> durationMs,
             Optional<JsonNode> result,
@@ -497,6 +498,7 @@ final class CodexProtocol
             checkIdentifier(id, "id");
             checkIdentifier(server, "server");
             checkIdentifier(tool, "tool");
+            requireNonNull(arguments, "arguments is null");
             result = requireNonNull(result, "result is null").filter(value -> !value.isNull());
             error = requireNonNull(error, "error is null").filter(value -> !value.isNull());
             requireNonNull(status, "status is null");
@@ -505,14 +507,18 @@ final class CodexProtocol
         }
     }
 
-    record DynamicToolCallItem(String id, String tool, ActivityStatus status)
+    record DynamicToolCallItem(String id, String tool, @JsonProperty(required = true) Optional<JsonNode> arguments, ActivityStatus status,
+            Optional<Boolean> success, Optional<JsonNode> contentItems)
             implements ThreadItem
     {
         DynamicToolCallItem
         {
             checkIdentifier(id, "id");
             checkIdentifier(tool, "tool");
+            requireNonNull(arguments, "arguments is null");
             requireNonNull(status, "status is null");
+            requireNonNull(success, "success is null");
+            requireNonNull(contentItems, "contentItems is null");
         }
     }
 

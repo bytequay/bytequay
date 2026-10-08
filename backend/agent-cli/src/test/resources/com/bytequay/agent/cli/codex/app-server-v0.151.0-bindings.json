@@ -294,7 +294,7 @@
           "required": true,
           "nullable": false,
           "sample": {
-            "requestId": 1,
+            "requestId": "value",
             "threadId": "value"
           }
         }
@@ -990,6 +990,13 @@
           "sample": "value"
         },
         {
+          "javaName": "arguments",
+          "wireName": "arguments",
+          "required": true,
+          "nullable": true,
+          "sample": {}
+        },
+        {
           "javaName": "status",
           "wireName": "status",
           "required": true,
@@ -1049,11 +1056,32 @@
           "sample": "value"
         },
         {
+          "javaName": "arguments",
+          "wireName": "arguments",
+          "required": true,
+          "nullable": true,
+          "sample": {}
+        },
+        {
           "javaName": "status",
           "wireName": "status",
           "required": true,
           "nullable": false,
           "sample": "inProgress"
+        },
+        {
+          "javaName": "success",
+          "wireName": "success",
+          "required": false,
+          "nullable": true,
+          "sample": false
+        },
+        {
+          "javaName": "contentItems",
+          "wireName": "contentItems",
+          "required": false,
+          "nullable": true,
+          "sample": []
         }
       ]
     },
@@ -1770,7 +1798,7 @@
           "javaName": "arguments",
           "wireName": "arguments",
           "required": true,
-          "nullable": false,
+          "nullable": true,
           "sample": {}
         }
       ]
@@ -2073,7 +2101,7 @@
           "javaName": "result",
           "wireName": "result",
           "required": false,
-          "nullable": false,
+          "nullable": true,
           "sample": {}
         },
         {
@@ -2136,7 +2164,7 @@
           "javaName": "params",
           "wireName": "params",
           "required": false,
-          "nullable": false,
+          "nullable": true,
           "sample": {}
         }
       ]
@@ -2159,7 +2187,7 @@
           "javaName": "params",
           "wireName": "params",
           "required": false,
-          "nullable": false,
+          "nullable": true,
           "sample": {}
         }
       ]
@@ -2182,7 +2210,7 @@
           "javaName": "result",
           "wireName": "result",
           "required": true,
-          "nullable": false,
+          "nullable": true,
           "sample": {}
         }
       ]
@@ -2569,8 +2597,8 @@
         {
           "javaName": "source",
           "wireName": "source",
-          "required": false,
-          "nullable": true,
+          "required": true,
+          "nullable": false,
           "sample": {
             "subAgent": {
               "thread_spawn": {

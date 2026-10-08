@@ -69,8 +69,8 @@ class TestPullRequestCiTool
             expiredToken = codex.token();
             assertThat(codex.review()).isEmpty();
             assertThat(codex.development()).isEmpty();
-            assertThat(codex.instruction()).contains(PullRequestCiBridge.INSTRUCTION);
-            assertThat(claude.instruction()).contains(PullRequestCiBridge.INSTRUCTION);
+            assertThat(codex.instruction()).hasValueSatisfying(value -> assertThat(value).contains(PullRequestCiBridge.INSTRUCTION));
+            assertThat(claude.instruction()).hasValueSatisfying(value -> assertThat(value).contains(PullRequestCiBridge.INSTRUCTION));
             for (String token : ImmutableList.of(codex.token(), claude.token())) {
                 assertThat(list(broker, token).at("/result/tools").findValuesAsText("name")).contains(PullRequestCiBridge.TOOL_NAME);
                 assertThat(text(call(broker, token, "{}"))).contains("No pull request associated yet");
@@ -178,7 +178,8 @@ class TestPullRequestCiTool
                 McpRegistration claude = reviewBroker.register(
                         "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
-            assertThat(list(reviewBroker, registration.token()).at("/result/tools").findValuesAsText("name")).containsExactly("review_context");
+            assertThat(list(reviewBroker, registration.token()).at("/result/tools").findValues("name").stream().filter(JsonNode::isTextual).map(JsonNode::asText).toList())
+                    .containsExactly("review_context", "bytequay_list_tools", "bytequay_get_tool", PermissionBroker.CALL_TOOL);
             assertThat(claude.toolNames()).doesNotContain(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME);
         }
     }

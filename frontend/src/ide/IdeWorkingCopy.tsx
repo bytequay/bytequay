@@ -21,6 +21,7 @@ import type { AgentTaskDto } from '../types';
 import { latestRun } from '../pulls/agent-review/model';
 import { runGate } from '../pulls/code-tests/runModel';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { pollVisible } from './pollVisible';
 
 export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, comments, active, ownReviewStream, bridge }: {
   host: CodeTestsHost; onReviewChange: (review: AgentReviewDto) => void; onExit?: () => void;
@@ -34,6 +35,7 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
   const [dialog, setDialog] = useState<{ kind: 'reset' | 'discard'; revision: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editor, setEditor] = useState<string | null>(null);
   const [dirty, setDirty] = useState(0);
   const [reload, setReload] = useState(0);
@@ -53,10 +55,11 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
           const task = await bridge.getAgentTask(hostRef.taskId, hostRef.workspaceId);
           if (live) setTask(task);
         }
-      } catch (failure) { if (live) setError(String(failure)); }
+        if (live) setLoadError(null);
+      } catch (failure) { if (live) setLoadError(`Could not refresh working copy: ${String(failure)}`); }
     };
-    void load(); const timer = setInterval(() => { void load(); }, 5000);
-    return () => { live = false; clearInterval(timer); };
+    const stop = pollVisible(load, 5000);
+    return () => { live = false; stop(); };
   }, [active, bridge, hostRef, reload, review?.worktreeSync?.headSha, review?.task.version]);
   useEffect(() => {
     if (!active || !open || !reviewId || !ownReviewStream) return;
@@ -94,7 +97,7 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
     finally { setBusy(false); }
   };
   return <div className="ct">
-    {error && <div className="ct-banner is-error" role="alert">{error}<button onClick={() => { setError(null); setReload(value => value + 1); }}>Retry</button></div>}
+    {(error || loadError) && <div className="ct-banner is-error" role="alert">{error ?? loadError}<button onClick={() => { setError(null); setLoadError(null); setReload(value => value + 1); }}>Retry</button></div>}
     <IdeSurface host={hostRef} active={active && !busy} review={review} task={task} comments={comments} onReviewChange={onReviewChange} onReady={setEditor}
       workingCopy={review ? { blocked: busy || gate.hidden ? 'Working copy unavailable' : gate.blocked, staleLabel: stale ? syncLabel : null } : undefined}
       onWorkingCopyAction={kind => { if (files && !busy && !gate.hidden && !gate.blocked && (kind !== 'reset' || stale)) { setError(null); setDialog({ kind, revision: files.revision }); } }}

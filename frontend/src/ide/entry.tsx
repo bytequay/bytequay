@@ -36,6 +36,7 @@ import Usages from './Usages';
 import Search from './Search';
 import { installGitHistory } from './gitHistory';
 import { codeHostKey } from '../pulls/code-tests/contracts';
+import { pollVisible } from './pollVisible';
 import '../css/base.css';
 import '../css/markdown-editor.css';
 import '../css/pulls.css';
@@ -100,6 +101,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [filesReload, setFilesReload] = useState(0);
   const [filesVisible, setFilesVisible] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [fileError, setFileError] = useState<string | null>(null);
   const [execution, setExecution] = useState(runtime.executions.run);
   const [executionError, setExecutionError] = useState(runtime.executions.error);
   const [bottom, setBottom] = useState<'run' | 'debug' | 'terminal' | 'history'>('run');
@@ -171,10 +174,13 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
 
   useEffect(() => {
     let live = true;
-    const load = () => { void request('listCodeFiles', context.host).then(value => { if (live) setFiles(value as ReviewCodeFilesDto); }, cause => { if (live) setError(String(cause)); }); };
-    load();
-    const timer = setInterval(() => { if (document.visibilityState === 'visible') load(); }, 5_000);
-    return () => { live = false; clearInterval(timer); };
+    const stop = pollVisible(async () => {
+      try {
+        const value = await request('listCodeFiles', context.host);
+        if (live) { setFiles(value as ReviewCodeFilesDto); setFilesError(null); }
+      } catch (cause) { if (live) setFilesError(`Could not refresh working copy: ${String(cause)}`); }
+    }, 5_000);
+    return () => { live = false; stop(); };
   }, [context.host.kind, context.host.kind === 'task' ? context.host.taskId : context.host.reviewId, filesReload]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const selected = active?.document.uri.scheme === 'vscode-remote' && active.document.uri.path.startsWith(connection.root + '/')
@@ -182,7 +188,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   useEffect(() => {
     let live = true;
     setFile(null);
-    if (selected) void request('readCodeFile', context.host, selected, files?.revision).then(value => { if (live) setFile(value as ReviewCodeFileDto); }, cause => { if (live) setError(String(cause)); });
+    setFileError(null);
+    if (selected) void request('readCodeFile', context.host, selected, files?.revision).then(value => { if (live) setFile(value as ReviewCodeFileDto); }, cause => { if (live) setFileError(`Could not read file details: ${String(cause)}`); });
     return () => { live = false; };
   }, [selected, files?.sourceFingerprint, files?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileContext: CommentContext | null = useMemo(() => {
@@ -257,7 +264,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     {execution?.treeUnverified && <div className="ide-notice" role="status">Execution finished; verifying process cleanup.
       <button onClick={() => { void runtime.executions.stop(true).catch(cause => setError(String(cause))); }}>Stop code tools to finish cleanup</button>
     </div>}
-    {error && <div className="ide-notice" role="alert">{error}<button onClick={() => setError(null)}>Dismiss</button></div>}
+    {(error || filesError || fileError) && <div className="ide-notice" role="alert">{error ?? filesError ?? fileError}<button onClick={() => { setError(null); setFilesError(null); setFileError(null); }}>Dismiss</button></div>}
     {recovered.map(draft => <div className="ide-notice" role="alert" key={`${draft.path}:${draft.text}`}>
       <span>A saved draft for {draft.path} differs from the current file. Your draft has been kept.</span>
       <button onClick={() => { void runtime.api.workspace.openTextDocument({ content: draft.text }).then(document => runtime.api.window.showTextDocument(document, { preview: false })); }}>Open recovered draft</button>

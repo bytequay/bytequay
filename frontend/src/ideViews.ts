@@ -18,7 +18,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { browserBounds } from './browserTabs';
 import { backendBase, sessionToken } from './backendProcess';
-import { parseCodeHost, codeHostKey, type CodeHostRef } from './pulls/code-tests/contracts';
+import { parseCodeHost, codeHostKey, parseReviewCodeFiles, parseReviewCodeFile, parseLocalRuns, parseLocalRunOutput, parseWorktreeChanges, type CodeHostRef } from './pulls/code-tests/contracts';
 import { parseCodeQuery, parseCodeQueryReply, queryFailure, type CodeQueryRequest, type CodeQueryReply } from './ide/codeQuery';
 import { parseExecutionRequest } from './ide/executionProtocol';
 import { parseLocalRun } from './pulls/code-tests/contracts';
@@ -47,8 +47,8 @@ type Editor = {
   pending: Map<string, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>;
 };
 
-async function runtimeRequest(route: string, method: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
-  const response = await fetch(`${backendBase()}/agent/ide${route}`, {
+async function backendRequest(route: string, method: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
+  const response = await fetch(`${backendBase()}${route}`, {
     method, body: body === undefined ? undefined : JSON.stringify(body), headers: { 'X-ByteQuay-Session': sessionToken(), 'Content-Type': 'application/json' }, signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(65_000)]) : AbortSignal.timeout(65_000),
   });
   if (!response.ok) {
@@ -58,6 +58,10 @@ async function runtimeRequest(route: string, method: string, body?: unknown, sig
   }
   const text = await response.text();
   return text ? JSON.parse(text) : undefined;
+}
+
+function runtimeRequest(route: string, method: string, body?: unknown, signal?: AbortSignal): Promise<unknown> {
+  return backendRequest(`/agent/ide${route}`, method, body, signal);
 }
 
 function connectionFrom(value: unknown): IdeConnection {
@@ -196,6 +200,34 @@ export class IdeViews {
     ipcMain.handle('ide:request', (event, method: unknown, args: unknown, userGesture: boolean) => {
       const editor = child(event);
       validateIdeAction(method, args, editor.context, userGesture === true);
+      // A retained editor can refresh while its parent React surface is unmounted.
+      // These reads must not wait for that surface to relay a reply.
+      if (['listCodeFiles', 'readCodeFile', 'listCodeRuns', 'readCodeRunOutput', 'readWorktreeChanges'].includes(String(method))) {
+        const host = editor.host;
+        const route = host.kind === 'review' ? `/api/agent-review/${encodeURIComponent(host.reviewId)}/code` : `/agent/tasks/${encodeURIComponent(host.taskId)}/code`;
+        const params = new URLSearchParams(host.kind === 'task' ? { workspaceId: host.workspaceId } : {});
+        let endpoint: string;
+        let parse: (value: unknown) => unknown;
+        switch (method) {
+          case 'listCodeFiles': endpoint = '/files'; parse = parseReviewCodeFiles; break;
+          case 'readCodeFile':
+            endpoint = '/file'; parse = parseReviewCodeFile;
+            params.set('path', String(args[1]));
+            if (args[2] !== undefined) params.set('expectedRevision', String(args[2]));
+            break;
+          case 'listCodeRuns': endpoint = '/runs'; parse = parseLocalRuns; break;
+          case 'readCodeRunOutput':
+            endpoint = `/runs/${encodeURIComponent(String(args[1]))}/output`; parse = parseLocalRunOutput;
+            params.set('after', String(args[2]));
+            break;
+          default: {
+            endpoint = '/changes'; parse = parseWorktreeChanges;
+            const query = args[1] as Record<string, unknown>;
+            for (const key of ['scope', 'commit', 'base', 'head']) if (query[key] != null) params.set(key, String(query[key]));
+          }
+        }
+        return backendRequest(`${route}${endpoint}${params.size ? `?${params}` : ''}`, 'GET').then(parse);
+      }
       if (method === 'readCodeBlame') {
         const host = editor.host;
         const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}` : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;

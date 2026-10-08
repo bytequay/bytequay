@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import type { BrowserWindow, IpcMainInvokeEvent } from 'electron';
 import { IdeViews } from './ideViews';
-import type { LocalRunDto } from './pulls/code-tests/contracts';
+import type { LocalRunDto, WorktreeChangesDto } from './pulls/code-tests/contracts';
 import type { ExecutionRequest } from './ide/executionProtocol';
 
 const desktop = vi.hoisted(() => ({
@@ -142,6 +142,48 @@ it('binds encoded saves to the owning task and rejects escapes and malformed byt
   }
 });
 
+
+it.each([host, { kind: 'review', reviewId: 'review' }])('reads retained $kind editor data without a parent relay', async owner => {
+  const id = await invoke('ide:open', parent(), owner);
+  invoke('ide:update', parent(), id, { host: owner, task: null, review: null, detail: null });
+  invoke('ide:present', parent(), id, null);
+  const changes: WorktreeChangesDto = { branch: 'main', headSha: 'a'.repeat(40), baseSha: 'b'.repeat(40), baseLabel: 'base', scope: 'ALL',
+    commits: [], files: [], staged: [], unstaged: [], untracked: [], selectedCommit: null, sourceFingerprint: null, truncated: false };
+  const cases: { method: string; args: unknown[]; endpoint: string; params: Record<string, string>; body: Record<string, unknown> }[] = [
+    { method: 'listCodeFiles', args: [], endpoint: '/files', params: {}, body: { source: 'WORKING_COPY', revision: 'head', files: [] } },
+    { method: 'readCodeFile', args: ['src/測試.java', 'head'], endpoint: '/file', params: { path: 'src/測試.java', expectedRevision: 'head' }, body: { path: 'src/測試.java', content: 'class Test {}' } },
+    { method: 'listCodeRuns', args: [], endpoint: '/runs', params: {}, body: { runs: [] } },
+    { method: 'readCodeRunOutput', args: ['run', 12], endpoint: '/runs/run/output', params: { after: '12' }, body: { text: 'passed', nextOffset: 18, complete: true } },
+    { method: 'readWorktreeChanges', args: [{ scope: 'ALL', base: changes.baseSha, head: changes.headSha, ignored: 'no' }], endpoint: '/changes',
+      params: { scope: 'ALL', base: changes.baseSha, head: changes.headSha }, body: changes },
+  ];
+  for (const test of cases) {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(test.body)));
+    const value = await invoke('ide:request', child(), test.method, [owner, ...test.args], false);
+    expect(value).toEqual(test.method === 'listCodeRuns' ? [] : expect.objectContaining(test.body));
+    const [url, options] = fetchMock.mock.calls.at(-1) as [string, RequestInit];
+    const parsed = new URL(url);
+    expect(parsed.pathname).toBe((owner.kind === 'task' ? '/agent/tasks/task/code' : '/api/agent-review/review/code') + test.endpoint);
+    expect(Object.fromEntries(parsed.searchParams)).toEqual({ ...(owner.kind === 'task' ? { workspaceId: 'workspace' } : {}), ...test.params });
+    expect(options).toMatchObject({ method: 'GET', headers: { 'X-ByteQuay-Session': 'desktop-only-token' } });
+    expect(() => invoke('ide:request', child(), test.method, [{ kind: 'review', reviewId: 'other' }, ...test.args], false)).toThrow('different task');
+  }
+  expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
+  expect(await invoke('ide:open', parent(), owner)).toBe(id);
+  for (const base of [null, 'a'.repeat(41), 123]) {
+    expect(() => invoke('ide:request', child(), 'readWorktreeChanges', [owner, { scope: 'ALL', base }], false)).toThrow('Invalid history revision');
+  }
+});
+
+it('returns background read failures directly and allows the next refresh to recover', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  invoke('ide:update', parent(), id, { host, task: null, review: null, detail: null });
+  fetchMock.mockRejectedValueOnce(new Error('Working copy is unavailable'));
+  await expect(invoke('ide:request', child(), 'listCodeFiles', [host], false)).rejects.toThrow('Working copy is unavailable');
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ source: 'WORKING_COPY', revision: 'head', files: [] })));
+  await expect(invoke('ide:request', child(), 'listCodeFiles', [host], false)).resolves.toMatchObject({ files: [] });
+  expect(sender.send).not.toHaveBeenCalledWith('ide:request', expect.anything());
+});
 
 it('reads blame only for the current task and keeps backend credentials in main', async () => {
   const id = await invoke('ide:open', parent(), host);

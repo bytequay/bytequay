@@ -16,6 +16,7 @@ import RunPanel from '../pulls/code-tests/RunPanel';
 import { parseLocalRun, parseLocalRunOutput, codeHostKey, type LocalRunDto, type ReviewCodeFilesDto } from '../pulls/code-tests/contracts';
 import type { IdeContext } from './contracts';
 import type { IdeRuntime } from './runtime';
+import { pollVisible } from './pollVisible';
 
 type Mode = 'run' | 'debug';
 
@@ -32,6 +33,7 @@ export default function TestRuns({ context, files, runtime, mode }: {
   const [selected, setSelected] = useState<Record<Mode, string | null>>({ run: null, debug: null });
   const newest = useRef<Record<Mode, string | null>>({ run: null, debug: null });
   const [notice, setNotice] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const key = codeHostKey(context.host);
   const host = useMemo(() => context.host, [key]); // eslint-disable-line react-hooks/exhaustive-deps -- IPC context objects refresh; host identity is stable.
   useEffect(() => {
@@ -43,6 +45,7 @@ export default function TestRuns({ context, files, runtime, mode }: {
         if (live) {
           const next = value.map(parseLocalRun);
           setRuns(next);
+          setLoadError(null);
           for (const panel of ['run', 'debug'] as const) {
             const id = next.find(run => testRunPanel(run) === panel)?.id ?? null;
             if (id !== newest.current[panel]) {
@@ -51,10 +54,10 @@ export default function TestRuns({ context, files, runtime, mode }: {
             }
           }
         }
-      } catch (error) { if (live) setNotice(String(error)); }
+      } catch (error) { if (live) setLoadError(`Could not refresh run history: ${String(error)}`); }
     };
-    void load(); const timer = setInterval(() => { void load(); }, 1500);
-    return () => { live = false; clearInterval(timer); };
+    const stop = pollVisible(load, 1500);
+    return () => { live = false; stop(); };
   }, [host]);
   const output = useCallback(async (id: string, after: number) => parseLocalRunOutput(await window.ideWorkbench.request('readCodeRunOutput', host, id, after)), [host]);
   const showRunHint = files !== null && (context.review
@@ -68,7 +71,7 @@ export default function TestRuns({ context, files, runtime, mode }: {
     } catch (error) { setNotice(String(error)); }
   };
   return <div className="ide-test-runs" style={{ display: mode === null ? 'none' : undefined }}>
-    {notice && <div className="ide-notice" role="status">{notice}<button onClick={() => setNotice(null)}>Dismiss</button></div>}
+    {(notice || loadError) && <div className="ide-notice" role="status">{notice ?? loadError}<button onClick={() => { setNotice(null); setLoadError(null); }}>Dismiss</button></div>}
     {(['run', 'debug'] as const).map(panel => <div key={panel} className="ide-test-runs" aria-label={panel === 'run' ? 'Run tests' : 'Debug tests'}
       style={{ display: mode === panel ? undefined : 'none' }}>
       <RunPanel embedded runs={runs.filter(run => testRunPanel(run) === panel)} files={files} showRunHint={showRunHint} hostKind={host.kind}

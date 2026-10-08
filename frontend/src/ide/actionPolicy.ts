@@ -104,7 +104,9 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
         count(args, 2);
         const query = object(args[1]);
         if (!['ALL', 'COMMIT', 'COMMITTED', 'UNCOMMITTED'].includes(String(query.scope))) throw new Error('Invalid history scope');
-        for (const key of ['commit', 'base', 'head']) if (query[key] !== undefined && query[key] !== null && !/^[0-9a-f]{40,64}$/.test(String(query[key]))) throw new Error('Invalid history revision');
+        for (const key of ['commit', 'base', 'head']) {
+          if (query[key] !== undefined && (typeof query[key] !== 'string' || !/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(query[key]))) throw new Error('Invalid history revision');
+        }
         return;
       }
     }

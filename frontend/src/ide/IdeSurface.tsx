@@ -17,7 +17,7 @@ import LogoLoading from '../LogoLoading';
 import { useFindingActions } from '../pulls/agent-review/useFindingActions';
 import { PLACEHOLDER_REVIEW } from '../pulls/PullChanges';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
-import type { CodeHostRef, WorktreeChangesRequest } from '../pulls/code-tests/contracts';
+import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import type { CodeCommentsOptions } from '../pulls/code-tests/useCodeComments';
 import type { GitHubCodeSnippetRequest, AgentTaskDto, InlineReviewCommentDto, PullReactionContent, PullRequestDetailDto } from '../types';
 import type { IdeContext, IdeRequest } from './contracts';
@@ -86,11 +86,6 @@ async function handleRequest(props: IdeSurfaceProps, request: IdeRequest, findin
       return;
     }
     case 'stopCodeRun': return window.bridge.stopCodeRun(host, args[1] as string);
-    case 'listCodeFiles': return window.bridge.listCodeFiles(host);
-    case 'readCodeFile': return window.bridge.readCodeFile(host, args[1] as string, args[2] as string | undefined);
-    case 'listCodeRuns': return window.bridge.listCodeRuns(host);
-    case 'readCodeRunOutput': return window.bridge.readCodeRunOutput(host, args[1] as string, args[2] as number);
-    case 'readWorktreeChanges': return window.bridge.readWorktreeChanges(host, args[1] as WorktreeChangesRequest);
     case 'getAgentReview': return window.bridge.getAgentReview(review.id);
     case 'getAgentTask': return window.bridge.getAgentTask(args[0] as string, args[1] as string | undefined);
     case 'askAgentReview': return window.bridge.askAgentReview(review.id, args[1] as string, args[2] as number, args[3] as string);

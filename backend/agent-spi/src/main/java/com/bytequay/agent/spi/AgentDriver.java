@@ -73,6 +73,12 @@ public interface AgentDriver
      */
     AgentProviderStatus probe();
 
+    /** Reads account-wide limits without opening a task or making a model request. Callers should cache this result. */
+    default ProviderQuotaSnapshot quota()
+    {
+        return ProviderQuotaSnapshot.unavailable("This provider does not report account limits.");
+    }
+
     /** Checks readiness for a task's selected model when the provider can verify it. */
     default AgentProviderStatus probe(Optional<String> model)
     {

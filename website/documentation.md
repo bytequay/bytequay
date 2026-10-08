@@ -201,6 +201,23 @@ uncommitted edits.
 
 ## Work with coding agents
 
+### Check account usage
+
+Choose **Usage** at the bottom of the sidebar, then select Codex, a Claude
+account, or a saved API-key account. API keys appear with the provider and the
+alias you entered, such as **DeepSeek · ds-001**. Their usage limits are currently
+unavailable in ByteQuay; check the provider’s billing dashboard instead.
+Each reported limit uses one bar: gray is usage within the elapsed
+period's pace, green is room up to that pace, and red is usage beyond it. The
+reset countdown and “Room to use more” or “Slow down” label explain the comparison.
+These are pacing suggestions, not a guarantee of how many requests remain.
+
+Usage includes activity outside ByteQuay. The panel refreshes while open and
+caches checks for up to a minute. Missing or expired data has no pace colors.
+Claude usage requires Claude Code 2.1.293 or newer. Account plans expose different
+limits; Enterprise monthly amounts appear only when the provider reports them,
+and pace needs known period boundaries. Unavailable limits are not shown as zero.
+
 ### Connect a provider
 
 You only need the provider you want to use: Codex, Claude, or a supported saved

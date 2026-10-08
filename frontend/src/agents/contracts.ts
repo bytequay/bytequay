@@ -48,6 +48,8 @@ import type {
   ModelOptionDto,
   ModelProviderDto,
   ModelSettingsDto,
+  ProviderUsageDto,
+  UsageAccountDto,
   PullRequestTaskLink,
 } from '../types';
 
@@ -738,5 +740,49 @@ export function parseAgentCompletion(value: unknown, path = 'completion'): Agent
     summary: summary(source.summary, `${path}.summary`),
     completedAt: text(source.completedAt, `${path}.completedAt`),
     deleteAfter: text(source.deleteAfter, `${path}.deleteAfter`),
+  };
+}
+
+export function parseUsageAccounts(value: unknown): UsageAccountDto[] {
+  return list(value, 'usageAccounts').map(entry => {
+    const account = object(entry, 'usageAccount');
+    return { id: text(account.id, 'usageAccount.id'), label: text(account.label, 'usageAccount.label') };
+  });
+}
+
+export function parseProviderUsage(value: unknown): ProviderUsageDto {
+  const source = object(value, 'providerUsage');
+  const nonnegative = (value: unknown, path: string): number => {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) throw new Error(`${path} is invalid`);
+    return value;
+  };
+  const timestamp = (value: unknown, path: string): string | null => {
+    const result = optionalText(value, path);
+    if (result !== null && !Number.isFinite(Date.parse(result))) throw new Error(`${path} is invalid`);
+    return result;
+  };
+  const checkedAt = timestamp(source.checkedAt, 'providerUsage.checkedAt');
+  if (checkedAt === null) throw new Error('Missing usage timestamp');
+  return {
+    accountId: text(source.accountId, 'providerUsage.accountId'),
+    plan: optionalText(source.plan, 'providerUsage.plan'),
+    checkedAt,
+    message: optionalText(source.message, 'providerUsage.message'),
+    windows: list(source.windows, 'providerUsage.windows').map(entry => {
+      const window = object(entry, 'usageWindow');
+      const amount = window.amount == null ? null : object(window.amount, 'usageWindow.amount');
+      const money = amount === null ? null : {
+        used: nonnegative(amount.used, 'usageWindow.amount.used'),
+        total: nonnegative(amount.total, 'usageWindow.amount.total'),
+        currency: text(amount.currency, 'usageWindow.amount.currency'),
+      };
+      if (money !== null && (money.total === 0 || !/^[A-Z]{3}$/.test(money.currency))) throw new Error('Invalid quota amount');
+      return {
+        id: text(window.id, 'usageWindow.id'), label: text(window.label, 'usageWindow.label'),
+        usedPercent: nonnegative(window.usedPercent, 'usageWindow.usedPercent'),
+        startsAt: timestamp(window.startsAt, 'usageWindow.startsAt'),
+        resetsAt: timestamp(window.resetsAt, 'usageWindow.resetsAt'), amount: money,
+      };
+    }),
   };
 }

@@ -45,6 +45,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ProviderQuotaSnapshot;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.RunningTurn;
@@ -259,6 +260,32 @@ public final class ClaudeCliDriver
     public String label()
     {
         return label;
+    }
+
+    @Override
+    public ProviderQuotaSnapshot quota()
+    {
+        try {
+            ProviderCli.Result version = run(executable, "--version");
+            // get_usage and safe-mode are experimental; keep task support on the existing minimum.
+            if (version.exitCode() != 0 || version.truncated()
+                    || parseVersion(version.stdout()).filter(value -> value.compareTo(Version.parse("2.1.293")) >= 0).isEmpty()) {
+                return ProviderQuotaSnapshot.unavailable("Usage requires Claude Code 2.1.293 or newer.");
+            }
+            if (probeAuthentication().readiness() != AgentProviderStatus.Readiness.READY) {
+                return ProviderQuotaSnapshot.unavailable("Sign in to this Claude account in Settings to see usage.");
+            }
+            return ClaudeQuota.read(supervisor, processSpec(
+                    new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "claude-usage"),
+                    ImmutableList.of(executable, "--print", "--safe-mode", "--setting-sources=", "--settings", "{\"disableAllHooks\":true}",
+                            "--tools=", "--strict-mcp-config", "--mcp-config", "{\"mcpServers\":{}}", "--no-chrome", "--input-format=stream-json",
+                            "--output-format=stream-json", "--verbose", "--no-session-persistence"),
+                    claudeHome, Duration.ofSeconds(30), OptionalInt.empty(), MAX_DIAGNOSTIC_LINE_BYTES), objectMapper);
+        }
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new AgentUnavailableException("Claude usage query interrupted", failure);
+        }
     }
 
     @Override

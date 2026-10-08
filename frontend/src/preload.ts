@@ -332,6 +332,8 @@ const bridge: Bridge = {
   gitSquash: (workspaceId, branch, baseSha, tipSha, message) =>
     ipcRenderer.invoke('git:squash', workspaceId, branch, baseSha, tipSha, message),
 
+  getUsageAccounts: () => ipcRenderer.invoke('usage:accounts'),
+  getProviderUsage: accountId => ipcRenderer.invoke('usage:read', accountId),
   getModelSettings: workspaceId => ipcRenderer.invoke('settings:models', workspaceId),
   addClaudeAccount: (label, email) => ipcRenderer.invoke('settings:claude-accounts:add', label, email),
   removeClaudeAccount: laneId => ipcRenderer.invoke('settings:claude-accounts:remove', laneId),

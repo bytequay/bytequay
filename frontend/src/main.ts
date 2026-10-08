@@ -47,6 +47,8 @@ import {
   parseAgentTurnSettings,
   parseDevelopmentAutomation,
   parseModelSettings,
+  parseProviderUsage,
+  parseUsageAccounts,
 } from './agents/contracts';
 import { parseDiscussionReplyDraft, parseTaskDiscussion, parseTaskDiscussions, type AskCommentDiscussionRequest, type AskDiscussionRequest, type DiscussionQuery, type DraftDiscussionReplyRequest, type OpenDiscussionRequest, type ResolveDiscussionRequest, type RetryDiscussionRequest } from './agents/discussions/contracts';
 import { parseLocalReviewThread, parseLocalReviewThreads, type CreateDevelopmentLearningCommentRequest, type CreateLocalReviewRequest, type LocalReviewQuery, type ReplyLocalReviewRequest, type ResolveLocalReviewRequest, type RetryLocalReviewRequest } from './pulls/local-review/contracts';
@@ -1314,6 +1316,13 @@ function registerIpc(): void {
   ipcMain.handle('pat:delete', async () => {
     await backendVoid(`${backendBase()}/api/auth/github/token`, { method: 'DELETE' });
     githubAccountChanged();
+  });
+
+  ipcMain.handle('usage:accounts', () =>
+    backendJson(`${backendBase()}/agent/usage`, { headers: agentHeaders() }).then(parseUsageAccounts));
+  ipcMain.handle('usage:read', (_event, accountId: string) => {
+    if (typeof accountId !== 'string' || !/^(codex|claude|(?:claude-account|api-key)-[a-z0-9-]+)$/.test(accountId)) throw new Error('Invalid usage account');
+    return backendJson(`${backendBase()}/agent/usage/${encodeURIComponent(accountId)}`, { headers: agentHeaders() }).then(parseProviderUsage);
   });
 
   ipcMain.handle('settings:models', (_event, workspaceId?: string) =>

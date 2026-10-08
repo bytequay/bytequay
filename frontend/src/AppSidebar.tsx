@@ -19,6 +19,7 @@ import {
   Pin, Sparkles, Sun, Tags, TriangleAlert, Users,
 } from 'lucide-react';
 import Avatar from './Avatar';
+import UsageMeter from './usage/UsageMeter';
 import JiraIcon from './jira/JiraIcon';
 import RepoAvatar from './RepoAvatar';
 import type { PullRequestDto, WorkspaceDto } from './types';
@@ -356,6 +357,7 @@ export default function AppSidebar({
       </>}
       {settingsBody === null && <div className="app-sidebar__spacer" />}
       <nav className="app-sidebar__nav app-sidebar__nav--bottom" aria-label="Application settings">
+        <UsageMeter />
         <button type="button" className={`app-sidebar__item${browserRailVisible ? ' is-active' : ''}`}
           aria-label="Web pages" aria-pressed={browserRailVisible} aria-controls="browser-rail"
           title={browserRailVisible ? 'Hide web pages column' : 'Show web pages column'} onClick={onToggleBrowserRail}>

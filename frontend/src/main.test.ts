@@ -18,7 +18,7 @@ import { parseAgentReview } from './pulls/agent-review/contracts';
 import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
 import type { ReviewCodeFileDto } from './pulls/code-tests/contracts';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from './repository-context/contracts';
-import type { AgentRuntimeStopImpactDto } from './types';
+import type { AgentRuntimeStopImpactDto, ProviderUsageDto } from './types';
 import type { TeamActivitySnapshot, TeamDirectory } from './teams/types';
 import type { JiraIssuePage } from './jira/contracts';
 import { MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
@@ -582,4 +582,20 @@ it.each([false, true])('allows a Jira collection refresh beyond one minute (comp
 
   expect(await result).toEqual({ value: page });
   expect(fetch).toHaveBeenCalledTimes(1);
+});
+
+it('reads API-key usage by stable ID while retaining the alias and desktop authentication', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const accountId = 'api-key-11111111-1111-4111-8111-111111111111';
+  const account = { id: accountId, label: 'DeepSeek · ds-001' };
+  const usage: ProviderUsageDto = { accountId, plan: null, checkedAt: '2026-01-01T00:00:00Z', windows: [], message: 'Usage limits aren’t available for this API-key account.' };
+  const fetch = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify([account]))).mockResolvedValueOnce(new Response(JSON.stringify(usage)));
+  vi.stubGlobal('fetch', fetch);
+  await expect(desktop.handlers.get('usage:accounts')?.({})).resolves.toEqual([account]);
+  await expect(desktop.handlers.get('usage:read')?.({}, accountId)).resolves.toMatchObject(usage);
+  expect(fetch).toHaveBeenLastCalledWith(`http://127.0.0.1:9527/agent/usage/${accountId}`,
+    expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(() => desktop.handlers.get('usage:read')?.({}, 'api-key-../codex')).toThrow('Invalid usage account');
+  expect(fetch).toHaveBeenCalledTimes(2);
 });

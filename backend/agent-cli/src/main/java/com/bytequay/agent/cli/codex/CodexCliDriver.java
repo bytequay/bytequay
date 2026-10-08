@@ -48,6 +48,7 @@ import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderModel;
+import com.bytequay.agent.spi.ProviderQuotaSnapshot;
 import com.bytequay.agent.spi.ProviderServiceTier;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
@@ -523,6 +524,16 @@ public final class CodexCliDriver
                     ? AgentProviderStatus.Readiness.CLI_MISSING
                     : AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
             return statusWithDetectedVersion(readiness, "is not available: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public ProviderQuotaSnapshot quota()
+    {
+        requireAvailable();
+        try (CodexAppServerClient client = appServerClient("codex-usage", codexHome, CodexLaunchProfile.ChildProfile.NONE)) {
+            client.start();
+            return CodexQuota.parse(client.request("account/rateLimits/read", new CodexProtocol.EmptyParams(), JsonNode.class, REQUEST_TIMEOUT));
         }
     }
 

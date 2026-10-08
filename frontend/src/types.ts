@@ -1214,6 +1214,25 @@ export type ModelApiKeyDto = {
   selectedModel: string;
 };
 
+export type UsageAccountDto = { id: string; label: string };
+
+export type ProviderUsageWindowDto = {
+  id: string;
+  label: string;
+  usedPercent: number;
+  startsAt: string | null;
+  resetsAt: string | null;
+  amount: { used: number; total: number; currency: string } | null;
+};
+
+export type ProviderUsageDto = {
+  accountId: string;
+  plan: string | null;
+  windows: ProviderUsageWindowDto[];
+  checkedAt: string;
+  message: string | null;
+};
+
 export type ModelSettingsDto = {
   checkedAt?: string | null;
   agents: AgentModelSettingDto[];
@@ -1674,6 +1693,8 @@ export type Bridge = WorkItemBridge & JiraBridge & {
     message: string,
   ) => Promise<{ sha: string }>;
 
+  getUsageAccounts: () => Promise<UsageAccountDto[]>;
+  getProviderUsage: (accountId: string) => Promise<ProviderUsageDto>;
   getModelSettings: (workspaceId?: string) => Promise<ModelSettingsDto>;
   refreshModelSettings: (force?: boolean) => Promise<ModelSettingsDto>;
   setAgentModel: (

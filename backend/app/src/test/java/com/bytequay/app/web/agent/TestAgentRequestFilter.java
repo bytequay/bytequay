@@ -36,6 +36,8 @@ class TestAgentRequestFilter
     @ParameterizedTest
     @ValueSource(strings = {
             "/agent/tasks",
+            "/agent/usage",
+            "/agent/usage/codex",
             "/api/jira/connections",
             "/api/teams",
             "/api/teams/circle/members/123",

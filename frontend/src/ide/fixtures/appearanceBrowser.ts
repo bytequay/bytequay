@@ -36,6 +36,7 @@ import { assert } from '../../fixtures/harness';
 import { verifyFileAppearance } from './fileAppearance';
 import { verifyUsages } from './usagesBrowser';
 import { verifySearch } from './searchBrowser';
+import { verifyReviewComments } from './reviewCommentsBrowser';
 
 export async function run() {
   window.MonacoEnvironment = { getWorker: (_id, label) => label === 'TextMateWorker' ? new TextmateWorker() : new EditorWorker() };
@@ -123,5 +124,6 @@ public class Example {
   await verifyFileAppearance();
   await verifyUsages();
   await verifySearch();
+  await verifyReviewComments();
   return results;
 }

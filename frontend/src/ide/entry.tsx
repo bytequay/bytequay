@@ -25,11 +25,11 @@ import { installSemanticQueries } from './semanticQueries';
 import { startRuntime, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
 import { restoreSourceDrafts, discardSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
-import RunHistory from './RunHistory';
+import TestRuns, { testRunPanel } from './TestRuns';
 import TerminalView from '../pulls/code-tests/TerminalView';
 import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
-import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Ellipsis, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
+import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Ellipsis, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import EditorNavigation from './EditorNavigation';
 import Usages from './Usages';
@@ -102,7 +102,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [error, setError] = useState<string | null>(null);
   const [execution, setExecution] = useState(runtime.executions.run);
   const [executionError, setExecutionError] = useState(runtime.executions.error);
-  const [bottom, setBottom] = useState<'tests' | 'runs' | 'debug' | 'output' | 'terminal' | 'history'>('tests');
+  const [bottom, setBottom] = useState<'run' | 'debug' | 'terminal' | 'history'>('run');
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const column = useResizablePane(285, 180, 650);
   const panel = useResizablePane(270, 100, 900, 'start', 'y');
@@ -118,7 +118,13 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   };
 
   useEffect(() => {
-    const listener = runtime.executions.onChange(state => { setExecution(state.run); setExecutionError(state.error); });
+    let previous = runtime.executions.run?.id;
+    const listener = runtime.executions.onChange(state => {
+      setExecution(state.run); setExecutionError(state.error);
+      const panel = state.run && testRunPanel(state.run);
+      if (panel && state.run?.id !== previous) { setBottom(panel); setPanelCollapsed(false); }
+      previous = state.run?.id;
+    });
     return () => listener.dispose();
   }, [runtime]);
 
@@ -149,9 +155,11 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     document.addEventListener('input', report);
     const timer = setInterval(report, 5_000);
     const showPanel = (id: string | undefined) => {
-      if (id === 'terminal') setBottom('output');
-      else if (id?.includes('debug') || id === 'workbench.panel.repl') setBottom('debug');
-      else if (id?.toLowerCase().includes('test')) setBottom('tests');
+      // Native test and debugger views must not replace the selected result or expose launch configuration.
+      if (id?.includes('debug') || id === 'workbench.panel.repl' || id?.toLowerCase().includes('test')) {
+        const run = runtime.executions.run;
+        setBottom((run && testRunPanel(run)) || (id?.toLowerCase().includes('test') ? 'run' : 'debug'));
+      }
       else if (id?.includes('scm')) setBottom('history');
       else return;
       setPanelCollapsed(false);
@@ -211,9 +219,6 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const selectBottom = async (value: typeof bottom) => {
     setBottom(value);
     setPanelCollapsed(false);
-    if (value === 'tests') command('workbench.view.testing.focus');
-    if (value === 'debug') command('workbench.view.debug');
-    if (value === 'output') command('workbench.action.terminal.focus');
     if (value === 'history') {
       try { setHistory(null); await gitHistory?.focus(); }
       catch (cause) { setError(String(cause)); }
@@ -268,7 +273,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
         }} />}
       <section className="ide-editor" aria-label="Source code"><Part part={Parts.EDITOR_PART} />{comments.unplaced}</section>
     </div>
-    {active && <ReviewZones runtime={runtime} uri={active.document.uri.toString()} cards={comments.cards} renderCard={comments.renderCard} />}
+    {active && <ReviewZones runtime={runtime} uri={active.document.uri.toString()} cards={comments.cards} renderCard={comments.renderCard}
+      onComment={comments.onComment} commentRange={comments.commentRange} />}
     <Usages editors={runtime.editors} workspace={runtime.workspace} />
     {!panelCollapsed && <div className={`ide-panel-resize${panel.resizing ? ' is-resizing' : ''}`} role="separator" tabIndex={0} aria-orientation="horizontal"
       aria-label="Resize the tools panel" aria-valuenow={panel.width} aria-valuemin={100} aria-valuemax={900}
@@ -278,22 +284,16 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       }} />}
     <footer className={`ide-bottom${panelCollapsed ? ' is-collapsed' : ''}`} style={{ height: panelCollapsed ? 'auto' : panel.width }}>
       <nav className="ide-toolbar" aria-label="Code tools">
-        <button aria-pressed={!panelCollapsed && bottom === 'tests'} onClick={() => { void selectBottom('tests'); }}><Play size={13} /> Tests</button>
-        <button aria-pressed={!panelCollapsed && bottom === 'runs'} onClick={() => { void selectBottom('runs'); }}>Run history</button>
+        <button aria-pressed={!panelCollapsed && bottom === 'run'} onClick={() => { void selectBottom('run'); }}><Play size={13} /> Run</button>
         <button aria-pressed={!panelCollapsed && bottom === 'debug'} onClick={() => { void selectBottom('debug'); }}><Bug size={14} /> Debug</button>
         <button aria-pressed={!panelCollapsed && bottom === 'terminal'} onClick={() => { void selectBottom('terminal'); }}><TerminalSquare size={14} /> Terminal</button>
-        <button aria-pressed={bottom === 'output'} onClick={() => { void selectBottom('output'); }}>Execution output</button>
         <button aria-pressed={!panelCollapsed && bottom === 'history'} onClick={() => { void selectBottom('history'); }}><GitCommitHorizontal size={14} /> Git history</button>
         <span className="ide-spacer" />
-        <button onClick={() => { void selectBottom('tests'); command('testing.runCurrentFile'); }}>Run file tests</button>
-        <button onClick={() => { void selectBottom('debug'); command('testing.debugCurrentFile'); }}>Debug file tests</button>
-        <button onClick={() => { void selectBottom('debug'); command('workbench.action.debug.start'); }}>Debug configuration</button>
-        <button disabled={!execution} onClick={() => { void runtime.executions.stop().catch(cause => setError(String(cause))); }}><Square size={12} /> Stop execution</button>
         <button aria-label={panelCollapsed ? 'Expand tools panel' : 'Collapse tools panel'} title={panelCollapsed ? 'Expand tools panel' : 'Collapse tools panel'}
           aria-expanded={!panelCollapsed} onClick={() => setPanelCollapsed(value => !value)}>{panelCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
       </nav>
-      <div className="ide-tools" style={{ display: (bottom === 'history' && history) || bottom === 'runs' || bottom === 'terminal' ? 'none' : undefined }}><Part part={Parts.PANEL_PART} /></div>
-      {bottom === 'runs' && <RunHistory context={context} files={files} runtime={runtime} onTests={() => { void selectBottom('tests'); }} />}
+      <div className="ide-tools" style={{ display: bottom === 'history' && !history ? undefined : 'none' }}><Part part={Parts.PANEL_PART} /></div>
+      <TestRuns key={codeHostKey(context.host)} context={context} files={files} runtime={runtime} mode={bottom === 'run' || bottom === 'debug' ? bottom : null} />
       {bottom === 'terminal' && <TerminalView host={context.host} bridge={window.ideWorkbench.terminal} clearRequest={0} />}
       {bottom === 'history' && <nav className="ide-toolbar" aria-label="History scope">
         <button onClick={() => { setHistory(null); void gitHistory?.focus().catch(cause => setError(String(cause))); }}>Repository history</button>

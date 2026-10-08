@@ -18,8 +18,11 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-spacer { flex: 1; }
 .ide-notice { display: flex; gap: 10px; justify-content: space-between; padding: 7px 12px; background: #fff1d8; color: #704100; }
 .ide-loading { padding: 24px; font: 13px -apple-system, sans-serif; }
-.ide-review-zone { box-sizing: border-box; padding: 6px 28px 6px 0; background: var(--vscode-editor-background); }
-.ide-review-zone > div { width: 100%; font: 12px -apple-system, BlinkMacSystemFont, sans-serif; color: var(--vscode-editor-foreground); }
+.ide-review-zone { box-sizing: border-box; max-width: 800px; }
+.ide-add-comment.pull-diff-code__add-comment { transform: none; opacity: 1; pointer-events: auto; }
+.ide-commentable .line-numbers { cursor: pointer; }
+.ide-commentable .line-numbers:hover { color: var(--vscode-textLink-foreground); }
+.ide-comment-selection { background: var(--vscode-editor-inactiveSelectionBackground); }
 .ide-history { display: grid; grid-template-columns: minmax(240px, 35%) 1fr; flex: 1; min-height: 0; }
 .ide-history > div { overflow: auto; padding: 8px; }
 .ide-history button { display: block; width: 100%; border: 0; padding: 6px; text-align: left; color: inherit; background: transparent; }
@@ -54,10 +57,6 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 
 .ide-workbench { --text-1: var(--ide-fg); --bg-card: var(--ide-bg); --bg-input: var(--ide-bg); --border: var(--ide-edge); --border-input: var(--ide-edge); --border-strong: var(--ide-edge); }
 .ide-workbench.is-dark { --text-2: #aaa; --text-3: #999; --text-4: #888; --accent: #6da5d9; --bg-elevated: #3c3f41; --bg-base: #2b2b2b; --bg: #2b2b2b; --bg-elev: #3c3f41; }
-.ide-workbench.is-dark .lrc { --lrc-bar: #354541; --lrc-ink: #c5d9d3; --lrc-icon: #86b4a7; --lrc-rule: #4d615b; --lrc-hover: #425b53; --lrc-chip: #a6d4c7; --lrc-chip-border: #5c8477; background: #303634; border-color: #4d615b; }
-.ide-workbench.is-dark .lrc__chip { background: transparent; }
-.ide-workbench.is-dark .lrc-message, .ide-workbench.is-dark .lrc__foot { background: #303634; color: #c5d9d3; }
-.ide-workbench.is-dark .lrc :is(textarea, input, .md-editor) { background: #2b2b2b; color: #c5d9d3; border-color: #4d615b; }
 
 .ide-toolbar { flex-wrap: wrap; }
 .ide-toolbar button[aria-pressed='true'] { border-color: var(--ide-edge); background: var(--ide-bg); }
@@ -83,7 +82,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 
 .ide-preview-accessible { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: pre; }
 
-.ide-run-history { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.ide-test-runs { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 .ide-bottom > .ct-terminal { flex: 1; min-height: 0; }
 
 .ide-workbench.is-dark :is(.ct-run, .ct-run__body, .ct-run__tree, .ct-run__log, .ct-run__details, .ct-run__row, .ct-history, .ct-run__note) { background: var(--ide-bg); color: var(--ide-fg); border-color: var(--ide-edge); }

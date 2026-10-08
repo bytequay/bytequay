@@ -19,6 +19,9 @@ import type { LocalRunDto } from '../contracts';
 import { useCodeComments, type CodeCommentsOptions } from '../useCodeComments';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
 import type { PullRequestDto } from '../../../types';
+import TestRuns from '../../../ide/TestRuns';
+import type { IdeContext } from '../../../ide/contracts';
+import type { IdeRuntime } from '../../../ide/runtime';
 const pr = { repo: 'owner/repo', number: 1, headRef: 'feature' } as PullRequestDto;
 
 export async function runArchivedCodeScenarios(): Promise<{ name: string; error?: string }[]> {
@@ -65,7 +68,7 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
         : { text: 'live output', nextOffset: 2_000_000, skippedBytes: 1_999_989, complete: false };
     };
     const render = () => flushSync(() => root.render(<RunPanel runs={[finished ? { ...run, status: 'FAILED_ASSERTION' } : run]} files={null}
-      gate={{ hidden: false, blocked: null }} terminal={null} hostKind="task" onStop={() => {}} onBrowseTests={() => {}}
+      gate={{ hidden: false, blocked: null }} terminal={null} hostKind="task" onStop={() => {}}
       readOutput={readOutput} selectedRunId={run.id} onSelectRun={() => {}} />));
     render(); await settle();
     assert(requested.join(',') === '0', 'The active run must request live output');
@@ -73,6 +76,54 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
     assert(requested.length === 2 && requested[1] === 0, 'Completion must reread the compacted final output instead of losing its tail at the live offset');
     results.push({ name: 'Run history reloads final evidence after live output compaction' });
   } catch (error) { results.push({ name: 'Run history final output', error: String(error) }); }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  const originalWorkbench = window.ideWorkbench;
+  try {
+    const run = (id: string, ordinal: number, debug = false): LocalRunDto => ({ id, ordinal, initiator: 'USER', scope: 'TESTS',
+      path: 'main_test.go', testClass: null, testMethod: null, module: null, command: debug ? 'Debug tests' : 'Run tests',
+      sourceHeadSha: 'abc', localPaths: [], sourceFingerprint: 'fingerprint', status: 'PASSED', startedAt: '2026-01-01T00:00:00Z',
+      endedAt: '2026-01-01T00:00:01Z', exitCode: 0, tests: 1, failures: 0, errors: 0, skipped: 0, outputTruncated: false,
+      omittedBytes: null, treeUnverified: false, results: [{ className: id, durationMs: 10,
+        methods: [{ name: `${id}Test`, status: 'PASSED', durationMs: 10, message: null, trace: null }] }] });
+    let runs = [run('debug-new', 4, true), run('run-new', 3), run('debug-old', 2, true), run('run-old', 1)];
+    runs.unshift({ ...run('configuration', 5), scope: 'DEBUG', command: 'Launch configuration' });
+    const outputs: string[] = [];
+    window.ideWorkbench = { request: async (method: string, ...args: unknown[]) => {
+      if (method === 'listCodeRuns') return runs;
+      if (method === 'readCodeRunOutput') {
+        outputs.push(String(args[1]));
+        return { text: `Output for ${args[1]}`, nextOffset: 10, skippedBytes: 0, complete: true };
+      }
+      throw new Error(`Unexpected request: ${method}`);
+    } } as typeof window.ideWorkbench;
+    const context = { host: { kind: 'task', taskId: 'task' }, review: null, task: null } as IdeContext;
+    const runtime = { executions: { run: null } } as IdeRuntime;
+    const render = (mode: 'run' | 'debug' | null) => flushSync(() => root.render(<TestRuns context={context} files={null} runtime={runtime} mode={mode} />));
+    const panel = (mode: 'Run' | 'Debug') => {
+      const element = host.querySelector<HTMLElement>(`[aria-label="${mode} tests"]`);
+      assert(element !== null, `${mode} must have a result panel`); return element;
+    };
+    const selected = (mode: 'Run' | 'Debug') => panel(mode).querySelector('[role="tab"][aria-selected="true"]')?.textContent;
+    render('run'); await settle(); await settle();
+    assert(selected('Run')?.includes('#3') && selected('Debug')?.includes('#4'), 'Each panel selects its latest matching execution');
+    assert(panel('Run').querySelector('[role="treeitem"]')?.textContent?.includes('run-newTest'), 'Passing tests are visible by default');
+    assert(!host.querySelector('.ct-run__mode') && !host.textContent?.includes('Launch configuration'), 'Embedded results have no nested Run label or launch configuration');
+    const history = (mode: 'Run' | 'Debug') => {
+      const button = panel(mode).querySelector<HTMLButtonElement>('.ct-run__history');
+      assert(button !== null, 'History button must remain available'); flushSync(() => button.click());
+    };
+    history('Run'); await settle();
+    assert(panel('Run').querySelectorAll('.ct-history__row').length === 1 && !panel('Run').querySelector('.ct-history')?.textContent?.includes('Debug tests'), 'Run history excludes debug executions');
+    panel('Run').querySelector<HTMLButtonElement>('.ct-history__row')?.click(); await settle();
+    render('debug'); await settle();
+    assert(getComputedStyle(panel('Run')).display === 'none' && getComputedStyle(panel('Debug')).display !== 'none', 'Debug shows only its own results');
+    history('Debug'); await settle(); panel('Debug').querySelector<HTMLButtonElement>('.ct-history__row')?.click(); await settle();
+    render(null); render('run'); await new Promise(resolve => setTimeout(resolve, 1600));
+    assert(selected('Run')?.includes('#1') && selected('Debug')?.includes('#2'), 'Switching panels and refreshing history preserves both selections');
+    assert(outputs.includes('run-old') && outputs.includes('debug-old'), 'Selecting either history reads its retained log');
+    runs = [run('run-latest', 6), ...runs]; await new Promise(resolve => setTimeout(resolve, 1600));
+    assert(selected('Run')?.includes('#6') && selected('Debug')?.includes('#2'), 'A new run selects its result without changing the Debug selection');
+    results.push({ name: 'Run and Debug retain separate test results, logs and history selections' });
+  } catch (error) { results.push({ name: 'Run and Debug result panels', error: String(error) }); }
+  finally { flushSync(() => root.unmount()); host.remove(); window.ideWorkbench = originalWorkbench; }
   return results;
 }

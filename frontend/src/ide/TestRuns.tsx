@@ -18,12 +18,20 @@ import { runGate, taskRunGate } from '../pulls/code-tests/runModel';
 import type { IdeContext } from './contracts';
 import type { IdeRuntime } from './runtime';
 
-export default function RunHistory({ context, files, runtime, onTests }: {
-  context: IdeContext; files: ReviewCodeFilesDto | null; runtime: IdeRuntime; onTests: () => void;
+type Mode = 'run' | 'debug';
+
+export function testRunPanel(run: LocalRunDto): Mode | null {
+  // Test debug profiles are recorded by the test controller, including their debugger's output.
+  if (run.scope === 'TESTS' && run.command === 'Debug tests') return 'debug';
+  return run.scope === 'DEBUG' ? null : 'run';
+}
+
+export default function TestRuns({ context, files, runtime, mode }: {
+  context: IdeContext; files: ReviewCodeFilesDto | null; runtime: IdeRuntime; mode: Mode | null;
 }) {
   const [runs, setRuns] = useState<LocalRunDto[]>([]);
-  const [selected, setSelected] = useState<string | null>(null);
-  const selectedOnce = useRef(false);
+  const [selected, setSelected] = useState<Record<Mode, string | null>>({ run: null, debug: null });
+  const newest = useRef<Record<Mode, string | null>>({ run: null, debug: null });
   const [notice, setNotice] = useState<string | null>(null);
   const key = codeHostKey(context.host);
   const host = useMemo(() => context.host, [key]); // eslint-disable-line react-hooks/exhaustive-deps -- IPC context objects refresh; host identity is stable.
@@ -33,7 +41,17 @@ export default function RunHistory({ context, files, runtime, onTests }: {
       try {
         const value = await window.ideWorkbench.request('listCodeRuns', host);
         if (!Array.isArray(value)) throw new Error('Invalid run history');
-        if (live) { const next = value.map(parseLocalRun); setRuns(next); if (!selectedOnce.current) { selectedOnce.current = true; setSelected(next[0]?.id ?? null); } }
+        if (live) {
+          const next = value.map(parseLocalRun);
+          setRuns(next);
+          for (const panel of ['run', 'debug'] as const) {
+            const id = next.find(run => testRunPanel(run) === panel)?.id ?? null;
+            if (id !== newest.current[panel]) {
+              newest.current[panel] = id;
+              setSelected(current => ({ ...current, [panel]: id }));
+            }
+          }
+        }
       } catch (error) { if (live) setNotice(String(error)); }
     };
     void load(); const timer = setInterval(() => { void load(); }, 1500);
@@ -48,12 +66,15 @@ export default function RunHistory({ context, files, runtime, onTests }: {
       else await window.ideWorkbench.request('stopCodeRun', host, run.id);
     } catch (error) { setNotice(String(error)); }
   };
-  return <div className="ide-run-history">
+  return <div className="ide-test-runs" style={{ display: mode === null ? 'none' : undefined }}>
     {notice && <div className="ide-notice" role="status">{notice}<button onClick={() => setNotice(null)}>Dismiss</button></div>}
-    <RunPanel embedded runs={runs} files={files} gate={gate} terminal={null} hostKind={host.kind}
-      onStop={run => { void stop(run); }} onBrowseTests={onTests} readOutput={output} selectedRunId={selected} onSelectRun={setSelected}
-      onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
-        void window.ideWorkbench.request('run.ask', run.id, text).then(() => setNotice('Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));
-      } : undefined} />
+    {(['run', 'debug'] as const).map(panel => <div key={panel} className="ide-test-runs" aria-label={panel === 'run' ? 'Run tests' : 'Debug tests'}
+      style={{ display: mode === panel ? undefined : 'none' }}>
+      <RunPanel embedded runs={runs.filter(run => testRunPanel(run) === panel)} files={files} gate={gate} terminal={null} hostKind={host.kind}
+        onStop={run => { void stop(run); }} readOutput={output} selectedRunId={selected[panel]} onSelectRun={id => setSelected(current => ({ ...current, [panel]: id }))}
+        onAskAgent={(context.review ?? context.task)?.state === 'OPEN' ? (run, text) => {
+          void window.ideWorkbench.request('run.ask', run.id, text).then(() => setNotice('Added to the agent draft. Open the conversation to review and send.'), error => setNotice(String(error)));
+        } : undefined} />
+    </div>)}
   </div>;
 }

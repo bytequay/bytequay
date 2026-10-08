@@ -111,7 +111,6 @@ export default function RunPanel({
   terminal: terminalTarget,
   hostKind,
   onStop,
-  onBrowseTests,
   readOutput,
   selectedRunId,
   onSelectRun,
@@ -128,7 +127,6 @@ export default function RunPanel({
   embedded?: boolean;
   onAskAgent?: (run: LocalRunDto, text: string) => void;
   onStop: (run: LocalRunDto) => void;
-  onBrowseTests: () => void;
   readOutput: (runId: string, after: number) => Promise<LocalRunOutputDto>;
   selectedRunId: string | null;
   onSelectRun: (runId: string | null) => void;
@@ -147,8 +145,7 @@ export default function RunPanel({
   const [tabIds, setTabIds] = useState<readonly string[]>(() => selectedRunId === null ? [] : [selectedRunId]);
   // Which edge of its button the history list lines up with, so it opens toward the free side of the window.
   const [historyOpen, setHistoryOpen] = useState<'left' | 'right' | null>(null);
-  // Failures are what a run is opened for, so the tree starts with only them.
-  const [failedOnly, setFailedOnly] = useState(true);
+  const [failedOnly, setFailedOnly] = useState(false);
   const [outputs, setOutputs] = useState<ReadonlyMap<string, OutputState>>(new Map());
   const [now, setNow] = useState(() => Date.now());
   const outputsRef = useRef(outputs);
@@ -297,7 +294,7 @@ export default function RunPanel({
           {open ? <ChevronDown size={13} strokeWidth={1.8} aria-hidden="true" /> : <ChevronRight size={13} strokeWidth={1.8} aria-hidden="true" />}
         </button>}
         {terminalTarget === null ? (
-          <span className="ct-run__mode is-run"><Play size={12} strokeWidth={1.8} aria-hidden="true" /> Run</span>
+          !embedded && <span className="ct-run__mode is-run"><Play size={12} strokeWidth={1.8} aria-hidden="true" /> Run</span>
         ) : (
           <div className="ct-run__modes" role="group" aria-label="Panel">
             <button type="button" className={`ct-run__mode is-run${terminal === null ? ' is-selected' : ''}`} aria-pressed={terminal === null}
@@ -366,7 +363,7 @@ export default function RunPanel({
                 {hostKind === 'review' ? 'Runs you start and runs the review agent starts share this history.' : 'Runs you start here share this history.'}
                 {' '}Each keeps its initiator, scope, the source version that ran, status, timing, output and exit status.
               </p>
-              <button type="button" className="ct-text-button" onClick={onBrowseTests}>Browse tests</button>
+              {!gate.hidden && <p>Use the play button beside a test in the editor to run or debug it.</p>}
             </div>
           ) : (
             <>

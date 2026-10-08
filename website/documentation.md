@@ -161,6 +161,11 @@ An existing development task's working copy remains available directly. Before
 starting a review, **Summary → Remove worktree** releases a clean exploration
 checkout; saved edits must be discarded first.
 
+Use the play button beside a test in the editor to run or debug it. **Run** and
+**Debug** show their last selected or newly started tests with the output log.
+Each panel keeps its own **history** picker for earlier results. Debugging tests
+uses the supported test runner without a separate launch configuration.
+
 <a id="private-review"></a>
 
 ## Ask for a private agent review

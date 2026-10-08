@@ -17,20 +17,25 @@ import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentProviderStatus;
+import com.bytequay.agent.spi.ProviderQuotaSnapshot;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -153,6 +158,79 @@ class TestDeepSeekAgentDriver
         AgentProviderStatus missingCodex = harness.driver().probe();
         assertThat(missingCodex.readiness()).isEqualTo(AgentProviderStatus.Readiness.CLI_MISSING);
         verifyNoInteractions(harness.client());
+    }
+
+    @Test
+    void readsAccountBalanceWithoutUsingCodexOrSubscriptionLimits()
+            throws Exception
+    {
+        Harness harness = harness(200, """
+                {"is_available":true,"balance_infos":[
+                  {"currency":"USD","total_balance":"12.3456","granted_balance":"2.00","topped_up_balance":"10.3456"},
+                  {"currency":"CNY","total_balance":"0.00","granted_balance":"0.00","topped_up_balance":"0.00"}]}
+                """, () -> Optional.of(SECRET));
+        ProviderQuotaSnapshot quota = harness.driver().quota();
+        assertThat(quota.windows()).isEmpty();
+        assertThat(quota.plan()).isEmpty();
+        assertThat(quota.message()).contains("Available balance: USD 12.3456, CNY 0.00.");
+        ArgumentCaptor<HttpRequest> request = ArgumentCaptor.forClass(HttpRequest.class);
+        verify(harness.client()).send(request.capture(), any());
+        assertThat(request.getValue().uri()).isEqualTo(URI.create("https://deepseek.test/user/balance"));
+        assertThat(request.getValue().method()).isEqualTo("GET");
+        assertThat(request.getValue().timeout()).contains(Duration.ofSeconds(6));
+        assertThat(request.getValue().headers().firstValue("Authorization")).contains("Bearer " + SECRET);
+        verifyNoInteractions(harness.codex());
+    }
+
+    @Test
+    void showsInsufficientBalanceIncludingNegativeCredit()
+    {
+        Harness harness = harness(200, """
+                {"is_available":false,"balance_infos":[{"currency":"USD","total_balance":"-0.01"}]}
+                """, () -> Optional.of(SECRET));
+        assertThat(harness.driver().quota().message().orElseThrow()).contains("USD -0.01", "Insufficient balance");
+    }
+
+    @Test
+    void rejectsInvalidBalanceResponsesWithoutEchoingDiagnostics()
+    {
+        for (String body : new String[] {"not json " + SECRET, "null", "{}", "{\"is_available\":true,\"balance_infos\":[]}",
+                "{\"is_available\":true,\"balance_infos\":[{\"currency\":\"USD\",\"total_balance\":\"" + SECRET + "\"}]}",
+                "{\"is_available\":true,\"balance_infos\":[{\"currency\":\"" + SECRET + "\",\"total_balance\":\"1.00\"}]}"}) {
+            assertThat(harness(200, body, () -> Optional.of(SECRET)).driver().quota().message().orElseThrow())
+                    .contains("balance unavailable").doesNotContain(SECRET);
+        }
+        for (int status : new int[] {401, 403, 429, 500}) {
+            assertThat(harness(status, SECRET, () -> Optional.of(SECRET)).driver().quota().message().orElseThrow())
+                    .doesNotContain(SECRET).contains(status == 401 || status == 403 ? "rejected this API key" : "balance unavailable");
+        }
+    }
+
+    @Test
+    void missingOrMalformedBalanceKeyNeverReachesTheNetwork()
+    {
+        for (Optional<String> secret : ImmutableList.of(Optional.<String>empty(), Optional.of("bad\nkey"))) {
+            Harness harness = harness(200, "{}", () -> secret);
+            assertThat(harness.driver().quota().message().orElseThrow()).contains("unavailable");
+            verifyNoInteractions(harness.client(), harness.codex());
+        }
+    }
+
+    @Test
+    void balanceNetworkFailuresAreSafeAndInterruptionIsPreserved()
+            throws Exception
+    {
+        Harness harness = harness(200, "{}", () -> Optional.of(SECRET));
+        when(harness.client().send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class))).thenThrow(new IOException(SECRET));
+        assertThat(harness.driver().quota().message().orElseThrow()).contains("balance unavailable").doesNotContain(SECRET);
+        doThrow(new InterruptedException(SECRET)).when(harness.client()).send(any(HttpRequest.class), any(HttpResponse.BodyHandler.class));
+        try {
+            assertThat(harness.driver().quota().message().orElseThrow()).contains("interrupted").doesNotContain(SECRET);
+            assertThat(Thread.currentThread().isInterrupted()).isTrue();
+        }
+        finally {
+            Thread.interrupted();
+        }
     }
 
     private static Harness harness(int responseStatus, String body, Supplier<Optional<String>> secret)

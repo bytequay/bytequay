@@ -21,11 +21,14 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentSession;
 import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.ProviderModel;
+import com.bytequay.agent.spi.ProviderQuotaSnapshot;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -34,12 +37,14 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.StringJoiner;
 import java.util.function.Supplier;
 import java.util.stream.StreamSupport;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Adds authenticated DeepSeek model readiness to the isolated Codex App Server driver. */
+/** Adds authenticated DeepSeek model readiness and account balance to the isolated Codex App Server driver. */
 final class DeepSeekAgentDriver
         implements AgentDriver
 {
@@ -172,6 +177,49 @@ final class DeepSeekAgentDriver
     private AgentProviderStatus status(AgentProviderStatus local, AgentProviderStatus.Readiness readiness, String diagnostic)
     {
         return new AgentProviderStatus(id(), readiness, local.version(), diagnostic, capabilities());
+    }
+
+    @Override
+    public ProviderQuotaSnapshot quota()
+    {
+        try {
+            Optional<String> currentSecret = secret.get().filter(value -> !value.isBlank());
+            if (currentSecret.isEmpty()) {
+                return ProviderQuotaSnapshot.unavailable("DeepSeek key removed or unavailable. Check Models settings.");
+            }
+            HttpRequest request = HttpRequest.newBuilder(modelsEndpoint.resolve("/user/balance"))
+                    .timeout(REQUEST_TIMEOUT)
+                    .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + currentSecret.orElseThrow())
+                    .GET()
+                    .build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 401 || response.statusCode() == 403) {
+                return ProviderQuotaSnapshot.unavailable("DeepSeek rejected this API key. Replace it in Models settings.");
+            }
+            checkArgument(response.statusCode() == 200, "Balance request failed");
+            JsonNode body = mapper.readTree(response.body());
+            JsonNode balances = body.path("balance_infos");
+            checkArgument(body.path("is_available").isBoolean() && balances.isArray() && !balances.isEmpty(), "Invalid balance response");
+            StringJoiner amounts = new StringJoiner(", ");
+            for (JsonNode balance : balances) {
+                String currency = balance.path("currency").asText();
+                checkArgument(currency.equals("USD") || currency.equals("CNY"), "Invalid balance currency");
+                String total = balance.path("total_balance").asText();
+                checkArgument(total.matches("-?\\d{1,16}(\\.\\d{1,16})?"), "Invalid balance amount");
+                amounts.add(currency + " " + new BigDecimal(total).toPlainString());
+            }
+            String message = "Available balance: " + amounts + "."
+                    + (body.path("is_available").booleanValue() ? "" : " Insufficient balance for API calls. Top up your DeepSeek account.");
+            return new ProviderQuotaSnapshot(Optional.empty(), ImmutableList.of(), Optional.of(message));
+        }
+        catch (IOException | RuntimeException failure) {
+            return ProviderQuotaSnapshot.unavailable("DeepSeek balance unavailable. Check this account in Settings and try again.");
+        }
+        catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            return ProviderQuotaSnapshot.unavailable("DeepSeek balance check interrupted. Try again.");
+        }
     }
 
     @Override

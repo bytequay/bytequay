@@ -79,7 +79,32 @@ class TestProviderUsageService
     }
 
     @Test
-    void listsApiAliasesByStableKeyIdWithoutReadingSecretsOrCliQuotas()
+    void routesDeepSeekBalanceToItsOwnKeyLaneAndCachesByAccount()
+    {
+        AgentDriverRegistry registry = mock(AgentDriverRegistry.class);
+        ModelApiKeyStore keys = mock(ModelApiKeyStore.class);
+        ModelApiKey key = new ModelApiKey("11111111-1111-4111-8111-111111111111", "ds-001", "DeepSeek", "masked", Instant.now());
+        when(keys.findAll()).thenReturn(ImmutableList.of(key));
+        when(keys.findById(key.id())).thenReturn(Optional.of(key));
+        AgentLaneId lane = new AgentLaneId("deepseek-key-" + key.id());
+        AgentDriver driver = mock(AgentDriver.class);
+        when(registry.require(lane)).thenReturn(driver);
+        when(driver.quota()).thenReturn(new ProviderQuotaSnapshot(Optional.empty(), ImmutableList.of(), Optional.of("Available balance: USD 12.34.")));
+        ProviderUsageService service = new ProviderUsageService(registry, mock(ClaudeAccounts.class), keys, Clock.systemUTC());
+        String accountId = "api-key-" + key.id();
+        var usage = service.usage(accountId);
+        assertThat(usage.accountId()).isEqualTo(accountId);
+        assertThat(usage.message()).contains("Available balance: USD 12.34.");
+        assertThat(usage.windows()).isEmpty();
+        assertThat(service.usage(accountId)).isSameAs(usage);
+        verify(driver, times(1)).quota();
+        verify(registry, never()).require(AgentLaneId.CODEX_CLI);
+        when(keys.findAll()).thenReturn(ImmutableList.of());
+        assertThatThrownBy(() -> service.usage(accountId)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void listsApiAliasesWithoutReadingSecretsAndLeavesUnsupportedKeysUnavailable()
     {
         AgentDriverRegistry registry = mock(AgentDriverRegistry.class);
         ClaudeAccounts accounts = mock(ClaudeAccounts.class);
@@ -89,14 +114,15 @@ class TestProviderUsageService
         ModelApiKey deepSeek = new ModelApiKey("11111111-1111-4111-8111-111111111111", "ds-001", "DeepSeek", "masked hint", created);
         ModelApiKey openAi = new ModelApiKey("22222222-2222-4222-8222-222222222222", "Work.OpenAI_2", "OpenAI", "masked hint", created);
         when(keys.findAll()).thenReturn(ImmutableList.of(deepSeek, openAi));
+        when(keys.findById(openAi.id())).thenReturn(Optional.of(openAi));
         ProviderUsageService service = new ProviderUsageService(registry, accounts, keys, Clock.systemUTC());
         assertThat(service.accounts()).containsExactly(
                 new ProviderUsageService.Account("codex", "Codex"),
                 new ProviderUsageService.Account("claude", "Claude"),
                 new ProviderUsageService.Account("api-key-" + deepSeek.id(), "DeepSeek · ds-001"),
                 new ProviderUsageService.Account("api-key-" + openAi.id(), "OpenAI · Work.OpenAI_2"));
-        var usage = service.usage("api-key-" + deepSeek.id());
-        assertThat(usage.accountId()).isEqualTo("api-key-" + deepSeek.id());
+        var usage = service.usage("api-key-" + openAi.id());
+        assertThat(usage.accountId()).isEqualTo("api-key-" + openAi.id());
         assertThat(usage.windows()).isEmpty();
         assertThat(usage.message().orElseThrow()).contains("API-key account");
         verify(keys, never()).findSecretById(anyString());

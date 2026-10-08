@@ -31,7 +31,7 @@ export async function run() {
     getUsageAccounts: async () => [{ id: 'codex', label: 'Codex' }, { id: 'claude', label: 'Claude' }, { id: work, label: 'Claude · Work' }, { id: apiKey, label: 'DeepSeek · ds-001' }],
     getProviderUsage: async accountId => {
       calls++;
-      if (accountId === apiKey) return { ...usage(accountId, 0), plan: null, windows: [], message: 'Usage limits aren’t available for this API-key account.' };
+      if (accountId === apiKey) return { ...usage(accountId, 0), plan: null, windows: [], message: 'Available balance: USD 12.3456.' };
       return accountId === work ? { ...usage(accountId, 0), windows: [], message: 'This account does not expose usage limits.' } : usage(accountId, accountId === 'codex' ? 18 : 62);
     },
   } as typeof window.bridge;
@@ -65,7 +65,7 @@ export async function run() {
   select.value = apiKey; select.dispatchEvent(new Event('change', { bubbles: true }));
   await settle(); await settle();
   assert(select.selectedOptions[0]?.textContent === 'DeepSeek · ds-001', 'Saved API alias is missing');
-  assert(document.querySelector('.usage-empty')?.textContent?.includes('API-key account'), 'API-key usage state is missing');
+  assert(document.querySelector('.usage-empty')?.textContent?.includes('Available balance: USD 12.3456.'), 'DeepSeek balance is missing');
   assert(document.querySelector('.usage-track') === null, 'API-key account must not inherit a subscription bar');
   select.value = 'claude'; select.dispatchEvent(new Event('change', { bubbles: true }));
   await settle(); await settle();

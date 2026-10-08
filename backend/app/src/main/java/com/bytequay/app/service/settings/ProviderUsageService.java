@@ -65,23 +65,27 @@ public class ProviderUsageService
     public Usage usage(String accountId)
     {
         checkArgument(accounts().stream().anyMatch(account -> account.id().equals(accountId)), "Unknown usage account");
+        String laneId = accountId;
         if (accountId.startsWith(API_KEY_PREFIX)) {
-            // API-key accounts have no subscription quota reader. Never query a CLI login's limits on their behalf.
-            return new Usage(accountId, Optional.empty(), ImmutableList.of(), clock.instant(),
-                    Optional.of("Usage limits aren’t available for this API-key account. Check your provider’s billing dashboard."));
+            String keyId = accountId.substring(API_KEY_PREFIX.length());
+            if (apiKeys.findById(keyId).filter(key -> key.provider().equals("DeepSeek")).isEmpty()) {
+                return new Usage(accountId, Optional.empty(), ImmutableList.of(), clock.instant(),
+                        Optional.of("Usage limits aren’t available for this API-key account. Check your provider’s billing dashboard."));
+            }
+            laneId = "deepseek-key-" + keyId;
         }
-        AgentLaneId lane = new AgentLaneId(accountId);
+        AgentLaneId lane = new AgentLaneId(laneId);
         try {
             // Resolve before consulting the cache so a removed/disabled profile cannot keep serving a previous account's data.
             AgentDriver driver = drivers.require(lane);
-            return cache.get(lane, () -> load(driver));
+            return cache.get(lane, () -> load(accountId, driver));
         }
         catch (ExecutionException | RuntimeException failure) {
             return unavailable(accountId);
         }
     }
 
-    private Usage load(AgentDriver driver)
+    private Usage load(String accountId, AgentDriver driver)
     {
         try {
             ProviderQuotaSnapshot quota = driver.quota();
@@ -89,11 +93,11 @@ public class ProviderUsageService
             if (quota.windows().isEmpty() && message.isEmpty()) {
                 message = Optional.of("This account does not expose usage limits.");
             }
-            return new Usage(driver.id().value(), quota.plan(), quota.windows(), clock.instant(), message);
+            return new Usage(accountId, quota.plan(), quota.windows(), clock.instant(), message);
         }
         catch (RuntimeException failure) {
             // Cache failures too: reopening the popover must not hammer an unavailable provider or return its raw diagnostics.
-            return unavailable(driver.id().value());
+            return unavailable(accountId);
         }
     }
 

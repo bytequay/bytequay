@@ -213,8 +213,9 @@ uncommitted edits.
 
 Choose **Usage** at the bottom of the sidebar, then select Codex, a Claude
 account, or a saved API-key account. API keys appear with the provider and the
-alias you entered, such as **DeepSeek · ds-001**. Their usage limits are currently
-unavailable in ByteQuay; check the provider’s billing dashboard instead.
+alias you entered, such as **DeepSeek · ds-001**. DeepSeek shows the account’s
+available credit balance and warns when it is insufficient for API calls. For
+other API-key providers, check the provider’s billing dashboard.
 Each reported limit uses one bar: gray is usage within the elapsed
 period's pace, green is room up to that pace, and red is usage beyond it. The
 reset countdown and “Room to use more” or “Slow down” label explain the comparison.

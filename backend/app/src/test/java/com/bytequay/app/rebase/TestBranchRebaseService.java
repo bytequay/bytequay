@@ -14,23 +14,15 @@
 package com.bytequay.app.rebase;
 
 import com.bytequay.agent.core.AgentEventService;
-import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
-import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.AgentTurnSettings;
-import com.bytequay.agent.core.DevelopmentTurnCompletion;
-import com.bytequay.agent.core.DevelopmentTurnOrigin;
-import com.bytequay.agent.core.QueueAgentInputCommand;
-import com.bytequay.agent.core.QueuedAgentInput;
-import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
-import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
@@ -82,14 +74,13 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.CompletionStage;
-import java.util.function.Consumer;
-import java.util.function.Function;
 
 import static com.bytequay.app.git.GitTestSupport.git;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -152,7 +143,7 @@ class TestBranchRebaseService
                 store,
                 tasks,
                 worktrees,
-                turns,
+                turns.service,
                 driver,
                 GIT,
                 Clock.fixed(NOW, ZoneOffset.UTC),
@@ -694,158 +685,23 @@ class TestBranchRebaseService
     }
 
     private static final class FakeTurns
-            implements AgentTurnService
     {
         private final Map<TurnId, AgentTurn> turns = new LinkedHashMap<>();
         private TurnId current;
         private String lastPrompt;
         private boolean failAfterStarting;
 
-        @Override
-        public AgentTurn startContextTurn(StartAgentTurnCommand command)
+        private final AgentTurnService service = mock(AgentTurnService.class, invocation -> {
+            throw new UnsupportedOperationException("Unexpected turn operation: " + invocation.getMethod().getName());
+        });
+
+        private FakeTurns()
         {
-            throw new UnsupportedOperationException("Rebase tasks do not import pull requests");
+            doAnswer(invocation -> start(invocation.getArgument(0))).when(service).start(any(StartAgentTurnCommand.class));
+            doAnswer(invocation -> cancel(invocation.getArgument(0))).when(service).cancel(any(TurnId.class));
+            doAnswer(invocation -> turns.get(invocation.getArgument(0))).when(service).get(any(TurnId.class));
         }
 
-        @Override
-        public AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public AgentTask claimLocalRun(TaskId taskId, String runId)
-        {
-            throw new UnsupportedOperationException("Rebase tasks run no local tests");
-        }
-
-        @Override
-        public void releaseLocalRun(TaskId taskId, String runId)
-        {
-            throw new UnsupportedOperationException("Rebase tasks run no local tests");
-        }
-
-        @Override
-        public CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message)
-        {
-            throw new UnsupportedOperationException("Rebase tasks do not generate development follow-ups");
-        }
-
-        @Override
-        public boolean handoffDevelopmentContinuationToQueue(TaskId taskId, TurnId sourceTurnId)
-        {
-            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
-        }
-
-        @Override
-        public void finishDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
-        {
-            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
-        }
-
-        @Override
-        public AgentTask failDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId, String reason)
-        {
-            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
-        }
-
-        @Override
-        public AgentTask failLostDevelopmentContinuation(TaskId taskId)
-        {
-            throw new UnsupportedOperationException("Rebase tasks do not own development continuations");
-        }
-
-        @Override
-        public boolean ownsDevelopmentContinuation(TaskId taskId, TurnId sourceTurnId)
-        {
-            return false;
-        }
-
-        @Override
-        public void executeDevelopmentAction(TaskId taskId, TurnId sourceTurnId, Runnable action)
-        {
-            throw new UnsupportedOperationException("this test never runs development automation");
-        }
-
-        @Override
-        public void reportDevelopmentProgress(TaskId taskId, TurnId sourceTurnId, String message)
-        {
-            throw new UnsupportedOperationException("this test never reports development progress");
-        }
-
-        @Override
-        public AgentTurnSettings effectiveSettings(TaskId taskId)
-        {
-            throw new UnsupportedOperationException("this test never describes a turn before starting it");
-        }
-
-        @Override
-        public AgentRuntimeStopImpact stopImpact(TaskId taskId)
-        {
-            throw new UnsupportedOperationException("this test never stops a task runtime");
-        }
-
-        @Override
-        public AgentTask stopRuntime(TaskId taskId, String generation)
-        {
-            throw new UnsupportedOperationException("this test never stops a task runtime");
-        }
-
-        @Override
-        public AgentInputDelivery steer(SteerAgentTurnCommand command)
-        {
-            throw new UnsupportedOperationException("this test never steers or queues a turn");
-        }
-
-        @Override
-        public AgentInputDelivery steerQueued(TaskId taskId, TurnId turnId, QueuedInputId queuedInputId)
-        {
-            throw new UnsupportedOperationException("this test never steers or queues a turn");
-        }
-
-        @Override
-        public Optional<AgentInputDelivery> findSteerByIdempotencyKey(TurnId turnId, String idempotencyKey)
-        {
-            return Optional.empty();
-        }
-
-        @Override
-        public QueuedAgentInput enqueue(QueueAgentInputCommand command)
-        {
-            throw new UnsupportedOperationException("this test never steers or queues a turn");
-        }
-
-        @Override
-        public List<QueuedAgentInput> queued(TaskId taskId)
-        {
-            throw new UnsupportedOperationException("this test never steers or queues a turn");
-        }
-
-        @Override
-        public Optional<QueuedAgentInput> findQueuedByIdempotencyKey(TaskId taskId, String idempotencyKey)
-        {
-            return Optional.empty();
-        }
-
-        @Override
-        public QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId)
-        {
-            throw new UnsupportedOperationException("this test never steers or queues a turn");
-        }
-
-        @Override
-        public AgentTurn resumeQueued(TaskId taskId)
-        {
-            throw new UnsupportedOperationException("this test never steers or queues a turn");
-        }
-
-        @Override
         public AgentTurn start(StartAgentTurnCommand command)
         {
             lastPrompt = command.message();
@@ -869,12 +725,6 @@ class TestBranchRebaseService
             return turn;
         }
 
-        @Override
-        public Optional<AgentTurn> findTurnByIdempotencyKey(TaskId taskId, String idempotencyKey)
-        {
-            return Optional.empty();
-        }
-
         private static AgentTurnSettings turnSettings()
         {
             return new AgentTurnSettings(
@@ -885,7 +735,6 @@ class TestBranchRebaseService
                     ImmutableList.of());
         }
 
-        @Override
         public AgentTurn cancel(TurnId turnId)
         {
             AgentTurn turn = turns.get(turnId);
@@ -898,12 +747,6 @@ class TestBranchRebaseService
                 turns.put(turnId, turn);
             }
             return turn;
-        }
-
-        @Override
-        public AgentTurn get(TurnId turnId)
-        {
-            return turns.get(turnId);
         }
 
         public void completeCurrent()

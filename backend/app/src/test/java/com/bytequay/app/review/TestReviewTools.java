@@ -52,7 +52,6 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.review.AgentReview;
-import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
@@ -89,7 +88,6 @@ import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -106,7 +104,6 @@ import java.util.stream.IntStream;
 import static com.bytequay.core.review.ReviewStep.Kind.CHECK_NITS;
 import static com.bytequay.core.review.ReviewStep.Kind.COLLECT_EVIDENCE;
 import static com.bytequay.core.review.ReviewStep.Kind.VALIDATE;
-import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.TimeUnit.MICROSECONDS;
@@ -147,7 +144,7 @@ class TestReviewTools
     @TempDir
     private Path repository;
 
-    private InMemoryAgentReviewStore store;
+    private InMemoryReviewStore store;
     private ObjectMapper objectMapper;
     private ReviewTools tools;
     private ReviewBridge bridge;
@@ -170,7 +167,7 @@ class TestReviewTools
     @BeforeEach
     void setUp()
     {
-        store = new InMemoryAgentReviewStore();
+        store = new InMemoryReviewStore();
         store.insertReview(review(AgentReview.State.OPEN));
         store.insertRun(run());
 
@@ -256,7 +253,7 @@ class TestReviewTools
         when(selectedCommitPullRequests.read(workspace, shas)).thenReturn(new SelectedCommitPullRequestReader.Read(items, gaps));
         ReviewEvidence existing = new ReviewEvidence("E1", "Original source", "Frozen provenance", "Original evidence", "");
         ReviewRun before = store.updateRun(store.findRun(RUN_ID).orElseThrow().withEvidence("E1", existing, NOW));
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", ImmutableList.of(first.toUpperCase(Locale.ROOT), second)));
 
@@ -279,7 +276,7 @@ class TestReviewTools
         assertThat(result.path("note").asText()).contains("no single merged PR", "ambiguous", "at most 100", "not proof");
         assertThat(result.path("gaps")).hasSize(10).allSatisfy(gap -> assertThat(gap.asText()).hasSizeLessThanOrEqualTo(1014));
         assertThat(result.path("omittedGaps").asInt()).isEqualTo(2);
-        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(store.runUpdates()).isEqualTo(writes + 1);
         ReviewRun after = store.findRun(RUN_ID).orElseThrow();
         assertThat(after.evidence()).hasSize(3).containsEntry("E1", existing);
         assertThat(after.headSha()).isEqualTo(before.headSha());
@@ -310,7 +307,7 @@ class TestReviewTools
         for (Object value : invalid) {
             assertThat(call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", value)).at("/error/field").asText()).isEqualTo("shas");
         }
-        assertThat(store.runUpdates).isZero();
+        assertThat(store.runUpdates()).isZero();
         verifyNoInteractions(workspaces, selectedCommitPullRequests, git, repositories);
     }
 
@@ -326,7 +323,7 @@ class TestReviewTools
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", ImmutableList.of(COMMIT_SHA)));
 
         assertThat(result.at("/error/field").asText()).isEqualTo("shas");
-        assertThat(store.runUpdates).isZero();
+        assertThat(store.runUpdates()).isZero();
         verifyNoInteractions(selectedCommitPullRequests, git, repositories);
     }
 
@@ -348,7 +345,7 @@ class TestReviewTools
         assertThat(result.at("/items/1/status").asText()).isEqualTo("LOOKUP_FAILED");
         assertThat(result.at("/items/1/lookupFailed").asBoolean()).isTrue();
         assertThat(result.at("/items/1/persisted").asBoolean()).isFalse();
-        assertThat(store.runUpdates).isEqualTo(1);
+        assertThat(store.runUpdates()).isEqualTo(1);
     }
 
     @Test
@@ -360,7 +357,7 @@ class TestReviewTools
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", ImmutableList.of(COMMIT_SHA)));
 
         assertThat(result.at("/error/field").asText()).isEqualTo("shas");
-        assertThat(store.runUpdates).isZero();
+        assertThat(store.runUpdates()).isZero();
     }
 
     @Test
@@ -416,7 +413,7 @@ class TestReviewTools
             assertThat(release.await(5, SECONDS)).isTrue();
             return selected(detail, Optional.of(HEAD_SHA), false);
         });
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
         try (var executor = Executors.newFixedThreadPool(2)) {
             var source = executor.submit(() -> call("review_get_context", ImmutableMap.of("kind", "pr")));
             try {
@@ -440,16 +437,16 @@ class TestReviewTools
                 assertThat(queued.await(5, SECONDS)).isTrue();
                 assertThatThrownBy(() -> sameReview.get(150, MILLISECONDS)).isInstanceOf(TimeoutException.class);
                 assertThat(reviewLock.hasQueuedThreads()).isTrue();
-                assertThat(store.runUpdates).isEqualTo(writes);
+                assertThat(store.runUpdates()).isEqualTo(writes);
                 release.countDown();
                 assertThat(source.get(5, SECONDS).path("title").asText()).isEqualTo(detail.title());
                 long sameReviewMicros = sameReview.get(5, SECONDS);
-                assertThat(store.runUpdates).isEqualTo(writes + 1);
+                assertThat(store.runUpdates()).isEqualTo(writes + 1);
                 log.info("Repository context acceptance: {}", ImmutableMap.of(
                         "sample", "one selected PR read with deliberately blocked fixture I/O; no GitHub request or SQLite adapter",
                         "sameReviewCallIncludingHydratorWaitMicros", Long.toString(sameReviewMicros),
                         "sameWorkspaceNotebookLockAcquireMicros", Long.toString(notebookMicros),
-                        "sourceEvidenceRunUpdates", Integer.toString(store.runUpdates - writes)));
+                        "sourceEvidenceRunUpdates", Integer.toString(store.runUpdates() - writes)));
             }
             finally {
                 release.countDown();
@@ -494,7 +491,7 @@ class TestReviewTools
         SelectedPullRequestReader.Section section = kind.equals("timeline") ? SelectedPullRequestReader.Section.TIMELINE : SelectedPullRequestReader.Section.CHECKS;
         when(selectedPullRequests.read(REPO, 42, section)).thenReturn(selected(detail, Optional.of("d".repeat(40)), true));
         String field = kind.equals("timeline") ? "items" : "checks";
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", kind));
 
@@ -506,7 +503,7 @@ class TestReviewTools
         assertThat(result.at("/freshness/stale").asBoolean()).isTrue();
         assertThat(result.at("/freshness/incomplete").asBoolean()).isTrue();
         assertThat(result.at("/freshness/matchesReviewedHead").asBoolean()).isFalse();
-        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(store.runUpdates()).isEqualTo(writes + 1);
         assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).hasSize(20);
         for (JsonNode item : result.path(field)) {
             ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(item.path("evidenceRef").asText());
@@ -523,11 +520,11 @@ class TestReviewTools
         JsonNode second = call("review_get_context", ImmutableMap.of("kind", kind, "page", 2));
         assertThat(second.path(field)).hasSize(1);
         assertThat(second.path(field).get(0).path("id").asInt()).isEqualTo(21);
-        assertThat(store.runUpdates).isEqualTo(writes + 2);
+        assertThat(store.runUpdates()).isEqualTo(writes + 2);
         JsonNode beyondEnd = call("review_get_context", ImmutableMap.of("kind", kind, "page", Integer.MAX_VALUE));
         assertThat(beyondEnd.path(field)).isEmpty();
         assertThat(beyondEnd.path("page").asInt()).isEqualTo(Integer.MAX_VALUE);
-        assertThat(store.runUpdates).isEqualTo(writes + 2);
+        assertThat(store.runUpdates()).isEqualTo(writes + 2);
         verifyNoInteractions(pullRequests, repositories, issues, issueRefresh);
     }
 
@@ -585,10 +582,10 @@ class TestReviewTools
                 PrTimelinePayload.builder(thread.payload()).resolved(false).build());
         when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
                 .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.of(changed), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
         assertThat(call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "51", "page", 2, "threadVersion", version))
                 .at("/error/field").asText()).isEqualTo("threadVersion");
-        assertThat(store.runUpdates).isEqualTo(writes);
+        assertThat(store.runUpdates()).isEqualTo(writes);
     }
 
     @Test
@@ -952,10 +949,10 @@ class TestReviewTools
         readSource();
         Map<String, Object> draft = new LinkedHashMap<>(finding("draft", "Unchecked input", "A2", ImmutableList.of(evidence("E1"))));
         draft.put("body", "word ".repeat(121));
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
         assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("121 prose words", "120", "polish");
         assertThat(store.listFindings(REVIEW_ID)).isEmpty();
-        assertThat(store.runUpdates).isEqualTo(writes);
+        assertThat(store.runUpdates()).isEqualTo(writes);
 
         draft.put("title", "Nit: shorten the name");
         draft.put("body", "word ".repeat(36));
@@ -1071,9 +1068,9 @@ class TestReviewTools
         JsonNode captured = call("review_get_context", ImmutableMap.of("kind", "command_output"));
         String firstId = captured.at("/commands/0/commandId").asText();
         String firstRef = captured.at("/commands/0/evidenceRef").asText();
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
         assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output"))).isEqualTo(captured);
-        assertThat(store.runUpdates).isEqualTo(writes);
+        assertThat(store.runUpdates()).isEqualTo(writes);
 
         AgentEventEnvelope second = commandEvent(turn, 2, ActivityState.COMPLETED, Optional.of("same output"), false);
         AgentEventEnvelope progress = commandEvent(turn, 3, ActivityState.PROGRESS, Optional.of("still running"), false);
@@ -1088,9 +1085,9 @@ class TestReviewTools
         assertThat(latest.path("commands")).hasSize(1);
         assertThat(latest.at("/commands/0/commandId").asText()).isEqualTo("2");
         assertThat(latest.at("/commands/0/evidenceRef").asText()).isNotEqualTo(firstRef);
-        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(store.runUpdates()).isEqualTo(writes + 1);
         assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output", "commandId", firstId))).isEqualTo(captured);
-        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(store.runUpdates()).isEqualTo(writes + 1);
         assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).hasSize(2);
         assertThat(call("review_get_context", ImmutableMap.of("kind", "command_output", "commandId", "3"))
                 .at("/error/field").asText()).isEqualTo("commandId");
@@ -1146,9 +1143,9 @@ class TestReviewTools
         assertThat(skipped.has("findingId")).isFalse();
         assertThat(skipped.path("activityLine").asText()).startsWith("Skipped finding");
         assertThat(skipped.path("next").asText()).contains("REJECTED", "finding limit");
-        int updates = store.runUpdates;
+        int updates = store.runUpdates();
         assertThat(call("review_save_finding", extra)).isEqualTo(skipped);
-        assertThat(store.runUpdates).isEqualTo(updates);
+        assertThat(store.runUpdates()).isEqualTo(updates);
         assertThat(store.listFindings(REVIEW_ID)).containsExactlyElementsOf(retained);
 
         Map<String, Object> revision = ImmutableMap.<String, Object>builder()
@@ -1431,7 +1428,7 @@ class TestReviewTools
         assertThat(later.path("reportedChangedFiles").isNull()).isTrue();
         JsonNode beyond = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "diffVersion", DIFF_VERSION, "page", Integer.MAX_VALUE));
         assertThat(beyond.path("files")).isEmpty();
-        assertThat(store.runUpdates).isZero();
+        assertThat(store.runUpdates()).isZero();
         verifyNoInteractions(selectedPullRequests, selectedCommitPullRequests, workspaces, git);
     }
 
@@ -1442,7 +1439,7 @@ class TestReviewTools
         SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(new DiffFile(" related.txt ", "modified", 1, 1, patch)));
         when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
         ReviewRun before = store.findRun(RUN_ID).orElseThrow();
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
         StringBuilder reconstructed = new StringBuilder();
         for (int page = 1; page <= 3; page++) {
             JsonNode result = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "path", " related.txt ", "diffVersion", DIFF_VERSION, "page", page));
@@ -1470,7 +1467,7 @@ class TestReviewTools
                 "kind", "diff", "number", 19, "path", " related.txt ", "diffVersion", DIFF_VERSION, "page", Integer.MAX_VALUE));
         assertThat(beyond.path("patch").asText()).isEmpty();
         assertThat(beyond.path("startCodePoint").asInt()).isEqualTo(patch.codePointCount(0, patch.length()));
-        assertThat(store.runUpdates).isEqualTo(writes + 4);
+        assertThat(store.runUpdates()).isEqualTo(writes + 4);
         ReviewRun after = store.findRun(RUN_ID).orElseThrow();
         assertThat(after.diff()).isEqualTo(before.diff());
         assertThat(after.commits()).isEqualTo(before.commits());
@@ -1481,7 +1478,7 @@ class TestReviewTools
         assertThat(current.path("hunks").asText()).contains("A2 +R2 beta");
         assertThat(current.has("diffVersion")).isFalse();
         assertThat(current.has("evidenceRef")).isFalse();
-        assertThat(store.runUpdates).isEqualTo(writes + 4);
+        assertThat(store.runUpdates()).isEqualTo(writes + 4);
     }
 
     @Test
@@ -1495,14 +1492,14 @@ class TestReviewTools
         assertThat(unavailable.path("patch").isNull()).isTrue();
         assertThat(unavailable.path("note").asText()).contains("not evidence");
         assertThat(unavailable.has("evidenceRef")).isFalse();
-        assertThat(store.runUpdates).isZero();
+        assertThat(store.runUpdates()).isZero();
         JsonNode empty = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "path", "empty", "diffVersion", DIFF_VERSION));
         assertThat(empty.path("patchAvailable").asBoolean()).isTrue();
         assertThat(empty.path("patch").asText()).isEmpty();
         assertThat(empty.path("totalCodePoints").asInt()).isZero();
         assertThat(empty.path("pages").asInt()).isEqualTo(1);
         assertThat(store.findRun(RUN_ID).orElseThrow().evidence().get(empty.path("evidenceRef").asText()).excerpt()).isEmpty();
-        assertThat(store.runUpdates).isEqualTo(1);
+        assertThat(store.runUpdates()).isEqualTo(1);
         SelectedPullRequestDiffReader.Read emptyArtifact = relatedDiff(ImmutableList.of());
         when(selectedPullRequestDiffs.read(REPO, 20, Optional.empty(), false)).thenReturn(emptyArtifact);
         JsonNode index = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 20));
@@ -1543,7 +1540,7 @@ class TestReviewTools
         assertThat(call("review_get_context", ImmutableMap.of("kind", "diff", "number", 42, "refresh", true))
                 .at("/error/field").asText()).isEqualTo("refresh");
         verifyNoInteractions(selectedPullRequestDiffs, selectedPullRequests, workspaces, git);
-        assertThat(store.runUpdates).isZero();
+        assertThat(store.runUpdates()).isZero();
     }
 
     @Test
@@ -1561,7 +1558,7 @@ class TestReviewTools
         assertThat(unavailable.at("/error/field").asText()).isEqualTo("number");
         assertThat(unavailable.at("/error/message").asText()).contains("unavailable");
         assertThat(unavailable.has("files")).isFalse();
-        assertThat(store.runUpdates).isZero();
+        assertThat(store.runUpdates()).isZero();
     }
 
     @Test
@@ -1573,7 +1570,7 @@ class TestReviewTools
             assertThat(((ReentrantLock) locks.lock(REVIEW_ID)).isHeldByCurrentThread()).isFalse();
             return read;
         });
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17));
 
@@ -1586,7 +1583,7 @@ class TestReviewTools
         ReviewEvidence evidence = store.findRun(RUN_ID).orElseThrow().evidence().get(result.path("evidenceRef").asText());
         assertThat(evidence.excerpt()).isEqualTo(excerpt);
         assertThat(evidence.provenance()).contains("BYTEQUAY_READ", read.provenance());
-        assertThat(store.runUpdates).isEqualTo(writes + 1);
+        assertThat(store.runUpdates()).isEqualTo(writes + 1);
     }
 
     @Test
@@ -1613,19 +1610,19 @@ class TestReviewTools
         assertThat(call("review_get_context", request).at("/error/message").asText()).contains("routing");
         verifyNoInteractions(historySources);
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
         when(historySources.read(workspaceRepository(), ContextHistoryReader.SourceKind.PR, 17))
                 .thenThrow(new IllegalArgumentException("An actual mergedAt is required"));
         assertThat(call("review_get_context", request).at("/error/field").asText()).isEqualTo("history");
         doThrow(new ResponseStatusException(HttpStatus.NOT_FOUND)).when(historySources).read(workspaceRepository(), ContextHistoryReader.SourceKind.PR, 17);
         assertThat(call("review_get_context", request).at("/error/message").asText()).contains("no history evidence");
-        assertThat(store.runUpdates).isEqualTo(writes);
+        assertThat(store.runUpdates()).isEqualTo(writes);
     }
 
     @Test
     void stoppedTurnCannotRetainHistoryAfterExternalRead()
     {
-        int writes = store.runUpdates;
+        int writes = store.runUpdates();
         when(historySources.read(workspaceRepository(), ContextHistoryReader.SourceKind.PR, 17)).thenAnswer(_ -> {
             doThrow(new ReviewConflictException("turn: this tool belongs to a stopped or replaced turn"))
                     .when(assignments).resolve(REVIEW_ID, Optional.of(capturedTurn));
@@ -1634,7 +1631,7 @@ class TestReviewTools
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17));
         assertThat(result.at("/error/field").asText()).isEqualTo("turn");
         assertThat(result.has("evidenceRef")).isFalse();
-        assertThat(store.runUpdates).isEqualTo(writes);
+        assertThat(store.runUpdates()).isEqualTo(writes);
     }
 
     private static ContextHistoryReader.Read historyRead(String excerpt)
@@ -2255,7 +2252,7 @@ class TestReviewTools
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         assertThat(call("review_finish", finish("skipped-revert", ImmutableList.of())).at("/error/field").asText()).isEqualTo("reviewedFiles");
-        store.updateRun(next);
+        store.updateRun(next.withVersion(store.findRun(next.id()).orElseThrow().version()));
         assertThat(call("review_save_investigation", investigation("all", ImmutableList.of(DIFF_PATH, "image.png"), ImmutableList.of(), ImmutableList.of()))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
@@ -2500,198 +2497,5 @@ class TestReviewTools
                 "origin",
                 "main",
                 ImmutableList.of());
-    }
-
-    /** Real state, so writes round trip, versions move, and a replayed operation is read back from the run it was committed with. */
-    private static final class InMemoryAgentReviewStore
-            implements AgentReviewStore
-    {
-        private int runUpdates;
-        private final Map<String, AgentReview> reviews = new LinkedHashMap<>();
-        private final Map<String, ReviewRun> runs = new LinkedHashMap<>();
-        private final Map<String, ReviewFinding> findings = new LinkedHashMap<>();
-        private final Map<String, ReviewMessage> messages = new LinkedHashMap<>();
-
-        @Override
-        public AgentReview insertReview(AgentReview review)
-        {
-            reviews.put(review.id(), review);
-            return review;
-        }
-
-        @Override
-        public AgentReview updateReview(AgentReview review)
-        {
-            AgentReview next = review.withVersion(review.version() + 1);
-            reviews.put(next.id(), next);
-            return next;
-        }
-
-        @Override
-        public Optional<AgentReview> findReview(String reviewId)
-        {
-            return Optional.ofNullable(reviews.get(reviewId));
-        }
-
-        @Override
-        public Optional<AgentReview> findOpenReview(String workspaceId, String repo, int number)
-        {
-            return reviews.values().stream()
-                    .filter(review -> review.state() == AgentReview.State.OPEN)
-                    .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equals(repo) && review.number().stream().anyMatch(value -> value == number))
-                    .findFirst();
-        }
-
-        @Override
-        public Optional<AgentReview> findReviewByTask(String taskId)
-        {
-            return reviews.values().stream().filter(review -> review.taskId().equals(taskId)).findFirst();
-        }
-
-        @Override
-        public List<AgentReview> listOpenReviews()
-        {
-            return reviews.values().stream().filter(review -> review.state() == AgentReview.State.OPEN).collect(toImmutableList());
-        }
-
-        @Override
-        public List<AgentReview> listReviews(String workspaceId) { throw new UnsupportedOperationException(); }
-
-        @Override
-        public ReviewRun insertRun(ReviewRun run)
-        {
-            runs.put(run.id(), run);
-            return run;
-        }
-
-        @Override
-        public ReviewRun updateRun(ReviewRun run)
-        {
-            runUpdates++;
-            ReviewRun next = run.withVersion(run.version() + 1);
-            runs.put(next.id(), next);
-            return next;
-        }
-
-        @Override
-        public void acceptRun(AgentReview review, ReviewRun run)
-        {
-            updateReview(review);
-            updateRun(run);
-        }
-
-        @Override
-        public ReviewFinding saveFinding(ReviewFinding finding, boolean insert, ReviewRun run)
-        {
-            checkArgument(insert != findings.containsKey(finding.id()), "insert disagrees with the stored findings");
-            updateRun(run);
-            return insert ? insertFinding(finding) : updateFinding(finding);
-        }
-
-        @Override
-        public ReviewMessage insertMessage(ReviewMessage message, ReviewRun run)
-        {
-            updateRun(run);
-            return insertMessage(message);
-        }
-
-        @Override
-        public Optional<ReviewRun> findRun(String runId)
-        {
-            return Optional.ofNullable(runs.get(runId));
-        }
-
-        @Override
-        public List<ReviewRun> listRuns(String reviewId)
-        {
-            return runs.values().stream().filter(run -> run.reviewId().equals(reviewId)).collect(toImmutableList());
-        }
-
-        @Override
-        public List<ReviewRun> listRecentRuns(String workspaceId, String repo, int limit)
-        {
-            checkArgument(limit >= 1 && limit <= 10, "Recent run limit must be between 1 and 10");
-            return runs.values().stream()
-                    .filter(run -> findReview(run.reviewId())
-                            .filter(review -> review.workspaceId().equals(workspaceId) && review.repo().equalsIgnoreCase(repo)).isPresent())
-                    .sorted(Comparator.comparing(ReviewRun::updatedAt).reversed().thenComparing(ReviewRun::id))
-                    .limit(limit)
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public ReviewFinding insertFinding(ReviewFinding finding)
-        {
-            findings.put(finding.id(), finding);
-            return finding;
-        }
-
-        @Override
-        public ReviewFinding updateFinding(ReviewFinding finding)
-        {
-            ReviewFinding next = finding.withVersion(finding.version() + 1);
-            findings.put(next.id(), next);
-            return next;
-        }
-
-        @Override
-        public Optional<ReviewFinding> findFinding(String findingId)
-        {
-            return Optional.ofNullable(findings.get(findingId));
-        }
-
-        @Override
-        public List<ReviewFinding> listFindings(String reviewId)
-        {
-            return findings.values().stream().filter(finding -> finding.reviewId().equals(reviewId)).collect(toImmutableList());
-        }
-
-        @Override
-        public ReviewMessage insertMessage(ReviewMessage message)
-        {
-            messages.put(message.id(), message);
-            return message;
-        }
-
-        @Override
-        public ReviewMessage updateMessage(ReviewMessage message)
-        {
-            ReviewMessage next = new ReviewMessage(message.id(), message.reviewId(), message.findingId(), message.cardId(), message.author(),
-                    message.body(), message.targetRevision(), message.runId(), message.turnId(), message.queuedInputId(), message.version() + 1, message.createdAt());
-            messages.put(next.id(), next);
-            return next;
-        }
-
-        @Override
-        public void deleteMessage(String messageId)
-        {
-            messages.remove(messageId);
-        }
-
-        @Override
-        public Optional<ReviewMessage> findMessage(String messageId)
-        {
-            return Optional.ofNullable(messages.get(messageId));
-        }
-
-        @Override
-        public List<ReviewMessage> listEarlierMessages(String reviewId, String runId, Optional<String> findingId, Optional<String> cardId,
-                int targetRevision, Instant createdAt, String messageId, int limit)
-        {
-            return messages.values().stream()
-                    .filter(message -> message.reviewId().equals(reviewId) && message.runId().equals(runId))
-                    .filter(message -> message.findingId().equals(findingId) && message.cardId().equals(cardId))
-                    .filter(message -> message.targetRevision() == targetRevision)
-                    .filter(message -> message.createdAt().isBefore(createdAt) || (message.createdAt().equals(createdAt) && message.id().compareTo(messageId) < 0))
-                    .sorted(Comparator.comparing(ReviewMessage::createdAt).thenComparing(ReviewMessage::id).reversed())
-                    .limit(limit)
-                    .collect(toImmutableList());
-        }
-
-        @Override
-        public List<ReviewMessage> listMessages(String reviewId)
-        {
-            return messages.values().stream().filter(message -> message.reviewId().equals(reviewId)).collect(toImmutableList());
-        }
     }
 }

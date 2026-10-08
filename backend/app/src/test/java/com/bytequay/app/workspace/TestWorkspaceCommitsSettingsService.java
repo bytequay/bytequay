@@ -14,10 +14,10 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.git.GitCommandRunner;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
-import com.bytequay.core.store.AppSettingsStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.NullSource;
@@ -25,8 +25,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.locks.Lock;
@@ -45,27 +43,7 @@ class TestWorkspaceCommitsSettingsService
     private static final Instant NOW = Instant.parse("2026-09-07T00:00:00Z");
 
     private final InMemoryWorkspaceStore workspaces = new InMemoryWorkspaceStore();
-    private final Map<String, String> values = new HashMap<>();
-    private final AppSettingsStore settings = new AppSettingsStore()
-    {
-        @Override
-        public Optional<String> get(String key)
-        {
-            return Optional.ofNullable(values.get(key));
-        }
-
-        @Override
-        public void put(String key, String value)
-        {
-            values.put(key, value);
-        }
-
-        @Override
-        public void delete(String key)
-        {
-            values.remove(key);
-        }
-    };
+    private final InMemoryAppSettingsStore settings = new InMemoryAppSettingsStore();
     private final WorkspaceCommitsSettingsService service = new WorkspaceCommitsSettingsService(workspaces, settings, new GitCommandRunner());
 
     @Test
@@ -80,7 +58,7 @@ class TestWorkspaceCommitsSettingsService
         assertThat(reader.get(WORKSPACE_ID)).isEqualTo(new WorkspaceCommitsTarget("upstream", "master", false));
         assertThat(reader.reset(WORKSPACE_ID)).isEqualTo(new WorkspaceCommitsTarget("upstream", "master", false));
         verifyNoInteractions(git);
-        assertThat(values).isEmpty();
+        assertThat(settings.snapshot()).isEmpty();
     }
 
     @Test
@@ -107,7 +85,7 @@ class TestWorkspaceCommitsSettingsService
         workspaces.save(workspace(true));
 
         assertThat(service.save(WORKSPACE_ID, "upstream/release-next")).isEqualTo(new WorkspaceCommitsTarget("upstream", "upstream/release-next", true));
-        assertThat(values).containsOnlyKeys(KEY).containsEntry(KEY, "upstream/release-next");
+        assertThat(settings.snapshot()).containsOnlyKeys(KEY).containsEntry(KEY, "upstream/release-next");
         workspaces.setWatched(WORKSPACE_ID, false);
         WorkspaceCommitsSettingsService reopened = new WorkspaceCommitsSettingsService(workspaces, settings, mock(GitCommandRunner.class));
         assertThat(reopened.get(WORKSPACE_ID)).isEqualTo(new WorkspaceCommitsTarget("upstream", "upstream/release-next", true));
@@ -115,7 +93,7 @@ class TestWorkspaceCommitsSettingsService
         workspaces.save(workspace(false));
         assertThat(reopened.get(WORKSPACE_ID)).isEqualTo(new WorkspaceCommitsTarget("origin", "upstream/release-next", true));
         assertThat(reopened.reset(WORKSPACE_ID)).isEqualTo(new WorkspaceCommitsTarget("origin", "fork-main", false));
-        assertThat(values).isEmpty();
+        assertThat(settings.snapshot()).isEmpty();
         assertThat(workspaces.isWatched(WORKSPACE_ID)).isFalse();
     }
 
@@ -125,10 +103,10 @@ class TestWorkspaceCommitsSettingsService
     void rejectsInvalidBranchWithoutReplacingPreviousOverride(String branch)
     {
         workspaces.save(workspace(true));
-        values.put(KEY, "keep-branch");
+        settings.put(KEY, "keep-branch");
 
         assertThatThrownBy(() -> service.save(WORKSPACE_ID, branch)).isInstanceOf(IllegalArgumentException.class);
-        assertThat(values).containsEntry(KEY, "keep-branch");
+        assertThat(settings.snapshot()).containsEntry(KEY, "keep-branch");
     }
 
     @Test
@@ -140,7 +118,7 @@ class TestWorkspaceCommitsSettingsService
         assertThatThrownBy(() -> missing.get(WORKSPACE_ID)).isInstanceOf(WorkspaceException.class).hasMessage("Workspace not found: workspace");
         assertThatThrownBy(() -> missing.save(WORKSPACE_ID, "main")).isInstanceOf(WorkspaceException.class).hasMessage("Workspace not found: workspace");
         assertThatThrownBy(() -> missing.reset(WORKSPACE_ID)).isInstanceOf(WorkspaceException.class).hasMessage("Workspace not found: workspace");
-        assertThat(values).isEmpty();
+        assertThat(settings.snapshot()).isEmpty();
         verifyNoInteractions(git);
     }
 
@@ -148,13 +126,13 @@ class TestWorkspaceCommitsSettingsService
     void failedGitValidationDoesNotReplaceTheSetting()
     {
         workspaces.save(workspace(true));
-        values.put(KEY, "keep-branch");
+        settings.put(KEY, "keep-branch");
         GitCommandRunner git = mock(GitCommandRunner.class);
         when(git.run(Path.of("/"), "check-ref-format", "refs/heads/release")).thenReturn(GitCommandRunner.Result.failed("Git unavailable"));
         WorkspaceCommitsSettingsService unavailable = new WorkspaceCommitsSettingsService(workspaces, settings, git);
 
         assertThatThrownBy(() -> unavailable.save(WORKSPACE_ID, "release")).isInstanceOf(IllegalStateException.class).hasMessage("Git branch validation could not complete.");
-        assertThat(values).containsEntry(KEY, "keep-branch");
+        assertThat(settings.snapshot()).containsEntry(KEY, "keep-branch");
     }
 
     private static Workspace workspace(boolean linked)

@@ -14,6 +14,7 @@
 package com.bytequay.app.service;
 
 import com.bytequay.core.store.AppSettingsStore;
+import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 import java.util.Optional;
@@ -40,5 +41,10 @@ public final class InMemoryAppSettingsStore
     public void delete(String key)
     {
         rows.remove(key);
+    }
+
+    public Map<String, String> snapshot()
+    {
+        return ImmutableMap.copyOf(rows);
     }
 }

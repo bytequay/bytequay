@@ -14,8 +14,6 @@
 package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentResourceService;
-import com.bytequay.agent.core.StoreAgentAttachmentCommand;
-import com.bytequay.agent.core.StoredAgentAttachment;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
 import com.bytequay.core.ci.CiAutofixAttempt;
@@ -47,6 +45,9 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 
 class TestDefaultCiMemoryService
 {
@@ -60,7 +61,7 @@ class TestDefaultCiMemoryService
 
     private TaskId taskId;
     private InMemoryCiAutofixStore store;
-    private MemoryResources resources;
+    private AgentResourceService resources;
     private DefaultCiMemoryService service;
 
     @BeforeEach
@@ -69,8 +70,11 @@ class TestDefaultCiMemoryService
     {
         taskId = TaskId.random();
         store = new InMemoryCiAutofixStore();
-        resources = new MemoryResources(temporaryDirectory.resolve("runtime"));
-        Files.createDirectories(resources.task(taskId).runtimeDirectory());
+        resources = mock(AgentResourceService.class, invocation -> {
+            throw new UnsupportedOperationException("Unexpected resource operation: " + invocation.getMethod().getName());
+        });
+        doAnswer(invocation -> taskResources(invocation.getArgument(0))).when(resources).require(any(TaskId.class));
+        Files.createDirectories(taskResources(taskId).runtimeDirectory());
         service = new DefaultCiMemoryService(
                 store,
                 new CiMemoryFile(resources),
@@ -113,7 +117,7 @@ class TestDefaultCiMemoryService
         store.run = run.addAttempt(second, NOW.plusSeconds(8));
 
         service.update(store.run.id());
-        Path memory = resources.task(taskId).runtimeDirectory().resolve("ci-memory.md");
+        Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
         String firstBuild = Files.readString(memory);
         service.update(store.run.id());
 
@@ -152,7 +156,7 @@ class TestDefaultCiMemoryService
         store.run = run;
 
         service.update(run.id());
-        Path memory = resources.task(taskId).runtimeDirectory().resolve("ci-memory.md");
+        Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
         assertThat(Files.size(memory)).isLessThanOrEqualTo(256 * 1024);
 
         CiMemoryView recent = service.read(new ReadCiMemoryCommand(taskId, Optional.empty()));
@@ -170,7 +174,7 @@ class TestDefaultCiMemoryService
                 attempt(run, 1, HEAD, ImmutableList.of(failure("compile", "compiler failure")), NOW.plusSeconds(2)),
                 NOW.plusSeconds(2));
         service.update(store.run.id());
-        Path memory = resources.task(taskId).runtimeDirectory().resolve("ci-memory.md");
+        Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
         String valid = Files.readString(memory);
 
         DefaultCiMemoryService failingService = new DefaultCiMemoryService(
@@ -239,73 +243,9 @@ class TestDefaultCiMemoryService
         return new FailureEvidence(signature, summary, number, 1, number, 1, Optional.empty());
     }
 
-    private static final class MemoryResources
-            implements AgentResourceService
+    private TaskResources taskResources(TaskId taskId)
     {
-        @Override
-        public void deleteWorktreeCache(TaskId taskId)
-        {
-        }
-
-        @Override
-        public void validateAttachment(StoreAgentAttachmentCommand command)
-        {
-            throw new UnsupportedOperationException();
-        }
-
-        @Override
-        public StoredAgentAttachment storeAttachment(StoreAgentAttachmentCommand command)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-
-        @Override
-        public StoredAgentAttachment readAttachment(TaskId taskId, String attachmentId)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-
-        @Override
-        public void deleteAttachment(TaskId taskId, String attachmentId)
-        {
-            throw new UnsupportedOperationException("attachments are not part of this test");
-        }
-        private final Path root;
-
-        private MemoryResources(Path root)
-        {
-            this.root = root.toAbsolutePath();
-        }
-
-        @Override
-        public TaskResources allocate(TaskId taskId)
-        {
-            return task(taskId);
-        }
-
-        @Override
-        public TaskResources require(TaskId taskId)
-        {
-            return task(taskId);
-        }
-
-        @Override
-        public TaskResources pathsForDeletion(TaskId taskId)
-        {
-            return task(taskId);
-        }
-
-        @Override
-        public void delete(TaskId taskId) {}
-
-        private TaskResources task(TaskId taskId)
-        {
-            Path runtime = root.resolve(taskId.toString());
-            return new TaskResources(
-                    runtime,
-                    runtime.resolve("events.jsonl"),
-                    runtime.resolve("blobs"),
-                    runtime.resolve("provider"));
-        }
+        Path runtime = temporaryDirectory.resolve("runtime").resolve(taskId.toString()).toAbsolutePath();
+        return new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), runtime.resolve("provider"));
     }
 }

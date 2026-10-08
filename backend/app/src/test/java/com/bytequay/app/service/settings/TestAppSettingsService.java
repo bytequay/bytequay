@@ -19,7 +19,7 @@ import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.core.store.AppSettingsStore;
+import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.Test;
@@ -28,8 +28,6 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,35 +38,16 @@ import static org.mockito.Mockito.when;
 
 class TestAppSettingsService
 {
-    private final Map<String, String> rows = new HashMap<>();
+    private final InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-    private final AppSettingsService settings = new AppSettingsService(new AppSettingsStore()
-    {
-        @Override
-        public Optional<String> get(String key)
-        {
-            return Optional.ofNullable(rows.get(key));
-        }
-
-        @Override
-        public void put(String key, String value)
-        {
-            rows.put(key, value);
-        }
-
-        @Override
-        public void delete(String key)
-        {
-            rows.remove(key);
-        }
-    }, new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), drivers);
+    private final AppSettingsService settings = new AppSettingsService(store, new ObjectMapper().findAndRegisterModules(), Clock.systemUTC(), drivers);
 
     @Test
     void automationDefaultsInheritTheDevelopmentAgentWithoutWritingSettings()
     {
         assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.DEFAULT);
         assertThat(settings.developmentAutomation().ciLaneId()).isEmpty();
-        assertThat(rows).isEmpty();
+        assertThat(store.snapshot()).isEmpty();
         verifyNoInteractions(drivers);
     }
 
@@ -91,7 +70,7 @@ class TestAppSettingsService
 
         assertThat(settings.developmentAutomation()).isEqualTo(chosen.forDevelopment());
         assertThat(settings.developmentAutomation().reviewSummary()).isTrue();
-        assertThat(rows).containsKey("agent.developmentAutomation");
+        assertThat(store.snapshot()).containsKey("agent.developmentAutomation");
         settings.saveDevelopmentAutomation(DevelopmentAutomation.LOCAL_ONLY);
         assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
     }
@@ -99,7 +78,7 @@ class TestAppSettingsService
     @Test
     void savedAutoCommitOptOutCannotDisableDevelopmentCommits()
     {
-        rows.put("agent.developmentAutomation", "{\"autoCommit\":false,\"autoDraftPr\":false,\"autoCiFix\":false,\"ciLaneId\":null,\"reviewSummary\":false}");
+        store.put("agent.developmentAutomation", "{\"autoCommit\":false,\"autoDraftPr\":false,\"autoCiFix\":false,\"ciLaneId\":null,\"reviewSummary\":false}");
         assertThat(settings.developmentAutomation()).isEqualTo(DevelopmentAutomation.LOCAL_ONLY.forDevelopment());
     }
 
@@ -113,10 +92,10 @@ class TestAppSettingsService
         assertThatThrownBy(() -> settings.saveDevelopmentAutomation(
                 new DevelopmentAutomation(true, true, true, Optional.of(lane))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not support CI Autofix");
-        assertThat(rows).isEmpty();
-        rows.put("agent.developmentAutomation", "{\"autoCommit\":true}");
+        assertThat(store.snapshot()).isEmpty();
+        store.put("agent.developmentAutomation", "{\"autoCommit\":true}");
         assertThatThrownBy(settings::developmentAutomation).isInstanceOf(IllegalStateException.class);
-        rows.put("agent.developmentAutomation", "{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null}");
+        store.put("agent.developmentAutomation", "{\"autoCommit\":true,\"autoDraftPr\":true,\"autoCiFix\":true,\"ciLaneId\":null}");
         assertThat(settings.developmentAutomation()).isEqualTo(new DevelopmentAutomation(true, true, true, Optional.empty(), false));
     }
 
@@ -131,14 +110,14 @@ class TestAppSettingsService
 
         assertThat(settings.taskRuntimeRetention()).isEqualTo(Duration.ofDays(30));
         assertThat(settings.recentRetentionDays()).isEqualTo(21);
-        assertThat(rows).containsKey("app.preferences");
-        assertThat(rows.get("app.preferences")).doesNotContain("refreshIntervalMinutes");
+        assertThat(store.snapshot()).containsKey("app.preferences");
+        assertThat(store.get("app.preferences").orElseThrow()).doesNotContain("refreshIntervalMinutes");
     }
 
     @Test
     void oldPreferencesKeepTheirValuesAndDefaultToThirtyWarmPullRequests()
     {
-        rows.put("app.preferences", "{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"refreshIntervalMinutes\":15,\"theme\":\"LIGHT\"}");
+        store.put("app.preferences", "{\"taskRetentionDays\":30,\"recentRetentionDays\":21,\"refreshIntervalMinutes\":15,\"theme\":\"LIGHT\"}");
         assertThat(settings.preferences()).isEqualTo(new AppPreferences(30, 21, AppTheme.LIGHT, 30));
     }
 
@@ -155,11 +134,11 @@ class TestAppSettingsService
     @Test
     void anUnreadableOrOutOfRangePreferenceRowFallsBackToTheDefault()
     {
-        rows.put("app.preferences", "{\"taskRetentionDays\":0,\"recentRetentionDays\":14,\"refreshIntervalMinutes\":6,\"theme\":\"SYSTEM\"}");
+        store.put("app.preferences", "{\"taskRetentionDays\":0,\"recentRetentionDays\":14,\"refreshIntervalMinutes\":6,\"theme\":\"SYSTEM\"}");
 
         assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);
 
-        rows.put("app.preferences", "not json");
+        store.put("app.preferences", "not json");
 
         assertThat(settings.preferences()).isEqualTo(AppPreferences.DEFAULT);
     }

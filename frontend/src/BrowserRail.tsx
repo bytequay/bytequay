@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { Globe, PanelLeftClose, PanelLeftOpen, Pencil, Pin, Plus, Ship, TriangleAlert, X } from 'lucide-react';
+import { Globe, PanelLeftClose, PanelLeftOpen, Pencil, Plus, Ship, TriangleAlert, X } from 'lucide-react';
 import { useRenameDraft } from './renameDraft';
 import type { InAppBrowserState, InAppBrowserTab } from './types';
 
@@ -36,7 +36,6 @@ function PageIcon({ tab }: { tab: InAppBrowserTab }) {
       {tab.favicon && tab.favicon !== failedUrl
         ? <img src={tab.favicon} alt="" referrerPolicy="no-referrer" onError={() => setFailedUrl(tab.favicon)} />
         : <Globe size={16} strokeWidth={1.7} />}
-      {tab.pinned && <Pin className="browser-rail__pin" size={8} strokeWidth={1.7} />}
       {tab.loading && <span className="browser-rail__loading" />}
     </span>
   );
@@ -93,15 +92,15 @@ export default function BrowserRail({ state, expanded, newPageOpen, error, onTog
       </button>
       <div className="browser-rail__pages">
         {pinned.length > 0 && <div className="browser-rail__group" role="group" aria-label="Pinned pages">{pinned.map(row)}</div>}
-        {pinned.length > 0 && unpinned.length > 0 && <hr />}
+        {pinned.length > 0 && <hr />}
         {unpinned.length > 0 && <div className="browser-rail__group" role="group" aria-label="Open pages">{unpinned.map(row)}</div>}
+        <button type="button" className={`browser-rail__action browser-rail__new${newPageOpen ? ' is-active' : ''}`}
+          onClick={onNewPage} title="Open a new web page" aria-label="Open a new web page">
+          <Plus size={18} strokeWidth={1.7} />{expanded && <span>New page</span>}
+        </button>
         {expanded && state.tabs.length === 0 && <p className="browser-rail__empty">Open a page, then pin it here.</p>}
       </div>
       {error && <div className="browser-rail__error" role="alert" title={error}><TriangleAlert size={16} strokeWidth={1.7} />{expanded && <span>{error}</span>}</div>}
-      <button type="button" className={`browser-rail__action browser-rail__new${newPageOpen ? ' is-active' : ''}`}
-        onClick={onNewPage} title="Open a new web page" aria-label="Open a new web page">
-        <Plus size={18} strokeWidth={1.7} />{expanded && <span>New page</span>}
-      </button>
     </nav>
   );
 }

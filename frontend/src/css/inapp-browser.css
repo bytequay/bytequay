@@ -180,7 +180,7 @@
 .browser-rail.is-expanded .browser-rail__action { justify-content: flex-start; padding: 0 12px; font-size: var(--font-size-sm); }
 .browser-rail__action:hover, .browser-rail__row:hover { background: var(--left-nav-hover-bg); }
 .browser-rail__action.is-active, .browser-rail__row.is-active { background: var(--accent-a7); color: var(--accent); }
-.browser-rail__pages { overflow-y: auto; overflow-x: hidden; flex: 1; min-height: 0; scrollbar-width: thin; }
+.browser-rail__pages { overflow-y: auto; overflow-x: hidden; min-height: 0; padding-top: 6px; border-top: 1px solid var(--border); scrollbar-width: thin; }
 .browser-rail__pages hr { border: 0; border-top: 1px solid var(--border); margin: 6px 4px; }
 .browser-rail__group { display: flex; flex-direction: column; gap: 4px; }
 .browser-rail__row { display: flex; align-items: center; border-radius: 6px; position: relative; min-height: 32px; }
@@ -189,7 +189,6 @@
 .browser-rail.is-expanded .browser-rail__page { justify-content: flex-start; padding-left: 12px; }
 .browser-rail__icon { position: relative; display: inline-flex; flex: 0 0 16px; width: 16px; height: 16px; align-items: center; justify-content: center; }
 .browser-rail__icon img { width: 16px; height: 16px; object-fit: contain; border-radius: 3px; }
-.browser-rail__pin { position: absolute; right: -3px; bottom: -3px; background: var(--bg-sidebar); color: var(--accent); border-radius: 2px; }
 .browser-rail__loading { position: absolute; inset: -3px; border: 2px solid var(--accent-a40); border-top-color: var(--accent); border-radius: 50%; animation: browser-loading 1s linear infinite; }
 @keyframes browser-loading { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .browser-rail__loading { animation: none; } }
@@ -199,7 +198,7 @@
 .browser-rail__row:hover .browser-rail__tool, .browser-rail__row:focus-within .browser-rail__tool, .browser-rail__row.is-active .browser-rail__tool { opacity: 1; }
 .browser-rail__tool:hover { background: var(--accent-a7); }
 .browser-rail__rename { flex: 1; min-width: 0; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 4px; outline: none; background: var(--bg-input); color: var(--text-1); font: inherit; font-size: var(--font-size-sm); }
-.browser-rail__new { border-top: 1px solid var(--border) !important; }
+.browser-rail__new { width: 100%; margin-top: 4px; }
 .browser-rail__empty { padding: 8px 12px; color: var(--text-3); font-size: var(--font-size-sm); line-height: 1.6; }
 .browser-rail__error { display: flex; align-items: center; gap: 6px; color: var(--red); padding: 6px; font-size: var(--font-size-sm); overflow-wrap: anywhere; }
 .browser-rail__error svg { flex-shrink: 0; }

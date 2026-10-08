@@ -28,7 +28,7 @@ import RunHistory from './RunHistory';
 import TerminalView from '../pulls/code-tests/TerminalView';
 import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
-import { PanelLeft, ArrowLeft, ArrowRight, Ellipsis, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
+import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Ellipsis, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal, Square } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import EditorNavigation from './EditorNavigation';
 import Usages from './Usages';
@@ -102,6 +102,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   const [execution, setExecution] = useState(runtime.executions.run);
   const [executionError, setExecutionError] = useState(runtime.executions.error);
   const [bottom, setBottom] = useState<'tests' | 'runs' | 'debug' | 'output' | 'terminal' | 'history'>('tests');
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const column = useResizablePane(285, 180, 650);
   const panel = useResizablePane(270, 100, 900, 'start', 'y');
   const [history, setHistory] = useState<HistoryComparison | null>(null);
@@ -151,6 +152,8 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       else if (id?.includes('debug') || id === 'workbench.panel.repl') setBottom('debug');
       else if (id?.toLowerCase().includes('test')) setBottom('tests');
       else if (id?.includes('scm')) setBottom('history');
+      else return;
+      setPanelCollapsed(false);
     };
     showPanel(runtime.panels.getActivePaneComposite(1)?.getId());
     const panel = runtime.panels.onDidPaneCompositeOpen(event => { if (event.viewContainerLocation === 1) showPanel(event.composite.getId()); });
@@ -206,6 +209,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   };
   const selectBottom = async (value: typeof bottom) => {
     setBottom(value);
+    setPanelCollapsed(false);
     if (value === 'tests') command('workbench.view.testing.focus');
     if (value === 'debug') command('workbench.view.debug');
     if (value === 'output') command('workbench.action.terminal.focus');
@@ -227,7 +231,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <Search editors={runtime.editors} workspace={runtime.workspace} files={files} />
       <button disabled={!comments.onComment} onClick={commentSelection}><MessageSquare size={14} /> Comment</button>
       <EditorNavigation runtime={runtime} active={active} context={context} file={file} revision={files?.revision}
-        onHistory={commit => { setBottom('history'); void chooseCommit(commit); }} />
+        onHistory={commit => { setBottom('history'); setPanelCollapsed(false); void chooseCommit(commit); }} />
       <select aria-label="IDE theme" value={theme} onChange={event => {
         const value = event.target.value;
         localStorage.setItem('bytequay.ide.theme', value); setTheme(value);
@@ -265,25 +269,27 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     </div>
     {active && <ReviewZones runtime={runtime} uri={active.document.uri.toString()} cards={comments.cards} renderCard={comments.renderCard} />}
     <Usages editors={runtime.editors} workspace={runtime.workspace} />
-    <div className={`ide-panel-resize${panel.resizing ? ' is-resizing' : ''}`} role="separator" tabIndex={0} aria-orientation="horizontal"
+    {!panelCollapsed && <div className={`ide-panel-resize${panel.resizing ? ' is-resizing' : ''}`} role="separator" tabIndex={0} aria-orientation="horizontal"
       aria-label="Resize the tools panel" aria-valuenow={panel.width} aria-valuemin={100} aria-valuemax={900}
       onMouseDown={event => { event.currentTarget.focus(); panel.startResize(event); }} onKeyDown={event => {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
         event.preventDefault(); panel.setWidth(height => Math.max(100, Math.min(900, height + (event.key === 'ArrowUp' ? 20 : -20))));
-      }} />
-    <footer className="ide-bottom" style={{ height: panel.width }}>
+      }} />}
+    <footer className={`ide-bottom${panelCollapsed ? ' is-collapsed' : ''}`} style={{ height: panelCollapsed ? 'auto' : panel.width }}>
       <nav className="ide-toolbar" aria-label="Code tools">
-        <button aria-pressed={bottom === 'tests'} onClick={() => { void selectBottom('tests'); }}><Play size={13} /> Tests</button>
-        <button aria-pressed={bottom === 'runs'} onClick={() => { void selectBottom('runs'); }}>Run history</button>
-        <button aria-pressed={bottom === 'debug'} onClick={() => { void selectBottom('debug'); }}><Bug size={14} /> Debug</button>
-        <button aria-pressed={bottom === 'terminal'} onClick={() => { void selectBottom('terminal'); }}><TerminalSquare size={14} /> Terminal</button>
+        <button aria-pressed={!panelCollapsed && bottom === 'tests'} onClick={() => { void selectBottom('tests'); }}><Play size={13} /> Tests</button>
+        <button aria-pressed={!panelCollapsed && bottom === 'runs'} onClick={() => { void selectBottom('runs'); }}>Run history</button>
+        <button aria-pressed={!panelCollapsed && bottom === 'debug'} onClick={() => { void selectBottom('debug'); }}><Bug size={14} /> Debug</button>
+        <button aria-pressed={!panelCollapsed && bottom === 'terminal'} onClick={() => { void selectBottom('terminal'); }}><TerminalSquare size={14} /> Terminal</button>
         <button aria-pressed={bottom === 'output'} onClick={() => { void selectBottom('output'); }}>Execution output</button>
-        <button aria-pressed={bottom === 'history'} onClick={() => { void selectBottom('history'); }}><GitCommitHorizontal size={14} /> Git history</button>
+        <button aria-pressed={!panelCollapsed && bottom === 'history'} onClick={() => { void selectBottom('history'); }}><GitCommitHorizontal size={14} /> Git history</button>
         <span className="ide-spacer" />
-        <button onClick={() => command('testing.runCurrentFile')}>Run file tests</button>
+        <button onClick={() => { void selectBottom('tests'); command('testing.runCurrentFile'); }}>Run file tests</button>
         <button onClick={() => { void selectBottom('debug'); command('testing.debugCurrentFile'); }}>Debug file tests</button>
         <button onClick={() => { void selectBottom('debug'); command('workbench.action.debug.start'); }}>Debug configuration</button>
         <button disabled={!execution} onClick={() => { void runtime.executions.stop().catch(cause => setError(String(cause))); }}><Square size={12} /> Stop execution</button>
+        <button aria-label={panelCollapsed ? 'Expand tools panel' : 'Collapse tools panel'} title={panelCollapsed ? 'Expand tools panel' : 'Collapse tools panel'}
+          aria-expanded={!panelCollapsed} onClick={() => setPanelCollapsed(value => !value)}>{panelCollapsed ? <ChevronUp size={14} /> : <ChevronDown size={14} />}</button>
       </nav>
       <div className="ide-tools" style={{ display: (bottom === 'history' && history) || bottom === 'runs' || bottom === 'terminal' ? 'none' : undefined }}><Part part={Parts.PANEL_PART} /></div>
       {bottom === 'runs' && <RunHistory context={context} files={files} runtime={runtime} onTests={() => { void selectBottom('tests'); }} />}

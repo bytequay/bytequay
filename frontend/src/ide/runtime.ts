@@ -71,7 +71,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'workbench.activityBar.location': 'hidden', 'workbench.statusBar.visible': false,
     'workbench.startupEditor': 'none', 'workbench.editor.restoreViewState': true,
     'editor.bracketPairColorization.enabled': false, 'editor.folding': true, 'editor.foldingHighlight': false, 'editor.foldingImportsByDefault': true, 'editor.semanticHighlighting.enabled': true,
-    'editor.minimap.enabled': false, 'editor.fontSize': 13, 'editor.fontFamily': 'Menlo, monospace',
+    'editor.minimap.enabled': false, 'editor.fontSize': 12, 'editor.fontFamily': 'Menlo, monospace',
     'telemetry.telemetryLevel': 'off', 'java.autobuild.enabled': true,
     'java.configuration.updateBuildConfiguration': 'automatic', 'java.trace.server': 'off',
     'go.showWelcome': false, 'go.toolsManagement.autoUpdate': false, 'go.toolsManagement.checkForUpdates': 'off',

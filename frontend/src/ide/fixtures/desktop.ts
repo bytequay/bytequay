@@ -22,7 +22,7 @@ export function installDesktopFixture() {
   window.ide = {
     open: async () => { opens++; return 'fixture-editor'; },
     present: async (_id, bounds) => { visible = bounds !== null; }, update: async () => {}, reply: () => {},
-    close: async () => listener({ id: 'fixture-editor', dirty: 0, busy: false, closed: true }), discardSourceDrafts: async () => {},
+    close: async () => listener({ id: 'fixture-editor', dirty: 0, busy: false, closed: true }),
     onRequest: () => () => {}, onEvent: receive => { listener = receive; return () => { listener = () => {}; }; },
   };
   return { get opens() { return opens; }, get visible() { return visible; },

@@ -28,7 +28,6 @@ export type CodeTestsBridge = Pick<Bridge,
   | 'listCodeRuns'
   | 'stopCodeRun'
   | 'readCodeRunOutput'
-  | 'discardReviewCodeChanges'
   | 'openCodeTerminal'
   | 'writeReviewTerminal'
   | 'resizeReviewTerminal'
@@ -36,7 +35,6 @@ export type CodeTestsBridge = Pick<Bridge,
   | 'listAgentReviews'
   | 'prepareReviewWorktree'
   | 'getAgentReview'
-  | 'syncReviewWorktree'
   | 'subscribeAgentReview'
   | 'getAgentTask'>;
 

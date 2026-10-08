@@ -514,8 +514,6 @@ const bridge: Bridge = {
   stopCodeRun: (host, runId) => ipcRenderer.invoke('code:runs:stop', host, runId),
   readCodeRunOutput: (host, runId, after) => ipcRenderer.invoke('code:runs:output', host, runId, after),
   saveCodeFile: (host, path, content, expectedHash) => ipcRenderer.invoke('code:save', host, path, content, expectedHash),
-  discardReviewCodeChanges: (reviewId, expectedHead) => ipcRenderer.invoke('review:code:discard', reviewId, expectedHead),
-  syncReviewWorktree: (reviewId, expectedHead) => ipcRenderer.invoke('review:code:sync', reviewId, expectedHead),
   openCodeTerminal: (host, cols, rows) => ipcRenderer.invoke('terminal:open', host, cols, rows),
   openProviderSignIn: (laneId, cols, rows) => ipcRenderer.invoke('provider:signin:open', laneId, cols, rows),
   writeReviewTerminal: (terminalId, data) => ipcRenderer.send('terminal:write', terminalId, data),
@@ -572,7 +570,6 @@ const ide: IdeDesktopBridge = {
   present: (id, bounds) => ipcRenderer.invoke('ide:present', id, bounds),
   update: (id, context) => ipcRenderer.invoke('ide:update', id, context),
   close: id => ipcRenderer.invoke('ide:close', id),
-  discardSourceDrafts: id => ipcRenderer.invoke('ide:discard-source', id),
   reply: reply => ipcRenderer.send('ide:reply', reply),
   onRequest: listener => {
     const receive = (_event: Electron.IpcRendererEvent, request: IdeRequest) => listener(request);

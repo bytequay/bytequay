@@ -16,13 +16,6 @@ import type { CodeQueryRequest } from './ide/codeQuery';
 import type { IdeContext, IdeWorkbenchBridge } from './ide/contracts';
 
 const bridge: IdeWorkbenchBridge = {
-  onDiscardSource: handler => {
-    const receive = (_event: Electron.IpcRendererEvent, id: string) => {
-      void handler().then(() => ipcRenderer.send('ide:discard-source-result', id), error => ipcRenderer.send('ide:discard-source-result', id, String(error)));
-    };
-    ipcRenderer.on('ide:discard-source', receive);
-    return () => ipcRenderer.removeListener('ide:discard-source', receive);
-  },
   terminal: {
     openCodeTerminal: (_host, cols, rows) => ipcRenderer.invoke('ide:terminal-open', cols, rows),
     writeReviewTerminal: (id, data) => ipcRenderer.send('terminal:write', id, data),

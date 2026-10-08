@@ -64,9 +64,6 @@ public interface AgentReviewService
     /** Refreshes the pull request now and follows its head; a replay keeps its head and only resumes. */
     AgentReviewProjection update(String reviewId);
 
-    /** Discards local work and catches up to the current remote PR head without starting another review. */
-    AgentReviewProjection syncWorktree(String reviewId, String expectedHead);
-
     /** Completes the task, closes the review durably, then requests clean worktree cleanup. */
     AgentReviewProjection end(String reviewId);
 

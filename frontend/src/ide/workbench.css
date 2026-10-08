@@ -88,11 +88,9 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-workbench.is-dark :is(.ct-run, .ct-run__body, .ct-run__tree, .ct-run__log, .ct-run__details, .ct-run__row, .ct-history, .ct-run__note) { background: var(--ide-bg); color: var(--ide-fg); border-color: var(--ide-edge); }
 .ide-workbench.is-dark :is(.ct-run__header, .ct-run__toolbar, .ct-run__tab, .ct-history__head, .ct-run__class) { background: var(--ide-bar); color: var(--ide-fg); border-color: var(--ide-edge); }
 
-.ide-more { position: relative; margin-left: auto; }
-.ide-more summary { display: flex; padding: 5px; cursor: pointer; list-style: none; }
-.ide-more summary::-webkit-details-marker { display: none; }
-.ide-more > div { position: absolute; right: 0; top: 100%; z-index: 100; min-width: 230px; padding: 4px; border: 1px solid var(--ide-edge); border-radius: 4px; background: var(--ide-bar); box-shadow: 0 3px 12px #0003; }
-.ide-more > div button { width: 100%; text-align: left; }
+/* These menus belong to the embedded editor; retain its primary Run and split actions. */
+.ide-editor .editor-actions .action-item:has(> .monaco-dropdown > .dropdown-label > .codicon-toolbar-more),
+.ide-editor .editor-actions .monaco-dropdown-with-default > .dropdown-action-container { display: none; }
 
 .ide-usages { position: fixed; z-index: 110; width: min(1040px, calc(100vw - 24px)); max-height: min(620px, calc(100vh - 24px)); display: flex; flex-direction: column; border: 1px solid var(--ide-edge); border-radius: 7px; background: var(--ide-bg); color: var(--ide-fg); box-shadow: 0 8px 32px #0005; overflow: hidden; font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
 .ide-usages > header { display: flex; align-items: center; gap: 10px; padding: 9px 12px; background: var(--ide-bar); border-bottom: 1px solid var(--ide-edge); }

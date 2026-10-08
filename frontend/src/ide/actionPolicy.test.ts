@@ -87,13 +87,8 @@ it('prepares a bounded log draft only on a click in an open task', () => {
   expect(() => validateIdeAction('run.ask', ['run', 'failure'], { ...context, review: { ...review, state: 'CLOSED' } }, true)).toThrow('Open a task');
 });
 
-it('requires a current available worktree and a direct click before opening reset or discard confirmation', () => {
-  const available: IdeContext = { ...context, workingCopy: { blocked: null, staleLabel: 'Reset to remote' } };
+it('rejects removed working-copy menu actions', () => {
   for (const method of ['worktree.reset', 'worktree.discard']) {
-    expect(() => validateIdeAction(method, [], available, true)).not.toThrow();
-    expect(() => validateIdeAction(method, [], available, false)).toThrow('user click');
     expect(() => validateIdeAction(method, [], context, true)).toThrow('unavailable');
-    expect(() => validateIdeAction(method, [], { ...available, workingCopy: { staleLabel: 'Reset to remote', blocked: 'Busy' } }, true)).toThrow('unavailable');
   }
-  expect(() => validateIdeAction('worktree.reset', [], { ...available, workingCopy: { blocked: null, staleLabel: null } }, true)).toThrow('unavailable');
 });

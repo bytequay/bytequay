@@ -31,7 +31,7 @@ export async function verifyFileAppearance() {
   const host = document.createElement('div'); host.className = 'ide-workbench';
   host.style.cssText = 'position:fixed;inset:0;z-index:100'; document.body.append(host);
   const tree = document.createElement('nav'); tree.className = 'ct ide-files'; host.append(tree);
-  const native = document.createElement('div'); native.style.cssText = 'flex:1;min-height:0'; host.append(native);
+  const native = document.createElement('div'); native.className = 'ide-editor'; native.style.cssText = 'flex:1;min-height:0'; host.append(native);
   const attached = attachPart(Parts.EDITOR_PART, native);
   const editors = await getService(IEditorService);
   const models = await getService(ITextModelService);
@@ -72,6 +72,10 @@ export async function verifyFileAppearance() {
     assert(group !== undefined, 'Native editor group opens');
     const tabs = () => [...native.querySelectorAll<HTMLElement>('.tabs-container .tab')];
     await until(() => tabs().length === 4 && tabs().filter(tab => tab.classList.contains('ide-test-tab')).length === 3, 'Only test tabs are green, including Go and Rust tests');
+    const more = native.querySelector<HTMLElement>('.editor-actions .codicon-toolbar-more');
+    assert(more !== null && more.getClientRects().length === 0, 'The native editor overflow menu is hidden');
+    const split = native.querySelector<HTMLElement>('[aria-label^="Split Editor"]');
+    assert(split !== null && split.getClientRects().length > 0, 'The split-editor action remains available');
     assert(!tabs()[0].classList.contains('ide-test-tab') && tabs()[1].classList.contains('ide-test-tab'), 'Same-named main/test files have different colors');
     for (const [name, dark] of [['ByteQuay IDEA Light', false], ['ByteQuay Darcula', true]] as const) {
       host.classList.toggle('is-dark', dark); host.style.colorScheme = dark ? 'dark' : 'light';

@@ -791,33 +791,6 @@ class TestReviewCodeService
     }
 
     @Test
-    void discardCleansTheWorkingCopyAndDropsTheSavedExperiment()
-    {
-        write(checkout, TEST_PATH, "saved experiment\n");
-        git(checkout, "stash", "push", "--include-untracked", "--message", "bytequay-review-experiment:" + worktree.taskId() + ":sync:failed");
-        write(checkout, "src/test/java/TestNew.java", "unrelated stash\n");
-        git(checkout, "stash", "push", "--include-untracked", "--message", "User work");
-        write(checkout, TEST_PATH, "current edit\n");
-        write(checkout, "src/test/java/TestLocal.java", "local test\n");
-        write(checkout, "build/output", "ignored\n");
-        assertThat(service.files(REVIEW_ID).savedExperiment()).isTrue();
-
-        assertThatThrownBy(() -> service.discard(REVIEW_ID, "a".repeat(40))).isInstanceOf(ReviewConflictException.class).hasMessageContaining("HEAD changed");
-        assertThat(checkout.resolve(TEST_PATH)).hasContent("current edit\n");
-
-        CodeFiles files = service.discard(REVIEW_ID, head);
-
-        assertThat(files.savedExperiment()).isFalse();
-        assertThat(files.revision()).isEqualTo(head);
-        assertThat(files.files()).noneMatch(file -> file.uncommitted() || file.onlyInWorkingCopy());
-        assertThat(checkout.resolve(TEST_PATH)).hasContent("test source\n");
-        assertThat(checkout.resolve("src/test/java/TestLocal.java")).doesNotExist();
-        assertThat(checkout.resolve("build/output")).hasContent("ignored\n");
-        assertThat(git(checkout, "stash", "list", "--format=%gs")).endsWith("User work");
-        assertThatThrownBy(() -> service.discard(REVIEW_ID, " ")).isInstanceOf(IllegalArgumentException.class);
-    }
-
-    @Test
     void terminalStartsInTheWorkingCopyOfAnOpenReviewOnly()
     {
         assertThat(service.terminalDirectory(REVIEW_ID)).isEqualTo(checkout);

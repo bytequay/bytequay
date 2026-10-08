@@ -132,13 +132,3 @@ export function trackNavigation(runtime: IdeRuntime, onError: (message: string) 
   const active = runtime.api.window.onDidChangeActiveTextEditor(save);
   return { dispose: () => { save(); tabs.dispose(); selection.dispose(); active.dispose(); } };
 }
-
-
-/** Called only after the owner confirms a successful working-copy discard/reset. Private reply drafts stay intact. */
-export async function discardSourceDrafts() {
-  const { getService } = await import('@codingame/monaco-vscode-api');
-  const { ITextFileService } = await import('@codingame/monaco-vscode-api/vscode/vs/workbench/services/textfile/common/textfiles.service');
-  const service = await getService(ITextFileService);
-  for (const model of service.files.models) if (model.isDirty()) await model.revert({ soft: true });
-  localStorage.removeItem(KEY); localStorage.removeItem(RECOVERED);
-}

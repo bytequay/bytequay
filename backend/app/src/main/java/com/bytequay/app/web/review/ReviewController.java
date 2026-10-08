@@ -205,12 +205,6 @@ public class ReviewController
         return ReviewHttpModels.review(reviews.update(reviewId));
     }
 
-    @PostMapping("/{reviewId}/code/sync")
-    public ReviewHttpModels.ReviewResponse syncWorktree(@PathVariable String reviewId, @RequestBody ReviewCodeHttpModels.DiscardRequest request)
-    {
-        return ReviewHttpModels.review(reviews.syncWorktree(reviewId, request.expectedHead()));
-    }
-
     @PostMapping("/{reviewId}/end")
     public ReviewHttpModels.ReviewResponse end(@PathVariable String reviewId)
     {

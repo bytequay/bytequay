@@ -141,25 +141,6 @@ class TestReviewRuntimeRecovery
     }
 
     @Test
-    void codeCatchUpRoutesToStandaloneSyncAndReturnsTheReview()
-            throws Exception
-    {
-        String head = "a".repeat(40);
-        when(reviews.syncWorktree(REVIEW_ID, head)).thenReturn(projection());
-        MockMvc mvc = standaloneSetup(controller).build();
-
-        mvc.perform(post("/api/agent-review/{reviewId}/code/sync", REVIEW_ID)
-                        .contentType("application/json")
-                        .content("{\"expectedHead\":\"" + head + "\"}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.id").value(REVIEW_ID));
-
-        verify(reviews).syncWorktree(REVIEW_ID, head);
-        verifyNoMoreInteractions(reviews);
-        verifyNoInteractions(turns);
-    }
-
-    @Test
     void resolvingRemembersTheReasonForTheFindingsFileOnlyWhenAsked()
             throws Exception
     {

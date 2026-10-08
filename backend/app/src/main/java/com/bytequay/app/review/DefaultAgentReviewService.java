@@ -469,38 +469,6 @@ public class DefaultAgentReviewService
     }
 
     @Override
-    public AgentReviewProjection syncWorktree(String reviewId, String expectedHead)
-    {
-        checkArgument(expectedHead != null && expectedHead.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "expectedHead must be a full commit ID");
-        AgentReview review = requireOpen(reviewId);
-        if (!remoteReview(review)) {
-            throw new ReviewConflictException("Only a remote pull request's review working copy can catch up");
-        }
-        LocalRunService.requireIdle(turns, store.listRuns(reviewId), review, tasks.get(TaskId.valueOf(review.taskId())));
-        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(review.workspaceId());
-        try {
-            String target = fetchReviewHead(review, workspace);
-            mutateWorkingCopy(reviewId, task -> {
-                AgentReview current = requireOpen(reviewId);
-                checkState(current.observedHeadSha().equals(review.observedHeadSha()) || current.observedHeadSha().equals(Optional.of(target)),
-                        "The PR head changed while catching up; refresh and try again");
-                TaskWorktree worktree = task.taskWorktree().orElseThrow();
-                checkState(worktrees.inspect(worktree).head().equals(expectedHead), "Review HEAD changed; local changes were preserved");
-                // Keep edits recoverable until the head move succeeds, then discard them at the verified remote revision.
-                experiments.synchronize(worktree, expectedHead, target, () -> moveCleanHead(worktree, expectedHead, target, workspace));
-                experiments.discard(worktree, target);
-                store.updateReview(current.withObservedHead(target, Instant.now(clock)).withWorktreeHead(target, Instant.now(clock)));
-                return null;
-            });
-            syncFailures.remove(reviewId);
-            return get(reviewId);
-        }
-        catch (IllegalStateException failure) {
-            throw new ReviewConflictException(failure.getMessage(), failure);
-        }
-    }
-
-    @Override
     public AgentReviewProjection end(String reviewId)
     {
         return locked(reviewId, () -> {

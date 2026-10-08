@@ -1080,12 +1080,6 @@ function registerIpc(): void {
     if (!response.ok) throw new Error(extractMessage(body) || `Saving the file returned ${response.status}`);
     return { file: parseReviewCodeFile(JSON.parse(body)) };
   });
-  ipcMain.handle('review:code:discard', (_event, reviewId: string, expectedHead: string) =>
-    backendJson(reviewUrl(`/${encodeURIComponent(reviewId)}/code/discard`), jsonInit('POST', { expectedHead }, agentHeaders(true))).then(parseReviewCodeFiles));
-  ipcMain.handle('review:code:sync', (_event, reviewId: string, expectedHead: string) =>
-    review(`/${encodeURIComponent(reviewId)}/code/sync`, {}, {
-      method: 'POST', body: JSON.stringify({ expectedHead }), signal: AbortSignal.timeout(15 * 60_000),
-    }));
   ipcMain.handle('code:runs:output', (_event, host: unknown, runId: string, after: number) =>
     backendJson(codeUrl(host, `/runs/${encodeURIComponent(runId)}/output`, { after: String(Math.max(0, Math.floor(after))) }), { headers: agentHeaders() })
       .then(parseLocalRunOutput));

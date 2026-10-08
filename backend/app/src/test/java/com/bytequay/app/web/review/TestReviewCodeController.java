@@ -176,25 +176,6 @@ class TestReviewCodeController
     }
 
     @Test
-    void discardsLocalChangesAndListsTheCleanWorkingCopy()
-            throws Exception
-    {
-        when(code.discard("review-1", HEAD)).thenReturn(new CodeFiles(CodeSource.WORKING_COPY, HEAD, Optional.of("clean"), false, false, ImmutableList.of(
-                new CodeFileEntry("src/test/java/TestCode.java", true, false, false, false))));
-        when(code.discard("review-1", "moved")).thenThrow(new ReviewConflictException("Review HEAD changed; experiments were preserved"));
-
-        mvc.perform(post("/api/agent-review/review-1/code/discard").contentType(MediaType.APPLICATION_JSON).content("{\"expectedHead\": \"%s\"}".formatted(HEAD)))
-                .andExpect(status().isOk())
-                .andExpect(content().json("""
-                        {"source": "WORKING_COPY", "revision": "%s", "sourceFingerprint": "clean", "savedExperiment": false, "truncated": false,
-                         "files": [{"path": "src/test/java/TestCode.java", "changedInPr": true, "addedInPr": false, "onlyInWorkingCopy": false, "uncommitted": false}]}
-                        """.formatted(HEAD), JsonCompareMode.STRICT));
-        mvc.perform(post("/api/agent-review/review-1/code/discard").contentType(MediaType.APPLICATION_JSON).content("{\"expectedHead\": \"moved\"}"))
-                .andExpect(status().isConflict())
-                .andExpect(jsonPath("$.message").value("Review HEAD changed; experiments were preserved"));
-    }
-
-    @Test
     void terminalAnswersTheWorkingDirectoryOfAnOpenReview()
             throws Exception
     {

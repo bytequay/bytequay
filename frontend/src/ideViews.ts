@@ -148,23 +148,6 @@ export class IdeViews {
       editor.context = context;
       editor.view.webContents.send('ide:context', context);
     });
-    ipcMain.handle('ide:discard-source', (event, id: string) => {
-      parent(event);
-      const editor = this.require(id);
-      return new Promise<void>((resolve, reject) => {
-        const requestId = randomUUID();
-        const timer = setTimeout(() => { editor.pending.delete(requestId); reject(new Error('The editor did not discard its source drafts')); }, 20_000);
-        editor.pending.set(requestId, { resolve: () => resolve(), reject, timer });
-        editor.view.webContents.send('ide:discard-source', requestId);
-      });
-    });
-    ipcMain.on('ide:discard-source-result', (event, id: string, error?: string) => {
-      const editor = child(event);
-      const pending = editor.pending.get(id);
-      if (!pending) return;
-      editor.pending.delete(id); clearTimeout(pending.timer);
-      if (typeof error === 'string') pending.reject(new Error(error.slice(0, 4000))); else pending.resolve(undefined);
-    });
     ipcMain.handle('ide:close', async (event, id: string) => { parent(event); await this.close(id); });
     ipcMain.handle('ide:bootstrap', event => {
       const editor = child(event);

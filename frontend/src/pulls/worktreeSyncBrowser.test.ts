@@ -22,10 +22,3 @@ it('creates an exploration worktree on demand and opens it without starting a re
     body: "const results = await window.webContents.executeJavaScript('WorktreeSyncTests.runExploration()');" });
   expect(result).toContain('opens the prepared checkout');
 }, 30_000);
-
-it('preserves drafts during automatic sync and resets only after confirmation in Chromium', async () => {
-  const result = await runBrowserFixture<string>({ prefix: 'bytequay-worktree-sync-',
-    entry: 'src/pulls/code-tests/fixtures/worktreeSyncBrowser.tsx', global: 'WorktreeSyncTests',
-    styles: true, charset: true, width: 1100, height: 900 });
-  expect(result).toBe('Worktree sync preserves drafts until a confirmed reset and never starts a review');
-}, 30_000);

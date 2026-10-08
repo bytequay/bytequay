@@ -30,7 +30,6 @@ function bridge(): CodeTestsBridge {
     listCodeRuns: vi.fn(),
     stopCodeRun: vi.fn(),
     readCodeRunOutput: vi.fn(),
-    discardReviewCodeChanges: vi.fn(),
     openCodeTerminal: vi.fn(),
     writeReviewTerminal: vi.fn(),
     resizeReviewTerminal: vi.fn(),
@@ -38,7 +37,6 @@ function bridge(): CodeTestsBridge {
     listAgentReviews: vi.fn(),
     prepareReviewWorktree: vi.fn(),
     getAgentReview: vi.fn(),
-    syncReviewWorktree: vi.fn(),
     subscribeAgentReview: vi.fn(),
     getAgentTask: vi.fn(),
   };

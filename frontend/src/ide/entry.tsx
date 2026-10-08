@@ -24,12 +24,12 @@ import type { IdeConnection, IdeContext, HistoryComparison } from './contracts';
 import { installSemanticQueries } from './semanticQueries';
 import { startRuntime, type IdeRuntime } from './runtime';
 import { ReviewDraftStorage } from '../pulls/ReviewDrafts';
-import { restoreSourceDrafts, discardSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
+import { restoreSourceDrafts, trackSourceDrafts, restoreNavigation, trackNavigation, discardRecoveredDraft, type SourceDraft } from './drafts';
 import TestRuns, { testRunPanel } from './TestRuns';
 import TerminalView from '../pulls/code-tests/TerminalView';
 import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
-import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, Ellipsis, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
+import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
 import ReviewZones from './ReviewZones';
 import EditorNavigation from './EditorNavigation';
 import Usages from './Usages';
@@ -140,13 +140,12 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
 
   useEffect(() => {
     const drafts = trackSourceDrafts(runtime, setError);
-    const stopDiscard = window.ideWorkbench.onDiscardSource(discardSourceDrafts);
     let navigation: ReturnType<typeof trackNavigation> | undefined;
     let live = true;
     void restoreSourceDrafts(runtime, draft => setRecovered(current => [...current, draft]))
       .then(() => restoreNavigation(runtime)).catch(cause => setError(String(cause)))
       .finally(() => { if (live) navigation = trackNavigation(runtime, setError); });
-    return () => { live = false; stopDiscard(); drafts.dispose(); navigation?.dispose(); };
+    return () => { live = false; drafts.dispose(); navigation?.dispose(); };
   }, [runtime]);
 
   useEffect(() => {
@@ -250,15 +249,6 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
         localStorage.setItem('bytequay.ide.theme', value); setTheme(value);
         void runtime.api.workspace.getConfiguration().update('workbench.colorTheme', value, runtime.api.ConfigurationTarget.Global);
       }}><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option></select>
-      {context.workingCopy && <details className="ide-more">
-        <summary aria-label="Working copy actions" title="Working copy actions"><Ellipsis size={16} /></summary>
-        <div>
-          {context.workingCopy.staleLabel && <button disabled={context.workingCopy.blocked !== null} title={context.workingCopy.blocked ?? undefined}
-            onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); void request('worktree.reset').catch(cause => setError(String(cause))); }}>{context.workingCopy.staleLabel}</button>}
-          <button disabled={context.workingCopy.blocked !== null} title={context.workingCopy.blocked ?? undefined}
-            onClick={event => { event.currentTarget.closest('details')?.removeAttribute('open'); void request('worktree.discard').catch(cause => setError(String(cause))); }}>Discard local changes…</button>
-        </div>
-      </details>}
     </header>
     {executionError && <div className="ide-notice" role="alert">{executionError}</div>}
     {execution?.treeUnverified && <div className="ide-notice" role="status">Execution finished; verifying process cleanup.

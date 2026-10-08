@@ -364,18 +364,6 @@ it('binds an interactive terminal to its known editor and retains that hidden sh
   expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
 });
 
-it('waits for the source-draft discard acknowledgement from that editor only', async () => {
-  const id = await invoke('ide:open', parent(), host);
-  expect(() => invoke('ide:discard-source', child(), id)).toThrow('owner');
-  const result = invoke('ide:discard-source', parent(), id);
-  const request = desktop.views[0].webContents.send.mock.calls.find(call => call[0] === 'ide:discard-source')?.[1];
-  expect(request).toBeTypeOf('string');
-  expect(() => invoke('ide:discard-source-result', parent(), request)).toThrow('Unknown');
-  invoke('ide:discard-source-result', child(), request);
-  await expect(result).resolves.toBeUndefined();
-});
-
-
 it('hosts hidden queries after the macOS window closes and releases the background window when idle', async () => {
   views.dispose(); views = new IdeViews(() => null); views.register();
   const request = { id: 'background', connection, taskId: 'task', workspaceId: 'workspace', expiresAt: Date.now() + 60_000,

@@ -76,12 +76,6 @@ public class ReviewCodeController
         return ReviewCodeHttpModels.file(code.save(reviewId, request.path(), request.content(), request.expectedHash()));
     }
 
-    @PostMapping("/discard")
-    public ReviewCodeHttpModels.FilesResponse discard(@PathVariable String reviewId, @RequestBody ReviewCodeHttpModels.DiscardRequest request)
-    {
-        return ReviewCodeHttpModels.files(code.discard(reviewId, request.expectedHead()));
-    }
-
     @PostMapping("/terminal")
     public ReviewCodeHttpModels.TerminalResponse terminal(@PathVariable String reviewId)
     {

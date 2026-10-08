@@ -623,27 +623,6 @@ public class ReviewCodeService
         }
     }
 
-    /**
-     * Resets the working copy to {@code expectedHead}, removing uncommitted and untracked files but not ignored ones,
-     * and drops the experiments a failed Update saved.
-     *
-     * @param expectedHead the {@link CodeFiles#revision} the user confirmed discarding against
-     * @return the clean working copy, listed like {@link #files}
-     */
-    public CodeFiles discard(String reviewId, String expectedHead)
-    {
-        checkArgument(expectedHead != null && !expectedHead.isBlank(), "expectedHead is required");
-        return reviews.mutateWorkingCopy(reviewId, task -> {
-            try {
-                experiments.discard(task.taskWorktree().orElseThrow(), expectedHead);
-            }
-            catch (IllegalStateException failure) {
-                throw new ReviewConflictException(failure.getMessage(), failure);
-            }
-            return files(reviewId);
-        });
-    }
-
     /** The canonical working copy a terminal shell starts in, while the review is open and its working copy exists. */
     public Path terminalDirectory(String reviewId)
     {

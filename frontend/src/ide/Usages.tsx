@@ -76,6 +76,7 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
   const closeRef = useRef(onClose); closeRef.current = onClose;
   const [rows, setRows] = useState<Usage[]>([]);
   const [loading, setLoading] = useState(true);
+  const [waiting, setWaiting] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [selected, setSelected] = useState(0);
   const [refresh, setRefresh] = useState(0);
@@ -93,12 +94,23 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
   useEffect(() => {
     const source = new CancellationTokenSource();
     let references: ReferencesModel | undefined;
-    setRows([]); setLoading(true); setMessage(null); setSelected(0);
+    setRows([]); setLoading(true); setWaiting(false); setMessage(null); setSelected(0);
     void (async () => {
       const [features, models] = await Promise.all([getService(ILanguageFeaturesService), getService(ITextModelService)]);
       if (source.token.isCancellationRequested) return;
+      while (!features.referenceProvider.has(request.model)) {
+        if (!['java', 'go', 'rust'].includes(request.model.getLanguageId())) throw new Error('Reference search is not available for this file.');
+        setWaiting(true);
+        await new Promise<void>(resolve => {
+          const listeners = new DisposableStore();
+          const done = () => { listeners.dispose(); resolve(); };
+          listeners.add(features.referenceProvider.onDidChange(() => { if (features.referenceProvider.has(request.model)) done(); }));
+          listeners.add(source.token.onCancellationRequested(done));
+        });
+        if (source.token.isCancellationRequested) return;
+        setWaiting(false);
+      }
       const providers = features.referenceProvider.ordered(request.model);
-      if (!providers.length) throw new Error('Reference search is not ready. Wait for project import, then refresh.');
       const links = await Promise.all(providers.map(provider => provider.provideReferences(request.model, request.position, { includeDeclaration: false }, source.token)));
       if (source.token.isCancellationRequested) return;
       references = new ReferencesModel(links.flatMap(items => items ?? []), request.name);
@@ -138,10 +150,11 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
   return <section ref={popup} className="ide-usages" role="dialog" aria-label={`Usages of ${request.name}`} tabIndex={-1}
     style={{ left: Math.max(12, Math.min(request.x, window.innerWidth - 1052)), top, maxHeight: window.innerHeight - top - 12 }}
     onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); } }}>
-    <header><strong>Usages of {request.name}</strong><span role="status">{loading ? 'Finding usages…' : `${rows.length} usages`}</span>
+    <header><strong>Usages of {request.name}</strong><span role="status">{waiting ? 'Preparing reference search…' : loading ? 'Finding usages…' : message ? 'Search unavailable' : `${rows.length} usages`}</span>
       <button aria-label="Refresh usages" title="Refresh usages" onClick={() => setRefresh(value => value + 1)}><RotateCw size={14} /></button>
       <button aria-label="Close usages" title="Close (Escape)" onClick={close}><X size={15} /></button></header>
     {message && <p role="alert">{message}</p>}
+    {waiting && <p>Waiting for the language service to finish preparing reference search. Results will appear automatically.</p>}
     {!loading && !message && rows.length === 0 && <p>No usages found.</p>}
     {rows.length > 0 && <div ref={list} className="ide-usages__list" role="listbox" aria-label="Usages" tabIndex={0} aria-activedescendant={`ide-usage-${selected}`}
       onKeyDown={event => {

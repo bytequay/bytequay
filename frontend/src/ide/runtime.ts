@@ -104,7 +104,8 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     resourceUriProvider: uri => URI.from({ scheme: 'https', authority: 'ide-assets.bytequay.invalid', path: uri.path }),
     remoteAuthority: connection.authority, connectionToken: connection.connectionToken,
     productConfiguration: { commit: connection.commit, quality: 'stable' },
-    workspaceProvider: { workspace: { folderUri: workspace }, trusted: true, open: async () => false },
+    // The server port changes on restart; language indexes belong to the worktree, not that connection.
+    workspaceProvider: { workspace: { folderUri: workspace, id: connection.taskId }, trusted: true, open: async () => false },
   });
   await coordinateSaves(connection);
   const api = await extension.getApi();

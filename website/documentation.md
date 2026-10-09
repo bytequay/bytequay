@@ -90,6 +90,8 @@ the query cancels the previous search; slow searches finish with the available
 results and a notice. **⌘-click** a method to show its usages
 with filenames, line numbers, and source lines; test-file results are green.
 Select a result to jump there, or press **Escape** to close the popup.
+If the language service is still preparing the project, the popup waits
+and runs the search automatically when it is ready.
 Working-copy reset and discard are in the
 **…** menu and require confirmation.
 

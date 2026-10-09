@@ -43,13 +43,16 @@ export async function verifyUsages() {
   let mode: 'ready' | 'slow' | 'empty' | 'error' = 'ready';
   let finish: ((locations: languages.Location[]) => void) | undefined;
   let cancelled = false;
-  const references = languages.registerReferenceProvider('java', { provideReferences: (_model, _position, context, token) => {
+  let searches = 0;
+  const registerReferences = () => languages.registerReferenceProvider('java', { provideReferences: (_model, _position, context, token) => {
+    searches++;
     assert(!context.includeDeclaration, 'Usages exclude the method declaration');
     if (mode === 'error') throw new Error('Fixture reference failure');
     if (mode === 'empty') return [];
     if (mode === 'slow') { token.onCancellationRequested(() => { cancelled = true; }); return new Promise<languages.Location[]>(resolve => { finish = resolve; }); }
     return [links[2], links[0], links[1], links[0]];
   } });
+  let references = registerReferences();
   const definitions = languages.registerDefinitionProvider('java', { provideDefinition: () => links[0] });
   const root = createRoot(shell);
   flushSync(() => root.render(<Usages editors={codeEditors} workspace={workspace} />));
@@ -104,10 +107,33 @@ export async function verifyUsages() {
     mode = 'empty'; click(); await until(() => popup()?.textContent?.includes('No usages found.') === true, 'An empty search is explicit');
     key('Escape'); await settle();
     mode = 'error'; click(); await until(() => popup()?.textContent?.includes('Fixture reference failure') === true, 'A provider failure is not presented as zero usages');
+    assert(popup()?.querySelector('[role="status"]')?.textContent === 'Search unavailable', 'A failed search must not report zero usages');
     key('Escape'); await settle();
     mode = 'ready'; click(); await until(() => rows().length === 3, 'Usages recover after a provider failure');
     code.getModel()?.applyEdits([{ range: { startLineNumber: 3, endLineNumber: 3, startColumn: 1, endColumn: 1 }, text: ' ' }]);
     await settle(); assert(!popup(), 'Editing the queried document dismisses stale locations');
+    references.dispose(); click();
+    await until(() => popup()?.textContent?.includes('Preparing reference search…') === true, 'An importing project waits for a reference provider');
+    assert(!popup()?.querySelector('[role="alert"]') && !popup()?.textContent?.includes('0 usages'), 'Project import is pending, not a failed or empty search');
+    const otherLanguage = languages.registerReferenceProvider('go', { provideReferences: () => [] });
+    await settle(); assert(popup()?.textContent?.includes('Preparing reference search…'), 'Another language becoming ready must not finish this search');
+    otherLanguage.dispose();
+    const transient = registerReferences(); transient.dispose();
+    await settle(); assert(popup()?.textContent?.includes('Preparing reference search…'), 'A provider removed during startup must not produce an empty search');
+    references = registerReferences();
+    await until(() => rows().length === 3, 'Provider registration automatically runs the pending search without refreshing');
+    key('Escape'); await settle();
+    references.dispose(); click();
+    await until(() => popup()?.textContent?.includes('Preparing reference search…') === true, 'A second import wait can start');
+    key('Escape'); await settle();
+    const before = searches;
+    references = registerReferences(); await settle();
+    assert(!popup() && searches === before, 'Closing during import cancels the wait without launching a late search');
+    references.dispose();
+    const model = code.getModel(); assert(model !== null, 'The queried document remains open');
+    editor.setModelLanguage(model, 'plaintext'); click();
+    await until(() => popup()?.textContent?.includes('Reference search is not available for this file.') === true, 'Unsupported files do not wait indefinitely for project import');
+    key('Escape');
   } finally {
     flushSync(() => root.unmount()); references.dispose(); definitions.dispose();
     await editors.activeEditorPane?.group.closeAllEditors(); contents.dispose(); attached.dispose(); host.remove();

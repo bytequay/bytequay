@@ -793,15 +793,17 @@ public final class DefaultProcessSupervisor
             Thread.ofVirtual().name("bytequay-process-stderr-" + payloadPid).start(() ->
                     drain(launcher.getErrorStream(), ProcessStream.STDERR, stderrDone));
             launcher.onExit().whenComplete((ignored, failure) -> finish());
-            CompletableFuture.delayedExecutor(spec.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
-                    .execute(() -> {
-                        // The launcher can exit while a payload descendant keeps running, so the
-                        // runtime bound follows the owned process group rather than the root.
-                        if (!groupEmpty()
-                                && reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.TIMED_OUT)) {
-                            terminate();
-                        }
-                    });
+            if (!spec.maximumRuntime().isZero()) {
+                CompletableFuture.delayedExecutor(spec.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
+                        .execute(() -> {
+                            // The launcher can exit while a payload descendant keeps running, so the
+                            // runtime bound follows the owned process group rather than the root.
+                            if (!groupEmpty()
+                                    && reason.compareAndSet(ProcessExit.Reason.EXITED, ProcessExit.Reason.TIMED_OUT)) {
+                                terminate();
+                            }
+                        });
+            }
         }
 
         @Override

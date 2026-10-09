@@ -24,6 +24,7 @@ import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
+/** A zero maximum runtime lets the turn run until completion or cancellation. */
 public record AgentTurnCommand(
         String turnId,
         String message,
@@ -55,6 +56,6 @@ public record AgentTurnCommand(
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
         checkOptionalText(serviceTier, "serviceTier");
-        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime must be positive");
+        checkArgument(!maximumRuntime.isNegative(), "maximumRuntime must not be negative");
     }
 }

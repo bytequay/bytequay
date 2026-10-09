@@ -30,6 +30,7 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>A present stdout capture limit bounds retained command output. An absent limit selects
  * lossless protocol streaming through a bounded queue; adapters bound individual records.
+ * A zero maximum runtime leaves the process running until it exits or its owner stops it.
  */
 public record ProcessSpec(
         ProcessOwner owner,
@@ -57,7 +58,7 @@ public record ProcessSpec(
         stdoutCaptureLimit.ifPresent(limit -> checkArgument(limit > 0, "stdoutCaptureLimit is not positive"));
         checkArgument(maximumStderrBytes > 0, "maximumStderrBytes is not positive");
         requireNonNull(maximumRuntime, "maximumRuntime is null");
-        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime is not positive");
+        checkArgument(!maximumRuntime.isNegative(), "maximumRuntime is negative");
         requireNonNull(cancellationGrace, "cancellationGrace is null");
         checkArgument(!cancellationGrace.isNegative(), "cancellationGrace is negative");
     }

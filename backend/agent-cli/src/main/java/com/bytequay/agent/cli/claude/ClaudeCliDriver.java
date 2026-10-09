@@ -1241,7 +1241,8 @@ public final class ClaudeCliDriver
             synchronized (inputLock) {
                 inputClosed = true;
                 pendingInputs.values().forEach(receipt -> receipt.completeExceptionally(new AgentUnavailableException("Claude process exited before acknowledging input")));
-                if (streamingInput && !pendingInputs.isEmpty() && !cancelled.get() && interruptionReason == null) {
+                if (streamingInput && !pendingInputs.isEmpty() && !cancelled.get() && interruptionReason == null
+                        && exit != null && exit.reason() == ProcessExit.Reason.EXITED) {
                     interruptionReason = "Claude exited before completing all submitted input";
                 }
             }

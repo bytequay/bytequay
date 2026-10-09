@@ -1855,12 +1855,40 @@ class TestClaudeCliDriver
         }
     }
 
-    @Test
-    void runtimeTimeoutReportsInterruptionWithoutFabricatingFinishedWork()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unlimitedTurnsStillSupportCancellation(boolean streaming)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        try (AgentSession session = driver(supervisor).open(context(Optional.empty()), event -> {})) {
+        if (streaming) {
+            supervisor.versionOutput("2.1.295");
+        }
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
+            driver.probe();
+            RunningTurn turn = session.start(new AgentTurnCommand("unlimited", "cancel", ImmutableList.of(), Duration.ZERO));
+            assertThat(supervisor.turns().getFirst().spec().maximumRuntime()).isEqualTo(Duration.ZERO);
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            turn.cancel();
+            AgentTurnResult result = await(turn);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+            assertThat(result.providerQuiescent()).isTrue();
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void runtimeTimeoutReportsInterruptionWithoutFabricatingFinishedWork(boolean streaming)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        if (streaming) {
+            supervisor.versionOutput("2.1.295");
+        }
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
+            assertThat(driver.probe().capabilities().steering()).isEqualTo(streaming);
             RunningTurn turn = session.start(command("cancel"));
             supervisor.turns().getFirst().exit.complete(new ProcessExit(
                     143, ProcessExit.Reason.TIMED_OUT, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMinutes(1), false, false));

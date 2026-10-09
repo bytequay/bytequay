@@ -575,7 +575,7 @@ class TestSqliteAgentStores
         AgentTask task = newTask(now, Optional.of("workspace-a"), true).withLocalReviewHead(Optional.of("a".repeat(40)), now);
         taskStore.insert(task);
         AgentTurnSettings settings = new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO,
-                Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY));
+                Duration.ZERO, ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY));
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "private-review", settings, now);
         turnStore.insert(turn);
         QueuedAgentInput queued = QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 1, "private-review-next",

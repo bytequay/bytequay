@@ -45,7 +45,7 @@
       "model": "test-model",
       "effort": "high",
       "permissionPolicy": "AUTO",
-      "maximumRuntimeMillis": 1800000,
+      "maximumRuntimeMillis": 0,
       "attachments": []
     },
     "terminalReason": null,

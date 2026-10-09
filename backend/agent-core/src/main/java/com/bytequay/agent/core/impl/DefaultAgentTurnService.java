@@ -285,7 +285,7 @@ public final class DefaultAgentTurnService
         this.reviewTurnInput = requireNonNull(reviewTurnInput, "reviewTurnInput is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.maximumTurnRuntime = requireNonNull(maximumTurnRuntime, "maximumTurnRuntime is null");
-        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
+        checkArgument(!maximumTurnRuntime.isNegative(), "maximumTurnRuntime must not be negative");
         this.queueStarter = requireNonNull(queueStarter, "queueStarter is null");
         this.developmentEligibility = requireNonNull(developmentEligibility, "developmentEligibility is null");
         this.developmentAccepted = requireNonNull(developmentAccepted, "developmentAccepted is null");

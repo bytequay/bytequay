@@ -355,6 +355,32 @@ class TestDefaultProcessSupervisor
         assertThat(awaitDead(timedOut.pid(), Duration.ofSeconds(2))).isTrue();
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void unlimitedProcessRunsUntilCompletionOrCancellation(boolean cancel)
+            throws Exception
+    {
+        ProcessSpec spec = new ProcessSpec(
+                PROBE, ImmutableList.of("/bin/sh", "-c", "read input"), worktree, ImmutableMap.of(), OptionalInt.empty(), 64,
+                Duration.ZERO, Duration.ofMillis(100));
+        ManagedProcess process = supervisor.prepare(spec).start((stream, bytes) -> {});
+        try {
+            assertThatThrownBy(() -> process.exit().toCompletableFuture().get(200, TimeUnit.MILLISECONDS)).isInstanceOf(TimeoutException.class);
+            if (cancel) {
+                process.cancel();
+            }
+            else {
+                process.write(StandardCharsets.UTF_8.encode("done\n")).toCompletableFuture().get(5, TimeUnit.SECONDS);
+            }
+            ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            assertThat(exit.reason()).isEqualTo(cancel ? ProcessExit.Reason.CANCELLED : ProcessExit.Reason.EXITED);
+            assertThat(exit.treeTermination()).isEqualTo(ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        }
+        finally {
+            process.cancel();
+        }
+    }
+
     @Test
     void terminatesADescendantThatOutlivesItsDirectParent()
             throws Exception

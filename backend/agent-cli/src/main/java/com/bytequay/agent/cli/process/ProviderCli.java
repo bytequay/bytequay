@@ -25,6 +25,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Helpers shared by the Claude and Codex CLI drivers. */
@@ -41,6 +42,7 @@ public final class ProviderCli
     public static Result run(ProcessSupervisor supervisor, ProcessSpec spec, String label)
             throws InterruptedException
     {
+        checkArgument(!spec.maximumRuntime().isZero(), "CLI probes require a positive maximum runtime");
         StringBuilder stdout = new StringBuilder();
         StringBuilder stderr = new StringBuilder();
         ManagedProcess process = supervisor.prepare(spec).start((stream, bytes) -> append(stream == ProcessStream.STDOUT ? stdout : stderr, bytes));

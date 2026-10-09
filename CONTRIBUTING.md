@@ -68,6 +68,12 @@ The backend writes its ready port into that session's temporary directory;
 to the frontend. When starting the backend and frontend separately, set that
 variable for `npm start` if the backend selected a port other than `9527`.
 
+Agent turns have no wall-clock limit by default. Use **Stop this turn** to cancel
+ongoing work. Set `bytequay.agent.maximum-turn-runtime` to a positive duration
+such as `2h` to impose a limit; `0` disables it. Restart ByteQuay to apply the
+setting to newly accepted turns. Login checks and other short helper operations
+keep their separate timeouts.
+
 ## Claude accounts
 
 Settings → Models shows CLI status and the default Claude account, with Sign

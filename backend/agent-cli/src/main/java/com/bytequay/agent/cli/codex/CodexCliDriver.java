@@ -171,7 +171,6 @@ public final class CodexCliDriver
     /** A settled answer needs a whole pass that changed nothing, so one clean pass is not enough. */
     private static final int QUIESCENCE_STABLE_PASSES = 2;
     private static final int MAX_PENDING_CHILD_NOTIFICATIONS = 128;
-    private static final Duration APP_SERVER_RUNTIME = Duration.ofHours(12);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
     private static final int MAX_APP_SERVER_STDERR_BYTES = 1024 * 1024;
     private static final int MAX_PROBE_OUTPUT_BYTES = 16 * 1024;
@@ -382,7 +381,7 @@ public final class CodexCliDriver
                             launchEnvironment,
                             OptionalInt.empty(),
                             MAX_APP_SERVER_STDERR_BYTES,
-                            APP_SERVER_RUNTIME,
+                            Duration.ZERO,
                             PROCESS_CANCELLATION_GRACE),
                     objectMapper,
                     launchRedactor,
@@ -1193,9 +1192,11 @@ public final class CodexCliDriver
             development = codeQueries.flatMap(McpRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
             running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, this::userInput);
-            CodexRunningTurn started = running;
-            CompletableFuture.delayedExecutor(command.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
-                    .execute(() -> expire(started, "Codex turn timed out"));
+            if (!command.maximumRuntime().isZero()) {
+                CodexRunningTurn started = running;
+                CompletableFuture.delayedExecutor(command.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
+                        .execute(() -> expire(started, "Codex turn timed out"));
+            }
             return running;
         }
 

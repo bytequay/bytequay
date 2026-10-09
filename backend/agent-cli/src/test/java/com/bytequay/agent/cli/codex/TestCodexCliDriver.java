@@ -88,6 +88,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1251,6 +1252,23 @@ class TestCodexCliDriver
             assertThat(result.terminalReason()).contains("Codex turn timed out");
             assertThat(result.providerQuiescent()).isTrue();
             assertThat(supervisor.server().finishedWorkStops.get()).isGreaterThanOrEqualTo(1);
+        }
+    }
+
+    @Test
+    void unlimitedTurnsStillSupportCancellation()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        CodexCliDriver driver = driver(supervisor);
+        try (AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {})) {
+            RunningTurn turn = session.start(new AgentTurnCommand("unlimited", "wait", ImmutableList.of(), Duration.ZERO));
+            assertThatThrownBy(() -> turn.completion().toCompletableFuture().get(200, TimeUnit.MILLISECONDS))
+                    .isInstanceOf(TimeoutException.class);
+            turn.cancel();
+            AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            assertThat(result.state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+            assertThat(result.providerQuiescent()).isTrue();
         }
     }
 

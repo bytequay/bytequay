@@ -45,6 +45,6 @@ public record AgentProperties(
         checkArgument(!codexExecutable.isBlank(), "codexExecutable is blank");
         checkArgument(!codexMinimumVersion.isBlank(), "codexMinimumVersion is blank");
         checkArgument(!claudeExecutable.isBlank(), "claudeExecutable is blank");
-        checkArgument(!maximumTurnRuntime.isZero() && !maximumTurnRuntime.isNegative(), "maximumTurnRuntime must be positive");
+        checkArgument(!maximumTurnRuntime.isNegative(), "maximumTurnRuntime must not be negative");
     }
 }

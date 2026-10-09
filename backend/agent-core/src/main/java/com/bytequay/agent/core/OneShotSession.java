@@ -33,6 +33,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -63,6 +64,7 @@ public final class OneShotSession
     public static Answer run(AgentResourceService resources, AgentDriver driver, BiFunction<TaskId, TaskResources, AgentSessionContext> context,
             String prompt, Duration maximumRuntime, Consumer<RunningTurn> started)
     {
+        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "One-shot sessions require a positive maximum runtime");
         TaskId scratchId = TaskId.random();
         boolean processMayBeRunning = false;
         AgentSession session = null;

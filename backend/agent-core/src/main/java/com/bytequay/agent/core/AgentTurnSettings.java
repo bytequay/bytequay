@@ -24,7 +24,7 @@ import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Immutable requested settings recorded when a turn is accepted. */
+/** Immutable requested settings recorded when a turn is accepted. A zero maximum runtime means no time limit. */
 public record AgentTurnSettings(
         Optional<String> model,
         Optional<String> effort,
@@ -66,6 +66,6 @@ public record AgentTurnSettings(
         requireNonNull(maximumRuntime, "maximumRuntime is null");
         attachments = ImmutableList.copyOf(attachments);
         checkArgument(effort.isEmpty() || model.isPresent(), "effort requires a model");
-        checkArgument(!maximumRuntime.isZero() && !maximumRuntime.isNegative(), "maximumRuntime must be positive");
+        checkArgument(!maximumRuntime.isNegative(), "maximumRuntime must not be negative");
     }
 }

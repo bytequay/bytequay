@@ -87,6 +87,10 @@ helper, and branch the change adds:
 - For work moved in time or onto another thread: what does starting it earlier
   or later save or cost, who owns it when its starter goes away, and whose
   accounting does it escape?
+- A helper, fixture or constant the change reuses from another feature's
+  package, or edits there to serve this one, is now shared. Ask for it to move
+  to a shared place, as a follow-up when moving it here would widen the
+  change.
 
 ## Lens `tests`: the tests bite
 
@@ -102,6 +106,8 @@ For every test the change adds or edits:
 - Each new production branch: which test value reaches it?
 - A unit tested alone when the change is about two units agreeing.
 - Duplicate fixtures, and a test name that promises more than it asserts.
+- Does each test arrive in the commit that adds or changes the code it tests?
+  Code that waits for its tests in a later commit is a lead.
 
 ## Lens `rules`: this repository's rules
 
@@ -111,7 +117,10 @@ such as m12. A rule the change follows needs no lead.
 
 ## Lens `facts`: what ByteQuay measured
 
-The request may list measurements of the commits, the description, and the
-tests. Each one is true. Decide whether it deserves a comment under this
-repository's rules and conventions. When a marked option asks the reviewer for
-something, the lead supplies it.
+The request may list measurements of the commits, the description, the tests
+and the added lines. Each one is true. Decide whether it deserves a comment
+under this repository's rules and conventions. When a marked option asks the
+reviewer for something, the lead supplies it. Tests that arrive after their
+code, and a multi-line string written as escapes where the language has a
+multi-line literal, are leads unless the touched files show that this
+repository does otherwise.

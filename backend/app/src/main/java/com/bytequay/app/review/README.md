@@ -118,9 +118,11 @@ the investigation turn and gives it everything in one request:
   may hold the investigation's temporary experiments;
 - the pull request title and description, except for a local change or a replay;
 - measurements from [ReviewFacts](ReviewFacts.java): each commit's subject
-  length, body size and fixup, work-in-progress or merge markers, the options the
-  description marks under a template section, and added tests that are switched
-  off. A fact is a measurement, never a judgement;
+  length, body size and fixup, work-in-progress or merge markers, tests a commit
+  adds for code an earlier commit of the change added, the options the
+  description marks under a template section, added tests that are switched
+  off, and added JVM-language strings that hold several lines as `\n` escapes.
+  A fact is a measurement, never a judgement;
 - the text of the repository memories that match the changed paths, without
   recipes. A reader has no memory tool, so a title alone would reach nothing.
 
@@ -136,6 +138,12 @@ candidates, numbers and evidence unchanged.
 Thirty bounds what validation spends on leads. Each lead that holds costs a verdict
 and usually a saved draft, and one measured validation of 25 candidates took 21
 minutes.
+
+The assignment names three habits of reviewers so the reader does not have to
+think of them: tests arrive in the commit that adds their code, a multi-line
+string is written as a multi-line literal, and a helper reused from another
+feature's package moves to a shared place. The first two also arrive as measured
+facts.
 
 The read is not durable state. A failed, timed-out, unparsable or cancelled read
 contributes nothing and the run continues; after a restart no read is running

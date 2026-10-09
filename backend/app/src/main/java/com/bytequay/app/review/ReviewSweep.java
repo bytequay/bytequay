@@ -32,6 +32,7 @@ import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewPerspectiveAssessment.Perspective;
 import com.bytequay.core.review.ReviewRun;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -41,6 +42,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +52,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -206,14 +209,34 @@ public class ReviewSweep
         if (!listed.successful() || listed.truncated()) {
             return ImmutableList.of();
         }
+        Map<String, List<String>> added = addedFiles(checkout, run);
         ImmutableList.Builder<ReviewFacts.Commit> commits = ImmutableList.builder();
         for (String entry : listed.output().split("\\x1e")) {
             String[] parts = entry.strip().split("\\x1f", 3);
             if (parts.length >= 2 && !parts[0].isBlank()) {
-                commits.add(new ReviewFacts.Commit(parts[0], parts[1], parts.length == 3 ? parts[2] : ""));
+                commits.add(new ReviewFacts.Commit(parts[0], parts[1], parts.length == 3 ? parts[2] : "", added.getOrDefault(parts[0], ImmutableList.of())));
             }
         }
         return commits.build();
+    }
+
+    /** The files each commit adds; none when Git cannot list them, so no commit is said to add what it does not. */
+    private Map<String, List<String>> addedFiles(Path checkout, ReviewRun run)
+    {
+        // This lists only the commits that add a file, which is why the messages are read on their own.
+        GitCommandRunner.Result listed = git.runLocalBoundedStdout(checkout, GIT_TIMEOUT, GIT_BYTES, ImmutableList.of(
+                "-c", "core.quotePath=false", "log", "--diff-filter=A", "--name-only", "--format=%x1e%H", run.mergeBaseSha() + ".." + run.headSha()));
+        if (!listed.successful() || listed.truncated()) {
+            return ImmutableMap.of();
+        }
+        ImmutableMap.Builder<String, List<String>> added = ImmutableMap.builder();
+        for (String entry : listed.output().split("\\x1e")) {
+            List<String> lines = entry.lines().filter(line -> !line.isBlank()).collect(toImmutableList());
+            if (!lines.isEmpty()) {
+                added.put(lines.getFirst().strip(), lines.subList(1, lines.size()));
+            }
+        }
+        return added.buildOrThrow();
     }
 
     /** The template the author started from, read at the merge base. */

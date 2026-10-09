@@ -73,6 +73,32 @@ class TestReviewSweep
     private final AtomicInteger settled = new AtomicInteger();
 
     @Test
+    void theFactsNameTestsThatArriveAfterTheirCode()
+    {
+        String first = "c".repeat(40);
+        when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenAnswer(invocation -> {
+            List<String> arguments = invocation.getArgument(3);
+            if (arguments.getFirst().equals("log")) {
+                return new GitCommandRunner.Result(0, first + "\u001fAdd the loader\u001f\u001e\n" + HEAD + "\u001fTest the loader\u001f\u001e\n", false);
+            }
+            // Git lists the newest commit first here, and only the commits that add a file.
+            return arguments.contains("--diff-filter=A")
+                    ? new GitCommandRunner.Result(0, "\u001e" + HEAD + "\n\nsrc/test/java/TestLoader.java\n\u001e" + first + "\n\nsrc/main/java/Loader.java\n", false)
+                    : new GitCommandRunner.Result(128, "fatal: path does not exist", false);
+        });
+        when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenReturn(detail("Add the loader", ""));
+        List<String> prompts = new ArrayList<>();
+        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, started) -> {
+            prompts.add(prompt);
+            return Optional.of(ANSWER);
+        });
+
+        sweep.start(review(Optional.empty()), run(), task(), settled::incrementAndGet);
+
+        assertThat(prompts.getFirst()).contains("- commit bbbbbbbbbbb adds TestLoader.java, the test of Loader.java, which commit ccccccccccc added");
+    }
+
+    @Test
     void readsOnceWithTheGatheredReferenceAndHandsItsLeadsOverOnce()
     {
         when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenAnswer(invocation -> {

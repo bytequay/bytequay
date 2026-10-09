@@ -17,8 +17,10 @@ import com.bytequay.core.domain.DiffFile;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -27,14 +29,17 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
- * What a script can see about a change before any model reads it: commit message sizes and markers, the options a
- * description marks under its template's sections, and tests the change adds switched off. Each line is a
- * measurement, never a judgement; whether it deserves a comment is the reviewer's call.
+ * What a script can see about a change before any model reads it: commit message sizes and markers, tests that arrive
+ * in a later commit than the code they test, the options a description marks under its template's sections, tests the
+ * change adds switched off, and multi-line strings written as escapes. Each line is a measurement, never a judgement;
+ * whether it deserves a comment is the reviewer's call.
  */
 final class ReviewFacts
 {
     private static final int MAX_COMMITS = 30;
+    private static final int MAX_LATE_TESTS = 5;
     private static final int MAX_SWITCHED_OFF = 10;
+    private static final int MAX_ESCAPED = 5;
     private static final int MAX_QUOTE = 160;
     private static final Pattern WORD = Pattern.compile("\\S+");
     private static final Pattern UNFINISHED = Pattern.compile("^(?:wip|tmp|temp)\\b", Pattern.CASE_INSENSITIVE);
@@ -49,6 +54,12 @@ final class ReviewFacts
             + "|(?:^|/)(?:Test[A-Z0-9][^/]*|[^/]*(?:Tests?|IT))\\.(?:java|kt|scala|groovy|cs|swift)$"
             + "|[._-](?:test|spec)\\.[cm]?[jt]sx?$|(?:^|/)test_[^/]*\\.py$|_(?:test|spec)\\.(?:py|go|rb|rs|c|cc|cpp)$");
     private static final Pattern PROSE = Pattern.compile("(?:^|/)docs?/|\\.(?:md|mdx|rst|txt|adoc)$", Pattern.CASE_INSENSITIVE);
+    // A test's name without its marker names what it tests: TestLoader, LoaderTest, loader.test, test_loader, loader_test.
+    private static final Pattern TESTED = Pattern.compile("^(?:Test(?=[A-Z0-9])|test_)?(.+?)(?:Tests?|IT|[._-](?:test|spec))?$");
+    // Languages with a multi-line string literal, where writing the lines as escapes is a choice.
+    private static final Pattern MULTI_LINE_LITERALS = Pattern.compile("\\.(?:java|kt|scala|groovy)$");
+    private static final Pattern STRING = Pattern.compile("\"((?:[^\"\\\\]|\\\\.)*)\"");
+    private static final Pattern ESCAPE = Pattern.compile("\\\\(.)");
 
     private ReviewFacts() {}
 
@@ -66,14 +77,19 @@ final class ReviewFacts
         return TEST.matcher(path).find();
     }
 
-    /** One commit of the change, oldest first. */
-    record Commit(String sha, String subject, String body)
+    /**
+     * One commit of the change, oldest first.
+     *
+     * @param added the files the commit adds
+     */
+    record Commit(String sha, String subject, String body, List<String> added)
     {
         Commit
         {
             requireNonNull(sha, "sha is null");
             requireNonNull(subject, "subject is null");
             requireNonNull(body, "body is null");
+            added = ImmutableList.copyOf(added);
         }
     }
 
@@ -88,10 +104,13 @@ final class ReviewFacts
         if (commits.size() > MAX_COMMITS) {
             facts.add((commits.size() - MAX_COMMITS) + " more commits are not listed");
         }
+        facts.addAll(lateTests(commits));
         if (description.isPresent() && template.isPresent()) {
             facts.addAll(options(description.orElseThrow(), template.orElseThrow()));
         }
-        facts.addAll(switchedOff(diff));
+        List<Added> added = addedLines(diff);
+        facts.addAll(switchedOff(added));
+        facts.addAll(escapedStrings(added));
         return facts.build();
     }
 
@@ -99,7 +118,7 @@ final class ReviewFacts
     {
         String subject = commit.subject().strip();
         String lower = subject.toLowerCase(Locale.ROOT);
-        StringBuilder fact = new StringBuilder("commit ").append(commit.sha(), 0, Math.min(11, commit.sha().length()))
+        StringBuilder fact = new StringBuilder("commit ").append(abbreviated(commit))
                 .append(" \"").append(quote(subject)).append("\": subject ").append(subject.codePointCount(0, subject.length())).append(" characters, body ")
                 .append(WORD.matcher(commit.body()).results().count()).append(" words");
         if (lower.startsWith("fixup!") || lower.startsWith("squash!") || lower.startsWith("amend!")) {
@@ -115,6 +134,50 @@ final class ReviewFacts
             fact.append("; the subject ends with a period");
         }
         return fact.toString();
+    }
+
+    private static String abbreviated(Commit commit)
+    {
+        return commit.sha().substring(0, Math.min(11, commit.sha().length()));
+    }
+
+    /** Tests a commit adds for code that an earlier commit of the same change added, paired by name alone. */
+    private static List<String> lateTests(List<Commit> commits)
+    {
+        List<String> facts = new ArrayList<>();
+        Map<String, String> code = new HashMap<>();
+        for (Commit commit : commits) {
+            for (String path : commit.added()) {
+                Optional<String> origin = test(path) ? tested(path).map(code::get) : Optional.empty();
+                origin.ifPresent(value -> facts.add("commit " + abbreviated(commit) + " adds " + name(path) + ", the test of " + value));
+            }
+            // After the tests, so a commit that brings code with its own test pairs nothing.
+            for (String path : commit.added()) {
+                if (!test(path) && !PROSE.matcher(path).find()) {
+                    code.putIfAbsent(stem(path), name(path) + ", which commit " + abbreviated(commit) + " added");
+                }
+            }
+        }
+        return capped(facts, MAX_LATE_TESTS, "more tests added after their code are not listed");
+    }
+
+    /** What a test file's name says it tests; empty when the name carries no test marker. */
+    private static Optional<String> tested(String path)
+    {
+        String stem = stem(path);
+        Matcher named = TESTED.matcher(stem);
+        return named.matches() && !named.group(1).equals(stem) ? Optional.of(named.group(1)) : Optional.empty();
+    }
+
+    private static String name(String path)
+    {
+        return path.substring(path.lastIndexOf('/') + 1);
+    }
+
+    private static String stem(String path)
+    {
+        String name = name(path);
+        return name.lastIndexOf('.') > 0 ? name.substring(0, name.lastIndexOf('.')) : name;
     }
 
     /** For each template section that offers options, the options the description marks under the same heading. */
@@ -171,9 +234,10 @@ final class ReviewFacts
         return sections;
     }
 
-    private static List<String> switchedOff(List<DiffFile> diff)
+    /** The lines the change adds, each at its line number in the new file. */
+    private static List<Added> addedLines(List<DiffFile> diff)
     {
-        List<String> facts = new ArrayList<>();
+        ImmutableList.Builder<Added> added = ImmutableList.builder();
         for (DiffFile file : diff) {
             int line = 0;
             for (String raw : Optional.ofNullable(file.patch()).orElse("").split("\n")) {
@@ -185,17 +249,61 @@ final class ReviewFacts
                 if (line == 0 || raw.startsWith("-") || raw.startsWith("\\")) {
                     continue;
                 }
-                if (raw.startsWith("+") && SWITCHED_OFF.matcher(raw).find()) {
-                    if (facts.size() == MAX_SWITCHED_OFF) {
-                        facts.add("more switched-off tests are not listed");
-                        return facts;
-                    }
-                    facts.add(file.filename() + ":" + line + " adds a test that is switched off: " + quote(raw.substring(1).strip()));
+                if (raw.startsWith("+")) {
+                    added.add(new Added(file.filename(), line, raw.substring(1)));
                 }
                 line++;
             }
         }
-        return facts;
+        return added.build();
+    }
+
+    private static List<String> switchedOff(List<Added> added)
+    {
+        return capped(added.stream().filter(line -> SWITCHED_OFF.matcher(line.text()).find())
+                .map(line -> line.path() + ":" + line.line() + " adds a test that is switched off: " + quote(line.text().strip()))
+                .collect(toImmutableList()), MAX_SWITCHED_OFF, "more switched-off tests are not listed");
+    }
+
+    /** Strings that hold several lines as escapes on one line, in the languages that could write them as a multi-line literal. */
+    private static List<String> escapedStrings(List<Added> added)
+    {
+        List<String> facts = new ArrayList<>();
+        for (Added line : added) {
+            String text = line.text().strip();
+            // A commented-out line builds no string.
+            if (!MULTI_LINE_LITERALS.matcher(line.path()).find() || text.startsWith("//") || text.startsWith("*") || text.startsWith("/*")) {
+                continue;
+            }
+            int breaks = STRING.matcher(text).results().mapToInt(literal -> lineBreaks(literal.group(1))).max().orElse(0);
+            if (breaks >= 2) {
+                facts.add(line.path() + ":" + line.line() + " writes a string of several lines with " + breaks + " \\n escapes on one line: " + quote(text));
+            }
+        }
+        return capped(facts, MAX_ESCAPED, "more such strings are not listed");
+    }
+
+    /** A literal's line-break escapes; none when they separate no text, as in a separator made of two of them. */
+    private static int lineBreaks(String literal)
+    {
+        int breaks = 0;
+        int texts = 0;
+        int from = 0;
+        Matcher escape = ESCAPE.matcher(literal);
+        while (escape.find()) {
+            if (escape.group(1).equals("n")) {
+                breaks++;
+                texts += literal.substring(from, escape.start()).isBlank() ? 0 : 1;
+                from = escape.end();
+            }
+        }
+        texts += literal.substring(from).isBlank() ? 0 : 1;
+        return texts >= 2 ? breaks : 0;
+    }
+
+    private static List<String> capped(List<String> facts, int maximum, String more)
+    {
+        return facts.size() <= maximum ? facts : ImmutableList.<String>builder().addAll(facts.subList(0, maximum)).add(more).build();
     }
 
     private static String quote(String text)
@@ -203,6 +311,8 @@ final class ReviewFacts
         String flat = text.replace('"', '\'').replaceAll("\\s+", " ").strip();
         return flat.length() <= MAX_QUOTE ? flat : flat.substring(0, MAX_QUOTE) + "…";
     }
+
+    private record Added(String path, int line, String text) {}
 
     private record Section(String heading, List<Option> options) {}
 

@@ -45,11 +45,11 @@ class TestReviewFacts
     {
         List<String> facts = ReviewFacts.describe(
                 ImmutableList.of(
-                        new ReviewFacts.Commit("a".repeat(40), "Add the loader", "Why it exists.\n\nTwo more words"),
-                        new ReviewFacts.Commit("b".repeat(40), "fixup! Add the loader", ""),
-                        new ReviewFacts.Commit("c".repeat(40), "WIP: try the pool.", ""),
-                        new ReviewFacts.Commit("d".repeat(40), "Wipe the cache", ""),
-                        new ReviewFacts.Commit("e".repeat(40), "Merge branch 'master' into feature", "")),
+                        new ReviewFacts.Commit("a".repeat(40), "Add the loader", "Why it exists.\n\nTwo more words", ImmutableList.of()),
+                        new ReviewFacts.Commit("b".repeat(40), "fixup! Add the loader", "", ImmutableList.of()),
+                        new ReviewFacts.Commit("c".repeat(40), "WIP: try the pool.", "", ImmutableList.of()),
+                        new ReviewFacts.Commit("d".repeat(40), "Wipe the cache", "", ImmutableList.of()),
+                        new ReviewFacts.Commit("e".repeat(40), "Merge branch 'master' into feature", "", ImmutableList.of())),
                 Optional.empty(), Optional.empty(), ImmutableList.of());
 
         assertThat(facts).containsExactly(
@@ -116,6 +116,62 @@ class TestReviewFacts
                         "src/test/TestLoader.java:41 adds a test that is switched off: @Disabled('Measures wall time, do not enable in CI')",
                         "src/test/TestLoader.java:43 adds a test that is switched off: @Test(enabled = false)",
                         "src/test/TestLoader.java:201 adds a test that is switched off: it.skip('loads', () => {});");
+    }
+
+    @Test
+    void pairsTestsWithCodeThatAnEarlierCommitOfTheChangeAdded()
+    {
+        List<String> facts = ReviewFacts.describe(
+                ImmutableList.of(
+                        commit("a", "Add the storage", "src/main/java/io/Storage.java", "src/main/java/io/StorageConfig.java", "web/loader.ts",
+                                "docs/storage.md"),
+                        commit("b", "Add its tests", "src/test/java/io/TestStorage.java", "src/test/java/io/StorageConfigTest.java", "web/loader.test.ts",
+                                "src/test/java/io/TestingStorageServer.java", "src/test/java/io/TestOther.java"),
+                        commit("c", "Add the reader with its test", "src/main/java/io/Reader.java", "src/test/java/io/TestReader.java")),
+                Optional.empty(), Optional.empty(), ImmutableList.of());
+
+        // A helper named Testing…, a test of code the change did not add, and a test that comes with its code pair nothing.
+        assertThat(facts).filteredOn(fact -> fact.contains(" adds ")).containsExactly(
+                "commit bbbbbbbbbbb adds TestStorage.java, the test of Storage.java, which commit aaaaaaaaaaa added",
+                "commit bbbbbbbbbbb adds StorageConfigTest.java, the test of StorageConfig.java, which commit aaaaaaaaaaa added",
+                "commit bbbbbbbbbbb adds loader.test.ts, the test of loader.ts, which commit aaaaaaaaaaa added");
+
+        List<ReviewFacts.Commit> many = ImmutableList.of(
+                commit("a", "Add six", "A.java", "B.java", "C.java", "D.java", "E.java", "F.java"),
+                commit("b", "Test six", "ATest.java", "BTest.java", "CTest.java", "DTest.java", "ETest.java", "FTest.java"));
+        assertThat(ReviewFacts.describe(many, Optional.empty(), Optional.empty(), ImmutableList.of())).filteredOn(fact -> !fact.contains("subject"))
+                .hasSize(6).last().isEqualTo("more tests added after their code are not listed");
+    }
+
+    @Test
+    void findsStringsThatHoldSeveralLinesAsEscapes()
+    {
+        String patch = """
+                @@ -0,0 +40,7 @@
+                +    private static final String DESCRIPTION = "openapi: 3.0.3\\ninfo:\\n  title: test\\n";
+                +    private static final String SEPARATOR = "\\n\\n";
+                +    private static final String ONE = "first line\\n";
+                +    // String old = "a\\nb\\nc";
+                +    private static final String BACKSLASHES = "a\\\\nb\\\\nc";
+                +    String text = String.format("%s\\n%s\\n", first, second);
+                +    String tabs = "a\\tb\\tc";
+                """;
+
+        // A separator, one line, a comment, escaped backslashes and tabs are not several lines of text.
+        assertThat(ReviewFacts.describe(ImmutableList.of(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(new DiffFile("src/test/java/TestLoader.java", "added", 7, 0, patch))))
+                .containsExactly(
+                        "src/test/java/TestLoader.java:40 writes a string of several lines with 3 \\n escapes on one line: "
+                                + "private static final String DESCRIPTION = 'openapi: 3.0.3\\ninfo:\\n title: test\\n';",
+                        "src/test/java/TestLoader.java:45 writes a string of several lines with 2 \\n escapes on one line: "
+                                + "String text = String.format('%s\\n%s\\n', first, second);");
+        // A language without a multi-line literal has no other way to write it.
+        assertThat(ReviewFacts.describe(ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableList.of(new DiffFile("web/loader.c", "added", 7, 0, patch)))).isEmpty();
+    }
+
+    private static ReviewFacts.Commit commit(String letter, String subject, String... added)
+    {
+        return new ReviewFacts.Commit(letter.repeat(40), subject, "", ImmutableList.copyOf(added));
     }
 
     @Test

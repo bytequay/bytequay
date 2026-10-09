@@ -271,6 +271,17 @@ export function AgentHomeView({
           onStartIssue={onStartIssue}
           goal={goal}
         />
+        <AttentionList
+          variant="workspace"
+          section="my-prs"
+          scope={{ workspaceId, repository }}
+          candidates={attention}
+          handled={handled}
+          viewerLogin={viewerLogin}
+          onHandledChange={onHandledChange}
+          onOpen={onOpenAttention}
+          goal={goal}
+        />
         <section className="agt-open-tasks" aria-label="Open tasks">
           <div className="agt-open-tasks__head">
             <span className="agt-label">Open tasks · {items.length}</span>

@@ -24,6 +24,7 @@ import {
   attentionTime,
   handledEntry,
   handledSummary,
+  myPullRequestCards,
   pullRequestItem,
   snoozeUntil,
   stillHandled,
@@ -482,5 +483,43 @@ describe('Jira ticket events', () => {
     expect(attentionSummary(ticket({ kind: 'FIELDS_CHANGED', at: '2026-09-27T09:00:00Z', actor: null, from: null, to: null, note: null,
       fields: ['priority', 'labels', 'due date'] }))).toMatchObject({ verb: 'Updated in Jira', detail: { kind: 'text', text: 'Changed priority, labels and due date' } });
     expect(attentionSummary(ticket(null)).tag).toEqual({ label: jiraIssue.status.name, tone: 'neutral' });
+  });
+});
+
+
+describe('my pull request cards', () => {
+  const now = Date.parse('2026-09-15T00:00:00Z');
+  const own = (number: number, updatedAt: string) => pullRequestItem(pr({ number, author: 'Me', updatedAt }));
+  const older = own(1, '2026-09-01T00:00:00Z');
+  const newer = own(2, '2026-09-02T00:00:00Z');
+  const newest = own(3, '2026-09-03T00:00:00Z');
+  const items = [older, newest, newer];
+  const read = Object.fromEntries(items.map(item => [item.key, handledEntry(item, 'ack', null, 'Viewed')]));
+
+  it('only includes open PRs and drafts, even when merged or closed PRs have unread updates', () => {
+    const draft = pullRequestItem(pr({ number: 4, author: 'Me', state: 'open', draft: true }));
+    const merged = pullRequestItem(pr({ number: 5, author: 'Me', state: 'merged' }));
+    const closedDraft = pullRequestItem(pr({ number: 6, author: 'Me', state: 'closed', draft: true }));
+    expect(myPullRequestCards([merged, closedDraft, older, draft], {}, 'me', now)).toEqual([older, draft]);
+  });
+
+  it('keeps the latest two read PRs and puts new activity ahead of newer read PRs', () => {
+    expect(myPullRequestCards(items, read, 'me', now)).toEqual([newest, newer]);
+    const changed = pullRequestItem(pr({ ...older.pr, ciStatus: 'FAILING' }));
+    expect(myPullRequestCards([changed, newest, newer], read, 'me', now)).toEqual([changed, newest]);
+    expect(myPullRequestCards(items, {}, 'me', now)).toEqual([newest, newer]);
+  });
+
+  it('hides snoozed PRs until their deadline and then fills the two-card list again', () => {
+    const handled = { ...read, [newest.key]: handledEntry(newest, 'snooze', now + 1000, 'soon') };
+    expect(myPullRequestCards(items, handled, 'me', now)).toEqual([newer, older]);
+    expect(myPullRequestCards(items, handled, 'me', now + 1000)).toEqual([newest, newer]);
+  });
+
+  it('uses the signed-in author, falling back to authored origin before the profile loads', () => {
+    const other = pullRequestItem(pr({ author: 'someone-else', origin: 'AUTHORED' }));
+    const mine = pullRequestItem(pr({ author: 'ME', origin: 'OTHER' }));
+    expect(myPullRequestCards([other, mine], {}, 'me', now)).toEqual([mine]);
+    expect(myPullRequestCards([other, mine], {}, null, now)).toEqual([other]);
   });
 });

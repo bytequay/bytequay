@@ -67,6 +67,27 @@ describe('agent home on a return visit', () => {
     expect(seeded).not.toContain('Assigned in another workspace');
   });
 
+  it('always separates up to two own PRs from workspace attention, without acknowledge controls', () => {
+    setCached(ATTENTION_SEED.profile, { login: 'me' });
+    setCached(ATTENTION_SEED.prs, [
+      ...[1, 2, 3].map(number => ({ ...pullRequest('octo/app', number, `My change ${number}`), author: 'Me' })),
+      pullRequest('octo/app', 4, 'Someone else needs review'),
+      { ...pullRequest('octo/other', 5, 'My change elsewhere'), author: 'me' },
+    ]);
+    const markup = home('workspace-own-prs');
+    const attention = markup.split('aria-label="Needs attention"')[1].split('</section>')[0];
+    const mine = markup.split('aria-label="My PRs"')[1].split('</section>')[0];
+    expect(attention).not.toContain('My change');
+    expect(attention).toContain('Someone else needs review');
+    expect(mine.match(/class="card-row item-row"/g)).toHaveLength(2);
+    expect(mine).not.toContain('Acknowledge');
+    expect(mine).toContain('Snooze #1');
+    expect(mine).toContain('Open #1');
+    expect(mine).not.toContain('My change elsewhere');
+    setCached(ATTENTION_SEED.prs, []);
+    expect(home('workspace-own-prs')).toContain('aria-label="My PRs"');
+  });
+
   it('paints the last open tasks before the list read answers', () => {
     expect(home('workspace-tasks')).toContain('Open tasks · 0');
 

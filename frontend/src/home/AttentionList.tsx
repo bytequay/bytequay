@@ -16,6 +16,7 @@ import { createPortal } from 'react-dom';
 import Toast from '../Toast';
 import { anchorPanel } from '../ReferenceCard';
 import AttentionRow from './AttentionRow';
+import { pullRequestIsMine } from '../pulls/model';
 import { usePinnedItems } from './pinned';
 import { useSnoozedAttention } from './useSnoozedAttention';
 import { useTeams } from '../teams/useTeams';
@@ -27,6 +28,7 @@ import {
   attentionSource,
   handledEntry,
   handledSummary,
+  myPullRequestCards,
   SNOOZE_OPTIONS,
   snoozeHint,
   snoozeUntil,
@@ -58,6 +60,7 @@ type Props = {
   viewerLogin?: string | null;
   /** Home spans every watched repository and names each card's; a workspace shows only its own. */
   variant?: 'home' | 'workspace';
+  section?: 'attention' | 'my-prs';
   scope?: { workspaceId: string; repository: string };
   /** The pinned goal each card can join or leave; absent where no goal can hold the card. */
   goal?: (item: AttentionItem) => GoalToggle | null;
@@ -79,8 +82,10 @@ type Anchored = { item: AttentionItem; anchor: DOMRect };
 type ToastState = { id: number; text: string; key: string };
 
 export default function AttentionList({
-  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', scope, goal, jiraConnected = false,
+  candidates, handled, onHandledChange, onOpen, onStartIssue, viewerLogin = null, variant = 'home', section = 'attention', scope, goal, jiraConnected = false,
 }: Props) {
+  const myPrs = section === 'my-prs';
+  const title = myPrs ? 'My PRs' : 'Needs attention';
   const [filter, setFilter] = useState<AttentionFilter>('all');
   const [onlyTeam, setOnlyTeam] = useState(false);
   const [openOnly, setOpenOnly] = useState(loadOpenOnly);
@@ -103,10 +108,12 @@ export default function AttentionList({
   const reminders = useSnoozedAttention(candidates, handled, Math.max(now, Date.now()), scope);
   // A source the Goal's card offers as practice folds into that card, unless it asks for an approval, a review or a recovery.
   const live = visibleAttention(reminders, handled, Math.max(now, Date.now()))
-    .filter(item => !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null)
+    .filter(item => !(variant === 'workspace' && item.pr?.state === 'open' && pullRequestIsMine(item.pr, viewerLogin))
+      && !pinned.some(pin => pin.key === item.key) && (!openOnly || attentionEnded(item) === null)
       && (URGENT.has(item.kind) || goal?.(item)?.picked !== true));
   const filters = FILTERS.filter(id => id !== 'jira' || jiraConnected || live.some(item => attentionSource(item) === 'jira'));
-  const cards = attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
+  const cards = myPrs ? myPullRequestCards(reminders, handled, viewerLogin, Math.max(now, Date.now()))
+    : attentionCards(live, filters.includes(filter) ? filter : 'all', undefined, { circles, viewerLogin, onlyTeam }, Math.max(now, Date.now()));
   const sessionEntries = session
     .map(key => handled[key])
     .filter((entry): entry is HandledEntry => entry !== undefined);
@@ -149,26 +156,28 @@ export default function AttentionList({
     && (item.jira === undefined || item.jira.status.category !== 'done' && item.jira.task === null);
 
   return (
-    <section className={`atn-section is-${variant}`} aria-label="Needs attention">
+    <section className={`atn-section is-${variant}`} aria-label={title}>
       <div className="atn-head">
-        <span className="atn-head__label">Needs attention</span>
-        {(circles.length > 0 || onlyTeam) && (
-          <button type="button" className={`atn-toggle${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
-        )}
-        <button type="button" className={`atn-toggle${openOnly ? ' is-active' : ''}`} aria-pressed={openOnly} title="Hide merged, closed and completed items"
-          onClick={() => {
-            const next = !openOnly;
-            setOpenOnly(next);
-            try { window.localStorage.setItem(OPEN_ONLY_KEY, String(next)); } catch { /* the toggle still works for this visit */ }
-          }}>Open only</button>
-        <div className="atn-filters" role="tablist" aria-label="Filter what needs attention">
-          {filters.map(id => (
-            <button key={id} type="button" role="tab" aria-selected={filter === id}
-              className={`atn-filter${filter === id ? ' is-active' : ''}`} onClick={() => setFilter(id)}>
-              {id === 'all' ? 'All' : ATTENTION_SOURCES[id].filter}
-            </button>
-          ))}
-        </div>
+        <span className="atn-head__label">{title}</span>
+        {!myPrs && <>
+          {(circles.length > 0 || onlyTeam) && (
+            <button type="button" className={`atn-toggle${onlyTeam ? ' is-active' : ''}`} aria-pressed={onlyTeam} onClick={() => setOnlyTeam(value => !value)}>Circles</button>
+          )}
+          <button type="button" className={`atn-toggle${openOnly ? ' is-active' : ''}`} aria-pressed={openOnly} title="Hide merged, closed and completed items"
+            onClick={() => {
+              const next = !openOnly;
+              setOpenOnly(next);
+              try { window.localStorage.setItem(OPEN_ONLY_KEY, String(next)); } catch { /* the toggle still works for this visit */ }
+            }}>Open only</button>
+          <div className="atn-filters" role="tablist" aria-label="Filter what needs attention">
+            {filters.map(id => (
+              <button key={id} type="button" role="tab" aria-selected={filter === id}
+                className={`atn-filter${filter === id ? ' is-active' : ''}`} onClick={() => setFilter(id)}>
+                {id === 'all' ? 'All' : ATTENTION_SOURCES[id].filter}
+              </button>
+            ))}
+          </div>
+        </>}
       </div>
 
       {cards.length > 0 ? (
@@ -184,7 +193,7 @@ export default function AttentionList({
                 viewerLogin={viewerLogin}
                 showRepo={variant === 'home'}
                 onOpen={() => onOpen(item)}
-                onAcknowledge={() => acknowledge(item)}
+                onAcknowledge={myPrs ? undefined : () => acknowledge(item)}
                 onSnooze={anchor => setSnooze({ item, anchor })}
                 onStart={startable(item) ? () => onStartIssue?.(item) : undefined}
                 inGoal={membership?.inGoal ?? false}
@@ -199,7 +208,7 @@ export default function AttentionList({
           })}
         </div>
       ) : (
-        <div className="atn-clear">{onlyTeam ? 'Nothing from your circles needs you right now.' : openOnly ? 'Nothing open needs you right now.' : 'Nothing needs you right now.'}</div>
+        <div className="atn-clear">{myPrs ? 'No pull requests to show right now.' : onlyTeam ? 'Nothing from your circles needs you right now.' : openOnly ? 'Nothing open needs you right now.' : 'Nothing needs you right now.'}</div>
       )}
 
       {summary !== '' && (

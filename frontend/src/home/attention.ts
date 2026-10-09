@@ -531,6 +531,18 @@ export function visibleAttention(
   });
 }
 
+/** Open own PRs, including drafts, remain after reading. Unread activity comes before recent reads. */
+export function myPullRequestCards(candidates: AttentionItem[], handled: Handled, viewerLogin: string | null, now: number): AttentionItem[] {
+  return candidates.filter(item => {
+    const entry = handled[item.key];
+    return item.pr?.state === 'open' && pullRequestIsMine(item.pr, viewerLogin)
+      && !(entry?.kind === 'snooze' && stillHandled(entry, item, now));
+  }).sort((left, right) => {
+    const read = (item: AttentionItem) => handled[item.key] !== undefined && stillHandled(handled[item.key], item, now);
+    return Number(read(left)) - Number(read(right)) || compareAttention(left, right);
+  }).slice(0, 2);
+}
+
 /* ── Snooze menu ────────────────────────────────────────────────── */
 
 export type SnoozeId = 'hour' | 'tomorrow' | 'monday';

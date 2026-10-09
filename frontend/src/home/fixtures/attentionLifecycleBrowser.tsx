@@ -69,7 +69,7 @@ function Detail({ value, perform }: { value: AttentionItem; perform: () => Promi
   </section>;
 }
 
-function mount(initial: AttentionItem[]) {
+function mount(initial: AttentionItem[], myPrs = false) {
   window.localStorage.clear();
   window.bridge = { setPrAttentionHandled: async () => {}, setPrAttentionPinned: async () => {},
     findStoredPullRequest: async (repo: string, number: number) => initial.find(item => item.repo === repo && item.number === number)?.pr ?? null,
@@ -97,7 +97,9 @@ function mount(initial: AttentionItem[]) {
       <AppSidebar page={currentWorkspace === null ? 'home' : 'workspaces'} workspace={currentWorkspace} workspaceTab="home"
         onWorkspaceTab={noOp} onNavigate={noOp} canGoBack={false} canGoForward={false} onBack={noOp} onForward={noOp}
         browserRailVisible={false} onToggleBrowserRail={noOp} />
-      <AttentionList candidates={items} handled={handled} viewerLogin="viewer" onHandledChange={saveHandled}
+      {myPrs && <AttentionList variant="workspace" candidates={items} handled={handled} viewerLogin="viewer" onHandledChange={saveHandled}
+        onOpen={value => { opens++; selected = value.key; readers = 1; render(); }} />}
+      <AttentionList variant={myPrs ? 'workspace' : 'home'} section={myPrs ? 'my-prs' : 'attention'} candidates={items} handled={handled} viewerLogin="viewer" onHandledChange={saveHandled}
         onOpen={value => { opens++; selected = value.key; readers = 1; render(); }} />
       {viewed !== undefined && Array.from({ length: readers }, (_, index) => <Detail key={index} value={viewed} perform={() => perform()} />)}
     </>;
@@ -140,6 +142,52 @@ async function viewing(): Promise<void> {
     assert(f.cards().length === 1 && !f.cards()[0].textContent?.includes('Viewed'), 'New activity must bring back the card without the prior visit status');
     button(f.host, 'Acknowledge #41').click(); await settle();
     assert(f.cards().length === 0 && loadHandled()[original.key]?.label === 'acknowledged', 'Explicit Ack must remain just acknowledgment');
+  }
+  finally { await f.dispose(); }
+}
+
+async function myPullRequests(): Promise<void> {
+  const original = item(51);
+  assert(original.pr !== null, 'PR fixture required');
+  const own = { ...original, author: 'viewer', pr: { ...original.pr, author: 'viewer', origin: 'AUTHORED' as const } };
+  const f = mount([own], true);
+  try {
+    await settle();
+    assert(!f.host.textContent?.includes('Acknowledge') && f.host.querySelector('[aria-label^="Acknowledge"]') === null, 'Own PRs must not offer acknowledgment');
+    await f.open(); await f.close();
+    assert(f.cards().length === 1, 'Own PR must remain after its detail closes');
+    await f.remount();
+    assert(f.cards().length === 1, 'Own PR must remain on a return visit');
+    button(f.host, `Pin ${own.title}`).click(); await settle();
+    assert(f.cards().length === 1, 'Pinning must not remove an own PR');
+    f.cards()[0].parentElement?.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 2100)); await settle();
+    const preview = document.querySelector('.ref-card');
+    assert(preview !== null && !preview.textContent?.includes(' Ack'), 'Own PR hover card must not offer Ack');
+    button(f.host, 'Snooze #51').click(); await settle();
+    button(document.body, '1 hour').click(); await settle();
+    assert(f.cards().length === 0, 'Snooze hides an own PR');
+    await f.remount();
+    assert(f.cards().length === 0, 'Snooze survives a return visit');
+    saveHandled({ [own.key]: handledEntry(own, 'snooze', Date.now() + 300, 'soon') }); await settle();
+    await new Promise(resolve => setTimeout(resolve, 400)); await settle();
+    assert(f.cards().length === 1, 'Own PR returns automatically at its snooze deadline');
+    button(f.host, `Unpin ${own.title}`).click(); await settle();
+    for (const state of ['merged', 'closed']) {
+      const ended = { ...own, pr: { ...own.pr, state } };
+      window.bridge.findStoredPullRequest = async () => ended.pr;
+      await f.items([ended]);
+      assert(f.host.querySelector('[aria-label="My PRs"] .item-row') === null, 'Ended PRs must leave My PRs');
+      assert(f.host.querySelector('[aria-label="Needs attention"] .item-row') !== null, 'An unread merge or closure must appear in Needs attention');
+      await f.open(); await f.close();
+      assert(f.cards().length === 0, 'Reading an ended PR must clear it from Needs attention without returning it to My PRs');
+      await f.remount();
+      assert(f.cards().length === 0, 'An unchanged ended PR must stay absent on return');
+      window.bridge.findStoredPullRequest = async () => own.pr;
+      await f.items([own]);
+      assert(f.host.querySelector('[aria-label="My PRs"] .item-row') !== null, 'A reopened PR must return to My PRs');
+      await f.open(); await f.close();
+    }
   }
   finally { await f.dispose(); }
 }
@@ -387,7 +435,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [['viewed until close', viewing], ['successful action status', actions], ['canonical post-write snapshot', canonicalSnapshot],
     ['global pins', pinning], ['timed snoozes', snoozing], ['retained reminders', retainedReminder], ['hover cards', hoverCards],
-    ['latest summary wins', latestSummary]] as const) {
+    ['latest summary wins', latestSummary], ['persistent own PRs', myPullRequests]] as const) {
     try { await scenario(); results.push({ name }); }
     catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
   }

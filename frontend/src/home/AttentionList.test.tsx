@@ -62,6 +62,18 @@ function list(candidates: AttentionItem[], handled: Handled = {}, variant: 'home
 describe('AttentionList', () => {
   afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
+  it.each(['merged', 'closed'])('shows an own PR becoming %s in workspace attention until that update is read', state => {
+    const open = by(prItem(12), 'viewer');
+    const ended = { ...open, pr: { ...pullRequest(12), author: 'viewer', state } };
+    const readOpen = { [open.key]: handledEntry(open, 'ack', null, 'Viewed') };
+    expect(list([open], {}, 'workspace')).not.toContain('Change 12');
+    expect(list([ended], readOpen, 'workspace')).toContain('Change 12');
+    const readEnded = { [ended.key]: handledEntry(ended, 'ack', null, 'Viewed') };
+    expect(list([ended], readEnded, 'workspace')).not.toContain('Change 12');
+    const commented = { ...ended, pr: { ...ended.pr, commentCount: 2 } };
+    expect(list([commented], readEnded, 'workspace')).toContain('Change 12');
+  });
+
   it('folds a source into the Goal card that offers it as practice, unless it needs the user for more', () => {
     // The Goal's card offers every source here as practice; only the pull request still asks for a review.
     const picked = (): GoalToggle => ({ inGoal: false, toggle: async () => {}, picked: true });

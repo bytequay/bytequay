@@ -105,6 +105,14 @@ Home shows your profile, contribution history, watched repositories, and recent
 activity. A repository workspace keeps its tasks, PRs, issues, commits, and memory
 together.
 
+Workspace home always includes **My PRs**, with up to two of your open or draft
+pull requests. Unread updates appear first, followed by the most recently updated
+PRs. Opening a card keeps it in **My PRs** while the PR remains open. Use **Snooze**
+to hide it until the chosen time. These cards have no acknowledge action.
+
+Updates to merged or closed PRs, including the merge or closure itself, appear in
+**Needs attention** until read or acknowledged.
+
 1. Choose **Home → + Watch** or **Workspaces → New workspace**, then select a
    repository.
 2. Review **Followed for updates**, **New branches start from**, **Work branches push

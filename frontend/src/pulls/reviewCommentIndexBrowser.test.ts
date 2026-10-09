@@ -30,6 +30,6 @@ it('indexes human and agent comments in PR and Summary, opening the right filter
     prefix: 'bytequay-comment-index-', entry: 'src/pulls/fixtures/reviewCommentIndexBrowser.tsx',
     global: 'ReviewCommentIndexTests', styles: true, width: 1000, height: 800,
   });
-  expect(results).toHaveLength(3);
+  expect(results).toHaveLength(4);
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
 }, 30_000);

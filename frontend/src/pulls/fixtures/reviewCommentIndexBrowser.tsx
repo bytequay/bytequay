@@ -156,6 +156,28 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
           && Math.abs(embeddedRail.left - embeddedPane.left - 6) < 1 && footer.bottom <= embeddedPane.bottom
           && embeddedRail.bottom < footer.top, 'Embedded PR index and footer must remain inside the visible pane');
       }],
+      ['Index navigation preserves review card layout', async () => {
+        const openDetail = { ...detail, recentActivity: detail.recentActivity.map(activity => activity.eventType === 'review_thread'
+          ? { ...activity, payload: { ...activity.payload, resolved: false, outdated: false, diffHunk: '@@ -12 +12 @@\n+return fieldId;' } } : activity) };
+        await mount(<Surface><PullOverview pr={remotePullRequest(openDetail)} detail={openDetail} onRefresh={async () => {}} /></Surface>);
+        const thread = host.querySelector<HTMLDetailsElement>('.pr-inline-thread');
+        const footer = thread?.querySelector<HTMLElement>('.lrc__foot');
+        assert(thread !== null && footer !== null && footer !== undefined && thread.open, 'The open review thread and Reply footer must exist');
+        const height = thread.getBoundingClientRect().height;
+        const footerHeight = footer.getBoundingClientRect().height;
+        const footerInset = thread.getBoundingClientRect().bottom - footer.getBoundingClientRect().bottom;
+        for (const body of ['Preserve the leaf field ID.', 'Fixed the lookup.', 'Preserve the leaf field ID.']) {
+          marker(body).click();
+          await new Promise(resolve => setTimeout(resolve, 700));
+          assert(document.activeElement?.textContent?.includes(body) === true, 'Navigation must focus the selected comment');
+          assert(thread.scrollTop === 0 && thread.scrollLeft === 0, 'Index navigation must not scroll inside the review card');
+          assert(Math.abs(thread.getBoundingClientRect().height - height) < 1
+            && Math.abs(footer.getBoundingClientRect().height - footerHeight) < 1
+            && Math.abs(thread.getBoundingClientRect().bottom - footer.getBoundingClientRect().bottom - footerInset) < 1,
+          'Navigating between comments must preserve card and Reply footer geometry');
+        }
+        assert((host.querySelector('.review-comment-scroll')?.scrollTop ?? 0) > 0, 'Navigation must scroll the review page');
+      }],
       ['Latest markers and scrolling earlier comments', async () => {
         const render = (count: number, hidden = false) => <Surface><ReviewCommentIndex className="pr-overview" hidden={hidden}>
           {Array.from({ length: count }, (_, index) => <article key={index}

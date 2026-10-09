@@ -104,7 +104,12 @@ export default function ReviewCommentIndex({ children, className, ref, enabled =
     }
     target.tabIndex = -1;
     target.focus({ preventScroll: true });
-    target.scrollIntoView({ block: 'start', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' });
+    const page = content.current?.parentElement;
+    // scrollIntoView also scrolls clipped review cards, hiding their headers and leaving space below Reply.
+    page?.scrollTo({
+      top: page.scrollTop + target.getBoundingClientRect().top - page.getBoundingClientRect().top - parseFloat(getComputedStyle(target).scrollMarginTop),
+      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
+    });
   };
   return <IndexedPage.Provider value>
     <div className={`${className ?? ''} review-comment-layout`} ref={ref} role={role} {...attributes}>

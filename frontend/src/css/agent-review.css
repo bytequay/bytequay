@@ -419,6 +419,7 @@
 /* Review questions use the existing code-diff editor presentation. */
 .agr-composer { margin-top: 12px; }
 .agr-composer__outgoing { color: #9a6700; font-weight: 600; }
+.agr-composer__waiting { display: inline-flex; align-items: center; color: var(--text-2); }
 
 /* activity */
 

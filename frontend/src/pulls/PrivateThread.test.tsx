@@ -194,6 +194,24 @@ describe('private thread surfaces', () => {
       .toContain('The agent is answering another question on this review');
   });
 
+  it('shows the viewer’s GitHub avatar while keeping the agent avatar local', () => {
+    const html = forward(threads({ forward: KEY }));
+    expect(html).toContain('src="https://github.com/alice.png?size=44"');
+    expect(html).not.toContain('https://github.com/Agent.png');
+    const anonymous = renderToStaticMarkup(<PrivateThreadForward threads={threads({ forward: KEY })} threadKey={KEY}
+      author="bob" avatarUrl={null} timestamp={AT} body="Please rename this." repository="o/r" />);
+    expect(anonymous).toContain('aria-label="You" role="img"');
+    expect(anonymous).not.toContain('https://github.com/You.png');
+  });
+
+  it('keeps a pending reply editable with an inline running icon and no status line', () => {
+    const html = forward(threads({ forward: KEY, busy: true, drafts: new Map([[KEY, 'My next question']]) }, thread({ pending: true })));
+    expect(html).toContain('class="agr-composer__waiting" role="status" aria-label="Wait for the agent’s answer"');
+    expect(html).not.toContain('class="pull-diff-review__status"');
+    expect(html).not.toMatch(/<textarea[^>]*disabled/);
+    expect(html).toMatch(/<button type="button" class="is-primary" disabled=""[^>]*>Reply<\/button>/);
+  });
+
   it('keeps an unsent question in the view state, so a remounted card shows it again', () => {
     expect(forward(threads({ forward: KEY, drafts: new Map([[KEY, 'Half a question']]) }))).toContain('Half a question');
   });

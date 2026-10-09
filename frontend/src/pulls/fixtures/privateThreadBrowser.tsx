@@ -141,6 +141,18 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         && request.repo === 'owner/repo' && request.number === 7, `Cmd+Enter asked ${JSON.stringify(asked)}`);
       assert(host.textContent?.includes('Agent is answering…') === true && !host.textContent.includes(SUMMARY_REQUEST),
         'The hidden summary request must show as answering, never as a message');
+      const waiting = host.querySelector<HTMLElement>('.agr-composer footer .agr-composer__waiting');
+      const reply = button(host, 'Reply');
+      assert(waiting !== null && waiting.textContent === '' && waiting.querySelector('.pr-task-spinner') !== null
+        && waiting.getAttribute('aria-label') === 'Wait for the agent’s answer', 'Waiting must use an accessible running icon in the action row');
+      assert(host.querySelector('.agr-composer .pull-diff-review__status') === null
+        && Math.abs(waiting.getBoundingClientRect().top - reply.getBoundingClientRect().top) < 1,
+      'Waiting must not add a separate status line');
+      const pendingField = host.querySelector<HTMLTextAreaElement>('[aria-label="Private question to the agent"]');
+      assert(pendingField !== null && !pendingField.disabled && reply.disabled, 'The pending composer must allow editing but block sending');
+      pendingField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+      await settle();
+      assert(asked.length === 1, 'Cmd+Enter must not send while the agent is answering');
     });
 
     await step('Back sends the answered thread behind its comment as a 6px tab and a chip', async () => {

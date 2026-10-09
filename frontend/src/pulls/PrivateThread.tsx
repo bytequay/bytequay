@@ -295,7 +295,8 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
           ariaLabel="Private question to the agent"
           placeholder={started ? 'Reply to the agent…' : `Ask about ${author}’s comment…`}
           primaryLabel={started ? 'Reply' : 'Ask agent'} allowEmpty={!started} sendingLabel={threads.sendingLabel}
-          disabledReason={threads.sendDisabledReason ?? (threads.busy ? (thread?.pending === true ? 'Wait for the agent’s answer' : threads.busyReason) : null)}
+          disabledReason={threads.sendDisabledReason}
+          waitingReason={threads.busy ? (thread?.pending === true ? 'Wait for the agent’s answer' : threads.busyReason) : null}
           extra={threads.setup}
           secondary={started && thread !== undefined ? <button type="button" disabled={sending}
             onClick={() => { void run(() => threads.resolve(thread, true)).then(done => { if (done) threads.setForward(null); }); }}>
@@ -332,7 +333,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
             return <LocalCardMessage key={message.id} timestamp={message.createdAt} author={agent ? 'Agent' : 'You'}
               avatar={agent
                 ? <Avatar login="Agent" size={22} allowGitHubFallback={false} />
-                : <Avatar login={viewerLogin ?? 'You'} size={22} allowGitHubFallback={false} className="pr-private-you" />}
+                : <Avatar login={viewerLogin ?? 'You'} size={22} allowGitHubFallback={viewerLogin !== undefined} className="pr-private-you" />}
               menu={onDraftReply !== undefined && thread !== undefined && (
                 <button type="button" className="pr-private-draft" disabled={threads.disabledReason !== null || replyCount(thread) === 0}
                   title="Agent drafts a GitHub reply from this thread. Nothing is posted." onClick={() => onDraftReply(thread)}>

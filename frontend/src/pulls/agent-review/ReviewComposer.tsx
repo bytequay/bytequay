@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useRef, useState, type ReactNode } from 'react';
+import { LoaderCircle } from 'lucide-react';
 import type { SuggestionBase } from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 
@@ -27,6 +28,7 @@ export default function ReviewComposer({
   suggestion,
   busy = false,
   disabledReason = null,
+  waitingReason = null,
   autoFocus = false,
   allowEmpty = false,
   secondary,
@@ -47,6 +49,8 @@ export default function ReviewComposer({
   busy?: boolean;
   /** Blocks only the primary action; editing and cancelling stay available. */
   disabledReason?: string | null;
+  /** Blocks sending with a running icon beside the actions while editing stays available. */
+  waitingReason?: string | null;
   autoFocus?: boolean;
   allowEmpty?: boolean;
   /** Takes the Cancel button's place; Escape still cancels. */
@@ -60,7 +64,7 @@ export default function ReviewComposer({
 }) {
   const [submitting, setSubmitting] = useState(false);
   const inFlight = useRef(false);
-  const ready = (allowEmpty || value.trim() !== '') && !busy && disabledReason === null;
+  const ready = (allowEmpty || value.trim() !== '') && !busy && disabledReason === null && waitingReason === null;
   const submit = async () => {
     if (!ready || inFlight.current) return;
     inFlight.current = true;
@@ -93,8 +97,11 @@ export default function ReviewComposer({
       onSubmit={() => { void submit(); }}
       onCancel={() => { if (!inFlight.current) onCancel(); }}>
       {extra}
+      {waitingReason !== null && <span className="agr-composer__waiting" role="status" aria-label={waitingReason} title={waitingReason}>
+        <LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" />
+      </span>}
       {secondary ?? <button type="button" disabled={busy} onClick={onCancel}>Cancel</button>}
-      <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? undefined} onClick={() => { void submit(); }}>
+      <button type="button" className="is-primary" disabled={!ready} title={disabledReason ?? waitingReason ?? undefined} onClick={() => { void submit(); }}>
         {primaryLabel}
       </button>
     </MarkdownEditor>

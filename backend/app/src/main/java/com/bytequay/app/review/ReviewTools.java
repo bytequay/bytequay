@@ -1479,6 +1479,8 @@ public class ReviewTools
         node.put("changeExplanationRequired", call.run().explanationOnly() || !ReviewCards.hasExplanation(store, call.run()));
         if (!call.run().explanationOnly()) {
             node.put("testCheckRequired", testCheckRequired(call));
+            node.putObject("mavenRepository").put("local", ReviewMavenRepository.local(call.review().id(), call.run().headSha()).toString())
+                    .put("sharedTail", ReviewMavenRepository.shared().toString());
         }
         ReviewCards.explanationRun(store.listRuns(call.review().id()).stream().filter(run -> run.ordinal() <= call.run().ordinal()).collect(toImmutableList()))
                 .ifPresent(run -> node.put("changeExplanationRunId", run.id()).put("changeExplanationHeadSha", run.headSha()));

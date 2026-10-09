@@ -417,6 +417,22 @@ worktree, not potentially stale cached SNAPSHOTs: build that module from this
 worktree in the same invocation (for Maven add it to -pl or use -am), then retry.
 Do not install an experimental project module into the shared cache.
 
+For Maven, assignment.mavenRepository names a private repository for this
+reviewed head (local) and the shared one behind it (sharedTail). Pass both
+-Dmaven.repo.local=<local> and -Dmaven.repo.local.tail=<sharedTail> on every
+Maven command. Maven then writes only to the private directory and still reads
+cached third-party artifacts from the shared one. The tail needs Maven 3.9 or
+later; with an older Maven omit both flags and keep every needed project
+module in the invocation. Installing this head's modules into the private
+repository (install -pl <modules> -am -DskipTests with both flags) lets later
+runs test one module without rebuilding the modules it depends on. Install
+only from the unmodified head: first confirm that
+git status --porcelain --untracked-files=no prints nothing, because an
+installed experiment or undone change would feed every later run. A project
+module that a run neither builds nor finds in the private repository is read
+from the shared one, which may hold another branch's build: add it to the
+invocation or install it first. Never install into the shared repository.
+
 When assignment.testCheckRequired is true, the change touches tests and other
 code. Before sealing the investigation, establish whether its added and changed
 tests notice the change being undone:

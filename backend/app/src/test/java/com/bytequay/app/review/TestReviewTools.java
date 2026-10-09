@@ -2603,6 +2603,15 @@ class TestReviewTools
     }
 
     @Test
+    void theAssignmentNamesAPrivateMavenRepositoryForTheReviewedHead()
+    {
+        JsonNode repository = call("review_get_context", ImmutableMap.of("kind", "assignment")).path("mavenRepository");
+        assertThat(repository.path("local").asText()).endsWith("/bytequay-review-m2/" + REVIEW_ID + "/" + HEAD_SHA.substring(0, 12));
+        assertThat(repository.path("sharedTail").asText()).endsWith("/.m2/repository");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "scope")).at("/assignment/mavenRepository")).isEqualTo(repository);
+    }
+
+    @Test
     void collectionAccountsForEachRequestedCheckAndPreservesCandidateIdentity()
     {
         requestEvidence();

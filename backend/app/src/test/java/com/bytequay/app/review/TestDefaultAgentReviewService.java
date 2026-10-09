@@ -106,6 +106,7 @@ import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;
@@ -2461,12 +2462,16 @@ class TestDefaultAgentReviewService
 
     @Test
     void endClosesTheReviewBeforeAskingForWorktreeCleanup()
+            throws IOException
     {
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        Path mavenRepository = ReviewMavenRepository.local(reviewId, HEAD);
+        Files.createDirectories(mavenRepository.resolve("org/example"));
 
         AgentReviewProjection projection = fixture.service.end(reviewId);
 
+        assertThat(mavenRepository.getParent()).doesNotExist();
         assertThat(projection.review().state()).isEqualTo(AgentReview.State.CLOSED);
         assertThat(projection.review().closedAt()).contains(NOW);
         ReviewRun stopped = fixture.store.listRuns(reviewId).getLast();

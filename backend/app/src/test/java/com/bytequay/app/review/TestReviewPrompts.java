@@ -170,6 +170,20 @@ class TestReviewPrompts
                 "defect in the tests, Medium by default and never a nit", "Read investigation.testCheck");
     }
 
+    @Test
+    void everyReviewStepNamesThePrivateMavenRepository()
+    {
+        String maven = "-Dmaven.repo.local and -Dmaven.repo.local.tail from assignment.mavenRepository on every command";
+
+        assertThat(ReviewPrompts.reviewRequest(pullRequestReview(), run(INVESTIGATE), Optional.empty(), ImmutableList.of(), "reviewer")).contains(maven);
+        for (ReviewStep.Kind kind : ImmutableList.of(INVESTIGATE, COLLECT_EVIDENCE, VALIDATE)) {
+            assertThat(ReviewPrompts.stepRequest(run(kind))).as(kind.name()).contains(maven);
+        }
+        assertThat(ReviewPrompts.stepRequest(run(EXPLAIN))).doesNotContain(maven);
+        assertThat(ReviewPrompts.INSTRUCTION).contains("-Dmaven.repo.local=<local> and -Dmaven.repo.local.tail=<sharedTail>", "Never install into the shared repository",
+                "Install\nonly from the unmodified head");
+    }
+
     private static AgentReview pullRequestReview()
     {
         return new AgentReview("review", "workspace", "acme/widgets", OptionalInt.of(42), OptionalLong.empty(), "task", Optional.empty(),

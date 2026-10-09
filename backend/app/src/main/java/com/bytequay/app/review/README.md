@@ -201,6 +201,24 @@ the check existed is not asked for one. `PROTECTS` shows that these tests notice
 this undo, not that the change is correct. The outcome appears on the tool row
 that sealed the investigation; Review details does not show it.
 
+## Private Maven repository
+
+`assignment.mavenRepository` names a local repository for the reviewed head under
+the temporary directory ([ReviewMavenRepository](ReviewMavenRepository.java)),
+and the user's shared `~/.m2/repository` as its tail. The rules ask for both
+flags, `-Dmaven.repo.local` and `-Dmaven.repo.local.tail`, on every Maven
+command, so builds and installs write only the private directory while cached
+third-party artifacts are still read from the shared one. Installing the head's
+modules there lets a later run test one module without rebuilding the modules it
+depends on. The directory's name carries the head, so a new head never reads an
+earlier head's modules.
+
+This is an instruction, not a sandbox rule. Both providers may still write the
+shared repository, and a project module that a run neither builds nor finds in
+the private repository still resolves from the shared one. The tail needs Maven
+3.9. Ending the review deletes every head's directory; the operating system's
+temporary-file cleanup covers a review that never ends.
+
 ## Discovery responsibilities
 
 ### Prepare a small map of the change
@@ -601,6 +619,7 @@ The implementation is concentrated in the current review service:
 | Second reader, its facts and its leads | [ReviewSweep](ReviewSweep.java), [ReviewFacts](ReviewFacts.java), [ReviewLead](ReviewLead.java), `agent-skills/bytequay-review-sweep.md` |
 | Carrying an accepted review to a head with the same change | [ReviewHeadCheck](ReviewHeadCheck.java), `followHead` in [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewFinding.carried` |
 | Test check gate, its outcomes and the comparison with recorded runs | `core.review.ReviewTestCheck`, [ReviewTools](ReviewTools.java), [ReviewFacts](ReviewFacts.java), `LocalRun` records |
+| Private Maven repository per reviewed head | [ReviewMavenRepository](ReviewMavenRepository.java), `assignment` context, `end` in [DefaultAgentReviewService](DefaultAgentReviewService.java) |
 | Provisional coverage and selected/unselected results | Review HTTP models, frontend review contracts/model/details and IDE selection |
 | Offline input freezing and bounded discovery-only calibration | [Developer runbook](../../../../../../../../../scripts/review-calibration/README.md) |
 

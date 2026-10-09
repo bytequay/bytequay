@@ -85,6 +85,8 @@ final class ReviewPrompts
             + "confirm from the two captured runs that the undone run compiled, ran the same test and removed the behavior the test names, "
             + "then save its candidate as a defect in the tests with severity, never as a Nit:. "
             + "PROTECTS shows only that those tests notice this undo, not that the change is correct.";
+    private static final String MAVEN_REQUEST = "For Maven, put -Dmaven.repo.local and -Dmaven.repo.local.tail from assignment.mavenRepository on every command, "
+            + "so builds write only this head's private repository; install project modules there only from the unmodified head.";
 
     private ReviewPrompts() {}
 
@@ -189,7 +191,7 @@ final class ReviewPrompts
                 .append("Checkpoint discovery, then seal review_save_investigation without replacing candidates or the stored map and evidence refs. ")
                 .append("Do not pass changeMap or contextEvidenceRefs to the seal; end this turn afterward. ")
                 .append("Do not save findings yet; ByteQuay will start a separate validation turn. ")
-                .append(TEST_CHECK_REQUEST).append(' ')
+                .append(TEST_CHECK_REQUEST).append(' ').append(MAVEN_REQUEST).append(' ')
                 .append(DELEGATION_REQUEST)
                 .append("IDE language queries are available when code_query is listed. No remote writes.")
                 .toString();
@@ -214,7 +216,7 @@ final class ReviewPrompts
             case INVESTIGATE -> DISCOVERY_REQUEST + "Read assignment.changeExplanationRequired. Save intention and every commit explanation only when required in pass 1; "
                     + "otherwise retain the original explanation and focus on findings. Account for all three perspectives, "
                     + "then seal review_save_investigation using the stored map and evidence refs. "
-                    + "Do not pass changeMap or contextEvidenceRefs to the seal. Do not save findings. " + TEST_CHECK_REQUEST;
+                    + "Do not pass changeMap or contextEvidenceRefs to the seal. Do not save findings. " + TEST_CHECK_REQUEST + " " + MAVEN_REQUEST;
             case COLLECT_EVIDENCE -> "Collect evidence for the questions in assignment.previousValidation. Execute or inspect each requested check; "
                     + "capture its result with review_get_context and answer it in review_save_investigation. Explain unavailable evidence as a limitation. "
                     + "Preserve candidate numbering and checkpoint new hypotheses with review_record_discovery before filtering. "
@@ -222,7 +224,7 @@ final class ReviewPrompts
                     + "Keep at least one current-run review_get_context kind source ref in a revised map. "
                     + "Do not pass changeMap or contextEvidenceRefs to the seal. "
                     + "Do not rewrite the change explanation or call review_save_summary. "
-                    + "End this turn after sealing; ByteQuay will schedule validation.";
+                    + "End this turn after sealing; ByteQuay will schedule validation. " + MAVEN_REQUEST;
             case VALIDATE -> "Validate the investigation and every candidate against the current evidence. "
                     + "Read assignment and investigation context, including its verification recipe and captured results. "
                     + "Challenge claimed activation and coverage against the saved inventory of additions: check unresolved execution routes, disabled tests, "
@@ -246,7 +248,7 @@ final class ReviewPrompts
                     + "Use UNRESOLVED when missing evidence prevents settling a candidate; zero findings is valid. "
                     + "Unavailable tests alone are warnings, not omissions, and do not prevent a complete review. "
                     + "For fixes/features, HEAD-pass and old-behavior-fail support only the behavior tested. A remaining defect must exist at frozen HEAD. "
-                    + TEST_CHECK_VALIDATION;
+                    + TEST_CHECK_VALIDATION + " " + MAVEN_REQUEST;
         };
         return "Review assignment " + step.number() + " for frozen PR head " + shortSha(run.headSha()) + ". "
                 + (step.repair() ? "ByteQuay is automatically continuing this assignment after the previous turn could not finish. "

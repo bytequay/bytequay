@@ -87,6 +87,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
@@ -573,6 +574,12 @@ public class DefaultAgentReviewService
             catch (RuntimeException failure) {
                 // Dirty experiments are kept for inspection; the task's own cleanup retry owns the rest.
                 log.warn("Review {} ended but its worktree was retained: {}", reviewId, failure.toString());
+            }
+            try {
+                ReviewMavenRepository.delete(reviewId);
+            }
+            catch (IOException | RuntimeException failure) {
+                log.warn("Review {} ended but its private Maven repository was kept: {}", reviewId, failure.toString());
             }
             return projection(reviewId);
         });

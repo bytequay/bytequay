@@ -52,7 +52,7 @@ import static com.google.common.util.concurrent.Futures.getUnchecked;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static com.google.common.util.concurrent.Futures.submit;
 import static com.google.common.util.concurrent.Futures.transformAsync;
-import static com.google.common.util.concurrent.Futures.whenAllSucceed;
+import static com.google.common.util.concurrent.Futures.whenAllComplete;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
@@ -118,7 +118,8 @@ class PullRequestDetailFetcher
                 ? transformAsync(detail, raw -> fetchCheckRunsAsync(pat, ref, raw), directExecutor())
                 : immediateFuture(new SourceItems<>(existing.checkRuns(), existing.checkRunsComplete() ? null : StoredPrDetail.CHECKS));
 
-        return whenAllSucceed(detail, reviews, timeline, comments, commits, threads, descriptionReactions, checks)
+        // Not whenAllSucceed: during a rate-limit pause every source fails alike, and it logs each later failure as an error with a stack trace.
+        return whenAllComplete(detail, reviews, timeline, comments, commits, threads, descriptionReactions, checks)
                 .call(() -> new StoredPrDetail(
                                 requireRaw(getDone(detail)),
                                 getDone(reviews).items(),

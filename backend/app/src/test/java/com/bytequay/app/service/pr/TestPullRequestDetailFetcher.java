@@ -15,6 +15,7 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.core.domain.PrCheckRunState;
 import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PrReviewState;
@@ -139,6 +140,16 @@ class TestPullRequestDetailFetcher
 
         assertThat(stored.reviews()).isEmpty();
         assertThat(stored.unavailableSections()).containsExactly("reviews");
+    }
+
+    @Test
+    void aRateLimitOnSeveralSourcesKeepsItsStatus()
+    {
+        when(gitHub.fetchPrDetail("pat", REF)).thenReturn(raw(null));
+        when(gitHub.fetchPrReviews("pat", REF)).thenThrow(new GitHubRateLimitException("secondary", 60));
+        when(gitHub.fetchPrTimeline("pat", REF)).thenThrow(new GitHubRateLimitException("secondary", 60));
+
+        assertThatThrownBy(() -> PullRequestDetailFetcher.await(fetcher.fetch("pat", REF))).isInstanceOf(GitHubRateLimitException.class);
     }
 
     @Test

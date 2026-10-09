@@ -49,6 +49,18 @@ export type ReviewCandidateValidationDto = {
   request: { question: string; check: string; resolvesWhen: string } | null;
 };
 
+/** The review's conclusion on one pull-request thread the user started, with the thread's place and opening words when it was judged. */
+export type ReviewThreadVerdictDto = {
+  threadId: string;
+  verdict: 'ADDRESSED' | 'PARTLY_ADDRESSED' | 'NOT_ADDRESSED' | 'AWAITING_REPLY';
+  explanation: string;
+  evidenceRefs: string[];
+  path: string;
+  line: number | null;
+  opening: string;
+  resolved: boolean;
+};
+
 export type ReviewPerspective = 'BEHAVIOR' | 'INTERACTIONS' | 'DESIGN';
 
 export type ReviewCandidateDto = {
@@ -90,7 +102,9 @@ export type ReviewStepDto = {
   repair: boolean;
   investigation: ReviewInvestigationDto | null;
   validation: { investigationStep: number; candidates: ReviewCandidateValidationDto[]; coverage: ReviewCoverageDto;
-    newCandidates: ReviewCandidateDto[]; selectedFindingIds: string[]; selectionExplanation: string } | null;
+    newCandidates: ReviewCandidateDto[]; selectedFindingIds: string[]; selectionExplanation: string;
+    /** The parser always sets it; optional so a validation written out by hand, as tests do, needs none. */
+    threadVerdicts?: ReviewThreadVerdictDto[] } | null;
 };
 
 export type ReviewRunDto = {
@@ -382,6 +396,20 @@ function parseInvestigation(value: unknown): ReviewInvestigationDto | null {
   };
 }
 
+function parseThreadVerdict(value: unknown): ReviewThreadVerdictDto {
+  const verdict = object(value, 'thread verdict');
+  return {
+    threadId: text(verdict.threadId, 'thread id'),
+    verdict: oneOf(verdict.verdict, ['ADDRESSED', 'PARTLY_ADDRESSED', 'NOT_ADDRESSED', 'AWAITING_REPLY'] as const, 'thread verdict'),
+    explanation: text(verdict.explanation, 'thread verdict explanation'),
+    evidenceRefs: strings(verdict.evidenceRefs),
+    path: optionalText(verdict.path) ?? '',
+    line: optionalCount(verdict.line),
+    opening: optionalText(verdict.opening) ?? '',
+    resolved: flag(verdict.resolved),
+  };
+}
+
 function parseStep(value: unknown): ReviewStepDto {
   const step = object(value, 'review step');
   const validation = step.validation === null || step.validation === undefined ? null : object(step.validation, 'review validation');
@@ -399,6 +427,7 @@ function parseStep(value: unknown): ReviewStepDto {
       newCandidates: list(validation.newCandidates).map(parseCandidate),
       selectedFindingIds: strings(validation.selectedFindingIds),
       selectionExplanation: text(validation.selectionExplanation, 'selection explanation'),
+      threadVerdicts: list(validation.threadVerdicts).map(parseThreadVerdict),
     },
   };
 }

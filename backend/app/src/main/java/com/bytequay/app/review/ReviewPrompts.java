@@ -85,6 +85,10 @@ final class ReviewPrompts
             + "confirm from the two captured runs that the undone run compiled, ran the same test and removed the behavior the test names, "
             + "then save its candidate as a defect in the tests with severity, never as a Nit:. "
             + "PROTECTS shows only that those tests notice this undo, not that the change is correct.";
+    private static final String OWN_THREADS_REQUEST = "When this review has a pull request, read review_get_context kind own_threads: the threads the user started there. "
+            + "Read each listed thread and the current code it points at, then give it a verdict in review_finish threadVerdicts: "
+            + "ADDRESSED, PARTLY_ADDRESSED, NOT_ADDRESSED, or AWAITING_REPLY when the author answered and the next word is the user's. "
+            + "A resolved mark is not evidence. Do not save a finding that repeats one of these threads.";
     private static final String MAVEN_REQUEST = "For Maven, put -Dmaven.repo.local and -Dmaven.repo.local.tail from assignment.mavenRepository on every command, "
             + "so builds write only this head's private repository; install project modules there only from the unmodified head.";
 
@@ -248,7 +252,7 @@ final class ReviewPrompts
                     + "Use UNRESOLVED when missing evidence prevents settling a candidate; zero findings is valid. "
                     + "Unavailable tests alone are warnings, not omissions, and do not prevent a complete review. "
                     + "For fixes/features, HEAD-pass and old-behavior-fail support only the behavior tested. A remaining defect must exist at frozen HEAD. "
-                    + TEST_CHECK_VALIDATION + " " + MAVEN_REQUEST;
+                    + TEST_CHECK_VALIDATION + " " + OWN_THREADS_REQUEST + " " + MAVEN_REQUEST;
         };
         return "Review assignment " + step.number() + " for frozen PR head " + shortSha(run.headSha()) + ". "
                 + (step.repair() ? "ByteQuay is automatically continuing this assignment after the previous turn could not finish. "

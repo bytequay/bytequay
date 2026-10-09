@@ -34,11 +34,28 @@ final class ReviewToolActivity
             case "review_save_finding" -> "Saved finding" + quoted(" · ", arguments.path("title").asText(""));
             case "review_reply" -> "Replied in discussion";
             case "review_withdraw_finding" -> "Withdrew finding";
-            case "review_finish" -> "Finished review";
+            case "review_finish" -> "Finished review" + threadVerdicts(arguments.path("threadVerdicts"));
             default -> tool;
         };
         String single = line.replaceAll("\\s+", " ").strip();
         return single.length() <= MAX_LENGTH ? single : single.substring(0, MAX_LENGTH - 1) + "…";
+    }
+
+    /** How the user's own threads were judged, in the order a reader acts on them. */
+    private static String threadVerdicts(JsonNode verdicts)
+    {
+        StringBuilder counts = new StringBuilder();
+        for (String[] label : new String[][] {{"NOT_ADDRESSED", "not addressed"}, {"PARTLY_ADDRESSED", "partly addressed"},
+                {"AWAITING_REPLY", "awaiting your reply"}, {"ADDRESSED", "addressed"}}) {
+            int count = 0;
+            for (JsonNode verdict : verdicts) {
+                count += label[0].equals(verdict.path("verdict").asText("")) ? 1 : 0;
+            }
+            if (count > 0) {
+                counts.append(counts.isEmpty() ? " · your comments: " : ", ").append(count).append(' ').append(label[1]);
+            }
+        }
+        return counts.toString();
     }
 
     private static String testCheck(String outcome)

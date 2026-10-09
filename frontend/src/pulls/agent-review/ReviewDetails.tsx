@@ -14,11 +14,27 @@
 import MarkdownBody from '../MarkdownBody';
 import type { ReactNode } from 'react';
 import { evidenceTarget, validationTarget, ReviewEvidenceLink } from './ReviewEvidenceLinks';
-import type { ReviewCandidateDto, ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto } from './contracts';
+import type { ReviewCandidateDto, ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto, ReviewThreadVerdictDto } from './contracts';
 import { isExplanationRun, shortSha } from './model';
 
 const OUTCOMES = { SUPPORTED: 'Supported', REJECTED: 'Rejected', NEEDS_EVIDENCE: 'Needs evidence', UNRESOLVED: 'Unresolved' } as const;
 const PERSPECTIVES = { BEHAVIOR: 'Behavior and contracts', INTERACTIONS: 'Interactions and operating constraints', DESIGN: 'Design and verification' } as const;
+// In the order a reader acts on them: what is still open comes first.
+const THREAD_VERDICTS = { NOT_ADDRESSED: 'Not addressed', PARTLY_ADDRESSED: 'Partly addressed', AWAITING_REPLY: 'Awaiting your reply', ADDRESSED: 'Addressed' } as const;
+
+function ThreadVerdicts({ verdicts, repository, runId }: { verdicts: ReviewThreadVerdictDto[]; repository: string; runId: string }) {
+  const groups = Object.entries(THREAD_VERDICTS).map(([kind, label]) => ({ label, items: verdicts.filter(item => item.verdict === kind) })).filter(group => group.items.length > 0);
+  return <details open>
+    <summary>Your comments · {groups.map(group => `${group.items.length} ${group.label.toLowerCase()}`).join(' · ')}</summary>
+    <ul className="agr-review-details__conclusions">{groups.flatMap(group => group.items.map(item => <li key={item.threadId}>
+      <strong>{group.label}</strong>
+      <p><code title={item.path}>{item.path.slice(item.path.lastIndexOf('/') + 1)}{item.line !== null ? `:${item.line}` : ''}</code>
+        {item.resolved ? ' · marked resolved' : ''} · “{item.opening}”</p>
+      <MarkdownBody body={item.explanation} repository={repository} />
+      {item.evidenceRefs.length > 0 && <p>Evidence: {item.evidenceRefs.map(ref => <ReviewEvidenceLink key={ref} target={evidenceTarget(runId, ref)}>{ref}</ReviewEvidenceLink>)}</p>}
+    </li>))}</ul>
+  </details>;
+}
 
 function Candidates({ candidates, repository, runId }: { candidates: ReviewCandidateDto[]; repository: string; runId: string }) {
   return <ol className="agr-review-details__conclusions">{candidates.map(candidate => <li key={candidate.number} value={candidate.number}>
@@ -75,6 +91,7 @@ export default function ReviewDetails({ run, repository, compact = false, retain
   const evidence = run.evidence;
   const currentStep = run.steps.at(-1);
   const unsealed = currentStep !== undefined && currentStep.kind !== 'VALIDATE' && currentStep.investigation === null;
+  const threadVerdicts = run.steps.findLast(step => (step.validation?.threadVerdicts?.length ?? 0) > 0)?.validation?.threadVerdicts ?? [];
   return <details className={`agr-review-details${compact ? ' is-compact' : ''}`}>
     <summary>{compact ? <>
       <span>{run.commits.length} {run.commits.length === 1 ? 'commit' : 'commits'}</span>
@@ -84,11 +101,13 @@ export default function ReviewDetails({ run, repository, compact = false, retain
         : `${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} assessed`}>Review details</span>
     </> : <>Review details <span className="agr-learning-cards__scope">
       · {investigation === null ? 'scope' : `${investigation.reviewedFiles.length} changed ${investigation.reviewedFiles.length === 1 ? 'file' : 'files'} assessed`}
+      {threadVerdicts.length > 0 ? ` · ${threadVerdicts.length} of your ${threadVerdicts.length === 1 ? 'comment' : 'comments'} followed up` : ''}
     </span></>}</summary>
     <div className="agr-review-details__body">
       <p className="agr-learning-cards__scope">
         {run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · {run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → {shortSha(run.headSha)}
       </p>
+      {threadVerdicts.length > 0 && <ThreadVerdicts verdicts={threadVerdicts} repository={repository} runId={run.id} />}
       {investigation !== null && <>
         <p><strong>Discovery · {unsealed ? 'Unsealed checkpoint' : 'Sealed investigation'}</strong></p>
         <h3>Change understanding</h3>

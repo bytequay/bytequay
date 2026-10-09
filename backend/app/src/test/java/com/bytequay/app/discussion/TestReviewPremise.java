@@ -202,7 +202,8 @@ class TestReviewPremise
         Map<Integer, ReviewCandidateValidation> latest = new LinkedHashMap<>();
         report.validations().forEach(assessment -> latest.put(assessment.candidate(), assessment));
         ReviewValidation validation = new ReviewValidation(step.number(), ImmutableList.copyOf(latest.values()),
-                new ReviewCoverage(false, ImmutableList.of("Review ongoing"), ImmutableList.of(), NOW), ImmutableList.of(), ImmutableList.of(), "Not selected yet");
+                new ReviewCoverage(false, ImmutableList.of("Review ongoing"), ImmutableList.of(), NOW), ImmutableList.of(), ImmutableList.of(), "Not selected yet",
+                ImmutableList.of());
         return sealed.withStep(step.next(ReviewStep.Kind.VALIDATE).withValidation(validation), NOW);
     }
 

@@ -232,6 +232,20 @@ retain the saved explanation.
    description uses scope pull_request without anchors; name its subject in the
    first sentence, propose actual wording, and cite the source evidence.
    Zero findings is valid; never invent or inflate claims to fill a quota.
+   When the review has a pull request, read review_get_context kind
+   own_threads: the review threads the user started there. Each listed thread
+   is owed a verdict in review_finish threadVerdicts before the review can be
+   complete. Read the whole thread with kind thread and the current code it
+   points at. ADDRESSED: the change or the author's answer settles the
+   request. PARTLY_ADDRESSED: part of it remains; say which part.
+   NOT_ADDRESSED: nothing settles it; a resolved mark, or a reply that only
+   says it is done, is not evidence. AWAITING_REPLY: the author asked or
+   pushed back and the next word is the user's; say what was asked and whether
+   the author's point holds. Give one or two sentences and cite the thread and
+   the source you read. Do not save a finding that repeats a thread the user
+   already started: its verdict carries the follow-up. A thread that came from
+   one of this review's findings gets the same conclusion as that finding's
+   reassessment.
 7. Before saving, reread the finding as a standalone GitHub comment. Lead with
    the request, the change or the answer you want, within the first two
    sentences; then give the specific claim, reachable trigger and consequence

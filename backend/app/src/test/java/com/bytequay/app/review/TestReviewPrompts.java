@@ -191,6 +191,18 @@ class TestReviewPrompts
     }
 
     @Test
+    void validationAnswersEveryThreadTheUserStarted()
+    {
+        String threads = "read review_get_context kind own_threads";
+        assertThat(ReviewPrompts.stepRequest(run(VALIDATE))).contains(threads, "give it a verdict in review_finish threadVerdicts", "A resolved mark is not evidence",
+                "Do not save a finding that repeats one of these threads");
+        assertThat(ReviewPrompts.stepRequest(run(INVESTIGATE))).doesNotContain(threads);
+        assertThat(ReviewPrompts.stepRequest(run(COLLECT_EVIDENCE))).doesNotContain(threads);
+        assertThat(ReviewPrompts.INSTRUCTION).contains("own_threads: the review threads the user started there",
+                "NOT_ADDRESSED: nothing settles it; a resolved mark, or a reply that only", "its verdict carries the follow-up");
+    }
+
+    @Test
     void theRulesAskForTheRequestFirstAndRefuseHedging()
     {
         assertThat(ReviewPrompts.INSTRUCTION).contains("the request, the change or the answer you want, within the first two", "at most 120 prose words and five sentences",

@@ -36,6 +36,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewTestCheck;
+import com.bytequay.core.review.ReviewThreadVerdict;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.review.ReviewVerification;
 import com.bytequay.persistence.sqlite.converter.JsonColumns;
@@ -271,7 +272,7 @@ class TestSqliteReviewStores
         ReviewCandidateValidation request = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE, "Ownership is unknown",
                 ImmutableList.of("ev-1"), "The caller may close the resource", Optional.empty(), Optional.empty(),
                 Optional.of(new ReviewEvidenceRequest("Who closes the resource?", "Read the caller finally block", "Guaranteed cleanup rejects the leak")));
-        ReviewValidation validation = new ReviewValidation(1, ImmutableList.of(request), COVERAGE, ImmutableList.of(), ImmutableList.of(), "Awaiting evidence");
+        ReviewValidation validation = new ReviewValidation(1, ImmutableList.of(request), COVERAGE, ImmutableList.of(), ImmutableList.of(), "Awaiting evidence", ImmutableList.of());
         ReviewInvestigation response = new ReviewInvestigation(initial.changeMap(), initial.reviewedFiles(), ImmutableList.of("ev-1", "ev-2"), initial.candidates(),
                 ImmutableList.of(), ImmutableList.of(new ReviewEvidenceAnswer(1, "Read all callers", ImmutableList.of("ev-2"), Optional.of("Integration fixture unavailable"))),
                 initial.verification(), initial.perspectives(), Optional.of(new ReviewTestCheck(ReviewTestCheck.Outcome.DOES_NOT_PROTECT,
@@ -284,7 +285,9 @@ class TestSqliteReviewStores
                 .withStep(new ReviewStep(4, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.of(new ReviewValidation(3,
                         ImmutableList.of(new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "One caller misses cleanup", ImmutableList.of("ev-2"),
                                 "Other callers guarantee cleanup", Optional.of("finding-1"), Optional.of(2), Optional.empty())),
-                        COVERAGE, ImmutableList.of(), ImmutableList.of("finding-1"), "Select the missing cleanup"))), NOW)
+                        COVERAGE, ImmutableList.of(), ImmutableList.of("finding-1"), "Select the missing cleanup",
+                        ImmutableList.of(new ReviewThreadVerdict("51", ReviewThreadVerdict.Verdict.PARTLY_ADDRESSED, "One caller still misses the cleanup",
+                                ImmutableList.of("ev-2"), REVIEW_TOOLS, Optional.of(12), "Please close the resource", true))))), NOW)
                 .withCompletionRepairUsed(NOW);
         store.insertReview(review);
         store.insertRun(run);
@@ -297,6 +300,18 @@ class TestSqliteReviewStores
         assertThat(restored.steps().get(2).key(run.id())).isEqualTo("review-step:run-loop:3:repair");
         assertThat(restored.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.VALIDATE);
         assertThat(restored.currentStep().orElseThrow().validation().orElseThrow().selectedFindingIds()).containsExactly("finding-1");
+    }
+
+    @Test
+    void aValidationStoredBeforeThreadVerdictsExistedReadsWithNone()
+            throws JsonProcessingException
+    {
+        ReviewValidation current = new ReviewValidation(1, ImmutableList.of(), COVERAGE, ImmutableList.of(), ImmutableList.of(), "Nothing to select", ImmutableList.of());
+        ObjectNode stored = JsonColumns.mapper().valueToTree(current);
+        assertThat(stored.has("threadVerdicts")).isTrue();
+        stored.remove("threadVerdicts");
+
+        assertThat(JsonColumns.mapper().readValue(stored.toString(), ReviewValidation.class)).isEqualTo(current);
     }
 
     @Test

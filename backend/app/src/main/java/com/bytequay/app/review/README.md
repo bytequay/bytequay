@@ -219,6 +219,38 @@ the private repository still resolves from the shared one. The tail needs Maven
 3.9. Ending the review deletes every head's directory; the operating system's
 temporary-file cleanup covers a review that never ends.
 
+## Follow-up on the user's own threads
+
+A later round owes the user an answer on every comment they already made. For a
+review of a pull request, `review_get_context` kind `own_threads` lists the
+inline review threads whose first comment is the user's, read from the stored
+pull-request activity ([ReviewOwnThreads](ReviewOwnThreads.java)): place, opening
+words, resolved and outdated marks, who spoke last, and whether the author is
+waiting for the user. Unresolved threads come first, and at most 40 are listed.
+
+`review_finish` takes `threadVerdicts`, and a complete report needs one for every
+listed thread:
+
+| Verdict | Meaning |
+| --- | --- |
+| `ADDRESSED` | The change or the author's answer settles the request. |
+| `PARTLY_ADDRESSED` | Part of it remains. |
+| `NOT_ADDRESSED` | Nothing settles it. A resolved mark is not evidence. |
+| `AWAITING_REPLY` | The author asked or pushed back, and the next word is the user's. |
+
+Each verdict cites evidence read in the run and is stored on the validation with
+the thread's place and opening words (`core.review.ReviewThreadVerdict`), so it
+still reads after the discussion moves on. Review details lists them, and the
+tool row that finishes the review counts them. The rules also tell the reviewer
+not to save a finding that repeats one of these threads.
+
+The login comes from the cached GitHub credential, never from a request made for
+this purpose. A replay, a local review, an unknown login or a pull request that
+cannot be read has no threads to answer, and the report is accepted without
+verdicts. Nothing is posted: replying on a thread and resolving it stay the
+user's actions on the pull-request page. Review bodies and top-level comments
+are not threads and are not listed.
+
 ## Discovery responsibilities
 
 ### Prepare a small map of the change
@@ -643,6 +675,7 @@ The implementation is concentrated in the current review service:
 | Carrying an accepted review to a head with the same change | [ReviewHeadCheck](ReviewHeadCheck.java), `followHead` in [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewFinding.carried` |
 | Test check gate, its outcomes and the comparison with recorded runs | `core.review.ReviewTestCheck`, [ReviewTools](ReviewTools.java), [ReviewFacts](ReviewFacts.java), `LocalRun` records |
 | Private Maven repository per reviewed head | [ReviewMavenRepository](ReviewMavenRepository.java), `assignment` context, `end` in [DefaultAgentReviewService](DefaultAgentReviewService.java) |
+| Verdicts on the user's own threads | [ReviewOwnThreads](ReviewOwnThreads.java), `own_threads` and `review_finish` in [ReviewTools](ReviewTools.java), `core.review.ReviewThreadVerdict` |
 | Provisional coverage and selected/unselected results | Review HTTP models, frontend review contracts/model/details and IDE selection |
 | Offline input freezing and bounded discovery-only calibration | [Developer runbook](../../../../../../../../../scripts/review-calibration/README.md) |
 

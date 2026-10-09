@@ -259,7 +259,7 @@ class TestReviewReplayService
                         ImmutableList.of(), "No existing documentation", Optional.of(scopedFindings.get(index).id()), Optional.of(1), Optional.empty()))
                 .collect(toImmutableList()), new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), MemoryFixtures.NOW), ImmutableList.of(),
                 scopedFindings.stream().filter(finding -> finding.origin() == ReviewFinding.Origin.AUTOMATIC).map(ReviewFinding::id).collect(toImmutableList()),
-                "Select supported automatic findings");
+                "Select supported automatic findings", ImmutableList.of());
         when(store.findReview(reviewId)).thenReturn(Optional.of(review));
         when(store.listRuns(reviewId)).thenReturn(ImmutableList.of(new ReviewRun("run-" + reviewId, reviewId, 1, ReviewRun.Scope.FULL, "master", fork, fork, firstHead,
                 Optional.empty(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), state, Optional.empty(), Optional.empty(), Optional.empty(),

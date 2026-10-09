@@ -22,14 +22,19 @@ import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.UNRESOL
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Assessments refer to the exact sealed investigation step that the validator received. */
+/**
+ * Assessments refer to the exact sealed investigation step that the validator received.
+ *
+ * @param threadVerdicts conclusions on the pull-request threads the user started
+ */
 public record ReviewValidation(
         int investigationStep,
         List<ReviewCandidateValidation> candidates,
         ReviewCoverage coverage,
         List<ReviewCandidate> newCandidates,
         List<String> selectedFindingIds,
-        String selectionExplanation)
+        String selectionExplanation,
+        List<ReviewThreadVerdict> threadVerdicts)
 {
     public ReviewValidation
     {
@@ -42,6 +47,9 @@ public record ReviewValidation(
         checkArgument(selectedFindingIds.size() <= 10 && selectedFindingIds.stream().distinct().count() == selectedFindingIds.size(),
                 "selectedFindingIds must contain at most ten unique findings");
         checkArgument(!requireNonNull(selectionExplanation, "selectionExplanation is null").isBlank(), "selectionExplanation is blank");
+        // Absent from validations stored before thread verdicts existed.
+        threadVerdicts = threadVerdicts == null ? ImmutableList.of() : ImmutableList.copyOf(threadVerdicts);
+        checkArgument(threadVerdicts.stream().map(ReviewThreadVerdict::threadId).distinct().count() == threadVerdicts.size(), "thread verdicts are duplicated");
         checkArgument(!coverage.complete() || candidates.stream().noneMatch(value -> value.outcome() == NEEDS_EVIDENCE || value.outcome() == UNRESOLVED),
                 "complete coverage cannot contain unresolved candidates");
     }

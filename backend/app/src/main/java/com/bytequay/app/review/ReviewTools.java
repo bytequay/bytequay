@@ -27,6 +27,7 @@ import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
@@ -64,6 +65,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewTestCheck;
+import com.bytequay.core.review.ReviewThreadVerdict;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.review.ReviewVerification;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -86,6 +88,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -121,11 +124,12 @@ public class ReviewTools
     private static final int MAX_EVIDENCE = 8;
     private static final int MAX_CITED_MEMORIES = 8;
     /** Reads of today's GitHub data, which would show a replay of past code what happened after it. */
-    private static final Set<String> REPLAY_HIDDEN_KINDS = ImmutableSet.of("pr", "timeline", "thread", "checks", "issue", "history");
+    private static final Set<String> REPLAY_HIDDEN_KINDS = ImmutableSet.of("pr", "timeline", "thread", "own_threads", "checks", "issue", "history");
     /** Marks evidence captured from a command the agent ran, which is the only proof a warning accepts. */
     private static final String COMMAND_EVIDENCE_SOURCE = "command output: ";
     private static final String COMMAND_EVIDENCE_REF = "E-command-";
     private static final int MAX_LOCAL_RUNS = 200;
+    private static final int MAX_VERDICT_EXPLANATION = 600;
     private static final String FROZEN_SOURCE_PROVENANCE = "source read from frozen commit ";
     private static final int MAX_EVIDENCE_REF = 200;
     private static final int MAX_CANDIDATES = 30;
@@ -161,6 +165,7 @@ public class ReviewTools
     private final MemoryService memories;
     private final MemoryStore memoryStore;
     private final LocalRunStore localRuns;
+    private final CredentialService credentials;
 
     public ReviewTools(
             AgentReviewStore store,
@@ -181,6 +186,7 @@ public class ReviewTools
             MemoryService memories,
             MemoryStore memoryStore,
             LocalRunStore localRuns,
+            CredentialService credentials,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -199,6 +205,7 @@ public class ReviewTools
         this.memories = requireNonNull(memories, "memories is null");
         this.memoryStore = requireNonNull(memoryStore, "memoryStore is null");
         this.localRuns = requireNonNull(localRuns, "localRuns is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
@@ -224,6 +231,7 @@ public class ReviewTools
                                 + " unique full 40/64-hex commit IDs in this repository), "
                                 + "history (required sourceKind PR or ISSUE and number; selected merged PR or closed non-PR issue), "
                                 + "source (path, startLine, endLine, revision: head/base/previous), "
+                                + "own_threads (the review threads the user started on this pull request, whether each is resolved, and who spoke last), "
                                 + "command_output (latest completed command, optional commandId), investigation, findings "
                                 + "(omit target for the list; target=findingId for its body and historical evidence), "
                                 + "summary, discussion (target), or evidence (ref). "
@@ -234,7 +242,8 @@ public class ReviewTools
                                 + "Known PRs requested through issue return PR metadata; use timeline(number, page) for their discussion. "
                                 + "Selected metadata can be newer than the frozen reviewed code; inspect freshness before relying on historical discussion or checks.",
                         schema(ImmutableMap.<String, Object>builder()
-                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("scope", "pr", "timeline", "thread", "checks", "issue", "commit_prs",
+                                .put("kind", ImmutableMap.of("type", "string", "enum", ImmutableList.of("scope", "pr", "timeline", "thread", "own_threads", "checks", "issue",
+                                        "commit_prs",
                                         "diff", "history", "source", "command_output", "investigation", "assignment", "findings", "summary", "discussion", "evidence")))
                                 .put("path", ImmutableMap.of("type", "string", "maxLength", 1000))
                                 .put("commandId", ImmutableMap.of("type", "string", "pattern", "^[1-9][0-9]{0,18}$"))
@@ -381,7 +390,9 @@ public class ReviewTools
                                 + "external services, or unobtainable third-party dependencies; each names the command, its error, and the recovery tried, "
                                 + "and cites the evidence ref of that command's captured output. A warning without one is refused. "
                                 + "Caveats about evidence strength stay with the candidate they qualify. "
-                                + "Warnings do not prevent completion when all scope was reviewed and candidate conclusions have sufficient evidence.",
+                                + "Warnings do not prevent completion when all scope was reviewed and candidate conclusions have sufficient evidence. "
+                                + "threadVerdicts gives each thread from review_get_context kind own_threads one verdict, ADDRESSED, PARTLY_ADDRESSED, "
+                                + "NOT_ADDRESSED, or AWAITING_REPLY, with one or two sentences and the evidence read; a complete review needs one for every listed thread.",
                         schema(ImmutableMap.of(
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "investigationStep", ImmutableMap.of("type", "integer", "minimum", 1),
@@ -393,6 +404,11 @@ public class ReviewTools
                                 "warnings", ImmutableMap.of("type", "array", "maxItems", 50, "items", schema(ImmutableMap.of(
                                         "text", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 500),
                                         "evidenceRefs", stringArray(MAX_EVIDENCE, 20)), ImmutableList.of("text", "evidenceRefs"))),
+                                "threadVerdicts", ImmutableMap.of("type", "array", "maxItems", ReviewOwnThreads.MAX_THREADS, "items", schema(ImmutableMap.of(
+                                        "threadId", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 30),
+                                        "verdict", ImmutableMap.of("type", "string", "enum", ImmutableList.of("ADDRESSED", "PARTLY_ADDRESSED", "NOT_ADDRESSED", "AWAITING_REPLY")),
+                                        "explanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_VERDICT_EXPLANATION),
+                                        "evidenceRefs", stringArray(MAX_EVIDENCE, MAX_EVIDENCE_REF)), ImmutableList.of("threadId", "verdict", "explanation", "evidenceRefs"))),
                                 "validations", ImmutableMap.of("type", "array", "items", validationSchema())),
                                 ImmutableList.of("operationKey", "complete", "omissions", "validations", "selectedFindingIds", "selectionExplanation")),
                         arguments -> call("review_finish", reviewId, turnId, arguments, this::finish)));
@@ -1211,6 +1227,7 @@ public class ReviewTools
             }
         }
         String selectionExplanation = text(arguments, "selectionExplanation", 2000, true);
+        List<ReviewThreadVerdict> threadVerdicts = threadVerdicts(call, complete.asBoolean());
         if (complete.asBoolean()) {
             if (!coversCarriedFindings(call, investigation.candidates())) {
                 throw new ReviewInvalidRequestException("validations: an open carried finding needs a structured hypothesis; request its investigation");
@@ -1230,13 +1247,105 @@ public class ReviewTools
                 throw new ReviewInvalidRequestException("validations: assess every open finding, including carried findings, as supported or withdraw it with current evidence");
             }
         }
-        ReviewValidation validation = new ReviewValidation(investigationStep, validations, coverage, newCandidates, selected, selectionExplanation);
+        ReviewValidation validation = new ReviewValidation(investigationStep, validations, coverage, newCandidates, selected, selectionExplanation, threadVerdicts);
         ReviewRun run = call.run().withInvestigation(investigation.withValidations(validations), now()).replaceCurrentStep(step.withValidation(validation), now());
         if (validations.stream().noneMatch(value -> value.outcome() == NEEDS_EVIDENCE)) {
             run = run.withCoverage(coverage, now());
         }
         store.updateRun(run.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
+    }
+
+    /**
+     * The verdicts this report gives on the threads the user started, each stored with its thread's place and opening words.
+     * A complete review owes one for every thread ByteQuay lists; when the pull request cannot be read, none can be checked or kept.
+     */
+    private List<ReviewThreadVerdict> threadVerdicts(Call call, boolean complete)
+    {
+        List<JsonNode> items = call.arguments().has("threadVerdicts") ? array(call.arguments(), "threadVerdicts", ReviewOwnThreads.MAX_THREADS) : ImmutableList.of();
+        if (items.isEmpty() && !complete) {
+            return ImmutableList.of();
+        }
+        List<ReviewOwnThreads.Thread> threads;
+        try {
+            threads = ownThreads(call).map(OwnThreads::listed).orElse(ImmutableList.of());
+        }
+        catch (RuntimeException unreadable) {
+            if (items.isEmpty()) {
+                return ImmutableList.of();
+            }
+            throw new ReviewInvalidRequestException("threadVerdicts: the pull request's threads cannot be read now, so no verdict can be recorded; omit them");
+        }
+        Map<String, ReviewThreadVerdict> verdicts = new LinkedHashMap<>();
+        for (JsonNode item : items) {
+            String id = text(item, "threadId", 30, true);
+            ReviewOwnThreads.Thread thread = threads.stream().filter(value -> value.id().equals(id)).findFirst()
+                    .orElseThrow(() -> new ReviewInvalidRequestException("threadVerdicts: " + id
+                            + " is not a thread the user started; use the ids from review_get_context kind own_threads"));
+            ReviewThreadVerdict.Verdict verdict;
+            try {
+                verdict = ReviewThreadVerdict.Verdict.valueOf(text(item, "verdict", 30, true));
+            }
+            catch (IllegalArgumentException e) {
+                throw new ReviewInvalidRequestException("verdict: use ADDRESSED, PARTLY_ADDRESSED, NOT_ADDRESSED, or AWAITING_REPLY");
+            }
+            List<String> refs = evidenceRefs(call, item, "evidenceRefs", MAX_EVIDENCE);
+            if (refs.isEmpty()) {
+                throw new ReviewInvalidRequestException("threadVerdicts: cite what was read for thread " + id
+                        + ", such as its review_get_context kind thread ref and the current source");
+            }
+            if (verdicts.put(id, new ReviewThreadVerdict(id, verdict, text(item, "explanation", MAX_VERDICT_EXPLANATION, true), refs,
+                    thread.path(), thread.line(), thread.opening(), thread.resolved())) != null) {
+                throw new ReviewInvalidRequestException("threadVerdicts: give thread " + id + " one verdict");
+            }
+        }
+        List<String> missing = threads.stream().map(ReviewOwnThreads.Thread::id).filter(id -> !verdicts.containsKey(id)).collect(toImmutableList());
+        if (complete && !missing.isEmpty()) {
+            throw new ReviewInvalidRequestException("threadVerdicts: a complete review gives a verdict for every thread the user started; missing "
+                    + String.join(", ", missing) + ". Read review_get_context kind own_threads");
+        }
+        return ImmutableList.copyOf(verdicts.values());
+    }
+
+    /**
+     * The threads the user started on the reviewed pull request, as its stored activity shows them now. Empty when the review has no
+     * pull request, replays past code, or the user's login is not known without asking GitHub.
+     */
+    private Optional<OwnThreads> ownThreads(Call call)
+    {
+        Optional<String> login = credentials.cachedLogin();
+        if (call.review().number().isEmpty() || call.review().replay().isPresent() || login.isEmpty()) {
+            return Optional.empty();
+        }
+        int number = call.review().number().getAsInt();
+        SelectedPullRequestReader.Read read = selectedPullRequest(call, number, SelectedPullRequestReader.Section.TIMELINE);
+        List<ReviewOwnThreads.Thread> threads = ReviewOwnThreads.of(read.detail(), login.orElseThrow());
+        return Optional.of(new OwnThreads(login.orElseThrow(), number, read, threads.stream().limit(ReviewOwnThreads.MAX_THREADS).collect(toImmutableList()),
+                Math.max(0, threads.size() - ReviewOwnThreads.MAX_THREADS)));
+    }
+
+    private JsonNode ownThreadsContext(Call call)
+    {
+        Optional<OwnThreads> own = ownThreads(call);
+        if (own.isEmpty()) {
+            return objectMapper.createObjectNode().putPOJO("threads", ImmutableList.of())
+                    .put("note", "This review has no pull request discussion to follow up, or the user's GitHub login is not known.");
+        }
+        OwnThreads found = own.orElseThrow();
+        List<ObjectNode> entries = found.listed().stream().map(thread -> {
+            ObjectNode entry = objectMapper.createObjectNode().put("threadId", thread.id()).put("path", bounded(thread.path(), 1000))
+                    .put("line", thread.line().map(String::valueOf).orElse("")).put("resolved", thread.resolved()).put("outdated", thread.outdated())
+                    .put("commentCount", thread.comments()).put("opening", thread.opening()).put("lastCommentBy", bounded(thread.lastActor(), 200))
+                    .put("lastCommentAt", thread.lastAt().map(Instant::toString).orElse("")).put("awaitingReply", thread.awaitingReply());
+            return entry;
+        }).collect(toImmutableList());
+        String provenance = pullRequestProvenance(call, found.number(), found.read());
+        retainPageEvidence(call, call.review().repo() + "#" + found.number() + " thread started by " + found.login(), ignored -> provenance, entries);
+        ObjectNode node = pullRequestSource(call, found.number(), found.read()).put("login", found.login()).put("omittedThreads", found.omitted())
+                .put("note", "Threads the user started. Read each with kind thread before judging it; resolved does not mean addressed. "
+                        + "Give every listed thread a verdict in review_finish threadVerdicts.");
+        node.putPOJO("threads", entries);
+        return node;
     }
 
     private boolean coversCarriedFindings(Call call, List<ReviewCandidate> candidates)
@@ -1353,6 +1462,7 @@ public class ReviewTools
             case "pr" -> pullRequest(call, pullRequestNumber(call));
             case "timeline" -> timeline(call, pullRequestNumber(call), page(arguments));
             case "thread" -> thread(call, pullRequestNumber(call), page(arguments));
+            case "own_threads" -> ownThreadsContext(call);
             case "checks" -> checks(call, pullRequestNumber(call), page(arguments));
             case "issue" -> issue(call, integer(arguments, "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind issue")), page(arguments));
             case "commit_prs" -> commitPullRequests(call);
@@ -2273,6 +2383,9 @@ public class ReviewTools
     }
 
     private record Call(AgentReview review, ReviewRun run, Optional<ReviewStep> step, Optional<ReviewMessage> discussion, Optional<TurnId> turnId, ObjectNode arguments) {}
+
+    /** The user's threads on one pull request read: the first {@code listed} of them, and how many more were left out. */
+    private record OwnThreads(String login, int number, SelectedPullRequestReader.Read read, List<ReviewOwnThreads.Thread> listed, int omitted) {}
 
     private record Replay(String key, String digest, Optional<JsonNode> result) {}
 }

@@ -728,7 +728,7 @@ class TestReviewPublicationService
                 supported ? "The changed path misses the guard" : "The caller guarantees the guard", ImmutableList.of(), "Traced all relevant callers",
                 supported ? Optional.of(finding.id()) : Optional.empty(), supported ? Optional.of(finding.revision()) : Optional.empty(), Optional.empty());
         return new ReviewValidation(investigationStep, ImmutableList.of(assessment), new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW),
-                ImmutableList.of(), selected ? ImmutableList.of(finding.id()) : ImmutableList.of(), selected ? "Recommend this finding" : "Not selected");
+                ImmutableList.of(), selected ? ImmutableList.of(finding.id()) : ImmutableList.of(), selected ? "Recommend this finding" : "Not selected", ImmutableList.of());
     }
 
     private static ReviewDraftItem manual(String path, int line, String body)
@@ -912,7 +912,7 @@ class TestReviewPublicationService
                         .mapToObj(index -> new ReviewCandidateValidation(index + 1, ReviewCandidateValidation.Outcome.SUPPORTED, "Confirmed against source",
                                 ImmutableList.of(), "No counterexample", Optional.of(selected.get(index).id()), Optional.of(selected.get(index).revision()), Optional.empty()))
                         .collect(toImmutableList()), new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of(), NOW), ImmutableList.of(),
-                        selected.stream().map(ReviewFinding::id).collect(toImmutableList()), "Select the supported findings");
+                        selected.stream().map(ReviewFinding::id).collect(toImmutableList()), "Select the supported findings", ImmutableList.of());
                 return run.withStep(ReviewStep.initial(), NOW).withStep(ReviewStep.initial().next(ReviewStep.Kind.VALIDATE).withValidation(validation), NOW);
             }).collect(toImmutableList());
         }

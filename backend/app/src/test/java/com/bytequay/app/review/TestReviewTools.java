@@ -33,6 +33,7 @@ import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.app.service.RepoService;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
@@ -69,6 +70,7 @@ import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewTestCheck;
+import com.bytequay.core.review.ReviewThreadVerdict;
 import com.bytequay.core.review.ReviewValidation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -176,6 +178,7 @@ class TestReviewTools
     private ReviewLocks locks;
     private InMemoryMemoryStore memoryStore;
     private LocalRunStore localRuns;
+    private CredentialService credentials;
 
     @BeforeEach
     void setUp()
@@ -198,6 +201,7 @@ class TestReviewTools
         objectMapper = new ObjectMapper().findAndRegisterModules();
         assignments = mock(ReviewToolAssignment.class);
         localRuns = mock(LocalRunStore.class);
+        credentials = mock(CredentialService.class);
         locks = new ReviewLocks();
         TurnId turn = TurnId.random();
         capturedTurn = turn;
@@ -210,7 +214,7 @@ class TestReviewTools
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, historySources,
                 repositories, issues, issueRefresh, events, workspaces, git, objectMapper, locks, assignments,
-                new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, clock);
+                new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, credentials, clock);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -600,6 +604,114 @@ class TestReviewTools
         assertThat(call("review_get_context", ImmutableMap.of("kind", "thread", "threadId", "51", "page", 2, "threadVersion", version))
                 .at("/error/field").asText()).isEqualTo("threadVersion");
         assertThat(store.runUpdates()).isEqualTo(writes);
+    }
+
+    @Test
+    void theUsersOwnThreadsAreListedUnresolvedFirstWithWhoSpokeLast()
+    {
+        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
+        selectThreads(
+                reviewThread(51L, 2, true, comment(51L, "reviewer", "Please preserve both paths."), comment(52L, "author", "Done.")),
+                reviewThread(61L, 3, false, comment(61L, "Reviewer", "Can the second lookup go?\nIt repeats the first."), comment(62L, "author", "It guards the retry.")),
+                reviewThread(71L, 1, false, comment(71L, "author", "A note to myself"), comment(72L, "reviewer", "Agreed.")));
+
+        JsonNode own = call("review_get_context", ImmutableMap.of("kind", "own_threads"));
+
+        assertThat(own.path("login").asText()).isEqualTo("reviewer");
+        assertThat(own.path("threads")).extracting(thread -> thread.path("threadId").asText()).containsExactly("61", "51");
+        JsonNode waiting = own.at("/threads/0");
+        assertThat(waiting.path("opening").asText()).isEqualTo("Can the second lookup go? It repeats the first.");
+        assertThat(waiting.path("awaitingReply").asBoolean()).isTrue();
+        assertThat(waiting.path("lastCommentBy").asText()).isEqualTo("author");
+        assertThat(waiting.path("path").asText()).isEqualTo(DIFF_PATH);
+        assertThat(waiting.path("line").asText()).isEqualTo("3");
+        assertThat(own.at("/threads/1/resolved").asBoolean()).isTrue();
+        assertThat(own.at("/threads/1/awaitingReply").asBoolean()).isFalse();
+        assertThat(store.findRun(RUN_ID).orElseThrow().evidence()).containsKey(waiting.path("evidenceRef").asText());
+    }
+
+    @Test
+    void aCompleteReviewGivesAVerdictForEveryThreadTheUserStarted()
+    {
+        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
+        selectThreads(
+                reviewThread(51L, 2, true, comment(51L, "reviewer", "Please preserve both paths."), comment(52L, "author", "Done.")),
+                reviewThread(61L, 3, false, comment(61L, "reviewer", "Can the second lookup go?"), comment(62L, "author", "It guards the retry.")));
+        readSource();
+        Map<String, Object> report = finish("finish", ImmutableList.of(assessment(1, "REJECTED")));
+
+        assertThat(call("review_finish", report).at("/error/field").asText()).isEqualTo("threadVerdicts");
+        assertThat(call("review_finish", with(report, "one-missing", "threadVerdicts", ImmutableList.of(verdict("51", "NOT_ADDRESSED")))).at("/error/message").asText())
+                .contains("missing 61");
+        assertThat(call("review_finish", with(report, "unknown", "threadVerdicts", ImmutableList.of(verdict("51", "ADDRESSED"), verdict("99", "ADDRESSED"))))
+                .at("/error/message").asText()).contains("99 is not a thread the user started");
+        assertThat(call("review_finish", with(report, "twice", "threadVerdicts",
+                ImmutableList.of(verdict("51", "ADDRESSED"), verdict("51", "NOT_ADDRESSED"), verdict("61", "ADDRESSED")))).at("/error/message").asText())
+                .contains("give thread 51 one verdict");
+        assertThat(call("review_finish", with(report, "bad-verdict", "threadVerdicts", ImmutableList.of(verdict("51", "FIXED"), verdict("61", "ADDRESSED"))))
+                .at("/error/field").asText()).isEqualTo("verdict");
+        Map<String, Object> uncited = ImmutableMap.of("threadId", "51", "verdict", "ADDRESSED", "explanation", VERDICT_EXPLANATION, "evidenceRefs", ImmutableList.of());
+        assertThat(call("review_finish", with(report, "uncited", "threadVerdicts", ImmutableList.of(uncited, verdict("61", "ADDRESSED")))).at("/error/message").asText())
+                .contains("cite what was read for thread 51");
+
+        JsonNode finished = call("review_finish", with(report, "finish", "threadVerdicts", ImmutableList.of(verdict("61", "AWAITING_REPLY"), verdict("51", "NOT_ADDRESSED"))));
+        assertThat(finished.path("status").asText()).isEqualTo("accepted");
+        assertThat(finished.path("activityLine").asText()).isEqualTo("Finished review · your comments: 1 not addressed, 1 awaiting your reply");
+        assertThat(store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().validation().orElseThrow().threadVerdicts()).containsExactly(
+                new ReviewThreadVerdict("61", ReviewThreadVerdict.Verdict.AWAITING_REPLY, VERDICT_EXPLANATION, ImmutableList.of("E1"), DIFF_PATH, Optional.of(3),
+                        "Can the second lookup go?", false),
+                new ReviewThreadVerdict("51", ReviewThreadVerdict.Verdict.NOT_ADDRESSED, VERDICT_EXPLANATION, ImmutableList.of("E1"), DIFF_PATH, Optional.of(2),
+                        "Please preserve both paths.", true));
+    }
+
+    @Test
+    void anUnknownLoginAsksGitHubNothingAndAnIncompleteReportOwesNoThreadVerdicts()
+    {
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "own_threads")).path("threads")).isEmpty();
+        verifyNoInteractions(selectedPullRequests);
+
+        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
+        selectThreads(reviewThread(51L, 2, false, comment(51L, "reviewer", "Please preserve both paths.")));
+        readSource();
+        assertThat(call("review_finish", incomplete("request", ImmutableList.of(needsEvidence(1)))).path("status").asText()).isEqualTo("accepted");
+        assertThat(store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().validation().orElseThrow().threadVerdicts()).isEmpty();
+    }
+
+    @Test
+    void aPullRequestThatCannotBeReadOwesNoThreadVerdicts()
+    {
+        when(credentials.cachedLogin()).thenReturn(Optional.of("reviewer"));
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE)).thenThrow(new IllegalStateException("GitHub is unreachable"));
+        readSource();
+        Map<String, Object> report = finish("finish", ImmutableList.of(assessment(1, "REJECTED")));
+
+        assertThat(call("review_finish", with(report, "unreadable", "threadVerdicts", ImmutableList.of(verdict("51", "ADDRESSED")))).at("/error/field").asText())
+                .isEqualTo("threadVerdicts");
+        assertThat(call("review_finish", report).path("status").asText()).isEqualTo("accepted");
+    }
+
+    private static final String VERDICT_EXPLANATION = "The second path still returns without the check.";
+
+    private void selectThreads(PullRequestDetail.ActivityItem... threads)
+    {
+        when(selectedPullRequests.read(REPO, 42, SelectedPullRequestReader.Section.TIMELINE))
+                .thenReturn(selected(pullRequestDetail(42, "Metadata", ImmutableList.copyOf(threads), ImmutableList.of(), ImmutableList.of()), Optional.of(HEAD_SHA), false));
+    }
+
+    private static PullRequestDetail.ActivityItem reviewThread(long id, int line, boolean resolved, PrTimelineComment... comments)
+    {
+        return new PullRequestDetail.ActivityItem(comments[0].actor(), "review_thread", NOW, null, id,
+                PrTimelinePayload.builder().path(DIFF_PATH).line(line).side("RIGHT").resolved(resolved).comments(ImmutableList.copyOf(comments)).build());
+    }
+
+    private static PrTimelineComment comment(long id, String actor, String body)
+    {
+        return new PrTimelineComment(id, actor, null, false, NOW.plusSeconds(id), body, null, 7L, null, ImmutableList.of());
+    }
+
+    private static Map<String, Object> verdict(String threadId, String verdict)
+    {
+        return ImmutableMap.of("threadId", threadId, "verdict", verdict, "explanation", VERDICT_EXPLANATION, "evidenceRefs", ImmutableList.of("E1"));
     }
 
     @Test

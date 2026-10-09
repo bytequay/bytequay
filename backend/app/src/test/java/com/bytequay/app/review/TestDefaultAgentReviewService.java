@@ -1814,7 +1814,7 @@ class TestDefaultAgentReviewService
         ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "new Parser()", "allocation");
         ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate(ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE)),
                 new ReviewCoverage(false, ImmutableList.of("New parser ownership concern"), ImmutableList.of(), NOW),
-                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), "Selection recorded");
+                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), "Selection recorded", ImmutableList.of());
         fixture.store.updateRun(validating.withEvidence("E1", evidence, NOW)
                 .replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
         settleCurrentTurn(fixture, validating);
@@ -1858,7 +1858,7 @@ class TestDefaultAgentReviewService
         ReviewCandidateValidation candidate = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
                 ImmutableList.of("E1"), "No caller cleanup exists", Optional.of(finding.id()), Optional.of(finding.revision()), Optional.empty());
         ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate), coverage(), ImmutableList.of(),
-                candidate.findingId().stream().collect(toImmutableList()), "Select the supported defect");
+                candidate.findingId().stream().collect(toImmutableList()), "Select the supported defect", ImmutableList.of());
         fixture.store.updateRun(validating.replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW).withCoverage(coverage(), NOW));
         fixture.store.updateFinding(finding.revised("Different claim", "Different behavior", Optional.empty(), finding.anchor(), ImmutableList.of(), validating.headSha(), NOW));
         settleCurrentTurn(fixture, validating);
@@ -1884,7 +1884,8 @@ class TestDefaultAgentReviewService
         ReviewCandidateValidation candidate = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
                 ImmutableList.of("E1"), "No caller cleanup exists", Optional.of(finding.id()), Optional.of(finding.revision()), Optional.empty());
         ReviewCoverage coverage = new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of("Snowflake cloud tests unavailable without credentials"), NOW);
-        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate), coverage, ImmutableList.of(), ImmutableList.of(finding.id()), "Select the supported defect");
+        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(candidate), coverage, ImmutableList.of(), ImmutableList.of(finding.id()), "Select the supported defect",
+                ImmutableList.of());
         fixture.store.updateRun(validating.replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
         settleCurrentTurn(fixture, validating);
 
@@ -1916,7 +1917,7 @@ class TestDefaultAgentReviewService
         ReviewCandidateValidation candidate = candidate(ReviewCandidateValidation.Outcome.REJECTED);
         fixture.store.updateRun(revalidating.replaceCurrentStep(revalidating.currentStep().orElseThrow()
                 .withValidation(new ReviewValidation(1, ImmutableList.of(candidate), coverage(), ImmutableList.of(),
-                        ImmutableList.of(), "No supported findings")), NOW));
+                        ImmutableList.of(), "No supported findings", ImmutableList.of())), NOW));
         settleCurrentTurn(fixture, revalidating);
 
         fixture.service.reconcile(validating.reviewId());
@@ -2075,7 +2076,8 @@ class TestDefaultAgentReviewService
         ReviewCandidateValidation supported = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED,
                 "The original trigger and contract still hold", ImmutableList.of("E1"), "No counterexample found",
                 Optional.of(revalidated.id()), Optional.of(revalidated.revision()), Optional.empty());
-        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(supported), coverage(), ImmutableList.of(), ImmutableList.of(), "Selection recorded");
+        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(supported), coverage(), ImmutableList.of(), ImmutableList.of(), "Selection recorded",
+                ImmutableList.of());
         fixture.store.updateRun(validating.withCoverage(coverage(), NOW)
                 .replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
         settleCurrentTurn(fixture, validating);
@@ -3057,7 +3059,8 @@ class TestDefaultAgentReviewService
         ReviewRun validating = beginValidation(fixture, fixture.store.updateRun(run.withEvidence("E1", evidence, NOW)), investigation);
         ReviewCandidateValidation supported = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
                 ImmutableList.of("E1"), "No counterexample found", Optional.of(finding.id()), Optional.of(finding.revision()), Optional.empty());
-        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(supported), coverage(), ImmutableList.of(), ImmutableList.of(finding.id()), "Selection recorded");
+        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(supported), coverage(), ImmutableList.of(), ImmutableList.of(finding.id()), "Selection recorded",
+                ImmutableList.of());
         fixture.store.updateRun(validating.withCoverage(coverage(), NOW).replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
         settleCurrentTurn(fixture, validating);
         fixture.service.reconcile(reviewId);
@@ -3204,7 +3207,8 @@ class TestDefaultAgentReviewService
         int revision = run.steps().stream().filter(step -> step.investigation().isPresent()).reduce((first, second) -> second).orElseThrow().number();
         ReviewCoverage coverage = outcome == ReviewCandidateValidation.Outcome.REJECTED
                 ? coverage() : new ReviewCoverage(false, ImmutableList.of("Parser ownership unresolved"), ImmutableList.of(), NOW);
-        ReviewValidation report = new ReviewValidation(revision, ImmutableList.of(candidate(outcome)), coverage, ImmutableList.of(), ImmutableList.of(), "Selection recorded");
+        ReviewValidation report = new ReviewValidation(revision, ImmutableList.of(candidate(outcome)), coverage, ImmutableList.of(), ImmutableList.of(), "Selection recorded",
+                ImmutableList.of());
         fixture.store.updateRun(run.replaceCurrentStep(run.currentStep().orElseThrow().withValidation(report), NOW));
         settleCurrentTurn(fixture, run);
     }
@@ -3256,7 +3260,8 @@ class TestDefaultAgentReviewService
     private static void completeValidation(Fixture fixture, ReviewRun run)
     {
         int investigationStep = run.steps().stream().filter(step -> step.investigation().isPresent()).reduce((first, second) -> second).orElseThrow().number();
-        ReviewValidation report = new ReviewValidation(investigationStep, ImmutableList.of(), coverage(), ImmutableList.of(), ImmutableList.of(), "Selection recorded");
+        ReviewValidation report = new ReviewValidation(investigationStep, ImmutableList.of(), coverage(), ImmutableList.of(), ImmutableList.of(), "Selection recorded",
+                ImmutableList.of());
         fixture.store.updateRun(run.withCoverage(coverage(), NOW).replaceCurrentStep(run.currentStep().orElseThrow().withValidation(report), NOW));
         TurnId validation = TurnId.valueOf(run.turnIds().getLast());
         when(fixture.turns.get(validation)).thenReturn(settledTurn(validation, TurnState.COMPLETED, Optional.empty()));

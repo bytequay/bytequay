@@ -2078,6 +2078,40 @@ class TestPullRequestService
         verifyNoInteractions(actions);
     }
 
+    @ParameterizedTest
+    @CsvSource({"open, quiet, 1, 1", "merged, quiet, 0, 0", "closed, quiet, 0, 0", "merged, monitored, 1, 1", "merged, pending, 0, 1", "merged, activity, 1, 0"})
+    void warmingLeavesSettledPullRequestsUntilActivityOrOpening(String state, String variant, int warmDiscussions, int warmChecks)
+    {
+        Instant now = Instant.now();
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        PullRequest row = storedPullRequest(state, pullRequest().updatedAt(), null);
+        List<PrCheckRunState> checks = variant.equals("pending")
+                ? ImmutableList.of(new PrCheckRunState(1L, "build", "in_progress", null, null, "check_run", null, null))
+                : stored().checkRuns();
+        // Fresh metadata, with a discussion and checks that are past the warm pass's windows.
+        PrDetailFreshness times = new PrDetailFreshness(
+                Optional.of(now), Optional.of(now.minus(Duration.ofMinutes(31))), Optional.of(now.minus(Duration.ofMinutes(11))), Optional.of(row.updatedAt()));
+        cacheDetail(variant.equals("monitored") ? monitored(row) : row, new StoredPrDetail(raw(), stored().reviews(), ImmutableList.of(), checks, ImmutableList.of(), true), times);
+        when(store.findAttentionCandidates()).thenReturn(ImmutableList.of(row));
+        if (variant.equals("activity")) {
+            when(store.findDiscussionActivityAt(12L)).thenReturn(Optional.of(row.updatedAt().plusSeconds(30)));
+        }
+        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+                .thenReturn(new PrCheckRunsFetch(checks, Optional.of("checks"), Optional.of("statuses")));
+
+        service.warmRecentDetails(30);
+
+        verify(gitHub, times(warmDiscussions)).fetchPrIssueComments("pat", ref);
+        verify(actions, times(warmChecks)).refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any());
+
+        // Opening reconciles whatever the warm pass left, and only that.
+        service.refreshOpenedPullRequestDetailFromGitHub("owner/repo", 7);
+
+        verify(gitHub).fetchPrIssueComments("pat", ref);
+        verify(actions).refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any());
+        verify(gitHub, never()).getPullRequest(anyString(), any(), any());
+    }
+
     @Test
     void checksOnlyRefreshLeavesDiscussionAndDiffUntouched()
     {
@@ -2169,9 +2203,13 @@ class TestPullRequestService
 
     private void cacheDetail(StoredPrDetail initial, PrDetailFreshness initialTimes)
     {
+        cacheDetail(storedPullRequest(), initial, initialTimes);
+    }
+
+    private void cacheDetail(PullRequest row, StoredPrDetail initial, PrDetailFreshness initialTimes)
+    {
         AtomicReference<StoredPrDetail> cached = new AtomicReference<>(initial);
         AtomicReference<PrDetailFreshness> times = new AtomicReference<>(initialTimes);
-        PullRequest row = storedPullRequest();
         PullRequest withCi = new PullRequest(row.id(), row.repo(), row.number(), row.title(), row.author(), row.htmlUrl(), row.createdAt(), row.updatedAt(), row.origin(),
                 row.labels(), row.labelColors(), row.draft(), row.viewedAt(), row.reviewedAt(), row.handledAction(), row.requestedReviewers(),
                 initial == null ? PullRequestDetail.CiStatus.NONE : PullRequestDetailMapper.aggregateCiStatus(initial.checkRuns()),
@@ -2313,7 +2351,11 @@ class TestPullRequestService
 
     private static PullRequest monitoredPullRequest(int number)
     {
-        PullRequest row = storedPullRequest(pullRequestNumber(number));
+        return monitored(storedPullRequest(pullRequestNumber(number)));
+    }
+
+    private static PullRequest monitored(PullRequest row)
+    {
         return new PullRequest(row.id(), row.repo(), row.number(), row.title(), row.author(), row.htmlUrl(), row.createdAt(), row.updatedAt(), row.origin(),
                 row.labels(), row.labelColors(), row.draft(), row.viewedAt(), row.reviewedAt(), row.handledAction(), row.requestedReviewers(), row.ciStatus(),
                 row.additions(), row.deletions(), row.commentCount(), row.state(), row.closedAt(), row.mergedAt(), row.mergeable(), row.mergeableState(),

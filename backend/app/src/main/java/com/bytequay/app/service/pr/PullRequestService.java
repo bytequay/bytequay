@@ -758,33 +758,34 @@ public class PullRequestService
 
     DetailRefresh refreshPullRequestDetailFromGitHub(String repo, int number)
     {
-        return refreshPullRequestDetailFromGitHub(repo, number, Duration.ofSeconds(60));
+        return refreshDetailOnce(parseRef(repo, number), Duration.ofSeconds(60), Duration.ofMinutes(30), false, false, false);
     }
 
+    /** The background warm refresh, which nobody is waiting for. */
     DetailRefresh refreshPullRequestDetailFromGitHub(String repo, int number, Duration freshness)
     {
-        return refreshDetailOnce(parseRef(repo, number), freshness, Duration.ofMinutes(30), false, false);
+        return refreshDetailOnce(parseRef(repo, number), freshness, Duration.ofMinutes(30), false, false, true);
     }
 
     DetailRefresh refreshOpenedPullRequestDetailFromGitHub(String repo, int number)
     {
-        return refreshDetailOnce(parseRef(repo, number), Duration.ofSeconds(60), Duration.ofSeconds(60), false, false);
+        return refreshDetailOnce(parseRef(repo, number), Duration.ofSeconds(60), Duration.ofSeconds(60), false, false, false);
     }
 
     DetailRefresh refreshPullRequestChecksFromGitHub(String repo, int number)
     {
-        return refreshDetailOnce(parseRef(repo, number), Duration.ofSeconds(30), Duration.ofMinutes(30), true, false);
+        return refreshDetailOnce(parseRef(repo, number), Duration.ofSeconds(30), Duration.ofMinutes(30), true, false, false);
     }
 
     PullRequestDetail refreshAllPullRequestDetailFromGitHub(String repo, int number)
     {
-        return refreshDetailOnce(parseRef(repo, number), Duration.ZERO, Duration.ZERO, false, true).detail();
+        return refreshDetailOnce(parseRef(repo, number), Duration.ZERO, Duration.ZERO, false, true, false).detail();
     }
 
-    private DetailRefresh refreshDetailOnce(PullRequestRef ref, Duration freshness, Duration discussionFreshness, boolean checksOnly, boolean force)
+    private DetailRefresh refreshDetailOnce(PullRequestRef ref, Duration freshness, Duration discussionFreshness, boolean checksOnly, boolean force, boolean warm)
     {
         PullRequestRef key = parseRef(ref.repoFullName().toLowerCase(Locale.ROOT), ref.number());
-        DetailWork work = new DetailWork(freshness, discussionFreshness, checksOnly, force, new CompletableFuture<>());
+        DetailWork work = new DetailWork(freshness, discussionFreshness, checksOnly, force, warm, new CompletableFuture<>());
         DetailWork running = detailRefreshes.putIfAbsent(key, work);
         if (running != null) {
             DetailRefresh result;
@@ -797,15 +798,15 @@ public class PullRequestService
                 }
                 throw failure;
             }
-            if ((force && !running.force()) || (!checksOnly && running.checksOnly()) || freshness.compareTo(running.freshness()) < 0
+            if ((force && !running.force()) || (!checksOnly && running.checksOnly()) || (!warm && running.warm()) || freshness.compareTo(running.freshness()) < 0
                     || (!checksOnly && discussionFreshness.compareTo(running.discussionFreshness()) < 0)) {
                 detailRefreshes.remove(key, running);
-                return refreshDetailOnce(ref, freshness, discussionFreshness, checksOnly, force);
+                return refreshDetailOnce(ref, freshness, discussionFreshness, checksOnly, force, warm);
             }
             return result;
         }
         try {
-            DetailRefresh result = refreshDetailGroups(ref, freshness, discussionFreshness, checksOnly, force);
+            DetailRefresh result = refreshDetailGroups(ref, freshness, discussionFreshness, checksOnly, force, warm);
             work.result().complete(result);
             return result;
         }
@@ -818,7 +819,7 @@ public class PullRequestService
         }
     }
 
-    private DetailRefresh refreshDetailGroups(PullRequestRef ref, Duration freshness, Duration discussionFreshness, boolean checksOnly, boolean force)
+    private DetailRefresh refreshDetailGroups(PullRequestRef ref, Duration freshness, Duration discussionFreshness, boolean checksOnly, boolean force, boolean warm)
     {
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
@@ -864,16 +865,21 @@ public class PullRequestService
         PullRequest current = requireNonNull(row, "pull request is missing");
         Instant sourceAt = discussionSourceUpdatedAt(current);
         boolean headChanged = previous.isPresent() && !Objects.equals(previous.orElseThrow().raw().headSha(), detail.raw().headSha());
+        // A warm pass refreshes a settled pull request only after activity. The reactions and thread
+        // resolutions GitHub does not report as activity wait until someone opens it.
+        boolean timed = !warm || !settled(current);
         // Opening uses a short freshness window; periodic refreshes reconcile quiet discussions less often
         // because every pass paginates the full history, including several GraphQL reaction/thread queries.
         boolean discussionDue = missing || force || headChanged || !detail.reviewsComplete() || !detail.timelineComplete()
-                || newer(sourceAt, times.discussionSourceUpdatedAt()) || expired(times.discussionAt(), discussionFreshness, now);
+                || newer(sourceAt, times.discussionSourceUpdatedAt()) || (timed && expired(times.discussionAt(), discussionFreshness, now));
         if ((!checksOnly || missing) && discussionDue) {
             detail = snapshots.saveDiscussion(current.id(), PullRequestDetailFetcher.await(detailFetcher.fetchDiscussion(pat, ref, detail)), sourceAt);
             full = true;
         }
         boolean checkChanged = current.ciStatus() != PullRequestDetailMapper.aggregateCiStatus(detail.checkRuns());
-        if (missing || force || headChanged || checkChanged || !detail.checkRunsComplete() || expired(times.checksAt(), freshness, now)) {
+        // Checks still running when a pull request closed finish without any activity.
+        if (missing || force || headChanged || checkChanged || !detail.checkRunsComplete()
+                || ((timed || current.ciStatus() == PullRequestDetail.CiStatus.PENDING) && expired(times.checksAt(), freshness, now))) {
             try {
                 detail = snapshots.refreshChecks(pat, ref, current.id());
             }
@@ -906,7 +912,7 @@ public class PullRequestService
         return sourceAt != null && validatedSource.filter(at -> !at.isBefore(sourceAt)).isEmpty();
     }
 
-    private record DetailWork(Duration freshness, Duration discussionFreshness, boolean checksOnly, boolean force, CompletableFuture<DetailRefresh> result) {}
+    private record DetailWork(Duration freshness, Duration discussionFreshness, boolean checksOnly, boolean force, boolean warm, CompletableFuture<DetailRefresh> result) {}
 
     /** Returns locally persisted diff files without contacting GitHub. */
     public List<DiffFile> getPullRequestDiffFiles(

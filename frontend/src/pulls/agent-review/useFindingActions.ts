@@ -15,6 +15,7 @@ import { useCallback, useRef, useState } from 'react';
 import { recordAttentionAction, type AttentionAction } from '../../home/useAttentionVisit';
 import { remoteErrorMessage } from '../PullOverview';
 import { findingConversation } from '../local-review/conversation';
+import { findingReviewText } from './model';
 import type { FindingActions } from './ReviewFindingCard';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
 
@@ -122,7 +123,7 @@ export function useFindingActions({
         itemId = draft.items.find(item => item.findingId === finding.id)?.id ?? null;
       }
       if (itemId === null) throw new Error('The comment could not be prepared for sending');
-      if (body !== (existing?.body ?? finding.body)) {
+      if (body !== (existing?.body ?? findingReviewText(finding))) {
         version = (await window.bridge.editReviewDraftComment(review.repo, number(), version, itemId, body, true)).version;
       }
       await window.bridge.publishReviewDraftComment(review.repo, number(), version, itemId);
@@ -146,7 +147,9 @@ export function useFindingActions({
         await window.bridge.removeReviewDraftComment(review.repo, number(), draftVersion(), item.id);
       }
       else if (finding.path === null && review.draft !== null) {
-        await window.bridge.saveReviewDraft(review.repo, number(), draftVersion(), review.draft.body.replace(finding.body.trim(), '').trim(), review.draft.event);
+        const text = findingReviewText(finding);
+        const body = review.draft.body.replace(review.draft.body.includes(text) ? text : finding.body.trim(), '').trim();
+        await window.bridge.saveReviewDraft(review.repo, number(), draftVersion(), body, review.draft.event);
       }
       else return;
       await reload();

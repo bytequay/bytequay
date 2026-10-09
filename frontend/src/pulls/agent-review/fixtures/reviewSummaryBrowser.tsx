@@ -28,7 +28,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     severity: null, path: null, side: null, startLine: null, endLine: null, range: null, excerpt: [] };
   const other: ReviewFindingDto = { ...finding, id: 'other-finding', label: 'F-2', body: 'Describe the provider scope.' };
   const originalFindings = JSON.stringify([finding, other]);
-  const originalBody = `Thanks for the change.\n\n${finding.body}\n\n${other.body}\n\nMy own closing note.`;
+  const originalBody = `Thanks for the change.\n\n${finding.title}\n\n${finding.body}\n\n${other.title}\n\n${other.body}\n\nMy own closing note.`;
   let saved = reviewFixture({ findings: [finding, other], messages: [], draft: {
     repo: 'trinodb/trino', number: 30304, body: originalBody, event: 'APPROVE', items: [], version: 4, updatedAt: finding.updatedAt,
   } });
@@ -51,7 +51,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     },
     addReviewDraftFinding: async () => {
       assert(saved.draft !== null, 'The draft must exist');
-      const draft = { ...saved.draft, body: `${saved.draft.body}\n\n${finding.body}`, version: saved.draft.version + 1 };
+      const draft = { ...saved.draft, body: `${saved.draft.body}\n\n${finding.title}\n\n${finding.body}`, version: saved.draft.version + 1 };
       saved = { ...saved, draft };
       return draft;
     },
@@ -101,7 +101,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       'Accepted edits must close the composer and refresh the saved summary');
     assert(!host.textContent?.includes('The review changed; retry.'), 'Accepted retry must clear the error');
     button('Remove').click(); await settle();
-    const remaining = `Thanks; I have two small comments.\n\n\n\n${other.body}\n\nMy own closing note.`;
+    const remaining = `Thanks; I have two small comments.\n\n\n\n${other.title}\n\n${other.body}\n\nMy own closing note.`;
     assert(requests[2]?.[3] === remaining && requests[2]?.[2] === 5,
       'Remove must save only the selected excerpt removal, retaining manual prose and the other finding');
     completions[2](new Error('Could not save the removal.')); await settle();

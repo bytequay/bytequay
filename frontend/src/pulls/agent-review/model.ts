@@ -304,6 +304,10 @@ export function queued(review: AgentReviewDto, message: ReviewMessageDto): boole
   return message.queuedInputId !== null && review.queuedInputIds.includes(message.queuedInputId);
 }
 
+export function findingReviewText(finding: ReviewFindingDto): string {
+  return `${finding.title.trim()}\n\n${finding.body.trim()}`;
+}
+
 export function draftItemFor(draft: ReviewDraftDto | null, findingId: string): ReviewDraftItemDto | null {
   return draft?.items.find(item => item.findingId === findingId) ?? null;
 }

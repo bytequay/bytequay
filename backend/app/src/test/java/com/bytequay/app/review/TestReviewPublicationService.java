@@ -159,14 +159,14 @@ class TestReviewPublicationService
 
         ReviewDraft first = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, "f-whole");
         assertThat(first.items()).isEmpty();
-        assertThat(first.body()).isEqualTo("Commit message: name the behavior, not the file.");
+        assertThat(first.body()).isEqualTo("Nit: commit subject\n\nCommit message: name the behavior, not the file.");
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, first.version(), REVIEW_ID, "f-whole"))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("already in your review");
 
         // It follows text the user already wrote, and a finding with lines still becomes an inline comment.
         ReviewDraft written = service.saveReview(REPO, NUMBER, first.version(), "Thanks for the fix.", "COMMENT");
         ReviewDraft second = service.addFinding(REPO, NUMBER, written.version(), REVIEW_ID, "f-whole");
-        assertThat(second.body()).isEqualTo("Thanks for the fix.\n\nCommit message: name the behavior, not the file.");
+        assertThat(second.body()).isEqualTo("Thanks for the fix.\n\nNit: commit subject\n\nCommit message: name the behavior, not the file.");
         assertThat(service.addFinding(REPO, NUMBER, second.version(), REVIEW_ID, FINDING_ID).items()).hasSize(1);
         verifyNoInteractions(pullRequests);
     }
@@ -187,7 +187,7 @@ class TestReviewPublicationService
         assertThat(item.side()).isEqualTo("RIGHT");
         assertThat(item.line()).isEqualTo(131);
         assertThat(item.startLine()).hasValue(118);
-        assertThat(item.body()).isEqualTo("Guard the null case");
+        assertThat(item.body()).isEqualTo("Finding 1\n\nGuard the null case");
         assertThat(item.included()).isTrue();
         assertThat(item.publication()).isEmpty();
         assertThat(reviews.findFinding(FINDING_ID)).contains(open);
@@ -258,7 +258,7 @@ class TestReviewPublicationService
 
         ReviewDraft promoted = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
         assertThat(promoted.items().getFirst().findingRevision()).hasValue(2);
-        assertThat(promoted.items().getFirst().body()).isEqualTo("Clarified after discussion");
+        assertThat(promoted.items().getFirst().body()).isEqualTo("Finding 1\n\nClarified after discussion");
         ReviewDraft edited = service.editItem(REPO, NUMBER, promoted.version(), lastItemId(promoted), "My own wording", true);
         reviews.put(revised.revised(revised.title(), "Another clarification", revised.severity(), revised.anchor(), revised.evidence(), REVIEWED_HEAD, NOW));
 
@@ -394,7 +394,8 @@ class TestReviewPublicationService
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
         verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture());
         assertThat(sent.getValue()).extracting(InlineReviewComment::body)
-                .containsExactly("Still fine", "Resolved later", "Withdrawn later", "Outdated later", "Revised later", "Removed later");
+                .containsExactly("Still fine", "Finding 1\n\nResolved later", "Finding 2\n\nWithdrawn later", "Finding 3\n\nOutdated later",
+                        "Finding 4\n\nRevised later", "Finding 5\n\nRemoved later");
     }
 
     @Test
@@ -451,7 +452,7 @@ class TestReviewPublicationService
         verify(pullRequests).createReviewComment(eq(REPO), eq(NUMBER), sent.capture());
         InlineReviewComment comment = sent.getValue();
         assertThat(comment.path()).isEqualTo("src/Service.java");
-        assertThat(comment.body()).isEqualTo("Guard the null case");
+        assertThat(comment.body()).isEqualTo("Finding 1\n\nGuard the null case");
         assertThat(comment.side()).isEqualTo("RIGHT");
         assertThat(comment.startSide()).isEqualTo("RIGHT");
         assertThat(comment.line()).isEqualTo(131);
@@ -474,7 +475,7 @@ class TestReviewPublicationService
         ArgumentCaptor<InlineReviewComment> sent = ArgumentCaptor.captor();
         verify(pullRequests).createReviewComment(eq(REPO), eq(NUMBER), sent.capture());
         assertThat(sent.getValue().commitId()).isEqualTo(REVIEWED_HEAD);
-        assertThat(sent.getValue().body()).isEqualTo("Guard the null case");
+        assertThat(sent.getValue().body()).isEqualTo("Finding 1\n\nGuard the null case");
         assertThat(sent.getValue().line()).isEqualTo(131);
     }
 
@@ -489,7 +490,7 @@ class TestReviewPublicationService
                 ```""";
         reviews.put(finding(FINDING_ID, 1, "src/Service.java", 118, 119, body));
         ReviewDraft draft = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);
-        assertThat(draft.items().getFirst().body()).isEqualTo(body);
+        assertThat(draft.items().getFirst().body()).isEqualTo("Finding 1\n\n" + body);
         verifyNoInteractions(pullRequests);
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
         when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
@@ -500,7 +501,7 @@ class TestReviewPublicationService
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
         verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Suggested fix"), sent.capture());
         assertThat(sent.getValue()).singleElement().satisfies(comment -> {
-            assertThat(comment.body()).isEqualTo(body);
+            assertThat(comment.body()).isEqualTo("Finding 1\n\n" + body);
             assertThat(comment.path()).isEqualTo("src/Service.java");
             assertThat(comment.startLine()).isEqualTo(118);
             assertThat(comment.line()).isEqualTo(119);

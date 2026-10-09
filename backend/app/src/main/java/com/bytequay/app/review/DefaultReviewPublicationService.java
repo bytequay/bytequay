@@ -138,10 +138,10 @@ public class DefaultReviewPublicationService
             ReviewFinding finding = requireFinding(reviewId, findingId);
             requirePromotable(finding);
             requireAcceptedReview(repo, number, finding);
+            String text = body(finding.title().strip() + "\n\n" + finding.body().strip());
             if (finding.anchor().isEmpty()) {
                 // A finding about the whole pull request has no line to comment on, so it joins the review's own text, which the user edits before submitting.
-                String text = body(finding.body());
-                if (draft.body().contains(text)) {
+                if (draft.body().contains(body(finding.body()))) {
                     throw new ReviewConflictException("This finding is already in your review");
                 }
                 return drafts.save(draft.withReview(draft.body().isBlank() ? text : draft.body().stripTrailing() + "\n\n" + text, draft.event(), now()));
@@ -162,7 +162,7 @@ public class DefaultReviewPublicationService
                     anchor.side(),
                     anchor.endLine(),
                     anchor.startLine() == anchor.endLine() ? OptionalInt.empty() : OptionalInt.of(anchor.startLine()),
-                    body(finding.body()),
+                    text,
                     true,
                     Optional.empty(),
                     Optional.of(finding.validatedHeadSha()));

@@ -47,6 +47,8 @@ describe('finding suggestions', () => {
     expect(html).toContain('<td class="md-suggestion__number">119</td><td class="md-suggestion__code"><span>−</span>    return result;</td>');
     expect(html).toContain('<td class="md-suggestion__number">118</td><td class="md-suggestion__code"><span>+</span>    return input.orElseThrow();</td>');
     expect(html).not.toContain('<span>suggestion</span>');
+    expect(html).not.toContain('Reviewed code');
+    expect(html).not.toContain('pr-local-review__snapshot');
   });
 
   it('folds the repository memories the reviewer cited', () => {
@@ -58,7 +60,8 @@ describe('finding suggestions', () => {
 
   it('publishes an accepted earlier finding at the recorded code and commit', () => {
     const html = render({ ...finding, outdated: true });
-    expect(html).toContain('Recorded code');
+    expect(html).not.toContain('Recorded code');
+    expect(html).toContain('This finding describes an earlier reviewed commit');
     expect(html).toContain('md-suggestion__row is-del');
     expect(html).toContain('Post comment now');
   });

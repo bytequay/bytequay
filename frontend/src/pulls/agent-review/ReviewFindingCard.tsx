@@ -24,7 +24,7 @@ import ReviewComposer from './ReviewComposer';
 import ReviewThread from './ReviewThread';
 import { findingLines } from './contracts';
 import type { AgentReviewDto, ReviewFindingDto } from './contracts';
-import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublication, messagesFor, shortPath, shortSha } from './model';
+import { askLabel, draftCommentCommit, draftItemFor, findingPill, findingPublication, findingReviewText, messagesFor, shortPath, shortSha } from './model';
 
 export type FindingActions = {
   onRequestFix?: (finding: ReviewFindingDto, instruction: string) => Promise<void>;
@@ -143,9 +143,6 @@ export default function ReviewFindingCard({
           {finding.severity !== null && <span className={`agr-severity ${severityTone(finding.severity)}`}>{finding.severity}</span>}
           <CopyLinkButton label="conversation" value={findingConversation(review, finding)} /></>}
         code={lines !== null && finding.excerpt.length > 0 && <div className="lrc__code">
-          <div className="pr-local-review__snapshot">
-            {finding.outdated ? 'Recorded code' : 'Reviewed code'} · review <code>{shortSha(finding.validatedHeadSha)}</code>
-          </div>
           {finding.excerpt.map((text, index) => <CommentedCodeLine key={lines.startLine + index}
             line={{ lineNumber: completeExcerpt ? lines.startLine + index : null, prefix: lines.side === 'LEFT' ? '-' : ' ', text }} />)}
         </div>}
@@ -200,7 +197,7 @@ export default function ReviewFindingCard({
                     : 'Copies this comment into your pending GitHub review. Nothing is sent until you submit.'}
                   onClick={() => { void actions.onAddToReview(finding); }}>Add to my review</button>
                 {lines !== null && <button type="button" className="lrc__action is-primary" disabled={busy}
-                  onClick={() => openComposer('post', finding.body)}>Post comment now</button>}
+                  onClick={() => openComposer('post', findingReviewText(finding))}>Post comment now</button>}
               </>
             )}
             {publication.kind === 'blocked' && <span className="agr-actions__blocked">{publication.reason}</span>}

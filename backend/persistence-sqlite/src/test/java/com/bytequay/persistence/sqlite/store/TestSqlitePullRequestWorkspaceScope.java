@@ -39,6 +39,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.assertj.core.api.Assertions.tuple;
 
 class TestSqlitePullRequestWorkspaceScope
@@ -105,6 +106,40 @@ class TestSqlitePullRequestWorkspaceScope
         assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isNull();
         assertThat(store.findById(row.id()).orElseThrow().activityAt()).isEqualTo(fetched.updatedAt());
         assertThat(store.findAttentionCandidates()).isEmpty();
+    }
+
+    @Test
+    void mergeDiscoveryClearsMonitoringAndCannotBeMonitoredAgain()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
+        PullRequest row = store.saveObserved(fetched);
+        store.setMonitored(row.id(), true);
+
+        store.saveObserved(pullRequest(1, "owner/project", 1, "merged", fetched.updatedAt(), fetched.updatedAt()));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isNull();
+        assertThatThrownBy(() -> store.setMonitored(row.id(), true)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void detailMergeClearsMonitoring()
+    {
+        FetchedPullRequest fetched = pullRequest(1, "owner/project", 1);
+        PullRequest row = store.saveObserved(fetched);
+        store.setMonitored(row.id(), true);
+        Instant timestamp = fetched.updatedAt().plusSeconds(60);
+
+        store.updateDetails(row.id(), new PrRawDetail(
+                "title", "url", "closed", "alice", null, timestamp, timestamp, timestamp, "body",
+                ImmutableList.of(), ImmutableMap.of(), ImmutableList.of(), null, false, null, null,
+                0, 0, 0, 0, ImmutableList.of(), "head", "feature", "main"));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(store.findById(row.id()).orElseThrow().state()).isEqualTo("merged");
+        assertThat(store.findById(row.id()).orElseThrow().monitoredAt()).isNull();
     }
 
     @Test

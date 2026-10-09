@@ -101,7 +101,7 @@ function toRow(pr: PullRequestDto, reviewedTime = false): PullRow {
     deletions: pr.deletions,
     comments: pr.commentCount,
     review: reviewLabel(pr),
-    monitored: pr.monitoredAt != null,
+    monitored: kind !== 'merged' && pr.monitoredAt != null,
   };
 }
 
@@ -118,10 +118,7 @@ export function rowsForTab(prs: PullRequestDto[], tab: PullTab, viewerLogin?: st
       const authored = pullRequestIsMine(pr, viewerLogin);
       const reviewed = !authored && pr.handledAction !== null;
       if (tab === 'done') return done;
-      // Monitored is the set the user pinned, not a state the repository
-      // derives. ponytail: a pinned pull request stays listed after it is
-      // merged; whether merging should unpin it is still an open question.
-      if (tab === 'monitored') return pr.monitoredAt != null;
+      if (tab === 'monitored') return pullRequestKind(pr.state) !== 'merged' && pr.monitoredAt != null;
       if (done) return false;
       if (tab === 'active') return authored;
       if (tab === 'req') return pullRequestNeedsReview(pr);
@@ -215,6 +212,7 @@ export function reconcilePullRequestDetail(
 ): PullRequestDto {
   if (detail.updatedAt !== null && Date.parse(detail.updatedAt) < Date.parse(pr.updatedAt)) return pr;
   const state = detail.state?.toLowerCase() ?? pr.state;
+  const monitoredAt = state === 'merged' ? null : pr.monitoredAt;
   const title = detail.title ?? pr.title;
   const updatedAt = detail.updatedAt ?? pr.updatedAt;
   const labels = detail.labels?.map(label => label.name) ?? pr.labels;
@@ -232,9 +230,9 @@ export function reconcilePullRequestDetail(
     : pr.origin;
   return state === pr.state && title === pr.title && updatedAt === pr.updatedAt
       && labels === pr.labels && labelColors === pr.labelColors && requestedReviewers === pr.requestedReviewers
-      && origin === pr.origin
+      && origin === pr.origin && monitoredAt === pr.monitoredAt
     ? pr
-    : { ...pr, state, title, updatedAt, labels, labelColors, requestedReviewers, origin };
+    : { ...pr, state, title, updatedAt, labels, labelColors, requestedReviewers, origin, monitoredAt };
 }
 
 export function reconcilePostedComment(

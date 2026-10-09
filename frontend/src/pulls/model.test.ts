@@ -105,14 +105,16 @@ describe('rowsForTab', () => {
     expect(rowsForTab([monitored, unmonitored], 'all').map(row => row.monitored)).toEqual([true, false]);
   });
 
-  it('lists the pinned set under Monitored, whoever authored it and whether or not it closed', () => {
+  it('lists monitored PRs except merged ones, including closed but unmerged PRs', () => {
     const mine = pr({ id: 1, monitoredAt: '2026-09-06T00:00:00Z', origin: 'AUTHORED' });
     const theirs = pr({ id: 2, monitoredAt: '2026-09-05T00:00:00Z', origin: 'OTHER' });
     const merged = pr({ id: 3, monitoredAt: '2026-09-04T00:00:00Z', state: 'merged' });
     const unpinned = pr({ id: 4, monitoredAt: null });
+    const closed = pr({ id: 5, monitoredAt: '2026-09-04T00:00:00Z', state: 'closed' });
 
-    expect(rowsForTab([mine, theirs, merged, unpinned], 'monitored').map(row => row.id).sort())
-      .toEqual([1, 2, 3]);
+    expect(rowsForTab([mine, theirs, merged, unpinned, closed], 'monitored').map(row => row.id).sort())
+      .toEqual([1, 2, 5]);
+    expect(rowsForTab([merged], 'done')[0]?.monitored).toBe(false);
     expect(rowsForTab([unpinned], 'monitored')).toEqual([]);
   });
 
@@ -142,7 +144,7 @@ describe('rowsForTab', () => {
   });
 
   it('moves a stale open row to Done when detail reports it merged', () => {
-    const updated = reconcilePullRequestDetail(pr({ id: 1, state: 'open' }), {
+    const updated = reconcilePullRequestDetail(pr({ id: 1, state: 'open', monitoredAt: '2026-08-21T00:00:00Z' }), {
       state: 'merged',
       updatedAt: '2026-08-21T01:00:00Z',
     });
@@ -151,6 +153,8 @@ describe('rowsForTab', () => {
     expect(rowsForTab([updated], 'active')).toEqual([]);
     expect(rowsForTab([updated], 'req')).toEqual([]);
     expect(rowsForTab([updated], 'reviewed')).toEqual([]);
+    expect(updated.monitoredAt).toBeNull();
+    expect(rowsForTab([updated], 'monitored')).toEqual([]);
     expect(rowsForTab([updated], 'done')[0]?.kind).toBe('merged');
   });
 

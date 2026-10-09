@@ -137,7 +137,8 @@ repository.
    ready, choose **Submit review**, inspect the pending comments, select **Comment**,
    **Approve**, or **Request Changes** where allowed, and submit.
 5. Use **Monitor PR** (the bell) to keep a PR in **Monitored**. **Stop monitoring PR**
-   removes it from that list.
+   removes it from that list. Merged PRs cannot be monitored; monitoring stops
+   automatically when ByteQuay detects a merge.
 
 **Post now** publishes an individual comment immediately. Review submission and merge
 controls write to GitHub; inspect the outgoing content and selected action first. Your

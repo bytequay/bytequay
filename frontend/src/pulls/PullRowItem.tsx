@@ -23,7 +23,8 @@ export default function PullRowItem({ row, wide, selected, monitoring = false, o
   onPick: () => void;
   onMonitor: () => void;
 }) {
-  const monitorLabel = monitoring ? 'Saving PR monitoring…' : row.monitored ? 'Stop monitoring PR' : 'Monitor PR';
+  const monitorLabel = row.kind === 'merged' ? 'Merged PRs cannot be monitored'
+    : monitoring ? 'Saving PR monitoring…' : row.monitored ? 'Stop monitoring PR' : 'Monitor PR';
   const MonitorIcon = monitoring ? LoaderCircle : row.monitored ? BellRing : Bell;
   return (
     <div className={`pull-card${wide ? ' pull-card--wide' : ''}`}>
@@ -42,7 +43,7 @@ export default function PullRowItem({ row, wide, selected, monitoring = false, o
         aria-label={`${monitorLabel}: ${row.repo} #${row.num}`}
         aria-pressed={row.monitored}
         aria-busy={monitoring}
-        disabled={monitoring}
+        disabled={monitoring || row.kind === 'merged'}
         onClick={onMonitor}
       >
         <MonitorIcon size={16} aria-hidden="true" />

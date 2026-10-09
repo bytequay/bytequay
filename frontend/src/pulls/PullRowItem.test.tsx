@@ -67,4 +67,13 @@ describe('pull request monitoring control', () => {
       expect(markup).not.toContain('lucide-bell');
     }
   });
+
+  it.each([false, true])('disables monitoring a merged PR in either layout (%s)', wide => {
+    const markup = renderToStaticMarkup(
+      <PullRowItem row={{ ...row, kind: 'merged' }} wide={wide} selected={false} onPick={() => {}} onMonitor={() => {}} />,
+    );
+
+    expect(markup).toContain('title="Merged PRs cannot be monitored"');
+    expect(markup).toContain('aria-pressed="false" aria-busy="false" disabled=""');
+  });
 });

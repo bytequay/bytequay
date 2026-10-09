@@ -115,6 +115,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -381,6 +382,36 @@ class TestPullRequestService
     }
 
     @Test
+    void mergedPullRequestsCannotBeMonitored()
+    {
+        PullRequest row = storedPullRequest("merged", REVIEWED_AT, REVIEWED_AT);
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+
+        assertThatThrownBy(() -> service.setMonitored(row.id(), true))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(store, never()).setMonitored(anyLong(), anyBoolean());
+        verifyNoInteractions(credentialService, summaries);
+    }
+
+    @Test
+    void mergeDiscoveredWhileEnablingMonitoringIsSavedWithoutEnablingMonitoring()
+    {
+        PullRequest row = storedPullRequest();
+        FetchedPullRequest merged = pullRequest("merged", row.updatedAt().plusSeconds(60), row.updatedAt().plusSeconds(60));
+        GitHubPullRequestSummary summary = summary(merged, PullRequestDetail.CiStatus.PASSING, "merged");
+        when(store.findById(row.id())).thenReturn(Optional.of(row));
+        when(summaries.fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 7)), "me")).thenReturn(ImmutableList.of(summary));
+        when(store.saveObserved(merged)).thenReturn(storedPullRequest(merged));
+
+        assertThatThrownBy(() -> service.setMonitored(row.id(), true))
+                .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.CONFLICT));
+
+        verify(store).saveObserved(merged);
+        verify(store, never()).setMonitored(anyLong(), anyBoolean());
+    }
+
+    @Test
     void disablingMonitoringStaysLocal()
     {
         PullRequest row = storedPullRequest();
@@ -428,6 +459,26 @@ class TestPullRequestService
 
         verify(viewStateStore).markReviewed(12L, HandledAction.APPROVED, "head", latestReviewAt);
         verify(viewStateStore, never()).markNeedsReview(12L);
+    }
+
+    @Test
+    void backgroundSyncClearsExistingMergedMonitorsBeforeRequestingSummaries()
+    {
+        PullRequest merged = storedPullRequest("merged", REVIEWED_AT, REVIEWED_AT);
+        List<PullRequest> candidates = new ArrayList<>(ImmutableList.of(monitored(merged)));
+        when(store.findAttentionCandidates()).thenAnswer(ignored -> ImmutableList.copyOf(candidates));
+        doAnswer(ignored -> {
+            candidates.set(0, merged);
+            return null;
+        }).when(store).setMonitored(merged.id(), false);
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+
+        service.syncAttentionSummaries();
+        service.syncAttentionSummaries();
+
+        verify(store).setMonitored(merged.id(), false);
+        verifyNoInteractions(summaries);
     }
 
     @Test
@@ -1900,6 +1951,7 @@ class TestPullRequestService
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
         assertThat(result.merged()).isTrue();
+        verify(store).setMonitored(12L, false);
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.MERGED), eq("head"), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
         verify(detailStore, never()).deleteByPrIds(any());
@@ -1920,6 +1972,7 @@ class TestPullRequestService
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
         assertThat(result.queued()).isTrue();
+        verify(store, never()).setMonitored(anyLong(), anyBoolean());
         verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
         verifyNoMoreInteractions(detailStore);

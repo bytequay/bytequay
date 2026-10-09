@@ -44,6 +44,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiConsumer;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
@@ -91,6 +92,7 @@ public class SqlitePullRequestStore
     public void setMonitored(long prId, boolean monitored)
     {
         PullRequestEntity row = jpaRepository.findById(prId).orElseThrow();
+        checkArgument(!monitored || !"merged".equalsIgnoreCase(canonicalState(row.getState(), row.getMergedAt())), "Merged pull requests cannot be monitored");
         if (monitored != (row.getMonitoredAt() != null)) {
             row.setMonitoredAt(monitored ? Instant.now() : null);
         }
@@ -281,6 +283,9 @@ public class SqlitePullRequestStore
                 entity.setActivityAt(now);
             }
         }
+        if ("merged".equalsIgnoreCase(entity.getState())) {
+            entity.setMonitoredAt(null);
+        }
         return jpaRepository.save(entity).toDomain(null);
     }
 
@@ -393,6 +398,9 @@ public class SqlitePullRequestStore
                 entity.setActivityAt(Instant.now());
             }
             entity.setState(normalizedState);
+            if ("merged".equalsIgnoreCase(normalizedState)) {
+                entity.setMonitoredAt(null);
+            }
             if (detail.updatedAt() != null) {
                 entity.setUpdatedAt(detail.updatedAt());
             }

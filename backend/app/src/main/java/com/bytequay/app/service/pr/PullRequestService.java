@@ -290,6 +290,9 @@ public class PullRequestService
     {
         PullRequest row = store.findById(prId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Pull request not found"));
+        if (monitored && "merged".equalsIgnoreCase(row.state())) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Merged pull requests cannot be monitored");
+        }
         if (monitored && row.monitoredAt() == null) {
             GitHubCredential credential = credentialService.resolveGitHubCredential();
             GitHubPullRequestSummary summary = summaries.fetchSummaries(
@@ -298,6 +301,9 @@ public class PullRequestService
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Could not load pull request activity. Retry monitoring shortly."));
             // Establish the same lightweight baseline used by polling before enabling notifications.
             storeCardSummary(credential.token(), store.saveObserved(summary.pullRequest()), summary, credential.profile().login());
+            if ("merged".equalsIgnoreCase(summary.pullRequest().state()) || summary.pullRequest().mergedAt() != null) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "Merged pull requests cannot be monitored");
+            }
         }
         store.setMonitored(prId, monitored);
         return store.findById(prId).orElseThrow();
@@ -411,6 +417,9 @@ public class PullRequestService
     /** Notification ingestion and incremental discovery never wait for full detail warming. */
     public synchronized void syncAttentionSummaries()
     {
+        store.findAttentionCandidates().stream()
+                .filter(row -> row.monitoredAt() != null && "merged".equalsIgnoreCase(row.state()))
+                .forEach(row -> store.setMonitored(row.id(), false));
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
         String login = credential.profile().login();
@@ -1409,6 +1418,9 @@ public class PullRequestService
                 return enqueuePullRequest(pat, ref, repo, number);
             }
             throw e;
+        }
+        if (result.merged()) {
+            store.setMonitored(prId, false);
         }
         viewStateStore.markReviewed(prId, HandledAction.MERGED, currentHeadSha(prId), Instant.now());
         recent.pullRequestAction(repo, number, RecentReason.MERGED, 0);

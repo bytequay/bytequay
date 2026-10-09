@@ -993,7 +993,7 @@ describe('PullOverview', () => {
       { lineNumber: 41, prefix: '-', text: 'gone' },
     ]);
     expect(commentedCodeLines(patch, 'RIGHT', null, 3)).toEqual([]);
-    expect(html).toContain('<code>src/PageSourceProvider.java</code></span><span class="lrc__badge is-warn">Outdated</span>');
+    expect(html).toContain('<code>src/PageSourceProvider.java</code></bdi></span><span class="lrc__badge is-warn">Outdated</span>');
     expect(html).toContain('class="pr-commented-code-line is-add"');
     expect(html).toContain('pr-commented-code-line__number">44</span>');
     expect(html).toContain('<code>    interface MemoryUsageTracker</code>');

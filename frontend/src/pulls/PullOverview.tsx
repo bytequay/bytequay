@@ -1050,7 +1050,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const sidePrefix = payload.side === 'LEFT' ? 'L' : payload.side === 'RIGHT' ? 'R' : '';
   const isRange = startLine !== null && startLine !== targetLine;
   const location = showCode
-    ? <code>{threadLocation(payload.path, resolved || commentedLines.length === 0 ? targetLine : null, payload.side, startLine)}</code>
+    ? <bdi dir="ltr"><code>{threadLocation(payload.path, resolved || commentedLines.length === 0 ? targetLine : null, payload.side, startLine)}</code></bdi>
     : targetLine === null
       ? <span>Comment on file</span>
       : <span>Comment on {isRange ? 'lines' : 'line'} <strong>{isRange ? `${sidePrefix}${startLine}–` : ''}{sidePrefix}{targetLine}</strong></span>;
@@ -1171,7 +1171,8 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
     </footer>
   );
   return (
-    <ReviewThreadCard title={<span className="lrc__title">{location}</span>} resolved={resolved} outdated={payload.outdated}
+    <ReviewThreadCard title={<span className={`lrc__title${showCode ? ' is-path' : ''}`} title={showCode ? payload.path ?? undefined : undefined}>{location}</span>}
+      resolved={resolved} outdated={payload.outdated}
       code={!resolved && commentedLines.length > 0 && <div className="lrc__code">
         {commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
       </div>} controls={controls}>

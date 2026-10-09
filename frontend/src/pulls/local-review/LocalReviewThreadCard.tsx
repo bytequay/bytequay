@@ -19,7 +19,6 @@ import BetterWordsButton from '../BetterWordsButton';
 import MarkdownBody from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
 import { commentIndexTarget } from '../ReviewCommentIndex';
-import { shortPath } from '../agent-review/model';
 import LocalCard, { LocalCardMessage, SummaryCardTitle } from './LocalCard';
 import { localReviewConversation } from './conversation';
 import type { LocalReviewThreadActions, LocalReviewThreadDto } from './types';
@@ -90,7 +89,7 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
     resolved={thread.resolved} outdated={outdated} attributes={{ 'data-local-review-thread': thread.id }}
     badges={<CopyLinkButton label="conversation" value={localReviewConversation(thread, outdated)} />}
     title={learning !== null ? <SummaryCardTitle sha={learningSha} tooltip={learning.title} />
-      : showCode ? <code className="lrc__title" title={thread.path}>{shortPath(thread.path)}:{range}</code>
+      : showCode ? <code className="lrc__title is-path" title={thread.path}><bdi dir="ltr">{thread.path}:{range}</bdi></code>
       : <span className="lrc__title">Comment on {start === thread.line ? 'line' : 'lines'} <strong>{range}</strong></span>}
     code={snapshot} controls={controls}>
     {learning !== null && <LocalCardMessage timestamp={thread.createdAt} author="Developer"

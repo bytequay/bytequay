@@ -49,6 +49,7 @@ import { ExtensionPolicy } from './extensionPolicy';
 import manifest from './runtimeManifest.json';
 import light from './ideaLight.json';
 import dark from './darcula.json';
+import githubDark from './githubDark.json';
 import type { IdeConnection } from './contracts';
 
 const ideaKeys = [
@@ -66,6 +67,7 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
   window.MonacoEnvironment = { getWorker: (_id, label) => label === 'TextMateWorker' ? new TextmateWorker() : new EditorWorker() };
   const workspace = URI.from({ scheme: 'vscode-remote', authority: connection.authority, path: connection.root });
   const theme = localStorage.getItem('bytequay.ide.theme') ?? 'ByteQuay IDEA Light';
+  document.documentElement.style.colorScheme = ['ByteQuay Darcula', 'GitHub Dark'].includes(theme) ? 'dark' : 'light';
   await initUserConfiguration(JSON.stringify({
     'workbench.colorTheme': theme,
     'workbench.activityBar.location': 'hidden', 'workbench.statusBar.visible': false,
@@ -86,10 +88,12 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     contributes: { themes: [
       { id: 'ByteQuay IDEA Light', label: 'ByteQuay IDEA Light', uiTheme: 'vs', path: './ideaLight.json' },
       { id: 'ByteQuay Darcula', label: 'ByteQuay Darcula', uiTheme: 'vs-dark', path: './darcula.json' },
+      { id: githubDark.name, label: githubDark.name, uiTheme: 'vs-dark', path: './githubDark.json' },
     ] },
   }, ExtensionHostKind.LocalProcess, { system: true });
   extension.registerFileUrl('ideaLight.json', `data:application/json,${encodeURIComponent(JSON.stringify(light))}`);
   extension.registerFileUrl('darcula.json', `data:application/json,${encodeURIComponent(JSON.stringify(dark))}`);
+  extension.registerFileUrl('githubDark.json', `data:application/json,${encodeURIComponent(JSON.stringify(githubDark))}`);
   const versions = Object.fromEntries([
     ...manifest.extensions.map(item => [item.id, item.version]),
     ...['theme-defaults', 'java', 'go', 'rust', 'javascript'].map(name => [`vscode.${name}`, '10.0.0']),

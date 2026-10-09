@@ -32,6 +32,7 @@ import { editor, languages, Uri } from 'monaco-editor';
 import { installHeaderFolding } from '../folding';
 import light from '../ideaLight.json';
 import dark from '../darcula.json';
+import githubDark from '../githubDark.json';
 import { assert } from '../../fixtures/harness';
 import { verifyFileAppearance } from './fileAppearance';
 import { verifyUsages } from './usagesBrowser';
@@ -46,9 +47,11 @@ export async function run() {
     contributes: { themes: [
       { id: light.name, label: light.name, uiTheme: 'vs', path: './light.json' },
       { id: dark.name, label: dark.name, uiTheme: 'vs-dark', path: './dark.json' },
+      { id: githubDark.name, label: githubDark.name, uiTheme: 'vs-dark', path: './githubDark.json' },
     ] } }, ExtensionHostKind.LocalProcess);
   extension.registerFileUrl('light.json', `data:application/json,${encodeURIComponent(JSON.stringify(light))}`);
   extension.registerFileUrl('dark.json', `data:application/json,${encodeURIComponent(JSON.stringify(dark))}`);
+  extension.registerFileUrl('githubDark.json', `data:application/json,${encodeURIComponent(JSON.stringify(githubDark))}`);
   const container = document.createElement('div');
   container.style.cssText = 'width:1050px;height:680px'; document.body.append(container);
   await initialize({ ...getConfiguration(), ...getModel(), ...getViews(), ...getTheme(), ...getTextmate(), ...getLanguages(), ...getSearch() });
@@ -97,7 +100,7 @@ public class Example {
   folding.toggleCollapseState([header]);
   code.setPosition({ lineNumber: 10, column: 1 });
   const results: Record<string, number> = {};
-  for (const palette of [light, dark]) {
+  for (const palette of [light, dark, githubDark]) {
     const nativeTheme = (await theme.getColorThemes()).find(item => item.settingsId === palette.name);
     assert(nativeTheme !== undefined, `Missing theme ${palette.name}`);
     await theme.setColorTheme(nativeTheme.id, undefined);
@@ -118,7 +121,7 @@ public class Example {
       }
       sample.remove();
       assert(colors.size >= 4, `${palette.name}: ${language} must have TextMate syntax colors without a language server: ${[...colors]}`);
-      results[`${palette.type}.${language}`] = colors.size;
+      results[`${palette.name}.${language}`] = colors.size;
     }
   }
   provider.dispose();

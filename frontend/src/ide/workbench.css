@@ -1,6 +1,7 @@
 html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 .ide-workbench { --ide-bg: #fff; --ide-fg: #24292f; --ide-edge: #dfe3e8; --ide-bar: #f5f6f8; display: flex; flex-direction: column; width: 100%; height: 100%; color: var(--ide-fg); background: var(--ide-bg); font: 12px -apple-system, BlinkMacSystemFont, sans-serif; }
 .ide-workbench.is-dark { --ide-bg: #282c34; --ide-fg: #abb2bf; --ide-edge: #3b4048; --ide-bar: #21252b; }
+.ide-workbench[data-theme='GitHub Dark'] { --ide-bg: var(--vscode-editor-background); --ide-fg: var(--vscode-editor-foreground); --ide-edge: var(--vscode-panel-border); --ide-bar: var(--vscode-sideBar-background); }
 .ide-toolbar { display: flex; align-items: center; flex-shrink: 0; gap: 6px; min-height: 34px; padding: 3px 8px; border-bottom: 1px solid var(--ide-edge); background: var(--ide-bar); }
 .ide-toolbar button, .ide-toolbar select { border: 1px solid transparent; border-radius: 4px; padding: 4px 7px; color: inherit; background: transparent; font: inherit; cursor: pointer; }
 .ide-toolbar button:hover, .ide-toolbar select:hover { border-color: var(--ide-edge); background: var(--ide-bg); }
@@ -57,6 +58,7 @@ html, body, #root { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 
 .ide-workbench { --text-1: var(--ide-fg); --bg-card: var(--ide-bg); --bg-input: var(--ide-bg); --border: var(--ide-edge); --border-input: var(--ide-edge); --border-strong: var(--ide-edge); }
 .ide-workbench.is-dark { --text-2: #aaa; --text-3: #999; --text-4: #888; --accent: #6da5d9; --bg-elevated: #3c3f41; --bg-base: #2b2b2b; --bg: #2b2b2b; --bg-elev: #3c3f41; }
+.ide-workbench[data-theme='GitHub Dark'] { --text-2: var(--vscode-descriptionForeground); --text-3: var(--vscode-descriptionForeground); --accent: var(--vscode-textLink-foreground); --bg-elevated: var(--ide-bar); --bg-base: var(--ide-bg); --bg: var(--ide-bg); --bg-elev: var(--ide-bar); }
 
 .ide-toolbar { flex-wrap: wrap; }
 .ide-toolbar button[aria-pressed='true'] { border-color: var(--ide-edge); background: var(--ide-bg); }

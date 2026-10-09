@@ -30,7 +30,7 @@ import '../workbench.css';
 export async function verifyFileAppearance() {
   const host = document.createElement('div'); host.className = 'ide-workbench';
   host.style.cssText = 'position:fixed;inset:0;z-index:100'; document.body.append(host);
-  const tree = document.createElement('nav'); tree.className = 'ct ide-files'; host.append(tree);
+  const tree = document.createElement('nav'); tree.className = 'ct ct-files ide-files'; host.append(tree);
   const native = document.createElement('div'); native.className = 'ide-editor'; native.style.cssText = 'flex:1;min-height:0'; host.append(native);
   const attached = attachPart(Parts.EDITOR_PART, native);
   const editors = await getService(IEditorService);
@@ -88,11 +88,17 @@ export async function verifyFileAppearance() {
     const split = native.querySelector<HTMLElement>('[aria-label^="Split Editor"]');
     assert(split !== null && split.getClientRects().length > 0, 'The split-editor action remains available');
     assert(!tabs()[0].classList.contains('ide-test-tab') && tabs()[1].classList.contains('ide-test-tab'), 'Same-named main/test files have different colors');
-    for (const [name, dark] of [['ByteQuay IDEA Light', false], ['ByteQuay Darcula', true]] as const) {
+    for (const [name, dark] of [['ByteQuay IDEA Light', false], ['ByteQuay Darcula', true], ['GitHub Dark', true]] as const) {
       host.classList.toggle('is-dark', dark); host.style.colorScheme = dark ? 'dark' : 'light';
+      host.dataset.theme = name;
       const palette = (await theme.getColorThemes()).find(item => item.settingsId === name);
       assert(palette !== undefined, `Missing theme: ${name}`);
       await theme.setColorTheme(palette.id, undefined); await settle();
+      if (name === 'GitHub Dark') {
+        const background = getComputedStyle(tree).backgroundColor, foreground = getComputedStyle(host).color;
+        assert(background === 'rgb(22, 27, 34)' && foreground === 'rgb(230, 237, 243)', `GitHub colors apply to the file tree and shell: ${background}, ${foreground}`);
+        assert(getComputedStyle(host).backgroundColor === 'rgb(13, 17, 23)', 'GitHub canvas uses the selected palette');
+      }
       const tint = getComputedStyle(tabs()[1]).backgroundColor;
       assert(tint === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)'), `${name} test tab has the green tint: ${tint}`);
       assert(getComputedStyle(row(paths[1])).backgroundColor === (dark ? 'rgb(52, 75, 54)' : 'rgb(214, 233, 196)'), `${name} selected test row keeps its green tint`);

@@ -154,14 +154,16 @@ export async function verifySearch() {
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'query-engine'), 'Java results show their Maven module');
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'tools') && rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'rust'), 'Go and Rust results show their nearest module');
     assert(popup()?.textContent?.includes('limited set'), 'Search result limits are explicit');
-    for (const dark of [true, false]) {
-      const palette = (await theme.getColorThemes()).find(item => item.settingsId === (dark ? 'ByteQuay Darcula' : 'ByteQuay IDEA Light'));
+    for (const [name, mode] of [['ByteQuay Darcula', 'dark'], ['ByteQuay IDEA Light', 'light'], ['GitHub Dark', 'github-dark']] as const) {
+      const dark = mode === 'dark' || mode === 'github-dark';
+      const palette = (await theme.getColorThemes()).find(item => item.settingsId === name);
       assert(palette !== undefined, 'Search palette is registered'); await theme.setColorTheme(palette.id, undefined);
+      host.dataset.theme = name;
       host.classList.toggle('is-dark', dark); host.style.colorScheme = dark ? 'dark' : 'light'; await settle();
       const testRows = rows().filter(row => row.classList.contains('is-test'));
       assert(testRows.length >= 3 && testRows.every(row => getComputedStyle(row).backgroundColor === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)')), 'Test results are green in both themes');
-      Object.assign(window, { searchCapture: dark ? 'dark' : 'light' });
-      await until(() => (window as unknown as { searchCaptured: string }).searchCaptured === (dark ? 'dark' : 'light'), 'Capture the search popup');
+      Object.assign(window, { searchCapture: mode });
+      await until(() => (window as unknown as { searchCaptured: string }).searchCaptured === mode, 'Capture the search popup');
     }
     changeInput(input(), 'IcebergMetadata');
     await until(() => idle() && rows().some(row => row.title.endsWith('/IcebergMetadata.java:1')), 'Exact class is available among fuzzy path matches');

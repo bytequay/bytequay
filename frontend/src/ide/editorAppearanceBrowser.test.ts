@@ -62,7 +62,7 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
           window.webContents.sendInputEvent({ type: 'mouseMove', ...point, modifiers: [modifier] });
           window.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
           window.webContents.sendInputEvent({ type: 'mouseUp', ...point, button: 'left', clickCount: 1, modifiers: [modifier] });
-          for (const mode of ['dark', 'light']) {
+          for (const mode of ['dark', 'light', 'github-dark']) {
             await waitFor('window.searchCapture === ' + JSON.stringify(mode), 600);
             if (process.env.BYTEQUAY_SEARCH_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_SEARCH_CAPTURE + '-' + mode + '.png', (await window.webContents.capturePage()).toPNG());
             await window.webContents.executeJavaScript('window.searchCaptured = ' + JSON.stringify(mode));
@@ -98,7 +98,7 @@ it('renders native syntax, folding, type icons, test colors, usages, search, pri
     const args = command === executable ? [script] : ['-a', executable, script];
     const result = await promisify(execFile)(command, args, { env: environment, timeout: 90_000, maxBuffer: 2 * 1024 * 1024 });
     const colors = JSON.parse(result.stdout.trim()) as Record<string, number>;
-    expect(Object.keys(colors)).toHaveLength(6);
+    expect(Object.keys(colors)).toHaveLength(9);
     expect(Object.values(colors).every(count => count >= 4)).toBe(true);
   } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
 }, 120_000);

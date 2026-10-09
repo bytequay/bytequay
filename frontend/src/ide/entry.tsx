@@ -239,7 +239,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     catch (cause) { setError(String(cause)); }
   };
 
-  return <main className={`ide-workbench ${theme.includes('Darcula') ? 'is-dark' : ''}`}>
+  return <main className={`ide-workbench ${['ByteQuay Darcula', 'GitHub Dark'].includes(theme) ? 'is-dark' : ''}`} data-theme={theme}>
     <header className="ide-toolbar">
       <button aria-label="Back" onClick={() => command('workbench.action.navigateBack')} title="Back"><ArrowLeft size={15} /></button>
       <button aria-label="Forward" onClick={() => command('workbench.action.navigateForward')} title="Forward"><ArrowRight size={15} /></button>
@@ -251,8 +251,9 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
       <select aria-label="IDE theme" value={theme} onChange={event => {
         const value = event.target.value;
         localStorage.setItem('bytequay.ide.theme', value); setTheme(value);
+        document.documentElement.style.colorScheme = ['ByteQuay Darcula', 'GitHub Dark'].includes(value) ? 'dark' : 'light';
         void runtime.api.workspace.getConfiguration().update('workbench.colorTheme', value, runtime.api.ConfigurationTarget.Global);
-      }}><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option></select>
+      }}><option>ByteQuay IDEA Light</option><option>ByteQuay Darcula</option><option>GitHub Dark</option></select>
     </header>
     {executionError && <div className="ide-notice" role="alert">{executionError}</div>}
     {execution?.treeUnverified && <div className="ide-notice" role="status">Execution finished; verifying process cleanup.

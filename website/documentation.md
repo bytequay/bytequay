@@ -73,7 +73,8 @@ You can start by browsing and reviewing PRs without starting an agent task. Mana
 GitHub credentials later in **Settings → Integrations → GitHub**.
 
 Code & Tests offers IDEA Light and Darcula themes with Atom One-style syntax
-colors. License headers and imports fold on first open; expand them with the
+colors, plus **GitHub Dark** with a dark canvas and GitHub-style syntax colors.
+License headers and imports fold on first open; expand them with the
 gutter arrows. Symbol search, callers, and usages remain available through the
 editor shortcuts and context menu. Press **Shift twice** or **⌘⇧F**,
 or click **Search**, to open Search Everywhere. Results put normal classes before

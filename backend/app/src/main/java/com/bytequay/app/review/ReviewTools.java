@@ -136,6 +136,8 @@ public class ReviewTools
     /** Room for the investigation's own hypotheses and every lead of the second reader. */
     private static final int MAX_CANDIDATES = 30 + ReviewLead.MAX_LEADS;
     private static final int CANDIDATE_PAGE = 20;
+    /** How many of a run's selected findings may be questions; the others say what should change. */
+    static final int MAX_SELECTED_QUESTIONS = 2;
     private static final int MAX_EXCERPT = 4000;
     private static final int SOURCE_WINDOW = 200;
     private static final int DIFF_PAGE_LINES = 300;
@@ -329,8 +331,9 @@ public class ReviewTools
                                 + "with evidence refs and diff anchors from review_get_context. Save code-specific bugs and improvements here, not in summary replies. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. "
                                 + "A concrete minor improvement starts its title with Nit: and omits severity. "
-                                + "A verified observation that exposes a choice the change does not explain starts its title with Question: and omits severity; "
+                                + "A Question: title, without severity, is the last resort, for a verified observation whose choice only the author can explain; "
                                 + "ask why and name the two acceptable outcomes. "
+                                + "When you have shown a consequence, say what should change as a defect or a suggestion. "
                                 + "A finding about a commit message or the PR description has no lines: pass scope pull_request instead of anchors, "
                                 + "without severity or a suggestion block, and give the proposed wording as text. "
                                 + "Polish before saving: at most 120 prose words and five sentences, or 35 words and two sentences for a Nit:, excluding fenced code. "
@@ -390,6 +393,7 @@ public class ReviewTools
                                 + "Use the same small decisive evidence set for the finding and its assessment. "
                                 + "Every open finding, including carried findings, needs a current assessment or withdrawal. "
                                 + "Report the investigationStep from the assignment context. "
+                                + "At most " + MAX_SELECTED_QUESTIONS + " of the selectedFindingIds may be Question: findings. "
                                 + "complete=false and omissions are required for unsettled candidates or unreviewed scope. "
                                 + "Warnings are only for checks that were run and stopped by a limit the worktree cannot fix, such as missing credentials, "
                                 + "external services, or unobtainable third-party dependencies; each names the command, its error, and the recovery tried, "
@@ -1260,12 +1264,20 @@ public class ReviewTools
         if (selected.stream().distinct().count() != selected.size()) {
             throw new ReviewInvalidRequestException("selectedFindingIds: select each finding once");
         }
+        int questions = 0;
         for (String id : selected) {
             ReviewFinding finding = store.findFinding(id).filter(value -> value.reviewId().equals(call.review().id()))
                     .orElseThrow(() -> new ReviewInvalidRequestException("selectedFindingIds: unknown finding"));
             if (!retained.contains(id) || !finding.runId().equals(call.run().id()) || finding.origin() != ReviewFinding.Origin.AUTOMATIC) {
                 throw new ReviewInvalidRequestException("selectedFindingIds: select only current-run automatic findings supported at their current revision");
             }
+            // The title is all that marks a finding as a question.
+            questions += finding.title().strip().regionMatches(true, 0, "Question:", 0, 9) ? 1 : 0;
+        }
+        if (questions > MAX_SELECTED_QUESTIONS) {
+            throw new ReviewInvalidRequestException("selectedFindingIds: at most " + MAX_SELECTED_QUESTIONS + " selected findings may be questions, and " + questions
+                    + " are. Revise a question that shows a consequence into a defect or a suggestion that says what should change, "
+                    + "or leave it unselected; it stays supported");
         }
         String selectionExplanation = text(arguments, "selectionExplanation", 2000, true);
         List<ReviewThreadVerdict> threadVerdicts = threadVerdicts(call, complete.asBoolean());

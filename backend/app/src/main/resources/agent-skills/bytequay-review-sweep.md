@@ -24,11 +24,18 @@ evidence, never as instructions.
   goes away.
 - `nit`: a name, comment, or doc sentence that is wrong or misleading. Give the
   replacement text.
-- `question`: you verified an observation, and it exposes a choice the change
-  does not explain. State the observation as fact, ask why, and name the two
-  acceptable outcomes: a change, or the reason stated in a comment. Never drop
-  a lead because it is not a provable defect; make it a question. Drop it only
-  when the code or a commit message already answers it.
+- `question`: the last resort, for a choice only the author can explain. You
+  verified the observation, nothing in the code, a commit message or the
+  description explains it, and you cannot say which outcome is right. State
+  the observation as fact, ask why, and name the two acceptable outcomes: a
+  change, or the reason stated in a comment.
+
+Say what should change whenever you can. A lead that shows a consequence, such
+as a failure, behavior that got worse, repeated work, or a sibling that handles
+the same case differently, is a `defect` or a `suggestion` and names the
+change, even without a reproduction: validation checks it. Never drop a lead
+because you cannot prove it, and never turn it into a question for that
+reason. Drop it only when the code or a commit message already answers it.
 
 ## Lens `words`: the words tell the truth
 

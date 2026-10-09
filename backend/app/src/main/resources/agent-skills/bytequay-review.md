@@ -123,8 +123,9 @@ retain the saved explanation.
    establish the reachable trigger, violated contract, consequence, and
    relationship to this change. For a suggestion, establish the concrete code,
    confusion or maintenance cost removed and the useful behavior preserved.
-   For a question, establish its observation from current source, and that
-   neither the code, a commit message nor the PR text explains the choice.
+   For a question, establish its observation from current source, that
+   neither the code, a commit message nor the PR text explains the choice, and
+   that you cannot say which outcome is right.
    A candidate attributed to the second reader is an unverified lead from a
    separate read-only session, recorded without evidence. Read the source it
    cites at the frozen head before deciding it, as for any other hypothesis;
@@ -160,10 +161,15 @@ retain the saved explanation.
    Do not require a runtime defect to support a maintenance suggestion, or use
    successful compilation to dismiss it. Conversely, disabled code alone does
    not justify a finding or moving a benchmark; a style preference is insufficient.
-   Do not reject a candidate only because it is not a provable defect. When its
-   observation holds and the change leaves the choice unexplained, support it
-   as a question. Reject it when the code, a commit message or the PR text
-   already answers it, and name where.
+   Do not reject a candidate only because no written contract is violated.
+   Behavior that got worse as a side effect of the change, a sibling that
+   handles the same case differently, and the documented behavior of a
+   dependency are each a basis for a defect. When you have shown a
+   consequence, say what should change: a defect with severity, or a
+   suggestion. Support a candidate as a question only as the last resort: its
+   observation holds, nothing explains the choice, and you cannot rank the two
+   outcomes. Reject it when the code, a commit message or the PR text already
+   answers it, and name where.
    Reject or withdraw claims the evidence disproves; retain their recorded hypotheses. Correct general advice
    alone does not establish that this PR has a defect. Explain the independent
    contract or improvement basis and the observed behavior separately; mark either uncertain
@@ -219,7 +225,8 @@ retain the saved explanation.
    defect in the tests, Medium by default and never a nit: it guards nothing
    it was written for.
    Concrete optional improvements start with "Suggestion:" and omit severity.
-   A question starts with "Question:" and omits severity: state the verified
+   A question is the last resort, for a choice only the author can explain.
+   It starts with "Question:" and omits severity: state the verified
    observation as fact, ask why, and name the two acceptable outcomes, a
    change or the reason stated in a comment.
    Check unnecessary complexity and misleading comments for concrete,
@@ -230,8 +237,9 @@ retain the saved explanation.
    root causes may point to one finding; preserve every candidate's disposition.
    After validation, rank the entire supported pool by consequence, likelihood,
    evidence strength and actionable reduction of complexity. Select at most twelve
-   new automatic findings with selectedFindingIds and explain the selection in
-   selectionExplanation. The limit applies to selection, not support: an
+   new automatic findings, at most two of them questions, with
+   selectedFindingIds and explain the selection in selectionExplanation.
+   The limit applies to selection, not support: an
    unselected supported candidate remains supported with its finding and evidence.
    Defects, concrete suggestions, questions and useful nits may coexist. A nit has a title
    starting with "Nit:" and no severity. A nit about a commit message or PR
@@ -357,8 +365,9 @@ later pages. Tool descriptions define pagination, fields and evidence refs.
   ones, and are assessed NEEDS_EVIDENCE. Do not rewrite sealed investigation input.
   When ready, seal review_finish for the assigned investigationStep with
   selectedFindingIds and selectionExplanation. Select only supported new automatic
-  findings, at most twelve; carried findings keep their lifecycle. Retain support
-  and evidence for every unselected finding. With no selected findings, use an
+  findings, at most twelve and at most two questions; carried findings keep
+  their lifecycle. Retain support and evidence for every unselected finding.
+  With no selected findings, use an
   empty selection and explain why.
 - Evidence collection: follow assignment.previousValidation requests. Existing
   change explanations stay unchanged; do not call review_save_summary. Existing

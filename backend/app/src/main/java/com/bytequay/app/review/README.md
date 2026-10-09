@@ -565,13 +565,27 @@ improvement may coexist with a defect. Nits are not suppressed merely because
 another finding exists; pure wording preferences remain lowest priority and need
 an actionable benefit.
 
-A question is the fourth kind. Its title starts with `Question:` and it has no
-severity. It carries an observation verified in current source, the question it
-raises, and the two acceptable outcomes: a change, or the reason stated in a
-comment. A candidate is not rejected only because it is not a provable defect.
-It is supported as a question when its observation holds and neither the code, a
-commit message nor the PR text explains the choice, and rejected, naming where,
-when one of them does. An unverified claim never becomes a question.
+A question is the fourth kind and the last resort. Its title starts with
+`Question:` and it has no severity. It carries an observation verified in current
+source, the question it raises, and the two acceptable outcomes: a change, or the
+reason stated in a comment. It is for a choice only the author can explain: the
+observation holds, neither the code, a commit message nor the PR text explains
+it, and the reviewer cannot rank the two outcomes. A shown consequence is stated
+as a defect or a suggestion with the change wanted, because a question carries no
+severity to rank it by and leaves the author to do the reviewer's deciding.
+Behavior that got worse as a side effect of the change, a sibling that handles
+the same case differently, and a dependency's documented behavior are each a
+basis for a defect, so a candidate is not rejected only because no written
+contract is violated. It is rejected, naming where, when the code, a commit
+message or the PR text answers it. An unverified claim never becomes a question.
+
+Those are rules for the agent. One limit is enforced: `review_finish` refuses a
+selection that holds more than two questions (`ReviewTools.MAX_SELECTED_QUESTIONS`)
+and names the count, so the reviewer revises a question that shows a consequence
+into a defect or a suggestion, or leaves it unselected, where it stays supported in
+the details. A question is known by its title alone. The limit covers one run's
+selection; findings carried from earlier runs and findings saved in a discussion
+are not counted.
 
 Every supported result remains bound to current evidence and the exact saved
 finding revision. Multiple candidates for the same root cause can reference the
@@ -594,8 +608,8 @@ Saving a supported draft does not consume a presentation slot:
    candidate pool. A save alone does not make a draft a selected result.
 2. `ReviewValidation.selectedFindingIds` contains the ranked selection, with a
    required `selectionExplanation`. At final validation, select at most twelve
-   supported findings originating in this run. Existing carried findings retain
-   their lifecycle and history.
+   supported findings originating in this run, at most two of them questions.
+   Existing carried findings retain their lifecycle and history.
 3. Check that every selected ID belongs to this review/run and is backed by a
    current supported candidate and exact revision. Verify these conditions again
    at acceptance. A newly found stronger result can displace an earlier draft.

@@ -915,7 +915,7 @@ class TestReviewTools
         assertThat(finish.description()).contains("at most 8 refs", "SUPPORTED must include every ref cited by its saved finding");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();
         assertThat(finding.description()).contains("Polish before saving", "full reproduction code, commands and results in captured evidence");
-        assertThat(finding.description()).contains("starts its title with Question: and omits severity", "select at most 12 final comments in review_finish");
+        assertThat(finding.description()).contains("A Question: title, without severity, is the last resort", "select at most 12 final comments in review_finish");
         assertThat(finding.description()).contains("at most 8 decisive evidence entries", "reuse their refs in this candidate's SUPPORTED assessment");
         assertContextToolSchema();
     }
@@ -1278,6 +1278,35 @@ class TestReviewTools
         assertThat(second.path("nextPage").isNull()).isTrue();
         assertThat(second.has("changeMap")).isFalse();
         assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation", "page", 3)).at("/error/field").asText()).isEqualTo("page");
+    }
+
+    @Test
+    void aSelectionHoldsAtMostTwoQuestions()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        call("review_save_summary", summary("summary", "Reject unchecked input"));
+        readSource();
+        List<String> hypotheses = ImmutableList.of("Unchecked input", "Two parsers", "Two caches", "One guard");
+        assertThat(discoverAndSeal(investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), hypotheses))
+                .path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+        List<String> titles = ImmutableList.of("Unchecked input", "Question: why two parsers?", "question: why two caches?", "Question: why one guard?");
+        List<Map<String, Object>> validations = new ArrayList<>();
+        List<String> ids = new ArrayList<>();
+        for (int index = 1; index <= titles.size(); index++) {
+            JsonNode saved = call("review_save_finding", finding("finding-" + index, titles.get(index - 1), "A2", ImmutableList.of(evidence("E1"))));
+            assertThat(saved.path("status").asText()).isEqualTo("accepted");
+            ids.add(saved.path("findingId").asText());
+            validations.add(supported(index, ids.getLast(), 1));
+        }
+
+        JsonNode refused = call("review_finish", with(finish("three-questions", validations), "three-questions", "selectedFindingIds", ids));
+        assertThat(refused.at("/error/field").asText()).isEqualTo("selectedFindingIds");
+        assertThat(refused.at("/error/message").asText()).contains("at most 2 selected findings may be questions, and 3 are");
+        // The third question stays supported; only its place among the presented findings is refused.
+        assertThat(call("review_finish", with(finish("two-questions", validations), "two-questions", "selectedFindingIds", ids.subList(0, 3)))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(4);
     }
 
     @Test

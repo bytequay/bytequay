@@ -92,10 +92,12 @@ targets:
   severity. Its body has a 35 prose-word limit. Use one or two sentences and
   give the concrete rewrite when one fits: a `suggestion` block for code, or
   the proposed wording for a commit message or the PR description.
-- Questions: a verified observation that exposes a choice the change does not
-  explain. The title starts with `Question:` and has no severity. State the
-  observation as fact, ask why, and name the two acceptable outcomes: a change,
-  or the reason stated in a comment. Never word a guess as a fact.
+- Questions: the last resort, for a verified observation whose choice only the
+  author can explain. When you can say what should change, write a defect or a
+  suggestion instead. The title starts with `Question:` and has no severity.
+  State the observation as fact, ask why, and name the two acceptable
+  outcomes: a change, or the reason stated in a comment. Never word a guess as
+  a fact. A review selects at most two questions.
 - Code suggestions: when an exact replacement is useful, include one fenced
   `` ```suggestion `` block containing the complete replacement for the finding's
   selected RIGHT-side line range, with original indentation and no diff markers.

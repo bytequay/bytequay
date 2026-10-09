@@ -45,7 +45,26 @@ final class ReviewFacts
     private static final Pattern SWITCHED_OFF = Pattern.compile(
             "@Disabled\\b|@Ignore\\b|\\benabled\\s*=\\s*false\\b|\\b(?:it|test|describe)\\.skip\\(|\\bx(?:it|describe)\\(|@pytest\\.mark\\.skip|\\bt\\.Skip\\(");
 
+    private static final Pattern TEST = Pattern.compile("(?:^|/)(?:src/(?:test|it)|tests?|testing|__tests__|e2e)/"
+            + "|(?:^|/)(?:Test[A-Z0-9][^/]*|[^/]*(?:Tests?|IT))\\.(?:java|kt|scala|groovy|cs|swift)$"
+            + "|[._-](?:test|spec)\\.[cm]?[jt]sx?$|(?:^|/)test_[^/]*\\.py$|_(?:test|spec)\\.(?:py|go|rb|rs|c|cc|cpp)$");
+    private static final Pattern PROSE = Pattern.compile("(?:^|/)docs?/|\\.(?:md|mdx|rst|txt|adoc)$", Pattern.CASE_INSENSITIVE);
+
     private ReviewFacts() {}
+
+    /**
+     * Whether paths include tests and other code, so that those tests can be asked to notice the change being undone.
+     * Names decide this, so a wrong guess costs the reviewer one sentence saying why the question does not apply.
+     */
+    static boolean touchesTestsAndCode(List<String> paths)
+    {
+        return paths.stream().anyMatch(ReviewFacts::test) && paths.stream().anyMatch(path -> !test(path) && !PROSE.matcher(path).find());
+    }
+
+    static boolean test(String path)
+    {
+        return TEST.matcher(path).find();
+    }
 
     /** One commit of the change, oldest first. */
     record Commit(String sha, String subject, String body)

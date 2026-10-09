@@ -715,7 +715,7 @@ class TestReviewPublicationService
     {
         ReviewInvestigation investigation = new ReviewInvestigation("Check the guard", ImmutableList.of("src/Service.java"), ImmutableList.of(),
                 ImmutableList.of(ReviewTestData.discoveryCandidate(1, "The guard may be missing")), ImmutableList.of(), ImmutableList.of(),
-                Optional.empty(), ReviewTestData.perspectives());
+                Optional.empty(), ReviewTestData.perspectives(), Optional.empty());
         ReviewStep sealed = ReviewStep.initial().withInvestigation(investigation);
         return run(ReviewRun.State.ACCEPTED).withStep(sealed, NOW)
                 .withStep(sealed.next(ReviewStep.Kind.VALIDATE).withValidation(validation(1, finding, supported, selected)), NOW);

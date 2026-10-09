@@ -164,6 +164,43 @@ or lines that no longer map. Resolved and withdrawn findings stay as they are. A
 carried run records that the same change was already read. It is not a new
 reading, and the base branch's own new commits were not reviewed.
 
+## Test check
+
+A change that touches tests and other code owes a test check before its
+investigation seals: do the added and changed tests fail once the change is
+undone? `assignment.testCheckRequired` says so, judged from the names of the
+paths this run must review ([ReviewFacts](ReviewFacts.java)), and
+`review_save_investigation` refuses the seal until the run holds a `testCheck`.
+
+The agent runs the check in its own sandbox: the tests on the unmodified head,
+the same command with the behavior undone in the working copy, then a restore.
+The rules give `git apply` for both the undo and the restore, because a review
+sandbox cannot write Git's index and `git checkout` or `git restore` would fail.
+It reports one of four outcomes (`core.review.ReviewTestCheck`):
+
+| Outcome | Meaning | Must carry |
+| --- | --- | --- |
+| `PROTECTS` | Every selected test fails with the change undone. | Both captured runs |
+| `DOES_NOT_PROTECT` | At least one still passes. | Both captured runs and the number of a recorded candidate |
+| `NOT_APPLICABLE` | The question does not fit, such as a refactoring that promises unchanged behavior. | The reason |
+| `BLOCKED` | A run could not be made, including a head run that fails. | The command and its error |
+
+The candidate is what turns a test that guards nothing into a claim validation
+must settle. The rules ask for a defect in the tests with severity, not a nit.
+
+ByteQuay already records the working copy each Maven command of the agent
+started on ([LocalRunService](LocalRunService.java)). The seal compares the two
+cited runs with those records. It refuses a head run that started at another
+commit or with local changes to the change's non-test files, and an undone run
+that started on the reviewed head with no local change to any file of the change.
+A command with no such record, such as one that is not Maven, cannot be compared
+and is accepted.
+
+Nothing checks that the files were restored afterwards, and a run sealed before
+the check existed is not asked for one. `PROTECTS` shows that these tests notice
+this undo, not that the change is correct. The outcome appears on the tool row
+that sealed the investigation; Review details does not show it.
+
 ## Discovery responsibilities
 
 ### Prepare a small map of the change
@@ -423,8 +460,9 @@ Use the existing run and step storage:
 
 - `run.investigation` holds the current draft/checkpoint.
 - The current `step.investigation` stays empty while that assignment is collecting.
-- `review_save_investigation` takes assessed files, evidence answers, and the
-  verification handoff, then seals the stored draft into the step. It rejects
+- `review_save_investigation` takes assessed files, evidence answers, the
+  verification handoff and the test check, then seals the stored draft into the
+  step. It rejects
   `changeMap`, `contextEvidenceRefs`, and replacement candidate lists; revise the
   map only through `review_record_discovery` before sealing.
 - `ReviewRun.latestSealedInvestigation()` returns the step containing the latest
@@ -562,6 +600,7 @@ The implementation is concentrated in the current review service:
 | Supported pool, final selection and discussion origin | `ReviewValidation`, `ReviewFinding`, [ReviewSelection](ReviewSelection.java), publication checks |
 | Second reader, its facts and its leads | [ReviewSweep](ReviewSweep.java), [ReviewFacts](ReviewFacts.java), [ReviewLead](ReviewLead.java), `agent-skills/bytequay-review-sweep.md` |
 | Carrying an accepted review to a head with the same change | [ReviewHeadCheck](ReviewHeadCheck.java), `followHead` in [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewFinding.carried` |
+| Test check gate, its outcomes and the comparison with recorded runs | `core.review.ReviewTestCheck`, [ReviewTools](ReviewTools.java), [ReviewFacts](ReviewFacts.java), `LocalRun` records |
 | Provisional coverage and selected/unselected results | Review HTTP models, frontend review contracts/model/details and IDE selection |
 | Offline input freezing and bounded discovery-only calibration | [Developer runbook](../../../../../../../../../scripts/review-calibration/README.md) |
 

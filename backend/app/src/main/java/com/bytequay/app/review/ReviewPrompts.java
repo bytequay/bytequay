@@ -77,6 +77,14 @@ final class ReviewPrompts
             + "missing textual callers alone do not prove dead code, and one disabled test does not prove the feature is untested. "
             + "Use review_record_discovery to checkpoint candidates and perspective assessments before expensive experiments and while time remains to seal. "
             + "Preserve plausible hypotheses and counterevidence; there is no target candidate count. ";
+    private static final String TEST_CHECK_REQUEST = "Read assignment.testCheckRequired. When true, run the test check from the review rules before sealing: "
+            + "run the change's added and changed tests on the unmodified head, undo the behavior they should protect, run the same command again, restore the files, "
+            + "and report the outcome with both captured runs in review_save_investigation testCheck. "
+            + "Record a candidate first for any test that still passes with the change undone.";
+    private static final String TEST_CHECK_VALIDATION = "Read investigation.testCheck. A test that still passes with the change undone does not protect the change: "
+            + "confirm from the two captured runs that the undone run compiled, ran the same test and removed the behavior the test names, "
+            + "then save its candidate as a defect in the tests with severity, never as a Nit:. "
+            + "PROTECTS shows only that those tests notice this undo, not that the change is correct.";
 
     private ReviewPrompts() {}
 
@@ -181,6 +189,7 @@ final class ReviewPrompts
                 .append("Checkpoint discovery, then seal review_save_investigation without replacing candidates or the stored map and evidence refs. ")
                 .append("Do not pass changeMap or contextEvidenceRefs to the seal; end this turn afterward. ")
                 .append("Do not save findings yet; ByteQuay will start a separate validation turn. ")
+                .append(TEST_CHECK_REQUEST).append(' ')
                 .append(DELEGATION_REQUEST)
                 .append("IDE language queries are available when code_query is listed. No remote writes.")
                 .toString();
@@ -205,7 +214,7 @@ final class ReviewPrompts
             case INVESTIGATE -> DISCOVERY_REQUEST + "Read assignment.changeExplanationRequired. Save intention and every commit explanation only when required in pass 1; "
                     + "otherwise retain the original explanation and focus on findings. Account for all three perspectives, "
                     + "then seal review_save_investigation using the stored map and evidence refs. "
-                    + "Do not pass changeMap or contextEvidenceRefs to the seal. Do not save findings.";
+                    + "Do not pass changeMap or contextEvidenceRefs to the seal. Do not save findings. " + TEST_CHECK_REQUEST;
             case COLLECT_EVIDENCE -> "Collect evidence for the questions in assignment.previousValidation. Execute or inspect each requested check; "
                     + "capture its result with review_get_context and answer it in review_save_investigation. Explain unavailable evidence as a limitation. "
                     + "Preserve candidate numbering and checkpoint new hypotheses with review_record_discovery before filtering. "
@@ -236,7 +245,8 @@ final class ReviewPrompts
                     + "Use NEEDS_EVIDENCE with a specific missing proposition, next check, and resolving criterion if another inspection is necessary. "
                     + "Use UNRESOLVED when missing evidence prevents settling a candidate; zero findings is valid. "
                     + "Unavailable tests alone are warnings, not omissions, and do not prevent a complete review. "
-                    + "For fixes/features, HEAD-pass and old-behavior-fail support only the behavior tested. A remaining defect must exist at frozen HEAD.";
+                    + "For fixes/features, HEAD-pass and old-behavior-fail support only the behavior tested. A remaining defect must exist at frozen HEAD. "
+                    + TEST_CHECK_VALIDATION;
         };
         return "Review assignment " + step.number() + " for frozen PR head " + shortSha(run.headSha()) + ". "
                 + (step.repair() ? "ByteQuay is automatically continuing this assignment after the previous turn could not finish. "

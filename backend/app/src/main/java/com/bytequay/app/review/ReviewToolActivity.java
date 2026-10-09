@@ -30,7 +30,7 @@ final class ReviewToolActivity
             case "review_get_context" -> context(arguments, result);
             case "review_save_summary" -> "Saved summary";
             case "review_record_discovery" -> "Recorded discovery";
-            case "review_save_investigation" -> "Saved investigation";
+            case "review_save_investigation" -> "Saved investigation" + testCheck(arguments.path("testCheck").path("outcome").asText(""));
             case "review_save_finding" -> "Saved finding" + quoted(" · ", arguments.path("title").asText(""));
             case "review_reply" -> "Replied in discussion";
             case "review_withdraw_finding" -> "Withdrew finding";
@@ -39,6 +39,17 @@ final class ReviewToolActivity
         };
         String single = line.replaceAll("\\s+", " ").strip();
         return single.length() <= MAX_LENGTH ? single : single.substring(0, MAX_LENGTH - 1) + "…";
+    }
+
+    private static String testCheck(String outcome)
+    {
+        return switch (outcome) {
+            case "PROTECTS" -> " · tests fail without the change";
+            case "DOES_NOT_PROTECT" -> " · tests pass without the change";
+            case "NOT_APPLICABLE" -> " · test check not applicable";
+            case "BLOCKED" -> " · test check blocked";
+            default -> "";
+        };
     }
 
     private static String context(JsonNode arguments, JsonNode result)

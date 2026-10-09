@@ -562,7 +562,7 @@ class TestDefaultAgentReviewService
         ReviewEvidence context = new ReviewEvidence("E1", "src/App.java", "frozen head", "parse(input)", "");
         ReviewEvidence validation = new ReviewEvidence("E2", "command output: regression test", "validation turn", "HEAD passed; old condition failed", "");
         ReviewInvestigation investigation = new ReviewInvestigation("Parser behavior", ImmutableList.of("src/App.java"),
-                ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         fixture.store.updateRun(run.withInvestigation(investigation, NOW).withEvidence("E1", context, NOW).withEvidence("E2", validation, NOW));
 
         assertThat(fixture.service.get(run.reviewId()).runs().getFirst().evidence().values()).containsExactly(context, validation);
@@ -1176,7 +1176,7 @@ class TestDefaultAgentReviewService
 
         ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "Source at " + NEW_HEAD, "parser.reset();", "Current parser lifecycle");
         ReviewInvestigation investigation = new ReviewInvestigation("The updated parser resets before dispatching each new input", ImmutableList.of("src/App.java"),
-                ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of("E1"), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         fixture.store.updateRun(sealInvestigation(second.withEvidence("E1", evidence, NOW).withInvestigation(investigation, NOW)));
         settleCurrentTurn(fixture, second);
         fixture.service.reconcile(reviewId);
@@ -1461,7 +1461,7 @@ class TestDefaultAgentReviewService
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         verify(fixture.sweeps).start(any(AgentReview.class), argThat(started -> started.id().equals(run.id())), any(AgentTask.class), any(Runnable.class));
         ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
-                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation, NOW)));
         settleCurrentTurn(fixture, run);
         when(fixture.sweeps.pending(reviewId, run.id())).thenReturn(true);
@@ -1511,7 +1511,7 @@ class TestDefaultAgentReviewService
             recorded.add(discoveryCandidate(number, "Hypothesis " + number));
         }
         ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
-                recorded.build(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                recorded.build(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation, NOW)));
         settleCurrentTurn(fixture, run);
         ReviewLead lead = new ReviewLead("src/App.java", OptionalInt.of(12), ReviewLead.Lens.TESTS, ReviewLead.Kind.SUGGESTION, "Two fixtures are the same.", "Merge them.");
@@ -2069,7 +2069,7 @@ class TestDefaultAgentReviewService
         ReviewRun evidenced = fixture.store.updateRun(baseline.withEvidence("E1", evidence, NOW));
         ReviewInvestigation assessment = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
                 ImmutableList.of(discoveryCandidate(1, "Does the earlier finding still hold?", Optional.of(revalidated.id()))),
-                ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         ReviewRun validating = beginValidation(fixture, evidenced, assessment);
         ReviewCandidateValidation supported = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED,
                 "The original trigger and contract still hold", ImmutableList.of("E1"), "No counterexample found",
@@ -3048,7 +3048,7 @@ class TestDefaultAgentReviewService
         ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, run.id(), 1, ReviewFinding.State.OPEN));
         ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "new Parser()", "allocation");
         ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
-                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         ReviewRun validating = beginValidation(fixture, fixture.store.updateRun(run.withEvidence("E1", evidence, NOW)), investigation);
         ReviewCandidateValidation supported = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
                 ImmutableList.of("E1"), "No counterexample found", Optional.of(finding.id()), Optional.of(finding.revision()), Optional.empty());
@@ -3169,7 +3169,7 @@ class TestDefaultAgentReviewService
     private static ReviewInvestigation investigation()
     {
         return new ReviewInvestigation("Each parser invocation owns fresh state", ImmutableList.of("src/App.java"),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
     }
 
     private static ReviewRun beginCandidateValidation(Fixture fixture)
@@ -3177,7 +3177,7 @@ class TestDefaultAgentReviewService
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
         ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
-                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "new Parser()", "allocation");
         fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation, NOW).withEvidence("E1", evidence, NOW)));
         settleCurrentTurn(fixture, run);
@@ -3210,7 +3210,7 @@ class TestDefaultAgentReviewService
         ReviewInvestigation report = new ReviewInvestigation(
                 previous.changeMap(), previous.reviewedFiles(), previous.contextEvidenceRefs(), previous.candidates(), ImmutableList.of(),
                 ImmutableList.of(new ReviewEvidenceAnswer(1, "Read the caller and checked the cleanup path", ImmutableList.of("E1"), limitation)),
-                Optional.empty(), perspectives());
+                Optional.empty(), perspectives(), Optional.empty());
         fixture.store.updateRun(sealInvestigation(run.withInvestigation(report, NOW)));
         settleCurrentTurn(fixture, run);
     }

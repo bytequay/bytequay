@@ -30,11 +30,13 @@ public record ReviewInvestigation(
         List<ReviewCandidateValidation> validations,
         List<ReviewEvidenceAnswer> answers,
         Optional<ReviewVerification> verification,
-        List<ReviewPerspectiveAssessment> perspectives)
+        List<ReviewPerspectiveAssessment> perspectives,
+        Optional<ReviewTestCheck> testCheck)
 {
     public ReviewInvestigation
     {
         requireNonNull(verification, "verification is null");
+        requireNonNull(testCheck, "testCheck is null");
         requireNonNull(changeMap, "changeMap is null");
         reviewedFiles = ImmutableList.copyOf(reviewedFiles);
         contextEvidenceRefs = ImmutableList.copyOf(contextEvidenceRefs);
@@ -56,6 +58,6 @@ public record ReviewInvestigation(
 
     public ReviewInvestigation withValidations(List<ReviewCandidateValidation> conclusions)
     {
-        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions, answers, verification, perspectives);
+        return new ReviewInvestigation(changeMap, reviewedFiles, contextEvidenceRefs, candidates, conclusions, answers, verification, perspectives, testCheck);
     }
 }

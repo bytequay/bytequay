@@ -52,6 +52,8 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.LocalRun;
+import com.bytequay.core.review.LocalRunStore;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewCandidateValidation;
@@ -66,6 +68,7 @@ import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
+import com.bytequay.core.review.ReviewTestCheck;
 import com.bytequay.core.review.ReviewValidation;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -145,6 +148,7 @@ class TestReviewTools
     private static final String DIFF_VERSION = "abcdef01".repeat(8);
     private static final String DOCUMENT_CAPTURE = "da8f7890-3814-4479-ac90-d6a105542e19";
     private static final String DIFF_PATH = "src/main/java/Widget.java";
+    private static final String TEST_PATH = "src/test/java/TestWidget.java";
     private static final String CANDIDATE = "The new input might bypass validation";
     private static final String PATCH = "@@ -1,2 +1,3 @@\n alpha\n+beta\n gamma\n";
     private static final Instant NOW = Instant.parse("2026-01-01T00:00:00Z");
@@ -171,6 +175,7 @@ class TestReviewTools
     private WorkspaceRepositoryService workspaces;
     private ReviewLocks locks;
     private InMemoryMemoryStore memoryStore;
+    private LocalRunStore localRuns;
 
     @BeforeEach
     void setUp()
@@ -192,6 +197,7 @@ class TestReviewTools
         git = mock(GitCommandRunner.class);
         objectMapper = new ObjectMapper().findAndRegisterModules();
         assignments = mock(ReviewToolAssignment.class);
+        localRuns = mock(LocalRunStore.class);
         locks = new ReviewLocks();
         TurnId turn = TurnId.random();
         capturedTurn = turn;
@@ -204,7 +210,7 @@ class TestReviewTools
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, historySources,
                 repositories, issues, issueRefresh, events, workspaces, git, objectMapper, locks, assignments,
-                new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, clock);
+                new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, clock);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -1822,7 +1828,7 @@ class TestReviewTools
         ReviewInvestigation sealed = current.latestSealedInvestigation().orElseThrow().investigation().orElseThrow();
         ReviewInvestigation draft = new ReviewInvestigation("Unsealed draft", sealed.reviewedFiles(), sealed.contextEvidenceRefs(),
                 ImmutableList.of(sealed.candidates().getFirst(), discoveryCandidate(2, "Unsealed concern")),
-                sealed.validations(), sealed.answers(), sealed.verification(), sealed.perspectives());
+                sealed.validations(), sealed.answers(), sealed.verification(), sealed.perspectives(), Optional.empty());
         store.updateRun(current.withInvestigation(draft, NOW));
         JsonNode input = call("review_get_context", ImmutableMap.of("kind", "investigation"));
         assertThat(input.path("candidates")).hasSize(1);
@@ -2466,6 +2472,137 @@ class TestReviewTools
     }
 
     @Test
+    void aChangeTouchingTestsAndCodeOwesATestCheckBeforeItsInvestigationSeals()
+    {
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("testCheckRequired").asBoolean()).isFalse();
+        investigateAChangeWithATest();
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("testCheckRequired").asBoolean()).isTrue();
+
+        List<String> files = ImmutableList.of(DIFF_PATH, TEST_PATH);
+        assertThat(discoverAndSeal(investigation("missing", files, ImmutableList.of("E1"), ImmutableList.of(CANDIDATE))).at("/error/field").asText()).isEqualTo("testCheck");
+        Map<String, Object> input = investigation("seal", files, ImmutableList.of("E1"), ImmutableList.of(CANDIDATE));
+        assertThat(discoverAndSeal(with(input, "no-reason", "testCheck", ImmutableMap.of("outcome", "NOT_APPLICABLE"))).at("/error/field").asText()).isEqualTo("explanation");
+        JsonNode sealed = discoverAndSeal(with(input, "seal", "testCheck",
+                ImmutableMap.of("outcome", "NOT_APPLICABLE", "explanation", "The change renames a field and promises unchanged behavior")));
+        assertThat(sealed.path("status").asText()).isEqualTo("accepted");
+        assertThat(sealed.path("activityLine").asText()).isEqualTo("Saved investigation · test check not applicable");
+
+        advance(VALIDATE);
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation")).at("/testCheck/outcome").asText()).isEqualTo("NOT_APPLICABLE");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("testCheckRequired").asBoolean()).isFalse();
+    }
+
+    @Test
+    void aTestCheckThatRanCitesTwoCapturedRunsAndACandidateForTestsThatStillPass()
+    {
+        investigateAChangeWithATest();
+        TurnId turn = TurnId.random();
+        String headRef = captured(commandRan(turn, "Tests run: 2, Failures: 0"));
+        String undoneRef = captured(commandRan(turn, "Tests run: 2, Failures: 0 with the null guard removed"));
+        List<String> files = ImmutableList.of(DIFF_PATH, TEST_PATH);
+        Map<String, Object> input = investigation("seal", files, ImmutableList.of("E1"), ImmutableList.of(CANDIDATE));
+        Optional<String> head = Optional.of(headRef);
+        Optional<String> undone = Optional.of(undoneRef);
+
+        assertThat(testCheckError(input, "outcome", testCheck("MAYBE", head, undone, OptionalInt.empty()))).isEqualTo("outcome");
+        assertThat(testCheckError(input, "no-runs", testCheck("PROTECTS", Optional.empty(), Optional.empty(), OptionalInt.empty()))).isEqualTo("testCheck");
+        assertThat(testCheckError(input, "one-run", testCheck("PROTECTS", head, head, OptionalInt.empty()))).isEqualTo("testCheck");
+        assertThat(testCheckError(input, "source-ref", testCheck("PROTECTS", Optional.of("E1"), undone, OptionalInt.empty()))).isEqualTo("headEvidenceRef");
+        assertThat(testCheckError(input, "unknown-ref", testCheck("PROTECTS", head, Optional.of("E-command-unknown"), OptionalInt.empty()))).isEqualTo("undoneEvidenceRef");
+        assertThat(testCheckError(input, "extra-candidate", testCheck("PROTECTS", head, undone, OptionalInt.of(1)))).isEqualTo("candidate");
+        assertThat(testCheckError(input, "no-candidate", testCheck("DOES_NOT_PROTECT", head, undone, OptionalInt.empty()))).isEqualTo("candidate");
+        assertThat(testCheckError(input, "unrecorded", testCheck("DOES_NOT_PROTECT", head, undone, OptionalInt.of(2)))).isEqualTo("candidate");
+
+        JsonNode sealed = discoverAndSeal(with(input, "seal", "testCheck", testCheck("DOES_NOT_PROTECT", head, undone, OptionalInt.of(1))));
+        assertThat(sealed.path("status").asText()).isEqualTo("accepted");
+        assertThat(sealed.path("activityLine").asText()).isEqualTo("Saved investigation · tests pass without the change");
+        ReviewTestCheck recorded = new ReviewTestCheck(ReviewTestCheck.Outcome.DOES_NOT_PROTECT, TEST_CHECK_EXPLANATION, head, undone, Optional.of(1));
+        assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().testCheck()).contains(recorded);
+
+        // Evidence collection checkpoints and seals again without repeating the check.
+        advance(VALIDATE);
+        assertThat(call("review_finish", incomplete("need-check", ImmutableList.of(needsEvidence(1)))).path("status").asText()).isEqualTo("accepted");
+        advance(COLLECT_EVIDENCE);
+        assertThat(discoverAndSeal(investigation("answer", files, ImmutableList.of("E1"), ImmutableList.of(CANDIDATE),
+                ImmutableList.of(ImmutableMap.of("candidate", 1, "attempted", "Inspected caller", "evidenceRefs", ImmutableList.of("E1")))))
+                .path("status").asText()).isEqualTo("accepted");
+        assertThat(store.findRun(RUN_ID).orElseThrow().latestSealedInvestigation().orElseThrow().investigation().orElseThrow().testCheck()).contains(recorded);
+    }
+
+    @Test
+    void aTestCheckIsComparedWithTheWorkingCopyEachMavenRunStartedOn()
+    {
+        investigateAChangeWithATest();
+        TurnId turn = TurnId.random();
+        AgentEventEnvelope head = commandRan(turn, "Tests run: 2, Failures: 0");
+        String headRef = captured(head);
+        AgentEventEnvelope undone = commandRan(turn, "Tests run: 2, Failures: 2");
+        String undoneRef = captured(undone);
+        Map<String, Object> input = investigation("seal", ImmutableList.of(DIFF_PATH, TEST_PATH), ImmutableList.of("E1"), ImmutableList.of(CANDIDATE));
+        Map<String, Object> protects = testCheck("PROTECTS", Optional.of(headRef), Optional.of(undoneRef), OptionalInt.empty());
+        String scratch = "src/test/java/TestScratch.java";
+
+        // The run cited for the head still had the guard removed, or ran another commit.
+        when(localRuns.listByTask(TASK_ID, 200)).thenReturn(ImmutableList.of(localRun(head, HEAD_SHA, DIFF_PATH), localRun(undone, HEAD_SHA, DIFF_PATH)));
+        JsonNode modifiedHead = discoverAndSeal(with(input, "modified-head", "testCheck", protects));
+        assertThat(modifiedHead.at("/error/field").asText()).isEqualTo("headEvidenceRef");
+        assertThat(modifiedHead.at("/error/message").asText()).contains("local changes to " + DIFF_PATH);
+        when(localRuns.listByTask(TASK_ID, 200)).thenReturn(ImmutableList.of(localRun(head, BASE_SHA), localRun(undone, HEAD_SHA, DIFF_PATH)));
+        assertThat(testCheckError(input, "other-commit", protects)).isEqualTo("headEvidenceRef");
+
+        // Nothing of the change was undone: the files were restored first, or only a scratch test differed.
+        when(localRuns.listByTask(TASK_ID, 200)).thenReturn(ImmutableList.of(localRun(head, HEAD_SHA), localRun(undone, HEAD_SHA)));
+        assertThat(testCheckError(input, "restored-early", protects)).isEqualTo("undoneEvidenceRef");
+        when(localRuns.listByTask(TASK_ID, 200)).thenReturn(ImmutableList.of(localRun(head, HEAD_SHA), localRun(undone, HEAD_SHA, scratch)));
+        assertThat(testCheckError(input, "scratch-only", protects)).isEqualTo("undoneEvidenceRef");
+
+        // A scratch test beside unmodified code is still the head.
+        when(localRuns.listByTask(TASK_ID, 200)).thenReturn(ImmutableList.of(localRun(head, HEAD_SHA, scratch), localRun(undone, HEAD_SHA, DIFF_PATH, scratch)));
+        JsonNode sealed = discoverAndSeal(with(input, "seal", "testCheck", protects));
+        assertThat(sealed.path("status").asText()).isEqualTo("accepted");
+        assertThat(sealed.path("activityLine").asText()).isEqualTo("Saved investigation · tests fail without the change");
+    }
+
+    private static final String TEST_CHECK_EXPLANATION = "Ran both widget tests with the null guard removed";
+
+    /** An unsealed investigation of a change that touches a test and the code it tests. */
+    private void investigateAChangeWithATest()
+    {
+        store.updateRun(run(RUN_ID, 1, ImmutableList.of(new DiffFile(DIFF_PATH, "modified", 1, 0, PATCH), new DiffFile(TEST_PATH, "added", 1, 0, null)), false));
+        call("review_save_summary", summary("summary", "Input change"));
+        readSource();
+    }
+
+    private String captured(AgentEventEnvelope command)
+    {
+        String ref = call("review_get_context", ImmutableMap.of("kind", "command_output")).at("/commands/0/evidenceRef").asText();
+        assertThat(ref).isEqualTo("E-command-" + command.eventId());
+        return ref;
+    }
+
+    private String testCheckError(Map<String, Object> input, String key, Map<String, Object> testCheck)
+    {
+        return discoverAndSeal(with(input, key, "testCheck", testCheck)).at("/error/field").asText();
+    }
+
+    private static Map<String, Object> testCheck(String outcome, Optional<String> headRef, Optional<String> undoneRef, OptionalInt candidate)
+    {
+        ImmutableMap.Builder<String, Object> check = ImmutableMap.<String, Object>builder().put("outcome", outcome).put("explanation", TEST_CHECK_EXPLANATION);
+        headRef.ifPresent(ref -> check.put("headEvidenceRef", ref));
+        undoneRef.ifPresent(ref -> check.put("undoneEvidenceRef", ref));
+        candidate.ifPresent(number -> check.put("candidate", number));
+        return check.buildOrThrow();
+    }
+
+    /** What ByteQuay mirrors for a Maven command of the agent: the commit and local paths it started on. */
+    private static LocalRun localRun(AgentEventEnvelope command, String headSha, String... localPaths)
+    {
+        return LocalRun.mirrored("run-" + command.eventId(), TASK_ID, WORKSPACE_ID, 1, Optional.of("TestWidget"), Optional.empty(), "mvn -Dtest=TestWidget test",
+                Optional.of(headSha), ImmutableList.copyOf(localPaths), Optional.of("fingerprint"), LocalRun.Status.PASSED, NOW, NOW, OptionalInt.of(0),
+                Optional.empty(), ImmutableList.of(), false, OptionalLong.empty(), command.eventId().toString());
+    }
+
+    @Test
     void collectionAccountsForEachRequestedCheckAndPreservesCandidateIdentity()
     {
         requestEvidence();
@@ -2818,8 +2955,13 @@ class TestReviewTools
 
     private static ReviewRun run(String id, int ordinal, String patch, boolean validating)
     {
+        return run(id, ordinal, ImmutableList.of(new DiffFile(DIFF_PATH, "modified", 1, 0, patch)), validating);
+    }
+
+    private static ReviewRun run(String id, int ordinal, List<DiffFile> diff, boolean validating)
+    {
         ReviewInvestigation investigation = new ReviewInvestigation("Account for changed input behavior", ImmutableList.of(DIFF_PATH), ImmutableList.of(),
-                ImmutableList.of(discoveryCandidate(1, CANDIDATE)), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+                ImmutableList.of(discoveryCandidate(1, CANDIDATE)), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
         ReviewStep initial = ReviewStep.initial();
         return new ReviewRun(
                 id,
@@ -2832,7 +2974,7 @@ class TestReviewTools
                 HEAD_SHA,
                 Optional.empty(),
                 ImmutableList.of(new ReviewCommit(COMMIT_SHA, "Add the beta line", "dev")),
-                ImmutableList.of(new DiffFile(DIFF_PATH, "modified", 1, 0, patch)),
+                diff,
                 ImmutableList.of(),
                 ReviewRun.State.RUNNING,
                 validating ? Optional.of(new ReviewSummary(1, "Input change", ImmutableList.of(new ReviewSummary.CommitExplanation(COMMIT_SHA, "adds the beta line")),

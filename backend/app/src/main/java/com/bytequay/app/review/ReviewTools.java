@@ -43,6 +43,8 @@ import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryStore;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.LocalRun;
+import com.bytequay.core.review.LocalRunStore;
 import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewCandidateValidation;
@@ -61,6 +63,7 @@ import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
+import com.bytequay.core.review.ReviewTestCheck;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.review.ReviewVerification;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -122,6 +125,8 @@ public class ReviewTools
     private static final Set<String> REPLAY_HIDDEN_KINDS = ImmutableSet.of("pr", "timeline", "thread", "checks", "issue", "history");
     /** Marks evidence captured from a command the agent ran, which is the only proof a warning accepts. */
     private static final String COMMAND_EVIDENCE_SOURCE = "command output: ";
+    private static final String COMMAND_EVIDENCE_REF = "E-command-";
+    private static final int MAX_LOCAL_RUNS = 200;
     private static final String FROZEN_SOURCE_PROVENANCE = "source read from frozen commit ";
     private static final int MAX_EVIDENCE_REF = 200;
     private static final int MAX_CANDIDATES = 30;
@@ -157,6 +162,7 @@ public class ReviewTools
 
     private final MemoryService memories;
     private final MemoryStore memoryStore;
+    private final LocalRunStore localRuns;
 
     public ReviewTools(
             AgentReviewStore store,
@@ -176,6 +182,7 @@ public class ReviewTools
             ReviewToolAssignment assignments,
             MemoryService memories,
             MemoryStore memoryStore,
+            LocalRunStore localRuns,
             Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
@@ -193,6 +200,7 @@ public class ReviewTools
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
         this.memories = requireNonNull(memories, "memories is null");
         this.memoryStore = requireNonNull(memoryStore, "memoryStore is null");
+        this.localRuns = requireNonNull(localRuns, "localRuns is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
         this.assignments = requireNonNull(assignments, "assignments is null");
@@ -282,6 +290,8 @@ public class ReviewTools
                                 + "Record or revise the map with review_record_discovery before sealing; this tool cannot replace it. "
                                 + "Candidates are private hypotheses numbered from 1, not findings. "
                                 + "verification carries reusable test setup and completed checks backed by command evidence; omission retains the previous handoff in this run. "
+                                + "testCheck reports whether the change's added and changed tests fail once the change is undone. It is required while "
+                                + "assignment.testCheckRequired is true; omission retains the one this run already holds. "
                                 + "Only the assigned investigation or evidence-collection turn may seal this report. "
                                 + "Evidence collection must answer every requested check.",
                         schema(ImmutableMap.of(
@@ -290,6 +300,12 @@ public class ReviewTools
                                 "verification", schema(ImmutableMap.of(
                                         "recipe", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000),
                                         "commandEvidenceRefs", stringArray(10, MAX_EVIDENCE_REF)), ImmutableList.of("recipe", "commandEvidenceRefs")),
+                                "testCheck", schema(ImmutableMap.of(
+                                        "outcome", ImmutableMap.of("type", "string", "enum", ImmutableList.of("PROTECTS", "DOES_NOT_PROTECT", "NOT_APPLICABLE", "BLOCKED")),
+                                        "explanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
+                                        "headEvidenceRef", ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF),
+                                        "undoneEvidenceRef", ImmutableMap.of("type", "string", "maxLength", MAX_EVIDENCE_REF),
+                                        "candidate", ImmutableMap.of("type", "integer", "minimum", 1)), ImmutableList.of("outcome", "explanation")),
                                 "answers", ImmutableMap.of("type", "array", "items", schema(ImmutableMap.of(
                                         "candidate", ImmutableMap.of("type", "integer", "minimum", 1),
                                         "attempted", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
@@ -589,7 +605,7 @@ public class ReviewTools
         }
         List<ReviewCandidate> candidates = ImmutableList.<ReviewCandidate>builder().addAll(draft.candidates()).addAll(added).build();
         ReviewInvestigation updated = new ReviewInvestigation(changeMap, draft.reviewedFiles(), contextRefs, candidates,
-                draft.validations(), draft.answers(), draft.verification(), perspectives);
+                draft.validations(), draft.answers(), draft.verification(), perspectives, draft.testCheck());
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidateCount", candidates.size());
         result.set("recordedCandidates", objectMapper.valueToTree(added));
         store.updateRun(call.run().withInvestigation(updated, now()).withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
@@ -636,14 +652,14 @@ public class ReviewTools
     private static ReviewInvestigation discoveryDraft(Call call)
     {
         ReviewInvestigation draft = call.run().investigation().orElseGet(() -> new ReviewInvestigation("", ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of()));
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of(), Optional.empty()));
         if (call.step().filter(step -> step.kind() == COLLECT_EVIDENCE).isEmpty()) {
             return draft;
         }
         List<ReviewCandidate> candidates = new ArrayList<>(draft.candidates());
         lastValidation(call.run()).orElseThrow().newCandidates().stream().filter(value -> value.number() > draft.candidates().size()).forEach(candidates::add);
         return new ReviewInvestigation(draft.changeMap(), draft.reviewedFiles(), draft.contextEvidenceRefs(), candidates,
-                draft.validations(), draft.answers(), draft.verification(), draft.perspectives());
+                draft.validations(), draft.answers(), draft.verification(), draft.perspectives(), draft.testCheck());
     }
 
     private JsonNode saveInvestigation(Call call)
@@ -712,13 +728,101 @@ public class ReviewTools
             }
             verification = Optional.of(new ReviewVerification(text(value, "recipe", 4000, true), commandRefs));
         }
+        Optional<ReviewTestCheck> testCheck = call.arguments().has("testCheck") ? Optional.of(testCheck(call, candidates)) : draft.testCheck();
+        if (testCheck.isEmpty() && testCheckRequired(call)) {
+            throw new ReviewInvalidRequestException("testCheck: this change touches tests and other code. Run the test check from the review rules and report it, "
+                    + "or report NOT_APPLICABLE or BLOCKED with the concrete reason");
+        }
         ReviewInvestigation investigation = new ReviewInvestigation(draft.changeMap(), files, draft.contextEvidenceRefs(), candidates,
-                ImmutableList.of(), answers, verification, draft.perspectives());
+                ImmutableList.of(), answers, verification, draft.perspectives(), testCheck);
         ObjectNode result = objectMapper.createObjectNode().put("status", "accepted").put("candidates", candidates.size()).put("investigationStep", step.number())
                 .put("next", "End this investigation turn; ByteQuay will start a separate validation turn");
         ReviewRun updated = call.run().withInvestigation(investigation, now()).replaceCurrentStep(step.withInvestigation(investigation), now());
         store.updateRun(updated.withOperation(replay.key(), new ReviewOperation(replay.digest(), result.toString()), now()));
         return result;
+    }
+
+    /** A change that touches tests and other code owes the test check while its investigation is open and holds none. */
+    private boolean testCheckRequired(Call call)
+    {
+        return call.step().filter(step -> step.kind() == INVESTIGATE).isPresent()
+                && call.run().investigation().flatMap(ReviewInvestigation::testCheck).isEmpty()
+                && ReviewFacts.touchesTestsAndCode(requiredFiles(call));
+    }
+
+    private ReviewTestCheck testCheck(Call call, List<ReviewCandidate> candidates)
+    {
+        JsonNode value = call.arguments().path("testCheck");
+        if (!value.isObject()) {
+            throw new ReviewInvalidRequestException("testCheck: expected an outcome and its explanation");
+        }
+        ReviewTestCheck.Outcome outcome;
+        try {
+            outcome = ReviewTestCheck.Outcome.valueOf(text(value, "outcome", 30, true));
+        }
+        catch (IllegalArgumentException e) {
+            throw new ReviewInvalidRequestException("outcome: use PROTECTS, DOES_NOT_PROTECT, NOT_APPLICABLE, or BLOCKED");
+        }
+        Optional<String> head = commandRef(call, value, "headEvidenceRef");
+        Optional<String> undone = commandRef(call, value, "undoneEvidenceRef");
+        Optional<Integer> candidate = integer(value, "candidate");
+        if (outcome.ran() && (head.isEmpty() || undone.isEmpty() || head.equals(undone))) {
+            throw new ReviewInvalidRequestException("testCheck: " + outcome + " cites two captured runs of the same tests, "
+                    + "headEvidenceRef on the unmodified head and undoneEvidenceRef with the change undone");
+        }
+        if ((outcome == ReviewTestCheck.Outcome.DOES_NOT_PROTECT) != candidate.isPresent() || candidate.filter(number -> number > candidates.size()).isPresent()) {
+            throw new ReviewInvalidRequestException("candidate: only DOES_NOT_PROTECT names one. Record the hypothesis about the tests that still pass "
+                    + "with review_record_discovery, then pass its number");
+        }
+        if (outcome.ran()) {
+            requireTestCheckRuns(call, head.orElseThrow(), undone.orElseThrow());
+        }
+        return new ReviewTestCheck(outcome, text(value, "explanation", 2000, true), head, undone, candidate);
+    }
+
+    private static Optional<String> commandRef(Call call, JsonNode value, String field)
+    {
+        Optional<String> ref = Optional.of(text(value, field, MAX_EVIDENCE_REF, false)).filter(text -> !text.isEmpty());
+        if (ref.isPresent()) {
+            ReviewEvidence evidence = call.run().evidence().get(ref.orElseThrow());
+            if (evidence == null || !evidence.source().startsWith(COMMAND_EVIDENCE_SOURCE)) {
+                throw new ReviewInvalidRequestException(field + ": cite a command run in this review run, from review_get_context kind command_output");
+            }
+        }
+        return ref;
+    }
+
+    /**
+     * Compares the two cited runs with the working copy ByteQuay recorded when each Maven command started: the first ran the
+     * reviewed head with the change's code unmodified, and the second ran with some file of the change altered. Test names
+     * are guessed from paths, so only the first comparison leaves them out. A command with no such record is accepted.
+     */
+    private void requireTestCheckRuns(Call call, String headRef, String undoneRef)
+    {
+        String headSha = call.run().headSha();
+        Set<String> changed = call.run().diff().stream().map(DiffFile::filename).collect(toImmutableSet());
+        List<LocalRun> mirrored = localRuns.listByTask(call.review().taskId(), MAX_LOCAL_RUNS);
+        started(mirrored, headRef).ifPresent(run -> {
+            List<String> local = run.localPaths().stream().filter(path -> changed.contains(path) && !ReviewFacts.test(path)).collect(toImmutableList());
+            if (!run.sourceHeadSha().orElseThrow().equals(headSha) || !local.isEmpty()) {
+                throw new ReviewInvalidRequestException("headEvidenceRef: that run did not test the reviewed head"
+                        + (local.isEmpty() ? "" : ", because it started with local changes to " + bounded(String.join(", ", local), 500))
+                        + ". Restore the files, confirm that git status is clean, and run the tests again");
+            }
+        });
+        started(mirrored, undoneRef).ifPresent(run -> {
+            if (run.sourceHeadSha().orElseThrow().equals(headSha) && run.localPaths().stream().noneMatch(changed::contains)) {
+                throw new ReviewInvalidRequestException("undoneEvidenceRef: that run started with no local change to any file of this change, "
+                        + "so nothing was undone. Undo the behavior the tests should protect and run them again");
+            }
+        });
+    }
+
+    /** The record mirrored for a cited command, when ByteQuay saw that command start. */
+    private static Optional<LocalRun> started(List<LocalRun> mirrored, String ref)
+    {
+        Optional<String> eventId = Optional.of(ref).filter(value -> value.startsWith(COMMAND_EVIDENCE_REF)).map(value -> value.substring(COMMAND_EVIDENCE_REF.length()));
+        return mirrored.stream().filter(run -> eventId.isPresent() && run.agentEventId().equals(eventId) && run.sourceHeadSha().isPresent()).findFirst();
     }
 
     private JsonNode saveFinding(Call call)
@@ -1373,6 +1477,9 @@ public class ReviewTools
         node.set("requiredPerspectives", objectMapper.valueToTree(call.run().explanationOnly()
                 ? ImmutableList.of() : Arrays.asList(ReviewPerspectiveAssessment.Perspective.values())));
         node.put("changeExplanationRequired", call.run().explanationOnly() || !ReviewCards.hasExplanation(store, call.run()));
+        if (!call.run().explanationOnly()) {
+            node.put("testCheckRequired", testCheckRequired(call));
+        }
         ReviewCards.explanationRun(store.listRuns(call.review().id()).stream().filter(run -> run.ordinal() <= call.run().ordinal()).collect(toImmutableList()))
                 .ifPresent(run -> node.put("changeExplanationRunId", run.id()).put("changeExplanationHeadSha", run.headSha()));
         call.step().ifPresentOrElse(step -> {
@@ -1947,7 +2054,7 @@ public class ReviewTools
             String output = "$ " + commandLine + "\nExit code: " + command.exitCode().map(String::valueOf).orElse("unavailable") + "\n" + command.output().orElse("");
             String excerpt = bounded(output, 3000);
             // Event identity preserves separate executions, even when their argv and output match.
-            String ref = "E-command-" + envelope.eventId();
+            String ref = COMMAND_EVIDENCE_REF + envelope.eventId();
             ReviewRun current = store.findRun(call.run().id()).orElse(call.run());
             if (!current.evidence().containsKey(ref)) {
                 String provenance = "command run by the agent in the review worktree" + envelope.turnId().map(turn -> " during turn " + turn).orElse("")

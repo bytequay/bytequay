@@ -118,6 +118,29 @@ class TestReviewFacts
                         "src/test/TestLoader.java:201 adds a test that is switched off: it.skip('loads', () => {});");
     }
 
+    @Test
+    void aChangeTouchesTestsAndCodeWhenItsPathsNameBoth()
+    {
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("plugin/trino-iceberg/src/main/java/io/trino/Split.java",
+                "plugin/trino-iceberg/src/test/java/io/trino/TestSplit.java"))).isTrue();
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("frontend/src/pulls/model.ts", "frontend/src/pulls/model.test.ts"))).isTrue();
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("pkg/server.go", "pkg/server_test.go"))).isTrue();
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("app/models.py", "tests/test_models.py"))).isTrue();
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("pom.xml", "src/test/java/TestSplit.java"))).isTrue();
+
+        // Tests alone, code alone, and tests beside prose only.
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("src/test/java/TestSplit.java", "src/test/resources/split.json"))).isFalse();
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("src/main/java/Split.java", "pom.xml"))).isFalse();
+        assertThat(ReviewFacts.touchesTestsAndCode(ImmutableList.of("src/test/java/TestSplit.java", "docs/src/main/sphinx/split.md", "README.md"))).isFalse();
+
+        assertThat(ImmutableList.of("src/SplitTest.java", "src/SplitTests.kt", "src/SplitIT.java", "src/TestSplit.java", "web/split.spec.tsx", "lib/split_spec.rb", "e2e/split.ts"))
+                .allMatch(ReviewFacts::test);
+        // A name that only contains the word, or a production type named for a specification, is not a test.
+        assertThat(ImmutableList.of("src/main/java/Attestation.java", "src/main/java/Audit.java", "src/main/java/PartitionSpec.java", "src/main/java/Testing.java",
+                "src/latest/Split.java", "src/contest.ts"))
+                .noneMatch(ReviewFacts::test);
+    }
+
     private static List<String> facts(String description)
     {
         return ReviewFacts.describe(ImmutableList.of(), Optional.of(description), Optional.of(TEMPLATE), ImmutableList.of());

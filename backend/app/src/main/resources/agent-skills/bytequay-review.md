@@ -129,6 +129,14 @@ retain the saved explanation.
    separate read-only session, recorded without evidence. Read the source it
    cites at the frozen head before deciding it, as for any other hypothesis;
    never support or reject it on the reader's word.
+   Read investigation.testCheck. For DOES_NOT_PROTECT, confirm from its two
+   captured runs that the undone run compiled, ran the same tests and removed
+   the behavior those tests name, then support its candidate as a defect in
+   the tests. Reject it when the undo left that behavior in place, or the test
+   deliberately covers behavior the change does not alter, and say which.
+   When NOT_APPLICABLE or BLOCKED rests only on cost or convenience and the
+   tests can run here, record the open question in newCandidates so evidence
+   collection runs the check and reports it.
    Check guards, other owners, configuration overrides, prior fixes,
    intended behavior and runtime counterevidence. Distinguish a regression or
    newly exposed defect from an existing unrelated issue or optional hardening.
@@ -201,6 +209,9 @@ retain the saved explanation.
    most two evidence follow-ups. Report unavailable checks honestly; neither
    missing proof nor an exhausted budget establishes a finding. Merge duplicate root causes. Give actual defects
    Critical, High, or Medium severity by default; include Low only when asked.
+   An added or changed test that still passes with the change undone is a
+   defect in the tests, Medium by default and never a nit: it guards nothing
+   it was written for.
    Concrete optional improvements start with "Suggestion:" and omit severity.
    A question starts with "Question:" and omits severity: state the verified
    observation as fact, ask why, and name the two acceptable outcomes, a
@@ -299,7 +310,8 @@ later pages. Tool descriptions define pagination, fields and evidence refs.
   and explanation. A map revision may accompany later candidates or assessments;
   a first map write may not. Both checkpoint arrays may be empty when saving or
   revising the map; otherwise include a candidate or assessment. Send reviewedFiles,
-  empty answers and the verification handoff to review_save_investigation.
+  empty answers, the verification handoff, and testCheck while
+  assignment.testCheckRequired is true, to review_save_investigation.
   It seals the stored changeMap, contextEvidenceRefs and discovery draft;
   do not pass changeMap, contextEvidenceRefs or a replacement candidate list
   to that tool. All three perspectives must be accounted for. End this turn
@@ -307,8 +319,8 @@ later pages. Tool descriptions define pagination, fields and evidence refs.
   review_finish complete=false with omissions, empty validations, empty
   selectedFindingIds and a selectionExplanation stating why selection is
   unavailable stops the run.
-- Validation: read investigation, including verification, and challenge every
-  numbered candidate. Do not call review_save_summary or rewrite the change
+- Validation: read investigation, including verification and testCheck, and
+  challenge every numbered candidate. Do not call review_save_summary or rewrite the change
   explanation. Save supported findings with review_save_finding; revise
   with findingId and expectedRevision or withdraw with review_withdraw_finding
   and current-run evidence. SUPPORTED identifies the saved findingId and exact
@@ -404,6 +416,41 @@ cache does not establish unavailability. Project modules must come from this
 worktree, not potentially stale cached SNAPSHOTs: build that module from this
 worktree in the same invocation (for Maven add it to -pl or use -am), then retry.
 Do not install an experimental project module into the shared cache.
+
+When assignment.testCheckRequired is true, the change touches tests and other
+code. Before sealing the investigation, establish whether its added and changed
+tests notice the change being undone:
+
+1. Start from the unmodified head: git status --porcelain --untracked-files=no
+   prints nothing. Restore your own leftovers first.
+2. Run the added and changed tests, narrowed to their classes or methods, and
+   capture the output. If that run fails or does not compile, stop: nothing can
+   be judged against a failing baseline. Report BLOCKED with the command and
+   its error; a test that fails on the head is also a candidate of its own.
+3. Undo the behavior those tests should protect, and nothing else. Reverse the
+   change's hunks in the non-test files with
+   git diff <mergeBaseSha> <headSha> -- <paths> | git apply -R, or edit by hand
+   when the tests need a new signature to compile. Leave the tests as they are.
+   Confirm with git diff --stat that the undo is in place.
+4. Run the same command again and capture the output. A compile error, a setup
+   failure or an unrelated failure is not a result: narrow the undo and repeat.
+5. Restore the files with git diff -- <paths> | git apply -R, delete any file
+   the undo re-created, and confirm that git status prints nothing again,
+   before any other check or install. A review sandbox cannot write Git's
+   index, so git checkout and git restore fail there.
+
+Report it in review_save_investigation testCheck. PROTECTS: every selected test
+fails with the change undone, for the reason the change addresses.
+DOES_NOT_PROTECT: at least one still passes; first checkpoint a candidate that
+names those tests and the old and new behavior they fail to tell apart, then
+pass its number as candidate. Both outcomes cite the two captured runs as
+headEvidenceRef and undoneEvidenceRef. For Maven commands ByteQuay compares
+them with the working copy it recorded when each started, and refuses a head
+run that began with local changes to the change's code, or an undone run that
+began with no local change to any file of the change. NOT_APPLICABLE and
+BLOCKED give the concrete reason, such as a refactoring that promises unchanged
+behavior, or the command and error that stopped a run. PROTECTS shows only that
+these tests notice this undo; it does not show that the change is correct.
 
 Record reusable setup in investigation.verification: the exact successful
 command, relevant environment and temporary build adjustments, completed checks,

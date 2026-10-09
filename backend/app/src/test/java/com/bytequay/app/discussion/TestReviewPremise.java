@@ -188,7 +188,7 @@ class TestReviewPremise
 
     private static ReviewInvestigation investigation(ImmutableList<String> candidates, ImmutableList<ReviewCandidateValidation> validations)
     {
-        return new ReviewInvestigation("change map", ImmutableList.of(), ImmutableList.of(), IntStream.range(0, candidates.size()).mapToObj(index -> discoveryCandidate(index + 1, candidates.get(index))).collect(toImmutableList()), validations, ImmutableList.of(), Optional.empty(), perspectives());
+        return new ReviewInvestigation("change map", ImmutableList.of(), ImmutableList.of(), IntStream.range(0, candidates.size()).mapToObj(index -> discoveryCandidate(index + 1, candidates.get(index))).collect(toImmutableList()), validations, ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
     }
 
     private static ReviewRun seal(ReviewRun run)

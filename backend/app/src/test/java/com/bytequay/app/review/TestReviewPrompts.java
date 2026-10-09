@@ -153,6 +153,29 @@ class TestReviewPrompts
         assertThat(ReviewPrompts.INSTRUCTION).contains("A candidate attributed to the second reader is an unverified lead");
     }
 
+    @Test
+    void theTestCheckRunsBeforeTheInvestigationSealsAndIsJudgedInValidation()
+    {
+        String check = "Read assignment.testCheckRequired. When true, run the test check from the review rules before sealing";
+        String judged = "save its candidate as a defect in the tests with severity, never as a Nit:";
+
+        assertThat(ReviewPrompts.reviewRequest(pullRequestReview(), run(INVESTIGATE), Optional.empty(), ImmutableList.of(), "reviewer"))
+                .contains(check, "review_save_investigation testCheck").doesNotContain(judged);
+        assertThat(ReviewPrompts.stepRequest(run(INVESTIGATE))).contains(check).doesNotContain(judged);
+        assertThat(ReviewPrompts.stepRequest(run(COLLECT_EVIDENCE))).doesNotContain(check, judged);
+        assertThat(ReviewPrompts.stepRequest(run(VALIDATE))).contains("Read investigation.testCheck", judged).doesNotContain(check);
+        assertThat(ReviewPrompts.stepRequest(run(EXPLAIN))).doesNotContain(check, judged);
+        assertThat(ReviewPrompts.INSTRUCTION).contains("When assignment.testCheckRequired is true", "git apply -R", "Restore the files with git diff -- <paths> | git apply -R",
+                "DOES_NOT_PROTECT: at least one still passes", "headEvidenceRef and undoneEvidenceRef",
+                "defect in the tests, Medium by default and never a nit", "Read investigation.testCheck");
+    }
+
+    private static AgentReview pullRequestReview()
+    {
+        return new AgentReview("review", "workspace", "acme/widgets", OptionalInt.of(42), OptionalLong.empty(), "task", Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+    }
+
     private static ReviewRun run(ReviewStep.Kind kind)
     {
         return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),

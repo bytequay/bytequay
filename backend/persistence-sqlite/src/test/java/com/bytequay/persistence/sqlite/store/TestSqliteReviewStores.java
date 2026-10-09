@@ -35,8 +35,12 @@ import com.bytequay.core.review.ReviewPublication;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
+import com.bytequay.core.review.ReviewTestCheck;
 import com.bytequay.core.review.ReviewValidation;
 import com.bytequay.core.review.ReviewVerification;
+import com.bytequay.persistence.sqlite.converter.JsonColumns;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import jakarta.persistence.EntityManager;
@@ -154,7 +158,7 @@ class TestSqliteReviewStores
                         ImmutableList.of(candidate("The count might never reach callers")),
                         ImmutableList.of(new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The caller receives the unchanged value",
                                 ImmutableList.of("ev-1"), "No cleanup in caller", Optional.of("finding-1"), Optional.of(1), Optional.empty())),
-                        ImmutableList.of(), Optional.empty(), perspectives()), NOW.plusSeconds(3))
+                        ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty()), NOW.plusSeconds(3))
                 .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.empty()), NOW.plusSeconds(3))
                 .withOperation("review_finding:finding-1", new ReviewOperation("sha256:9f1c", "created"), NOW.plusSeconds(4))
                 .withEvidence("ev-2", COMMAND_EVIDENCE, NOW.plusSeconds(5))
@@ -263,14 +267,15 @@ class TestSqliteReviewStores
         AgentReview review = newReview("review-loop", "workspace-a", "bytequay/sample", 7, "task-loop", NOW);
         ReviewInvestigation initial = new ReviewInvestigation("Caller lifetime", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
                 ImmutableList.of(candidate("The resource may leak")), ImmutableList.of(), ImmutableList.of(),
-                Optional.of(new ReviewVerification("Run the focused check using the recorded temporary directory", ImmutableList.of("ev-1"))), perspectives());
+                Optional.of(new ReviewVerification("Run the focused check using the recorded temporary directory", ImmutableList.of("ev-1"))), perspectives(), Optional.empty());
         ReviewCandidateValidation request = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE, "Ownership is unknown",
                 ImmutableList.of("ev-1"), "The caller may close the resource", Optional.empty(), Optional.empty(),
                 Optional.of(new ReviewEvidenceRequest("Who closes the resource?", "Read the caller finally block", "Guaranteed cleanup rejects the leak")));
         ReviewValidation validation = new ReviewValidation(1, ImmutableList.of(request), COVERAGE, ImmutableList.of(), ImmutableList.of(), "Awaiting evidence");
         ReviewInvestigation response = new ReviewInvestigation(initial.changeMap(), initial.reviewedFiles(), ImmutableList.of("ev-1", "ev-2"), initial.candidates(),
                 ImmutableList.of(), ImmutableList.of(new ReviewEvidenceAnswer(1, "Read all callers", ImmutableList.of("ev-2"), Optional.of("Integration fixture unavailable"))),
-                initial.verification(), initial.perspectives());
+                initial.verification(), initial.perspectives(), Optional.of(new ReviewTestCheck(ReviewTestCheck.Outcome.DOES_NOT_PROTECT,
+                        "The new test passes with the cleanup removed", Optional.of("ev-1"), Optional.of("ev-2"), Optional.of(1))));
         ReviewRun run = newRun("run-loop", review.id())
                 .replaceCurrentStep(ReviewStep.initial().withInvestigation(initial), NOW)
                 .withStep(new ReviewStep(2, ReviewStep.Kind.VALIDATE, false, Optional.empty(), Optional.of(validation)), NOW)
@@ -295,11 +300,24 @@ class TestSqliteReviewStores
     }
 
     @Test
+    void anInvestigationStoredBeforeTheTestCheckExistedReadsWithoutOne()
+            throws JsonProcessingException
+    {
+        ReviewInvestigation current = new ReviewInvestigation("Caller lifetime", ImmutableList.of(REVIEW_TOOLS), ImmutableList.of("ev-1"),
+                ImmutableList.of(candidate("The resource may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives(), Optional.empty());
+        ObjectNode stored = JsonColumns.mapper().valueToTree(current);
+        assertThat(stored.has("testCheck")).isTrue();
+        stored.remove("testCheck");
+
+        assertThat(JsonColumns.mapper().readValue(stored.toString(), ReviewInvestigation.class)).isEqualTo(current);
+    }
+
+    @Test
     void changeMapCheckpointRoundTripsWithoutBecomingASealedReport()
     {
         AgentReview review = newReview("review-draft", "workspace-a", "bytequay/sample", 7, "task-draft", NOW);
         ReviewInvestigation draft = new ReviewInvestigation("Trace the publication counter from initialization to its callers", ImmutableList.of(), ImmutableList.of("ev-1"),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of(), Optional.empty());
         ReviewRun run = newRun("run-draft", review.id()).withInvestigation(draft, NOW);
         store.insertReview(review);
         store.insertRun(run);

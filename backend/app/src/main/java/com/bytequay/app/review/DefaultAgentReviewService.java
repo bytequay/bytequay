@@ -1076,7 +1076,7 @@ public class DefaultAgentReviewService
             candidates.add(ReviewSweep.candidate(leads.get(index), report.candidates().size() + index + 1, step.number()));
         }
         ReviewInvestigation merged = new ReviewInvestigation(report.changeMap(), report.reviewedFiles(), report.contextEvidenceRefs(), candidates.build(),
-                report.validations(), report.answers(), report.verification(), report.perspectives());
+                report.validations(), report.answers(), report.verification(), report.perspectives(), report.testCheck());
         return run.withInvestigation(merged, now).replaceCurrentStep(new ReviewStep(step.number(), step.kind(), step.repair(), Optional.of(merged), Optional.empty()), now);
     }
 

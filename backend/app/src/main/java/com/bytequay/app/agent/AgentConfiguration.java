@@ -61,6 +61,7 @@ import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.GoogleWorkspaceBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.MemoryBridge;
@@ -151,6 +152,7 @@ public class AgentConfiguration
             BridgeResolver<MemoryBridge> memories,
             BridgeResolver<RelatedWorkspaceBridge> relatedWork,
             BridgeResolver<WorkItemBridge> workItems,
+            BridgeResolver<GoogleWorkspaceBridge> googleWorkspace,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
         return new PermissionBroker(
@@ -165,7 +167,7 @@ public class AgentConfiguration
                 localReviews,
                 pullRequestChecks,
                 issueContexts,
-                memories, relatedWork, workItems);
+                memories, relatedWork, workItems, googleWorkspace);
     }
 
     @Bean(destroyMethod = "close")

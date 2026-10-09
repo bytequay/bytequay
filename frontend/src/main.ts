@@ -1807,6 +1807,15 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
     backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
+  ipcMain.handle('google:status', () => backendJson(`${backendBase()}/api/google`, { headers: agentHeaders() }));
+  ipcMain.handle('google:install', () => backendJson(`${backendBase()}/api/google/install`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('google:connect', () => backendJson(`${backendBase()}/api/google/connect`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('google:disconnect', () => backendJson(`${backendBase()}/api/google`, { method: 'DELETE', headers: agentHeaders() }));
+  ipcMain.handle('google:cancel', () => backendJson(`${backendBase()}/api/google/cancel`, { method: 'POST', headers: agentHeaders() }));
+  ipcMain.handle('google:agent-access', (_event, enabled: boolean) => backendJson(`${backendBase()}/api/google/agent-access`, jsonInit('PUT', { enabled }, agentHeaders())));
+  ipcMain.handle('google:mail', (_event, query: string, pageToken: string) => backendJson(`${backendBase()}/api/google/mail`, jsonInit('POST', { query, pageToken }, agentHeaders())));
+  ipcMain.handle('google:calendar', (_event, calendarId: string, timeMin: string, timeMax: string) =>
+    backendJson(`${backendBase()}/api/google/calendar`, jsonInit('POST', { calendarId, timeMin, timeMax }, agentHeaders())));
   const jiraSitePath = (connectionId: string, cloudId: string) => `${backendBase()}/api/jira/connections/${encodeURIComponent(connectionId)}/sites/${encodeURIComponent(cloudId)}`;
   const jiraIssuePath = (location: JiraLocation) => `${jiraSitePath(location.connectionId, location.cloudId)}/issues/${encodeURIComponent(location.issueId)}`;
   ipcMain.handle('jira:config', () => backendJson(`${backendBase()}/api/jira/config`, { headers: agentHeaders() }));

@@ -32,6 +32,7 @@ import SkillsPage from './SkillsPage';
 import WorkflowPage from './WorkflowPage';
 import GitHubPage from './GitHubPage';
 import JiraPage from './JiraPage';
+import GooglePage from './GooglePage';
 import { AppearancePage, BrowserPage, GeneralPage } from './PersonalPages';
 import {
   WorkspaceAdvancedPage,
@@ -332,6 +333,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
             />
           )}
           {section === 'jira' && <JiraPage />}
+          {section === 'google' && <GooglePage />}
           {section === 'github' && preferences !== null && (
             <GitHubPage
               account={account}

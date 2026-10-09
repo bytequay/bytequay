@@ -30,6 +30,7 @@ import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
+import com.bytequay.agent.spi.GoogleWorkspaceBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.MemoryBridge;
@@ -151,6 +152,7 @@ public final class PermissionBroker
     private final BridgeResolver<IssueContextBridge> issueContexts;
     private final BridgeResolver<MemoryBridge> memories;
     private final BridgeResolver<WorkItemBridge> workItems;
+    private final BridgeResolver<GoogleWorkspaceBridge> googleWorkspace;
     private final BridgeResolver<RelatedWorkspaceBridge> relatedWork;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
@@ -262,6 +264,18 @@ public final class PermissionBroker
             BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
             BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork, BridgeResolver<WorkItemBridge> workItems)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts,
+                memories, relatedWork, workItems, BridgeResolver.none());
+    }
+
+    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
+            BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
+            DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork, BridgeResolver<WorkItemBridge> workItems,
+            BridgeResolver<GoogleWorkspaceBridge> googleWorkspace)
+    {
+        this.googleWorkspace = requireNonNull(googleWorkspace, "googleWorkspace is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.relatedWork = requireNonNull(relatedWork, "relatedWork is null");
         this.endpoint = requireNonNull(endpoint, "endpoint is null");
@@ -514,7 +528,7 @@ public final class PermissionBroker
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
                 codeQueries, review, development, localReview, pullRequestCi, issueContext, memory, related, work,
-                reviewChildren, new AtomicReference<>());
+                restricted || review.isPresent() ? Optional.empty() : googleWorkspace.resolve(taskId), reviewChildren, new AtomicReference<>());
     }
 
     /** Combines the fixed capabilities' guidance for the session's instruction channel. */
@@ -531,6 +545,7 @@ public final class PermissionBroker
                         context.issueContext().map(IssueContextBridge::instruction),
                         context.memory().map(ignored -> MemoryBridge.INSTRUCTION),
                         context.workItems().map(ignored -> WorkItemBridge.INSTRUCTION),
+                        context.googleWorkspace().map(ignored -> GoogleWorkspaceBridge.INSTRUCTION),
                         context.relatedWork().map(ignored -> RelatedWorkspaceBridge.INSTRUCTION))
                 .flatMap(Optional::stream)
                 .collect(Collectors.joining("\n\n"));
@@ -598,6 +613,7 @@ public final class PermissionBroker
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
             case RelatedWorkspaceBridge.TOOL_NAME -> relatedWork(request.id(), params.arguments(), context);
             case WorkItemBridge.TOOL_NAME -> workItems(request.id(), params.arguments(), context);
+            case GoogleWorkspaceBridge.TOOL_NAME -> googleWorkspace(request.id(), params.arguments(), context);
             case MemoryBridge.TOOL_NAME -> memory(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
@@ -679,6 +695,20 @@ public final class PermissionBroker
         catch (JsonProcessingException | RuntimeException failure) {
             return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(
                     "Related work failed: " + Optional.ofNullable(failure.getMessage()).orElse("Request rejected")))), true));
+        }
+    }
+
+    private McpHttpResponse googleWorkspace(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.googleWorkspace().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        try {
+            String result = context.googleWorkspace().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (JsonProcessingException | RuntimeException failure) {
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Google data could not be read. Check access in Settings or list saved items again.")), true));
         }
     }
 
@@ -1254,6 +1284,13 @@ public final class PermissionBroker
                         .put("destinations", ImmutableMap.of("type", "array", "minItems", 1, "maxItems", 20,
                                 "items", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 100))).buildOrThrow(),
                         "required", ImmutableList.of("action", "operationKey"), "additionalProperties", false))));
+        context.googleWorkspace().ifPresent(ignored -> tools.add(new ToolDefinition(GoogleWorkspaceBridge.TOOL_NAME,
+                "Read the user's saved Gmail and Calendar snapshots. LIST then READ; no live sync or remote writes",
+                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                        "action", ImmutableMap.of("type", "string", "enum", ImmutableList.of("LIST", "READ")),
+                        "source", ImmutableMap.of("type", "string", "enum", ImmutableList.of("MAIL", "CALENDAR")),
+                        "id", ImmutableMap.of("type", "string"), "query", ImmutableMap.of("type", "string")),
+                        "required", ImmutableList.of("action", "source"), "additionalProperties", false))));
         context.workItems().ifPresent(ignored -> tools.add(new ToolDefinition(WorkItemBridge.TOOL_NAME,
                 "LIST or READ unified local, GitHub and Jira work items in this workspace; CREATE private local work only. Never publishes",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
@@ -1653,6 +1690,7 @@ public final class PermissionBroker
             Optional<MemoryBridge> memory,
             Optional<RelatedWorkspaceBridge> relatedWork,
             Optional<WorkItemBridge> workItems,
+            Optional<GoogleWorkspaceBridge> googleWorkspace,
             boolean reviewChildren,
             AtomicReference<CodexRootTools> codexReviewTools)
     {
@@ -1674,6 +1712,7 @@ public final class PermissionBroker
             requireNonNull(memory, "memory is null");
             requireNonNull(relatedWork, "relatedWork is null");
             requireNonNull(workItems, "workItems is null");
+            requireNonNull(googleWorkspace, "googleWorkspace is null");
         }
     }
 

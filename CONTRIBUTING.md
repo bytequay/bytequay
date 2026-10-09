@@ -121,6 +121,28 @@ configuration so newly opened or resumed provider sessions load the change.
 Docker access includes control of the daemon's containers and host bind mounts;
 it is not confined to the task worktree.
 
+## Google apps
+
+The optional Gmail and Calendar integration uses the Google Workspace extension
+for Gemini CLI. Install Gemini CLI and Node.js, then choose **Settings →
+Integrations → Google Apps → Install connector** and **Sign in with Google**.
+ByteQuay does not require a Gemini model subscription and does not register its
+own OAuth client. The extension's existing hosted authentication infrastructure
+and the Google account's permissions still determine whether sign-in succeeds.
+
+New connector installations pin the upstream revision in `WorkspaceConnector`.
+An existing `google-workspace` installation is reused. Setup installs its npm
+dependencies; subsequent reads launch its built MCP server directly without
+Gemini inference or debug logging. The default directory is
+`~/.gemini/extensions/google-workspace`. `bytequay.google.extension-directory`,
+`bytequay.google.node`, `bytequay.google.gemini`, and `bytequay.google.npm` can
+select non-default development installations.
+
+The connector shares its account with Gemini CLI. Disconnect in ByteQuay clears
+only ByteQuay's saved data. Sign out or change the upstream account through the
+extension, then reconnect in ByteQuay. A changed account clears the old snapshots
+and requires new consent for task-agent access.
+
 ## Project layout
 
 ```text

@@ -22,6 +22,7 @@ export type SettingsSection =
   | 'workflow'
   | 'github'
   | 'jira'
+  | 'google'
   | 'ws-repository'
   | 'ws-agents'
   | 'ws-token'
@@ -72,6 +73,7 @@ export const SETTINGS_ENTRIES: SettingsEntry[] = [
     slug: 'github',
     rows: ['Account', 'PR details kept ready', 'Notification summaries'],
   },
+  { section: 'google', group: 'Integrations', label: 'Google Apps', slug: 'google', rows: ['Gmail', 'Calendar', 'Gemini', 'Sign in', 'Connector', 'Agent access'] },
   { section: 'jira', group: 'Integrations', label: 'Jira', slug: 'jira', rows: ['Accounts', 'Add account', 'Reconnect', 'Sites'] },
   {
     section: 'ws-repository',

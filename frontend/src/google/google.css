@@ -1,0 +1,42 @@
+.google-screen { height: 100%; min-width: 0; display: flex; flex-direction: column; color: var(--text-1); overflow: auto; }
+.google-screen__header { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 28px 30px 18px; }
+.google-screen h1 { margin: 0; font-size: 24px; font-weight: 600; }
+.google-screen__header p { margin: 6px 0 0; color: var(--text-2); font-size: 13px; }
+.google-screen__tabs { display: flex; gap: 8px; padding: 0 30px; border-bottom: 1px solid var(--border); }
+.google-screen__tabs button { display: flex; gap: 8px; align-items: center; padding: 12px 18px; color: var(--text-2); background: transparent; border: 0; border-bottom: 2px solid transparent; cursor: pointer; }
+.google-screen__tabs button[aria-pressed="true"] { color: var(--accent); border-bottom-color: var(--accent); }
+.google-screen__toolbar { padding: 16px 30px 6px; }
+.google-screen__toolbar form { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.google-screen__toolbar input, .google-screen__toolbar select { padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text-1); min-width: 0; }
+.google-screen__toolbar input:not([type="date"]) { flex: 1; min-width: 180px; }
+.google-screen__toolbar label { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.google-screen__coverage { padding: 6px 30px 14px; font-size: 12px; color: var(--text-2); }
+.google-screen__mail { display: grid; grid-template-columns: minmax(230px, 34%) minmax(0, 1fr); flex: 1; min-height: 280px; border-top: 1px solid var(--border); overflow: hidden; }
+.google-screen__list { border-right: 1px solid var(--border); overflow: auto; }
+.google-screen__list > button { display: flex; flex-direction: column; text-align: left; gap: 7px; width: 100%; border: 0; border-bottom: 1px solid var(--border); padding: 18px 24px; background: transparent; color: var(--text-1); cursor: pointer; }
+.google-screen__list > button:hover, .google-screen__list > button.is-selected { background: var(--bg-hover); }
+.google-screen__list > button.is-selected { box-shadow: inset 3px 0 var(--accent); }
+.google-screen__list > button span, .google-screen__list > button strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+.google-screen__list > button span, .google-screen__list small { color: var(--text-2); font-size: 12px; }
+.google-screen__sender { display: flex; align-items: center; gap: 6px; }
+.google-screen__unread { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+.google-screen__message { padding: 24px 30px; min-width: 0; overflow: auto; }
+.google-screen__message-heading { display: flex; align-items: start; justify-content: space-between; gap: 16px; }
+.google-screen h2 { font-size: 18px; margin: 0 0 16px; font-weight: 600; overflow-wrap: anywhere; }
+.google-screen dl { display: grid; grid-template-columns: auto 1fr; gap: 8px 12px; font-size: 12px; margin: 8px 0 24px; }
+.google-screen dt { color: var(--text-2); }
+.google-screen dd { margin: 0; overflow-wrap: anywhere; }
+.google-screen pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; line-height: 1.7; margin: 0; }
+.google-screen__footer { border-top: 1px solid var(--border); padding: 14px 30px; display: flex; align-items: center; justify-content: space-between; gap: 16px; font-size: 12px; color: var(--text-2); }
+.google-screen__agenda { padding: 0 30px 30px; overflow: auto; }
+.google-screen__agenda > .google-screen__coverage { padding: 8px 0 16px; }
+.google-screen__agenda article { display: flex; align-items: flex-start; gap: 18px; padding: 20px 0; border-top: 1px solid var(--border); }
+.google-screen__agenda article > div { flex: 1; min-width: 0; }
+.google-screen__agenda time { font-size: 12px; color: var(--text-2); }
+.google-screen__agenda h2 { margin: 8px 0; font-size: 16px; }
+.google-screen__empty { margin: auto; max-width: 420px; padding: 50px 20px; text-align: center; }
+.google-screen__empty h2 { margin-top: 16px; }
+.google-screen__empty p, .google-screen__placeholder { color: var(--text-2); font-size: 13px; line-height: 1.6; }
+.google-screen__placeholder { padding: 24px; }
+.google-screen__error { padding: 12px 24px; margin: 0 30px 12px; border: 1px solid var(--border); color: var(--red); border-radius: 6px; }
+@media (max-width: 900px) { .google-screen__header, .google-screen__message-heading { align-items: flex-start; flex-direction: column; } .google-screen__header, .google-screen__toolbar { padding-left: 18px; padding-right: 18px; } }

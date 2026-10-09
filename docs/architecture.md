@@ -83,6 +83,20 @@ previewed revision to an explicit provider destination before sending it. Its du
 receipt links the remote identity to the existing item. An uncertain outcome blocks
 another create until the user reconciles the existing issue or ticket.
 
+Google app reads run through the installed Gemini CLI Workspace extension's local
+MCP server. The backend owns each bounded connector process and admits only
+identity, Gmail search/read, and Calendar list/read calls. The extension owns its
+shared Gemini CLI login and hosted OAuth exchange; tokens never enter ByteQuay's
+SQLite snapshots, renderer, or agent prompts. Connector processes do not inherit
+the desktop session token or model credentials.
+
+Google snapshots are one saved mail page and one bounded agenda selection, with
+account identity, query/range and capture time. Refresh verifies the shared login
+still belongs to that account before replacing data. Failures preserve the last
+snapshot. Explicitly enabled interactive task tools read only these local
+snapshots and recheck consent on every call. Disconnect clears ByteQuay's data
+and access without revoking the extension's shared login.
+
 ## Agent execution
 
 Application features reuse the current agent service. Provider adapters translate

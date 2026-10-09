@@ -33,8 +33,9 @@ const WORKSPACE = {
 function render(page: AppPage, workspace: WorkspaceDto | null, {
   settings = false,
   jiraConnected = false,
+  googleConnected = false,
   workspaceTab = 'home',
-}: { settings?: boolean; jiraConnected?: boolean; workspaceTab?: WorkspaceTab } = {}) {
+}: { settings?: boolean; jiraConnected?: boolean; googleConnected?: boolean; workspaceTab?: WorkspaceTab } = {}) {
   return renderToStaticMarkup(
     <AppSidebar
       page={page}
@@ -49,6 +50,7 @@ function render(page: AppPage, workspace: WorkspaceDto | null, {
       workspaceTab={workspaceTab}
       onWorkspaceTab={vi.fn()}
       jiraConnected={jiraConnected}
+      googleConnected={googleConnected}
       settings={settings ? {
         section: 'models',
         workspaces: [WORKSPACE],
@@ -103,6 +105,15 @@ describe('app sidebar', () => {
     expect(workspace).not.toContain('aria-label="Jira"');
   });
 
+  it('shows Google Apps only when connected and keeps Gmail and Calendar in that shared entry', () => {
+    expect(navLabels(render('google', null), 'Application navigation')).not.toContain('Google Apps');
+    const connected = render('google', null, { googleConnected: true });
+    expect(navLabels(connected, 'Application navigation')).toEqual(['Pull requests', 'Google Apps']);
+    expect(connected).toContain('aria-label="Google Apps" aria-current="page"');
+    expect(navLabels(render('home', null, { jiraConnected: true, googleConnected: true }), 'Application navigation'))
+      .toEqual(['Pull requests', 'Jira', 'Google Apps']);
+  });
+
   it('offers Settings from inside a workspace, not only outside one', () => {
     expect(app).toContain('aria-label="Settings"');
     // The workspace tab this replaced left no way into settings from a workspace.
@@ -116,6 +127,7 @@ describe('app sidebar', () => {
     expect(settings).not.toContain('aria-label="Workspace navigation"');
     expect(settings).toContain('aria-label="Back to app"');
     expect(navLabels(settings, 'Settings navigation')).toContain('Jira');
+    expect(navLabels(settings, 'Settings navigation')).toContain('Google Apps');
   });
 
   it('renders every shape through the same row, so they share size and markup', () => {

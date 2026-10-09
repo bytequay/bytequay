@@ -40,6 +40,13 @@ describe('settings routes', () => {
     expect(matchesSearch(entryFor('jira'), 'reconnect')).toBe(true);
   });
 
+  it('keeps optional Google Apps setup under Integrations and finds both apps', () => {
+    expect(settingsRoute('google')).toBe('#/settings/integrations/google');
+    expect(entryFor('google')).toMatchObject({ label: 'Google Apps', group: 'Integrations' });
+    expect(matchesSearch(entryFor('google'), 'Gmail')).toBe(true);
+    expect(matchesSearch(entryFor('google'), 'Calendar')).toBe(true);
+  });
+
   it('carries the workspace a link names, so a link can edit one the app is not showing', () => {
     expect(settingsLocationFromRoute('#/settings/workspace/ws-9/agents'))
       .toEqual({ section: 'ws-agents', workspaceId: 'ws-9' });

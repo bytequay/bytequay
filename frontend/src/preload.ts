@@ -46,6 +46,14 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
+  getGoogleStatus: () => ipcRenderer.invoke('google:status'),
+  installGoogleConnector: () => ipcRenderer.invoke('google:install'),
+  connectGoogle: () => ipcRenderer.invoke('google:connect'),
+  disconnectGoogle: () => ipcRenderer.invoke('google:disconnect'),
+  cancelGoogleOperation: () => ipcRenderer.invoke('google:cancel'),
+  setGoogleAgentAccess: enabled => ipcRenderer.invoke('google:agent-access', enabled),
+  refreshGoogleMail: (query, pageToken) => ipcRenderer.invoke('google:mail', query, pageToken),
+  refreshGoogleCalendar: (calendarId, timeMin, timeMax) => ipcRenderer.invoke('google:calendar', calendarId, timeMin, timeMax),
   getJiraConfig: () => ipcRenderer.invoke('jira:config'),
   listJiraConnections: () => ipcRenderer.invoke('jira:connections'),
   connectJira: () => ipcRenderer.invoke('jira:connect'),

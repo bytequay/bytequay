@@ -15,6 +15,8 @@ import { useCallback, useEffect, useRef, useState, type CSSProperties } from 're
 import AppSidebar, { type AppPage } from './AppSidebar';
 import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
+import GoogleScreen from './google/GoogleScreen';
+import { useGoogle } from './google/useGoogle';
 import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
 import { JIRA_CHANGED, anyJiraConnected, type JiraConnection } from './jira/contracts';
 import HomePage from './home/HomePage';
@@ -75,7 +77,7 @@ function layerKey(layer: ZoomedReference): string {
 function pageFromRoute(hash: string): AppPage {
   if (hash === '#/jira' || hash.startsWith('#/jira?')) return 'jira';
   if (settingsLocationFromRoute(hash) !== null) return 'settings';
-  const match = /^#\/(home|recent|pulls|workspaces|teams)$/.exec(hash);
+  const match = /^#\/(home|recent|pulls|workspaces|teams|google)$/.exec(hash);
   return match ? match[1] as AppPage : 'home';
 }
 
@@ -88,6 +90,7 @@ export default function App() {
   const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
   const [jiraConnected, setJiraConnected] = useState(false);
+  const { status: googleStatus } = useGoogle();
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
@@ -461,6 +464,7 @@ export default function App() {
         <AppSidebar
           page={page}
           jiraConnected={jiraConnected}
+          googleConnected={Boolean(googleStatus?.snapshot)}
           browserRailVisible={railVisible}
           onToggleBrowserRail={() => setRailVisible(value => {
             try { localStorage.setItem('bytequay.browser-rail-visible', String(!value)); } catch { /* preference is optional */ }
@@ -506,6 +510,7 @@ export default function App() {
           )}
           <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
           {page === 'jira' && <JiraScreen />}
+          {page === 'google' && <GoogleScreen />}
           {page === 'teams' && <TeamsPage />}
           {page === 'pulls' && (
             <PullsScreen

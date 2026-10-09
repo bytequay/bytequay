@@ -13,6 +13,7 @@
  */
 
 import type { WorkItemBridge } from './workitems/contracts';
+import type { GoogleBridge } from './google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
 import type { CreateWorkItem, EpicJoinDto, EpicRecordDto, WorkItemDto, WorkItemDecision, GoalDto, GoalExchangeDto, GoalItemDto, GoalItemKind, GoalGapDto, GoalKnowledgeNoteDto, GoalLessonDto, GoalPatch, GoalRecommendationDto, TopicLevel } from './goals/contracts';
@@ -1395,7 +1396,7 @@ export type RecentDraftRequest = {
   body: string;
 };
 
-export type Bridge = WorkItemBridge & JiraBridge & {
+export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;

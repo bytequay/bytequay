@@ -54,6 +54,7 @@ const SETTINGS_ICONS: Record<SettingsSection, ReactNode> = {
   workflow: <ListChecks size={16} strokeWidth={1.7} aria-hidden="true" />,
   skills: <SquareLibrary size={16} strokeWidth={1.7} aria-hidden="true" />,
   jira: <JiraIcon size={16} />,
+  google: <Globe size={16} aria-hidden="true" />,
   github: <CircleUser size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-repository': <Tags size={16} strokeWidth={1.7} aria-hidden="true" />,
   'ws-agents': <Bot size={16} strokeWidth={1.7} aria-hidden="true" />,
@@ -72,7 +73,7 @@ export function WindowControls() {
   );
 }
 
-export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'teams' | 'jira' | 'settings';
+export type AppPage = 'home' | 'recent' | 'pulls' | 'workspaces' | 'teams' | 'jira' | 'google' | 'settings';
 
 type NavItem = { page: AppPage; label: string; icon: ReactNode };
 
@@ -86,6 +87,7 @@ const GLOBAL_NAV_ITEMS: NavItem[] = [
 const APP_NAV_ITEMS: NavItem[] = [
   { page: 'pulls', label: 'Pull requests', icon: <PullsIcon /> },
   { page: 'jira', label: 'Jira', icon: <JiraIcon size={16} /> },
+  { page: 'google', label: 'Google Apps', icon: <Globe size={16} aria-hidden="true" /> },
 ];
 
 const WORKSPACE_TABS: Array<{ tab: WorkspaceTab; label: string; icon: ReactNode }> = [
@@ -108,6 +110,7 @@ export default function AppSidebar({
   workspaceTab,
   onWorkspaceTab,
   jiraConnected = false,
+  googleConnected = false,
   browserRailVisible,
   onToggleBrowserRail,
   settings,
@@ -122,6 +125,7 @@ export default function AppSidebar({
   workspaceTab: WorkspaceTab;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
   jiraConnected?: boolean;
+  googleConnected?: boolean;
   browserRailVisible: boolean;
   onToggleBrowserRail: () => void;
   /** Present only while settings is open, when the sidebar becomes its category nav. */
@@ -312,7 +316,7 @@ export default function AppSidebar({
       </nav>
       {workspace === null ? (
         <nav className="app-sidebar__nav" aria-label="Application navigation">
-          {APP_NAV_ITEMS.filter(item => item.page !== 'jira' || jiraConnected).map(navItem)}
+          {APP_NAV_ITEMS.filter(item => (item.page !== 'jira' || jiraConnected) && (item.page !== 'google' || googleConnected)).map(navItem)}
         </nav>
       ) : (
         <>

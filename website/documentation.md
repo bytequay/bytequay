@@ -13,6 +13,7 @@ What ByteQuay is, what it aims to do, and short guides to its main features.
 - [Keep related work together with Epics](#epics)
 - [Build repository memory](#memory-and-specs)
 - [Start from an issue or Jira ticket](#issues-and-jira)
+- [Read Gmail and Google Calendar](#gmail-and-google-calendar)
 - [Move changes between branches](#commits-and-backports)
 - [Follow people with Circles](#circles)
 - [When something needs attention](#help)
@@ -461,6 +462,36 @@ returns to linked work. New work always starts locally.
 
 **Open in Jira** handles fields and operations the app does not support. Browser sign-in
 is shown only when configured. Replace an expired token in settings.
+
+## Gmail and Google Calendar
+
+1. Open **Settings → Integrations → Google Apps** and choose **Install connector**.
+   Gemini CLI and Node.js must be installed; the settings page links to the
+   installation guide. A paid Gemini plan is not required.
+2. Choose **Sign in with Google** and complete the browser consent flow. The
+   Workspace extension shares its account with Gemini CLI and may request
+   permissions for other Google apps. ByteQuay uses only its read operations.
+3. After sign-in succeeds, **Google Apps** appears in the application sidebar.
+   Open it. In **Gmail**, enter a Gmail search
+   such as `in:inbox` or `from:someone@example.com` and choose **Search / refresh**.
+   ByteQuay saves up to 25 messages on this Mac; **Next page** replaces the saved
+   selection. Message bodies are displayed as text, with **Open Gmail** for the
+   original message and replies.
+4. In **Calendar**, select a calendar and the start of a week, then choose
+   **Refresh agenda**. The saved agenda remains available offline. The current
+   connector can omit events in busy calendars and declined invitations, so use
+   **Open Calendar** when checking a complete schedule.
+5. To use this context with an agent, enable **Let task agents read saved Google
+   data** in Google Apps settings, then start an interactive task. Ask it to use the
+   `google_workspace` tool to read the saved mail or agenda. The selected model
+   receives the content the tool reads. This tool does not send mail, change
+   events, or refresh the Google account.
+
+Refreshes are manual. Each view shows when its data was saved, and failed reads
+keep the last snapshot. **Disconnect and clear saved data** removes ByteQuay's
+mail, events, and agent access and removes the sidebar tab; it leaves Gemini CLI
+signed in. Existing task conversations retain any Google context already read
+by their agents.
 
 <a id="commits-and-backports"></a>
 

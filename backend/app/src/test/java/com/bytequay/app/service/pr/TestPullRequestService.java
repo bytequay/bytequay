@@ -98,6 +98,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -438,6 +439,23 @@ class TestPullRequestService
         service.syncAttentionSummaries();
         verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 91)), "me");
         verifyNoInteractions(detailStore, diffStore, actions);
+    }
+
+    @Test
+    void aRestartSummarizesClosedCardsOnlyAfterNewActivity()
+    {
+        PullRequest open = storedPullRequest(pullRequestNumber(91));
+        List<PullRequest> candidates = new ArrayList<>(ImmutableList.of(open, storedPullRequest("merged", REVIEWED_AT, REVIEWED_AT)));
+        when(store.findAttentionCandidates()).thenAnswer(ignored -> ImmutableList.copyOf(candidates));
+        when(gitHub.searchPullRequestsPaged(eq("pat"), anyString(), eq(1), eq(100)))
+                .thenReturn(new PullRequestHistoryPage(ImmutableList.of(), false));
+
+        service.syncAttentionSummaries();
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 91)), "me");
+
+        candidates.set(1, storedPullRequest("merged", REVIEWED_AT.plusSeconds(60), REVIEWED_AT));
+        service.syncAttentionSummaries();
+        verify(summaries).fetchSummaries("pat", ImmutableList.of(PullRequestRef.of("owner", "repo", 91), PullRequestRef.of("owner", "repo", 7)), "me");
     }
 
     @Test

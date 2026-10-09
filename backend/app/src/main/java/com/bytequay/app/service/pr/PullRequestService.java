@@ -326,6 +326,7 @@ public class PullRequestService
     {
         requireNonNull(repository, "repository is null");
         GitHubCredential credential = credentialService.resolveGitHubCredential();
+        baselineSummaries(credential.token());
         String syncMarker = UUID.randomUUID().toString();
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         Consumer<List<FetchedPullRequest>> save = page -> {
@@ -412,10 +413,7 @@ public class PullRequestService
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
         String login = credential.profile().login();
-        if (!pat.equals(summaryCredential)) {
-            summaryCredential = pat;
-            summaryStamps.clear();
-        }
+        baselineSummaries(pat);
         Set<PullRequestRef> changed = new LinkedHashSet<>();
         try {
             notifications.poll(pat, login, notification -> ingestNotification(credential, notification, changed));
@@ -544,6 +542,7 @@ public class PullRequestService
     {
         GitHubCredential credential = credentialService.resolveGitHubCredential();
         String pat = credential.token();
+        baselineSummaries(pat);
         Map<String, FetchedPullRequest> seen = new LinkedHashMap<>();
         syncAttentionQuery(pat, seen, "is:pr is:open author:@me", AUTHORED);
         String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(CLOSED_RETENTION_DAYS).toString();
@@ -556,7 +555,37 @@ public class PullRequestService
         enrichCards(credential, fresh.stream().map(row -> parseRef(row.repo(), row.number())).collect(toImmutableList()));
     }
 
-    private void enrichCards(GitHubCredential credential, List<PullRequestRef> candidates)
+    /**
+     * A restart forgets every stamp. Closed cards then keep what is stored, because discovery and
+     * notifications report whatever changes them later; summarizing all of them again is minutes of
+     * back-to-back GraphQL. Another account still summarizes everything.
+     */
+    private void baselineSummaries(String pat)
+    {
+        // Not the service monitor: a scan must not wait here for a whole pass of the summary stream.
+        synchronized (summaryStamps) {
+            if (pat.equals(summaryCredential)) {
+                return;
+            }
+            summaryStamps.clear();
+            if (summaryCredential == null) {
+                // ponytail: a change saved but not summarized before the last shutdown stays stale until the next one; persist the stamp if that shows.
+                Instant now = clock.instant();
+                store.findAttentionCandidates().stream().filter(PullRequestService::settled)
+                        .forEach(row -> summaryStamps.put(parseRef(row.repo(), row.number()), new SummaryStamp(pat, discussionSourceUpdatedAt(row), now)));
+            }
+            summaryCredential = pat;
+        }
+    }
+
+    /** Checks and mergeability move without new activity only while open; a monitored pull request has no other discovery. */
+    private static boolean settled(PullRequest row)
+    {
+        return row.monitoredAt() == null && row.state() != null && !"open".equalsIgnoreCase(row.state());
+    }
+
+    // One stream: concurrent scans would summarize the same pull requests twice and together exceed GitHub's GraphQL execution allowance.
+    private synchronized void enrichCards(GitHubCredential credential, List<PullRequestRef> candidates)
     {
         Instant now = clock.instant();
         List<PullRequestRef> refs = candidates.stream().distinct().filter(ref -> {
@@ -568,11 +597,12 @@ public class PullRequestService
             PullRequest cached = row.orElseThrow();
             Instant source = store.findDiscussionActivityAt(cached.id()).filter(at -> at.isAfter(cached.updatedAt())).orElse(cached.updatedAt());
             Duration interval = cached.ciStatus() == PullRequestDetail.CiStatus.PENDING ? Duration.ofMinutes(1) : Duration.ofMinutes(10);
-            return source.isAfter(stamp.sourceAt()) || !now.isBefore(stamp.checkedAt().plus(interval));
+            return source.isAfter(stamp.sourceAt()) || (!settled(cached) && !now.isBefore(stamp.checkedAt().plus(interval)));
         }).collect(toImmutableList());
         Set<PullRequestRef> reviewRequests = notifications.reviewRequests(credential.profile().login());
         for (int offset = 0; offset < refs.size(); offset += GitHubPullRequestSummaryClient.BATCH_SIZE) {
             List<PullRequestRef> batch = refs.subList(offset, Math.min(offset + GitHubPullRequestSummaryClient.BATCH_SIZE, refs.size()));
+            long started = System.nanoTime();
             try {
                 // Persist each completed batch before asking for the next one.
                 for (GitHubPullRequestSummary summary : summaries.fetchSummaries(credential.token(), batch, credential.profile().login())) {
@@ -600,6 +630,16 @@ public class PullRequestService
                     throw failure;
                 }
                 log.warn("GitHub PR card enrichment failed for {} PRs; keeping discovered updates: {}", batch.size(), failure.getMessage());
+            }
+            if (offset + GitHubPullRequestSummaryClient.BATCH_SIZE < refs.size()) {
+                try {
+                    // GitHub's secondary limit allows about a minute of GraphQL execution per minute; resting as long as each batch ran leaves half of it free.
+                    Thread.sleep(Duration.ofNanos(System.nanoTime() - started));
+                }
+                catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
             }
         }
     }

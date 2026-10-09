@@ -334,3 +334,9 @@
   outline: 2px solid var(--control-strong);
   outline-offset: 1px;
 }
+
+.epic-row__task { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; padding: 0; border: 0; background: none; color: var(--fg-link); font: inherit; cursor: pointer; }
+.epic-row__task > span:first-of-type { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.epic-row__task > span:last-child { color: var(--fg-dim); }
+.epic-row__task:hover { text-decoration: underline; }
+.epic-row__task:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

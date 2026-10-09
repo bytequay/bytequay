@@ -421,22 +421,27 @@ already-reported issues remain separate. **Stop check** stops a running investig
 
 Open a workspace’s **Work items** and choose **GitHub issues**, **Jira**, or **Local**.
 GitHub keeps its issue list and detail pane; Jira keeps its board, filters, and ticket
-views. **Local** lists private work, with search and an option to include closed items.
-**New work item** saves only on your Mac. Add the description and acceptance criteria,
-then choose **Start development** to open a task with that context retained.
+views. **Local** lists the work kept on your Mac under **Open**, **Done**, and **Closed**,
+with search and filters for Epic, kind, and where the work is visible. **New** saves
+only on your Mac. Add the context and acceptance criteria, then choose
+**Start development** to open a task with that context retained. A work item's page
+shows its context, its tasks and pull requests, its Epic, and its history. In an Epic’s
+**Work** view, click a Local card to zoom into its details. Linked tasks appear with
+their titles and statuses; click one to open its task page over the Epic. Close the
+zoom card or press Escape to return to the view underneath.
 
 Agents can list and read the same work items and create local follow-ups. New Epic
 subtasks and confirmed spec findings also start locally. Removing Epic membership
 preserves the item and its history. Development may deliver a pull request without
 publishing any issue or ticket.
 
-To expose local work, choose **Publish…**, select GitHub or a connected Jira site,
-project key, and work type, inspect the preview, then **Publish to GitHub** or
-**Publish to Jira**. The title and description are sent; task conversations and local
-history are not. Publication keeps the same local item and links its remote source.
-If a request has an uncertain outcome, use **Link an existing issue or ticket** to
-reconcile it before trying another publication. Jira projects requiring additional
-creation fields may reject publication; the local item remains available.
+To expose local work, choose **Push to remote…**, select GitHub or a connected Jira site,
+project key, and work type, inspect the preview, then **Create GitHub issue** or
+**Create Jira ticket**. The title and context are sent; task conversations and local
+history are not. Pushed work stays in **Local**, linked to its remote copy.
+If a request has an uncertain outcome, enter the existing issue or ticket beside
+**or link existing** and choose **Link** before trying again. Jira projects requiring
+additional creation fields may reject the push; the local item remains available.
 
 ### GitHub issues
 

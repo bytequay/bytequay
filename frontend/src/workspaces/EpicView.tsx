@@ -16,7 +16,7 @@ import React, { useState } from 'react';
 import { ArrowDown, ArrowUp, Circle, CircleCheck, CircleDotDashed, CircleSlash, ListTree, LoaderCircle, Play, Plus, RotateCcw, Search, Sparkles, SquareTerminal, X }
   from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { CardActions, CardAge, IconButton, ItemRow, LinkKey, Pill } from '../cards/Card';
+import { CardActions, CardAge, IconButton, ItemRow, LinkKey, LocalBadge, Pill } from '../cards/Card';
 import type { EpicChildDto, EpicRecordDto, GoalItemDto, WorkItemDecision, WorkItemDto } from '../goals/contracts';
 import { openGoalItem, startTicket } from '../goals/GoalLayer';
 import { Candidate, useCandidates } from '../goals/GoalPanel';
@@ -26,7 +26,7 @@ import type { AttentionItem, AttentionTone } from '../home/attention';
 import { EpicGlyph } from './EpicDrawer';
 import { epicIdentity, epicWork, joinEpic, orderEpic, removeFromEpic, startEpicWork, useEpicGoals, useEpicLend, useEpicRecord } from './epics';
 import { notifyIssueDevelopmentChanged } from './issueDevelopment';
-import { workspaceAgentTaskRoute } from './model';
+import { zoomReference } from '../githubReference';
 import '../css/epic-view.css';
 
 type Decision = Omit<WorkItemDecision, 'operationId' | 'expectedRevision'>;
@@ -61,7 +61,7 @@ export function EpicWork({ epic, workspaceId, repository, work, onShowSource }: 
   const goals = useEpicGoals(workspaceId);
   return <EpicView epic={epic} workspaceId={workspaceId} repository={repository ?? lend.repository ?? ''} work={work} needsYou={lend.needsYou} goals={goals}
     epicTitle={(epicId) => lend.epicTitles.get(epicId) ?? null}
-    onOpenTask={(taskId) => { window.location.hash = workspaceAgentTaskRoute(workspaceId, taskId); }}
+    onOpenTask={(taskId) => zoomReference({ kind: 'task', workspaceId, taskId })}
     onStartIssue={(issue, instruction, replaces) => startEpicWork({ workspaceId, issue, instruction, replaces, send: true })}
     onStartWork={(itemId, message) => startEpicWork({ workspaceId, itemId, draft: message, send: true })}
     onShowSource={onShowSource} />;
@@ -356,7 +356,6 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, fi
 }): React.JSX.Element {
   const detail = workDetail(item, items, needsYou);
   const source = item.links.find((link) => link.kind === 'ISSUE' || link.kind === 'JIRA');
-  const primary = source ?? item.links.find((link) => link.kind === 'TASK') ?? item.links.find((link) => link.kind === 'PULL_REQUEST');
   const mates = items.filter((other) => other.id !== item.id && other.state !== 'DROPPED' && !item.blockedBy.includes(other.id));
   const blockers = items.filter((other) => item.blockedBy.includes(other.id));
   // An attempt that has not ended is the work's task; another starts only once it ends.
@@ -368,12 +367,19 @@ function WorkRow({ item, items, upstream, needsYou, workspaceId, busy, onRun, fi
   const words = [STATE_WORDS[item.state], detail?.text, side].filter((part) => part !== undefined).join(' · ');
   return (
     <ItemRow className={`epic-row is-${item.state.toLowerCase()}`} label={`${item.title}: ${words}`}
-      onOpen={() => { if (primary !== undefined) openGoalItem(primary, workspaceId, onOpenTask); }}
+      onOpen={() => {
+        if (source !== undefined) openGoalItem(source, workspaceId, onOpenTask);
+        else zoomReference({ kind: 'work', workspaceId, itemId: item.id });
+      }}
       icon={<StateIcon item={item} running={detail?.spinning === true} />}
       title={item.title}
-      marks={source === undefined ? undefined : <LinkKey source={GOAL_SOURCES[source.kind]} name={source.label} size={12} />}
+      marks={source === undefined ? <LocalBadge /> : <LinkKey source={GOAL_SOURCES[source.kind]} name={source.label} size={12} />}
       meta={<>
         <span className="epic-row__state" title={words}>{STATE_WORDS[item.state]}</span>
+        {item.links.filter(link => link.kind === 'TASK').map(link => <button key={link.key} type="button" className="epic-row__task"
+          aria-label={`Open task ${link.title}`} onClick={event => { event.stopPropagation(); onOpenTask(link.key); }}>
+          <SquareTerminal size={13} aria-hidden="true" /><span>{link.title}</span><span>{link.status}</span>
+        </button>)}
         {detail !== null && <Pill tone={detail.tone} spinning={detail.spinning}>{detail.text}</Pill>}
         {side !== undefined && <span className={`epic-row__upstream${upstream?.former === true ? ' is-former' : ''}`}>{side}</span>}
         {closed !== null && (

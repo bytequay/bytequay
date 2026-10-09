@@ -24,5 +24,5 @@ it('draws the most recently opened ticket, issue or web page on top in the runni
     height: 900,
   });
   expect(results.filter(result => result.error !== undefined)).toEqual([]);
-  expect(results).toHaveLength(2);
+  expect(results).toHaveLength(3);
 }, 30_000);

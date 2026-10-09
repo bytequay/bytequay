@@ -348,3 +348,18 @@ button.item-person:hover {
 :is(.item-row__latest.has-detail:hover, .item-row:focus-visible .item-row__latest.has-detail) > .item-row__detail {
   display: flex;
 }
+
+.card-local {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px 0 6px;
+  border: 1px solid light-dark(#eac54f, var(--dark-amber-border));
+  border-radius: 10px;
+  background: var(--bg-warning);
+  color: light-dark(#7d4e00, var(--dark-orange));
+  font-size: 11px;
+  line-height: 16px;
+  white-space: nowrap;
+}

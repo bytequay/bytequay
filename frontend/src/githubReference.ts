@@ -111,6 +111,8 @@ export async function resolveGitHubReference(reference: GitHubReference): Promis
 export const ZOOM_REFERENCE = 'bytequay:zoom-reference';
 
 export type ZoomedReference =
+  | { kind: 'work'; workspaceId: string; itemId: string }
+  | { kind: 'task'; workspaceId: string; taskId: string }
   | { kind: 'pull'; repo: string; number: number; workspaceId?: string }
   | { kind: 'issue'; repo: string; number: number; workspaceId: string }
   /**
@@ -120,7 +122,7 @@ export type ZoomedReference =
   | ({ kind: 'jira'; start?: boolean; draft?: string; replaces?: string; send?: boolean } & JiraLocation);
 
 /**
- * Shows one issue, pull request or Jira ticket over the page or layer that asked for it. Every
+ * Shows one work item, task, issue, pull request or Jira ticket over the page or layer that asked for it. Every
  * surface that opens a reference goes through here, so a reference never replaces the page with a
  * list to find it in.
  */

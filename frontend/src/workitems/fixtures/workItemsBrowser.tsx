@@ -67,8 +67,16 @@ export async function run() {
     publishWorkItem: async (_workspace, id, request) => {
       assert(request.source === 'GITHUB' && request.expectedRevision === 0, 'Publication uses the selected destination and preview revision');
       publications++; const item = items.find(value => value.id === id); assert(item?.work != null, 'The local item exists before publication');
-      items = items.map(value => value.id === id ? { ...value, source: 'GITHUB', reference: { kind: 'ISSUE', key: 'bytequay/bytequay#43', label: '#43', title: value.title, addedAt: now } } : value);
-      return item.work;
+      const reference = { kind: 'ISSUE' as const, key: 'bytequay/bytequay#43', label: '#43', title: item.title, addedAt: now };
+      const work: WorkItemDto = { ...item.work, links: [{ ...reference, state: 'IDLE', status: 'Open', blocked: false, url: null, activity: null }] };
+      items = items.map(value => value.id === id ? { ...value, source: 'GITHUB', reference, work } : value);
+      return work;
+    },
+    decideWorkItem: async (_workspace, id, command) => {
+      const item = items.find(value => value.id === id); assert(item?.work != null, 'The decided item exists');
+      const work: WorkItemDto = { ...item.work, state: command.action === 'DROP' ? 'DROPPED' : 'WORKING', revision: item.work.revision + 1 };
+      items = items.map(value => value.id === id ? { ...value, closed: work.state === 'DROPPED', work } : value);
+      return work;
     },
   } satisfies Partial<Bridge> });
   const host = document.createElement('main'); host.style.cssText = 'height:100vh'; document.body.append(host);
@@ -76,37 +84,55 @@ export async function run() {
     workspaceId={workspace.id} repository="bytequay/bytequay" initialIssueNumber={null} />} />); await settle(); await settle();
   assert([...document.querySelectorAll('[role="tab"]')].map(value => value.textContent).join('|') === 'GitHub issues|Jira|Local', 'Work items has three source tabs');
   assert(document.querySelector('.issues-page .issues-search') !== null, 'The default tab keeps the original GitHub issue UI');
-  assert(document.querySelector('.work-items__panes') === null, 'GitHub is not rendered in the local list');
+  assert(document.querySelector('.work-items') === null, 'GitHub is not rendered in the local list');
   button('GitHub issues').dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })); await settle(); await settle();
   assert(document.querySelector('.jira-screen .jira-header') !== null, 'Jira keeps the original screen under its tab');
   assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Jira', 'Jira links select the Jira subtab');
   assert(document.activeElement === button('Jira'), 'Arrow keys move focus with the selected subtab');
   button('Local').click(); await settle(); await settle();
-  assert(document.querySelectorAll('.work-items__row').length === 1, 'Local lists only private local items');
+  const rows = () => [...document.querySelectorAll<HTMLElement>('.work-items .pull-row')];
+  const states = () => document.querySelector('.work-items .pulls-tabs')?.textContent;
+  assert(rows().length === 1 && rows()[0].querySelector('.card-local') !== null, 'Local lists only work kept on this Mac');
+  assert(states() === 'Open 1Done 0Closed 0', `The state tabs count the work: ${states()}`);
   assert(document.querySelector('[aria-label="Work item source"]') === null, 'Source tabs replace the mixed-list filter');
-  button('New work item').click(); await settle();
+  button('New').click(); await settle();
   type('.work-items__form input', 'Investigate repeated refreshes');
   type('.work-items__form textarea', 'Reproduce repeated refreshes. Done when one request is active per workspace.'); await settle();
   button('Save locally').click(); await settle(); await settle();
   assert(publicationCount() === 0 && items.length === 4, 'Creation remains local and never calls publication');
-  assert(document.querySelector('.work-items__detail')?.textContent?.includes('one request is active per workspace'), 'Full context survives creation and selection');
+  assert(document.querySelector('.work-items .pull-detail')?.textContent?.includes('one request is active per workspace'), 'Full context survives creation and selection');
   const savedId = items[3].id;
-  button('Publish…').click(); await settle();
+  button('Push to remote…').click(); await settle();
   assert(publicationCount() === 0 && document.querySelector('.work-items__publish')?.textContent?.includes('one request is active per workspace'), 'Preview is reviewable before the explicit remote action');
-  button('Publish to GitHub').click(); await settle(); await settle();
+  button('Create GitHub issue').click(); await settle(); await settle();
   assert(publicationCount() === 1 && items[3].id === savedId && items[3].source === 'GITHUB', 'Explicit publication keeps the same local identity');
-  assert(document.querySelectorAll('.work-items__row').length === 1, 'Published work leaves the private local list');
-  button('New work item').click(); await settle(); button('Cancel').click(); await settle();
+  assert(rows().length === 2 && rows()[1].querySelector('.card-key')?.textContent === '#43', 'Pushed work stays in Local, naming its remote copy');
+  assert(document.querySelector('.work-items__publish') === null && document.querySelector('.work-items .pr-meta')?.textContent?.includes('Local + GitHub #43') === true,
+    'The pushed item says where it is visible');
+  const where = document.querySelector<HTMLSelectElement>('[aria-label="Filter work items by where they are"]'); assert(where != null, 'The where filter exists');
+  const show = async (value: string) => { where.value = value; where.dispatchEvent(new Event('change', { bubbles: true })); await settle(); };
+  await show('GITHUB');
+  assert(rows().length === 1 && states() === 'Open 1Done 0Closed 0', 'On GitHub lists only pushed work, and the tabs count what the filters leave');
+  await show('LOCAL');
+  assert(rows().length === 1 && rows()[0].textContent?.includes('Improve work item context') === true, 'Local only lists work that was never pushed');
+  await show('');
+  button('New').click(); await settle(); button('Cancel').click(); await settle();
   assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Local', 'Closing a local draft stays in Local');
   button('GitHub issues').click(); await settle();
   window.location.hash = workItemRoute(workspace.id, 'seed'); await settle(); await settle();
   assert(document.querySelector('[role="tab"][aria-selected="true"]')?.textContent === 'Local', 'Direct work-item links select Local');
-  const first = document.querySelector<HTMLButtonElement>('.work-items__row'); assert(first != null, 'First row exists'); first.click(); await settle();
+  const first = document.querySelector<HTMLButtonElement>('.work-items .pull-row .issues-row__select'); assert(first != null, 'First row exists'); first.click(); await settle();
   let start: EpicStart | null = null;
   const capture = () => { start = takeEpicStart(workspace.id); };
   window.addEventListener(EPIC_START, capture);
   button('Start development').click();
   window.removeEventListener(EPIC_START, capture);
   assert(JSON.stringify(start).includes('"itemId":"seed"'), 'Development is bound to the retained work item instead of a copied title');
+  window.location.hash = workItemRoute(workspace.id, 'seed'); await settle();
+  button('Close locally').click(); await settle(); await settle();
+  assert(states() === 'Open 1Done 0Closed 1' && rows().length === 1, `Closed work leaves Open for its own tab: ${states()}`);
+  button('Closed 1').click(); await settle();
+  assert(rows().length === 1 && rows()[0].textContent?.includes('Improve work item context') === true, 'The Closed tab lists it');
+  assert([...document.querySelectorAll('button')].some(value => value.textContent?.trim() === 'Reopen local work'), 'Closed work offers reopening');
   return { sources: 3, publications: publicationCount(), count: items.length };
 }

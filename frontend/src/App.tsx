@@ -55,6 +55,7 @@ import type { InAppBrowserState, RecentRowDto, RecentWordHitDto, WorkspaceDto } 
 import WorkspaceIssuesScreen from './workspaces/WorkspaceIssuesScreen';
 import WorkspacesPage from './workspaces/WorkspacesPage';
 import WorkspaceShell from './workspaces/WorkspaceShell';
+import WorkspaceItemLayer from './workspaces/WorkspaceItemLayer';
 import { LayerCovered } from './Zoom';
 import {
   workspaceIssueRoute,
@@ -69,6 +70,8 @@ import {
 type Status = 'checking' | 'needs-pat' | 'ready';
 
 function layerKey(layer: ZoomedReference): string {
+  if (layer.kind === 'work') return `work:${layer.workspaceId}:${layer.itemId}`;
+  if (layer.kind === 'task') return `task:${layer.workspaceId}:${layer.taskId}`;
   return layer.kind === 'jira'
     ? `jira:${layer.connectionId}/${layer.cloudId}/${layer.issueId}`
     : `${layer.kind}:${layer.workspaceId ?? ''}:${layer.repo}#${layer.number}`;
@@ -577,6 +580,7 @@ export default function App() {
                   onClose={() => closeLayer(key)}
                 />
               )}
+              {(layer.kind === 'work' || layer.kind === 'task') && <WorkspaceItemLayer target={layer} onClose={() => closeLayer(key)} />}
               {layer.kind === 'jira' && <JiraTicketLayer location={layer} start={layer.start} draft={layer.draft} replaces={layer.replaces} send={layer.send} onClose={() => closeLayer(key)} />}
             </div>
           </LayerCovered.Provider>

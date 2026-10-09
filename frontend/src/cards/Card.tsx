@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import type { CSSProperties, MouseEvent, ReactNode } from 'react';
-import { CircleDot, GitPullRequest, LoaderCircle, SquareCheck } from 'lucide-react';
+import { CircleDot, GitPullRequest, LoaderCircle, LockKeyhole, SquareCheck } from 'lucide-react';
 import JiraIcon from '../jira/JiraIcon';
 import { relativeTime } from '../relativeTime';
 import type { AttentionSource, AttentionTone } from '../home/attention';
@@ -145,6 +145,11 @@ export function GoalIcon({ size = 14 }: { size?: number }): React.JSX.Element {
 /** The item is in its workspace's pinned goal. */
 export function InGoalBadge(): React.JSX.Element {
   return <span className="card-goal" title="In goal"><GoalIcon size={11} />Goal</span>;
+}
+
+/** The work is Local: only on this Mac until it is pushed to GitHub or Jira. */
+export function LocalBadge({ title = 'Local: private until you push it to GitHub or Jira' }: { title?: string }): React.JSX.Element {
+  return <span className="card-local" title={title}><LockKeyhole size={11} aria-hidden="true" />Local</span>;
 }
 
 /** The icon each source is drawn with; tinted, it takes the source's own colour instead of the text's. */

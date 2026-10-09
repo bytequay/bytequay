@@ -14,6 +14,9 @@
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import App from '../App';
+import { zoomReference } from '../githubReference';
+import type { WorkItemDto } from '../goals/contracts';
+import type { UnifiedWorkItem } from '../workitems/contracts';
 import { createPreviewBridge } from '../agents/fixtures/previewBridge';
 import { jiraRoute, notifyJiraChanged, type JiraConnection, type JiraIssueDetail } from '../jira/contracts';
 import { jiraDetail, jiraIssue } from '../jira/fixtures/jira';
@@ -202,11 +205,73 @@ async function homeRowsOverHome(): Promise<void> {
   });
 }
 
+async function localWorkAndTasksOverEpic(): Promise<void> {
+  await withApp('#/home', async () => {
+    await until(() => document.querySelector('.item-row') !== null, 'Home is ready');
+    const workspace: WorkspaceDto = { id: 'workspace', name: 'Trino', monitoredOwner: 'trinodb', monitoredRepo: 'trino', selectedOwner: 'trinodb', selectedRepo: 'trino',
+      topology: 'DIRECT', localRepositoryPath: '/managed/trino', defaultBranch: 'master', upstreamDefaultBranch: null, upstreamOwner: null, upstreamRepo: null,
+      selectedRepositoryId: 40, monitoredRepositoryId: 40, upstreamRepositoryId: null, lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0 };
+    const work: WorkItemDto = { id: 'local-work', workspaceId: workspace.id, goalId: null, epicId: `ISSUE:github.com:${issue.id}`, title: 'Retain Arrow memory context',
+      acceptanceCriteria: 'Keep memory accounting in the retained context.', kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'WORKING', revision: 0,
+      history: [], createdAt: issue.createdAt, updatedAt: issue.updatedAt, priority: 'NORMAL', rank: 0, blockedBy: [], links: [
+        { kind: 'TASK', key: 'old-attempt', label: 'Task', title: 'Investigate Arrow allocations', state: 'ENDED', status: 'Completed', blocked: false, url: null, activity: null, addedAt: issue.createdAt },
+        { kind: 'TASK', key: 'current-attempt', label: 'Task', title: 'Implement Arrow accounting', state: 'WORKING', status: 'Running', blocked: false, url: null, activity: null, addedAt: issue.updatedAt },
+      ] };
+    const unlinked: WorkItemDto = { ...work, id: 'unlinked', title: 'Check unlinked memory context', links: [] };
+    window.bridge.getWorkspace = async () => workspace;
+    window.bridge.fetchWorkspaceIssue = async () => ({ ...issue, isEpic: true });
+    window.bridge.fetchWorkspaceIssues = async () => ({ repositoryId: 40, repository, issues: [{ ...issue, isEpic: true }], page: 0, pageSize: 50, totalIssues: 1, hasMore: false, syncedAt: null });
+    window.bridge.listWorkItems = async () => [work, unlinked];
+    window.bridge.listUnifiedWorkItems = async () => [work, unlinked].map<UnifiedWorkItem>(item => ({ id: item.id, title: item.title, description: item.acceptanceCriteria,
+      source: 'LOCAL', status: item.state, closed: false, updatedAt: item.updatedAt, reference: null, work: item }));
+    const loadedTasks: string[] = [];
+    const getTask = window.bridge.getAgentTask;
+    window.bridge.getAgentTask = async (id, workspaceId) => { loadedTasks.push(id); return getTask(id, workspaceId); };
+    zoomReference({ kind: 'issue', repo: 'trinodb/trino', number: issue.number, workspaceId: workspace.id });
+    const epicLayer = () => document.querySelector<HTMLElement>('.issues-detail.zoom-card');
+    await until(() => epicLayer()?.querySelector('.epic-tabs') != null, 'Epic opens');
+    const epicCard = epicLayer(); assert(epicCard !== null, 'Epic card exists');
+    const workTab = [...epicCard.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim().startsWith('Work'));
+    assert(workTab !== undefined, 'Epic has Work tab'); workTab.click();
+    await until(() => document.querySelectorAll('.epic-row').length === 2, 'Epic lists both local work items');
+    const rows = [...document.querySelectorAll<HTMLElement>('.epic-row')];
+    const linkedRow = rows.find(row => row.querySelector('.item-row__title > span')?.textContent === work.title);
+    const unlinkedRow = rows.find(row => row.querySelector('.item-row__title > span')?.textContent === unlinked.title);
+    assert(linkedRow !== undefined && unlinkedRow !== undefined, 'Both rows have titles');
+    const localLayer = () => document.querySelector<HTMLElement>('.zoom-card[aria-label="Local work item"]');
+    const taskLayer = () => document.querySelector<HTMLElement>('.zoom-card[aria-label="Task"]');
+    unlinkedRow.click();
+    await until(() => localLayer()?.textContent?.includes(unlinked.title) ?? false, 'An unlinked card opens its own context');
+    localLayer()?.querySelector<HTMLButtonElement>('[aria-label="Close work item"]')?.click(); await settle();
+    linkedRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await until(() => localLayer()?.textContent?.includes(work.acceptanceCriteria) ?? false, 'Keyboard opens linked local work, not its task');
+    assert(onTop(localLayer()) && !onTop(epicLayer()) && window.location.hash === '#/home', 'Local context zooms over the retained Epic');
+    localLayer()?.querySelector<HTMLButtonElement>('[aria-label="Enter full screen"]')?.click(); await settle();
+    assert(localLayer()?.classList.contains('is-full'), 'Local detail can expand');
+    const workCard = localLayer(); assert(workCard !== null, 'Work card exists');
+    const viewTask = [...workCard.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'View task');
+    assert(viewTask !== undefined, 'Work detail offers its current task'); viewTask.click();
+    await until(() => taskLayer()?.querySelector('.agt-screen') != null && loadedTasks.includes('current-attempt'), 'Current task page opens over work');
+    assert(onTop(taskLayer()) && !onTop(localLayer()), 'Task is topmost');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle();
+    assert(taskLayer() === null && localLayer() !== null && epicLayer() !== null && onTop(localLayer()), 'Escape closes only the task');
+    localLayer()?.querySelector<HTMLButtonElement>('[aria-label="Close work item"]')?.click(); await settle();
+    const links = linkedRow.querySelectorAll<HTMLButtonElement>('.epic-row__task');
+    assert(links.length === 2 && links[0].textContent?.includes('Completed') && links[1].textContent?.includes('Running'), 'Card names both past and current linked tasks');
+    links[0].click();
+    await until(() => taskLayer()?.querySelector('.agt-screen') != null && loadedTasks.includes('old-attempt'), 'Past task link opens the correct task page');
+    assert(localLayer() === null && onTop(taskLayer()) && window.location.hash === '#/home', 'Task link does not bubble into opening local work or navigate');
+    taskLayer()?.querySelector<HTMLButtonElement>('[aria-label="Close task"]')?.click(); await settle();
+    assert(onTop(epicLayer()), 'Closing the task returns to the Epic');
+  });
+}
+
 export async function run(): Promise<{ name: string; error?: string }[]> {
   const results: { name: string; error?: string }[] = [];
   for (const [name, scenario] of [
     ['links open tickets, issues and web pages on top of whatever opened them', ticketLinksOverThePage],
     ['Home Jira rows open and start tickets on top of Home', homeRowsOverHome],
+    ['Local Epic cards and task links retain the underlying layers', localWorkAndTasksOverEpic],
   ] as const) {
     try {
       await scenario();

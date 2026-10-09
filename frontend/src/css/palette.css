@@ -1,0 +1,64 @@
+/* Native color-scheme selects these pairs in every renderer, including lazy pages.
+   Elevated surfaces are lighter than the canvas; status colors remain readable on both. */
+:root {
+  --dark-canvas: #1e2025;
+  --dark-elevated: #292d35;
+  --dark-subtle: #24272e;
+  --dark-hover: #30353e;
+  --dark-border: #414854;
+  --dark-border-muted: #333943;
+  --dark-border-strong: #596372;
+  --dark-text: #c9cdd4;
+  --dark-muted: #a9b2bf;
+  --dark-dim: #97a2b1;
+  --dark-disabled: #758195;
+  --dark-blue: #80b6ff;
+  --dark-green: #7dce96;
+  --dark-red: #ff8589;
+  --dark-amber: #eac479;
+  --dark-purple: #c3a1f7;
+  --dark-teal: #76c9c2;
+  --dark-orange: #f3b17b;
+  --dark-pink: #ed9acd;
+  --dark-blue-soft: #25354c;
+  --dark-green-soft: #233b2c;
+  --dark-red-soft: #42292e;
+  --dark-amber-soft: #3d3424;
+  --dark-purple-soft: #342c46;
+  --dark-teal-soft: #223b3a;
+  --dark-orange-soft: #423126;
+  --dark-blue-border: #46618a;
+  --dark-green-border: #416c4d;
+  --dark-red-border: #80505a;
+  --dark-amber-border: #75613b;
+  --dark-teal-border: #426e69;
+  --dark-orange-border: #7d593e;
+
+  --surface-canvas: light-dark(#ffffff, var(--dark-canvas));
+  --surface-elevated: light-dark(#ffffff, var(--dark-elevated));
+  --surface-inset: light-dark(#eceff2, var(--dark-hover));
+  --fg-default: light-dark(#1f2328, var(--dark-text));
+  --fg-strong: light-dark(#24292f, var(--dark-text));
+  --fg-muted: light-dark(#57606a, var(--dark-muted));
+  --fg-subtle: light-dark(#59636e, var(--dark-muted));
+  --fg-dim: light-dark(#8c959f, var(--dark-dim));
+  --fg-link: light-dark(#0969da, var(--dark-blue));
+  --fg-success: light-dark(#1a7f37, var(--dark-green));
+  --fg-danger: light-dark(#cf222e, var(--dark-red));
+  --fg-warning: light-dark(#9a6700, var(--dark-amber));
+  --fg-purple: light-dark(#8250df, var(--dark-purple));
+  --fg-orange: light-dark(#bc4c00, var(--dark-orange));
+  --line-default: light-dark(#d0d7de, var(--dark-border));
+  --line-subtle: light-dark(#e3e3e6, var(--dark-border-muted));
+  --bg-info: light-dark(#ddf4ff, var(--dark-blue-soft));
+  --bg-success: light-dark(#dafbe1, var(--dark-green-soft));
+  --bg-danger: light-dark(#ffebe9, var(--dark-red-soft));
+  --bg-warning: light-dark(#fff8c5, var(--dark-amber-soft));
+  --bg-purple: light-dark(#fbefff, var(--dark-purple-soft));
+  --on-solid: #ffffff;
+  --heatmap-0: light-dark(#efece6, #2b3038);
+  --heatmap-1: light-dark(#d3ead6, #244731);
+  --heatmap-2: light-dark(#9fd8ae, #306842);
+  --heatmap-3: light-dark(#57bd79, #43905b);
+  --heatmap-4: light-dark(#16a34a, #70bd85);
+}

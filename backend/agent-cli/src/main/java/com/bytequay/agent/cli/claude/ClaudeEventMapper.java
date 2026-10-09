@@ -91,6 +91,7 @@ final class ClaudeEventMapper
                                 ProviderAgentEvent.LifecyclePhase.RATE_LIMITED,
                                 "Claude rate limit: " + rateLimit.rateLimitInfo().status()));
             case ClaudeProtocol.ResultMessage result -> mapResult(result);
+            case ClaudeProtocol.CommandLifecycleMessage ignored -> ImmutableList.of();
             case ClaudeProtocol.UnknownMessage ignored -> ImmutableList.of();
         };
     }

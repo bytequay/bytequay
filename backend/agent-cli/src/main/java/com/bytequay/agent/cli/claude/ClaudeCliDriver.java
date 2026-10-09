@@ -29,6 +29,7 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.cli.process.Utf8LineBuffer;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
+import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentEventSink;
 import com.bytequay.agent.spi.AgentLaneId;
@@ -40,6 +41,7 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -73,6 +75,7 @@ import java.nio.file.Path;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -105,6 +108,9 @@ public final class ClaudeCliDriver
     private static final Version SUBAGENT_TEXT_VERSION = Version.parse("2.1.219");
     // The release whose PreToolUse hook input was verified to mark a child's tool call with agent_id, which the review child gate reads.
     private static final Version REVIEW_CHILD_VERSION = Version.parse("2.1.278");
+    // Verified command_lifecycle receipts bind streaming input and completion to each submitted UUID.
+    private static final Version STEERING_VERSION = Version.parse("2.1.295");
+    private static final Duration INPUT_TIMEOUT = Duration.ofSeconds(30);
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Duration UPDATE_TIMEOUT = Duration.ofMinutes(5);
     private static final Duration PROCESS_CANCELLATION_GRACE = Duration.ofSeconds(3);
@@ -176,6 +182,7 @@ public final class ClaudeCliDriver
     private final PermissionBroker permissions;
     private final Set<ClaudeSession> sessions = ConcurrentHashMap.newKeySet();
     private volatile boolean forwardSubagentText = true;
+    private volatile boolean steering;
     private volatile boolean reviewChildAgents;
     private volatile boolean closed;
 
@@ -315,7 +322,7 @@ public final class ClaudeCliDriver
         return new AgentCapabilities(
                 true,
                 forwardSubagentText,
-                false,
+                steering,
                 ImmutableSet.copyOf(AgentPermissionPolicy.values()),
                 ImmutableSet.of("text/plain", "text/plain; charset=utf-8"));
     }
@@ -390,6 +397,7 @@ public final class ClaudeCliDriver
                     && help.stdout().contains("--forward-subagent-text");
             // A review child is visible only through forwarded text, and gated only on a release with the verified hook input.
             reviewChildAgents = forwardSubagentText && version.compareTo(REVIEW_CHILD_VERSION) >= 0;
+            steering = version.compareTo(STEERING_VERSION) >= 0 && help.stdout().contains("--input-format");
             ProviderCli.Result defaults = run(executable, "auto-mode", "defaults");
             if (defaults.timedOut()) {
                 return status(
@@ -485,7 +493,8 @@ public final class ClaudeCliDriver
             String managedInstructions,
             String sessionId,
             boolean resume,
-            List<AgentAttachment> attachments)
+            List<AgentAttachment> attachments,
+            boolean streamingInput)
     {
         ImmutableList.Builder<String> argv = ImmutableList.builder();
         ImmutableList.Builder<String> allowedTools = ImmutableList.builder();
@@ -496,6 +505,9 @@ public final class ClaudeCliDriver
                 "--verbose",
                 "--include-partial-messages",
                 "--include-hook-events");
+        if (streamingInput) {
+            argv.add("--input-format", "stream-json");
+        }
         if (forwardSubagentText) {
             argv.add("--forward-subagent-text");
         }
@@ -940,6 +952,10 @@ public final class ClaudeCliDriver
                 new Utf8LineBuffer(MAX_DIAGNOSTIC_LINE_BYTES, false, this::diagnostic);
         private final StringBuilder lastDiagnostic = new StringBuilder();
         private final AtomicBoolean cancelled = new AtomicBoolean();
+        private final boolean streamingInput;
+        private final Object inputLock = new Object();
+        private final Map<String, CompletableFuture<Void>> pendingInputs = new HashMap<>();
+        private boolean inputClosed;
         private volatile ManagedProcess process;
         private volatile ClaudeProtocol.ResultMessage result;
         private volatile String interruptionReason;
@@ -953,6 +969,7 @@ public final class ClaudeCliDriver
             this.mapper = new ClaudeEventMapper(session.redactor, session.registration.development()
                     .filter(bridge -> bridge.turnId().equals(command.turnId())));
             this.reference = new ProviderTurnRef(command.turnId());
+            streamingInput = steering && !session.context.restricted();
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
                     new ProcessOwner(
@@ -966,7 +983,8 @@ public final class ClaudeCliDriver
                             session.context.managedInstructions(),
                             session.reference.providerValue(),
                             resume,
-                            attachments),
+                            attachments,
+                            streamingInput),
                     session.context.worktree(),
                     command.maximumRuntime(),
                     OptionalInt.empty(),
@@ -979,18 +997,120 @@ public final class ClaudeCliDriver
                 started.cancel();
             }
             started.exit().whenComplete(this::processExited);
-            byte[] prompt = prompt(command.message(), attachments).getBytes(StandardCharsets.UTF_8);
+            String inputId = UUID.randomUUID().toString();
+            String text = prompt(command.message(), attachments);
+            ByteBuffer prompt = streamingInput ? streamInput(inputId, text, "next") : StandardCharsets.UTF_8.encode(text);
+            if (streamingInput) {
+                synchronized (inputLock) {
+                    pendingInputs.put(inputId, new CompletableFuture<>());
+                }
+            }
             try {
-                started.write(ByteBuffer.wrap(prompt)).toCompletableFuture().join();
+                started.write(prompt).toCompletableFuture().join();
             }
             catch (RuntimeException failure) {
                 failPromptDelivery(started, "Unable to write Claude prompt", failure);
             }
-            try {
-                started.closeInput();
+            if (!streamingInput) {
+                try {
+                    started.closeInput();
+                }
+                catch (RuntimeException failure) {
+                    failPromptDelivery(started, "Unable to close Claude prompt input", failure);
+                }
             }
-            catch (RuntimeException failure) {
-                failPromptDelivery(started, "Unable to close Claude prompt input", failure);
+        }
+
+        private ByteBuffer streamInput(String id, String text, String priority)
+        {
+            var message = objectMapper.createObjectNode();
+            message.put("type", "user").put("uuid", id).put("session_id", session.reference.providerValue()).put("priority", priority).putNull("parent_tool_use_id");
+            message.putObject("message").put("role", "user").putArray("content").addObject().put("type", "text").put("text", text);
+            return StandardCharsets.UTF_8.encode(message + "\n");
+        }
+
+        @Override
+        public void steer(AgentTurnInput input)
+        {
+            requireNonNull(input, "input is null");
+            String id = UUID.randomUUID().toString();
+            ByteBuffer message = streamInput(id, prompt(input.message(), attachments(session.context, input.attachments())), "now");
+            CompletableFuture<Void> receipt = new CompletableFuture<>();
+            synchronized (inputLock) {
+                if (!streamingInput || inputClosed || completion.isDone() || cancelled.get()) {
+                    throw new AgentUnavailableException("Claude turn is not accepting steering input");
+                }
+                pendingInputs.put(id, receipt);
+            }
+            try {
+                process.write(message).toCompletableFuture().get(INPUT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            }
+            catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                interruptionReason = "Claude steering write was interrupted";
+                cancelProcess();
+                throw new AgentDeliveryUncertainException("Claude steering delivery was interrupted", failure);
+            }
+            catch (ExecutionException | TimeoutException | RuntimeException failure) {
+                interruptionReason = "Claude steering write did not complete";
+                cancelProcess();
+                throw new AgentDeliveryUncertainException("Unable to confirm Claude steering delivery", failure);
+            }
+            try {
+                receipt.get(INPUT_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+            }
+            catch (InterruptedException failure) {
+                Thread.currentThread().interrupt();
+                throw new AgentDeliveryUncertainException("Claude steering acknowledgement was interrupted", failure);
+            }
+            catch (ExecutionException | TimeoutException failure) {
+                throw new AgentDeliveryUncertainException("Claude did not acknowledge steering input", failure);
+            }
+        }
+
+        private void observeInput(ClaudeProtocol.Message message)
+        {
+            if (!streamingInput) {
+                return;
+            }
+            boolean closeInput = false;
+            boolean cancel = false;
+            synchronized (inputLock) {
+                if (message instanceof ClaudeProtocol.CommandLifecycleMessage lifecycle) {
+                    CompletableFuture<Void> receipt = pendingInputs.get(lifecycle.commandId());
+                    if (receipt != null) {
+                        switch (lifecycle.state()) {
+                            case "queued", "started" -> receipt.complete(null);
+                            case "completed" -> {
+                                receipt.complete(null);
+                                pendingInputs.remove(lifecycle.commandId());
+                            }
+                            case "cancelled" -> {
+                                interruptionReason = "Claude cancelled submitted input before completing it";
+                                receipt.completeExceptionally(new AgentUnavailableException(interruptionReason));
+                                cancel = true;
+                            }
+                            default -> {}
+                        }
+                    }
+                }
+                // A result can precede a queued steer, even with queued_turn_count=0. Wait for every input's own completion.
+                if (result != null && pendingInputs.isEmpty() && !inputClosed) {
+                    inputClosed = true;
+                    closeInput = true;
+                }
+            }
+            if (cancel) {
+                cancelProcess();
+            }
+            if (closeInput) {
+                try {
+                    process.closeInput();
+                }
+                catch (RuntimeException failure) {
+                    interruptionReason = session.redactor.redact("Unable to close Claude prompt input: " + failureMessage(failure));
+                    cancelProcess();
+                }
             }
         }
 
@@ -1073,16 +1193,22 @@ public final class ClaudeCliDriver
                     cancelProcess();
                     return;
                 }
-                message.sessionId().ifPresent(ignored -> session.markResumable());
+                if (!(message instanceof ClaudeProtocol.CommandLifecycleMessage)) {
+                    message.sessionId().ifPresent(ignored -> session.markResumable());
+                }
                 mapper.map(message).forEach(session.events::emit);
                 if (message instanceof ClaudeProtocol.ResultMessage terminal) {
                     result = terminal;
                 }
+                observeInput(message);
             }
             catch (RuntimeException failure) {
                 streamUncertain = true;
                 if (message instanceof ClaudeProtocol.ResultMessage) {
                     interruptionReason = "Unable to persist Claude terminal events: " + failureMessage(failure);
+                    if (streamingInput) {
+                        cancelProcess();
+                    }
                 }
                 session.events.emit(new ProviderAgentEvent.Error(
                         Optional.empty(),
@@ -1111,6 +1237,13 @@ public final class ClaudeCliDriver
             }
             catch (RuntimeException outputFailure) {
                 failure = outputFailure;
+            }
+            synchronized (inputLock) {
+                inputClosed = true;
+                pendingInputs.values().forEach(receipt -> receipt.completeExceptionally(new AgentUnavailableException("Claude process exited before acknowledging input")));
+                if (streamingInput && !pendingInputs.isEmpty() && !cancelled.get() && interruptionReason == null) {
+                    interruptionReason = "Claude exited before completing all submitted input";
+                }
             }
             if (failure != null) {
                 interruptionReason = "Claude process failed: " + failureMessage(failure);

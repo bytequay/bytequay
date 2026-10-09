@@ -28,6 +28,7 @@ import com.bytequay.agent.cli.process.ProcessSupervisor;
 import com.bytequay.agent.cli.process.impl.DefaultProcessSupervisor;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCommandPolicy;
+import com.bytequay.agent.spi.AgentDeliveryUncertainException;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentPermissionScope;
@@ -37,6 +38,7 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
+import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
@@ -1108,6 +1110,173 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void steersClaudeAndWaitsForEveryInputBeforeClosingTheProcess()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput("2.1.295 (Claude Code)");
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            assertThat(driver.probe().capabilities().steering()).isTrue();
+            RunningTurn turn = session.start(command("Review the change"));
+            ScriptedTurn process = supervisor.turns().getFirst();
+            assertThat(process.spec().argv()).containsSequence("--input-format", "stream-json");
+            assertThat(process.inputClosed()).isFalse();
+
+            turn.steer(new AgentTurnInput("Docker started now\nCheck the container tests", ImmutableList.of()));
+            assertThat(process.inputs).hasSize(2);
+            JsonNode steer = process.inputs.getLast();
+            assertThat(steer.path("priority").asText()).isEqualTo("now");
+            assertThat(steer.at("/message/content/0/text").asText()).isEqualTo("Docker started now\nCheck the container tests\n");
+            assertThat(steer.path("session_id").asText()).isEqualTo(session.reference().providerValue());
+            assertThat(steer.path("uuid").asText()).isNotEqualTo(process.inputs.getFirst().path("uuid").asText());
+
+            process.streamingResult("Original result");
+            process.inputLifecycle(0, "completed");
+            assertThat(process.inputClosed()).isFalse();
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+
+            process.inputLifecycle(1, "started");
+            process.streamingResult("Container tests checked");
+            process.inputLifecycle(1, "completed");
+            assertThat(process.inputClosed()).isTrue();
+            assertThat(turn.completion().toCompletableFuture()).isNotDone();
+            process.exit.complete(new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(10), false, false));
+            assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            assertThatThrownBy(() -> turn.steer(new AgentTurnInput("Too late", ImmutableList.of())))
+                    .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("not accepting");
+
+            RunningTurn next = session.start(command("Follow up"));
+            assertThat(supervisor.turns().getLast().spec().argv()).containsSequence("--resume", session.reference().providerValue());
+            next.cancel();
+            assertThat(await(next).state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void waitsForTheMatchingClaudeInputReceiptAndHandlesExitWhileWaiting(boolean exitBeforeReceipt)
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput("2.1.295");
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            driver.probe();
+            RunningTurn turn = session.start(command("Review"));
+            ScriptedTurn process = supervisor.turns().getFirst();
+            process.acknowledgeInput = false;
+            CompletableFuture<Void> delivery = CompletableFuture.runAsync(() -> turn.steer(new AgentTurnInput("Docker started", ImmutableList.of())));
+            process.steeringInput.get(5, TimeUnit.SECONDS);
+            process.inputLifecycle(0, "queued");
+            assertThat(delivery).isNotDone();
+            process.streamingResult("Original result");
+            process.inputLifecycle(0, "completed");
+            assertThat(process.inputClosed()).isFalse();
+            if (!exitBeforeReceipt) {
+                process.inputLifecycle(1, "queued");
+                delivery.get(5, TimeUnit.SECONDS);
+                turn.cancel();
+                assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.CANCELLED);
+                return;
+            }
+            process.exit.complete(new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(10), false, false));
+
+            assertThatThrownBy(() -> delivery.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(AgentDeliveryUncertainException.class);
+            assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+            assertThat(process.workFinished).isFalse();
+        }
+    }
+
+    @Test
+    void failsAnUncertainClaudeSteeringWriteWithoutHangingTheTurn()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput("2.1.295");
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            driver.probe();
+            RunningTurn turn = session.start(command("Review"));
+            ScriptedTurn process = supervisor.turns().getFirst();
+            process.failSteerWrite = true;
+            assertThatThrownBy(() -> turn.steer(new AgentTurnInput("Docker started", ImmutableList.of())))
+                    .isInstanceOf(AgentDeliveryUncertainException.class);
+            assertThat(process.cancelled()).isTrue();
+            assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        }
+    }
+
+    @Test
+    void leavesSteeringUnavailableWithoutTheVerifiedClaudeProtocol()
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        try (ClaudeCliDriver driver = driver(supervisor)) {
+            assertThat(driver.probe().capabilities().steering()).isFalse();
+            supervisor.versionOutput("2.1.295");
+            supervisor.helpOutput(supervisor.helpOutput().replace("--input-format", ""));
+            assertThat(driver.probe().capabilities().steering()).isFalse();
+        }
+    }
+
+    @Test
+    void stopsClaudeWhenItDiscardsAcceptedInput()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput("2.1.295");
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            driver.probe();
+            RunningTurn turn = session.start(command("Review"));
+            turn.steer(new AgentTurnInput("Docker started", ImmutableList.of()));
+            ScriptedTurn process = supervisor.turns().getFirst();
+            process.inputLifecycle(1, "cancelled");
+            assertThat(process.cancelled()).isTrue();
+            assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+        }
+    }
+
+    @Test
+    void stopsClaudeWhenStreamingInputCannotClose()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput("2.1.295");
+        supervisor.failNextPromptClose();
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            driver.probe();
+            RunningTurn turn = session.start(command("Review"));
+            ScriptedTurn process = supervisor.turns().getFirst();
+            process.streamingResult("Done");
+            process.inputLifecycle(0, "completed");
+            assertThat(process.cancelled()).isTrue();
+            assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
+            assertThat(await(turn).terminalReason().orElseThrow()).contains("Unable to close Claude prompt input");
+        }
+    }
+
+    @Test
+    void doesNotResumeClaudeBasedOnlyOnAQueuedInputReceipt()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        supervisor.versionOutput("2.1.295");
+        try (ClaudeCliDriver driver = driver(supervisor);
+                AgentSession session = driver.open(context(Optional.empty()), ignored -> {})) {
+            driver.probe();
+            RunningTurn turn = session.start(command("Review"));
+            turn.cancel();
+            await(turn);
+            RunningTurn next = session.start(command("Try again"));
+            assertThat(supervisor.turns().getLast().spec().argv()).contains("--session-id").doesNotContain("--resume");
+            next.cancel();
+            await(next);
+        }
+    }
+
+    @Test
     void rejectsTurnWhenPromptInputCannotClose()
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
@@ -1128,12 +1297,17 @@ class TestClaudeCliDriver
         driver.close();
     }
 
-    @Test
-    void interruptsTurnWhenFinalUsageCannotPersist()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void interruptsTurnWhenFinalUsageCannotPersist(boolean streaming)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        if (streaming) {
+            supervisor.versionOutput("2.1.295");
+        }
         ClaudeCliDriver driver = driver(supervisor);
+        driver.probe();
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicBoolean failUsage = new AtomicBoolean(true);
         AgentSession session = driver.open(context(Optional.empty()), event -> {
@@ -1143,7 +1317,11 @@ class TestClaudeCliDriver
             events.add(event);
         });
 
-        AgentTurnResult result = await(session.start(command("usage-failure")));
+        RunningTurn turn = session.start(command("usage-failure"));
+        if (streaming) {
+            supervisor.turns().getFirst().streamingResult("Done");
+        }
+        AgentTurnResult result = await(turn);
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
         assertThat(result.terminalReason())
@@ -1827,7 +2005,7 @@ class TestClaudeCliDriver
         private final List<String> sandboxSettings = new CopyOnWriteArrayList<>();
         private String versionOutput = "2.1.233 (Claude Code)";
         private String helpOutput = """
-                --output-format --include-partial-messages --include-hook-events
+                --output-format --input-format --include-partial-messages --include-hook-events
                 --forward-subagent-text --permission-mode (choices: \"auto\" \"manual\") --mcp-config
                 --settings --setting-sources --strict-mcp-config --add-dir --append-system-prompt
                 --tools --no-session-persistence --disable-slash-commands --model --effort
@@ -2067,6 +2245,10 @@ class TestClaudeCliDriver
         private boolean workFinished;
         private boolean completionVerified;
         private final CompletableFuture<ProcessExit.TreeTermination> finishedStop = new CompletableFuture<>();
+        private final List<JsonNode> inputs = new CopyOnWriteArrayList<>();
+        private final CompletableFuture<JsonNode> steeringInput = new CompletableFuture<>();
+        private boolean acknowledgeInput = true;
+        private boolean failSteerWrite;
 
         private ScriptedTurn(
                 ProcessSpec spec,
@@ -2122,8 +2304,24 @@ class TestClaudeCliDriver
         @Override
         public CompletionStage<Void> write(ByteBuffer bytes)
         {
-            if (failPromptWrite) {
+            if (failPromptWrite || failSteerWrite) {
                 return CompletableFuture.failedFuture(new IllegalStateException("simulated prompt write failure"));
+            }
+            if (spec.argv().contains("--input-format")) {
+                try {
+                    JsonNode input = new ObjectMapper().readTree(StandardCharsets.UTF_8.decode(bytes).toString());
+                    inputs.add(input);
+                    if (acknowledgeInput) {
+                        inputLifecycle(inputs.size() - 1, "queued");
+                    }
+                    if (inputs.size() > 1) {
+                        steeringInput.complete(input);
+                    }
+                    return CompletableFuture.completedFuture(null);
+                }
+                catch (IOException failure) {
+                    return CompletableFuture.failedFuture(failure);
+                }
             }
             prompt += StandardCharsets.UTF_8.decode(bytes).toString();
             return CompletableFuture.completedFuture(null);
@@ -2135,6 +2333,9 @@ class TestClaudeCliDriver
             inputClosed = true;
             if (failPromptClose) {
                 throw new IllegalStateException("simulated prompt close failure");
+            }
+            if (spec.argv().contains("--input-format")) {
+                return;
             }
             if (prompt.equals("cancel\n")) {
                 return;
@@ -2208,6 +2409,22 @@ class TestClaudeCliDriver
                     Duration.ofMillis(10),
                     false,
                     false));
+        }
+
+        private void inputLifecycle(int index, String state)
+        {
+            emit(ProcessStream.STDOUT, """
+                    {"type":"command_lifecycle","command_uuid":"%s","state":"%s","session_id":"%s"}
+                    """.formatted(inputs.get(index).path("uuid").asText(), state, sessionId()));
+        }
+
+        private void streamingResult(String text)
+        {
+            emit(ProcessStream.STDOUT, """
+                    {"type":"result","is_error":false,"duration_ms":1,"duration_api_ms":0,"num_turns":1,"session_id":"%s",
+                    "usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},
+                    "subtype":"success","queued_turn_count":0,"result":"%s","uuid":"result-%d"}
+                    """.formatted(sessionId(), text, inputs.size()).replace("\n", "") + "\n");
         }
 
         private void completeFailedTurn()

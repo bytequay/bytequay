@@ -272,6 +272,8 @@ available while you set up a provider.
 
 - **Steer** sends information into the active turn when supported. **Run next** queues a
   later message; **Resume queue** continues a paused queue after you address its cause.
+  Claude steering requires Claude Code 2.1.295 or newer. It delivers your update while
+  the agent works; a command already running may finish before Claude acts on it.
 - On **Approval needed**, inspect the action and permissions, then choose **Allow
   once**, **Allow for this task** if offered, or **Deny**.
 - Use **Stop this turn** to interrupt the agent. Use **Stop automation** to stop

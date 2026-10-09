@@ -53,10 +53,11 @@ final class ClaudeProtocol
             @JsonSubTypes.Type(name = "tool_progress", value = ToolProgressMessage.class),
             @JsonSubTypes.Type(name = "rate_limit_event", value = RateLimitMessage.class),
             @JsonSubTypes.Type(name = "result", value = ResultMessage.class),
+            @JsonSubTypes.Type(name = "command_lifecycle", value = CommandLifecycleMessage.class),
     })
     sealed interface Message
             permits SystemMessage, StreamEventMessage, AssistantMessage, UserMessage,
-            ToolProgressMessage, RateLimitMessage, ResultMessage, UnknownMessage
+            ToolProgressMessage, RateLimitMessage, ResultMessage, CommandLifecycleMessage, UnknownMessage
     {
         default Optional<String> sessionId()
         {
@@ -298,6 +299,26 @@ final class ClaudeProtocol
 
     record UnknownMessage()
             implements Message {}
+
+    record CommandLifecycleMessage(
+            @JsonProperty("command_uuid") String commandId,
+            String state,
+            @JsonProperty("session_id") String sessionIdValue)
+            implements Message
+    {
+        CommandLifecycleMessage
+        {
+            requireNonNull(commandId, "commandId is null");
+            requireNonNull(state, "state is null");
+            requireNonNull(sessionIdValue, "sessionId is null");
+        }
+
+        @Override
+        public Optional<String> sessionId()
+        {
+            return Optional.of(sessionIdValue);
+        }
+    }
 
     record ApiMessage(String role, List<ContentBlock> content, Optional<Usage> usage)
     {

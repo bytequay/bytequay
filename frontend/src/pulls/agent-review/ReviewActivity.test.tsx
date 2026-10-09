@@ -31,6 +31,13 @@ const render = (overrides: Partial<typeof props> = {}) => renderToStaticMarkup(<
 const liveLine = (overrides: Partial<typeof props> = {}) => render(overrides).match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
 
 describe('the unified review conversation', () => {
+  it('enables steering for a Claude review whose provider supports it', () => {
+    const review = { ...props.review, task: { ...props.review.task, laneId: 'claude-cli', laneLabel: 'Claude', steering: true } };
+    const html = render({ review, composer: 'Docker started now' });
+    expect(html).toMatch(/class="agt-steer"(?![^>]*disabled)[^>]*>Steer<\/button>/);
+    expect(html).toContain('>Run next</button>');
+  });
+
   it('offers queued steering without requiring a composer draft', () => {
     const review = { ...props.review, queuedInputIds: ['queued-1'] };
     const html = render({ review, onSteerQueued: () => {} });

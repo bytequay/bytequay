@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
+import { getCached, setCached } from '../dataCache';
 import { ChevronRight, LoaderCircle, MessagesSquare } from 'lucide-react';
 import Avatar from '../Avatar';
 import { relativeTime } from '../relativeTime';
@@ -32,13 +33,18 @@ export type PrivateThreadSource = {
   /** Why a send waits while another question on the host is answering. */
   busyReason: string;
   disabledReason: string | null;
+  /** Setup blocks sending, while the comment's button and editable question stay available. */
+  sendDisabledReason?: string | null;
+  sendingLabel?: string;
+  setup?: ReactNode;
+  modelSettingsHref?: string;
   ask: (key: string, question: string) => Promise<void>;
   resolve: (thread: TaskDiscussionDto, resolved: boolean) => Promise<void>;
   retry: (thread: TaskDiscussionDto, messageId: string) => Promise<void>;
   draftReply: (thread: TaskDiscussionDto) => Promise<string>;
 };
 
-/** The source plus the view state the pull-request tab owns; it is client-only and resets when the tab remounts. */
+/** The source plus the client-only view state the pull-request tab owns. */
 export type PrivateThreads = PrivateThreadSource & {
   /** At most one thread is forward per pull-request view. */
   forward: string | null;
@@ -51,7 +57,7 @@ export type PrivateThreads = PrivateThreadSource & {
   setForward: (key: string | null) => void;
   setShow: (show: boolean) => void;
   /** An empty draft drops the key. */
-  setDraft: (key: string, draft: string) => void;
+  setDraft: (key: string, draft: string, ifUnchanged?: string) => void;
 };
 
 export function privateThreadKey(kind: PullCommentTarget, githubId: number): string {
@@ -95,27 +101,33 @@ export function reviewThreadBridge(reviewId: string): DiscussionBridgePort {
   };
 }
 
-/** Adds the view state a conversation keeps over its private threads; it resets when the conversation remounts. */
-export function usePrivateThreads(source: PrivateThreadSource | undefined): PrivateThreads | undefined {
-  const [forward, setForward] = useState<string | null>(null);
-  const [show, setShow] = useState(true);
-  const [drafts, setDrafts] = useState<ReadonlyMap<string, string>>(() => new Map());
+type PrivateThreadView = Pick<PrivateThreads, 'forward' | 'show' | 'drafts'>;
+
+/** A PR page keeps its drafts across navigation to setup; other hosts keep their existing local view state. */
+export function usePrivateThreads(source: PrivateThreadSource | undefined, pullRequestKey?: string): PrivateThreads | undefined {
+  const cacheKey = pullRequestKey === undefined ? null : `private-thread-drafts:${pullRequestKey}`;
+  const [view, setView] = useState<PrivateThreadView>(() => (cacheKey === null ? undefined : getCached<PrivateThreadView>(cacheKey))
+    ?? { forward: null, show: true, drafts: new Map() });
+  const live = useRef(view);
+  live.current = view;
+  const update = (change: (current: PrivateThreadView) => PrivateThreadView) => {
+    // A send can finish after navigation; update the saved draft even after this view unmounts.
+    const next = change((cacheKey === null ? undefined : getCached<PrivateThreadView>(cacheKey)) ?? live.current);
+    live.current = next;
+    if (cacheKey !== null) setCached(cacheKey, next);
+    setView(next);
+  };
   return source === undefined ? undefined : {
-    ...source, forward, show, drafts,
-    setDraft: (key, draft) => setDrafts(current => {
-      const next = new Map(current);
-      if (draft === '') next.delete(key);
-      else next.set(key, draft);
-      return next;
+    ...source, ...view,
+    setDraft: (key, draft, ifUnchanged) => update(current => {
+      if (ifUnchanged !== undefined && (current.drafts.get(key) ?? '') !== ifUnchanged) return current;
+      const drafts = new Map(current.drafts);
+      if (draft === '') drafts.delete(key);
+      else drafts.set(key, draft);
+      return { ...current, drafts };
     }),
-    setForward: key => {
-      setForward(key);
-      if (key !== null) setShow(true);
-    },
-    setShow: next => {
-      setShow(next);
-      if (!next) setForward(null);
-    },
+    setForward: forward => update(current => ({ ...current, forward, show: forward !== null || current.show })),
+    setShow: show => update(current => ({ ...current, show, forward: show ? current.forward : null })),
   };
 }
 
@@ -235,7 +247,7 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
   /** Review-thread comments only: their thread has a GitHub reply editor to fill. */
   onDraftReply?: (thread: TaskDiscussionDto) => void;
 }) {
-  const [unfolded, setUnfolded] = useState(false);
+  const [unfolded, setUnfolded] = useState(true);
   const draft = threads.drafts.get(threadKey) ?? '';
   const setDraft = (value: string): void => threads.setDraft(threadKey, value);
   const [sending, setSending] = useState(false);
@@ -260,8 +272,8 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
     }
   };
   const send = async (): Promise<void> => {
-    if (sending || threads.busy || (started && draft.trim() === '')) return;
-    if (await run(() => threads.ask(threadKey, draft.trim()))) setDraft('');
+    if (sending || threads.busy || threads.sendDisabledReason || (started && draft.trim() === '')) return;
+    if (await run(() => threads.ask(threadKey, draft.trim()))) threads.setDraft(threadKey, '', draft);
   };
   const cancel = (): void => {
     setDraft('');
@@ -282,13 +294,17 @@ export function PrivateThreadForward({ threads, threadKey, author, avatarUrl, ti
         <ReviewComposer repository={repository} value={draft} autoFocus busy={sending}
           ariaLabel="Private question to the agent"
           placeholder={started ? 'Reply to the agent…' : `Ask about ${author}’s comment…`}
-          primaryLabel={started ? 'Reply' : 'Ask agent'} allowEmpty={!started}
-          disabledReason={threads.busy ? (thread?.pending === true ? 'Wait for the agent’s answer' : threads.busyReason) : null}
+          primaryLabel={started ? 'Reply' : 'Ask agent'} allowEmpty={!started} sendingLabel={threads.sendingLabel}
+          disabledReason={threads.sendDisabledReason ?? (threads.busy ? (thread?.pending === true ? 'Wait for the agent’s answer' : threads.busyReason) : null)}
+          extra={threads.setup}
           secondary={started && thread !== undefined ? <button type="button" disabled={sending}
             onClick={() => { void run(() => threads.resolve(thread, true)).then(done => { if (done) threads.setForward(null); }); }}>
             Resolve locally</button> : undefined}
           onChange={setDraft} onSubmit={send} onCancel={cancel} />
         {errorNote}
+        {(error !== null || failure !== null) && threads.modelSettingsHref && <p className="pr-local-review__note">
+          <a href={threads.modelSettingsHref}>Model settings</a>
+        </p>}
       </footer>;
 
   return (

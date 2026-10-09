@@ -36,8 +36,8 @@ import BetterWordsButton from './BetterWordsButton';
 import { usePrCommentCommand } from './usePrCommentCommand';
 import PullOverview, { commentedCodeLines, CommentedCodeLine, isQueued, mergePullRequestWriteDetail, remoteErrorMessage, useViewer, type PullDetailUpdater } from './PullOverview';
 import { ReviewThreadCard, ReviewThreadMessage } from './ReviewThreadCard';
-import { privateThreadSource, reviewThreadBridge, usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
-import { useTaskDiscussions } from '../agents/discussions/useTaskDiscussions';
+import { usePrivateThreads, type PrivateThreadSource } from './PrivateThread';
+import { usePullCommentThreads } from './usePullCommentThreads';
 import UserAvatar from '../UserAvatar';
 import PullRowItem, { PullRequestIcon } from './PullRowItem';
 import { reviewCommentGroups } from './lineRangeSelection';
@@ -822,18 +822,6 @@ export default function PullsScreen({
   const codeTaskLoading = reviewWorkspace === undefined && codeTaskKey !== null && codeTaskLookup?.key !== codeTaskKey;
   // A watched repository can prepare a working copy before any agent review exists.
   const codeTabShown = workspaceId !== undefined;
-  // Private threads on the conversation's comments belong to the development task Code & Tests reads, else to the review the
-  // pane shows. There is no host while the task lookup runs, so one host's threads never show before the other's.
-  const threadReview = codeTask !== null || codeTaskLoading || review === null || review.replay !== undefined || review.number === null ? null : review;
-  const threadHost = codeTask !== null ? { taskId: codeTask.id, workspaceId: codeTask.workspaceId }
-    : threadReview === null ? null : { taskId: threadReview.task.id, workspaceId: threadReview.workspaceId };
-  const taskDiscussions = useTaskDiscussions(threadHost, {
-    active: detailTab === 'overview',
-    bridge: threadReview === null ? undefined : reviewThreadBridge(threadReview.id),
-    disabledReason: threadReview?.state === 'CLOSED' ? 'This review has ended, so its threads are read-only' : null,
-  });
-  const privateThreads = threadHost === null || selectedPr === null ? undefined
-    : privateThreadSource(taskDiscussions, selectedPr, threadReview === null ? undefined : 'The agent is answering another question on this review');
 
   useEffect(() => {
     setReviewContext(null);
@@ -874,6 +862,11 @@ export default function PullsScreen({
       ? { ...current, review: updated }
       : current);
   }, [reviewKey, selectedPrRepo, selectedPrNumber, codeTask]);
+
+  const privateThreads = usePullCommentThreads({
+    pr: selectedPr, workspaceId, review, task: codeTask, loading: reviewLoading || codeTaskLoading, error: reviewError,
+    active: detailTab === 'overview', onReviewChange: updateReview, onReload: () => setReviewReload(value => value + 1),
+  });
 
   const pick = (row: PullRow) => withCodeDrafts(() => {
     onSelectPullRequest?.({ repo: row.repo, number: row.num }, 'push');
@@ -2224,7 +2217,7 @@ function DetailBody({
 
 /** The conversation and its private threads, whose view state the key resets for each pull request. */
 function PullConversation({ source, ...overview }: { source?: PrivateThreadSource } & Omit<ComponentProps<typeof PullOverview>, 'privateThreads'>) {
-  const privateThreads = usePrivateThreads(source);
+  const privateThreads = usePrivateThreads(source, `${overview.pr.repo.toLowerCase()}#${overview.pr.number}`);
   return <PullOverview {...overview} privateThreads={privateThreads} />;
 }
 

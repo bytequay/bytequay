@@ -65,3 +65,13 @@ it('hosts a task’s or a review’s private threads on the pull-request page fo
   });
   expect(results).toHaveLength(2);
 }, 30_000);
+
+
+it('prepares comment context on send, preserves setup drafts and isolates late results', async () => {
+  const results = await runBrowserFixture<string[]>({
+    prefix: 'bytequay-prepare-comment-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PrepareCommentTests', styles: true,
+    width: 1250, height: 850,
+    body: `const results = await window.webContents.executeJavaScript('(async () => { const results = []; for (const mode of ["ready", "failure", "model", "workspace", "switch"]) results.push(await PrepareCommentTests.runPreparePrivateThreads(mode)); return results; })()');`,
+  });
+  expect(results).toHaveLength(5);
+}, 30_000);

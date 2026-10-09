@@ -155,6 +155,18 @@ describe('private thread surfaces', () => {
     expect(controls(threads({ disabledReason: 'Files released' }))).toMatch(/<button[^>]*disabled=""[^>]*title="Files released"[^>]*>Ask agent/);
   });
 
+  it('keeps Ask agent and an editable draft available while setup blocks sending', () => {
+    const source = threads({ forward: KEY, sendDisabledReason: 'Watch o/r to ask about its code.',
+      setup: <button type="button">Watch repository</button>, drafts: new Map([[KEY, 'Does this address my concern?']]) }, null);
+    expect(controls(source)).not.toContain('disabled=""');
+    const html = forward(source);
+    expect(html).toContain('Does this address my concern?');
+    expect(html).toContain('Watch o/r to ask about its code.');
+    expect(html).toContain('>Watch repository</button>');
+    expect(html).toMatch(/<button type="button" class="is-primary" disabled=""/);
+    expect(html).toContain('Please <strong>rename</strong> this.');
+  });
+
   it('asks a first question with Ask agent, allowed empty, beside Cancel', () => {
     const html = forward(threads({ forward: KEY }, null));
     expect(html).toContain('Private thread');

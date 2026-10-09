@@ -14,7 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, WorkspaceDto } from '../../types';
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
@@ -26,8 +26,9 @@ import type { CodeHostRef } from '../code-tests/contracts';
 import type { AgentReviewDto, ReviewDraftDto } from '../agent-review/contracts';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 import { loadHandled } from '../../home/attention';
+import { setCached } from '../../dataCache';
 
 const payload: PullTimelinePayloadDto = {
   actorAvatarUrl: null, actorBot: false, state: null, htmlUrl: null, label: null, labelColor: null,
@@ -1083,6 +1084,7 @@ export async function runTitleEdit(): Promise<string> {
 }
 
 export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'): Promise<string> {
+  setCached('private-thread-drafts:owner/repo#8', undefined);
   const at = '2026-10-01T00:00:00Z';
   const detail: PullRequestDetailDto = {
     id: 8, repo: 'owner/repo', number: 8, title: 'Resolve owners', htmlUrl: null, state: 'open', draft: false,
@@ -1143,7 +1145,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
   try {
     flushSync(() => root.render(<PullsScreen initialPr={{ repo: 'owner/repo', number: 8 }}
       repositoryScope={{ workspaceId: 'workspace-1', repository: 'owner/repo' }} onClose={() => {}} />));
-    for (let attempt = 0; attempt < 30 && host.querySelector('.pr-private-toggle') === null; attempt++) await settle();
+    for (let attempt = 0; attempt < 30; attempt++) await settle();
     assert(host.querySelector('.pr-meta > .pr-private-toggle') !== null && host.textContent?.includes('Should this cache be keyed by id?') === true,
       `A pull request with a ${answeredBy} to answer must show the private threads toggle beside its labels`);
     const asks = [...host.querySelectorAll<HTMLButtonElement>('.pr-ask-agent')];
@@ -1167,5 +1169,181 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
     flushSync(() => root.unmount());
     host.remove();
     window.bridge = original;
+  }
+}
+
+
+export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'model' | 'workspace' | 'switch' = 'ready'): Promise<string> {
+  const repo = `comment-tests/${mode}`;
+  const number = 810;
+  setCached(`private-thread-drafts:${repo}#${number}`, undefined);
+  const review = reviewFixture({ repo, number, workspaceId: 'workspace-1', runs: [], findings: [] });
+  const detail: PullRequestDetailDto = { ...reviewDetail(review), id: number, recentActivity: [
+    { actor: 'carol', eventType: 'commented', timestamp: null, body: 'The caller already handles this exception.', githubId: 8101, payload },
+  ] };
+  const nextDetail: PullRequestDetailDto = { ...detail, id: number + 1, number: number + 1, title: 'Another pull request', recentActivity: [
+    { actor: 'dave', eventType: 'commented', timestamp: null, body: 'Please check the next PR.', githubId: 8102, payload },
+  ] };
+  const repository = { owner: 'comment-tests', repo: mode };
+  const workspace: WorkspaceDto = {
+    id: 'workspace-1', name: 'repo', selectedRepositoryId: 1, selectedOwner: repository.owner, selectedRepo: repository.repo,
+    upstreamRepositoryId: null, upstreamOwner: null, upstreamRepo: null, monitoredRepositoryId: 1,
+    monitoredOwner: repository.owner, monitoredRepo: repository.repo, topology: 'DIRECT', defaultBranch: 'main',
+    upstreamDefaultBranch: null, localRepositoryPath: '/managed/repo', lastCodeSyncAt: null,
+    lastMetadataSyncAt: null, displayOrder: 0,
+  };
+  let watched = false;
+  const cacheKey = `private-thread-drafts:${repo}#${number}`;
+  const original = window.bridge;
+  let prepared: AgentReviewDto | null = null;
+  let prepareCount = 0;
+  let reviewCount = 0;
+  let readyModel = mode !== 'model';
+  let release: (() => void) | null = null;
+  const asked: { reviewId: string; key: string; question: string }[] = [];
+  const saved: TaskDiscussionDto[] = [];
+  const catalog = await createPreviewBridge('workspace-1').getModelSettings();
+  const bridge = {
+    getUserProfile: async () => ({ login: 'alice', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      following: 0, bio: null, location: null, company: null, email: null }),
+    fetchPullRequestDetailByRef: async (_repo: string, requested: number) => requested === number ? detail : nextDetail,
+    fetchAttentionPrs: async () => [],
+    listWorkspaces: async () => watched ? [workspace] : [],
+    searchRepositories: async query => {
+      assert(query === repo, 'Repository setup must look up the comment’s own repository');
+      return [{ id: 1, repository, fullName: repo, description: null, visibility: 'public', fork: false,
+        defaultBranch: 'main', upstream: null, existingWorkspaceId: null }];
+    },
+    previewWatch: async () => ({ selectedRepositoryId: 1, selectedRepository: repository, visibility: 'public', topology: 'DIRECT' as const,
+      upstreamRepositoryId: null, upstreamRepository: null, monitoredRepositoryId: 1, monitoredRepository: repository,
+      defaultBranch: 'main', developmentBase: 'origin/main', pushRemote: 'origin', pushRepository: repository,
+      pushWritable: true, forkRequired: false, pullRequestBase: repository, fingerprint: 'routing', existingWorkspaceId: null }),
+    watchRepository: async command => {
+      assert(command.selectedRepositoryId === 1 && command.previewFingerprint === 'routing', 'Watch must use the confirmed repository');
+      watched = true;
+      return workspace;
+    },
+    findAgentReview: async (_workspace: string, _repo: string, requested: number) => requested === number ? prepared : null,
+    findPullRequestTask: async () => null,
+    listLocalReviewComments: async () => [],
+    listReviewCommentThreads: async () => [...saved],
+    fetchMergeMode: async () => ({ mergeQueue: false }),
+    setPrAttentionHandled: async () => {},
+    recordRecentTouch: async () => {},
+    getModelSettings: async () => readyModel ? catalog : { ...catalog, providers: [] },
+    prepareReviewWorktree: async (workspaceId: string, requestedRepo: string, requestedNumber: number) => {
+      prepareCount++;
+      assert(workspaceId === 'workspace-1' && requestedRepo === repo && requestedNumber === number, 'Prepare must target only the selected PR');
+      if (mode === 'failure' && prepareCount === 1) throw new Error('Could not fetch the PR branch');
+      await new Promise<void>(resolve => { release = resolve; });
+      prepared = review;
+      return review;
+    },
+    startAgentReview: async () => { reviewCount++; throw new Error('Asking a comment must never start a full review'); },
+    askReviewCommentThread: async (reviewId: string, key: string, question: string) => {
+      asked.push({ reviewId, key, question });
+      const at = '2026-10-01T00:00:00Z';
+      const thread: TaskDiscussionDto = { id: 'prepared-thread', taskId: review.task.id, turnId: 'review-comment', quote: key,
+        occurrence: 1, resolved: false, pending: false, providerLane: 'codex', version: asked.length, createdAt: at, updatedAt: at,
+        comment: { repo, number, key }, messages: [...(saved[0]?.messages ?? []),
+          { id: `q${asked.length}`, author: 'USER', body: question, createdAt: at, error: null },
+          { id: `a${asked.length}`, author: 'AGENT', body: 'The exception is handled by the caller.', createdAt: at, error: null }] };
+      saved.splice(0, saved.length, thread);
+      return thread;
+    },
+  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'fetchAttentionPrs' | 'listWorkspaces' | 'findAgentReview'
+    | 'findPullRequestTask' | 'listLocalReviewComments' | 'listReviewCommentThreads' | 'fetchMergeMode' | 'setPrAttentionHandled'
+    | 'recordRecentTouch' | 'getModelSettings' | 'prepareReviewWorktree' | 'startAgentReview' | 'askReviewCommentThread'
+    | 'searchRepositories' | 'previewWatch' | 'watchRepository'>;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  host.style.cssText = 'width:1250px;height:850px';
+  document.body.append(host);
+  const root = createRoot(host);
+  const mount = (selected = number) => flushSync(() => root.render(<PullsScreen initialPr={{ repo, number: selected }}
+    repositoryScope={mode === 'workspace' ? undefined : { workspaceId: 'workspace-1', repository: repo }} onClose={() => {}} />));
+  const waitFor = async (condition: () => boolean, message: string) => {
+    for (let attempt = 0; attempt < 60 && !condition(); attempt++) await settle();
+    assert(condition(), message);
+  };
+  const field = () => {
+    const input = host.querySelector<HTMLTextAreaElement>('[aria-label="Private question to the agent"]');
+    assert(input !== null, 'The private question must remain editable');
+    return input;
+  };
+  const type = (value: string) => {
+    const input = field();
+    changeInput(input, value);
+  };
+  const send = () => field().dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }));
+  try {
+    mount();
+    await waitFor(() => host.querySelector('.pr-ask-agent') !== null, 'Ask agent must be visible without a task or review');
+    host.querySelector<HTMLButtonElement>('.pr-ask-agent')?.click();
+    await waitFor(() => host.querySelector('textarea') !== null && !host.textContent?.includes('Loading PR context…'), 'The inline composer must open');
+    type('Does their explanation address my concern?');
+    await settle();
+    assert(prepareCount === 0 && asked.length === 0 && reviewCount === 0, 'Opening and typing must not prepare or invoke an agent');
+    assert(host.querySelector('.pr-private-fold__body')?.textContent?.includes('The caller already handles this exception.'), 'The source comment must remain visible');
+    if (mode === 'workspace') {
+      assert(host.textContent?.includes(`Watch ${repo} to ask the agent about its code.`), 'Missing workspace must be explained');
+      assert([...host.querySelectorAll('button')].some(button => button.textContent === 'Watch repository'), 'Repository setup must be actionable');
+      send(); await settle();
+      assert(prepareCount === 0 && field().value.includes('my concern'), 'Setup must block sending without losing the question');
+      const watch = [...host.querySelectorAll('button')].find(button => button.textContent === 'Watch repository');
+      watch?.click();
+      await waitFor(() => document.querySelector('.modal-preview__confirm') !== null, 'Setup must open the existing watch confirmation');
+      assert(!watched && prepareCount === 0, 'Opening setup must not watch the repository or create agent context');
+      document.querySelector<HTMLButtonElement>('.modal-preview__confirm')?.click();
+      await waitFor(() => document.querySelector('.modal') === null && !host.textContent?.includes(`Watch ${repo}`)
+        && !host.textContent?.includes('Loading PR context…'), 'Confirmed setup must refresh the PR without navigating away');
+      assert(watched && field().value === 'Does their explanation address my concern?', 'Successful setup must preserve the question');
+    }
+    send();
+    if (mode === 'failure' || mode === 'model') {
+      await waitFor(() => host.textContent?.includes(mode === 'failure' ? 'Could not fetch the PR branch' : 'Choose a Review model') === true,
+        'Failed setup must appear beside the question');
+      assert(field().value === 'Does their explanation address my concern?', 'Failure must keep the exact question');
+      if (mode === 'model') {
+        assert(prepareCount === 0 && host.querySelector('a[href="#/settings/agents/models"]') !== null, 'Model setup must precede preparation and link to settings');
+        readyModel = true;
+        flushSync(() => root.render(null));
+        mount();
+        await waitFor(() => host.querySelector('[aria-label="Private question to the agent"]') !== null
+          && !host.textContent?.includes('Loading PR context…'), 'Returning from settings must reopen the draft');
+        assert(field().value === 'Does their explanation address my concern?', 'Navigation to model setup must preserve the draft');
+      }
+      send();
+    }
+    await waitFor(() => release !== null, 'The first question must prepare a working copy');
+    assert(host.textContent?.includes('Preparing PR context…'), 'Preparation must show progress in the private composer');
+    assert(asked.length === 0 && reviewCount === 0, 'Preparation must not start a review or send before context is ready');
+    if (mode === 'switch') {
+      mount(number + 1);
+      await waitFor(() => host.textContent?.includes('Please check the next PR.') === true, 'The second PR must open while the first prepares');
+    }
+    const finish = release as (() => void) | null;
+    assert(finish !== null, 'Preparation resolver must exist');
+    finish();
+    await waitFor(() => asked.length === 1, 'Prepared context must receive the first question exactly once');
+    assert(asked[0].key === 'issue_comment:8101' && asked[0].question === 'Does their explanation address my concern?', 'The original comment must receive the question');
+    if (mode === 'switch') {
+      assert(!host.textContent?.includes('The exception is handled by the caller.'), 'A late answer must not enter the next PR');
+      assert(host.textContent?.includes('Please check the next PR.'), 'Late preparation must not change the selected PR');
+      return 'Late preparation remains bound to its original PR';
+    }
+    await waitFor(() => host.textContent?.includes('The exception is handled by the caller.') === true, 'The first answer must appear inline');
+    flushSync(() => root.render(null));
+    mount();
+    await waitFor(() => host.textContent?.includes('The exception is handled by the caller.') === true, 'Saved discussion must reopen after navigation');
+    type('Which caller?'); await settle(); send();
+    await waitFor(() => asked.length === 2, 'Follow-up must reuse the prepared discussion');
+    assert(Number(prepareCount) === (mode === 'failure' ? 2 : 1) && reviewCount === 0, 'Follow-ups must reuse context without starting a review');
+    assert(saved[0].messages.length === 4, 'The discussion must retain both exchanges');
+    return `Private comment ${mode} flow prepares once, keeps drafts and reuses its discussion`;
+  }
+  finally {
+    flushSync(() => root.unmount()); host.remove(); window.bridge = original;
+    setCached(cacheKey, undefined);
   }
 }

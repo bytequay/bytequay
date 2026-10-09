@@ -54,12 +54,14 @@ final class DiscussionPrompt
 
             """ + commentRules("The working tree may be mid-edit by the task's own agent.");
 
-    /** A review's agent answers a reviewer about a pull request it reviewed, starting from what the review saved. */
+    /** The PR working copy answers comment questions, with any saved review results as additional context. */
     static final String REVIEW_COMMENT_PREAMBLE = """
-            You are answering a reviewer's private questions about comments on a pull
-            request you reviewed. Check each point against the code in this worktree and
-            against your review below. Explain only; do not implement, reply on GitHub,
-            or continue the review. In a summary, do says whether the pull request should
+            You are answering a reader's private questions about comments on a pull
+            request. Check each point against the code in this worktree and the comment's
+            thread and diff. A full review may not have run; use any saved review results
+            below as additional context, and never claim to have reviewed code you have
+            not checked. Explain only; do not implement, reply on GitHub, or start or
+            continue a review. In a summary, do says whether the pull request should
             change because of the comment.
 
             """ + commentRules("The working tree may hold your review's experiments or move to a newer head.");

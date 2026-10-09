@@ -669,6 +669,25 @@ class TestTaskDiscussionAnswers
     }
 
     @Test
+    void aPreparedWorkingCopyAnswersWithoutAnyReviewRunsOrTaskAnswers()
+    {
+        hostReview(review(AgentReview.State.OPEN, OptionalInt.of(12), Optional.empty()));
+        when(reviews.listRuns(REVIEW)).thenReturn(ImmutableList.of());
+        when(reviews.listFindings(REVIEW)).thenReturn(ImmutableList.of());
+        driver.answers.add("The author's reply addresses the concern.");
+
+        TaskDiscussionView view = service.askReviewComment(REVIEW, KEY, "Does the reply address my concern?");
+
+        assertThat(rows.get(view.id()).messages()).extracting(DiscussionMessage::body)
+                .containsExactly("Does the reply address my concern?", "The author's reply addresses the concern.");
+        assertThat(prompts).singleElement().satisfies(prompt -> assertThat(prompt)
+                .contains("A full review may not have run", "Please rename this flag.", "Does the reply address my concern?")
+                .doesNotContain("request you reviewed"));
+        assertThat(driver.lastContext.access()).isEqualTo(SessionAccess.READ_ONLY);
+        verify(tasks, never()).getInteractive(any(), eq(REVIEW_TASK));
+    }
+
+    @Test
     void aReviewAnswersAboutItsOwnPullRequestFromWhatItSavedRatherThanItsLog()
     {
         hostReview(review(AgentReview.State.OPEN, OptionalInt.of(12), Optional.empty()));

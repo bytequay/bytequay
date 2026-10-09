@@ -22,6 +22,7 @@ export default function ReviewComposer({
   placeholder,
   ariaLabel,
   primaryLabel,
+  sendingLabel = 'Sending…',
   outgoing = null,
   suggestion,
   busy = false,
@@ -39,6 +40,7 @@ export default function ReviewComposer({
   placeholder: string;
   ariaLabel: string;
   primaryLabel: string;
+  sendingLabel?: string;
   /** Where the text will be posted, when it leaves ByteQuay; private when absent. */
   outgoing?: string | null;
   suggestion?: SuggestionBase;
@@ -72,7 +74,7 @@ export default function ReviewComposer({
     finally { inFlight.current = false; setSubmitting(false); }
   };
 
-  if (submitting) return <p className="pr-local-review__note" role="status">Sending…</p>;
+  if (submitting) return <p className="pr-local-review__note" role="status">{sendingLabel}</p>;
 
   return (
     <MarkdownEditor

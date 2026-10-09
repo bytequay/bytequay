@@ -210,8 +210,11 @@ uncommitted edits.
 
 - Highlight text in a finished agent answer and choose **Ask about this → Ask** for a
   private side conversation. Reopen it from **Discussions**.
-- On a GitHub comment, **Ask agent** opens a private discussion when a development or
-  review task is linked.
+- On someone else’s GitHub comment, **Ask agent** opens a private discussion beside
+  the comment. Send your question to prepare the PR’s code context automatically;
+  a full review is not required. Existing task or review context is reused. If setup
+  is needed, use **Watch repository** or **Model settings** and return to your saved
+  question. Starting a review later preserves the discussion.
 - **Draft with agent** fills an editable reply. It stays **Draft · not posted** until
   you choose **Comment**.
 - **Resolve locally** changes the private discussion or finding; it does not resolve a

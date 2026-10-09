@@ -125,6 +125,10 @@ retain the saved explanation.
    confusion or maintenance cost removed and the useful behavior preserved.
    For a question, establish its observation from current source, and that
    neither the code, a commit message nor the PR text explains the choice.
+   A candidate attributed to the second reader is an unverified lead from a
+   separate read-only session, recorded without evidence. Read the source it
+   cites at the frozen head before deciding it, as for any other hypothesis;
+   never support or reject it on the reader's word.
    Check guards, other owners, configuration overrides, prior fixes,
    intended behavior and runtime counterevidence. Distinguish a regression or
    newly exposed defect from an existing unrelated issue or optional hardening.

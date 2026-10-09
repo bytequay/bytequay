@@ -63,6 +63,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
@@ -151,6 +152,7 @@ public class DefaultAgentReviewService
     private final PullRequestRefreshService refresh;
     private final CredentialService credentials;
     private final ReviewTaskObserver observer;
+    private final ReviewSweep sweeps;
     private final Clock clock;
     private final Striped<Lock> startLocks = Striped.lock(32);
     private final ReviewLocks locks;
@@ -179,6 +181,7 @@ public class DefaultAgentReviewService
             PullRequestRefreshService refresh,
             CredentialService credentials,
             ReviewTaskObserver observer,
+            ReviewSweep sweeps,
             ReviewLocks locks,
             Clock clock)
     {
@@ -205,6 +208,7 @@ public class DefaultAgentReviewService
         this.refresh = requireNonNull(refresh, "refresh is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.observer = requireNonNull(observer, "observer is null");
+        this.sweeps = requireNonNull(sweeps, "sweeps is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.locks = requireNonNull(locks, "locks is null");
     }
@@ -407,6 +411,7 @@ public class DefaultAgentReviewService
             AgentReview review = requireOpen(reviewId);
             store.updateReview(review.withFollowUpPaused(true, Instant.now(clock)));
             activeTurn(tasks.get(TaskId.valueOf(review.taskId()))).ifPresent(turn -> turns.cancel(turn.id()));
+            sweeps.cancel(reviewId);
             return projection(reviewId);
         });
     }
@@ -554,6 +559,7 @@ public class DefaultAgentReviewService
                 }
             }
             observer.unwatch(reviewId);
+            sweeps.cancel(reviewId);
             if (task.state() == TaskState.OPEN) {
                 completions.complete(new CompleteAgentTaskCommand(taskId, Optional.of("Agent review ended by the user")));
             }
@@ -1020,8 +1026,13 @@ public class DefaultAgentReviewService
         ReviewStep step = run.currentStep().orElseThrow();
         return switch (action) {
             case VALIDATE, COLLECT_EVIDENCE -> {
+                if (action == VALIDATE && sweeps.pending(review.id(), run.id())) {
+                    // Validation must see the second reader's leads. Its end reconciles this review again.
+                    yield review;
+                }
                 ReviewStep.Kind kind = action == VALIDATE ? ReviewStep.Kind.VALIDATE : ReviewStep.Kind.COLLECT_EVIDENCE;
-                ReviewRun next = store.updateRun(run.withStep(step.next(kind), now));
+                ReviewRun settled = action == VALIDATE ? withLeads(run, step, sweeps.take(review.id(), run.id()), now) : run;
+                ReviewRun next = store.updateRun(settled.withStep(step.next(kind), now));
                 startFollowup(next, task);
                 yield review;
             }
@@ -1046,6 +1057,26 @@ public class DefaultAgentReviewService
                     ? "The agent stopped before saving a complete change explanation"
                     : "The agent stopped before saving a complete review report");
         };
+    }
+
+    /**
+     * Appends the second reader's leads to the sealed report as unverified candidates, numbered after the investigation's
+     * own, so the validation that starts next must settle each one. Leads beyond the run's candidate capacity are left out.
+     */
+    private ReviewRun withLeads(ReviewRun run, ReviewStep step, List<ReviewLead> leads, Instant now)
+    {
+        ReviewInvestigation report = step.investigation().orElseThrow();
+        int room = Math.min(leads.size(), ReviewTools.candidateLimit(store, run) - report.candidates().size());
+        if (room <= 0) {
+            return run;
+        }
+        ImmutableList.Builder<ReviewCandidate> candidates = ImmutableList.<ReviewCandidate>builder().addAll(report.candidates());
+        for (int index = 0; index < room; index++) {
+            candidates.add(ReviewSweep.candidate(leads.get(index), report.candidates().size() + index + 1, step.number()));
+        }
+        ReviewInvestigation merged = new ReviewInvestigation(report.changeMap(), report.reviewedFiles(), report.contextEvidenceRefs(), candidates.build(),
+                report.validations(), report.answers(), report.verification(), report.perspectives());
+        return run.withInvestigation(merged, now).replaceCurrentStep(new ReviewStep(step.number(), step.kind(), step.repair(), Optional.of(merged), Optional.empty()), now);
     }
 
     private CompletionAction completionAction(ReviewRun run)
@@ -1343,6 +1374,8 @@ public class DefaultAgentReviewService
         if (!current.turnIds().contains(turn.id().toString())) {
             store.updateRun(current.withTurn(turn.id().toString(), Instant.now(clock)));
         }
+        // The second reader reads beside the investigation. Validation waits for it, and its end reconciles this review.
+        sweeps.start(review, run, tasks.get(TaskId.valueOf(review.taskId())), () -> reconcile(review.id()));
     }
 
     private ReviewRun insertRun(AgentReview review, Snapshot snapshot, int ordinal, ReviewRun.Scope scope, Optional<String> priorHead, ReviewStep step)

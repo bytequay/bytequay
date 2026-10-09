@@ -75,6 +75,7 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewConflictException;
@@ -88,6 +89,7 @@ import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
+import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
 import com.bytequay.core.review.ReviewSummary;
@@ -1452,6 +1454,77 @@ class TestDefaultAgentReviewService
     }
 
     @Test
+    void validationWaitsForTheSecondReaderAndSettlesItsLeadsAsCandidates()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        verify(fixture.sweeps).start(any(AgentReview.class), argThat(started -> started.id().equals(run.id())), any(AgentTask.class), any(Runnable.class));
+        ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
+                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+        fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation, NOW)));
+        settleCurrentTurn(fixture, run);
+        when(fixture.sweeps.pending(reviewId, run.id())).thenReturn(true);
+
+        fixture.service.reconcile(reviewId);
+
+        ReviewRun waiting = fixture.store.findRun(run.id()).orElseThrow();
+        assertThat(waiting.state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(waiting.validationStarted()).isFalse();
+        verify(fixture.sweeps, never()).take(anyString(), anyString());
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+
+        when(fixture.sweeps.pending(reviewId, run.id())).thenReturn(false);
+        when(fixture.sweeps.take(reviewId, run.id())).thenReturn(ImmutableList.of(
+                new ReviewLead("src/App.java", OptionalInt.of(12), ReviewLead.Lens.WORDS, ReviewLead.Kind.NIT, "The comment says the parser is shared.",
+                        "Say it is created per file."),
+                new ReviewLead("", OptionalInt.empty(), ReviewLead.Lens.SIBLINGS, ReviewLead.Kind.QUESTION, "The description asks for a release note.", "Propose one.")));
+
+        fixture.service.reconcile(reviewId);
+
+        ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
+        assertThat(validating.validationStarted()).isTrue();
+        ReviewStep sealed = validating.latestSealedInvestigation().orElseThrow();
+        assertThat(sealed.number()).isEqualTo(1);
+        ReviewInvestigation report = sealed.investigation().orElseThrow();
+        assertThat(report).isEqualTo(validating.investigation().orElseThrow());
+        assertThat(report.candidates()).extracting(ReviewCandidate::number).containsExactly(1, 2, 3);
+        assertThat(report.candidates().getFirst()).isEqualTo(discoveryCandidate(1, "The parser may leak"));
+        ReviewCandidate lead = report.candidates().get(1);
+        assertThat(lead.hypothesis()).isEqualTo("Nit at src/App.java:12: The comment says the parser is shared. The author should: Say it is created per file.");
+        assertThat(lead.evidenceRefs()).isEmpty();
+        assertThat(lead.attributedSource()).contains("second reader");
+        assertThat(lead.originStep()).isEqualTo(1);
+        assertThat(report.candidates().get(2).perspective()).isEqualTo(ReviewPerspectiveAssessment.Perspective.INTERACTIONS);
+        assertThat(report.perspectives()).isEqualTo(investigation.perspectives());
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+    }
+
+    @Test
+    void leadsBeyondTheCandidateCapacityAreLeftOut()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        ImmutableList.Builder<ReviewCandidate> recorded = ImmutableList.builder();
+        for (int number = 1; number <= 29; number++) {
+            recorded.add(discoveryCandidate(number, "Hypothesis " + number));
+        }
+        ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
+                recorded.build(), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+        fixture.store.updateRun(sealInvestigation(run.withSummary(summary(), NOW).withInvestigation(investigation, NOW)));
+        settleCurrentTurn(fixture, run);
+        ReviewLead lead = new ReviewLead("src/App.java", OptionalInt.of(12), ReviewLead.Lens.TESTS, ReviewLead.Kind.SUGGESTION, "Two fixtures are the same.", "Merge them.");
+        when(fixture.sweeps.take(reviewId, run.id())).thenReturn(ImmutableList.of(lead, lead, lead));
+
+        fixture.service.reconcile(reviewId);
+
+        ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
+        assertThat(validating.validationStarted()).isTrue();
+        assertThat(validating.latestSealedInvestigation().orElseThrow().investigation().orElseThrow().candidates()).hasSize(30);
+    }
+
+    @Test
     void investigationStartsOneValidationTurnOnlyAfterItsWorktreeClaimIsReleased()
     {
         Fixture fixture = new Fixture();
@@ -2352,6 +2425,7 @@ class TestDefaultAgentReviewService
         AgentReviewProjection projection = fixture.service.stop(reviewId);
 
         verify(fixture.turns, times(1)).cancel(TURN_ONE);
+        verify(fixture.sweeps).cancel(reviewId);
         assertThat(projection.review().followUpPaused()).isTrue();
         assertThat(projection.activeTurn().orElseThrow().id()).isEqualTo(TURN_ONE.toString());
         assertThat(projection.task().mutationClaim()).contains(WorktreeMutationClaim.Kind.TURN.name());
@@ -3198,6 +3272,7 @@ class TestDefaultAgentReviewService
         private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         private final CredentialService credentials = mock(CredentialService.class);
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
+        private final ReviewSweep sweeps = mock(ReviewSweep.class);
         private final Map<String, AgentTurn> acceptedTurns = new LinkedHashMap<>();
         private final DefaultAgentReviewService service;
 
@@ -3227,6 +3302,7 @@ class TestDefaultAgentReviewService
                     refresh,
                     credentials,
                     observer,
+                    sweeps,
                     new ReviewLocks(),
                     CLOCK);
             when(drivers.require(LANE)).thenReturn(driver);

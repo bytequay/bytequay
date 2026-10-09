@@ -2048,6 +2048,12 @@ public class ReviewTools
 
     private int candidateLimit(ReviewRun run)
     {
+        return candidateLimit(store, run);
+    }
+
+    /** The most candidates a run may hold: the cap on new hypotheses plus room for every finding carried from an earlier run. */
+    static int candidateLimit(AgentReviewStore store, ReviewRun run)
+    {
         // Count every prior-origin finding so resolution or withdrawal cannot shrink this run's capacity.
         return MAX_CANDIDATES + (int) store.listFindings(run.reviewId()).stream().filter(finding -> !finding.runId().equals(run.id())).count();
     }

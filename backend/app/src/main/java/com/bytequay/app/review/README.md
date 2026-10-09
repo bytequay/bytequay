@@ -51,6 +51,8 @@ flowchart TD
     B --> C[Checkpoint surfaced hypotheses and coverage]
     C -->|Independent unanswered responsibilities within budget| B
     C -->|Coverage ready or remaining gaps recorded| D[Seal investigation]
+    A --> S[Second reader lists leads]
+    S -->|Appended as unverified candidates| D
     D --> E[Validate every candidate]
     E -->|Specific missing evidence, at most two follow-ups| F[Collect evidence and seal updated report]
     F --> E
@@ -98,6 +100,43 @@ somewhere at or before that run, plus the current run's own coverage and validat
 report. Incremental scope follows the latest accepted coverage, independently of
 which run owns the explanation. The UI retains the saved explanation while
 showing the latest review's status, findings, warnings and investigation details.
+
+## Second reader
+
+One turn that both looks for concerns and proves them spends nearly all of its
+budget proving a few. Each findings run therefore also starts a second reader:
+one disposable read-only provider session on the review's working copy, on the
+review task's provider and model with the provider's default effort. It has no
+review tools and cannot edit. [ReviewSweep](ReviewSweep.java) starts it beside
+the investigation turn and gives it everything in one request:
+
+- its assignment, `agent-skills/bytequay-review-sweep.md`: one read of the whole
+  change per lens (words, mechanisms, siblings, tests, rules, facts), and the
+  four kinds a lead may be;
+- where to read the frozen change from Git objects, because the working files
+  may hold the investigation's temporary experiments;
+- the pull request title and description, except for a local change or a replay;
+- measurements from [ReviewFacts](ReviewFacts.java): each commit's subject
+  length, body size and fixup, work-in-progress or merge markers, the options the
+  description marks under a template section, and added tests that are switched
+  off. A fact is a measurement, never a judgement;
+- the text of the repository memories that match the changed paths, without
+  recipes. A reader has no memory tool, so a title alone would reach nothing.
+
+It answers with at most fifteen leads. A lead is a claim nobody has checked, so
+it never becomes a finding directly. When the investigation is sealed, ByteQuay
+waits for the reader to end, appends its leads to the sealed report as candidates
+attributed to `second reader` with no evidence refs, and only then starts
+validation, which must settle every numbered candidate. Leads beyond the run's
+candidate capacity are left out. Appending keeps the investigation's own
+candidates, numbers and evidence unchanged.
+
+The read is not durable state. A failed, timed-out, unparsable or cancelled read
+contributes nothing and the run continues; after a restart no read is running
+and validation starts without leads. Stopping or ending the review cancels it.
+Its provider usage is not added to the review task's totals. Every run starts a
+fresh reader with no conversation history, so a later round gets a new read of
+the whole change even though the review conversation carries earlier rounds.
 
 ## Discovery responsibilities
 
@@ -495,6 +534,7 @@ The implementation is concentrated in the current review service:
 | Responsibility mapping, concrete contrasts and parent fallback | [ReviewPrompts](ReviewPrompts.java), `agent-skills/bytequay-review.md` |
 | Investigation, validation and bounded evidence collection | [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewStep` |
 | Supported pool, final selection and discussion origin | `ReviewValidation`, `ReviewFinding`, [ReviewSelection](ReviewSelection.java), publication checks |
+| Second reader, its facts and its leads | [ReviewSweep](ReviewSweep.java), [ReviewFacts](ReviewFacts.java), [ReviewLead](ReviewLead.java), `agent-skills/bytequay-review-sweep.md` |
 | Provisional coverage and selected/unselected results | Review HTTP models, frontend review contracts/model/details and IDE selection |
 | Offline input freezing and bounded discovery-only calibration | [Developer runbook](../../../../../../../../../scripts/review-calibration/README.md) |
 

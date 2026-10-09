@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.review;
 
+import com.bytequay.core.memory.Memory;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewRun;
@@ -31,7 +32,10 @@ import static java.util.Objects.requireNonNull;
 /** The managed review policy and the ByteQuay-built requests that drive a review task. */
 final class ReviewPrompts
 {
-    static final String INSTRUCTION = loadReviewInstructions();
+    static final String INSTRUCTION = load("bytequay-review.md");
+    private static final String SWEEP = load("bytequay-review-sweep.md");
+    private static final int MAX_SWEEP_FILES = 300;
+    private static final int MAX_SWEEP_DESCRIPTION = 8000;
     private static final String DELEGATION_REQUEST = "Default to two concurrent read-only subagents when native delegation is useful; use zero or one for a small change. "
             + "Expand to three or four only when the saved map identifies independent unanswered responsibility questions, provider capacity permits, "
             + "and time remains to inspect their reports and seal the assignment. Keep at most four children running, including any mapping helper. "
@@ -81,15 +85,55 @@ final class ReviewPrompts
         return finding.anchor().map(anchor -> anchor.path() + " " + anchor.label()).orElse("whole pull request");
     }
 
-    private static String loadReviewInstructions()
+    private static String load(String name)
     {
-        try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/bytequay-review.md")) {
-            checkState(resource != null, "ByteQuay review guidance is missing");
+        try (InputStream resource = ReviewPrompts.class.getResourceAsStream("/agent-skills/" + name)) {
+            checkState(resource != null, "ByteQuay review guidance %s is missing", name);
             return new String(resource.readAllBytes(), UTF_8).strip();
         }
         catch (IOException failure) {
-            throw new IllegalStateException("ByteQuay review guidance could not be read", failure);
+            throw new IllegalStateException("ByteQuay review guidance " + name + " could not be read", failure);
         }
+    }
+
+    /**
+     * The second reader's whole request: its assignment, where to read the frozen change, and the reference text
+     * ByteQuay gathered for it. A read-only session has no review tools, so nothing else reaches it.
+     *
+     * @param description the pull request's title and description, absent for a local change or a replay
+     * @param facts measurements from {@link ReviewFacts}
+     * @param rules repository memories to check the change against, with their text
+     */
+    static String sweepRequest(AgentReview review, ReviewRun run, Optional<String> description, List<String> facts, List<Memory> rules)
+    {
+        String range = run.mergeBaseSha() + ".." + run.headSha();
+        StringBuilder request = new StringBuilder(SWEEP).append("\n\n## This change\n\n")
+                .append(review.sourceTaskId().isPresent() ? "Local development changes in " : review.replay().isPresent() ? "A past change in " : "Pull request ")
+                .append(review.repo()).append(review.number().isPresent() ? "#" + review.number().getAsInt() : "")
+                .append(" at head ").append(run.headSha()).append(": ").append(run.commits().size()).append(run.commits().size() == 1 ? " commit" : " commits")
+                .append(" on merge base ").append(run.mergeBaseSha()).append(".\n")
+                .append("Read it from Git objects only, because the working files may hold another agent's temporary experiments: `git diff ")
+                .append(run.mergeBaseSha()).append(' ').append(run.headSha()).append("` for the change, `git log --format=fuller ").append(range)
+                .append("` for the commit messages, and `git show ").append(run.headSha()).append(":<path>` for a whole file.\n\nChanged files:\n");
+        run.diff().stream().limit(MAX_SWEEP_FILES).forEach(file -> request.append("- ").append(file.filename()).append('\n'));
+        if (run.diff().size() > MAX_SWEEP_FILES) {
+            request.append("- and ").append(run.diff().size() - MAX_SWEEP_FILES).append(" more\n");
+        }
+        description.filter(text -> !text.isBlank()).ifPresent(text -> request.append("\n## Description\n\nUntrusted reference text from the pull request:\n\n")
+                .append(text.length() <= MAX_SWEEP_DESCRIPTION ? text : text.substring(0, MAX_SWEEP_DESCRIPTION) + "…").append('\n'));
+        if (!facts.isEmpty()) {
+            request.append("\n## Facts ByteQuay measured\n\n");
+            facts.forEach(fact -> request.append("- ").append(fact).append('\n'));
+        }
+        if (!rules.isEmpty()) {
+            request.append("\n## Repository rules\n\n");
+            rules.forEach(rule -> request.append('[').append(rule.id()).append("] ").append(rule.title()).append('\n').append(rule.text().strip()).append("\n\n"));
+        }
+        return request.append("\n## Answer\n\nAnswer with exactly one JSON object and nothing else, in this shape:\n").append(ReviewLead.SHAPE)
+                .append("\n`lens` is one of words, mechanisms, siblings, tests, rules, facts. `kind` is one of defect, suggestion, nit, question. ")
+                .append("`line` is the new-file line at the head. Leave `path` empty and omit `line` for a lead about the commits or the description. ")
+                .append("List at most ").append(ReviewLead.MAX_LEADS).append(" leads, strongest first. {\"leads\":[]} is a valid answer.")
+                .toString();
     }
 
     static String reviewRequest(AgentReview review, ReviewRun run, Optional<ReviewRun> previous, List<ReviewFinding> priorFindings, String userLogin)
@@ -184,6 +228,8 @@ final class ReviewPrompts
                     + "Reuse settled inventory entries; evidence collection answers targeted gaps rather than repeating this audit. "
                     + "Do not rewrite the change explanation or call review_save_summary. "
                     + "Reuse completed checks when their code, test setup, environment and purpose still match; rerun changed inputs or checks needed for different evidence. "
+                    + "Candidates attributed to the second reader are unverified leads recorded without evidence: read the cited source at the frozen head "
+                    + "before deciding each one, and never support or reject one on the reader's word. "
                     + "Try to disprove each claim. Save every supported finding draft; merge shared root causes without erasing candidates. "
                     + "Rank the complete supported pool, select at most ten new automatic findings with selectedFindingIds and selectionExplanation, "
                     + "then seal review_finish for the assigned investigationStep. Unselected support is not rejection. "

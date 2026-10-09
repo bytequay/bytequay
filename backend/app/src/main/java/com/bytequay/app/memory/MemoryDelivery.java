@@ -61,6 +61,7 @@ import static java.util.Objects.requireNonNull;
 public class MemoryDelivery
 {
     static final int MAX_LINES = 40;
+    static final int MAX_RULES = 20;
     static final int MAX_BYTES = 12 * 1024;
     private static final Duration TIMEOUT = Duration.ofSeconds(10);
     private static final int LISTING_BYTES = 512 * 1024;
@@ -114,6 +115,28 @@ public class MemoryDelivery
         catch (RuntimeException failure) {
             log.warn("Memory is left out of a turn of task {}", task.id(), failure);
             return Reference.NONE;
+        }
+    }
+
+    /**
+     * The rules and specifications a review's second reader checks the change against, with their text: the selection a
+     * review turn's Memory block lists by title, without recipes, which a reader that runs nothing cannot use. A reader
+     * has no memory tool to open a title with, so the text itself is its only delivery. It never fails the read.
+     */
+    public List<Memory> rules(AgentReview review, ReviewRun run)
+    {
+        try {
+            Optional<AgentReview.Replay> replay = review.replay();
+            if (!replay.map(AgentReview.Replay::memory).orElseGet(() -> memories.switches(review.workspaceId()).reviews())) {
+                return ImmutableList.of();
+            }
+            List<Memory> rules = memories.list(review.workspaceId()).stream().filter(MemoryService.visibleTo(replay))
+                    .filter(memory -> memory.kind() != Memory.Kind.RECIPE).collect(toImmutableList());
+            return select(rules, run.diff().stream().map(DiffFile::filename).collect(toImmutableList())).stream().limit(MAX_RULES).collect(toImmutableList());
+        }
+        catch (RuntimeException failure) {
+            log.warn("Memory is left out of the second reader of review {}", review.id(), failure);
+            return ImmutableList.of();
         }
     }
 

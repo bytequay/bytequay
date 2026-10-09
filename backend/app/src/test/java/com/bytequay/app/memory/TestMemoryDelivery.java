@@ -34,6 +34,7 @@ import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.service.InMemoryAppSettingsStore;
 import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.memory.Memory;
 import com.bytequay.core.memory.MemoryReport;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
@@ -52,6 +53,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -207,6 +209,28 @@ class TestMemoryDelivery
         delivery.delivered(turn);
         assertThat(store.find(reference.memories().get(0).id()).orElseThrow().delivered()).isEqualTo(2);
         assertThat(store.find(reference.memories().get(2).id()).orElseThrow().delivered()).isZero();
+    }
+
+    @Test
+    void aSecondReaderGetsTheTextOfMatchingRulesButNoRecipes()
+    {
+        store.save(rule("m1", "workspace", "Keep refactors in their own commits.", ImmutableList.of()));
+        store.save(rule("m2", "workspace", "Iceberg rule", ImmutableList.of("plugin/trino-iceberg/")));
+        store.save(rule("m3", "workspace", "Delta rule", ImmutableList.of("plugin/trino-delta-lake/")));
+        Memory recipe = rule("m4", "workspace", "Run the module's tests with ./mvnw test -pl plugin/trino-iceberg.", ImmutableList.of("plugin/trino-iceberg/"));
+        store.save(new Memory(recipe.id(), recipe.workspaceId(), Memory.Kind.RECIPE, recipe.title(), recipe.text(), recipe.scope(), recipe.sources(), recipe.origin(),
+                recipe.version(), recipe.previous(), recipe.delivered(), recipe.cited(), recipe.reports(), recipe.createdAt(), recipe.updatedAt()));
+        AgentReview review = new AgentReview("review", "workspace", "trinodb/trino", OptionalInt.of(31244), OptionalLong.empty(), taskId.toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty(), Optional.empty());
+
+        List<Memory> rules = delivery.rules(review, run("plugin/trino-iceberg/src/main/java/IcebergMetadata.java"));
+
+        assertThat(rules).extracting(Memory::id).containsExactly("m2", "m1");
+        assertThat(rules.getFirst().text()).isEqualTo("Iceberg rule");
+        assertThat(store.find("m2").orElseThrow().delivered()).isZero();
+
+        memories.saveSwitches("workspace", new MemorySwitches(false, true));
+        assertThat(delivery.rules(review, run("plugin/trino-iceberg/src/main/java/IcebergMetadata.java"))).isEmpty();
     }
 
     private void replay(boolean memory, Instant cutoff)

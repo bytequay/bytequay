@@ -223,7 +223,7 @@ retain the saved explanation.
    Save every supported finding draft before selecting the final set. Shared
    root causes may point to one finding; preserve every candidate's disposition.
    After validation, rank the entire supported pool by consequence, likelihood,
-   evidence strength and actionable reduction of complexity. Select at most ten
+   evidence strength and actionable reduction of complexity. Select at most twelve
    new automatic findings with selectedFindingIds and explain the selection in
    selectionExplanation. The limit applies to selection, not support: an
    unselected supported candidate remains supported with its finding and evidence.
@@ -351,7 +351,7 @@ later pages. Tool descriptions define pagination, fields and evidence refs.
   ones, and are assessed NEEDS_EVIDENCE. Do not rewrite sealed investigation input.
   When ready, seal review_finish for the assigned investigationStep with
   selectedFindingIds and selectionExplanation. Select only supported new automatic
-  findings, at most ten; carried findings keep their lifecycle. Retain support
+  findings, at most twelve; carried findings keep their lifecycle. Retain support
   and evidence for every unselected finding. With no selected findings, use an
   empty selection and explain why.
 - Evidence collection: follow assignment.previousValidation requests. Existing

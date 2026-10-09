@@ -915,7 +915,7 @@ class TestReviewTools
         assertThat(finish.description()).contains("at most 8 refs", "SUPPORTED must include every ref cited by its saved finding");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();
         assertThat(finding.description()).contains("Polish before saving", "full reproduction code, commands and results in captured evidence");
-        assertThat(finding.description()).contains("starts its title with Question: and omits severity");
+        assertThat(finding.description()).contains("starts its title with Question: and omits severity", "select at most 12 final comments in review_finish");
         assertThat(finding.description()).contains("at most 8 decisive evidence entries", "reuse their refs in this candidate's SUPPORTED assessment");
         assertContextToolSchema();
     }
@@ -1253,18 +1253,19 @@ class TestReviewTools
     }
 
     @Test
-    void savesEverySupportedClaimAndSelectsAtMostTenAfterValidation()
+    void savesEverySupportedClaimAndSelectsNoMoreThanTheLimitAfterValidation()
     {
+        int limit = ReviewValidation.MAX_SELECTED;
         store.updateRun(run(RUN_ID, 1, PATCH, false));
         call("review_save_summary", summary("summary", "Reject unchecked input"));
         readSource();
-        List<String> hypotheses = IntStream.rangeClosed(1, 11).mapToObj(index -> "Unchecked input " + index).collect(toImmutableList());
+        List<String> hypotheses = IntStream.rangeClosed(1, limit + 1).mapToObj(index -> "Unchecked input " + index).collect(toImmutableList());
         assertThat(discoverAndSeal(investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), hypotheses))
                 .path("status").asText()).isEqualTo("accepted");
         advance(VALIDATE);
         List<Map<String, Object>> validations = new ArrayList<>();
         List<String> ids = new ArrayList<>();
-        for (int index = 1; index <= 11; index++) {
+        for (int index = 1; index <= limit + 1; index++) {
             JsonNode saved = call("review_save_finding", finding("finding-" + index, hypotheses.get(index - 1), "A2", ImmutableList.of(evidence("E1"))));
             assertThat(saved.path("status").asText()).isEqualTo("accepted");
             ids.add(saved.path("findingId").asText());
@@ -1272,10 +1273,10 @@ class TestReviewTools
         }
         assertThat(call("review_finish", with(finish("too-many", validations), "too-many", "selectedFindingIds", ids))
                 .at("/error/field").asText()).isEqualTo("selectedFindingIds");
-        List<String> selected = ids.subList(1, 11);
+        List<String> selected = ids.subList(1, limit + 1);
         assertThat(call("review_finish", with(finish("finished", validations), "finished", "selectedFindingIds", selected))
                 .path("status").asText()).isEqualTo("accepted");
-        assertThat(store.listFindings(REVIEW_ID)).hasSize(11).allMatch(finding -> finding.origin() == ReviewFinding.Origin.AUTOMATIC);
+        assertThat(store.listFindings(REVIEW_ID)).hasSize(limit + 1).allMatch(finding -> finding.origin() == ReviewFinding.Origin.AUTOMATIC);
         ReviewValidation validation = store.findRun(RUN_ID).orElseThrow().currentStep().orElseThrow().validation().orElseThrow();
         assertThat(validation.selectedFindingIds()).containsExactlyElementsOf(selected);
         assertThat(validation.candidates()).allMatch(candidate -> candidate.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED);

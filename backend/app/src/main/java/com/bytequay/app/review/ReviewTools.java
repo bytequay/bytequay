@@ -335,7 +335,8 @@ public class ReviewTools
                                 + "Keep the example brief; retain full reproduction code, commands and results in captured evidence. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published. "
-                                + "Save every supported claim, deduplicating shared root causes by findingId; select at most ten final comments in review_finish. "
+                                + "Save every supported claim, deduplicating shared root causes by findingId; "
+                                + "select at most " + ReviewValidation.MAX_SELECTED + " final comments in review_finish. "
                                 + "Choose at most " + MAX_EVIDENCE + " decisive evidence entries; reuse their refs in this candidate's SUPPORTED assessment. "
                                 + "Pass memoryIds for the repository memories, such as m12, that shaped the finding.",
                         schema(ImmutableMap.<String, Object>builder()
@@ -397,7 +398,7 @@ public class ReviewTools
                                 "operationKey", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", MAX_KEY),
                                 "investigationStep", ImmutableMap.of("type", "integer", "minimum", 1),
                                 "newCandidates", ImmutableMap.of("type", "array", "maxItems", MAX_CANDIDATES, "items", candidateSchema()),
-                                "selectedFindingIds", stringArray(10, 100),
+                                "selectedFindingIds", stringArray(ReviewValidation.MAX_SELECTED, 100),
                                 "selectionExplanation", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 2000),
                                 "complete", ImmutableMap.of("type", "boolean"),
                                 "omissions", stringArray(50, 500),
@@ -1215,7 +1216,7 @@ public class ReviewTools
         if (validations.size() != candidateCount) {
             throw new ReviewInvalidRequestException("validations: assess every candidate, including rejected and unresolved hypotheses");
         }
-        List<String> selected = strings(arguments, "selectedFindingIds", 10, 100);
+        List<String> selected = strings(arguments, "selectedFindingIds", ReviewValidation.MAX_SELECTED, 100);
         if (selected.stream().distinct().count() != selected.size()) {
             throw new ReviewInvalidRequestException("selectedFindingIds: select each finding once");
         }

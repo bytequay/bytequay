@@ -18,6 +18,7 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
+import com.bytequay.core.review.ReviewValidation;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -246,7 +247,8 @@ final class ReviewPrompts
                     + "Candidates attributed to the second reader are unverified leads recorded without evidence: read the cited source at the frozen head "
                     + "before deciding each one, and never support or reject one on the reader's word. "
                     + "Try to disprove each claim. Save every supported finding draft; merge shared root causes without erasing candidates. "
-                    + "Rank the complete supported pool, select at most ten new automatic findings with selectedFindingIds and selectionExplanation, "
+                    + "Rank the complete supported pool, select at most " + ReviewValidation.MAX_SELECTED
+                    + " new automatic findings with selectedFindingIds and selectionExplanation, "
                     + "then seal review_finish for the assigned investigationStep. Unselected support is not rejection. "
                     + "Use NEEDS_EVIDENCE with a specific missing proposition, next check, and resolving criterion if another inspection is necessary. "
                     + "Use UNRESOLVED when missing evidence prevents settling a candidate; zero findings is valid. "

@@ -36,6 +36,9 @@ public record ReviewValidation(
         String selectionExplanation,
         List<ReviewThreadVerdict> threadVerdicts)
 {
+    /** The most findings one run presents; supported findings beyond it stay in the details. */
+    public static final int MAX_SELECTED = 12;
+
     public ReviewValidation
     {
         checkArgument(investigationStep > 0, "investigationStep is not positive");
@@ -44,8 +47,8 @@ public record ReviewValidation(
         requireNonNull(coverage, "coverage is null");
         newCandidates = ImmutableList.copyOf(newCandidates);
         selectedFindingIds = ImmutableList.copyOf(selectedFindingIds);
-        checkArgument(selectedFindingIds.size() <= 10 && selectedFindingIds.stream().distinct().count() == selectedFindingIds.size(),
-                "selectedFindingIds must contain at most ten unique findings");
+        checkArgument(selectedFindingIds.size() <= MAX_SELECTED && selectedFindingIds.stream().distinct().count() == selectedFindingIds.size(),
+                "selectedFindingIds must contain at most %s unique findings", MAX_SELECTED);
         checkArgument(!requireNonNull(selectionExplanation, "selectionExplanation is null").isBlank(), "selectionExplanation is blank");
         // Absent from validations stored before thread verdicts existed.
         threadVerdicts = threadVerdicts == null ? ImmutableList.of() : ImmutableList.copyOf(threadVerdicts);

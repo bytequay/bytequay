@@ -574,15 +574,16 @@ assignment seals them. Keep the existing maximum of two evidence follow-ups.
 Missing proof at that limit means unresolved/incomplete, not rejected. Reassess
 each carried OPEN finding against current source; preserve user RESOLVED state.
 
-### Apply the ten-finding limit after ranking
+### Apply the twelve-finding limit after ranking
 
-Ten is the final presentation limit for new automatic findings from a run.
+Twelve is the final presentation limit for new automatic findings from a run
+(`ReviewValidation.MAX_SELECTED`).
 Saving a supported draft does not consume a presentation slot:
 
 1. Save supported finding drafts with their evidence, bounded by the recorded
    candidate pool. A save alone does not make a draft a selected result.
 2. `ReviewValidation.selectedFindingIds` contains the ranked selection, with a
-   required `selectionExplanation`. At final validation, select at most ten
+   required `selectionExplanation`. At final validation, select at most twelve
    supported findings originating in this run. Existing carried findings retain
    their lifecycle and history.
 3. Check that every selected ID belongs to this review/run and is backed by a
@@ -764,7 +765,7 @@ candidate identity, an early map citing frozen source, supplemental evidence,
 map-only first checkpoints, rejection of discoveries before a saved map, paired map
 revisions, seal-time replacement rejection, missing/blocked perspectives, exact
 sealed evidence, carried findings, shared-root-cause mapping, late discoveries, final selection, and
-publication boundaries. The late-selection regression records ten earlier drafts
+publication boundaries. The late-selection regression records twelve earlier drafts
 before a stronger supported finding arrives. Related cases cover discussion revisions,
 follow-up findings, unselected-result navigation, and independent outgoing drafts.
 

@@ -569,6 +569,29 @@ outcome is needed: validation answers whether the concern holds, and the selecte
 ID set answers whether it becomes a finding card. Prefer demonstrated impact and
 usefulness over arrival order; do not assign fixed quotas to perspectives.
 
+### Check the comment's form when it is saved
+
+`review_save_finding` refuses a body that would not read as a review comment
+([ReviewCommentForm](ReviewCommentForm.java)). Measured on prose, with fenced
+code left out and inline code counted only as words:
+
+| Rule | Regular finding | `Nit:` |
+| --- | --- | --- |
+| Prose words | at most 120 | at most 35 |
+| Sentences | at most 5 | at most 2 |
+| The request | within the first 2 sentences | within the first 2 sentences |
+| Hedged requests | refused | refused |
+
+A sentence makes a request when it is a question, when a clause of it opens with
+one of a fixed list of action verbs, or when it says what should or must change.
+Hedged requests are a short list of phrases such as "consider" at the start of a
+sentence, "might want to" and "perhaps". Both are wording rules, not
+understanding: a request worded some other way is refused with the wordings that
+pass, and a statement that happens to open with a listed verb is let through.
+Each refusal names the measured figure or the phrase, so the agent rewrites the
+comment instead of the rule being advice. The user's own edits to a saved
+comment are never checked.
+
 ## UI and trust boundaries
 
 Review details show perspective coverage, candidate origin, verdict/evidence,

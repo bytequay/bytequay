@@ -967,6 +967,12 @@ class TestReviewTools
         draft.put("body", "word ".repeat(121));
         int writes = store.runUpdates();
         assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("121 prose words", "120", "polish");
+        draft.put("body", "The added line is used without any validation.");
+        assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("lead with the request");
+        draft.put("body", "You might want to validate the added line. A null input reaches the parser unchecked.");
+        assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("\"might want to\" hedges the request");
+        draft.put("body", "Validate the added line. One. Two. Three. Four. Five.");
+        assertThat(call("review_save_finding", draft).at("/error/message").asText()).contains("6 sentences exceeds 5");
         assertThat(store.listFindings(REVIEW_ID)).isEmpty();
         assertThat(store.runUpdates()).isEqualTo(writes);
 
@@ -1180,7 +1186,7 @@ class TestReviewTools
                 "evidence", ImmutableList.of(ImmutableMap.of("explanation", "the frozen source window shows the missing check", "ref", "E1")),
                 "startAnchor", "A2",
                 "validation", "The source establishes a reachable unchecked input and no caller guard prevents it.",
-                "body", "The added line is used without any validation.",
+                "body", "Validate the added line before it is used. A null input reaches the parser unchecked.",
                 "title", "Missing null check",
                 "operationKey", "save-1");
         assertThat(call("review_save_finding", reordered).toString()).isEqualTo(first.toString());
@@ -2897,7 +2903,7 @@ class TestReviewTools
         return ImmutableMap.<String, Object>of(
                 "operationKey", operationKey,
                 "title", title,
-                "body", "The added line is used without any validation.",
+                "body", "Validate the added line before it is used. A null input reaches the parser unchecked.",
                 "validation", "The source establishes a reachable unchecked input and no caller guard prevents it.",
                 "startAnchor", startAnchor,
                 "evidence", evidence);

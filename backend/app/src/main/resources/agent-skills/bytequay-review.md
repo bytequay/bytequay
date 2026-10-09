@@ -233,10 +233,14 @@ retain the saved explanation.
    first sentence, propose actual wording, and cite the source evidence.
    Zero findings is valid; never invent or inflate claims to fill a quota.
 7. Before saving, reread the finding as a standalone GitHub comment. Lead with
-   the specific claim, reachable trigger and consequence; add a brief real
-   example only when it clarifies the failure. Keep every material condition.
-   A regular body has at most 120 prose words, a `Nit:` body at most 35;
-   fenced code is excluded. The evidence carries the full
+   the request, the change or the answer you want, within the first two
+   sentences; then give the specific claim, reachable trigger and consequence
+   that justify it. Add a brief real example only when it clarifies the
+   failure. Keep every material condition.
+   A regular body has at most 120 prose words and five sentences, a `Nit:` body
+   at most 35 words and two sentences; fenced code is excluded. A hedged request
+   such as "consider" or "might want to" is refused: say which change you want,
+   and state real uncertainty as what you could not confirm. The evidence carries the full
    reproduction or source trace, setup, decisive test code, commands, expected
    and actual result, output and provenance, plus the validation explanation.
    State whether a case was executed or only traced from source.

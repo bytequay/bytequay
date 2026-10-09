@@ -72,14 +72,20 @@ targets:
   supporting code and test results with the finding they establish; distinguish
   executed tests, inspected code, and externally reported CI in its evidence.
   Machine review coverage still belongs in review_finish, not another prose card.
-- Finding body: usually 2–3 short sentences. State the precise claim, reachable
-  trigger and consequence; add a brief real example when it makes the behavior
-  clearer. Keep material conditions, including relevant configuration or scope.
-  For an optional improvement, state its concrete benefit and mark it as a
-  suggestion without bug severity. The saved regular body has a 120 prose-word
-  limit, excluding fenced code. Put full reproduction setup, decisive
-  test code, commands, logs and provenance in the finding's evidence. Distinguish
-  executed behavior from source tracing there; do not present a trace as a run.
+- Finding body: usually 2–3 short sentences, at most five. Lead with the
+  request: the change or the answer you want, worded as a question, as a
+  sentence that opens with its action verb, or as what should change. It comes
+  within the first two sentences. Then give the reason: the precise claim,
+  reachable trigger and consequence; add a brief real example when it makes the
+  behavior clearer. Keep material conditions, including relevant configuration
+  or scope. Say plainly which change you want: no "consider", "might want to",
+  "perhaps" or "feel free to". State real uncertainty as what you could not
+  confirm, not as a softer request. For an optional improvement, state its
+  concrete benefit and mark it as a suggestion without bug severity. The saved
+  regular body has a 120 prose-word limit, excluding fenced code. Put full
+  reproduction setup, decisive test code, commands, logs and provenance in the
+  finding's evidence. Distinguish executed behavior from source tracing there;
+  do not present a trace as a run.
 - Nits: small optional polish notes on test writing, code simplification,
   naming or comments, a commit subject or body, or the PR description. They
   may accompany other findings. The title starts with `Nit:` and has no
@@ -101,8 +107,9 @@ targets:
   at most 60 words. Apply the same claim, condition and consequence discipline;
   add detail when the user asks and do not retell the card.
 
-The regular and nit body limits are save-time caps; the other targets are
-flexible guides, not minimums or permission to cut essential meaning. Move
+The word and sentence limits, the request within the first two sentences and
+the refusal of hedged requests are checked when a finding is saved; the other
+targets are flexible guides, not minimums or permission to cut essential meaning. Move
 supporting detail into evidence when needed, but retain the trigger and material
 conditions in the body. Never pad text to meet a word count or template. Keep every
 required commit and supporting finding reference; coverage does not require long prose.

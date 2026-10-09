@@ -190,6 +190,13 @@ class TestReviewPrompts
                 AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
     }
 
+    @Test
+    void theRulesAskForTheRequestFirstAndRefuseHedging()
+    {
+        assertThat(ReviewPrompts.INSTRUCTION).contains("the request, the change or the answer you want, within the first two", "at most 120 prose words and five sentences",
+                "at most 35 words and two sentences", "A hedged request", "state real uncertainty as what you could not confirm");
+    }
+
     private static ReviewRun run(ReviewStep.Kind kind)
     {
         return new ReviewRun("run", "review", 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),

@@ -96,7 +96,6 @@ import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.regex.Pattern;
 
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.NEEDS_EVIDENCE;
 import static com.bytequay.core.review.ReviewCandidateValidation.Outcome.SUPPORTED;
@@ -138,7 +137,6 @@ public class ReviewTools
     private static final int MAX_RELATED_DIFF_GAPS = 10;
     private static final int TIMELINE_PAGE = 20;
     private static final int THREAD_PAGE_CODE_POINTS = 2000;
-    private static final Pattern PROSE_WORD = Pattern.compile("[\\p{L}\\p{N}]+(?:['’-][\\p{L}\\p{N}]+)*");
     private static final int CHECK_PAGE = 20;
     private static final int MAX_COMMIT_ASSOCIATION_GAPS = 10;
     private static final List<String> SEVERITIES = ImmutableList.of("Critical", "High", "Medium", "Low");
@@ -322,7 +320,9 @@ public class ReviewTools
                                 + "ask why and name the two acceptable outcomes. "
                                 + "A finding about a commit message or the PR description has no lines: pass scope pull_request instead of anchors, "
                                 + "without severity or a suggestion block, and give the proposed wording as text. "
-                                + "Polish before saving: at most 120 prose words, or 35 for a Nit:, excluding fenced code. Preserve the trigger, consequence and uncertainty. "
+                                + "Polish before saving: at most 120 prose words and five sentences, or 35 words and two sentences for a Nit:, excluding fenced code. "
+                                + "Lead with the request, a question or the change you want, within the first two sentences, and do not hedge it. "
+                                + "Preserve the trigger, consequence and uncertainty. "
                                 + "Keep the example brief; retain full reproduction code, commands and results in captured evidence. For an exact replacement, "
                                 + "include one GitHub ```suggestion block replacing the complete RIGHT-side startAnchor/endAnchor range. "
                                 + "Revisions require findingId and expectedRevision; nothing is published. "
@@ -839,7 +839,7 @@ public class ReviewTools
         String validation = text(arguments, "validation", 2000, true);
         String title = text(arguments, "title", MAX_TITLE, true);
         String body = text(arguments, "body", MAX_TEXT, true);
-        checkFindingProse(title, body);
+        ReviewCommentForm.check(title, body);
         Optional<String> severity = Optional.ofNullable(arguments.get("severity")).filter(JsonNode::isTextual).map(JsonNode::asText)
                 .map(value -> SEVERITIES.stream().filter(candidate -> candidate.equalsIgnoreCase(value)).findFirst()
                         .orElseThrow(() -> new ReviewInvalidRequestException("severity: use critical, high, medium or low")));
@@ -2165,33 +2165,6 @@ public class ReviewTools
     {
         // Count every prior-origin finding so resolution or withdrawal cannot shrink this run's capacity.
         return MAX_CANDIDATES + (int) store.listFindings(run.reviewId()).stream().filter(finding -> !finding.runId().equals(run.id())).count();
-    }
-
-    private static void checkFindingProse(String title, String body)
-    {
-        StringBuilder prose = new StringBuilder();
-        String fence = "";
-        for (String line : body.lines().toList()) {
-            String stripped = line.stripLeading();
-            if (fence.isEmpty() && (stripped.startsWith("```") || stripped.startsWith("~~~"))) {
-                fence = stripped.substring(0, 3);
-            }
-            else if (!fence.isEmpty() && stripped.startsWith(fence)) {
-                fence = "";
-            }
-            else if (fence.isEmpty()) {
-                prose.append(line).append('\n');
-            }
-        }
-        if (!fence.isEmpty()) {
-            throw new ReviewInvalidRequestException("body: close the code fence before saving the comment");
-        }
-        int limit = title.regionMatches(true, 0, "Nit:", 0, 4) ? 35 : 120;
-        long words = PROSE_WORD.matcher(prose).results().count();
-        if (words > limit) {
-            throw new ReviewInvalidRequestException("body: " + words + " prose words exceeds " + limit
-                    + "; polish before saving. Preserve the trigger, consequence and material conditions; move supporting test detail into evidence");
-        }
     }
 
     private Replay replay(Call call, String tool)

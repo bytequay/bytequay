@@ -64,7 +64,8 @@ class TestAgentSkillService
                 "Never pad text", "preserves the reasoning", "including full explanations when asked");
         assertThat(system).doesNotContain("60–100", "50–90", "**Problem**", "**Approach**", "**Result**",
                 "- Combined result:", "- Evidence and tests:", "- Limitations");
-        assertThat(system).contains("They\n  may accompany other findings").doesNotContain("when a review has no other finding");
+        assertThat(system).contains("They\n  may accompany other findings", "The title starts with `Question:` and has no severity")
+                .doesNotContain("when a review has no other finding");
         assertThat(service.list()).isEmpty();
         assertThat(store.get("agent.skills")).isEmpty();
 

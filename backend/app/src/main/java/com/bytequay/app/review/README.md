@@ -402,6 +402,14 @@ improvement may coexist with a defect. Nits are not suppressed merely because
 another finding exists; pure wording preferences remain lowest priority and need
 an actionable benefit.
 
+A question is the fourth kind. Its title starts with `Question:` and it has no
+severity. It carries an observation verified in current source, the question it
+raises, and the two acceptable outcomes: a change, or the reason stated in a
+comment. A candidate is not rejected only because it is not a provable defect.
+It is supported as a question when its observation holds and neither the code, a
+commit message nor the PR text explains the choice, and rejected, naming where,
+when one of them does. An unverified claim never becomes a question.
+
 Every supported result remains bound to current evidence and the exact saved
 finding revision. Multiple candidates for the same root cause can reference the
 same finding; the existing contract already permits this. Retain their origins

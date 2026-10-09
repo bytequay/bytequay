@@ -797,6 +797,7 @@ class TestReviewTools
         assertThat(finish.description()).contains("at most 8 refs", "SUPPORTED must include every ref cited by its saved finding");
         ReviewTool finding = bridge.tools().stream().filter(tool -> tool.name().equals("review_save_finding")).findFirst().orElseThrow();
         assertThat(finding.description()).contains("Polish before saving", "full reproduction code, commands and results in captured evidence");
+        assertThat(finding.description()).contains("starts its title with Question: and omits severity");
         assertThat(finding.description()).contains("at most 8 decisive evidence entries", "reuse their refs in this candidate's SUPPORTED assessment");
         assertContextToolSchema();
     }

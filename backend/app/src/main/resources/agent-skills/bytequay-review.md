@@ -123,6 +123,8 @@ retain the saved explanation.
    establish the reachable trigger, violated contract, consequence, and
    relationship to this change. For a suggestion, establish the concrete code,
    confusion or maintenance cost removed and the useful behavior preserved.
+   For a question, establish its observation from current source, and that
+   neither the code, a commit message nor the PR text explains the choice.
    Check guards, other owners, configuration overrides, prior fixes,
    intended behavior and runtime counterevidence. Distinguish a regression or
    newly exposed defect from an existing unrelated issue or optional hardening.
@@ -140,6 +142,10 @@ retain the saved explanation.
    Do not require a runtime defect to support a maintenance suggestion, or use
    successful compilation to dismiss it. Conversely, disabled code alone does
    not justify a finding or moving a benchmark; a style preference is insufficient.
+   Do not reject a candidate only because it is not a provable defect. When its
+   observation holds and the change leaves the choice unexplained, support it
+   as a question. Reject it when the code, a commit message or the PR text
+   already answers it, and name where.
    Reject or withdraw claims the evidence disproves; retain their recorded hypotheses. Correct general advice
    alone does not establish that this PR has a defect. Explain the independent
    contract or improvement basis and the observed behavior separately; mark either uncertain
@@ -192,6 +198,9 @@ retain the saved explanation.
    missing proof nor an exhausted budget establishes a finding. Merge duplicate root causes. Give actual defects
    Critical, High, or Medium severity by default; include Low only when asked.
    Concrete optional improvements start with "Suggestion:" and omit severity.
+   A question starts with "Question:" and omits severity: state the verified
+   observation as fact, ask why, and name the two acceptable outcomes, a
+   change or the reason stated in a comment.
    Check unnecessary complexity and misleading comments for concrete,
    evidence-backed improvements within those existing suggestion/nit rules.
    Do not raise a style preference or a simplification that removes no code,
@@ -203,7 +212,7 @@ retain the saved explanation.
    new automatic findings with selectedFindingIds and explain the selection in
    selectionExplanation. The limit applies to selection, not support: an
    unselected supported candidate remains supported with its finding and evidence.
-   Defects, concrete suggestions and useful nits may coexist. A nit has a title
+   Defects, concrete suggestions, questions and useful nits may coexist. A nit has a title
    starting with "Nit:" and no severity. A nit about a commit message or PR
    description uses scope pull_request without anchors; name its subject in the
    first sentence, propose actual wording, and cite the source evidence.

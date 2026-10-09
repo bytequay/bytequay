@@ -179,6 +179,8 @@ final class ReviewPrompts
                     + "inspect existing active tests and dynamic callers. "
                     + "Judge a defect by its violated contract and a suggestion by its concrete reduction in code, confusion or maintenance cost; "
                     + "no runtime defect and successful compilation do not disprove the latter. Disabled code alone does not warrant a finding or a benchmark migration. "
+                    + "Do not reject a candidate only because it is not a provable defect: when its observation holds and the change does not explain the choice, "
+                    + "save it as a Question: finding; reject it when the code, a commit message or the PR text already answers it. "
                     + "Reuse settled inventory entries; evidence collection answers targeted gaps rather than repeating this audit. "
                     + "Do not rewrite the change explanation or call review_save_summary. "
                     + "Reuse completed checks when their code, test setup, environment and purpose still match; rerun changed inputs or checks needed for different evidence. "

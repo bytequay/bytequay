@@ -84,14 +84,17 @@ class TestReviewPrompts
     {
         assertThat(ReviewPrompts.stepRequest(run(VALIDATE)))
                 .contains("Save every supported finding draft", "selectedFindingIds", "selectionExplanation", "Unselected support is not rejection",
-                        "NEEDS_EVIDENCE", "Reuse completed checks", "Do not rewrite the change explanation or call review_save_summary");
+                        "NEEDS_EVIDENCE", "Reuse completed checks", "Do not rewrite the change explanation or call review_save_summary",
+                        "Do not reject a candidate only because it is not a provable defect", "save it as a Question: finding");
         assertThat(ReviewPrompts.stepRequest(run(COLLECT_EVIDENCE)))
                 .contains("Preserve candidate numbering", "review_record_discovery before filtering", "Reuse the saved map",
                         "both changeMap and contextEvidenceRefs", "review_get_context kind source ref in a revised map", "End this turn after sealing",
                         "Do not rewrite the change explanation or call review_save_summary");
         assertThat(ReviewPrompts.INSTRUCTION).contains("assignment.changeExplanationRequired", "even after new commits or rewritten history",
                 "original explanation is historical", "clarify the retained explanation");
-        assertThat(ReviewPrompts.INSTRUCTION).contains("Defects, concrete suggestions and useful nits may coexist", "BLOCKED", "around 70%");
+        assertThat(ReviewPrompts.INSTRUCTION).contains("Defects, concrete suggestions, questions and useful nits may coexist", "BLOCKED", "around 70%");
+        assertThat(ReviewPrompts.INSTRUCTION).contains("A question starts with \"Question:\" and omits severity",
+                "Do not reject a candidate only because it is not a provable defect");
         assertThat(ReviewPrompts.INSTRUCTION).contains("Default to two concurrent read-only children", "Expand to three or four only when the saved map",
                 "Keep at most four children running", "The parent allocates every batch", "After each batch, reassess uncovered responsibilities",
                 "when the provider supports it", "not a limit of two child batches");

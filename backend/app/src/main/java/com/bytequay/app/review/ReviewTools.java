@@ -302,6 +302,8 @@ public class ReviewTools
                                 + "with evidence refs and diff anchors from review_get_context. Save code-specific bugs and improvements here, not in summary replies. "
                                 + "Use severity for defects; mark optional improvements as suggestions and omit severity. "
                                 + "A concrete minor improvement starts its title with Nit: and omits severity. "
+                                + "A verified observation that exposes a choice the change does not explain starts its title with Question: and omits severity; "
+                                + "ask why and name the two acceptable outcomes. "
                                 + "A finding about a commit message or the PR description has no lines: pass scope pull_request instead of anchors, "
                                 + "without severity or a suggestion block, and give the proposed wording as text. "
                                 + "Polish before saving: at most 120 prose words, or 35 for a Nit:, excluding fenced code. Preserve the trigger, consequence and uncertainty. "

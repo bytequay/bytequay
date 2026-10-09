@@ -80,10 +80,10 @@ targets:
   limit, excluding fenced code. Put full reproduction setup, decisive
   test code, commands, logs and provenance in the finding's evidence. Distinguish
   executed behavior from source tracing there; do not present a trace as a run.
-- Nits: when a review has no other finding, up to five small optional polish
-  notes on test writing, code simplification, naming or comments, a commit
-  subject or body, or the PR description. The title starts with `Nit:` and has
-  no severity. Its body has a 35 prose-word limit. Use one or two sentences and
+- Nits: small optional polish notes on test writing, code simplification,
+  naming or comments, a commit subject or body, or the PR description. They
+  may accompany other findings. The title starts with `Nit:` and has no
+  severity. Its body has a 35 prose-word limit. Use one or two sentences and
   give the concrete rewrite when one fits: a `suggestion` block for code, or
   the proposed wording for a commit message or the PR description.
 - Code suggestions: when an exact replacement is useful, include one fenced

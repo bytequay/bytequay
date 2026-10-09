@@ -209,7 +209,15 @@ export function validateIdeAction(method: unknown, args: unknown, context: IdeCo
     case 'comments.pending': {
       count(args, 1);
       if (!Array.isArray(args[0]) || args[0].length > 500) throw new Error('Invalid local review draft');
-      for (const value of args[0]) { const comment = object(value); file(comment.path); text(comment.body); integer(comment.line); }
+      for (const value of args[0]) {
+        const comment = object(value); file(comment.path); text(comment.body); integer(comment.line);
+        if (comment.replyToCommentId != null) {
+          integer(comment.replyToCommentId);
+          const thread = comments.threads.activities.find(activity => activity.eventType === 'review_thread'
+            && (activity.payload.comments.find(value => value.inReplyToId === null) ?? activity.payload.comments[0])?.githubId === comment.replyToCommentId);
+          if (!thread || thread.payload.path !== comment.path) throw new Error('Unknown review thread');
+        }
+      }
       return;
     }
     case 'comments.detail': {

@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import { PendingReviewComments } from '../pulls/ReviewDrafts';
 import { LinkedWorkRequest, LinkedWorkCard, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import { BackportChainCard, useBackportChains } from './BackportChains';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
@@ -1154,6 +1155,7 @@ export function AgentTaskBody({
   const providerStartBlocked = providerBlocked || (authenticationFailure && !providerStatusFresh);
   const authenticationRetry = authenticationFailure ? retryableInput(state) : null;
   return (
+    <PendingReviewComments value={{ comments: pullRequestPendingComments, onChange: onPullRequestPendingCommentsChange }}>
     <div className="agt-screen">
       <div className="agt-body" onClickCapture={selectPullRequestTab}>
       <section className="agt-task-column" aria-label="Agent conversation">
@@ -1418,6 +1420,7 @@ export function AgentTaskBody({
       )}
       </div>
     </div>
+    </PendingReviewComments>
   );
 }
 

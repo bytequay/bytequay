@@ -148,6 +148,7 @@ export type GitHubIssuePreviewDto = {
 };
 
 export type InlineReviewCommentDto = {
+  replyToCommentId?: number | null;
   path: string;
   body: string;
   line: number;
@@ -1970,7 +1971,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
     repo: string,
     number: number,
     expectedVersion: number,
-    comment: { path: string; side: ReviewSide; line: number; startLine: number | null; body: string; commitId: string | null },
+    comment: { path: string; side: ReviewSide; line: number; startLine: number | null; body: string; commitId: string | null; replyToCommentId?: number | null },
   ) => Promise<ReviewDraftDto>;
   addReviewDraftFinding: (
     repo: string,

@@ -132,7 +132,8 @@ repository.
    filter.
 3. Open a PR. **PR** contains its overview, checks, and activity. **WorkBench →
    Changes** contains changed files and commit selection.
-4. Select a diff line or range, write feedback, and choose **Add to review**. When
+4. Select a diff line or range, write feedback, and choose **Add to review**. Replies
+   to existing review threads also offer **Add to review**; **Reply** posts immediately. When
    ready, choose **Submit review**, inspect the pending comments, select **Comment**,
    **Approve**, or **Request Changes** where allowed, and submit.
 5. Use **Monitor PR** (the bell) to keep a PR in **Monitored**. **Stop monitoring PR**

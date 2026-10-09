@@ -103,6 +103,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -1433,7 +1434,7 @@ class TestPullRequestService
     void postsInlineCommentAndReturnsPatchedCachedTimeline()
     {
         InlineReviewComment comment = new InlineReviewComment(
-                "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head");
+                "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head", OptionalLong.empty());
         PrTimelineEvent posted = new PrTimelineEvent(
                 99L, "review_thread", "me", Instant.now(), null, Optional.empty());
         StoredPrDetail cached = stored();
@@ -1811,7 +1812,7 @@ class TestPullRequestService
     void readsBackTheInlineCommentsAReviewWasSubmittedWith()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        InlineReviewComment comment = new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "head");
+        InlineReviewComment comment = new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "head", OptionalLong.empty());
         PrTimelineEvent thread = new PrTimelineEvent(
                 901L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
@@ -1825,6 +1826,27 @@ class TestPullRequestService
         verify(detailStore).saveCached(eq(12L), saved.capture());
         assertThat(saved.getValue().timeline()).extracting(PrTimelineEvent::githubId).contains(901L);
         assertThat(saved.getValue().reviews()).extracting(PrReviewState::githubId).contains(502L);
+    }
+
+    @Test
+    void submitsRepliesToTheirExistingThreadsAndRefreshesTheWholeDiscussion()
+    {
+        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
+        InlineReviewComment reply = new InlineReviewComment("a.txt", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61));
+        PrTimelineEvent thread = new PrTimelineEvent(61L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
+        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
+        when(gitHub.findReviewThreadId("pat", ref, 61)).thenReturn("PRRT_61");
+        when(writes.submitReviewWithReplies("pat", ref, "COMMENT", "", ImmutableList.of(reply), ImmutableMap.of(61L, "PRRT_61")))
+                .thenReturn(review(502L, "COMMENTED", ""));
+        when(gitHub.fetchPrReviewThreads("pat", ref)).thenReturn(ImmutableList.of(thread));
+
+        service.submitReview("owner/repo", 7, 12L, "COMMENT", "", ImmutableList.of(reply));
+
+        verify(gitHub, never()).fetchReviewComments(anyString(), any(), anyLong());
+        verify(writes, never()).replyToReviewComment(anyString(), any(), anyLong(), anyString());
+        ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).saveCached(eq(12L), saved.capture());
+        assertThat(saved.getValue().timeline()).extracting(PrTimelineEvent::githubId).contains(61L);
     }
 
     @Test
@@ -1849,8 +1871,8 @@ class TestPullRequestService
     void rejectsOneReviewCarryingCommentsFromDifferentCommits()
     {
         List<InlineReviewComment> comments = ImmutableList.of(
-                new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "older"),
-                new InlineReviewComment("b.txt", "note", 9, "RIGHT", null, null, "head"));
+                new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "older", OptionalLong.empty()),
+                new InlineReviewComment("b.txt", "note", 9, "RIGHT", null, null, "head", OptionalLong.empty()));
 
         assertThatThrownBy(() -> service.submitReview("owner/repo", 7, 12L, "COMMENT", "", comments))
                 .isInstanceOf(ResponseStatusException.class)

@@ -404,7 +404,7 @@ public class ReviewController
                 request.body(),
                 true,
                 Optional.empty(),
-                Optional.ofNullable(request.commitId()));
+                Optional.ofNullable(request.commitId()), request.replyToCommentId() == null ? OptionalLong.empty() : OptionalLong.of(request.replyToCommentId()));
         return ReviewHttpModels.draft(publications.addManual(repo, number, required(request.expectedVersion(), "expectedVersion"), item));
     }
 

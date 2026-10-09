@@ -1354,7 +1354,7 @@ function pendingReviewCommentsForLine(
   newLine: number | null,
   headSha: string | undefined,
 ) {
-  return comments.filter(comment => comment.path === path
+  return comments.filter(comment => comment.replyToCommentId == null && comment.path === path
     && (headSha === undefined || comment.commitId === null || comment.commitId === headSha)
     && (comment.side === 'LEFT' ? comment.line === oldLine : comment.line === newLine));
 }

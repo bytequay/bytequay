@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { PendingReviewComments } from './ReviewDrafts';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -979,6 +980,7 @@ export default function PullsScreen({
   };
 
   return (
+    <PendingReviewComments value={{ comments: pendingReviewComments, onChange: setPendingReviewComments }}>
     <div className={`pulls-page${overlay ? ' pulls-page--overlay' : ''}${reviewWorkspace === undefined ? '' : ' pulls-page--review-workspace'}`}
       ref={overlayRef}
       role={overlay ? 'dialog' : undefined}
@@ -1302,6 +1304,7 @@ export default function PullsScreen({
         </ConfirmDialog>
       )}
     </div>
+    </PendingReviewComments>
   );
 }
 
@@ -1769,7 +1772,7 @@ export function ReviewDialog({
         let version = savedDraft.current.version;
         for (const comment of remaining) {
           savedDraft.current = await window.bridge.addReviewDraftComment(detail.repo, detail.number, version, {
-            path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body, commitId: comment.commitId,
+            path: comment.path, side: comment.side, line: comment.line, startLine: comment.startLine, body: comment.body, commitId: comment.commitId, replyToCommentId: comment.replyToCommentId,
           });
           version = savedDraft.current.version;
           remaining = remaining.filter(value => value !== comment);
@@ -1849,10 +1852,11 @@ export function ReviewDialog({
         {outgoing.length > 0 && (
           <div className="pr-review-sheet__pending">
             {outgoing.map(({ key, comment, remove, save }) => {
-              const lines = codeLines(comment);
+              const lines = comment.replyToCommentId == null ? codeLines(comment) : [];
               return <ReviewThreadCard key={key} resolved={false} controls={null}
                 title={<span className="lrc__title"><code title={comment.path}>{comment.path}</code>
-                  {comment.commitId !== null && <span> · commit {comment.commitId.slice(0, 7)}</span>}</span>}
+                  {comment.replyToCommentId != null && <span> · Reply to thread</span>}
+                  {comment.replyToCommentId == null && comment.commitId !== null && <span> · commit {comment.commitId.slice(0, 7)}</span>}</span>}
                 code={lines.length > 0 && <div className="lrc__code">
                   {lines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
                 </div>}>

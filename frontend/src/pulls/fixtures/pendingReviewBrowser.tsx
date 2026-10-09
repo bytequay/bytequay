@@ -20,6 +20,7 @@ import { reviewFixture } from '../agent-review/fixtures/review';
 import '../../css/base.css';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import { DETAIL_REFRESH_INTERVAL } from '../usePullRequestDetail';
+import { EMPTY_TIMELINE_PAYLOAD } from '../model';
 import type { ReviewDraftDto } from '../agent-review/contracts';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
@@ -28,7 +29,10 @@ const stored: PullRequestDetailDto = {
   mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: '2026-01-01T00:00:00Z',
   mergedAt: null, baseRef: 'master', headRef: 'feature', body: 'Implementation', labels: [], assignees: [], milestone: null,
   reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }], additions: 1, deletions: 1, changedFiles: 1,
-  approvalCount: 0, ciStatus: null, recentActivity: [], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
+  approvalCount: 0, ciStatus: null, recentActivity: [{ githubId: 61, eventType: 'review_thread', actor: 'alice', timestamp: null, body: 'Existing discussion',
+    payload: { ...EMPTY_TIMELINE_PAYLOAD, path: 'src/Example.java', line: 1, originalLine: 1, side: 'RIGHT',
+      comments: [{ githubId: 61, actor: 'alice', actorAvatarUrl: null, actorBot: false, timestamp: null, body: 'Existing discussion',
+        htmlUrl: null, reviewId: 50, inReplyToId: null, reactions: [] }] } }], checkRuns: [], unavailableSections: [], viewerCanWrite: true,
 };
 const files: DiffFileDto[] = [{ filename: 'src/Example.java', status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' }];
 const commits: DiffCommitDto[] = [
@@ -168,6 +172,16 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     for (let attempt = 0; attempt < 30 && host.querySelector('[aria-label="Deselect two: two"]') === null; attempt++) await settle();
     assert(await staged(), 'Narrowing the diff to selected commits must keep the staged review');
 
+    button('PR #').click(); await settle();
+    button('Reply').click(); await settle();
+    const reply = host.querySelector<HTMLTextAreaElement>('[aria-label="Reply to review thread"]');
+    assert(reply !== null, 'Existing review threads must offer a reply editor');
+    changeInput(reply, 'Include this reply in my review'); await settle();
+    button('Add to review').click(); await settle();
+    assert(submissions.length === 0 && host.textContent?.includes('Include this reply in my review'),
+      'Adding a reply must keep it local and visible in its thread');
+    assert(host.querySelector('[aria-label^="Submit review, 2 pending"]') !== null, 'Replies must count toward the pending review');
+    button('WorkBench').click(); await settle();
     button('Summary').click(); await settle();
     button('Submit review').click(); await settle();
     const submit = host.querySelector<HTMLButtonElement>('.pr-review-sheet__footer .is-primary');
@@ -200,11 +214,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     submit.click(); await settle();
     assert(Number(submissions.length) === 1, 'The explicit submit action must publish the review exactly once');
     const [, repo, number, event, , comments] = submissions[0];
-    assert(repo === detail.repo && number === detail.number && event === 'APPROVE' && comments?.length === 1
+    assert(repo === detail.repo && number === detail.number && event === 'APPROVE' && comments?.length === 2
       && comments[0].path === files[0].filename && comments[0].side === 'RIGHT' && comments[0].line === 1
-      && comments[0].commitId === 'two' && comments[0].body === editedBody,
+      && comments[0].commitId === 'two' && comments[0].body === editedBody
+      && comments[1].replyToCommentId === 61 && comments[1].body === 'Include this reply in my review',
     'Submitting from WorkBench must preserve the PR, revision, line, and staged comment');
-    assert(host.querySelector('.pr-review-sheet') === null && host.querySelector('[aria-label^="Submit review, 1 pending"]') === null,
+    assert(host.querySelector('.pr-review-sheet') === null && host.querySelector('[aria-label^="Submit review, 2 pending"]') === null,
       'Successful submission must close the dialog and clear the staged comment');
     return [{ name: 'A staged review lasts as long as the pull request page' }];
   }

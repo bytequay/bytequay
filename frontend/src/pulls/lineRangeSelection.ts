@@ -136,15 +136,17 @@ export function reviewCommentGroups(
   headSha: string | null,
 ): InlineReviewCommentDto[][] {
   const groups = new Map<string | null, InlineReviewCommentDto[]>();
-  for (const comment of comments) {
+  for (const comment of comments.filter(value => value.replyToCommentId == null)) {
     const group = groups.get(comment.commitId);
     if (group === undefined) groups.set(comment.commitId, [comment]);
     else group.push(comment);
   }
-  if (groups.size === 0) return [[]];
+  if (groups.size === 0) return [comments];
   // sort is stable, so every other group keeps the order its comments were written in.
-  return [...groups.values()].sort((left, right) =>
+  const batches = [...groups.values()].sort((left, right) =>
     Number(left[0].commitId === headSha) - Number(right[0].commitId === headSha));
+  batches[batches.length - 1].push(...comments.filter(comment => comment.replyToCommentId != null));
+  return batches;
 }
 
 /** Null when the body is blank. */

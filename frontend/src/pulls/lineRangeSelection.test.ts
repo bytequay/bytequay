@@ -161,6 +161,10 @@ describe('line range selection', () => {
     const head = on('head.ts', 'head');
     const alsoOlder = on('also-older.ts', 'older');
 
+    const reply: InlineReviewCommentDto = { ...head, commitId: null, replyToCommentId: 61 };
+    expect(reviewCommentGroups([reply], 'head')).toEqual([[reply]]);
+    expect(reviewCommentGroups([reply, head, older], 'head')).toEqual([[older], [head, reply]]);
+
     // A body-only review still needs one submission.
     expect(reviewCommentGroups([], 'head')).toEqual([[]]);
     expect(reviewCommentGroups([head], 'head')).toEqual([[head]]);

@@ -91,6 +91,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.UUID;
@@ -965,6 +966,10 @@ public class PullRequestService
         validateReviewComment(comment, true);
         String pat = credentialService.resolveGitHubToken();
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
+        if (comment.replyToCommentId().isPresent()) {
+            replyToReviewComment(repo, number, comment.replyToCommentId().getAsLong(), comment.body());
+            return getPullRequestDetail(repo, number);
+        }
         PrTimelineEvent created = pullRequestWrites.createReviewComment(pat, parseRef(repo, number), comment);
         PullRequestDetail detail = patchCachedTimeline(repo, number, prId, created);
         prId.ifPresent(id -> markReviewed(id, "COMMENT"));
@@ -1226,14 +1231,18 @@ public class PullRequestService
 
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
-        PrReviewState created = pullRequestWrites.submitReview(
-                pat, ref, normalizedEvent, reviewBody, reviewComments);
+        Map<Long, String> replyThreads = new LinkedHashMap<>();
+        reviewComments.stream().map(InlineReviewComment::replyToCommentId).filter(OptionalLong::isPresent).mapToLong(OptionalLong::getAsLong).distinct()
+                .forEach(commentId -> replyThreads.put(commentId, gitHub.findReviewThreadId(pat, ref, commentId)));
+        PrReviewState created = replyThreads.isEmpty()
+                ? pullRequestWrites.submitReview(pat, ref, normalizedEvent, reviewBody, reviewComments)
+                : pullRequestWrites.submitReviewWithReplies(pat, ref, normalizedEvent, reviewBody, reviewComments, replyThreads);
         // The review response carries the review alone, so the inline comments it
         // was submitted with have to be read back or they vanish from the diff
         // until the next poll.
         List<PrTimelineEvent> threads = reviewComments.isEmpty() || created.githubId() == null
                 ? ImmutableList.of()
-                : gitHub.fetchReviewComments(pat, ref, created.githubId());
+                : replyThreads.isEmpty() ? gitHub.fetchReviewComments(pat, ref, created.githubId()) : gitHub.fetchPrReviewThreads(pat, ref);
         PullRequestDetail detail = patchCachedReview(repo, number, prId, created, threads);
         markReviewed(prId, normalizedEvent);
         recordReview(repo, number, normalizedEvent, reviewBody, created);
@@ -1359,8 +1368,14 @@ public class PullRequestService
         if (comment == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "review comment must not be null");
         }
-        requireNotBlank(comment.path(), "review comment path must not be blank");
         requireNotBlank(comment.body(), "review comment body must not be blank");
+        if (comment.replyToCommentId().isPresent()) {
+            if (comment.replyToCommentId().getAsLong() <= 0) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "reply requires a positive comment id");
+            }
+            return;
+        }
+        requireNotBlank(comment.path(), "review comment path must not be blank");
         requireNotBlank(comment.side(), "review comment side must not be blank");
         String side = comment.side().toUpperCase(Locale.ROOT);
         if (!ImmutableSet.of("LEFT", "RIGHT").contains(side)) {

@@ -11,10 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useReviewDraft } from './ReviewDrafts';
+import { PendingReviewComments, useReviewDraft } from './ReviewDrafts';
 import LocalReviewThreadCard from './local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads, LocalReviewThreadDto } from './local-review/types';
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useContext, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Check, CircleCheck, CircleDot, CircleMinus, CircleSlash2, CircleX, Clock3, Copy, Ellipsis, ExternalLink, Eye, FileText, GitCommitHorizontal, Link, LoaderCircle, Pencil, Quote, RotateCw, SmilePlus, Tag, User } from 'lucide-react';
 import Avatar from '../Avatar';
 import CopyLinkButton from '../CopyLinkButton';
@@ -1016,7 +1016,7 @@ export function updateReviewThreadResolution(
   };
 }
 
-export function ReviewThread({ activity, viewerLogin, privateThreads, pr, workspaceId, onRefresh, onDetailUpdate, showCode = true }: {
+export function ReviewThread({ activity, viewerLogin, privateThreads, pr, workspaceId, onRefresh, onDetailUpdate, showCode = true, pendingReview }: {
   activity: Activity;
   viewerLogin?: string;
   privateThreads?: PrivateThreads;
@@ -1025,8 +1025,11 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   onRefresh: () => Promise<void>;
   onDetailUpdate: PullDetailUpdater;
   showCode?: boolean;
+  pendingReview?: React.ContextType<typeof PendingReviewComments>;
 }) {
   const { payload } = activity;
+  const hostPending = useContext(PendingReviewComments);
+  const pending = pendingReview ?? hostPending;
   const [replying, setReplying] = useReviewDraft(`github:${activity.githubId}:replying`, false);
   const [body, setBody] = useReviewDraft(`github:${activity.githubId}:body`, '');
   const [preview, setPreview] = useState(false);
@@ -1036,7 +1039,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const [edit, setEdit] = useReviewDraft<{ commentId: number; draft: string } | null>(`github:${activity.githubId}:edit`, null);
   const [error, setError] = useState('');
   const [drafting, setDrafting] = useState(false);
-  // The editor holds the agent's draft; nothing reaches GitHub until the user presses Comment.
+  // The editor holds the agent's draft until the user chooses to post it or add it to a review.
   const [drafted, setDrafted] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const resolutionInFlight = useRef(false);
@@ -1134,6 +1137,15 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
       setDrafting(false);
     }
   };
+  const addToReview = () => {
+    if (!pending || !rootCommentId || !body.trim()) return;
+    pending.onChange([...pending.comments, {
+      replyToCommentId: rootCommentId, body: body.trim(), path: payload.path ?? '',
+      line: targetLine ?? 1, side: payload.side === 'LEFT' ? 'LEFT' : 'RIGHT',
+      startLine: null, startSide: null, commitId: null,
+    }]);
+    discard();
+  };
   const discard = () => { setReplying(false); setBody(''); setPreview(false); setError(''); setDrafted(false); };
   const controls = drafting ? (
     <footer className="lrc__foot pr-thread-draft" role="status">
@@ -1144,7 +1156,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
       <MarkdownEditor value={body} onChange={setBody} repository={pr.repo} suggestion={suggestion}
         textareaRef={textareaRef} autoFocus={!drafted} preview={preview} onPreviewChange={setPreview}
         ariaLabel="Reply to review thread" placeholder="Reply to this thread…" busy={posting} error={error}
-        // An agent draft posts only by the Comment click, never by the private composer's send key.
+        // Agent drafts require an explicit button click, never the private composer's send key.
         onSubmit={drafted ? undefined : () => { void submit(); }}
         header={drafted && <div className="pr-thread-draft__head">
           <span className="pr-thread-draft__badge">Draft · not posted</span>
@@ -1155,6 +1167,8 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
           disabled={preview || posting}
           onError={failure => setError(failure === null ? '' : remoteErrorMessage(failure))} />
         <button type="button" disabled={posting} onClick={discard}>{drafted ? 'Discard' : 'Cancel'}</button>
+        {pending && pr.state?.toLowerCase() === 'open' && <button type="button" disabled={posting || !body.trim()}
+          onClick={addToReview}>Add to review</button>}
         <button className="is-primary" type="button" disabled={posting || !body.trim()}
           onClick={() => { void submit(); }}>{drafted ? posting ? 'Commenting…' : 'Comment' : posting ? 'Replying…' : 'Reply'}</button>
       </MarkdownEditor>
@@ -1183,6 +1197,13 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
         onDraftReply={rootCommentId === undefined || rootCommentId === null ? undefined
           : thread => { void draftWithAgent(thread, displayActor(comment.actor ?? '')); }}
         key={comment.githubId ?? comment.timestamp} />)}
+      {pending?.comments.filter(comment => comment.replyToCommentId === rootCommentId).map((comment, index) => (
+        <ReviewThreadMessage key={index} author={viewerLogin ?? 'You'} timestamp={null}
+          tag={<span className="pull-diff-pending__badge">Pending</span>}
+          menu={<button type="button" onClick={() => pending.onChange(pending.comments.filter(value => value !== comment))}>Remove</button>}>
+          <MarkdownBody body={comment.body} repository={pr.repo} />
+        </ReviewThreadMessage>
+      ))}
     </ReviewThreadCard>
   );
 }

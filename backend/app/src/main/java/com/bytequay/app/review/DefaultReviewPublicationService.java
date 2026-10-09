@@ -88,10 +88,11 @@ public class DefaultReviewPublicationService
             if (draft.items().stream().noneMatch(item -> item.commitId().isEmpty() && item.publication().isEmpty())) {
                 return draft;
             }
-            Optional<String> head = draft.items().stream().anyMatch(item -> item.source() == ReviewDraftItem.Source.MANUAL && item.commitId().isEmpty())
+            Optional<String> head = draft.items().stream().anyMatch(item -> item.source() == ReviewDraftItem.Source.MANUAL
+                    && item.replyToCommentId().isEmpty() && item.commitId().isEmpty())
                     ? pullRequests.findHeadSha(repo, number) : Optional.empty();
             List<ReviewDraftItem> items = draft.items().stream().map(item -> {
-                if (item.commitId().isPresent() || item.publication().isPresent()) {
+                if (item.replyToCommentId().isPresent() || item.commitId().isPresent() || item.publication().isPresent()) {
                     return item;
                 }
                 Optional<String> commit = item.source() == ReviewDraftItem.Source.MANUAL ? head
@@ -125,7 +126,7 @@ public class DefaultReviewPublicationService
                     body(item.body()),
                     true,
                     Optional.empty(),
-                    item.commitId().or(() -> pullRequests.findHeadSha(repo, number)));
+                    item.replyToCommentId().isPresent() ? Optional.empty() : item.commitId().or(() -> pullRequests.findHeadSha(repo, number)), item.replyToCommentId());
             return drafts.save(draft.withItems(append(draft.items(), manual), now()));
         });
     }
@@ -165,7 +166,7 @@ public class DefaultReviewPublicationService
                     text,
                     true,
                     Optional.empty(),
-                    Optional.of(finding.validatedHeadSha()));
+                    Optional.of(finding.validatedHeadSha()), OptionalLong.empty());
             return drafts.save(draft.withItems(append(draft.items(), item), now()));
         });
     }
@@ -254,6 +255,9 @@ public class DefaultReviewPublicationService
         });
         Map<String, List<ReviewDraftItem>> groups = new LinkedHashMap<>();
         for (ReviewDraftItem item : reservation.items()) {
+            if (item.replyToCommentId().isPresent()) {
+                continue;
+            }
             groups.computeIfAbsent(item.commitId().orElseThrow(), ignored -> new ArrayList<>()).add(item);
         }
         pullRequests.findHeadSha(repo, number).filter(groups::containsKey).ifPresent(head -> {
@@ -264,6 +268,9 @@ public class DefaultReviewPublicationService
         if (batches.isEmpty()) {
             batches.add(ImmutableList.of());
         }
+        List<ReviewDraftItem> lastBatch = new ArrayList<>(batches.getLast());
+        reservation.items().stream().filter(item -> item.replyToCommentId().isPresent()).forEach(lastBatch::add);
+        batches.set(batches.size() - 1, lastBatch);
         List<String> published = new ArrayList<>();
         List<String> notices = new ArrayList<>();
         for (int index = 0; index < batches.size(); index++) {
@@ -397,13 +404,16 @@ public class DefaultReviewPublicationService
         }
         List<Remote> matches = detail.recentActivity().stream()
                 .filter(activity -> "review_thread".equals(activity.eventType()) && activity.payload() != null)
-                .filter(activity -> item.path().equals(activity.payload().path()))
-                .filter(activity -> Objects.equals(activity.payload().outdated() ? activity.payload().originalLine() : activity.payload().line(), item.line()))
-                .filter(activity -> Objects.equals(activity.payload().side(), item.side()))
-                .filter(activity -> Objects.equals(activity.payload().outdated() ? activity.payload().originalStartLine() : activity.payload().startLine(),
+                .filter(activity -> item.replyToCommentId().isPresent() || item.path().equals(activity.payload().path()))
+                .filter(activity -> item.replyToCommentId().isPresent()
+                        || Objects.equals(activity.payload().outdated() ? activity.payload().originalLine() : activity.payload().line(), item.line()))
+                .filter(activity -> item.replyToCommentId().isPresent() || Objects.equals(activity.payload().side(), item.side()))
+                .filter(activity -> item.replyToCommentId().isPresent()
+                        || Objects.equals(activity.payload().outdated() ? activity.payload().originalStartLine() : activity.payload().startLine(),
                         item.startLine().isPresent() ? item.startLine().getAsInt() : null))
                 .flatMap(activity -> activity.payload().comments().stream()
                         .filter(comment -> comment.githubId() != null && Objects.equals(comment.reviewId(), reviewId.getAsLong()) && item.body().equals(comment.body()))
+                        .filter(comment -> item.replyToCommentId().isEmpty() || Objects.equals(comment.inReplyToId(), item.replyToCommentId().getAsLong()))
                         .map(comment -> new Remote(comment.githubId(), Optional.ofNullable(comment.htmlUrl()))))
                 .collect(toImmutableList());
         return matches.size() == 1 ? Optional.of(matches.getFirst()) : Optional.empty();
@@ -439,7 +449,7 @@ public class DefaultReviewPublicationService
     /** A saved comment belongs to the user; its source finding no longer controls publication. */
     private static Optional<String> reason(ReviewDraftItem item)
     {
-        return item.commitId().isEmpty()
+        return item.replyToCommentId().isEmpty() && item.commitId().isEmpty()
                 ? Optional.of("The comment's original commit is unknown; reopen the review preview before submitting")
                 : Optional.empty();
     }
@@ -463,7 +473,7 @@ public class DefaultReviewPublicationService
                 item.side(),
                 item.startLine().isPresent() ? item.startLine().getAsInt() : null,
                 item.startLine().isPresent() ? item.side() : null,
-                item.commitId().orElseThrow());
+                item.commitId().orElse(null), item.replyToCommentId());
     }
 
     private long prId(String repo, int number)

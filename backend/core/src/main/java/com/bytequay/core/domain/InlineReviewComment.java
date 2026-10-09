@@ -13,6 +13,8 @@
  */
 package com.bytequay.core.domain;
 
+import java.util.OptionalLong;
+
 import static java.util.Objects.requireNonNull;
 
 public record InlineReviewComment(
@@ -22,10 +24,12 @@ public record InlineReviewComment(
         String side,
         Integer startLine,
         String startSide,
-        String commitId)
+        String commitId,
+        OptionalLong replyToCommentId)
 {
     public InlineReviewComment
     {
+        requireNonNull(replyToCommentId, "replyToCommentId is null");
         requireNonNull(path, "path is null");
         requireNonNull(body, "body is null");
     }

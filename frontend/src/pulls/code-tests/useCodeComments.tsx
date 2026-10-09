@@ -168,7 +168,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
   });
   const askReason = context.askBlocked ?? (context.draft ? 'Save or revert your edits to send them to the agent' : null);
 
-  const pendingHere = options.pending.filter(item => item.path === path && item.side === 'RIGHT');
+  const pendingHere = options.pending.filter(item => item.replyToCommentId == null && item.path === path && item.side === 'RIGHT');
   const placedPending = clean ? pendingHere.filter(item => item.commitId === context.reviewedHead) : [];
   const threadsHere = options.threads.activities.filter(activity => activity.eventType === 'review_thread' && activity.payload.path === path);
   const placedThreads = clean && atHead
@@ -203,7 +203,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
     }
     if (key.startsWith('thread:')) {
       const activity = placedThreads.find(item => `thread:${item.githubId}` === key);
-      return activity === undefined ? null : <ReviewThread {...options.threads} activity={activity} viewerLogin={options.viewer?.login} showCode={false} />;
+      return activity === undefined ? null : <ReviewThread pendingReview={{ comments: options.pending, onChange: options.onPendingChange }} {...options.threads} activity={activity} viewerLogin={options.viewer?.login} showCode={false} />;
     }
     if (key.startsWith('local:')) {
       const thread = placedLocal.find(item => `local:${item.id}` === key);
@@ -301,7 +301,7 @@ export function useCodeComments(options: CodeCommentsOptions | undefined, contex
       ))}
       {unplacedThreads.map(activity => (
         <div key={activity.githubId} className="ct-unplaced__card">
-          <ReviewThread {...options.threads} activity={activity} viewerLogin={options.viewer?.login} />
+          <ReviewThread pendingReview={{ comments: options.pending, onChange: options.onPendingChange }} {...options.threads} activity={activity} viewerLogin={options.viewer?.login} />
         </div>
       ))}
       {unplacedLocal.map(thread => (

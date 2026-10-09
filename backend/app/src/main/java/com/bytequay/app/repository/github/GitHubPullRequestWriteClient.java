@@ -273,6 +273,62 @@ public class GitHubPullRequestWriteClient
         });
     }
 
+    /** Replies belong to existing threads, so attach them to one pending review before publishing it. */
+    public PrReviewState submitReviewWithReplies(
+            String pat,
+            PullRequestRef pr,
+            String event,
+            String body,
+            List<InlineReviewComment> comments,
+            Map<Long, String> replyThreads)
+    {
+        return translating(() -> {
+            Map<String, Object> request = new LinkedHashMap<>();
+            List<InlineReviewComment> inline = comments.stream().filter(comment -> comment.replyToCommentId().isEmpty()).toList();
+            inline.stream().map(InlineReviewComment::commitId).filter(commit -> commit != null && !commit.isBlank()).findFirst()
+                    .ifPresent(commit -> request.put("commit_id", commit));
+            if (!inline.isEmpty()) {
+                request.put("comments", inline.stream().map(GitHubPullRequestWriteClient::toReviewCommentRequest).toList());
+            }
+            PendingReview pending = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, request,
+                    "/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
+                    .body(PendingReview.class), "Empty response from GitHub when preparing review");
+            if (pending.id() == null || pending.nodeId() == null || !"PENDING".equals(pending.state())) {
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Could not identify the pending review; check the pull request on GitHub before retrying");
+            }
+            try {
+                for (InlineReviewComment comment : comments) {
+                    if (comment.replyToCommentId().isEmpty()) {
+                        continue;
+                    }
+                    String mutation = """
+                            mutation($review:ID!,$thread:ID!,$body:String!){
+                              addPullRequestReviewThreadReply(input:{pullRequestReviewId:$review,pullRequestReviewThreadId:$thread,body:$body}){comment{id}}
+                            }
+                            """;
+                    JsonNode response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of(
+                            "review", pending.nodeId(), "thread", replyThreads.get(comment.replyToCommentId().getAsLong()), "body", comment.body()))
+                            .body(JsonNode.class);
+                    if (response == null || response.has("errors") && !response.path("errors").isEmpty()
+                            || !response.path("data").path("addPullRequestReviewThreadReply").path("comment").path("id").isTextual()) {
+                        throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub did not confirm the pending reply");
+                    }
+                }
+                return requireBody(send(gitHubRestClient, HttpMethod.POST, pat, ImmutableMap.of("event", event, "body", body),
+                        "/repos/{owner}/{repo}/pulls/{number}/reviews/{reviewId}/events", pr.owner(), pr.repo(), pr.number(), pending.id())
+                        .body(GitHubReview.class), "Empty response from GitHub when submitting review").toReviewState();
+            }
+            catch (RuntimeException failure) {
+                // An uncertain submit may already be public; never retry or delete it automatically.
+                throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
+                        "Review submission was not confirmed. Check the pending or submitted review on GitHub before retrying.", failure);
+            }
+        });
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record PendingReview(Long id, @JsonProperty("node_id") String nodeId, String state) {}
+
     /** Posts a review and returns what GitHub created, so callers need not re-read it. */
     private PrReviewState postReview(String pat, PullRequestRef pr, Map<String, ?> request)
     {

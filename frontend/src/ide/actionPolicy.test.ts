@@ -59,6 +59,17 @@ describe('IDE action boundary', () => {
     expect(() => validateIdeAction('resolveAgentReviewFinding', [review.id, finding.id, finding.version + 1, 'Verified'], context, true)).toThrow('Finding changed');
     expect(() => validateIdeAction('resolveAgentReviewFinding', ['foreign-review', finding.id, finding.version, 'Verified'], context, true)).toThrow('Different review');
   });
+  it('stages replies only to a known root in the current PR', () => {
+    const current = { ...context, comments: { repo: 'owner/repo', number: 1, canReview: true,
+      threads: { activities: [{ eventType: 'review_thread', payload: { path: 'A.java', comments: [
+        { githubId: 20, inReplyToId: null }, { githubId: 21, inReplyToId: 20 },
+      ] } }] } } } as unknown as IdeContext;
+    const reply = { path: 'A.java', line: 1, body: 'Reply', replyToCommentId: 20 };
+    expect(() => validateIdeAction('comments.pending', [[reply]], current, true)).not.toThrow();
+    expect(() => validateIdeAction('comments.pending', [[{ ...reply, replyToCommentId: 21 }]], current, true)).toThrow('Unknown review thread');
+    expect(() => validateIdeAction('comments.pending', [[{ ...reply, path: 'Other.java' }]], current, true)).toThrow('Unknown review thread');
+  });
+
   it('limits GitHub actions to direct gestures on the current PR and known comments', () => {
     const current = { ...context, comments: { repo: 'owner/repo', number: 1, canReview: true, viewer: { login: 'viewer' },
       threads: { activities: [{ eventType: 'review_thread', payload: { comments: [

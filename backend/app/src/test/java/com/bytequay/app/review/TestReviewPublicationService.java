@@ -511,6 +511,33 @@ class TestReviewPublicationService
     }
 
     @Test
+    void repliesRetainTheirThreadWhenEditedAndJoinTheFinalReviewBatch()
+    {
+        ReviewDraftItem reply = new ReviewDraftItem("reply", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "old.java", "RIGHT", 1,
+                OptionalInt.empty(), "Reply", true, Optional.empty(), Optional.empty(), OptionalLong.of(61));
+        ReviewDraft draft = service.addManual(REPO, NUMBER, 0, reply);
+        String replyId = lastItemId(draft);
+        draft = service.editItem(REPO, NUMBER, draft.version(), replyId, "Edited reply", true);
+        draft = service.addManual(REPO, NUMBER, draft.version(), manual("A.java", 3, "Older comment").withCommitId(REVIEWED_HEAD));
+        draft = service.addManual(REPO, NUMBER, draft.version(), manual("B.java", 4, "Head comment").withCommitId(CURRENT_HEAD));
+        assertThat(draft.items().getFirst().replyToCommentId()).hasValue(61);
+        assertThat(draft.items().getFirst().commitId()).isEmpty();
+        assertThat(service.ineligible(REPO, NUMBER)).isEmpty();
+        when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(CURRENT_HEAD));
+        when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
+
+        service.submit(REPO, NUMBER, draft.version(), "", "APPROVE");
+
+        ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
+        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), sent.capture());
+        assertThat(sent.getValue()).extracting(InlineReviewComment::body).containsExactly("Older comment");
+        verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("APPROVE"), eq(""), sent.capture());
+        assertThat(sent.getValue()).extracting(InlineReviewComment::body).containsExactly("Head comment", "Edited reply");
+        assertThat(sent.getValue().getLast().replyToCommentId()).hasValue(61);
+    }
+
+    @Test
     void submitSendsOnlyTheIncludedUnpublishedItems()
     {
         ReviewDraft draft = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Rename this"));
@@ -548,7 +575,8 @@ class TestReviewPublicationService
 
         ArgumentCaptor<List<InlineReviewComment>> sent = ArgumentCaptor.captor();
         verify(pullRequests).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq("Please fix these"), sent.capture());
-        assertThat(sent.getValue()).containsExactly(new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD));
+        assertThat(sent.getValue()).containsExactly(new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD,
+                OptionalLong.empty()));
         assertThat(result.publishedItemIds()).containsExactly(lastItemId(draft));
         assertThat(reviews.findFinding(FINDING_ID)).contains(open.withState(ReviewFinding.State.RESOLVED, Optional.of("fixed it"), NOW));
     }
@@ -565,7 +593,8 @@ class TestReviewPublicationService
 
         ReviewPublicationService.Publication result = service.publishItem(REPO, NUMBER, draft.version(), lastItemId(draft));
 
-        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD));
+        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment("src/Service.java", "My own review comment", 131, "RIGHT", 118, "RIGHT", REVIEWED_HEAD,
+                OptionalLong.empty()));
         assertThat(result.publishedItemIds()).containsExactly(lastItemId(draft));
     }
 
@@ -683,7 +712,7 @@ class TestReviewPublicationService
     void aLegacyManualDraftIsPinnedWhenPreviewedAndNotRetargetedAfterAPush()
     {
         ReviewDraftItem old = new ReviewDraftItem("old", Source.MANUAL, Optional.empty(), OptionalInt.empty(), "src/A.java", "RIGHT", 1,
-                OptionalInt.empty(), "User wording", true, Optional.empty(), Optional.empty());
+                OptionalInt.empty(), "User wording", true, Optional.empty(), Optional.empty(), OptionalLong.empty());
         drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withItems(ImmutableList.of(old), NOW));
         when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(REVIEWED_HEAD));
         ReviewDraft preview = service.draft(REPO, NUMBER);
@@ -735,7 +764,7 @@ class TestReviewPublicationService
     private static ReviewDraftItem manual(String path, int line, String body)
     {
         return new ReviewDraftItem("new", Source.MANUAL, Optional.empty(), OptionalInt.empty(), path, "RIGHT", line, OptionalInt.empty(), body,
-                true, Optional.empty(), Optional.of(REVIEWED_HEAD));
+                true, Optional.empty(), Optional.of(REVIEWED_HEAD), OptionalLong.empty());
     }
 
     private static ReviewFinding finding(String id, int ordinal, String path, int startLine, int endLine, String body)

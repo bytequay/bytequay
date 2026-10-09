@@ -15,6 +15,7 @@ package com.bytequay.core.review;
 
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -36,7 +37,8 @@ public record ReviewDraftItem(
         String body,
         boolean included,
         Optional<ReviewPublication> publication,
-        Optional<String> commitId)
+        Optional<String> commitId,
+        OptionalLong replyToCommentId)
 {
     public ReviewDraftItem
     {
@@ -51,6 +53,8 @@ public record ReviewDraftItem(
         startLine.ifPresent(value -> checkArgument(value > 0 && value <= line, "invalid line range"));
         requireNonNull(body, "body is null");
         requireNonNull(publication, "publication is null");
+        requireNonNull(replyToCommentId, "replyToCommentId is null");
+        replyToCommentId.ifPresent(value -> checkArgument(value > 0, "replyToCommentId is not positive"));
         requireNonNull(commitId, "commitId is null");
         commitId.ifPresent(value -> checkArgument(!value.isBlank(), "commitId is blank"));
         checkArgument((source == Source.AGENT_FINDING) == findingId.isPresent(), "findingId and source disagree");
@@ -63,22 +67,23 @@ public record ReviewDraftItem(
 
     public ReviewDraftItem withBody(String updatedBody)
     {
-        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, updatedBody, included, publication, commitId);
+        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, updatedBody, included, publication, commitId, replyToCommentId);
     }
 
     public ReviewDraftItem withIncluded(boolean updatedIncluded)
     {
-        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, updatedIncluded, publication, commitId);
+        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, updatedIncluded, publication, commitId, replyToCommentId);
     }
 
     public ReviewDraftItem withPublication(Optional<ReviewPublication> updatedPublication)
     {
-        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, included, updatedPublication, commitId);
+        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, included, updatedPublication, commitId, replyToCommentId);
     }
 
     public ReviewDraftItem withCommitId(String updatedCommitId)
     {
-        return new ReviewDraftItem(id, source, findingId, findingRevision, path, side, line, startLine, body, included, publication, Optional.of(updatedCommitId));
+        return new ReviewDraftItem(
+                id, source, findingId, findingRevision, path, side, line, startLine, body, included, publication, Optional.of(updatedCommitId), replyToCommentId);
     }
 
     public enum Source

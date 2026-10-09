@@ -18,6 +18,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -25,6 +26,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -38,6 +41,59 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 class TestGitHubPullRequestWriteClient
 {
+    @Test
+    void submitsInlineCommentsAndThreadRepliesInOneReview()
+    {
+        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
+        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        MockRestServiceServer graphServer = MockRestServiceServer.bindTo(graph).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), graph.build());
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("""
+                        {"commit_id":"head","comments":[{"path":"A.java","body":"New comment","line":3,"side":"RIGHT"}]}
+                        """, true))
+                .andRespond(withSuccess("{\"id\":77,\"node_id\":\"PRR_77\",\"state\":\"PENDING\"}", MediaType.APPLICATION_JSON));
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andExpect(content().string(containsString("addPullRequestReviewThreadReply")))
+                .andExpect(content().json("""
+                        {"variables":{"review":"PRR_77","thread":"PRRT_61","body":"Reply"}}
+                        """))
+                .andRespond(withSuccess("{\"data\":{\"addPullRequestReviewThreadReply\":{\"comment\":{\"id\":\"PRRC_90\"}}}}", MediaType.APPLICATION_JSON));
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews/77/events"))
+                .andExpect(method(HttpMethod.POST))
+                .andExpect(content().json("{\"event\":\"REQUEST_CHANGES\",\"body\":\"Please fix\"}", true))
+                .andRespond(withSuccess("{\"id\":77,\"state\":\"CHANGES_REQUESTED\",\"user\":{\"login\":\"reviewer\"}}", MediaType.APPLICATION_JSON));
+
+        assertThat(client.submitReviewWithReplies("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix", ImmutableList.of(
+                new InlineReviewComment("A.java", "New comment", 3, "RIGHT", null, null, "head", OptionalLong.empty()),
+                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61")).githubId()).isEqualTo(77);
+        server.verify();
+        graphServer.verify();
+    }
+
+    @Test
+    void doesNotPublishOrRetryWhenAPendingReplyFails()
+    {
+        RestClient.Builder rest = RestClient.builder().baseUrl("https://api.github.test");
+        RestClient.Builder graph = RestClient.builder().baseUrl("https://api.github.test/graphql");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(rest).build();
+        MockRestServiceServer graphServer = MockRestServiceServer.bindTo(graph).build();
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(rest.build(), graph.build());
+        server.expect(requestTo("https://api.github.test/repos/owner/repo/pulls/7/reviews"))
+                .andExpect(content().json("{}", true))
+                .andRespond(withSuccess("{\"id\":77,\"node_id\":\"PRR_77\",\"state\":\"PENDING\"}", MediaType.APPLICATION_JSON));
+        graphServer.expect(requestTo("https://api.github.test/graphql"))
+                .andRespond(withSuccess("{\"errors\":[{\"message\":\"Reply rejected\"}]}", MediaType.APPLICATION_JSON));
+
+        assertThatThrownBy(() -> client.submitReviewWithReplies("pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "", ImmutableList.of(
+                new InlineReviewComment("A.java", "Reply", 1, "RIGHT", null, null, null, OptionalLong.of(61))), ImmutableMap.of(61L, "PRRT_61")))
+                .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Check the pending or submitted review on GitHub");
+        server.verify();
+        graphServer.verify();
+    }
+
     @Test
     void marksTheExactPullRequestReadyOnce()
     {
@@ -349,7 +405,7 @@ class TestGitHubPullRequestWriteClient
                 "pat",
                 PullRequestRef.of("upstream", "project", 12),
                 new InlineReviewComment(
-                        "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head-sha"));
+                        "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head-sha", OptionalLong.empty()));
 
         assertThat(posted.githubId()).isEqualTo(91);
         assertThat(posted.event()).isEqualTo("review_thread");
@@ -420,9 +476,9 @@ class TestGitHubPullRequestWriteClient
                 "",
                 ImmutableList.of(
                         new InlineReviewComment(
-                                "src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha"),
+                                "src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty()),
                         new InlineReviewComment(
-                                "src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha")));
+                                "src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha", OptionalLong.empty())));
 
         server.verify();
     }

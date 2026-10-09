@@ -219,6 +219,7 @@ type ReviewPublicationDto = {
 };
 
 export type ReviewDraftItemDto = {
+  replyToCommentId?: number | null;
   id: string;
   source: 'MANUAL' | 'AGENT_FINDING';
   findingId: string | null;

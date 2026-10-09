@@ -366,7 +366,7 @@ class TestSqliteReviewStores
                 "Name this after what it returns.",
                 true,
                 Optional.empty(),
-                Optional.of("a".repeat(40)));
+                Optional.of("a".repeat(40)), OptionalLong.empty());
         ReviewDraftItem promoted = new ReviewDraftItem(
                 "item-2",
                 ReviewDraftItem.Source.AGENT_FINDING,
@@ -379,10 +379,12 @@ class TestSqliteReviewStores
                 "The published counter is never incremented.",
                 false,
                 Optional.of(publication),
-                Optional.of("a".repeat(40)));
+                Optional.of("a".repeat(40)), OptionalLong.empty());
+        ReviewDraftItem reply = new ReviewDraftItem("reply", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), REVIEW_TOOLS,
+                "RIGHT", 42, OptionalInt.empty(), "Reply to the existing discussion", true, Optional.empty(), Optional.empty(), OptionalLong.of(61));
         ReviewDraft draft = ReviewDraft.empty("ByteQuay/Sample", 7, NOW)
                 .withReview("Close, but the counter is wrong.", "REQUEST_CHANGES", NOW.plusSeconds(1))
-                .withItems(ImmutableList.of(manual, promoted), NOW.plusSeconds(2));
+                .withItems(ImmutableList.of(manual, promoted, reply), NOW.plusSeconds(2));
 
         ReviewDraft saved = draftStore.save(draft);
         entityManager.clear();
@@ -390,7 +392,7 @@ class TestSqliteReviewStores
         assertThat(saved).isEqualTo(draft);
         assertThat(draftStore.find("bytequay/sample", 7)).contains(draft);
         ReviewDraft stored = draftStore.find("bytequay/sample", 7).orElseThrow();
-        assertThat(stored.items()).containsExactly(manual, promoted);
+        assertThat(stored.items()).containsExactly(manual, promoted, reply);
         assertThat(stored.items().get(0).published()).isFalse();
         assertThat(stored.items().get(1).published()).isTrue();
     }
@@ -399,7 +401,7 @@ class TestSqliteReviewStores
     void readsRetainedDraftItemsWithoutACommitWithoutLosingUserText()
     {
         ReviewDraftItem item = new ReviewDraftItem("item-retained", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), REVIEW_TOOLS,
-                "RIGHT", 42, OptionalInt.empty(), "User-edited wording", true, Optional.empty(), Optional.of(HEAD_SHA));
+                "RIGHT", 42, OptionalInt.empty(), "User-edited wording", true, Optional.empty(), Optional.of(HEAD_SHA), OptionalLong.empty());
         ReviewDraft saved = draftStore.save(ReviewDraft.empty("bytequay/sample", 7, NOW)
                 .withReview("Retained summary", "REQUEST_CHANGES", NOW).withItems(ImmutableList.of(item), NOW));
         entityManager.createNativeQuery("UPDATE pr_review_draft SET items_json = json_remove(items_json, '$[0].commitId') WHERE id = :id")

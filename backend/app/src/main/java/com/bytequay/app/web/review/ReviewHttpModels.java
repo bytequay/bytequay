@@ -198,6 +198,7 @@ final class ReviewHttpModels
     {
         return new DraftItemResponse(
                 item.id(),
+                item.replyToCommentId(),
                 item.source().name(),
                 item.findingId(),
                 item.findingRevision(),
@@ -351,6 +352,7 @@ final class ReviewHttpModels
 
     record DraftItemResponse(
             String id,
+            OptionalLong replyToCommentId,
             String source,
             Optional<String> findingId,
             OptionalInt findingRevision,
@@ -401,7 +403,8 @@ final class ReviewHttpModels
             Integer startLine,
             String body,
             Boolean included,
-            String commitId) {}
+            String commitId,
+            Long replyToCommentId) {}
 
     record PromoteFindingRequest(Long expectedVersion, String reviewId, String findingId) {}
 

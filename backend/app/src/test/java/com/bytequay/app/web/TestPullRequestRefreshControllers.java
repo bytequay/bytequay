@@ -47,6 +47,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
@@ -424,7 +425,7 @@ class TestPullRequestRefreshControllers
                 pullRequests, mock(PullRequestRefreshService.class));
         PullRequestDetail detail = detail();
         InlineReviewComment inline = new InlineReviewComment(
-                "src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head-sha");
+                "src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty());
         when(pullRequests.commentOnPullRequest("owner/repo", 7, "hello")).thenReturn(detail);
         when(pullRequests.createReviewComment("owner/repo", 7, inline)).thenReturn(detail);
 

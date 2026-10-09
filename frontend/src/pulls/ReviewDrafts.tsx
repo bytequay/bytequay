@@ -11,7 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { InlineReviewCommentDto } from '../types';
 import { createContext, useContext, useState, type Dispatch, type SetStateAction } from 'react';
+
+export const PendingReviewComments = createContext<{ comments: InlineReviewCommentDto[]; onChange: (comments: InlineReviewCommentDto[]) => void } | null>(null);
 
 /** Opt-in storage shared by the existing cards when they are hosted in a disposable IDE view. */
 export const ReviewDraftStorage = createContext<{ read: (key: string) => unknown; write: (key: string, value: unknown) => void } | null>(null);

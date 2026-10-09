@@ -1241,7 +1241,8 @@ class TestPermissionBroker
         assertThat(settings.at("/sandbox/network/allowedDomains"))
                 .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
         assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean()).isTrue();
-        assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
+        assertThat(settings.at("/sandbox/network/allowUnixSockets"))
+                .isEqualTo(objectMapper.valueToTree(ImmutableList.of("/var/run/docker.sock", "~/.docker/run/docker.sock", "~/.orbstack/run/docker.sock")));
         assertThat(settings.at("/sandbox/filesystem/allowWrite"))
                 .isEqualTo(objectMapper.valueToTree(temporaryRoots(ImmutableMap.of())));
         assertThat(settings.at("/permissions/allow").isMissingNode()).isTrue();
@@ -1428,11 +1429,12 @@ class TestPermissionBroker
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "review context")), "Review only");
         for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
-            for (SessionAccess access : ImmutableList.of(SessionAccess.FULL, SessionAccess.TEXT_ONLY)) {
-                for (boolean reviewSession : ImmutableList.of(false, true)) {
+            for (SessionAccess access : SessionAccess.values()) {
+                for (boolean requestedReview : ImmutableList.of(false, true)) {
                     PermissionBroker broker = new PermissionBroker(
                             () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                            (taskId, query) -> "", taskId -> reviewSession ? Optional.of(review) : Optional.empty());
+                            (taskId, query) -> "", taskId -> requestedReview ? Optional.of(review) : Optional.empty());
+                    boolean reviewSession = requestedReview && access != SessionAccess.READ_ONLY;
                     boolean interactive = policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL && !reviewSession;
                     Optional<JsonNode> previous = Optional.empty();
                     for (String loginVariable : ImmutableList.of("ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN")) {
@@ -1453,10 +1455,17 @@ class TestPermissionBroker
                             boolean ciBuildNetwork = policy == AgentPermissionPolicy.CI_AUTOFIX && access == SessionAccess.FULL;
                             assertThat(settings.at("/sandbox/network/allowLocalBinding").asBoolean())
                                     .isEqualTo((policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL) || ciBuildNetwork);
+                            boolean dockerAccess = access == SessionAccess.FULL && policy != AgentPermissionPolicy.CHERRY_PICK;
+                            assertThat(settings.at("/sandbox/network/allowUnixSockets"))
+                                    .isEqualTo(dockerAccess
+                                            ? objectMapper.valueToTree(ImmutableList.of("/var/run/docker.sock", "~/.docker/run/docker.sock", "~/.orbstack/run/docker.sock"))
+                                            : objectMapper.missingNode());
+                            assertThat(settings.at("/sandbox/network/allowAllUnixSockets").isMissingNode()).isTrue();
+                            assertThat(settings.at("/sandbox/enabled").asBoolean()).isTrue();
+                            assertThat(settings.at("/sandbox/excludedCommands")).isEmpty();
                             if (interactive) {
                                 assertThat(settings.at("/sandbox/network/allowedDomains"))
                                         .isEqualTo(objectMapper.valueToTree(ImmutableList.of("*")));
-                                assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
                                 assertThat(settings.at("/permissions/deny")).isEmpty();
                                 assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
                                 assertThat(settings.at("/autoMode/classifyAllShell").asBoolean()).isTrue();
@@ -1492,13 +1501,11 @@ class TestPermissionBroker
                                 String denied = settings.at("/permissions/deny").toString();
                                 assertThat(denied).contains("Bash(git push:*)", "Read(~/.config/gh/**)", "Read(~/.ssh/**)");
                                 if (reviewReads) {
-                                    assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
                                     assertThat(settings.at("/sandbox/filesystem/denyRead")).isEmpty();
                                     assertThat(denied).doesNotContain("Bash(gh:*)")
                                             .contains("Bash(git credential:*)", "Bash(gh auth:*)", "Bash(gh pr review:*)", "Bash(gh pr comment)", "Bash(gh pr merge:*)", "Bash(gh issue comment:*)");
                                 }
                                 else {
-                                    assertThat(settings.at("/sandbox/network/allowUnixSockets").isMissingNode()).isTrue();
                                     assertThat(denied).contains("Bash(gh:*)");
                                     assertThat(settings.at("/sandbox/filesystem/denyRead").toString()).contains(ghConfig, xdgConfig + "/gh");
                                 }

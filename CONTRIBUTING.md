@@ -106,6 +106,15 @@ The login profile does not change the task's working directory or the user's
 including `~/.m2`; ByteQuay supplies `JAVA_HOME` for Java and Maven in Claude's
 macOS sandbox.
 
+Claude development, review, and CI repair sessions can use a running Docker
+Desktop or OrbStack daemon for container-backed tests. The sandbox allows the
+standard Docker sockets at `/var/run/docker.sock`, `~/.docker/run/docker.sock`,
+and `~/.orbstack/run/docker.sock`. Read-only, text-only, and cherry-pick sessions
+do not receive this allowance. Restart ByteQuay after changing its sandbox
+configuration so newly opened or resumed provider sessions load the change.
+Docker access includes control of the daemon's containers and host bind mounts;
+it is not confined to the task worktree.
+
 ## Project layout
 
 ```text

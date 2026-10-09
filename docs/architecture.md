@@ -125,6 +125,11 @@ are not agent prompt context or ambient task secrets. Native sandboxing,
 application authorization, and same-user filesystem access are distinct
 boundaries; a worktree alone is not a security sandbox.
 
+Claude sessions that build and test can reach the local Docker daemon through
+its standard macOS sockets. Containers and host bind mounts managed through that
+daemon are outside the provider's filesystem sandbox. Restricted sessions and
+cherry-pick sessions do not receive this socket allowance.
+
 Normal cleanup preserves dirty, active, mismatched, or unverifiable work. Removing
 a clean worktree does not imply permission to delete its generated branch.
 Destructive deletion is a separate explicit action.

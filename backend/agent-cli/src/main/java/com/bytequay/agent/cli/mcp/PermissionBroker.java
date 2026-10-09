@@ -1534,7 +1534,11 @@ public final class PermissionBroker
             deny.add("WebFetch", "WebSearch");
         }
         sandbox.put("network", scope.buildNetwork()
-                ? ImmutableMap.of("allowedDomains", ImmutableList.of("*"), "allowLocalBinding", true)
+                ? ImmutableMap.of(
+                        "allowedDomains", ImmutableList.of("*"),
+                        "allowLocalBinding", true,
+                        // Build tools such as Testcontainers connect directly to Docker, without invoking its CLI.
+                        "allowUnixSockets", ImmutableList.of("/var/run/docker.sock", "~/.docker/run/docker.sock", "~/.orbstack/run/docker.sock"))
                 : ImmutableMap.of("allowedDomains", ImmutableList.of()));
         ImmutableMap.Builder<String, Object> permissions = ImmutableMap.<String, Object>builder()
                 .put("deny", deny.build());

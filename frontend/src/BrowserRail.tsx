@@ -19,7 +19,6 @@ import type { InAppBrowserState, InAppBrowserTab } from './types';
 type Props = {
   state: InAppBrowserState;
   expanded: boolean;
-  newPageOpen: boolean;
   error: string | null;
   onToggle: () => void;
   onApp: () => void;
@@ -72,7 +71,7 @@ function PageRow({ tab, active, expanded, onSelect, onClose, onRename }: {
   );
 }
 
-export default function BrowserRail({ state, expanded, newPageOpen, error, onToggle, onApp, onNewPage, onSelect, onClose, onRename }: Props) {
+export default function BrowserRail({ state, expanded, error, onToggle, onApp, onNewPage, onSelect, onClose, onRename }: Props) {
   const pinned = state.tabs.filter(tab => tab.pinned);
   const unpinned = state.tabs.filter(tab => !tab.pinned);
   const row = (tab: InAppBrowserTab) => (
@@ -86,15 +85,15 @@ export default function BrowserRail({ state, expanded, newPageOpen, error, onTog
         {expanded ? <PanelLeftClose size={16} strokeWidth={1.7} /> : <PanelLeftOpen size={16} strokeWidth={1.7} />}
         {expanded && <span>Web pages</span>}
       </button>
-      <button type="button" className={`browser-rail__action${state.activeTabId === null && !newPageOpen ? ' is-active' : ''}`}
-        onClick={onApp} title="Back to ByteQuay" aria-label="Back to ByteQuay" aria-current={state.activeTabId === null && !newPageOpen ? 'page' : undefined}>
+      <button type="button" className={`browser-rail__action${state.activeTabId === null ? ' is-active' : ''}`}
+        onClick={onApp} title="Back to ByteQuay" aria-label="Back to ByteQuay" aria-current={state.activeTabId === null ? 'page' : undefined}>
         <Ship size={16} strokeWidth={1.7} />{expanded && <span>ByteQuay</span>}
       </button>
       <div className="browser-rail__pages">
         {pinned.length > 0 && <div className="browser-rail__group" role="group" aria-label="Pinned pages">{pinned.map(row)}</div>}
         {pinned.length > 0 && <hr />}
         {unpinned.length > 0 && <div className="browser-rail__group" role="group" aria-label="Open pages">{unpinned.map(row)}</div>}
-        <button type="button" className={`browser-rail__action browser-rail__new${newPageOpen ? ' is-active' : ''}`}
+        <button type="button" className="browser-rail__action browser-rail__new"
           onClick={onNewPage} title="Open a new web page" aria-label="Open a new web page">
           <Plus size={18} strokeWidth={1.7} />{expanded && <span>New page</span>}
         </button>

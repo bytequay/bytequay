@@ -103,7 +103,6 @@ export default function App() {
   const [initialAgentReviewId, setInitialAgentReviewId] = useState<string | null>(null);
   const [browser, setBrowser] = useState<InAppBrowserState>({ tabs: [], activeTabId: null });
   const [browserError, setBrowserError] = useState<string | null>(null);
-  const [newPageOpen, setNewPageOpen] = useState(false);
   const [railVisible, setRailVisible] = useState(() => {
     try { return localStorage.getItem('bytequay.browser-rail-visible') !== 'false'; }
     catch { return true; }
@@ -113,13 +112,12 @@ export default function App() {
     catch { return false; }
   });
   const browserTab = browser.tabs.find(tab => tab.id === browser.activeTabId) ?? null;
-  const browserOpen = browserTab !== null || newPageOpen;
+  const browserOpen = browserTab !== null;
   const browserAction = useCallback((action: Promise<void>) => {
     setBrowserError(null);
     void action.catch(cause => setBrowserError(cause instanceof Error ? cause.message : 'Unable to update web pages.'));
   }, []);
   const backToApp = useCallback(() => {
-    setNewPageOpen(false);
     browserAction(window.bridge.hideInAppBrowser());
   }, [browserAction]);
   /** Issues, pull requests and Jira tickets shown over the page, the one opened last on top. */
@@ -166,7 +164,6 @@ export default function App() {
       receivedState = true;
       setBrowser(next);
       if (next.activeTabId !== null) {
-        setNewPageOpen(false);
         setPaletteOpen(false);
       }
     });
@@ -451,14 +448,14 @@ export default function App() {
 
   return (
     <div className={`browser-workspace${railVisible ? '' : ' is-web-rail-hidden'}`} style={{ '--browser-rail-width': railVisible ? (railExpanded ? '220px' : '40px') : '0px' } as CSSProperties}>
-      <BrowserRail state={browser} expanded={railExpanded} newPageOpen={newPageOpen} error={browserError}
+      <BrowserRail state={browser} expanded={railExpanded} error={browserError}
         onToggle={() => setRailExpanded(value => {
           try { localStorage.setItem('bytequay.browser-rail-expanded', String(!value)); } catch { /* preference is optional */ }
           return !value;
         })}
         onApp={backToApp}
-        onNewPage={() => browserAction(window.bridge.hideInAppBrowser().then(() => setNewPageOpen(true)))}
-        onSelect={id => { setNewPageOpen(false); browserAction(window.bridge.selectInAppBrowserTab(id)); }}
+        onNewPage={() => browserAction(window.bridge.openInAppBrowser('https://www.google.com/'))}
+        onSelect={id => browserAction(window.bridge.selectInAppBrowserTab(id))}
         onClose={id => browserAction(window.bridge.closeInAppBrowserTab(id))}
         onRename={(id, name) => browserAction(window.bridge.renameInAppBrowserTab(id, name))} />
       <div className="app-surfaces" inert={browserOpen}>
@@ -595,9 +592,8 @@ export default function App() {
       )}
       {!browserOpen && <FindBar />}
       </div>
-      {browserOpen && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
-        error={browserError} onError={setBrowserError} onBack={backToApp}
-        onOpenPage={async url => { await window.bridge.openInAppBrowser(url); setNewPageOpen(false); }} />}
+      {browserTab && <InAppBrowser tab={browserTab} fullScreen={fullScreen} railExpanded={railExpanded}
+        error={browserError} onError={setBrowserError} onBack={backToApp} />}
     </div>
   );
 }

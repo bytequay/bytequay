@@ -63,6 +63,7 @@ import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewAnchor;
 import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewCandidateValidation;
 import com.bytequay.core.review.ReviewCommit;
@@ -1236,6 +1237,7 @@ public class DefaultAgentReviewService
 
     /**
      * Starts a new-head review or retries a failed run only when the user chooses Update or Resume.
+     * A head that carries the change the last accepted review read gets that review instead of another pass.
      * Synchronization and experiment cleanup hold the same mutation claim as ordinary task writers.
      */
     private void followHead(AgentReview review, boolean retry)
@@ -1272,6 +1274,8 @@ public class DefaultAgentReviewService
                 .filter(run -> !run.explanationOnly() && run.state() == ReviewRun.State.ACCEPTED
                         && run.coverage().filter(coverage -> coverage.complete() && coverage.omissions().isEmpty()).isPresent())
                 .reduce((first, second) -> second);
+        // Decided before the worktree moves, while the reviewed head is still the one checked out.
+        Optional<List<ReviewFinding>> carried = changed ? carriedFindings(review, workspace, snapshot, previous, findings) : Optional.empty();
         // Compared with the fetched head: a retry can find a newer head than the observed one, and every run must sit where the worktree does.
         try {
             turns.synchronizeWorktree(taskId, task.version(),
@@ -1283,7 +1287,63 @@ public class DefaultAgentReviewService
             store.updateReview(store.findReview(review.id()).orElseThrow().withFollowUpPaused(true, Instant.now(clock)));
             throw new ReviewConflictException(refusal.getMessage(), refusal);
         }
+        if (carried.isPresent()) {
+            carry(store.findReview(review.id()).orElseThrow(), snapshot, runs.size() + 1, previous.orElseThrow(), carried.orElseThrow());
+            return;
+        }
         startRun(store.findReview(review.id()).orElseThrow(), snapshot, workspace, runs.size() + 1, previous, findings);
+    }
+
+    /**
+     * The open findings as they stand at a new head that carries the change the last accepted review read. Empty when that
+     * review cannot simply be carried: the change differs, or an open finding is not exactly as that review left it,
+     * which a discussion revision, a pending reassessment or lines that no longer map all mean.
+     */
+    private Optional<List<ReviewFinding>> carriedFindings(AgentReview review, WorkspaceRepositoryContext workspace, Snapshot snapshot, Optional<ReviewRun> accepted,
+            List<ReviewFinding> findings)
+    {
+        if (accepted.isEmpty() || review.replay().isPresent()) {
+            return Optional.empty();
+        }
+        ReviewRun reviewed = accepted.orElseThrow();
+        List<ReviewCandidateValidation> conclusions = reviewed.currentStep().flatMap(ReviewStep::validation).map(ReviewValidation::candidates).orElse(ImmutableList.of());
+        ReviewDiffAnchors anchors = ReviewDiffAnchors.of(snapshot.diff());
+        Instant now = Instant.now(clock);
+        ImmutableList.Builder<ReviewFinding> carried = ImmutableList.builder();
+        for (ReviewFinding finding : findings) {
+            if (finding.state() != ReviewFinding.State.OPEN) {
+                continue;
+            }
+            boolean settled = !finding.outdated() && finding.validatedHeadSha().equals(reviewed.headSha())
+                    && conclusions.stream().anyMatch(conclusion -> conclusion.outcome() == ReviewCandidateValidation.Outcome.SUPPORTED
+                            && conclusion.findingId().equals(Optional.of(finding.id())) && conclusion.findingRevision().equals(Optional.of(finding.revision())));
+            Optional<ReviewAnchor> anchor = finding.anchor().flatMap(anchors::remap);
+            if (!settled || anchor.isPresent() != finding.anchor().isPresent()) {
+                return Optional.empty();
+            }
+            carried.add(finding.carried(anchor, snapshot.headSha(), now));
+        }
+        // Asked last: the findings are already in memory, and the change needs Git.
+        return ReviewHeadCheck.sameChange(git, workspace.repository(), reviewed, snapshot.baseRef(), snapshot.mergeBaseSha(), snapshot.headSha())
+                ? Optional.of(carried.build()) : Optional.empty();
+    }
+
+    /**
+     * Records the accepted review at a head with the same change, without a turn: a run that is already accepted and holds
+     * the reviewed run's report, coverage and evidence, and the open findings where they now sit.
+     */
+    private void carry(AgentReview review, Snapshot snapshot, int ordinal, ReviewRun reviewed, List<ReviewFinding> findings)
+    {
+        Instant now = Instant.now(clock);
+        ReviewRun run = store.insertRun(new ReviewRun(
+                UUID.randomUUID().toString(), review.id(), ordinal, ReviewRun.Scope.FULL, snapshot.baseRef(), snapshot.baseSha(), snapshot.mergeBaseSha(), snapshot.headSha(),
+                Optional.of(reviewed.headSha()), snapshot.commits(), snapshot.diff(), ImmutableList.of(), ReviewRun.State.RUNNING, Optional.empty(), reviewed.coverage(),
+                reviewed.investigation(), reviewed.steps(), false, ImmutableMap.of(), reviewed.evidence(), Optional.empty(), 0, now, now, Optional.empty()));
+        for (ReviewFinding finding : findings) {
+            store.updateFinding(finding);
+        }
+        store.acceptRun(review.withLatestCompletedRun(run.id(), now), run.ended(ReviewRun.State.ACCEPTED, Optional.of("The change and its commit messages are identical to "
+                + "the reviewed head `" + ReviewPrompts.shortSha(reviewed.headSha()) + "`, so that review was carried to this head without another pass."), now));
     }
 
     /**

@@ -94,7 +94,8 @@ retains its own head, commit links and discussion targets. No finding, accepted
 review baseline or publication eligibility is changed by refreshing explanations.
 
 Every later findings review starts with fresh investigation and evidence, including after
-new commits or rewritten history. It updates the source-backed map and findings
+new commits or rewritten history, unless the new head carries the same change as
+described below. It updates the source-backed map and findings
 without another explanation. Completion requires a complete initial explanation
 somewhere at or before that run, plus the current run's own coverage and validated
 report. Incremental scope follows the latest accepted coverage, independently of
@@ -137,6 +138,31 @@ and validation starts without leads. Stopping or ending the review cancels it.
 Its provider usage is not added to the review task's totals. Every run starts a
 fresh reader with no conversation history, so a later round gets a new read of
 the whole change even though the review conversation carries earlier rounds.
+
+## Carrying a review to a head with the same change
+
+An update first asks whether the new head carries the change the last accepted,
+complete review read ([ReviewHeadCheck](ReviewHeadCheck.java)): the same base
+branch, the same patch over each head's own merge base with blob ids and hunk
+positions left out, and the same messages on its non-merge commits. A rebase, a
+clean merge of the base branch, and a base branch that only moved all pass. A base
+that changed inside a hunk's context does not, and neither does a range Git cannot
+read.
+
+When it does, and every open finding stands exactly as that review left it, no
+agent turn runs. A finding stands that way when it is validated at the reviewed
+head, supported there at its current revision, and its lines map onto the new
+diff. The working copy moves to the new head as for any update. ByteQuay stores a
+run for the new head that is already accepted and holds the reviewed run's report,
+coverage and evidence, and it moves each open finding to the new head and its
+mapped lines without changing its revision. The run's outcome names the head whose
+review it carries, and no second reader starts for it.
+
+Anything else starts a normal findings review: a different change, an open finding
+revised or added in a discussion since acceptance, a finding awaiting reassessment,
+or lines that no longer map. Resolved and withdrawn findings stay as they are. A
+carried run records that the same change was already read. It is not a new
+reading, and the base branch's own new commits were not reviewed.
 
 ## Discovery responsibilities
 
@@ -535,6 +561,7 @@ The implementation is concentrated in the current review service:
 | Investigation, validation and bounded evidence collection | [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewStep` |
 | Supported pool, final selection and discussion origin | `ReviewValidation`, `ReviewFinding`, [ReviewSelection](ReviewSelection.java), publication checks |
 | Second reader, its facts and its leads | [ReviewSweep](ReviewSweep.java), [ReviewFacts](ReviewFacts.java), [ReviewLead](ReviewLead.java), `agent-skills/bytequay-review-sweep.md` |
+| Carrying an accepted review to a head with the same change | [ReviewHeadCheck](ReviewHeadCheck.java), `followHead` in [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewFinding.carried` |
 | Provisional coverage and selected/unselected results | Review HTTP models, frontend review contracts/model/details and IDE selection |
 | Offline input freezing and bounded discovery-only calibration | [Developer runbook](../../../../../../../../../scripts/review-calibration/README.md) |
 

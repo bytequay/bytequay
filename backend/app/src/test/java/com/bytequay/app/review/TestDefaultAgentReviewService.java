@@ -2976,6 +2976,110 @@ class TestDefaultAgentReviewService
     }
 
     /** An accepted review of HEAD whose pull request was force-pushed to NEW_HEAD. */
+    @Test
+    void anUpdateCarriesAnAcceptedReviewToAHeadWithTheSameChange()
+    {
+        Fixture fixture = new Fixture();
+        ReviewFinding finding = acceptReviewWithOneSupportedFinding(fixture);
+        String reviewId = finding.reviewId();
+        ReviewRun accepted = fixture.store.listRuns(reviewId).getLast();
+        ReviewFinding resolved = fixture.store.insertFinding(finding("finding-2", reviewId, "earlier-run", 2, ReviewFinding.State.RESOLVED));
+        pushRebasedHead(fixture, "+added");
+
+        fixture.service.update(reviewId);
+
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
+        ReviewRun carried = fixture.store.listRuns(reviewId).getLast();
+        assertThat(carried.state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        assertThat(carried.headSha()).isEqualTo(NEW_HEAD);
+        assertThat(carried.priorHeadSha()).contains(HEAD);
+        assertThat(carried.turnIds()).isEmpty();
+        assertThat(carried.steps()).isEqualTo(accepted.steps());
+        assertThat(carried.coverage()).isEqualTo(accepted.coverage());
+        assertThat(carried.evidence()).isEqualTo(accepted.evidence());
+        assertThat(carried.outcome().orElseThrow()).contains("identical", "`" + ReviewPrompts.shortSha(HEAD) + "`");
+        assertThat(fixture.store.findReview(reviewId).orElseThrow().latestCompletedRunId()).contains(carried.id());
+        ReviewFinding moved = fixture.store.findFinding(finding.id()).orElseThrow();
+        assertThat(moved.validatedHeadSha()).isEqualTo(NEW_HEAD);
+        assertThat(moved.outdated()).isFalse();
+        assertThat(moved.revision()).isEqualTo(finding.revision());
+        assertThat(moved.anchor()).contains(new ReviewAnchor("src/App.java", "RIGHT", 12, 12, ImmutableList.of("added")));
+        assertThat(fixture.store.findFinding(resolved.id()).orElseThrow().validatedHeadSha()).isEqualTo(HEAD);
+        verify(fixture.turns, times(2)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.sweeps, times(1)).start(any(AgentReview.class), any(ReviewRun.class), any(AgentTask.class), any(Runnable.class));
+
+        // The carried run is the review of this head, so another update has nothing to do.
+        fixture.service.update(reviewId);
+
+        assertThat(fixture.store.listRuns(reviewId)).hasSize(2);
+    }
+
+    @Test
+    void aDifferentChangeOrAFindingRevisedSinceAcceptanceStartsAnotherReview()
+    {
+        Fixture changed = new Fixture();
+        ReviewFinding read = acceptReviewWithOneSupportedFinding(changed);
+        pushRebasedHead(changed, "+added differently");
+
+        changed.service.update(read.reviewId());
+
+        assertThat(changed.store.listRuns(read.reviewId())).hasSize(2);
+        assertThat(changed.store.listRuns(read.reviewId()).getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
+        assertThat(changed.store.findFinding(read.id()).orElseThrow().outdated()).isTrue();
+        verify(changed.turns, times(3)).start(any(StartAgentTurnCommand.class));
+
+        Fixture revised = new Fixture();
+        ReviewFinding original = acceptReviewWithOneSupportedFinding(revised);
+        revised.store.updateFinding(original.revised(original.title(), "A discussion reworded the claim", original.severity(), original.anchor(), original.evidence(), HEAD, NOW));
+        pushRebasedHead(revised, "+added");
+
+        revised.service.update(original.reviewId());
+
+        assertThat(revised.store.listRuns(original.reviewId()).getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
+        verify(revised.git, never()).runLocalBoundedStdout(eq(REPOSITORY), any(Duration.class), anyInt(), anyList());
+        verify(revised.turns, times(3)).start(any(StartAgentTurnCommand.class));
+    }
+
+    /** An accepted, complete review at {@code HEAD} whose one open finding its validation supported and selected. */
+    private static ReviewFinding acceptReviewWithOneSupportedFinding(Fixture fixture)
+    {
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        ReviewFinding finding = fixture.store.insertFinding(finding("finding-1", reviewId, run.id(), 1, ReviewFinding.State.OPEN));
+        ReviewEvidence evidence = new ReviewEvidence("E1", "src/App.java", "frozen head", "new Parser()", "allocation");
+        ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
+                ImmutableList.of(discoveryCandidate(1, "The parser may leak")), ImmutableList.of(), ImmutableList.of(), Optional.empty(), perspectives());
+        ReviewRun validating = beginValidation(fixture, fixture.store.updateRun(run.withEvidence("E1", evidence, NOW)), investigation);
+        ReviewCandidateValidation supported = new ReviewCandidateValidation(1, ReviewCandidateValidation.Outcome.SUPPORTED, "The owner never closes the parser",
+                ImmutableList.of("E1"), "No counterexample found", Optional.of(finding.id()), Optional.of(finding.revision()), Optional.empty());
+        ReviewValidation report = new ReviewValidation(1, ImmutableList.of(supported), coverage(), ImmutableList.of(), ImmutableList.of(finding.id()), "Selection recorded");
+        fixture.store.updateRun(validating.withCoverage(coverage(), NOW).replaceCurrentStep(validating.currentStep().orElseThrow().withValidation(report), NOW));
+        settleCurrentTurn(fixture, validating);
+        fixture.service.reconcile(reviewId);
+        assertThat(fixture.store.findRun(run.id()).orElseThrow().state()).isEqualTo(ReviewRun.State.ACCEPTED);
+        return fixture.store.findFinding(finding.id()).orElseThrow();
+    }
+
+    /**
+     * The pull request now sits at {@code NEW_HEAD}, rebased so that its hunk moved ten lines down, with the working copy
+     * already caught up. Both ranges have the same commit message, and the new range adds {@code addedLine}.
+     */
+    private static void pushRebasedHead(Fixture fixture, String addedLine)
+    {
+        pushHead(fixture, NEW_HEAD);
+        when(fixture.git.run(REPOSITORY, "merge-base", "--is-ancestor", HEAD, NEW_HEAD)).thenReturn(new GitCommandRunner.Result(1, "", false));
+        when(fixture.worktrees.inspect(taskWorktree())).thenReturn(new WorktreeSnapshot(taskWorktree(), NEW_HEAD, false, false, false));
+        when(fixture.pullRequests.getPullRequestDiffFiles(REPO, NUMBER, null, null))
+                .thenReturn(ImmutableList.of(new DiffFile("src/App.java", "modified", 1, 0, "@@ -1,2 +11,3 @@\n context\n+added\n")));
+        when(fixture.git.runLocalBoundedStdout(eq(REPOSITORY), any(Duration.class), anyInt(), anyList())).thenAnswer(invocation -> {
+            List<String> arguments = invocation.getArgument(3);
+            boolean rebased = arguments.getLast().contains(NEW_HEAD);
+            return ok(arguments.getFirst().equals("log") ? "Fix the parser\n\u001e\n"
+                    : "diff --git a/src/App.java b/src/App.java\nindex " + (rebased ? "333..444" : "111..222") + " 100644\n--- a/src/App.java\n+++ b/src/App.java\n"
+                            + "@@ -1,2 +" + (rebased ? 11 : 1) + ",3 @@\n context\n" + (rebased ? addedLine : "+added") + "\n");
+        });
+    }
+
     private static Fixture rewrittenHistory()
     {
         Fixture fixture = new Fixture();
@@ -3364,6 +3468,8 @@ class TestDefaultAgentReviewService
         private void stubGit()
         {
             when(git.run(eq(REPOSITORY), anyList())).thenReturn(ok(""));
+            // No range can be compared unless a test supplies it, so a new head is a different change by default.
+            when(git.runLocalBoundedStdout(eq(REPOSITORY), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
             when(git.run(REPOSITORY, "rev-parse", "--verify", "refs/bytequay/review/" + NUMBER + "^{commit}")).thenReturn(ok(HEAD));
             when(git.run(REPOSITORY, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}")).thenReturn(ok(BASE_SHA));
             when(git.run(REPOSITORY, "merge-base", HEAD, BASE_SHA)).thenReturn(ok(MERGE_BASE));

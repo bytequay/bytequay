@@ -193,6 +193,16 @@ public record ReviewFinding(
                 origin);
     }
 
+    /**
+     * Moves the finding to a head that carries the identical change: the same conclusion at the same revision, located
+     * where its lines sit in that head's diff. Nothing was reassessed, so nothing else about the finding changes.
+     */
+    public ReviewFinding carried(Optional<ReviewAnchor> carriedAnchor, String headSha, Instant now)
+    {
+        return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, carriedAnchor, evidence, revision, state, stateReason, headSha, false,
+                version, createdAt, now, memories, origin);
+    }
+
     public enum Origin
     {
         AUTOMATIC,

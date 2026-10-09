@@ -72,6 +72,7 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.cfg.JsonNodeFeature;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -132,7 +133,9 @@ public class ReviewTools
     private static final int MAX_VERDICT_EXPLANATION = 600;
     private static final String FROZEN_SOURCE_PROVENANCE = "source read from frozen commit ";
     private static final int MAX_EVIDENCE_REF = 200;
-    private static final int MAX_CANDIDATES = 30;
+    /** Room for the investigation's own hypotheses and every lead of the second reader. */
+    private static final int MAX_CANDIDATES = 30 + ReviewLead.MAX_LEADS;
+    private static final int CANDIDATE_PAGE = 20;
     private static final int MAX_EXCERPT = 4000;
     private static final int SOURCE_WINDOW = 200;
     private static final int DIFF_PAGE_LINES = 300;
@@ -232,7 +235,8 @@ public class ReviewTools
                                 + "history (required sourceKind PR or ISSUE and number; selected merged PR or closed non-PR issue), "
                                 + "source (path, startLine, endLine, revision: head/base/previous), "
                                 + "own_threads (the review threads the user started on this pull request, whether each is resolved, and who spoke last), "
-                                + "command_output (latest completed command, optional commandId), investigation, findings "
+                                + "command_output (latest completed command, optional commandId), "
+                                + "investigation (its candidates and their validations come " + CANDIDATE_PAGE + " to a page; read every nextPage), findings "
                                 + "(omit target for the list; target=findingId for its body and historical evidence), "
                                 + "summary, discussion (target), or evidence (ref). "
                                 + "Only current-review diff lines carry anchor ids; related patch pages and other source reads return evidence refs. "
@@ -664,6 +668,41 @@ public class ReviewTools
         catch (IllegalArgumentException e) {
             throw new ReviewInvalidRequestException("perspective: use BEHAVIOR, INTERACTIONS, or DESIGN");
         }
+    }
+
+    /**
+     * The draft or the sealed report, with its candidates and their validations a page at a time: a run may hold more than
+     * one tool result should carry. The first page also carries the rest of the report.
+     */
+    private JsonNode investigation(Call call, int page)
+    {
+        JsonNode report = objectMapper.valueToTree(call.step().filter(step -> step.kind() != VALIDATE).isPresent()
+                ? discoveryDraft(call) : call.run().latestSealedInvestigation().flatMap(ReviewStep::investigation).orElse(null));
+        if (report == null || !report.isObject()) {
+            return report;
+        }
+        int count = report.path("candidates").size();
+        int pages = Math.max(1, (count + CANDIDATE_PAGE - 1) / CANDIDATE_PAGE);
+        if (page > pages) {
+            throw new ReviewInvalidRequestException("page: the investigation lists its " + count + " candidates on " + pages + (pages == 1 ? " page" : " pages"));
+        }
+        int first = (page - 1) * CANDIDATE_PAGE + 1;
+        ObjectNode node = page == 1 ? (ObjectNode) report : objectMapper.createObjectNode();
+        node.set("candidates", numbered(report.path("candidates"), "number", first));
+        node.set("validations", numbered(report.path("validations"), "candidate", first));
+        return node.put("candidateCount", count).put("page", page).put("pages", pages).put("nextPage", page < pages ? page + 1 : null);
+    }
+
+    /** The entries whose candidate number falls on the page that starts at {@code first}. */
+    private ArrayNode numbered(JsonNode entries, String field, int first)
+    {
+        ArrayNode page = objectMapper.createArrayNode();
+        for (JsonNode entry : entries) {
+            if (entry.path(field).asInt() >= first && entry.path(field).asInt() < first + CANDIDATE_PAGE) {
+                page.add(entry);
+            }
+        }
+        return page;
     }
 
     private static ReviewInvestigation discoveryDraft(Call call)
@@ -1214,7 +1253,8 @@ public class ReviewTools
                     text(item, "counterevidence", 2000, true), findingId, findingRevision, request));
         }
         if (validations.size() != candidateCount) {
-            throw new ReviewInvalidRequestException("validations: assess every candidate, including rejected and unresolved hypotheses");
+            throw new ReviewInvalidRequestException("validations: assess every candidate, including rejected and unresolved hypotheses; this report holds "
+                    + candidateCount + ", listed across the pages of review_get_context kind investigation");
         }
         List<String> selected = strings(arguments, "selectedFindingIds", ReviewValidation.MAX_SELECTED, 100);
         if (selected.stream().distinct().count() != selected.size()) {
@@ -1471,8 +1511,7 @@ public class ReviewTools
             case "history" -> history(call);
             case "source" -> source(call, text(arguments, "path", 1000, true), integer(arguments, "startLine").orElse(1), integer(arguments, "endLine"));
             case "command_output" -> commandOutput(call);
-            case "investigation" -> objectMapper.valueToTree(call.step().filter(step -> step.kind() != VALIDATE).isPresent()
-                    ? discoveryDraft(call) : call.run().latestSealedInvestigation().flatMap(ReviewStep::investigation).orElse(null));
+            case "investigation" -> investigation(call, page(arguments));
             case "assignment" -> assignment(call);
             case "findings" -> findings(call);
             case "summary" -> summary(call);

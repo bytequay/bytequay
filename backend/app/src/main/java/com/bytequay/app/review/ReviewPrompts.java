@@ -147,7 +147,9 @@ final class ReviewPrompts
         return request.append("\n## Answer\n\nAnswer with exactly one JSON object and nothing else, in this shape:\n").append(ReviewLead.SHAPE)
                 .append("\n`lens` is one of words, mechanisms, siblings, tests, rules, facts. `kind` is one of defect, suggestion, nit, question. ")
                 .append("`line` is the new-file line at the head. Leave `path` empty and omit `line` for a lead about the commits or the description. ")
-                .append("List at most ").append(ReviewLead.MAX_LEADS).append(" leads, strongest first. {\"leads\":[]} is a valid answer.")
+                .append("List at most ").append(ReviewLead.MAX_LEADS)
+                .append(" leads, one for each topic: merge leads that share a root cause and name the other places in the claim. ")
+                .append("Put first the leads you are surest of and that name a concrete change; questions come last. {\"leads\":[]} is a valid answer.")
                 .toString();
     }
 
@@ -232,6 +234,7 @@ final class ReviewPrompts
                     + "End this turn after sealing; ByteQuay will schedule validation. " + MAVEN_REQUEST;
             case VALIDATE -> "Validate the investigation and every candidate against the current evidence. "
                     + "Read assignment and investigation context, including its verification recipe and captured results. "
+                    + "The investigation lists its candidates a page at a time: follow nextPage until you have read every one. "
                     + "Challenge claimed activation and coverage against the saved inventory of additions: check unresolved execution routes, disabled tests, "
                     + "no-op behavior and assertions that never reach the change. Check each identified dormant artifact's candidate or evidence-backed retention reason. "
                     + "Record a missed concrete hypothesis in review_finish newCandidates as NEEDS_EVIDENCE; do not silently drop it under a broad CHECKED assessment. "
@@ -246,6 +249,9 @@ final class ReviewPrompts
                     + "Reuse completed checks when their code, test setup, environment and purpose still match; rerun changed inputs or checks needed for different evidence. "
                     + "Candidates attributed to the second reader are unverified leads recorded without evidence: read the cited source at the frozen head "
                     + "before deciding each one, and never support or reject one on the reader's word. "
+                    + "Settle them quickly: a lead that repeats a candidate you already hold points to the same finding, "
+                    + "and a preference with no concrete cost is rejected as that. When more than a dozen wait, give read-only children the leads of a few files each "
+                    + "to confirm or refute with path and line, then read the decisive lines yourself before each verdict. "
                     + "Try to disprove each claim. Save every supported finding draft; merge shared root causes without erasing candidates. "
                     + "Rank the complete supported pool, select at most " + ReviewValidation.MAX_SELECTED
                     + " new automatic findings with selectedFindingIds and selectionExplanation, "

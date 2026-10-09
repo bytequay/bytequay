@@ -1253,6 +1253,34 @@ class TestReviewTools
     }
 
     @Test
+    void theInvestigationContextListsCandidatesAPageAtATime()
+    {
+        store.updateRun(run(RUN_ID, 1, PATCH, false));
+        call("review_save_summary", summary("summary", "Reject unchecked input"));
+        readSource();
+        List<String> hypotheses = IntStream.rangeClosed(1, 25).mapToObj(index -> "Unchecked input " + index).collect(toImmutableList());
+        assertThat(discoverAndSeal(investigation("investigation", ImmutableList.of(DIFF_PATH), ImmutableList.of("E1"), hypotheses))
+                .path("status").asText()).isEqualTo("accepted");
+        advance(VALIDATE);
+
+        JsonNode first = call("review_get_context", ImmutableMap.of("kind", "investigation"));
+        assertThat(first.path("candidates")).hasSize(20);
+        assertThat(first.path("candidates").get(19).path("number").asInt()).isEqualTo(20);
+        assertThat(first.path("candidateCount").asInt()).isEqualTo(25);
+        assertThat(first.path("pages").asInt()).isEqualTo(2);
+        assertThat(first.path("nextPage").asInt()).isEqualTo(2);
+        assertThat(first.has("changeMap")).isTrue();
+
+        // Later pages carry only candidates and their validations; the rest of the report came with the first.
+        JsonNode second = call("review_get_context", ImmutableMap.of("kind", "investigation", "page", 2));
+        assertThat(second.path("candidates")).extracting(candidate -> candidate.path("number").asInt()).containsExactly(21, 22, 23, 24, 25);
+        assertThat(second.path("page").asInt()).isEqualTo(2);
+        assertThat(second.path("nextPage").isNull()).isTrue();
+        assertThat(second.has("changeMap")).isFalse();
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "investigation", "page", 3)).at("/error/field").asText()).isEqualTo("page");
+    }
+
+    @Test
     void savesEverySupportedClaimAndSelectsNoMoreThanTheLimitAfterValidation()
     {
         int limit = ReviewValidation.MAX_SELECTED;

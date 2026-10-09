@@ -128,7 +128,13 @@ retain the saved explanation.
    A candidate attributed to the second reader is an unverified lead from a
    separate read-only session, recorded without evidence. Read the source it
    cites at the frozen head before deciding it, as for any other hypothesis;
-   never support or reject it on the reader's word.
+   never support or reject it on the reader's word. Settle leads quickly: one
+   that repeats a candidate you already hold points to the same finding, and a
+   preference with no concrete cost is rejected as that. When more than a
+   dozen wait, give read-only children the leads of a few files each to
+   confirm or refute with path and line, then read the decisive lines yourself
+   before each verdict. The investigation context lists candidates a page at a
+   time; follow nextPage until you have read every one.
    Read investigation.testCheck. For DOES_NOT_PROTECT, confirm from its two
    captured runs that the undone run compiled, ran the same tests and removed
    the behavior those tests name, then support its candidate as a defect in
@@ -337,8 +343,8 @@ later pages. Tool descriptions define pagination, fields and evidence refs.
   review_finish complete=false with omissions, empty validations, empty
   selectedFindingIds and a selectionExplanation stating why selection is
   unavailable stops the run.
-- Validation: read investigation, including verification and testCheck, and
-  challenge every numbered candidate. Do not call review_save_summary or rewrite the change
+- Validation: read investigation, every page of its candidates, including
+  verification and testCheck, and challenge every numbered candidate. Do not call review_save_summary or rewrite the change
   explanation. Save supported findings with review_save_finding; revise
   with findingId and expectedRevision or withdraw with review_withdraw_finding
   and current-run evidence. SUPPORTED identifies the saved findingId and exact

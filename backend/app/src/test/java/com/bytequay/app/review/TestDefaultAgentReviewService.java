@@ -1507,8 +1507,9 @@ class TestDefaultAgentReviewService
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
         ReviewRun run = fixture.store.listRuns(reviewId).getLast();
+        int capacity = ReviewTools.candidateLimit(fixture.store, run);
         ImmutableList.Builder<ReviewCandidate> recorded = ImmutableList.builder();
-        for (int number = 1; number <= 29; number++) {
+        for (int number = 1; number < capacity; number++) {
             recorded.add(discoveryCandidate(number, "Hypothesis " + number));
         }
         ReviewInvestigation investigation = new ReviewInvestigation("Parser lifetime", ImmutableList.of("src/App.java"), ImmutableList.of("E1"),
@@ -1522,7 +1523,7 @@ class TestDefaultAgentReviewService
 
         ReviewRun validating = fixture.store.findRun(run.id()).orElseThrow();
         assertThat(validating.validationStarted()).isTrue();
-        assertThat(validating.latestSealedInvestigation().orElseThrow().investigation().orElseThrow().candidates()).hasSize(30);
+        assertThat(validating.latestSealedInvestigation().orElseThrow().investigation().orElseThrow().candidates()).hasSize(capacity);
     }
 
     @Test

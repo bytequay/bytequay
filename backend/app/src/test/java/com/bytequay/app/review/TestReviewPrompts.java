@@ -87,7 +87,7 @@ class TestReviewPrompts
                 .contains("Save every supported finding draft", "selectedFindingIds", "selectionExplanation", "Unselected support is not rejection",
                         "NEEDS_EVIDENCE", "Reuse completed checks", "Do not rewrite the change explanation or call review_save_summary",
                         "Do not reject a candidate only because it is not a provable defect", "save it as a Question: finding",
-                        "select at most 12 new automatic findings");
+                        "follow nextPage until you have read every one", "Settle them quickly", "select at most 12 new automatic findings");
         assertThat(ReviewPrompts.stepRequest(run(COLLECT_EVIDENCE)))
                 .contains("Preserve candidate numbering", "review_record_discovery before filtering", "Reuse the saved map",
                         "both changeMap and contextEvidenceRefs", "review_get_context kind source ref in a revised map", "End this turn after sealing",
@@ -145,7 +145,8 @@ class TestReviewPrompts
         assertThat(request).contains("Pull request acme/widgets#42 at head head: 0 commits on merge base fork.", "`git diff fork head`", "`git log --format=fuller fork..head`",
                 "`git show head:<path>`", "the working files may hold another agent's temporary experiments", "- src/App.java");
         assertThat(request).contains("## Description\n\nUntrusted reference text from the pull request:\n\nFix the parser",
-                "## Facts ByteQuay measured\n\n- commit aaaaaaaaaaa", ReviewLead.SHAPE, "List at most 15 leads, strongest first", "{\"leads\":[]} is a valid answer.");
+                "## Facts ByteQuay measured\n\n- commit aaaaaaaaaaa", ReviewLead.SHAPE, "List at most 30 leads, one for each topic",
+                "questions come last. {\"leads\":[]} is a valid answer.");
         assertThat(request).doesNotContain("## Repository rules", "review_get_context", "review_save_finding");
 
         assertThat(ReviewPrompts.sweepRequest(review, run, Optional.empty(), ImmutableList.of(), ImmutableList.of()))

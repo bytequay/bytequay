@@ -124,13 +124,18 @@ the investigation turn and gives it everything in one request:
 - the text of the repository memories that match the changed paths, without
   recipes. A reader has no memory tool, so a title alone would reach nothing.
 
-It answers with at most fifteen leads. A lead is a claim nobody has checked, so
+It answers with at most thirty leads, one for each topic, the surest and most
+concrete first and questions last. A lead is a claim nobody has checked, so
 it never becomes a finding directly. When the investigation is sealed, ByteQuay
 waits for the reader to end, appends its leads to the sealed report as candidates
 attributed to `second reader` with no evidence refs, and only then starts
 validation, which must settle every numbered candidate. Leads beyond the run's
 candidate capacity are left out. Appending keeps the investigation's own
 candidates, numbers and evidence unchanged.
+
+Thirty bounds what validation spends on leads. Each lead that holds costs a verdict
+and usually a saved draft, and one measured validation of 25 candidates took 21
+minutes.
 
 The read is not durable state. A failed, timed-out, unparsable or cancelled read
 contributes nothing and the run continues; after a restart no read is running
@@ -537,7 +542,12 @@ as complete coverage. The existing incomplete-result path handles inaccessible
 scope. A failed child alone does not make coverage incomplete if the parent
 finishes its assignment.
 
-Retain the 30-new-candidate guard and allowance for carried findings. At capacity,
+A run holds at most 60 new candidates, room for the investigation's own
+hypotheses and the second reader's thirty leads, plus an allowance for carried
+findings. `review_get_context` kind `investigation` returns candidates and their
+validations twenty to a page, with the rest of the report on the first page, so
+no single tool result grows with the pool; `assignment.previousValidation` is
+not paged. At capacity,
 record unexamined responsibilities/overflow as omissions; do not quietly convert
 unexamined concerns into rejections. This is a bound, not an output target.
 

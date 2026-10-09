@@ -62,7 +62,7 @@ import static java.util.Objects.requireNonNull;
 public class ReviewSweep
 {
     private static final Logger log = LoggerFactory.getLogger(ReviewSweep.class);
-    private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(15);
+    private static final Duration MAXIMUM_RUNTIME = Duration.ofMinutes(25);
     private static final Duration GIT_TIMEOUT = Duration.ofSeconds(10);
     private static final int GIT_BYTES = 512 * 1024;
     private static final int MAX_HYPOTHESIS = 2000;

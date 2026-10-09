@@ -38,7 +38,7 @@ record ReviewLead(String path, OptionalInt line, Lens lens, Kind kind, String cl
 {
     /** The shape the second reader is asked for; its request embeds it. */
     static final String SHAPE = "{\"leads\":[{\"path\":\"src/Example.java\",\"line\":42,\"lens\":\"words\",\"kind\":\"nit\",\"claim\":\"…\",\"ask\":\"…\"}]}";
-    static final int MAX_LEADS = 15;
+    static final int MAX_LEADS = 30;
     private static final int MAX_PATH = 300;
     private static final int MAX_TEXT = 600;
     private static final ObjectMapper MAPPER = new ObjectMapper();

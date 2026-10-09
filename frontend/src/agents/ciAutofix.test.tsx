@@ -82,3 +82,19 @@ it('keeps CI activity in the task header and routes the composer without a statu
   expect(finished).not.toContain('Previous CI Autofix run');
   expect(finished).toMatch(/<button[^>]*aria-label="Send to CI agent"[^>]*disabled/);
 });
+
+it('allows steering the linked CI turn using its own provider capability', () => {
+  const active: AgentTaskState = { ...paused, task: { ...paused.task,
+    developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', currentTurnId: 'ci-turn' } } };
+  expect(ciMessageUnavailable(active)).toBeNull();
+  const html = renderToStaticMarkup(<AgentTaskBody state={active} models={[]} {...TASK_BODY_NOOPS} />);
+  expect(html).toContain('Steer the running CI agent');
+  expect(html).toMatch(/<button[^>]*aria-label="Send to CI agent"(?![^>]*disabled)[^>]*>/);
+  for (const ci of [
+    { ...active.task?.developmentCi, currentTurnId: null },
+    { ...active.task?.developmentCi, canMessage: false },
+    { ...active.task?.developmentCi, activity: 'PUSHING' },
+  ]) {
+    expect(ciMessageUnavailable({ ...active, task: { ...paused.task, developmentCi: { ...CI_PROJECTION, ...ci } } })).not.toBeNull();
+  }
+});

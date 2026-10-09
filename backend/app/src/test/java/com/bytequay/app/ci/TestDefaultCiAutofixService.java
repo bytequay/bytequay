@@ -20,6 +20,7 @@ import com.bytequay.agent.core.AgentEventEnvelope;
 import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentHistoryPage;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
@@ -33,8 +34,10 @@ import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
 import com.bytequay.agent.core.EventId;
+import com.bytequay.agent.core.InputDeliveryId;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskResources;
@@ -507,7 +510,7 @@ class TestDefaultCiAutofixService
         SendCiAutofixMessageCommand message = new SendCiAutofixMessageCommand(
                 run.id(),
                 "Continue the rebase",
-                "resume-rebase");
+                "resume-rebase", Optional.empty());
         CiAutofixRun resumed = service.sendMessage(message);
 
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
@@ -752,7 +755,7 @@ class TestDefaultCiAutofixService
         CiAutofixRun paused = service.advance(run.id());
         when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(baseRetarget));
 
-        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "Retry", "fork-resume")))
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "Retry", "fork-resume", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("head or base branch changed");
         verify(turnService, times(1)).start(any());
     }
@@ -1717,6 +1720,101 @@ class TestDefaultCiAutofixService
     }
 
     @Test
+    void steersTheSelectedCiTurnAndReplaysItsReceiptAfterItEnds()
+    {
+        enableSteering();
+        CiAutofixRun run = service.start(startCommand("steer-ci"));
+        assertThat(service.canMessage(run)).isTrue();
+        AgentInputDelivery delivered = AgentInputDelivery.accepted(InputDeliveryId.random(), taskId, turnId, "steer-key", NOW).sending(NOW).delivered(NOW);
+        when(turnService.steer(any())).thenReturn(delivered);
+        SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(run.id(), "  Docker is running now  ", "steer-key", Optional.of(turnId));
+
+        assertThat(service.sendMessage(command)).isEqualTo(run);
+        verify(turnService).steer(new SteerAgentTurnCommand(turnId, "Docker is running now", ImmutableList.of(), "steer-key"));
+        verify(turnService, times(1)).start(any());
+        assertThat(store.run).isEqualTo(run);
+
+        when(turnService.findSteerByIdempotencyKey(turnId, "steer-key")).thenReturn(Optional.of(delivered));
+        CiAutofixRun later = store.update(run.clearCurrentTurn(turnId.toString(), NOW).linkUserTurn(TurnId.random().toString(), NOW));
+        assertThat(service.sendMessage(command)).isEqualTo(later);
+        verify(turnService, times(1)).steer(any());
+    }
+
+    @Test
+    void refusesUnsupportedStaleAndForeignCiSteering()
+    {
+        CiAutofixRun run = service.start(startCommand("invalid-steer"));
+        SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(run.id(), "Check Docker", "steer", Optional.of(turnId));
+        assertThat(service.canMessage(run)).isFalse();
+        assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class);
+        enableSteering();
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
+        assertThat(service.canMessage(run)).isFalse();
+        assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class);
+        when(turnService.get(turnId)).thenReturn(runningTurn);
+        store.update(run.clearCurrentTurn(turnId.toString(), NOW).linkUserTurn(TurnId.random().toString(), NOW));
+        assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class);
+
+        AgentTurn foreign = AgentTurn.accepted(turnId, TaskId.random(), "foreign", turnSettings(), NOW);
+        when(turnService.get(turnId)).thenReturn(foreign);
+        assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class).hasMessageContaining("does not belong");
+        verify(turnService, never()).steer(any());
+    }
+
+    @Test
+    void refusesCiSteeringAfterAuthorizationExpiresOrTheAgentStops()
+    {
+        enableSteering();
+        CiAutofixRun run = service.start(startCommand("steer-expired"));
+        SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(run.id(), "Check Docker", "steer", Optional.of(turnId));
+        DefaultCiAutofixService expired = service(store, Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC));
+        assertThat(expired.canMessage(run)).isFalse();
+        assertThatThrownBy(() -> expired.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class);
+        CiAutofixRun waiting = store.update(run.clearCurrentTurn(turnId.toString(), NOW));
+        assertThat(service.canMessage(waiting)).isFalse();
+        assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class);
+        verify(turnService, never()).steer(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void reportsFailedOrUncertainCiSteeringWithoutResending(boolean uncertain)
+    {
+        enableSteering();
+        CiAutofixRun run = service.start(startCommand("steer-outcome"));
+        AgentInputDelivery sending = AgentInputDelivery.accepted(InputDeliveryId.random(), taskId, turnId, "steer-key", NOW).sending(NOW);
+        AgentInputDelivery delivery = uncertain ? sending.unknown("No acknowledgement", NOW) : sending.failed("Provider refused", NOW);
+        when(turnService.steer(any())).thenReturn(delivery);
+        SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(run.id(), "Check Docker", "steer-key", Optional.of(turnId));
+        String message = uncertain ? "delivery is uncertain" : "Provider refused";
+        assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class).hasMessageContaining(message);
+        when(turnService.findSteerByIdempotencyKey(turnId, "steer-key")).thenReturn(Optional.of(delivery));
+        assertThatThrownBy(() -> service.sendMessage(command)).isInstanceOf(CiAutofixConflictException.class).hasMessageContaining(message);
+        verify(turnService, times(1)).steer(any());
+    }
+
+    @Test
+    void revokedDevelopmentOwnershipBlocksCiSteering()
+    {
+        enableSteering();
+        AgentTask parent = developmentParent();
+        CiAutofixRun run = service.startDevelopment(startCommand("owned-steer"), parent.id(), reserveParent(parent), publishedPr(), NOW);
+        assertThat(service.canMessage(run)).isTrue();
+        ownership.revoke(parent.id());
+        assertThat(service.canMessage(run)).isFalse();
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(run.id(), "Check Docker", "steer-key", Optional.of(turnId))))
+                .isInstanceOf(CiAutofixConflictException.class);
+        verify(turnService, never()).steer(any());
+    }
+
+    private void enableSteering()
+    {
+        AgentDriver driver = drivers.require(AgentLaneId.CLAUDE_CLI);
+        AgentCapabilities capabilities = driver.capabilities();
+        when(driver.capabilities()).thenReturn(new AgentCapabilities(false, false, true, capabilities.permissionPolicies(), capabilities.attachmentMediaTypes()));
+    }
+
+    @Test
     void resumesOnlyAPausedAuthorizedRunAndKeepsMessageIdempotency()
     {
         CiAutofixRun initial = service.start(startCommand("message"));
@@ -1733,7 +1831,7 @@ class TestDefaultCiAutofixService
         SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(
                 paused.id(),
                 "Please finish resolving the conflict",
-                "message-key");
+                "message-key", Optional.empty());
         CiAutofixRun resumed = service.sendMessage(command);
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
         assertThat(resumed.currentTurnId()).contains(recoveryId.toString());
@@ -1772,7 +1870,7 @@ class TestDefaultCiAutofixService
         CiAutofixRun resumed = service.sendMessage(new SendCiAutofixMessageCommand(
                 paused.id(),
                 "Retry after provider login",
-                "auth-retry-key"));
+                "auth-retry-key", Optional.empty()));
 
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
         assertThat(resumed.currentTurnId()).contains(retryId.toString());
@@ -1810,7 +1908,7 @@ class TestDefaultCiAutofixService
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(
                 active.id(),
                 "retry",
-                "different-key")))
+                "different-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("paused");
 
@@ -1820,14 +1918,14 @@ class TestDefaultCiAutofixService
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(
                 paused.id(),
                 "retry",
-                "stale-key")))
+                "stale-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("head or base branch changed");
 
         assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(
                 paused.id(),
                 "x".repeat(DefaultCiAutofixService.MAXIMUM_MESSAGE_CHARACTERS + 1),
-                "large")))
+                "large", Optional.empty())))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("exceeds");
     }
@@ -1845,7 +1943,7 @@ class TestDefaultCiAutofixService
         CiAutofixRun expired = expiredService.sendMessage(new SendCiAutofixMessageCommand(
                 paused.id(),
                 "retry",
-                "expired-key"));
+                "expired-key", Optional.empty()));
         assertThat(expired.finishReason()).contains(FinishReason.AUTHORIZATION_EXPIRED);
         verify(turnService, times(1)).start(any());
 
@@ -1860,7 +1958,7 @@ class TestDefaultCiAutofixService
         assertThatThrownBy(() -> closedService.sendMessage(new SendCiAutofixMessageCommand(
                 pausedRun.id(),
                 "retry",
-                "closed-key")))
+                "closed-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("not open");
     }
@@ -2117,7 +2215,7 @@ class TestDefaultCiAutofixService
         CiAutofixRun pausedAgain = store.update(store.run.pause(PauseReason.INVALID_GIT_RESULT, "Needs a user correction", NOW));
         ownership.revoke(parent.id());
         assertThat(service.canMessage(pausedAgain)).isFalse();
-        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(run.id(), "Answer", "owned-answer")))
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(run.id(), "Answer", "owned-answer", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class);
     }
 

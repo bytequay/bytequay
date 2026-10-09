@@ -1337,7 +1337,7 @@ export function AgentTaskBody({
         <ConversationComposer
           automation={automation}
           ciMention={state.task?.interactive === true && !localReviewActive} routedToCi={routedToCi}
-          ciMessageHint={routedToCi ? ciUnavailable ?? 'Send to CI Autofix' : undefined}
+          ciMessageHint={routedToCi ? ciUnavailable ?? (currentCi?.status === 'ACTIVE' ? 'Steer the running CI agent' : 'Send to CI Autofix') : undefined}
           placeholder={question !== null ? 'Waiting for your answer…' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
           running={status === 'running' || automationActive} sending={state.sending}
@@ -1593,7 +1593,7 @@ export default function AgentTaskScreen({
   });
   const inlineSending = useRef(false);
   const ciSending = useRef(false);
-  const ciRequest = useRef<{ runId: string; message: string; key: string } | null>(null);
+  const ciRequest = useRef<{ runId: string; message: string; key: string; expectedTurnId?: string } | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -2039,10 +2039,12 @@ export default function AgentTaskScreen({
       ciSending.current = true;
       dispatch({ type: 'composer/sending', sending: true });
       if (ciRequest.current?.runId !== ci.runId || ciRequest.current.message !== ciText) {
-        ciRequest.current = { runId: ci.runId, message: ciText, key: crypto.randomUUID() };
+        ciRequest.current = { runId: ci.runId, message: ciText, key: crypto.randomUUID(),
+          expectedTurnId: ci.status === 'ACTIVE' ? ci.currentTurnId ?? undefined : undefined };
       }
       try {
-        const result = await live().sendCiAutofixMessage(ci.runId, ciText, ciRequest.current.key);
+        // Retain both the delivery key and target on retry, even if polling shows a later repair turn.
+        const result = await live().sendCiAutofixMessage(ci.runId, ciText, ciRequest.current.key, ciRequest.current.expectedTurnId);
         if (!mountedRef.current) return;
         if (result.id !== ci.runId || result.parentTaskId !== taskId || result.workspaceId !== workspaceId) {
           throw new Error('CI run does not belong to this development task');

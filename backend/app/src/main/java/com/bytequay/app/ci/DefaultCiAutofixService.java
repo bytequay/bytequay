@@ -15,6 +15,7 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
+import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -25,12 +26,14 @@ import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.StartAgentTurnCommand;
+import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TaskBranches;
 import com.bytequay.agent.core.TaskCompletion;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -396,7 +399,7 @@ public class DefaultCiAutofixService
     @Override
     public boolean canMessage(CiAutofixRun run)
     {
-        if (run.status() != Status.PAUSED) {
+        if (run.status() == Status.FINISHED) {
             return false;
         }
         return withRunLock(run.id(), () -> canMessageLocked(get(run.id())));
@@ -404,10 +407,16 @@ public class DefaultCiAutofixService
 
     private boolean canMessageLocked(CiAutofixRun run)
     {
-        if (run.status() != Status.PAUSED || !ownership.authorized(run) || !clock.instant().isBefore(run.authorization().expiresAt())
+        if (run.status() == Status.FINISHED || !ownership.authorized(run) || !clock.instant().isBefore(run.authorization().expiresAt())
                 || run.pushJournal().isPresent() || run.rerunJournal().isPresent() || run.agentTaskId().isEmpty()
                 || (run.attempts().isEmpty() && run.currentRebaseId().isEmpty())) {
             return false;
+        }
+        if (run.status() == Status.ACTIVE) {
+            return run.currentRebaseId().isEmpty() && run.currentTurnId().map(TurnId::valueOf).map(turnService::get)
+                    .filter(turn -> turn.state() == TurnState.RUNNING && turn.taskId().toString().equals(run.agentTaskId().orElseThrow()))
+                    .flatMap(turn -> findChild(turn.taskId()))
+                    .filter(task -> task.state() == TaskState.OPEN && drivers.require(task.laneId()).capabilities().steering()).isPresent();
         }
         if (run.scope().parentTaskId().isEmpty()) {
             return true;
@@ -523,6 +532,9 @@ public class DefaultCiAutofixService
     {
         CiAutofixRun run = get(command.runId());
         ownership.require(run);
+        if (command.expectedTurnId().isPresent()) {
+            return steerMessage(run, command);
+        }
         if (matchesCurrentMessage(run, command.idempotencyKey())) {
             return run;
         }
@@ -577,6 +589,33 @@ public class DefaultCiAutofixService
         CiAutofixRun resumed = run.resume(Instant.now(clock))
                 .linkUserTurn(turn.id().toString(), Instant.now(clock));
         return store.update(resumed);
+    }
+
+    private CiAutofixRun steerMessage(CiAutofixRun run, SendCiAutofixMessageCommand command)
+    {
+        TurnId target = command.expectedTurnId().orElseThrow();
+        AgentTurn turn = turnService.get(target);
+        if (!run.agentTaskId().filter(turn.taskId().toString()::equals).isPresent()) {
+            throw new CiAutofixConflictException("The steering turn does not belong to this CI Autofix run");
+        }
+        Optional<AgentInputDelivery> previous = turnService.findSteerByIdempotencyKey(target, command.idempotencyKey());
+        AgentInputDelivery delivery;
+        if (previous.isPresent()) {
+            delivery = previous.orElseThrow();
+        }
+        else {
+            if (!run.currentTurnId().filter(target.toString()::equals).isPresent() || run.status() != Status.ACTIVE || !canMessageLocked(run)) {
+                throw new CiAutofixConflictException("This CI turn is no longer accepting steering input; refresh before sending another message");
+            }
+            requireOpenTask(run);
+            requireWriteAuthority(run);
+            delivery = turnService.steer(new SteerAgentTurnCommand(target, command.message().strip(), ImmutableList.of(), command.idempotencyKey()));
+        }
+        switch (delivery.state()) {
+            case DELIVERED -> { return run; }
+            case FAILED -> throw new CiAutofixConflictException("CI steering failed: " + delivery.failure().orElseThrow());
+            default -> throw new CiAutofixConflictException("CI steering delivery is uncertain; this message will not be resent. Check CI activity before sending again.");
+        }
     }
 
     @Override

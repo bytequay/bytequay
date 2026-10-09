@@ -377,6 +377,7 @@ export function parseAgentDevelopmentCi(value: unknown, path = 'developmentCi'):
   return {
     runId: text(source.runId, `${path}.runId`),
     agentTaskId: optionalText(source.agentTaskId, `${path}.agentTaskId`),
+    currentTurnId: optionalText(source.currentTurnId, `${path}.currentTurnId`),
     status: enumText(source.status, ['ACTIVE', 'PAUSED', 'FINISHED'] as const, `${path}.status`),
     activity: text(source.activity, `${path}.activity`),
     attemptsUsed: count(source.attemptsUsed, `${path}.attemptsUsed`),

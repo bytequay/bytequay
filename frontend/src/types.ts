@@ -734,6 +734,7 @@ export type AgentTurnDto = {
 export type AgentDevelopmentCiDto = {
   runId: string;
   agentTaskId: string | null;
+  currentTurnId: string | null;
   status: 'ACTIVE' | 'PAUSED' | 'FINISHED';
   activity: string;
   attemptsUsed: number;
@@ -1813,7 +1814,7 @@ export type Bridge = WorkItemBridge & JiraBridge & {
   /** Reads what every listed task last said and waits on, by task id, from local stores only. */
   listAgentTaskActivity: (workspaceId: string) => Promise<Record<string, AgentTaskActivityDto>>;
   getCiAutofixRun: (runId: string) => Promise<CiAutofixRunDto>;
-  sendCiAutofixMessage: (runId: string, message: string, idempotencyKey: string) => Promise<CiAutofixRunDto>;
+  sendCiAutofixMessage: (runId: string, message: string, idempotencyKey: string, expectedTurnId?: string) => Promise<CiAutofixRunDto>;
   /** What the next turn on this task would be given, derived from what starting one snapshots. */
   getEffectiveTurnSettings: (taskId: string, workspaceId: string) => Promise<AgentTurnSettingsDto>;
   readAgentHistory: (taskId: string, before?: string, after?: string) => Promise<AgentHistoryPageDto>;

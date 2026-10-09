@@ -15,7 +15,7 @@
 import type { AgentDevelopmentCiDto, CiAutofixRunDto } from '../../types';
 
 export const CI_PROJECTION: AgentDevelopmentCiDto = {
-  runId: 'ci-run', agentTaskId: 'ci-task', status: 'PAUSED', activity: 'PAUSED', attemptsUsed: 1, maxAttempts: 3, rerunsUsed: 0,
+  runId: 'ci-run', agentTaskId: 'ci-task', currentTurnId: null, status: 'PAUSED', activity: 'PAUSED', attemptsUsed: 1, maxAttempts: 3, rerunsUsed: 0,
   summary: 'Choose the compatibility fix.', finishReason: null, terminalAt: null, headRef: 'codex/change', expectedRemoteHead: '1234567890',
   pullRequestNumber: 17, pullRequestUrl: 'https://github.com/acme/demo/pull/17', canMessage: true,
 };

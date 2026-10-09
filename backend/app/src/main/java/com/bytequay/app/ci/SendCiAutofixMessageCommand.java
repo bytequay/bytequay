@@ -13,19 +13,24 @@
  */
 package com.bytequay.app.ci;
 
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.core.ci.CiAutofixRunId;
+
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
 public record SendCiAutofixMessageCommand(
         CiAutofixRunId runId,
         String message,
-        String idempotencyKey)
+        String idempotencyKey,
+        Optional<TurnId> expectedTurnId)
 {
     public SendCiAutofixMessageCommand
     {
         requireNonNull(runId, "runId is null");
         requireNonNull(message, "message is null");
         requireNonNull(idempotencyKey, "idempotencyKey is null");
+        requireNonNull(expectedTurnId, "expectedTurnId is null");
     }
 }

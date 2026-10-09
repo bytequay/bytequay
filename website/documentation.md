@@ -316,8 +316,9 @@ Change defaults for new tasks in **Settings → Agents → Workflow**. A started
 automation settings are read-only.
 
 1. Follow delivery and CI activity in the task header after development finishes.
-2. When **CI needs your input**, type `@ci` followed by a text reply to the paused CI
-   run.
+2. Type `@ci` followed by a text message to guide the running CI repair agent when
+   its provider supports steering. When **CI needs your input**, the same action
+   replies to the paused run and resumes it.
 3. Use **Stop automation** to stop the continuation. Review and merge the resulting PR
    yourself when it is ready.
 

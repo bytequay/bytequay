@@ -18,6 +18,7 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.SendCiAutofixMessageCommand;
@@ -103,7 +104,8 @@ public class CiAutofixController
         CiAutofixRun run = service.sendMessage(new SendCiAutofixMessageCommand(
                 CiAutofixRunId.valueOf(runId),
                 request.message(),
-                idempotencyKey));
+                idempotencyKey,
+                request.expectedTurnId().map(TurnId::valueOf)));
         return ResponseEntity.accepted().body(response(run));
     }
 
@@ -144,5 +146,5 @@ public class CiAutofixController
             boolean allowHistoryRewrites,
             boolean allowExactLeasePush) {}
 
-    public record MessageRequest(String message) {}
+    public record MessageRequest(String message, Optional<String> expectedTurnId) {}
 }

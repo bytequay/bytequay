@@ -51,7 +51,10 @@ export function ciMessageUnavailable(state: AgentTaskState): string | null {
   if (ci == null) return 'No CI Autofix run is available for this task.';
   if (ci.status === 'FINISHED' || !state.task?.developmentContinuationUnfinished) return 'This CI Autofix run has ended.';
   if (state.connection !== 'open' || state.gap) return 'Reconnect to send a message to CI Autofix.';
-  if (runtimeStatus(state) !== 'idle' || ci.status !== 'PAUSED' || !ci.canMessage) return 'CI Autofix can accept a message when it pauses for your input.';
+  if (runtimeStatus(state) !== 'idle' || !ci.canMessage
+    || (ci.status === 'ACTIVE' && (ci.activity !== 'FIXING' || ci.currentTurnId === null))) {
+    return 'CI Autofix can accept a message while a supported agent is fixing CI or when it pauses for your input.';
+  }
   if (state.sending) return 'Sending…';
   if (state.attachments.length > 0) return 'CI Autofix accepts text only. Remove the attached images to send.';
   const message = ciMessage(state.composer);

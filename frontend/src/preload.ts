@@ -432,7 +432,7 @@ const bridge: Bridge = {
   listAgentTaskChanges: workspaceId => ipcRenderer.invoke('agent:tasks:changes', workspaceId),
   listAgentTaskActivity: workspaceId => ipcRenderer.invoke('agent:tasks:activity', workspaceId),
   getCiAutofixRun: runId => ipcRenderer.invoke('ci-autofix:get', runId),
-  sendCiAutofixMessage: (runId, message, idempotencyKey) => ipcRenderer.invoke('ci-autofix:message', runId, message, idempotencyKey),
+  sendCiAutofixMessage: (runId, message, idempotencyKey, expectedTurnId) => ipcRenderer.invoke('ci-autofix:message', runId, message, idempotencyKey, expectedTurnId),
   renameAgentTask: (taskId, workspaceId, expectedVersion, title) =>
     ipcRenderer.invoke('agent:task:rename', taskId, workspaceId, expectedVersion, title),
   archiveAgentTask: (taskId, workspaceId, expectedVersion, archived) =>

@@ -230,7 +230,12 @@ it('routes CI detail reads and replies to the authenticated CI API', async () =>
     method: 'POST', body: JSON.stringify({ message: 'Use the compatibility fix' }),
     headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session', 'Idempotency-Key': 'reply-key' },
   }));
-  expect(fetch).toHaveBeenCalledTimes(2);
+  await expect(reply?.({}, 'run/one', 'Docker is running', 'steer-key', 'ci-turn')).resolves.toEqual(CI_RUN);
+  expect(fetch).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/ci-autofix/runs/run%2Fone/messages', expect.objectContaining({
+    method: 'POST', body: JSON.stringify({ message: 'Docker is running', expectedTurnId: 'ci-turn' }),
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session', 'Idempotency-Key': 'steer-key' },
+  }));
+  expect(fetch).toHaveBeenCalledTimes(3);
 });
 
 it.each([

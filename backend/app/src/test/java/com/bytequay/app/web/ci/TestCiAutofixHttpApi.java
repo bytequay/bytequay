@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.TaskId;
+import com.bytequay.agent.core.TurnId;
 import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.agent.AgentServingGate;
 import com.bytequay.app.ci.CiAutofixService;
@@ -61,6 +62,7 @@ import static org.hamcrest.Matchers.not;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -165,6 +167,13 @@ class TestCiAutofixHttpApi
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"message\":\"try the compiler again\"}"))
                 .andExpect(status().isAccepted());
+        TurnId target = TurnId.random();
+        mvc.perform(post("/api/ci-autofix/runs/{runId}/messages", run.id())
+                        .header(AgentController.SESSION_HEADER, SESSION)
+                        .header("Idempotency-Key", "steer-key")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"message\":\"Docker is ready\",\"expectedTurnId\":\"" + target + "\"}"))
+                .andExpect(status().isAccepted());
         mvc.perform(post("/api/ci-autofix/runs/{runId}/cancel", run.id())
                         .header(AgentController.SESSION_HEADER, SESSION))
                 .andExpect(status().isOk());
@@ -176,8 +185,11 @@ class TestCiAutofixHttpApi
         assertThat(start.getValue().pullRequestNumber()).isEqualTo(42);
         ArgumentCaptor<SendCiAutofixMessageCommand> message =
                 ArgumentCaptor.forClass(SendCiAutofixMessageCommand.class);
-        verify(service).sendMessage(message.capture());
-        assertThat(message.getValue().idempotencyKey()).isEqualTo("message-key");
+        verify(service, times(2)).sendMessage(message.capture());
+        assertThat(message.getAllValues().getFirst().idempotencyKey()).isEqualTo("message-key");
+        assertThat(message.getAllValues().getFirst().expectedTurnId()).isEmpty();
+        assertThat(message.getValue().idempotencyKey()).isEqualTo("steer-key");
+        assertThat(message.getValue().expectedTurnId()).contains(target);
     }
 
     @Test

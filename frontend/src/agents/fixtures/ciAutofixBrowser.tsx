@@ -42,7 +42,7 @@ function ciTimers() {
   };
 }
 
-async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> {
+async function ciReplyAndOwnership(steering = false): Promise<{ name: string; error?: string }> {
   const bridge = createPreviewBridge('workspace-1');
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture needs a source turn');
@@ -51,9 +51,13 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
   const sourceEvent = { ...event, taskId: task.id };
   const sourceTurn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), taskId: task.id, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
   let run: CiAutofixRunDto = { ...CI_RUN };
+  if (steering) {
+    run = { ...run, status: 'ACTIVE', activity: 'FIXING', currentTurnId: 'ci-turn' };
+    task = { ...task, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', currentTurnId: 'ci-turn' } };
+  }
   let sourceNotify: (message: AgentStreamMessage) => void = () => {};
   let failReply = true;
-  const replies: { runId: string; message: string; key: string }[] = [];
+  const replies: { runId: string; message: string; key: string; expectedTurnId?: string }[] = [];
   let sourceReads = 0;
   bridge.getAgentTask = async id => { sourceReads++; assert(id === task.id, 'CI child must never use the generic interactive task endpoint'); return task; };
   bridge.getAgentTurn = async () => sourceTurn;
@@ -68,8 +72,8 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
     return () => {};
   };
   bridge.getCiAutofixRun = async () => run;
-  bridge.sendCiAutofixMessage = async (runId, message, key) => {
-    replies.push({ runId, message, key });
+  bridge.sendCiAutofixMessage = async (runId, message, key, expectedTurnId) => {
+    replies.push({ runId, message, key, expectedTurnId });
     if (failReply) throw new Error('Message transport unavailable');
     run = { ...run, version: run.version + 1, status: 'ACTIVE', activity: 'FIXING', canMessage: false };
     task = { ...task, version: task.version + 1, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', canMessage: false } };
@@ -113,10 +117,16 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
     assert(Number(replies.length) === 1, 'Simultaneous sends must make one CI message request');
     assert(String(sourceInput.value) === '@ci Use the compatibility fix', 'Transport failure must preserve the complete routed draft');
     assert(host.textContent?.includes('Message transport unavailable') === true, 'Transport failure must remain visible for an explicit retry');
+    if (steering) {
+      task = { ...task, developmentCi: { ...CI_PROJECTION, status: 'ACTIVE', activity: 'FIXING', currentTurnId: 'later-ci-turn' } };
+      timers.tick();
+      await settle();
+    }
     failReply = false;
     host.querySelector<HTMLButtonElement>('button[aria-label="Send to CI agent"]')?.click();
     await settle();
     assert(Number(replies.length) === 2 && replies[0].key === replies[1].key, 'Explicit retry must retain the same CI message idempotency key');
+    assert(replies.every(reply => reply.expectedTurnId === (steering ? 'ci-turn' : undefined)), 'Retry must retain the original CI turn instead of steering a later repair');
     assert(replies[1].runId === CI_RUN.id && replies[1].message === 'Use the compatibility fix', 'Reply must target the linked run and strip the recipient token');
     assert(!bridge.commands.some(command => ['startAgentTurn', 'steerAgentTurn', 'queueAgentInput'].includes(command.name)), 'CI replies must never use generic task delivery');
     assert(String(sourceInput.value) === '', 'Accepted CI reply must clear the composer');
@@ -136,8 +146,8 @@ async function ciReplyAndOwnership(): Promise<{ name: string; error?: string }> 
     const terminalReads = sourceReads;
     timers.tick(); await settle();
     assert(sourceReads === terminalReads, 'Terminal parent must stop CI polling');
-    return { name: '@ci routes composer messages, preserves retry identity, and honors revoked CI authority' };
-  } catch (error) { return { name: 'CI mention routing and ownership', error: error instanceof Error ? error.message : String(error) }; }
+    return { name: `@ci ${steering ? 'steers' : 'resumes'}, preserves retry identity, and honors revoked CI authority` };
+  } catch (error) { return { name: `CI ${steering ? 'steering' : 'reply'} routing and ownership`, error: error instanceof Error ? error.message : String(error) }; }
   finally { flushSync(() => root.unmount()); host.remove(); timers.restore(); }
 }
 
@@ -183,7 +193,7 @@ async function sourcePolling(): Promise<{ name: string; error?: string }> {
 }
 
 export async function runCiAutofixScenarios(): Promise<{ name: string; error?: string }[]> {
-  return [await ciReplyAndOwnership(), await sourcePolling(), await ciApprovalCard(), await laterRunAndRecovery(), await deleteReferences(), await finishedCiRouting()];
+  return [await ciReplyAndOwnership(), await ciReplyAndOwnership(true), await sourcePolling(), await ciApprovalCard(), await laterRunAndRecovery(), await deleteReferences(), await finishedCiRouting()];
 }
 
 async function ciApprovalCard(): Promise<{ name: string; error?: string }> {

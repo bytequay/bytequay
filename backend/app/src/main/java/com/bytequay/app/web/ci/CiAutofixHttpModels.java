@@ -97,7 +97,7 @@ public final class CiAutofixHttpModels
                 run.attemptsUsed(), run.authorization().maxFixAttempts(), run.rerunCounter().used(), run.summary(),
                 run.finishReason().map(Enum::name), run.terminalAt(), run.scope().headRef(), run.expectedRemoteHead(),
                 run.scope().pullRequest().number(), "https://github.com/" + run.scope().pullRequest().repoFullName() + "/pull/" + run.scope().pullRequest().number(),
-                canMessage);
+                canMessage, run.currentTurnId());
     }
 
     public record DevelopmentResponse(
@@ -115,7 +115,8 @@ public final class CiAutofixHttpModels
             String expectedRemoteHead,
             int pullRequestNumber,
             String pullRequestUrl,
-            boolean canMessage) {}
+            boolean canMessage,
+            Optional<String> currentTurnId) {}
 
     private static AttemptResponse attempt(CiAutofixAttempt attempt)
     {

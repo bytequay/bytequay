@@ -60,7 +60,7 @@ public interface CiAutofixService
      */
     void deleteDevelopment(TaskId parentTaskId);
 
-    /** Whether the existing paused run currently permits an answer without renewing authority. */
+    /** Whether the run permits a reply or live steering without renewing authority. */
     boolean canMessage(CiAutofixRun run);
 
     /**
@@ -80,7 +80,7 @@ public interface CiAutofixService
     List<CiAutofixRun> list(int limit);
 
     /**
-     * Sends one user instruction to a paused run's existing agent task.
+     * Resumes a paused run or steers its selected running turn with one user instruction.
      *
      * <p>Rechecks author, authorization, remote head, task readiness, and
      * worktree lease before starting a turn. The message cannot expand the

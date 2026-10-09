@@ -46,6 +46,10 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
+  getGeminiTerminalStatus: () => ipcRenderer.invoke('gemini-terminal:status'),
+  saveGeminiTerminalKey: key => ipcRenderer.invoke('gemini-terminal:save', key),
+  removeGeminiTerminalKey: () => ipcRenderer.invoke('gemini-terminal:remove'),
+  openGeminiTerminal: () => ipcRenderer.invoke('gemini-terminal:open'),
   getGoogleStatus: () => ipcRenderer.invoke('google:status'),
   installGoogleConnector: () => ipcRenderer.invoke('google:install'),
   connectGoogle: () => ipcRenderer.invoke('google:connect'),

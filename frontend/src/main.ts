@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
+import { GeminiTerminal } from './google/geminiTerminal';
 import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -1807,6 +1808,11 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
     backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
+  const geminiTerminal = new GeminiTerminal(app.getPath('userData'), os.homedir());
+  ipcMain.handle('gemini-terminal:status', () => geminiTerminal.status());
+  ipcMain.handle('gemini-terminal:save', (_event, key: unknown) => geminiTerminal.save(key));
+  ipcMain.handle('gemini-terminal:remove', () => geminiTerminal.remove());
+  ipcMain.handle('gemini-terminal:open', () => geminiTerminal.open());
   ipcMain.handle('google:status', () => backendJson(`${backendBase()}/api/google`, { headers: agentHeaders() }));
   ipcMain.handle('google:install', () => backendJson(`${backendBase()}/api/google/install`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('google:connect', () => backendJson(`${backendBase()}/api/google/connect`, { method: 'POST', headers: agentHeaders() }));

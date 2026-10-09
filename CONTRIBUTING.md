@@ -143,6 +143,16 @@ only ByteQuay's saved data. Sign out or change the upstream account through the
 extension, then reconnect in ByteQuay. A changed account clears the old snapshots
 and requires new consent for task-agent access.
 
+The Google settings page can also save a user-supplied Gemini model API key in
+the `com.bytequay.gemini` macOS Keychain service and open Gemini CLI in Terminal.
+Electron owns this optional setup; it does not route through the backend or
+add an agent provider. Key validation lists models without generating content.
+The private launcher and folder-level authentication settings live under
+`gemini-terminal` in Electron's application data directory. The launcher reads
+the key at runtime, uses the existing global Workspace extension, and leaves
+global Gemini settings and shell profiles alone. Key creation requires the
+user's AI Studio setup; ByteQuay does not provision Cloud projects or billing.
+
 ## Project layout
 
 ```text

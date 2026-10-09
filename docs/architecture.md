@@ -97,6 +97,16 @@ snapshot. Explicitly enabled interactive task tools read only these local
 snapshots and recheck consent on every call. Disconnect clears ByteQuay's data
 and access without revoking the extension's shared login.
 
+Optional Gemini terminal setup belongs to Electron's native integration boundary.
+The desktop checks a user-supplied model key with Google's model-list endpoint
+and stores it in a ByteQuay-owned macOS Keychain entry. A private launcher reads
+the key into its environment at execution, outside repositories; the launcher
+contains no secret. This opens an independent Gemini CLI session with the user's
+installed extensions, rather than a ByteQuay task or saved-snapshot tool. Its
+provider permissions govern live Google access. Google project creation, terms,
+and billing remain in AI Studio; removing the local key does not revoke it or
+terminate existing terminal sessions.
+
 ## Agent execution
 
 Application features reuse the current agent service. Provider adapters translate

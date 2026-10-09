@@ -500,6 +500,26 @@ mail, events, and agent access and removes the sidebar tab; it leaves Gemini CLI
 signed in. Existing task conversations retain any Google context already read
 by their agents.
 
+For a separate Gemini conversation with live Gmail access, use **Gemini in
+Terminal** on the same settings page:
+
+1. Choose **Create API key…** to open Google AI Studio. Complete Google's
+   sign-in, terms, and project selection, or use a key you already have.
+2. Paste the key and choose **Save key**. ByteQuay checks Gemini API access
+   and saves the key in macOS Keychain. Free usage depends on your project's
+   models and quota; a billing-enabled project can incur charges. ByteQuay
+   does not create projects or enable billing.
+3. Choose **Open Gemini in Terminal**. Complete any folder trust or
+   authentication prompts. Ask, for example, “Search Gmail for booking ABC's
+   refund request and any replies; tell me the status without changing mail.”
+   The Workspace extension reads live Gmail; this session is not limited to
+   ByteQuay's saved 25-message page. Results appear in Terminal, and the
+   extension's own tools and approval settings govern its actions.
+
+This launch uses the saved key in a separate folder without changing your shell
+profile or global Gemini settings. **Remove key** deletes only ByteQuay's Keychain
+entry; it does not revoke the Google key or close running Gemini sessions.
+
 <a id="commits-and-backports"></a>
 
 ## Move changes between branches

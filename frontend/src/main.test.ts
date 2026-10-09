@@ -37,7 +37,7 @@ vi.mock('electron', () => ({
   app: {
     setName: vi.fn(), commandLine: { appendSwitch: vi.fn() }, requestSingleInstanceLock: () => true,
     on: (event: string, listener: () => Promise<void>) => desktop.listeners.set(event, listener),
-    getAppPath: () => process.cwd(), getVersion: () => 'test', setAboutPanelOptions: vi.fn(),
+    getAppPath: () => process.cwd(), getPath: () => '/tmp/bytequay-main-test', getVersion: () => 'test', setAboutPanelOptions: vi.fn(),
   },
   protocol: { registerSchemesAsPrivileged: vi.fn() },
   ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => Promise<unknown>) => desktop.handlers.set(channel, handler), on: vi.fn() },

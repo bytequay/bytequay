@@ -25,7 +25,12 @@ export type GoogleSnapshot = {
   calendarId: string; timeMin: string; timeMax: string; calendarSavedAt: string;
 };
 export type GoogleStatus = { installed: boolean; operation: string; error: string | null; snapshot: GoogleSnapshot | null };
+export type GeminiTerminalStatus = { configured: boolean; installed: boolean };
 export type GoogleBridge = {
+  getGeminiTerminalStatus: () => Promise<GeminiTerminalStatus>;
+  saveGeminiTerminalKey: (key: string) => Promise<GeminiTerminalStatus>;
+  removeGeminiTerminalKey: () => Promise<GeminiTerminalStatus>;
+  openGeminiTerminal: () => Promise<void>;
   getGoogleStatus: () => Promise<GoogleStatus>;
   installGoogleConnector: () => Promise<GoogleStatus>;
   connectGoogle: () => Promise<GoogleStatus>;

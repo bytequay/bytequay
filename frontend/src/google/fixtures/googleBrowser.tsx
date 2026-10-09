@@ -18,7 +18,7 @@ import AppSidebar from '../../AppSidebar';
 import { useGoogle } from '../useGoogle';
 import { GOOGLE_CHANGED, type GoogleStatus } from '../contracts';
 import type { Bridge } from '../../types';
-import { assert, settle } from '../../fixtures/harness';
+import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/settings-window.css';
 
@@ -45,6 +45,10 @@ export async function mountPreview(settings = false) {
     ],
   } };
   const bridge: Partial<Bridge> = {
+    getGeminiTerminalStatus: async () => ({ configured: false, installed: true }),
+    saveGeminiTerminalKey: async () => ({ configured: true, installed: true }),
+    removeGeminiTerminalKey: async () => ({ configured: false, installed: true }),
+    openGeminiTerminal: async () => {},
     getGoogleStatus: async () => structuredClone(status),
     refreshGoogleMail: async (query, token) => { searches.push(`${query}:${token}`); status.error = 'Google is offline. Saved data remains available.'; return structuredClone(status); },
     refreshGoogleCalendar: async () => structuredClone(status),
@@ -79,6 +83,35 @@ function ConnectionNavigation() {
 export async function run() {
   const results: { name: string; error?: string }[] = [];
   const scenarios: Record<string, () => Promise<void>> = {
+    async 'sets up Gemini terminal access without changing Google app consent'() {
+      await mountPreview(true);
+      button('Create API key…').click(); await settle();
+      assert(opened[0] === 'https://aistudio.google.com/apikey', 'Key creation goes to Google');
+      assert(button('Save key').disabled, 'Empty key cannot be saved');
+      const input = document.querySelector<HTMLInputElement>('[aria-label="Gemini API key"]');
+      assert(input !== null && input.type === 'password', 'Key input is masked');
+      changeInput(input, 'AQ.fixture-only-key'); await settle();
+      window.bridge.saveGeminiTerminalKey = async () => { throw new Error('Google did not accept this key.'); };
+      button('Save key').click(); await settle(); await settle();
+      assert(document.querySelector('[role="alert"]')?.textContent?.includes('did not accept'), 'Failed save is visible');
+      assert(input.value === 'AQ.fixture-only-key', 'Failed save preserves input for correction');
+      window.bridge.saveGeminiTerminalKey = async key => {
+        assert(key === 'AQ.fixture-only-key', 'Only the entered key is sent');
+        return { configured: true, installed: true };
+      };
+      button('Save key').click(); await settle(); await settle();
+      assert(document.querySelector('[aria-label="Gemini API key"]') === null, 'Saved secret leaves the form');
+      assert(!status.snapshot?.agentAccess, 'Saving a model key does not enable task access');
+      let launched = false;
+      window.bridge.openGeminiTerminal = async () => { launched = true; };
+      button('Open Gemini in Terminal').click(); await settle();
+      assert(launched, 'Explicit launch opens the terminal');
+      button('Replace key…').click(); await settle();
+      assert(document.querySelector<HTMLInputElement>('[aria-label="Gemini API key"]')?.value === '', 'Replacement never reveals stored key');
+      button('Remove key').click(); await settle(); await settle();
+      assert(document.querySelector('[aria-label="Gemini API key"]') !== null, 'Removing key restores setup');
+      assert(status.snapshot !== null, 'Removing model key preserves Google login and data');
+    },
     async 'shows the apps navigation only after completed sign-in and removes it on disconnect'() {
       await mountPreview(true);
       const saved = status.snapshot;

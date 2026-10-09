@@ -15,7 +15,7 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type React
 import hljs from 'highlight.js/lib/common';
 import { RefreshCw } from 'lucide-react';
 import type { CodeTestsBridge, CodeTestsHost } from './CodeTestsTab';
-import type { CodeHostRef, LocalRunDto, ReviewCodeFileDto, ReviewCodeFilesDto } from './contracts';
+import type { CodeHostRef, LineChangeDto, LocalRunDto, ReviewCodeFileDto, ReviewCodeFilesDto } from './contracts';
 import { useCodeComments, type CodeCommentsOptions, type CommentGesture, type LineCard } from './useCodeComments';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
@@ -24,6 +24,7 @@ import { useResizablePane } from '../../useResizablePane';
 import { fileName, languageFor, shortSha, visibleFiles } from './codeModel';
 import TreeItems from './TreeItems';
 import RunPanel from './RunPanel';
+import { lineChangeMarkers } from './lineChangeMarkers';
 
 /** Historical source and retained run evidence need neither an extension host nor an index. */
 export default function ArchivedCode({ host, onExit, comments, active, bridge, onReviewChange }: {
@@ -112,7 +113,7 @@ export default function ArchivedCode({ host, onExit, comments, active, bridge, o
         {!path ? <div className="ct-editor__empty">Open a file to inspect its retained source.</div>
           : file?.path !== path ? <div className="ct-editor__empty" role="status">Loading {fileName(path)}…</div>
           : file.content === null ? <div className="ct-editor__empty">{file.unavailableReason ?? 'This file cannot be shown.'}</div>
-          : <><SourceSnapshot key={path} path={path} text={file.content} cards={cards.cards} renderCard={cards.renderCard}
+          : <><SourceSnapshot key={path} path={path} text={file.content} lineChanges={file.lineChanges} cards={cards.cards} renderCard={cards.renderCard}
             onComment={cards.onComment} commentRange={cards.commentRange} />{cards.unplaced}</>}
       </section>
     </div>
@@ -122,12 +123,14 @@ export default function ArchivedCode({ host, onExit, comments, active, bridge, o
 }
 
 /** Bounded archival rendering reuses the app's existing highlighter and real review cards. */
-export function SourceSnapshot({ path, text, cards, renderCard, onComment, commentRange }: {
+export function SourceSnapshot({ path, text, lineChanges = [], cards, renderCard, onComment, commentRange }: {
   path: string; text: string; cards: LineCard[]; renderCard?: (key: string) => ReactNode;
+  lineChanges?: LineChangeDto[];
   onComment?: (gesture: CommentGesture) => void; commentRange: { start: number; end: number } | null;
 }) {
   const [page, setPage] = useState(0);
   const lines = useMemo(() => text.split('\n'), [text]);
+  const markers = useMemo(() => lineChangeMarkers(lineChanges, lines.length), [lineChanges, lines.length]);
   const start = Math.min(page * 500, Math.floor((lines.length - 1) / 500) * 500);
   const language = languageFor(path);
   const highlighted = useMemo(() => lines.slice(start, start + 500).map(line => line.length <= 10_000 && hljs.getLanguage(language)
@@ -148,6 +151,8 @@ export function SourceSnapshot({ path, text, cards, renderCard, onComment, comme
             <button className="ct-snapshot__number" disabled={!onComment} aria-label={`Comment on line ${line}`} onClick={event => {
               onComment?.({ type: 'start', line, extend: event.shiftKey }); onComment?.({ type: 'finish' });
             }}>{line}</button>
+            <span className="ct-snapshot__changes">{markers.filter(marker => line >= marker.start && line <= marker.end).map(marker =>
+              <span key={`${marker.className}:${marker.start}`} className={marker.className} title={marker.title} role="img" aria-label={marker.title} />)}</span>
             {html === null ? <code>{lines[line - 1] || ' '}</code> : <code className="hljs" dangerouslySetInnerHTML={{ __html: html }} />}
           </div>
           {cards.filter(card => card.line === line).map(card => <div className="ct-inline-card" key={card.key}>{renderCard?.(card.key)}</div>)}

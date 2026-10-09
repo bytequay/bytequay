@@ -31,6 +31,7 @@ import FileExplorer from './FileExplorer';
 import { useResizablePane } from '../useResizablePane';
 import { PanelLeft, ArrowLeft, ArrowRight, ChevronDown, ChevronUp, MessageSquare, Play, Bug, TerminalSquare, GitCommitHorizontal } from 'lucide-react';
 import ReviewZones from './ReviewZones';
+import LineChanges from './LineChanges';
 import EditorNavigation from './EditorNavigation';
 import Usages from './Usages';
 import Search from './Search';
@@ -275,6 +276,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
     </div>
     {active && <ReviewZones runtime={runtime} uri={active.document.uri.toString()} cards={comments.cards} renderCard={comments.renderCard}
       onComment={comments.onComment} commentRange={comments.commentRange} />}
+    {active && <LineChanges runtime={runtime} uri={active.document.uri.toString()} file={file?.path === selected ? file : null} />}
     <Usages editors={runtime.editors} workspace={runtime.workspace} />
     {!panelCollapsed && <div className={`ide-panel-resize${panel.resizing ? ' is-resizing' : ''}`} role="separator" tabIndex={0} aria-orientation="horizontal"
       aria-label="Resize the tools panel" aria-valuenow={panel.width} aria-valuemin={100} aria-valuemax={900}

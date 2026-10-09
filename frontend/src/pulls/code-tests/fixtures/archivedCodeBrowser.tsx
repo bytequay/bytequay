@@ -38,6 +38,18 @@ export async function runArchivedCodeScenarios(): Promise<{ name: string; error?
       onComment={comments.onComment} commentRange={comments.commentRange} />;
   };
   try {
+    flushSync(() => root.render(<SourceSnapshot path="notes.txt" text={text} cards={[]} commentRange={null} lineChanges={[
+      { kind: 'ADDED', line: 2, count: 2 }, { kind: 'MODIFIED', line: 7, count: 1 },
+      { kind: 'DELETED', line: 0, count: 3 }, { kind: 'DELETED', line: 20, count: 2 },
+      { kind: 'ADDED', line: 0, count: 1 }, { kind: 'MODIFIED', line: 21, count: 1 },
+    ]} />)); await settle();
+    assert(host.querySelectorAll('.ct-line-change.is-added').length === 2, 'Each added line has a green marker');
+    assert(host.querySelectorAll('.ct-line-change.is-modified').length === 1, 'Updated lines have a separate marker and invalid ranges are omitted');
+    assert(host.querySelectorAll('.ct-line-change.is-deleted').length === 2, 'Both boundary deletions remain visible');
+    assert(host.querySelector('.ct-line-change.is-before')?.getAttribute('aria-label') === 'Deleted 3 lines before line 1 compared with the base', 'Deletion labels include their count and position');
+    results.push({ name: 'Historical source shows added, updated and deleted line markers' });
+  } catch (error) { results.push({ name: 'Historical source change markers', error: String(error) }); }
+  try {
     flushSync(() => root.render(<Harness />)); await settle();
     host.querySelector<HTMLButtonElement>('[aria-label="Comment on line 3"]')?.click(); await settle();
     const input = host.querySelector<HTMLTextAreaElement>('.pull-diff-review textarea'); assert(input !== null, 'A line must open the shared composer');

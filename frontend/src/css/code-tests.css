@@ -207,3 +207,9 @@
 .ct-snapshot__number { flex: none; width: 64px; border: 0; background: #f6f8fa; color: #6e7781; font: inherit; text-align: right; padding: 0 14px 0 4px; user-select: none; }
 .ct-snapshot__number:not(:disabled) { cursor: pointer; }
 .ct-snapshot__number:focus-visible { outline: 2px solid #0969da; outline-offset: -2px; }
+.ct-snapshot__changes { position: relative; flex: none; width: 10px; }
+.ct-line-change::before { position: absolute; top: 0; bottom: 0; left: 0; width: 4px; content: ''; background: var(--vscode-editorGutter-addedBackground, #1a7f37); }
+.ct-line-change.is-modified::before { background: var(--vscode-editorGutter-modifiedBackground, #0969da); }
+.ct-line-change.is-deleted::before { top: auto; bottom: 0; width: 8px; height: 3px; background: var(--vscode-editorGutter-deletedBackground, #cf222e); }
+.ct-line-change.is-before::before { top: 0; bottom: auto; }
+.ct-snapshot__changes .ct-line-change { position: absolute; inset: 0; }

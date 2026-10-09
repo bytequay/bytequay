@@ -162,6 +162,11 @@ For a PR in a watched repository, open **WorkBench → Code & Tests** and choose
 into a managed local worktree and opens the editor. The local code server runs
 in the background and uses additional memory.
 
+Open a changed file to see gutter markers: green for added lines, blue for
+updated lines, and red at deletion points. Markers compare saved contents with
+the base and refresh after saving; they hide while the editor differs from the
+saved file. Retained read-only files show the same markers.
+
 Browse files, edit code, or run tests without starting an agent review. When you
 choose **Start review** in **Summary**, the reviewer reuses this working copy.
 An existing development task's working copy remains available directly. Before

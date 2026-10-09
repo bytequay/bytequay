@@ -20,7 +20,7 @@ import electron from 'electron';
 import { createServer } from 'vite';
 import { expect, it } from 'vitest';
 
-it('renders native syntax, folding, type icons, test colors, usages, search, and private line comments', async () => {
+it('renders native syntax, folding, type icons, test colors, usages, search, private line comments, and change markers', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'bytequay-editor-appearance-'));
   const server = await createServer({ configFile: resolve('vite.ide.config.ts'), logLevel: 'error',
     cacheDir: join(directory, 'node_modules/.vite'), server: { host: '127.0.0.1', port: 0 },
@@ -80,6 +80,11 @@ it('renders native syntax, folding, type icons, test colors, usages, search, and
             await waitFor('window.reviewCapture === ' + JSON.stringify(mode), 600);
             if (process.env.BYTEQUAY_REVIEW_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_REVIEW_CAPTURE + '-' + mode + '.png', (await window.webContents.capturePage()).toPNG());
             await window.webContents.executeJavaScript('window.reviewCaptured = ' + JSON.stringify(mode));
+          }
+          for (const mode of ['dark', 'light']) {
+            await waitFor('window.lineChangesCapture === ' + JSON.stringify(mode), 600);
+            if (process.env.BYTEQUAY_LINE_CHANGES_CAPTURE) require('fs').writeFileSync(process.env.BYTEQUAY_LINE_CHANGES_CAPTURE + '-' + mode + '.png', (await window.webContents.capturePage()).toPNG());
+            await window.webContents.executeJavaScript('window.lineChangesCaptured = ' + JSON.stringify(mode));
           }
           const result = await pending;
           process.stdout.write(JSON.stringify(result) + '\\n');

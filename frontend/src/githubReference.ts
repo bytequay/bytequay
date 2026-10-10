@@ -139,6 +139,17 @@ export async function openActivityLink(href: string): Promise<void> {
   else await window.bridge.openInAppBrowser(href);
 }
 
+/** Mail can reference uncached PRs, but only watched repositories have a native destination. */
+export async function openWatchedGitHubLink(href: string): Promise<void> {
+  const reference = parseGitHubReference(href);
+  const workspaceId = reference === null ? null : await findIssueWorkspace(reference).catch((): null => null);
+  if (reference && workspaceId) {
+    if (reference.kind === 'pull') zoomReference({ kind: 'pull', repo: `${reference.owner}/${reference.repo}`, number: reference.number, workspaceId });
+    else await openGitHubReference(reference);
+  }
+  else await window.bridge.openInAppBrowser(href);
+}
+
 export async function openGitHubReference(reference: GitHubReference, preview?: GitHubReferencePreview | null): Promise<void> {
   const repo = `${reference.owner}/${reference.repo}`;
   const resolved = preview ?? await resolveGitHubReference(reference).catch((): null => null);

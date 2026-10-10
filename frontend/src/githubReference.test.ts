@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { openActivityLink, openGitHubReference, openWebLink, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference, ZOOM_REFERENCE } from './githubReference';
+import { openActivityLink, openWatchedGitHubLink, openGitHubReference, openWebLink, parseGitHubReference, pullRequestFromRoute, pullRequestRoute, resolveGitHubReference, ZOOM_REFERENCE } from './githubReference';
 import { jiraTicketLink } from './jira/contracts';
 
 const issuePreview = {
@@ -45,10 +45,49 @@ describe('GitHub references', () => {
     expect(parseGitHubReference('https://example.com/owner/repo/issues/42')).toBeNull();
   });
 
+  it.each(['watched', 'unwatched', 'unavailable'])('routes mail PR links by watched repository: %s', async state => {
+    const bridge = {
+      listWorkspaces: state === 'unavailable' ? vi.fn().mockRejectedValue(new Error('Offline'))
+        : vi.fn().mockResolvedValue(state === 'watched' ? [{ id: 'workspace-1', monitoredOwner: 'Owner', monitoredRepo: 'Repo' }] : []),
+      openInAppBrowser: vi.fn(),
+    };
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
+    const href = 'https://github.com/owner/repo/pull/42#discussion_r1';
+    await openWatchedGitHubLink(href);
+    if (state === 'watched') {
+      expect(zoomed(dispatchEvent)).toEqual([{ kind: 'pull', repo: 'owner/repo', number: 42, workspaceId: 'workspace-1' }]);
+      expect(bridge.openInAppBrowser).not.toHaveBeenCalled();
+    }
+    else {
+      expect(zoomed(dispatchEvent)).toEqual([]);
+      expect(bridge.openInAppBrowser).toHaveBeenCalledWith(href);
+    }
+  });
+
   it('round-trips a pull request detail route', () => {
     const route = pullRequestRoute({ owner: 'owner', repo: 'repo', number: 7 });
     expect(route).toBe('#/pulls/owner/repo/7');
     expect(pullRequestFromRoute(route)).toEqual({ repo: 'owner/repo', number: 7 });
+  });
+
+  it('resolves another PR number in watched mail without turning real issues into PRs', async () => {
+    const bridge = {
+      listWorkspaces: vi.fn().mockResolvedValue([{ id: 'workspace-1', monitoredOwner: 'owner', monitoredRepo: 'repo' }]),
+      fetchWorkspaceIssue: vi.fn().mockResolvedValue(null),
+      fetchGitHubIssuePreview: vi.fn().mockResolvedValueOnce({ ...issuePreview, pullRequest: true }).mockResolvedValue(issuePreview),
+      fetchPullRequestDetailByRef: vi.fn().mockResolvedValue({ title: 'Another pull request' }),
+      openInAppBrowser: vi.fn(),
+    };
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal('window', { bridge, dispatchEvent });
+    await openWatchedGitHubLink('https://github.com/owner/repo/issues/40');
+    await openWatchedGitHubLink('https://github.com/owner/repo/issues/41');
+    expect(zoomed(dispatchEvent)).toEqual([
+      { kind: 'pull', repo: 'owner/repo', number: 40 },
+      { kind: 'issue', repo: 'owner/repo', number: 41, workspaceId: 'workspace-1' },
+    ]);
+    expect(bridge.openInAppBrowser).not.toHaveBeenCalled();
   });
 
   it.each([false, true])('recognizes an issue URL for a PR when its preview is available: %s', async available => {

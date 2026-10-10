@@ -1605,6 +1605,8 @@ export function ReviewDialog({
 }) {
   const [body, setBody] = useState(review?.draft?.body ?? '');
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const commentRef = useRef<HTMLTextAreaElement>(null);
+  const [commentPreview, setCommentPreview] = useState(false);
   const savedDraft = useRef(review?.draft ?? null);
   const edited = useRef(false);
   const command = usePrCommentCommand({ repository: detail.repo, number: detail.number, value: body,
@@ -1865,13 +1867,16 @@ export function ReviewDialog({
                     <span className="pull-diff-pending__badge">Pending</span></>}
                   menu={<>
                     <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
-                      onClick={() => { setError(null); setCommentEdit({ key, body: comment.body, version: review?.draft?.version ?? 0 }); }}>Edit</button>
+                      onClick={() => { setError(null); setCommentPreview(false); setCommentEdit({ key, body: comment.body, version: review?.draft?.version ?? 0 }); }}>Edit</button>
                     <button className="pr-review-sheet__remove" type="button" disabled={busy || commentEdit !== null} onClick={remove}>Remove</button>
                   </>}>
                   {commentEdit?.key === key ? <MarkdownEditor
+                    textareaRef={commentRef} preview={commentPreview} onPreviewChange={setCommentPreview}
                     value={commentEdit.body} onChange={text => setCommentEdit({ ...commentEdit, body: text })}
                     ariaLabel="Edit pending review comment" repository={detail.repo} busy={busy} autoFocus
                     onSubmit={() => { void saveComment(save); }} onCancel={cancelCommentEdit}>
+                    <BetterWordsButton text={commentEdit.body} textareaRef={commentRef} repository={detail.repo} workspaceId={review?.workspaceId}
+                      disabled={busy || commentPreview} onError={value => setError(value === null ? null : remoteErrorMessage(value))} />
                     <button type="button" disabled={busy} onClick={cancelCommentEdit}>Cancel</button>
                     <button type="button" className="is-primary" disabled={busy || !commentEdit.body.trim()}
                       onClick={() => { void saveComment(save); }}>{saving ? 'Saving…' : 'Save'}</button>

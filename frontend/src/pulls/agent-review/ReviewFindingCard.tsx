@@ -149,7 +149,9 @@ export default function ReviewFindingCard({
         controls={<footer className={`lrc__foot${composer === null ? '' : ' is-composing'}`}>
           {composer !== null && (
             <ReviewComposer
+              key={composer}
               repository={review.repo}
+              workspaceId={review.workspaceId}
               value={text}
               suggestion={composer === 'post' ? suggestion : undefined}
               autoFocus

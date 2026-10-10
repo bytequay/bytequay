@@ -181,6 +181,22 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(submissions.length === 0 && host.textContent?.includes('Include this reply in my review'),
       'Adding a reply must keep it local and visible in its thread');
     assert(host.querySelector('[aria-label^="Submit review, 2 pending"]') !== null, 'Replies must count toward the pending review');
+    const thread = host.querySelector('.pr-inline-thread');
+    assert(thread?.querySelector(':scope > summary .pull-diff-pending__badge')?.textContent === 'Pending',
+      'Pending replies must mark the existing thread header');
+    const pendingMessage = thread?.querySelector('.lrc-message:last-of-type');
+    assert(pendingMessage?.querySelector('.user-avatar-trigger strong')?.textContent === 'bob'
+      && pendingMessage.querySelector('.lrc-message__menu') === null, 'Pending replies must use the normal author row without a Remove menu');
+    button('Reply').click(); await settle();
+    const extraReply = host.querySelector<HTMLTextAreaElement>('[aria-label="Reply to review thread"]');
+    assert(extraReply !== null, 'The thread can stage another reply');
+    changeInput(extraReply, 'Remove only this reply'); await settle();
+    button('Add to review').click(); await settle();
+    const remove = host.querySelector<HTMLButtonElement>('.lrc__foot [aria-label="Remove pending reply 2"]');
+    assert(remove !== null && remove.nextElementSibling?.textContent?.trim() === 'Resolve', 'Remove must sit beside Resolve');
+    remove.click(); await settle();
+    assert(host.textContent?.includes('Include this reply in my review') && !host.textContent?.includes('Remove only this reply')
+      && submissions.length === 0, 'Removing a pending reply must preserve the other reply without publishing');
     button('WorkBench').click(); await settle();
     button('Summary').click(); await settle();
     button('Submit review').click(); await settle();
@@ -195,7 +211,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(editor !== null && editor.value === 'Keep this pending review' && submit.disabled,
       'Editing must start with the saved body and block submission of the old text');
     changeInput(editor, 'Discard this edit'); await settle();
-    card.querySelector<HTMLButtonElement>('.pull-diff-review footer button')?.click(); await settle();
+    [...card.querySelectorAll<HTMLButtonElement>('.pull-diff-review footer button')].find(button => button.textContent === 'Cancel')?.click(); await settle();
     assert(card.textContent?.includes('Keep this pending review') && !submit.disabled, 'Cancel must keep the original comment');
     edit.click(); await settle();
     editor = card.querySelector<HTMLTextAreaElement>('[aria-label="Edit pending review comment"]');
@@ -245,6 +261,11 @@ export async function runDraftCommentEdit(): Promise<string> {
   let closed = false;
   const bridge = {
     getUserProfile: async () => null,
+    betterWords: async (text, repo, workspaceId) => {
+      assert(text === 'Original finding' && repo === currentReview.repo && workspaceId === currentReview.workspaceId,
+        'Better words must rewrite the outgoing comment with its repository and workspace');
+      return 'Edited finding';
+    },
     fetchPrDiffFiles: async () => files,
     fetchPrDiffCommits: async () => commits,
     getAgentReview: async () => currentReview,
@@ -268,7 +289,7 @@ export async function runDraftCommentEdit(): Promise<string> {
     },
     fetchPullRequestDetailByRef: async () => stored,
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview' | 'editReviewDraftComment'
-    | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef'>;
+    | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef' | 'betterWords'>;
   const previous = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('main');
@@ -286,11 +307,12 @@ export async function runDraftCommentEdit(): Promise<string> {
     button('.pr-review-sheet__edit').click(); await settle();
     const input = host.querySelector<HTMLTextAreaElement>('[aria-label="Edit pending review comment"]');
     assert(input !== null && input.value === draft.items[0].body, 'Saved draft comments must open in the same editor');
-    changeInput(input, 'Edited finding'); await settle();
+    button('.pull-diff-review .pr-better-words').click(); await settle();
+    assert(input.value === 'Edited finding' && edits.length === 0, 'Better words must update only the editor until Save');
     button('[aria-label="Close review dialog"]').click(); await settle();
     assert(!closed && input.value === 'Edited finding', 'Closing must not silently discard an active comment edit');
     button('.pull-diff-review .is-primary').click(); await settle();
-    assert(input.disabled && button('.pr-review-sheet__footer .is-primary').disabled && edits.length === 1,
+    assert(input.disabled && button('.pr-review-sheet__footer .is-primary').disabled && Number(edits.length) === 1,
       'Saving must block duplicate edits and review submission');
     finishSave(); await settle();
     assert(!input.disabled && input.value === 'Edited finding' && host.querySelector('[role="alert"]')?.textContent === saveError,

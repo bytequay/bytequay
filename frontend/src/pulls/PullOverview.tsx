@@ -1048,6 +1048,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   const suggestion = reviewThreadSuggestion(payload);
   const rootCommentId = payload.comments.find(comment => comment.inReplyToId === null)?.githubId
     ?? payload.comments[0]?.githubId;
+  const pendingReplies = pending?.comments.filter(comment => comment.replyToCommentId === rootCommentId) ?? [];
   const resolved = optimisticResolved ?? payload.resolved;
   const startLine = payload.line === null ? payload.originalStartLine : payload.startLine;
   const sidePrefix = payload.side === 'LEFT' ? 'L' : payload.side === 'RIGHT' ? 'R' : '';
@@ -1178,6 +1179,11 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
       <button className="lrc__ask" type="button" disabled={!rootCommentId}
         onClick={() => { setError(''); setPreview(false); setReplying(true); }}>Reply</button>
       {error && <span className="pr-thread-reply__error" role="alert">{error}</span>}
+      {pendingReplies.map((comment, index) => <button key={index} className="lrc__action" type="button"
+        title={comment.body} aria-label={`Remove pending reply${pendingReplies.length > 1 ? ` ${index + 1}` : ''}`}
+        onClick={() => pending?.onChange(pending.comments.filter(value => value !== comment))}>
+        {pendingReplies.length > 1 ? `Remove reply ${index + 1}` : 'Remove'}
+      </button>)}
       <button className="lrc__action" type="button" disabled={!rootCommentId || changingResolution}
         onClick={() => { void changeResolution(); }}>
         {resolved ? 'Unresolve' : 'Resolve'}
@@ -1187,6 +1193,7 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
   return (
     <ReviewThreadCard title={<span className={`lrc__title${showCode ? ' is-path' : ''}`} title={showCode ? payload.path ?? undefined : undefined}>{location}</span>}
       resolved={resolved} outdated={payload.outdated}
+      badges={pendingReplies.length > 0 && <span className="pull-diff-pending__badge">Pending</span>}
       code={!resolved && commentedLines.length > 0 && <div className="lrc__code">
         {commentedLines.map((line, index) => <CommentedCodeLine key={line.lineNumber ?? index} line={line} />)}
       </div>} controls={controls}>
@@ -1197,10 +1204,9 @@ export function ReviewThread({ activity, viewerLogin, privateThreads, pr, worksp
         onDraftReply={rootCommentId === undefined || rootCommentId === null ? undefined
           : thread => { void draftWithAgent(thread, displayActor(comment.actor ?? '')); }}
         key={comment.githubId ?? comment.timestamp} />)}
-      {pending?.comments.filter(comment => comment.replyToCommentId === rootCommentId).map((comment, index) => (
-        <ReviewThreadMessage key={index} author={viewerLogin ?? 'You'} timestamp={null}
-          tag={<span className="pull-diff-pending__badge">Pending</span>}
-          menu={<button type="button" onClick={() => pending.onChange(pending.comments.filter(value => value !== comment))}>Remove</button>}>
+      {pendingReplies.map((comment, index) => (
+        <ReviewThreadMessage key={index} timestamp={null}
+          author={viewerLogin ? <UserAvatar login={viewerLogin} size={22} showLogin /> : <strong>You</strong>}>
           <MarkdownBody body={comment.body} repository={pr.repo} />
         </ReviewThreadMessage>
       ))}

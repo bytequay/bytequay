@@ -15,10 +15,13 @@ import { useRef, useState, type ReactNode } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import type { SuggestionBase } from '../MarkdownBody';
 import MarkdownEditor from '../MarkdownEditor';
+import BetterWordsButton from '../BetterWordsButton';
+import { remoteErrorMessage } from '../PullOverview';
 
 /** The same editor writes private questions and outgoing comments, so its destination stays visible. */
 export default function ReviewComposer({
   repository,
+  workspaceId,
   value,
   placeholder,
   ariaLabel,
@@ -38,6 +41,7 @@ export default function ReviewComposer({
   onCancel,
 }: {
   repository: string;
+  workspaceId?: string;
   value: string;
   placeholder: string;
   ariaLabel: string;
@@ -62,6 +66,9 @@ export default function ReviewComposer({
   onSubmit: () => void | Promise<void>;
   onCancel: () => void;
 }) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const [preview, setPreview] = useState(false);
+  const [rewriteError, setRewriteError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const inFlight = useRef(false);
   const ready = (allowEmpty || value.trim() !== '') && !busy && disabledReason === null && waitingReason === null;
@@ -84,6 +91,10 @@ export default function ReviewComposer({
     <MarkdownEditor
       className="agr-composer"
       value={value}
+      textareaRef={textareaRef}
+      preview={preview}
+      onPreviewChange={setPreview}
+      error={rewriteError}
       onChange={onChange}
       ariaLabel={ariaLabel}
       placeholder={placeholder}
@@ -96,6 +107,8 @@ export default function ReviewComposer({
       autoFocus={autoFocus}
       onSubmit={() => { void submit(); }}
       onCancel={() => { if (!inFlight.current) onCancel(); }}>
+      {outgoing !== null && <BetterWordsButton text={value} textareaRef={textareaRef} repository={repository} workspaceId={workspaceId}
+        disabled={busy || preview} onError={failure => setRewriteError(failure === null ? null : remoteErrorMessage(failure))} />}
       {extra}
       {waitingReason !== null && <span className="agr-composer__waiting" role="status" aria-label={waitingReason} title={waitingReason}>
         <LoaderCircle className="pr-task-spinner" size={14} aria-hidden="true" />

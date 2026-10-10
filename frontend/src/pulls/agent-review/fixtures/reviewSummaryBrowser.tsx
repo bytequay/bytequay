@@ -37,6 +37,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
   const previous = window.bridge;
   const bridge = {
     getAgentReview: async () => saved,
+    betterWords: async (text, repo, workspaceId) => {
+      assert(text === originalBody && repo === saved.repo && workspaceId === saved.workspaceId,
+        'Rewriting uses the outgoing text and the review workspace');
+      return originalBody.replace('Thanks for the change.', 'Thank you for the update.');
+    },
     saveReviewDraft: (...args) => {
       requests.push(args);
       return new Promise<NonNullable<typeof saved.draft>>((resolve, reject) => completions.push(failure => {
@@ -55,7 +60,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       saved = { ...saved, draft };
       return draft;
     },
-  } satisfies Pick<Bridge, 'getAgentReview' | 'saveReviewDraft' | 'addReviewDraftFinding'>;
+  } satisfies Pick<Bridge, 'getAgentReview' | 'saveReviewDraft' | 'addReviewDraftFinding' | 'betterWords'>;
   Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
   function Surface() {
     const [review, setReview] = useState(saved);
@@ -82,6 +87,14 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(host.textContent?.includes('Outgoing review summary') === true, 'The finding must show its outgoing summary');
     button('Edit').click(); await settle();
     assert(input().value === originalBody && document.activeElement === input(), 'Edit must seed and focus the entire saved summary');
+    button('Preview').click(); await settle();
+    assert(button('Better words').disabled, 'Rewriting is disabled in Preview');
+    button('Write').click(); await settle();
+    button('Better words').click(); await settle();
+    assert(input().value.includes('Thank you for the update.') && saved.draft?.body === originalBody && requests.length === 0,
+      'Better words changes only the outgoing editor until Save');
+    button('Discard').click(); await settle();
+    assert(input().value === originalBody, 'Discard restores the outgoing text');
     await write('Discard this edit');
     button('Cancel').click(); await settle();
     assert(requests.length === 0 && saved.draft?.body === originalBody, 'Cancel must not change the saved summary');

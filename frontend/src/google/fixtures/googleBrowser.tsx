@@ -48,7 +48,7 @@ export async function mountPreview(settings = false) {
     ],
   } };
   const bridge: Partial<Bridge> = {
-    getGeminiSetupStatus: async () => ({ configured: false, installed: true }),
+    getGeminiSetupStatus: async () => ({ configured: !settings, installed: true }),
     saveGeminiSetupKey: async () => ({ configured: true, installed: true }),
     removeGeminiSetupKey: async () => ({ configured: false, installed: true }),
     getGoogleChat: async () => structuredClone(chat),
@@ -156,6 +156,25 @@ export async function run() {
       const screen = document.querySelector('.google-screen');
       assert(screen !== null && screen.scrollWidth <= screen.clientWidth, 'Page fits the viewport');
     },
+    async 'recovers sign-in polling after a transient status failure'() {
+      await mountPreview(true);
+      let checks = 0;
+      window.bridge.connectGoogle = async () => { status.operation = 'Checking Google connection'; return structuredClone(status); };
+      window.bridge.getGoogleStatus = async () => {
+        checks++;
+        if (checks === 2) throw new Error('Temporary connection failure');
+        if (checks >= 3) status.operation = '';
+        return structuredClone(status);
+      };
+      button('Reconnect').click(); await settle(); await settle();
+      assert(document.body.textContent?.includes('Checking Google connection'), 'Existing connection is checked first');
+      assert(!document.body.textContent?.includes('Complete sign-in in your browser'), 'Checking credentials does not claim a browser login is needed');
+      const deadline = Date.now() + 5000;
+      while (button('Reconnect').disabled && Date.now() < deadline) await settle();
+      assert(checks >= 3, 'Polling continues after a failed status request');
+      assert(!button('Reconnect').disabled, 'Completion clears the pending operation');
+      assert(!document.querySelector('[role="alert"]'), 'Successful status clears the transient error');
+    },
     async 'shows calendar coverage and rejects non-Google event links'() {
       await mountPreview(); button('Calendar').click(); await settle();
       assert(document.body.textContent?.includes('2026-10-13 · All day'), 'All-day dates stay date-only');
@@ -199,6 +218,26 @@ export async function run() {
       assert(document.querySelector('[aria-label="Conversation messages"]')?.textContent?.includes('Your booking has been confirmed.'), 'Response appears inside Google Apps');
       button('Clear conversation').click(); await settle(); await settle();
       assert(chat.messages.length === 0, 'Clear removes conversation');
+    },
+    async 'guides missing Gemini setup to settings while keeping Google Apps usable'() {
+      await mountPreview();
+      window.bridge.getGeminiSetupStatus = async () => ({ configured: false, installed: true });
+      window.dispatchEvent(new Event('focus')); await settle(); await settle();
+      assert(document.querySelector('[aria-label="Message Gemini"]') === null, 'Cannot submit without a saved key');
+      const link = document.querySelector<HTMLAnchorElement>('.google-chat a.setw-btn-primary');
+      assert(link?.textContent === 'Add API key' && link.getAttribute('href') === '#/settings/integrations/google', 'Setup links to Google Apps settings');
+      assert(!button('Search / refresh').disabled, 'Gmail still works without a Gemini key');
+      assert(chat.messages.length === 0, 'Setup does not start a failed conversation');
+      window.bridge.getGeminiSetupStatus = async () => ({ configured: true, installed: false });
+      window.dispatchEvent(new Event('focus')); await settle(); await settle();
+      assert(document.body.textContent?.includes('Install Gemini CLI to use the assistant'), 'Missing CLI has its own setup guidance');
+      window.bridge.getGeminiSetupStatus = async () => { throw new Error('Keychain locked'); };
+      window.dispatchEvent(new Event('focus')); await settle(); await settle();
+      assert(document.querySelector('.google-chat [role="alert"]')?.textContent?.includes('Unable to check'), 'Status failure remains visible');
+      window.bridge.getGeminiSetupStatus = async () => ({ configured: true, installed: true });
+      window.dispatchEvent(new Event('focus')); await settle(); await settle();
+      assert(document.querySelector('[aria-label="Message Gemini"]') !== null, 'Returning after setup enables the composer');
+      assert(document.querySelector('.google-chat [role="alert"]') === null, 'Successful check clears the setup error');
     },
     async 'requires explicit agent access and confirms local data removal'() {
       await mountPreview(true);

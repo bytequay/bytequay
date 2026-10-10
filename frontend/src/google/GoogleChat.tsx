@@ -12,17 +12,31 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { GoogleChatState } from './contracts';
+import type { GeminiSetupStatus, GoogleChatState } from './contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
 import ReviewComposer from '../pulls/agent-review/ReviewComposer';
+import { settingsRoute } from '../settings/routes';
 
 export default function GoogleChat({ profile, email }: { profile: string; email: string }) {
   const [state, setState] = useState<GoogleChatState | null>(null);
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [setup, setSetup] = useState<GeminiSetupStatus | null>(null);
+  const [setupError, setSetupError] = useState<string | null>(null);
   const alive = useRef(true);
   const bottom = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    let active = true;
+    const refresh = () => { void window.bridge.getGeminiSetupStatus().then(next => {
+      if (active) { setSetup(next); setSetupError(null); }
+    }).catch(() => {
+      if (active) { setSetup(null); setSetupError('Unable to check Gemini setup. Open settings to check Keychain access.'); }
+    }); };
+    refresh();
+    window.addEventListener('focus', refresh);
+    return () => { active = false; window.removeEventListener('focus', refresh); };
+  }, []);
   useEffect(() => {
     alive.current = true;
     let inFlight = false;
@@ -54,8 +68,13 @@ export default function GoogleChat({ profile, email }: { profile: string; email:
       {(error || state?.error) && <p className="google-screen__error" role="alert">{error || state?.error}</p>}
       <div ref={bottom} />
     </div>
-    <ReviewComposer repository="" value={draft} onChange={setDraft} ariaLabel="Message Gemini" placeholder="Ask Gemini about your mail or calendar…" primaryLabel="Send to Gemini" busy={pending} waitingReason={state?.busy ? 'Gemini is responding' : null}
+    {(setup?.configured && setup.installed) || state?.busy ? <ReviewComposer repository="" value={draft} onChange={setDraft} ariaLabel="Message Gemini" placeholder="Ask Gemini about your mail or calendar…" primaryLabel="Send to Gemini" busy={pending} waitingReason={state?.busy ? 'Gemini is responding' : null}
       secondary={state?.busy ? <button type="button" disabled={pending} onClick={() => { void act(() => window.bridge.stopGoogleChat(profile)); }}>Stop</button> : <small>Cleared when ByteQuay quits</small>}
       onCancel={() => setDraft('')} onSubmit={async () => { if (await act(() => window.bridge.promptGoogleChat(profile, draft))) setDraft(''); }} />
+      : <div>
+        <p role={setupError ? 'alert' : 'status'}>{setupError || (!setup ? 'Checking Gemini setup…' : !setup.configured
+          ? 'Add a Gemini API key to chat about your mail and calendar.' : 'Install Gemini CLI to use the assistant.')}</p>
+        {(setup || setupError) && <a className="setw-btn-primary" href={settingsRoute('google')}>{setup && !setup.configured ? 'Add API key' : 'Open Gemini settings'}</a>}
+      </div>}
   </aside>;
 }

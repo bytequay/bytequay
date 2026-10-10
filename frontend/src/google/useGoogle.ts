@@ -39,9 +39,15 @@ export function useGoogle() {
   }, [reload]);
   useEffect(() => {
     if (!status?.operation) return;
-    const timer = window.setTimeout(() => { void reload(); }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [status, reload]);
+    let stopped = false;
+    let timer: number;
+    const poll = async () => {
+      await reload();
+      if (!stopped) timer = window.setTimeout(() => { void poll(); }, 1200);
+    };
+    timer = window.setTimeout(() => { void poll(); }, 1200);
+    return () => { stopped = true; window.clearTimeout(timer); };
+  }, [status?.operation, reload]);
   const act = async (action: () => Promise<GoogleStatus>) => {
     revision.current++; setPending(true); setError(null);
     try {

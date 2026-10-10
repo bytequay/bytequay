@@ -23,7 +23,10 @@ vi.mock('node:fs', () => ({ mkdirSync: mocks.mkdirSync, writeFileSync: mocks.wri
 const profile = '00000000-0000-0000-0000-000000000001';
 const second = '00000000-0000-0000-0000-000000000002';
 const secret = 'test-only-secret';
-const setup = { credentials: vi.fn(async () => ({ executable: '/test/gemini', key: secret, searchPath: '/test/bin' })) } as unknown as GeminiSetup;
+const setup = {
+  status: vi.fn(async () => ({ configured: true, installed: true })),
+  credentials: vi.fn(async () => ({ executable: '/test/gemini', key: secret, searchPath: '/test/bin' })),
+} as unknown as GeminiSetup;
 let chat: GeminiChat;
 let requests: Record<string, unknown>[];
 let children: ReturnType<typeof child>[];
@@ -47,7 +50,20 @@ beforeEach(() => {
   mocks.spawn.mockImplementation(() => { const value = child(); children.push(value); return value; });
   chat = new GeminiChat('/private/test', setup, command);
 });
-afterEach(() => { chat.dispose(); vi.restoreAllMocks(); });
+afterEach(() => { chat.dispose(); vi.restoreAllMocks(); vi.useRealTimers(); });
+
+it('rejects missing setup before creating a conversation and allows sending after setup', async () => {
+  vi.mocked(setup.status).mockResolvedValueOnce({ configured: false, installed: true });
+  await expect(chat.prompt(profile, 'Read mail')).rejects.toThrow('Add a Gemini API key');
+  expect(chat.status(profile)).toMatchObject({ messages: [], busy: false, error: null });
+  expect(command).not.toHaveBeenCalled();
+  expect(mocks.spawn).not.toHaveBeenCalled();
+  vi.mocked(setup.status).mockResolvedValueOnce({ configured: true, installed: false });
+  await expect(chat.prompt(profile, 'Read mail')).rejects.toThrow('Install Gemini CLI');
+  expect(chat.status(profile).messages).toEqual([]);
+  await chat.prompt(profile, 'Read mail'); await settle();
+  expect(chat.status(profile)).toMatchObject({ messages: [{ role: 'user', text: 'Read mail' }], busy: true });
+});
 
 it('streams responses and confines secrets, tools and temporary history to the native process', async () => {
   await chat.prompt(profile, 'Find my booking reply'); await settle();
@@ -59,12 +75,62 @@ it('streams responses and confines secrets, tools and temporary history to the n
   expect(config.tools.confirmationRequired).toContain('mcp_google-workspace_gmail_send');
   expect(config.mcpServers['google-workspace'].includeTools).not.toContain('drive_search');
   expect(config.mcpServers['google-workspace'].trust).toBe(false);
+  expect(config.mcpServers['google-workspace'].timeout).toBe(45_000);
+  expect(requests.find(item => item.method === 'session/prompt')?.params).toEqual({ sessionId: profile,
+    prompt: [{ type: 'text', text: expect.stringContaining('Current local time:') }, { type: 'text', text: 'Find my booking reply' }] });
   receive({ method: 'session/update', params: { sessionId: profile, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Confirmed ' } } } });
   receive({ method: 'session/update', params: { sessionId: profile, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '✓' } } } });
   const prompt = requests.find(item => item.method === 'session/prompt');
   receive({ id: prompt?.id, result: { stopReason: 'end_turn' } }); await settle();
   expect(chat.status(profile).messages.at(-1)?.text).toBe('Confirmed ✓');
   expect(chat.status(profile).busy).toBe(false);
+});
+
+it('clears completed Gmail activity while retaining other in-progress tools and accepts the final answer', async () => {
+  await chat.prompt(profile, 'Any urgent emails today?'); await settle();
+  const update = (value: unknown) => receive({ method: 'session/update', params: { sessionId: profile, update: value } });
+  update({ sessionUpdate: 'tool_call', toolCallId: 'one', title: 'Reading first email', status: 'in_progress' });
+  update({ sessionUpdate: 'tool_call', toolCallId: 'two', title: 'Reading second email', status: 'in_progress' });
+  update({ sessionUpdate: 'tool_call_update', toolCallId: 'two', status: 'in_progress' });
+  expect(chat.status(profile).activity).toBe('Reading second email');
+  update({ sessionUpdate: 'tool_call_update', toolCallId: 'two', title: 'Reading second email', status: 'completed' });
+  expect(chat.status(profile).activity).toBe('Reading first email');
+  update({ sessionUpdate: 'tool_call_update', toolCallId: 'one', status: 'failed' });
+  expect(chat.status(profile).activity).toBe('Gemini is reviewing Google results…');
+  update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Here is what I found.' } });
+  receive({ id: requests.find(item => item.method === 'session/prompt')?.id, result: { stopReason: 'end_turn' } }); await settle();
+  expect(chat.status(profile)).toMatchObject({ busy: false, activity: '', error: null });
+  expect(chat.status(profile).messages.at(-1)?.text).toBe('Here is what I found.');
+});
+
+it('times out silence rather than the whole turn, and permits a fresh conversation', async () => {
+  vi.useFakeTimers();
+  await chat.prompt(profile, 'Read mail'); await settle();
+  await vi.advanceTimersByTimeAsync(90_000);
+  receive({ method: 'session/update', params: { sessionId: profile,
+    update: { sessionUpdate: 'tool_call', toolCallId: 'mail', title: 'Read email', status: 'in_progress' } } });
+  await vi.advanceTimersByTimeAsync(90_000);
+  expect(chat.status(profile).busy).toBe(true);
+  await vi.advanceTimersByTimeAsync(30_000);
+  expect(chat.status(profile)).toMatchObject({ busy: false, activity: '', error: expect.stringContaining('stopped responding') });
+  expect(process.kill).toHaveBeenCalledWith(-12345, 'SIGKILL');
+  chat.clear(profile);
+  await chat.prompt(profile, 'Try again'); await settle();
+  expect(chat.status(profile)).toMatchObject({ busy: true, error: null });
+});
+
+it('does not time out while the user is considering a write approval', async () => {
+  vi.useFakeTimers();
+  await chat.prompt(profile, 'Send my reply'); await settle();
+  receive({ id: 'approval-1', method: 'session/request_permission', params: { sessionId: profile,
+    toolCall: { title: 'Send email' }, options: [{ kind: 'allow_once', optionId: 'once', name: 'Allow once' }] } });
+  await vi.advanceTimersByTimeAsync(300_000);
+  expect(chat.status(profile).busy).toBe(true);
+  expect(chat.status(profile).approval?.id).toBe('approval-1');
+  chat.approve(profile, 'approval-1', 'once');
+  await vi.advanceTimersByTimeAsync(120_000);
+  expect(chat.status(profile).busy).toBe(false);
+  expect(chat.status(profile).error).toContain('check Sent mail');
 });
 
 it('waits for explicit one-time approval and rejects stale or persistent approvals', async () => {

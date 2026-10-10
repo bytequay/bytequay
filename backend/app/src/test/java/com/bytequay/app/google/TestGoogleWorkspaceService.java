@@ -27,9 +27,11 @@ import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -64,6 +66,7 @@ class TestGoogleWorkspaceService
         }).when(settings).delete(anyString());
         when(connector.installed()).thenReturn(true);
         when(connector.open(anyString(), anyBoolean())).thenReturn(session);
+        when(connector.open(anyString(), anyBoolean(), any(Runnable.class))).thenReturn(session);
         when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/one\",\"emailAddresses\":[{\"value\":\"one@example.com\"}]}"));
         when(session.call(eq("gmail_search"), anyMap())).thenReturn(json("{\"messages\":[{\"id\":\"m1\"}],\"nextPageToken\":\"next\"}"));
         when(session.call(eq("gmail_get"), anyMap())).thenReturn(json("{\"id\":\"m1\",\"subject\":\"Project\",\"body\":\"saved text\",\"labelIds\":[\"UNREAD\"]}"));
@@ -76,6 +79,38 @@ class TestGoogleWorkspaceService
     void cleanup()
     {
         google.close();
+    }
+
+    @Test
+    void waitsForSignInOnlyWhenTheConnectorRequestsAuthentication()
+            throws Exception
+    {
+        String selected = google.status().profile();
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicReference<Runnable> authenticationRequired = new AtomicReference<>();
+        when(connector.open(eq(selected), eq(true), any(Runnable.class))).thenAnswer(call -> {
+            authenticationRequired.set(call.getArgument(2));
+            entered.countDown();
+            assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
+            return session;
+        });
+        assertThat(google.connect().operation()).isEqualTo("Checking Google connection");
+        assertThat(entered.await(5, TimeUnit.SECONDS)).isTrue();
+        try {
+            assertThat(google.status().operation()).isEqualTo("Checking Google connection");
+            authenticationRequired.get().run();
+            assertThat(google.status().operation()).isEqualTo("Waiting for Google sign-in");
+        }
+        finally {
+            release.countDown();
+        }
+        awaitDone();
+        assertThat(google.status().profile()).isEqualTo(selected);
+        assertThat(google.status().error()).isEmpty();
+        google.connect();
+        awaitDone();
+        assertThat(google.status().error()).isEmpty();
     }
 
     @Test

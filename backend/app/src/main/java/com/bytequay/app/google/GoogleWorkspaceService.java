@@ -123,8 +123,14 @@ public class GoogleWorkspaceService
     {
         checkState(connector.installed(), "Install the Google connector first.");
         String target = add || profile.isEmpty() ? UUID.randomUUID().toString() : profile;
-        return start("Waiting for Google sign-in", () -> {
-            try (var session = connector.open(target, true)) {
+        return start("Checking Google connection", () -> {
+            try (var session = connector.open(target, true, () -> {
+                synchronized (this) {
+                    if (!cancelled) {
+                        operation = "Waiting for Google sign-in";
+                    }
+                }
+            })) {
                 JsonNode person = session.call("people_getMe", ImmutableMap.of());
                 String id = required(person, "resourceName");
                 String email = person.path("emailAddresses").path(0).path("value").asText();

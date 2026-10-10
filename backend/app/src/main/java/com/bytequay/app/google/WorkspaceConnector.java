@@ -117,6 +117,11 @@ public class WorkspaceConnector
 
     public Session open(String profile, boolean interactive)
     {
+        return open(profile, interactive, () -> {});
+    }
+
+    public Session open(String profile, boolean interactive, Runnable authenticationRequired)
+    {
         checkState(installed(), "Install the Google connector in Settings first.");
         try {
             ProcessBuilder builder = command(profileCommand(profile), System.getenv());
@@ -125,7 +130,7 @@ public class WorkspaceConnector
                 // Refresh and agent reads must never open an unexpected login window.
                 builder.environment().put("BROWSER", "www-browser");
             }
-            return new Session(builder.start(), mapper, interactive ? Duration.ofMinutes(6) : Duration.ofSeconds(45));
+            return new Session(builder.start(), mapper, interactive ? Duration.ofMinutes(6) : Duration.ofSeconds(45), authenticationRequired);
         }
         catch (IOException failure) {
             throw new IllegalStateException("Cannot start the Google connector. Check that Node.js is installed.");
@@ -193,14 +198,16 @@ public class WorkspaceConnector
         private final Process process;
         private final ObjectMapper mapper;
         private final Duration timeout;
+        private final Runnable authenticationRequired;
         private final ArrayBlockingQueue<JsonNode> responses = new ArrayBlockingQueue<>(32);
         private int sequence;
 
-        Session(Process process, ObjectMapper mapper, Duration timeout)
+        Session(Process process, ObjectMapper mapper, Duration timeout, Runnable authenticationRequired)
         {
             this.process = requireNonNull(process, "process is null");
             this.mapper = requireNonNull(mapper, "mapper is null");
             this.timeout = requireNonNull(timeout, "timeout is null");
+            this.authenticationRequired = requireNonNull(authenticationRequired, "authenticationRequired is null");
             Thread.ofVirtual().name("google-workspace-output").start(this::read);
             try {
                 JsonNode initialized = request("initialize", ImmutableMap.of("protocolVersion", "2024-11-05", "capabilities", ImmutableMap.of(),
@@ -243,6 +250,9 @@ public class WorkspaceConnector
             try {
                 while (System.nanoTime() < deadline) {
                     JsonNode response = responses.poll(Math.min(TimeUnit.SECONDS.toNanos(1), deadline - System.nanoTime()), TimeUnit.NANOSECONDS);
+                    if (response != null && response.path("method").asText().equals("notifications/message")) {
+                        authenticationRequired.run();
+                    }
                     if (response != null && response.path("id").asInt(-1) == id) {
                         checkState(!response.has("error") && response.has("result"), "Google connector request failed. Reconnect in Settings.");
                         return response.path("result");
@@ -273,7 +283,8 @@ public class WorkspaceConnector
             Utf8LineBuffer lines = new Utf8LineBuffer(8 * 1024 * 1024, true, line -> {
                 try {
                     JsonNode value = mapper.readTree(line);
-                    if (value != null && value.has("id")) {
+                    if (value != null && (value.has("id") || value.path("method").asText().equals("notifications/message")
+                            && value.path("params").path("data").asText().equals("Waiting for authentication... Check your browser."))) {
                         checkState(responses.offer(value), "Too many Google connector responses.");
                     }
                 }

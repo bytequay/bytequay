@@ -23,6 +23,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -75,13 +76,17 @@ class TestWorkspaceConnector
                 printf '%s\n' '{"jsonrpc":"2.0","id":1,"result":{"capabilities":{"tools":{}}}}'
                 read notification
                 read request
+                printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"Other connector activity"}}'
+                printf '%s\n' '{"jsonrpc":"2.0","method":"notifications/message","params":{"level":"info","data":"Waiting for authentication... Check your browser."}}'
                 printf '%s\n' '{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"{\\"messages\\":[]}"}]}}'
                 read request
                 printf '%s\n' '{"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"{\\"error\\":\\"private upstream error\\"}"}]}}'
                 read request
                 """).start();
-        try (var session = new WorkspaceConnector.Session(process, new ObjectMapper(), Duration.ofSeconds(2))) {
+        AtomicInteger authenticationRequests = new AtomicInteger();
+        try (var session = new WorkspaceConnector.Session(process, new ObjectMapper(), Duration.ofSeconds(2), authenticationRequests::incrementAndGet)) {
             assertThat(session.call("gmail_search", ImmutableMap.of()).path("messages").isArray()).isTrue();
+            assertThat(authenticationRequests.get()).isEqualTo(1);
             assertThatThrownBy(() -> session.call("auth_clear", ImmutableMap.of())).isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> session.call("gmail_get", ImmutableMap.of()))
                     .hasMessageContaining("Google could not complete").hasMessageNotContaining("private upstream");
@@ -94,7 +99,7 @@ class TestWorkspaceConnector
             throws Exception
     {
         Process process = new ProcessBuilder("/bin/sh", "-c", "read request; read request").start();
-        assertThatThrownBy(() -> new WorkspaceConnector.Session(process, new ObjectMapper(), Duration.ofMillis(50)))
+        assertThatThrownBy(() -> new WorkspaceConnector.Session(process, new ObjectMapper(), Duration.ofMillis(50), () -> {}))
                 .hasMessageContaining("did not respond in time");
         assertThat(process.waitFor(2, TimeUnit.SECONDS)).isTrue();
     }

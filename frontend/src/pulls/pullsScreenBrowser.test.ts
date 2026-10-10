@@ -14,6 +14,14 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
+it('opens distinct development and review tasks from the same PR without duplicating agents', async () => {
+  const result = await runBrowserFixture<string>({
+    prefix: 'bytequay-pr-tasks-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullTaskTests', styles: true,
+    body: "const results = await window.webContents.executeJavaScript('PullTaskTests.runAssignedPrActions()');",
+  });
+  expect(result).toContain('Open distinct development and review task conversations');
+}, 30_000);
+
 it('allows watched PRs to open Code & Tests before a review or task exists', async () => {
   const result = await runBrowserFixture<string>({
     prefix: 'bytequay-pull-explore-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullExploreTests', styles: true,

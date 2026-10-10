@@ -12,8 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Bot, LoaderCircle, PanelsTopLeft, RefreshCw } from 'lucide-react';
-import type { PullRequestTaskLink } from '../types';
+import { Bot, Eye, LoaderCircle, RefreshCw } from 'lucide-react';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import { remoteErrorMessage } from './PullOverview';
 import type { AgentReviewDto } from './agent-review/contracts';
@@ -29,38 +28,37 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
   onNavigate: (route: string) => void;
   onRetryContext: () => void;
 }) {
-  const [link, setLink] = useState<PullRequestTaskLink | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'development' | 'review' | null>(null);
   const [error, setError] = useState<string | null>(null);
   const operation = useRef(false);
   const generation = useRef(0);
   useEffect(() => {
     const current = ++generation.current;
-    setLink(null);
+    operation.current = false;
+    setBusy(null);
     setError(null);
-    if (authored && workspaceId !== undefined) {
-      void window.bridge.findPullRequestTask(workspaceId, repo, number)
-        .then(value => { if (current === generation.current) setLink(value); })
-        .catch(failure => { if (current === generation.current) setError(remoteErrorMessage(failure)); });
-    }
     return () => { generation.current = current + 1; };
   }, [authored, workspaceId, repo, number]);
 
-  const open = async () => {
+  const open = async (kind: 'development' | 'review') => {
     if (workspaceId === undefined || operation.current) return;
     operation.current = true;
-    setBusy(true);
+    setBusy(kind);
     setError(null);
     const current = generation.current;
     try {
       let route: string;
-      if (authored) {
-        // Opening is idempotent and leaves agent execution to the user's next message.
-        const task = await window.bridge.assignPullRequestAgent(workspaceId, repo, number);
+      const link = await window.bridge.findPullRequestTask(workspaceId, repo, number);
+      if (current !== generation.current) return;
+      if (kind === 'development') {
+        const task = link ?? await window.bridge.assignPullRequestAgent(workspaceId, repo, number);
         route = workspaceAgentTaskRoute(task.workspaceId, task.taskId);
       }
       else {
-        const task = review ?? await window.bridge.startAgentReview(workspaceId, repo, number);
+        // A reviewer started before publication can be linked only to the development task.
+        const linkedReview = link === null ? null : await window.bridge.findTaskAgentReview(workspaceId, link.taskId);
+        if (current !== generation.current) return;
+        const task = linkedReview ?? review ?? await window.bridge.startAgentReview(workspaceId, repo, number);
         route = workspaceReviewTaskRoute(task.workspaceId, task.id);
       }
       if (current === generation.current) onNavigate(route);
@@ -69,25 +67,26 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       if (current === generation.current) setError(remoteErrorMessage(failure));
     }
     finally {
-      operation.current = false;
-      if (current === generation.current) setBusy(false);
+      if (current === generation.current) {
+        operation.current = false;
+        setBusy(null);
+      }
     }
   };
   const blocked = loading ? 'Loading workspace…' : contextError !== null ? `Workspace unavailable: ${contextError}`
     : workspaceId === undefined ? 'Add a workspace for this repository to use agent tasks' : null;
-  const assignLabel = link === null ? 'Assign agent' : 'Open assigned agent';
-  const viewLabel = authored ? link === null ? 'Assign agent and view task' : 'View in task'
-    : review === null ? 'Start review and view task' : 'View in task';
   return <>
-    {authored && <button type="button" aria-label={assignLabel} title={blocked ?? assignLabel}
-      disabled={blocked !== null || busy} onClick={() => { void open(); }}>
-      {busy ? <LoaderCircle className="pr-task-spinner" size={18} aria-hidden="true" /> : <Bot size={18} aria-hidden="true" />}
+    {authored && <button type="button" className="pr-task-action" aria-label="Development task" title={blocked ?? 'Open or create the development task'}
+      disabled={blocked !== null || busy !== null} onClick={() => { void open('development'); }}>
+      {busy === 'development' ? <LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /> : <Bot size={16} aria-hidden="true" />}
+      Development task
     </button>}
-    <button type="button" aria-label="View in task" title={blocked ?? viewLabel}
-      disabled={blocked !== null || busy} onClick={() => { void open(); }}>
-      {!authored && busy ? <LoaderCircle className="pr-task-spinner" size={18} aria-hidden="true" /> : <PanelsTopLeft size={18} aria-hidden="true" />}
+    <button type="button" className="pr-task-action" aria-label="Review task" title={blocked ?? 'Open the review task, or start a review if none exists'}
+      disabled={blocked !== null || busy !== null} onClick={() => { void open('review'); }}>
+      {busy === 'review' ? <LoaderCircle className="pr-task-spinner" size={16} aria-hidden="true" /> : <Eye size={16} aria-hidden="true" />}
+      Review task
     </button>
-    {busy && <span className="pr-task-message" role="status">{authored ? 'Opening PR task…' : 'Starting review…'}</span>}
+    {busy !== null && <span className="pr-task-message" role="status">{busy === 'development' ? 'Opening development task…' : 'Opening review task…'}</span>}
     {contextError !== null && <span className="pr-task-message" role="alert">{contextError}
       <button type="button" aria-label="Retry workspace lookup" title="Retry workspace lookup" onClick={onRetryContext}>
         <RefreshCw size={16} aria-hidden="true" />

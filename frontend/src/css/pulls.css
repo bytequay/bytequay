@@ -700,6 +700,7 @@
 .pr-overview__branches button:hover:not(:disabled) { background: #eff2f4; }
 .pr-overview__branches button:disabled { opacity: .4; cursor: not-allowed; }
 .pr-task-message { flex-basis: 100%; font-size: 12px; }
+.pr-overview__branches .pr-task-action { display: inline-flex; width: auto; gap: 6px; padding: 0 8px; font-size: 12px; white-space: nowrap; }
 .pr-task-message[role="alert"] { color: #cf222e; }
 .pr-task-spinner { animation: bq-spin 1s linear infinite; }
 .pr-copy-button { position: relative; overflow: visible; }

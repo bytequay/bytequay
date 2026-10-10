@@ -171,15 +171,17 @@ bell does not enable automatic CI repair.
 
 ## Explore a pull request locally
 
-For your own PR, **View in task** opens its existing conversation or prepares a
+For your own PR, **Development task** opens its existing conversation or prepares a
 linked task named after the PR. The PR pill and side panel stay available while
 an agent is running. Opening the task does not send a prompt or start agent work:
 ask a question or request a change when ready. PR background context is supplied
 to the agent with your first message without adding a generated user message to
 the conversation. An open task retains its conversation and provider session.
-If its previous task was marked **Completed**, opening the PR prepares a fresh
-linked conversation. The completed conversation stays available in **Tasks**;
-its messages and session are not copied into the new conversation.
+Completed tasks open their retained conversation without creating another task.
+
+**Review task** opens the separate reviewer, including a reviewer started from
+the development task before the PR was published. If no reviewer exists, it
+starts a review of the PR and opens that conversation.
 
 For a PR in a watched repository, open **WorkBench → Code & Tests** and choose
 **Create worktree to explore**. ByteQuay checks out the PR branch's latest commit

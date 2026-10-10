@@ -798,6 +798,36 @@ class TestSqliteAgentStores
     }
 
     @Test
+    void keepsEarlierPrConversationsAndFindsTheNewestAfterReload()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask earlier = completedTask(TaskId.random(), "workspace", true, new RepositoryIdentity("owner", "repo"), now);
+        AgentTask latest = newTask(now.plusSeconds(1), Optional.of("workspace"), true);
+        taskStore.insert(earlier);
+        taskStore.insert(latest);
+        PullRequestTask oldLink = new PullRequestTask(earlier.id().toString(), "workspace", "owner/repo", 7, "Old snapshot");
+        PullRequestTask newLink = new PullRequestTask(latest.id().toString(), "workspace", "owner/repo", 7, "New snapshot");
+        pullRequestTasks.insert(oldLink);
+        pullRequestTasks.insert(newLink);
+        taskStore.update(earlier.withArchived(true, now.plusSeconds(2)));
+        entityManager.flush();
+        entityManager.clear();
+
+        assertThat(pullRequestTasks.find("workspace", "OWNER/REPO", 7)).contains(newLink);
+        assertThat(pullRequestTasks.findByTaskId(earlier.id().toString())).contains(oldLink);
+        assertThat(pullRequestTasks.findByTaskId(latest.id().toString())).contains(newLink);
+        assertThat(pullRequestTasks.find("other-workspace", "owner/repo", 7)).isEmpty();
+        assertThat(pullRequestTasks.find("workspace", "other/repo", 7)).isEmpty();
+        assertThat(pullRequestTasks.find("workspace", "owner/repo", 8)).isEmpty();
+
+        taskStore.delete(earlier.id());
+        entityManager.clear();
+        assertThat(pullRequestTasks.find("workspace", "owner/repo", 7)).contains(newLink);
+        assertThat(pullRequestTasks.findByTaskId(earlier.id().toString())).isEmpty();
+        assertThat(taskStore.find(latest.id())).isPresent();
+    }
+
+    @Test
     void deletesATaskWithEveryRowThatHangsOffIt()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");

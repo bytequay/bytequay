@@ -1841,16 +1841,15 @@ export default function AgentTaskScreen({
     return () => { active = false; clearTimeout(timer); };
   }, [live, taskId, workspaceId, pollContinuation]);
   useEffect(() => {
-    if (!canRefreshPullRequests) {
-      setPullRequestLoading(false);
-      return;
-    }
+    if (!taskLoaded) return;
     let active = true;
     setPullRequestLoading(true);
     const lookup = async (): Promise<void> => {
       const cached = await live().listAgentTaskPullRequests(taskId, workspaceId);
       if (!active) return;
       setPullRequests(cached);
+      // Saved associations are visible during a turn; remote discovery waits for it to settle.
+      if (!canRefreshPullRequests) return;
       const found = await live().listAgentTaskPullRequests(taskId, workspaceId, true);
       if (active) {
         setPullRequests(found);
@@ -1867,7 +1866,7 @@ export default function AgentTaskScreen({
         setPullRequestLoading(false);
       });
     return () => { active = false; };
-  }, [live, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestRefresh, taskId, workspaceId, continuationUnfinished]);
+  }, [live, taskLoaded, canRefreshPullRequests, pullRequestTurnId, pullRequestTurnEndedAt, pullRequestRefresh, taskId, workspaceId, continuationUnfinished]);
 
   // The panel reads the pull request itself, so the detail and its diff are read here rather
   // than by the body, which stays a pure function of the state a test can hand it.

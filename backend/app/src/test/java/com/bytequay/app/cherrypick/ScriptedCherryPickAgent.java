@@ -391,12 +391,6 @@ final class ScriptedCherryPickAgent
     }
 
     @Override
-    public AgentTurn startContextTurn(StartAgentTurnCommand command)
-    {
-        throw new UnsupportedOperationException("this test never imports PR context");
-    }
-
-    @Override
     public AgentTurn start(StartAgentTurnCommand command)
     {
         prompts.add(command.message());

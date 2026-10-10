@@ -394,7 +394,10 @@ public class AgentConfiguration
                     @Override
                     public String prepare(AgentTask task, AgentTurn turn, String message)
                     {
-                        return relatedContext.append(task, turn, message);
+                        String input = task.sessionReference().isEmpty()
+                                ? pullRequestTasks.findByTaskId(task.id().toString()).map(assignment -> PullRequestTaskService.appendContext(assignment, message)).orElse(message)
+                                : message;
+                        return relatedContext.append(task, turn, input);
                     }
 
                     @Override

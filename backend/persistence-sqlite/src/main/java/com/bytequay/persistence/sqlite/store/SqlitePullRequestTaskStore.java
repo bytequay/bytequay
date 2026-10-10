@@ -17,6 +17,7 @@ import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.persistence.sqlite.entity.PullRequestTaskEntity;
 import com.bytequay.persistence.sqlite.repository.PullRequestTaskJpaRepository;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,7 +41,7 @@ public class SqlitePullRequestTaskStore
     @Transactional(readOnly = true)
     public Optional<PullRequestTask> find(String workspaceId, String repo, int number)
     {
-        return repository.findByWorkspaceIdAndRepoAndNumber(workspaceId, repo.toLowerCase(Locale.ROOT), number).map(PullRequestTaskEntity::toDomain);
+        return repository.findLatest(workspaceId, repo.toLowerCase(Locale.ROOT), number, PageRequest.of(0, 1)).stream().findFirst().map(PullRequestTaskEntity::toDomain);
     }
 
     @Override

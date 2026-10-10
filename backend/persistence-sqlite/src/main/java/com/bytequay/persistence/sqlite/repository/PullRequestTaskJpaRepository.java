@@ -14,12 +14,21 @@
 package com.bytequay.persistence.sqlite.repository;
 
 import com.bytequay.persistence.sqlite.entity.PullRequestTaskEntity;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
-import java.util.Optional;
+import java.util.List;
 
 public interface PullRequestTaskJpaRepository
         extends JpaRepository<PullRequestTaskEntity, String>
 {
-    Optional<PullRequestTaskEntity> findByWorkspaceIdAndRepoAndNumber(String workspaceId, String repo, int number);
+    @Query("""
+            SELECT assignment FROM PullRequestTaskEntity assignment
+            JOIN AgentTaskEntity task ON task.id = assignment.id
+            WHERE assignment.workspaceId = :workspaceId AND assignment.repo = :repo AND assignment.number = :number
+            ORDER BY task.createdAt DESC, task.id DESC
+            """)
+    List<PullRequestTaskEntity> findLatest(@Param("workspaceId") String workspaceId, @Param("repo") String repo, @Param("number") int number, Pageable pageable);
 }

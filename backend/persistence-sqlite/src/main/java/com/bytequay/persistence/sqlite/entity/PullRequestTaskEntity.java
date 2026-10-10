@@ -18,11 +18,10 @@ import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
-import jakarta.persistence.UniqueConstraint;
 import lombok.Getter;
 
 @Entity
-@Table(name = "pull_request_task", uniqueConstraints = @UniqueConstraint(columnNames = {"workspace_id", "repo", "number"}))
+@Table(name = "pull_request_task")
 public class PullRequestTaskEntity
         extends AssignedIdEntity<String>
 {

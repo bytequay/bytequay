@@ -213,7 +213,8 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(), ...await worktreeVersionRefresh(), ...await worktreeVersionRefresh(true), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
+  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(),
+    ...await pullRequestLookupPolicy(true), ...await worktreeVersionRefresh(), ...await worktreeVersionRefresh(true), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
 async function localReviewExperiments(reloadPrivate = false): Promise<{ name: string; error?: string }[]> {
@@ -442,8 +443,19 @@ async function continuationAdmission(): Promise<{ name: string; error?: string }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }
 
-async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string }[]> {
+async function pullRequestLookupPolicy(initiallyRunning = false): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
+  const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    ...bridge,
+    fetchPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    refreshAllPullRequestDetailByRef: async () => { throw new Error('PR detail unavailable in this fixture'); },
+    fetchPrDiffFiles: async (): Promise<[]> => [],
+    fetchPrDiffCommits: async (): Promise<[]> => [],
+    getUserProfile: async (): Promise<null> => null,
+    findAgentReview: async (): Promise<null> => null,
+  } });
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture must identify a turn');
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null };
@@ -457,7 +469,21 @@ async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string
     listener({ subscriptionId: 'observations', taskId, kind: 'state', state: 'open' });
     return () => {};
   };
-  const lookups = (): number => bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests').length;
+  const lookups = (): number => bridge.commands.filter(command => command.name === 'listAgentTaskPullRequests' && command.args[2] === true).length;
+  if (initiallyRunning) {
+    turn = { ...turn, state: 'RUNNING', endedAt: null };
+    task = { ...task, mutationClaim: { kind: 'TURN', ownerId: turn.id, acquiredAt: '' } };
+    const list = bridge.listAgentTaskPullRequests;
+    bridge.listAgentTaskPullRequests = async (...args) => {
+      await list(...args);
+      return [{
+        id: 7, repo: 'acme/demo', number: 7, title: 'Existing PR', author: 'alice', htmlUrl: 'https://github.com/acme/demo/pull/7',
+        createdAt: '', updatedAt: '', origin: 'AUTHORED', labels: [], labelColors: null, draft: false, viewedAt: null, reviewedAt: null,
+        handledAction: null, requestedReviewers: [], ciStatus: null, additions: 1, deletions: 0, commentCount: 0,
+        state: 'open', mergeable: null, mergeableState: null, headPushedAt: null, headRef: task.generatedBranch,
+      }];
+    };
+  }
   let sequence = event.sequence;
   const emit = (phase: 'TURN_STARTED' | 'TURN_COMPLETED' | 'DEVELOPMENT_AUTOMATION_UPDATED') => {
     const current = ++sequence;
@@ -471,6 +497,16 @@ async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
+    if (initiallyRunning) {
+      for (let frame = 0; frame < 30 && host.querySelector('.agt-pr-chip') === null; frame++) await settle();
+      assert(host.querySelector('.agt-pr-chip')?.textContent?.includes('#7') === true, 'The PR pill must appear before the active turn stops');
+      assert(host.querySelector('[aria-label="Show or hide the side panel"]')?.getAttribute('aria-pressed') === 'true',
+        'Opening an active PR task must automatically show its linked PR panel');
+      assert(!host.textContent?.includes('Create a pull request'), 'An existing PR must never be presented as new work');
+      assert(lookups() === 0, 'An active turn must load the saved link without remote branch discovery');
+      assert(!bridge.commands.some(command => command.name === 'startAgentTurn'), 'Opening the task must not submit a prompt');
+      return [{ name: 'An active task immediately shows its linked PR without starting work' }];
+    }
     const settled = lookups();
     assert(settled > 0, 'A settled task must look up its branch pull requests once');
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
@@ -523,7 +559,12 @@ async function pullRequestLookupPolicy(): Promise<{ name: string; error?: string
     return [{ name: 'Task pull requests are looked up only on settled turns and settled automation markers' }];
   }
   catch (error) { return [{ name: 'Task pull request lookup', error: error instanceof Error ? error.message : String(error) }]; }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    if (originalBridge === undefined) delete (window as { bridge?: unknown }).bridge;
+    else Object.defineProperty(window, 'bridge', originalBridge);
+  }
 }
 
 

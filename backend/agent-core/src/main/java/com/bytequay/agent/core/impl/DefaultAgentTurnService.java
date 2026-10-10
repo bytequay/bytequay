@@ -296,17 +296,6 @@ public final class DefaultAgentTurnService
     @Override
     public AgentTurn start(StartAgentTurnCommand command)
     {
-        return start(command, false);
-    }
-
-    @Override
-    public AgentTurn startContextTurn(StartAgentTurnCommand command)
-    {
-        return start(command, true);
-    }
-
-    private AgentTurn start(StartAgentTurnCommand command, boolean contextOnly)
-    {
         requireNonNull(command, "command is null");
         retryCompletedTurn(command.taskId());
         TurnAcceptance acceptance;
@@ -325,17 +314,7 @@ public final class DefaultAgentTurnService
                     throw new AgentConflictException("Task version changed: " + task.id());
                 }
             });
-            if (contextOnly) {
-                checkArgument(task.interactive() && turnStore.list(task.id()).isEmpty(), "Context loading requires a fresh interactive task");
-                checkArgument(command.attachments().isEmpty(), "Context loading carries no attachments");
-                AgentTurnSettings effective = turnSettings(task, ImmutableList.of());
-                AgentTurnSettings settings = new AgentTurnSettings(effective.model(), effective.effort(), effective.permissionPolicy(), effective.maximumRuntime(),
-                        ImmutableList.of(), effective.serviceTier(), Optional.of(DevelopmentAutomation.LOCAL_ONLY));
-                acceptance = acceptTurnLocked(task, command.idempotencyKey(), command.message(), ImmutableList.of(), settings, Optional.empty());
-            }
-            else {
-                acceptance = acceptTurnLocked(task, command);
-            }
+            acceptance = acceptTurnLocked(task, command);
         }
         return launchAccepted(acceptance);
     }

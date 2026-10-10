@@ -951,6 +951,14 @@ export async function runAssignedPrActions(): Promise<string> {
     resolveAssignment?.({ workspaceId: 'workspace', taskId: 'assigned-task' });
     await settle();
     assert(route === '#/workspaces/workspace/tasks/agent/assigned-task', `Open the assigned conversation with its PR: ${route}`);
+    window.bridge.findPullRequestTask = async () => ({ workspaceId: 'workspace', taskId: 'completed-task' });
+    render(true, 'workspace', null, 'completed');
+    await settle();
+    button('View in task').click();
+    await settle();
+    resolveAssignment?.({ workspaceId: 'workspace', taskId: 'fresh-conversation' });
+    await settle();
+    assert(String(route) === '#/workspaces/workspace/tasks/agent/fresh-conversation', 'Opening a completed task must follow the newly assigned conversation');
     render(false, 'workspace', review, 'other');
     await settle();
     assert(host.querySelector('[aria-label="Assign agent"]') === null, 'Other authors retain review ownership');

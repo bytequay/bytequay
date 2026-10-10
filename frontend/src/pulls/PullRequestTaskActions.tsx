@@ -55,7 +55,7 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
     try {
       let route: string;
       if (authored) {
-        // Assignment is idempotent and also retries context loading if the first start failed.
+        // Opening is idempotent and leaves agent execution to the user's next message.
         const task = await window.bridge.assignPullRequestAgent(workspaceId, repo, number);
         route = workspaceAgentTaskRoute(task.workspaceId, task.taskId);
       }
@@ -87,7 +87,7 @@ export default function PullRequestTaskActions({ repo, number, authored, workspa
       disabled={blocked !== null || busy} onClick={() => { void open(); }}>
       {!authored && busy ? <LoaderCircle className="pr-task-spinner" size={18} aria-hidden="true" /> : <PanelsTopLeft size={18} aria-hidden="true" />}
     </button>
-    {busy && <span className="pr-task-message" role="status">{authored ? 'Loading PR context…' : 'Starting review…'}</span>}
+    {busy && <span className="pr-task-message" role="status">{authored ? 'Opening PR task…' : 'Starting review…'}</span>}
     {contextError !== null && <span className="pr-task-message" role="alert">{contextError}
       <button type="button" aria-label="Retry workspace lookup" title="Retry workspace lookup" onClick={onRetryContext}>
         <RefreshCw size={16} aria-hidden="true" />

@@ -222,8 +222,8 @@ export function createPreviewBridge(
       previewDefaults = defaults;
       return { ...previewTask(id, taskId), defaults, version: previewVersion };
     },
-    listAgentTaskPullRequests: async (taskId, id) => {
-      record('listAgentTaskPullRequests', taskId, id);
+    listAgentTaskPullRequests: async (taskId, id, refresh) => {
+      record('listAgentTaskPullRequests', taskId, id, refresh);
       return [];
     },
     listAgentTaskChanges: async (id) => {

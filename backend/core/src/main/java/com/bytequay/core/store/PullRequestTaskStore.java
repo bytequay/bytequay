@@ -19,6 +19,7 @@ import java.util.Optional;
 
 public interface PullRequestTaskStore
 {
+    /** The newest conversation for this PR; earlier conversations keep their own assignment and context. */
     Optional<PullRequestTask> find(String workspaceId, String repo, int number);
 
     Optional<PullRequestTask> findByTaskId(String taskId);

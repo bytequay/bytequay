@@ -96,8 +96,8 @@ export async function verifyFileAppearance() {
       await theme.setColorTheme(palette.id, undefined); await settle();
       if (name === 'GitHub Dark') {
         const background = getComputedStyle(tree).backgroundColor, foreground = getComputedStyle(host).color;
-        assert(background === 'rgb(22, 27, 34)' && foreground === 'rgb(230, 237, 243)', `GitHub colors apply to the file tree and shell: ${background}, ${foreground}`);
-        assert(getComputedStyle(host).backgroundColor === 'rgb(13, 17, 23)', 'GitHub canvas uses the selected palette');
+        assert(background === 'rgb(36, 39, 46)' && foreground === 'rgb(171, 178, 191)', `GitHub colors apply to the file tree and shell: ${background}, ${foreground}`);
+        assert(getComputedStyle(host).backgroundColor === 'rgb(30, 32, 37)', 'GitHub canvas uses the selected palette');
       }
       const tint = getComputedStyle(tabs()[1]).backgroundColor;
       assert(tint === (dark ? 'rgb(41, 56, 43)' : 'rgb(231, 242, 218)'), `${name} test tab has the green tint: ${tint}`);

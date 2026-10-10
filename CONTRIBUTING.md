@@ -153,8 +153,8 @@ The extension still owns OAuth sign-in, token refresh, and credential storage.
 
 The Google settings page saves a user-supplied Gemini API key in the
 `com.bytequay.gemini` macOS Keychain service. Validation lists models without
-inference. Electron runs Gemini CLI in ACP mode for the Google Apps composer,
-with a separate session per account, an allowlist of Gmail/Calendar MCP tools,
+inference. Electron runs Gemini CLI in ACP mode with Gemini 3.8 Flash for the
+Google Apps composer, with a separate session per account, an allowlist of Gmail/Calendar MCP tools,
 and one-time approval for writes. There are no coding or shell tools in this
 surface. Prompts and approval responses travel over stdin, never shell arguments.
 Gemini's own session files stay under `google-chat-runtime`, which is removed

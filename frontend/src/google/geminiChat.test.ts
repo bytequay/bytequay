@@ -68,6 +68,7 @@ it('rejects missing setup before creating a conversation and allows sending afte
 it('streams responses and confines secrets, tools and temporary history to the native process', async () => {
   await chat.prompt(profile, 'Find my booking reply'); await settle();
   expect(requests.map(item => item.method)).toEqual(['initialize', 'authenticate', 'session/new', 'session/prompt']);
+  expect(mocks.spawn).toHaveBeenCalledWith('/test/gemini', ['--acp', '--model', 'gemini-3.8-flash'], expect.any(Object));
   expect(JSON.stringify(mocks.spawn.mock.calls)).not.toContain(secret);
   expect(JSON.stringify(mocks.writeFileSync.mock.calls)).not.toContain(secret);
   const config = JSON.parse(mocks.writeFileSync.mock.calls[0][1]);
@@ -84,6 +85,36 @@ it('streams responses and confines secrets, tools and temporary history to the n
   receive({ id: prompt?.id, result: { stopReason: 'end_turn' } }); await settle();
   expect(chat.status(profile).messages.at(-1)?.text).toBe('Confirmed ✓');
   expect(chat.status(profile).busy).toBe(false);
+});
+
+it.each([
+  { code: 429, message: 'Quota exceeded: limit: 0, model: gemini-3.8-flash. Retry in 60s.' },
+  { code: 403, message: `API key ${secret} is invalid. ${secret}` },
+])('shows provider error $code without leaking the key or error data', async error => {
+  await chat.prompt(profile, 'Read mail'); await settle();
+  receive({ id: requests.find(item => item.method === 'session/prompt')?.id, error: { ...error, data: { private: 'private-diagnostic' } } });
+  await settle();
+  expect(chat.status(profile)).toMatchObject({ busy: false, activity: '', approval: null,
+    error: `Gemini (${error.code}): ${error.message.replaceAll(secret, '[REDACTED]')} If a send was in progress, check Sent mail before retrying.` });
+  expect(JSON.stringify(chat.status(profile))).not.toContain(secret);
+  expect(JSON.stringify(chat.status(profile))).not.toContain('private-diagnostic');
+  expect(process.kill).toHaveBeenCalledWith(-12345, 'SIGKILL');
+  expect(requests.filter(item => item.method === 'session/prompt')).toHaveLength(1);
+});
+
+it.each([{}, { message: { secret } }, { message: '' }])('handles provider errors without a text message', async error => {
+  await chat.prompt(profile, 'Read mail'); await settle();
+  receive({ id: requests.find(item => item.method === 'session/prompt')?.id, error }); await settle();
+  expect(chat.status(profile).error).toContain('Gemini: Request failed.');
+  expect(JSON.stringify(chat.status(profile))).not.toContain(secret);
+});
+
+it('redacts secrets before truncating lengthy provider errors', async () => {
+  await chat.prompt(profile, 'Read mail'); await settle();
+  receive({ id: requests.find(item => item.method === 'session/prompt')?.id, error: { code: 429, message: 'x'.repeat(3995) + secret + 'y'.repeat(5000) } });
+  await settle();
+  expect(chat.status(profile).error).not.toContain('test-');
+  expect(chat.status(profile).error?.length).toBeLessThan(4200);
 });
 
 it('clears completed Gmail activity while retaining other in-progress tools and accepts the final answer', async () => {

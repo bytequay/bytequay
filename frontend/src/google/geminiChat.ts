@@ -21,6 +21,7 @@ const empty = (): GoogleChatState => ({ messages: [], busy: false, activity: '',
 const tools = ['people_getMe', 'gmail_search', 'gmail_get', 'calendar_list', 'calendar_listEvents', 'gmail_modify', 'gmail_send', 'gmail_createDraft', 'gmail_sendDraft'];
 const object = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const text = (value: unknown): string => typeof value === 'string' ? value : '';
+class GeminiRequestError extends Error {}
 
 /** One ACP process per account; no conversation is written to ByteQuay's database. */
 export class GeminiChat {
@@ -74,6 +75,7 @@ class ChatSession {
   private sequence = 0;
   private sessionId = '';
   private buffer = '';
+  private apiKey = '';
   private generation = 0;
   private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void; timer?: ReturnType<typeof setTimeout> }>();
   private permissionId: string | number | null = null;
@@ -88,10 +90,10 @@ class ChatSession {
     this.state.messages.push({ role: 'user', text: input });
     this.state.busy = true; this.state.error = null; this.state.activity = 'Starting Gemini…';
     const generation = this.generation;
-    void this.run(input, generation).catch(() => {
+    void this.run(input, generation).catch((error: unknown) => {
       if (generation === this.generation) {
         this.dispose();
-        this.state.error = 'Gemini could not complete this turn. Check the API key, quota and connection. If a send was in progress, check Sent mail before retrying.';
+        this.state.error = `${error instanceof GeminiRequestError ? error.message : 'Gemini could not complete this turn. Check the API key, quota and connection.'} If a send was in progress, check Sent mail before retrying.`;
       }
     });
   }
@@ -112,6 +114,7 @@ class ChatSession {
     if (generation !== this.generation) return;
     const credentials = await this.setup.credentials();
     if (generation !== this.generation) return;
+    this.apiKey = credentials.key;
     const config = path.join(this.directory, '.gemini');
     mkdirSync(config, { recursive: true, mode: 0o700 });
     writeFileSync(path.join(config, 'settings.json'), JSON.stringify({
@@ -125,7 +128,7 @@ class ChatSession {
       + 'Keep simple questions focused and answer promptly. Use the current local time supplied with each request to resolve today and other relative dates. For inbox questions, constrain the first Gmail search to in:inbox and the requested date range; start with maxResults: 20. Read metadata first and fetch full bodies only when needed. Do not repeat reads already completed or inspect Calendar unless the question needs it. Give a concise answer once you have enough evidence, state any limited search coverage, and offer a broader search instead of silently expanding it.\n', { mode: 0o600 });
     const env: NodeJS.ProcessEnv = { PATH: credentials.searchPath, HOME: process.env.HOME, TMPDIR: process.env.TMPDIR,
       LANG: process.env.LANG, GEMINI_CLI_HOME: this.directory, GEMINI_TELEMETRY_ENABLED: 'false', GEMINI_CLI_SURFACE: 'bytequay-google' };
-    this.child = spawn(credentials.executable, ['--acp'], { cwd: this.directory, env, stdio: 'pipe', detached: true });
+    this.child = spawn(credentials.executable, ['--acp', '--model', 'gemini-3.8-flash'], { cwd: this.directory, env, stdio: 'pipe', detached: true });
     this.child.stdout.setEncoding('utf8');
     this.child.stdout.on('data', (chunk: string) => {
       if (generation !== this.generation) return;
@@ -169,7 +172,14 @@ class ChatSession {
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id); clearTimeout(pending.timer);
-      if (message.error) pending.reject(new Error('Gemini request failed.')); else pending.resolve(message.result);
+      if (message.error) {
+        const error = object(message.error);
+        const detail = text(error.message).trim();
+        // Only expose the protocol message, never provider stderr or arbitrary error data.
+        const redacted = this.apiKey ? detail.replaceAll(this.apiKey, '[REDACTED]') : detail;
+        const code = typeof error.code === 'number' ? ` (${error.code})` : '';
+        pending.reject(new GeminiRequestError(`Gemini${code}: ${redacted.slice(0, 4000) || 'Request failed.'}`));
+      } else pending.resolve(message.result);
       return;
     }
     const params = object(message.params);
@@ -227,7 +237,7 @@ class ChatSession {
     clearTimeout(this.idleTimer);
     this.activeTools.clear();
     if (this.child?.pid) { try { process.kill(-this.child.pid, 'SIGKILL'); } catch { this.child.kill('SIGKILL'); } }
-    this.child = null; this.sessionId = ''; this.buffer = ''; this.permissionId = null;
+    this.child = null; this.sessionId = ''; this.buffer = ''; this.apiKey = ''; this.permissionId = null;
     for (const request of this.pending.values()) { clearTimeout(request.timer); request.reject(new Error('Gemini stopped.')); }
     this.pending.clear(); this.state.busy = false; this.state.activity = ''; this.state.approval = null;
     rmSync(this.directory, { recursive: true, force: true });

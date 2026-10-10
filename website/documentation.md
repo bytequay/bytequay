@@ -480,53 +480,42 @@ is shown only when configured. Replace an expired token in settings.
 
 ## Gmail and Google Calendar
 
-1. Open **Settings → Integrations → Google Apps** and choose **Install connector**.
-   Gemini CLI and Node.js must be installed; the settings page links to the
-   installation guide. A paid Gemini plan is not required.
-2. Choose **Sign in with Google** and complete the browser consent flow. The
-   Workspace extension shares its account with Gemini CLI and may request
-   permissions for other Google apps. ByteQuay uses only its read operations.
-3. After sign-in succeeds, **Google Apps** appears in the application sidebar.
-   Open it. In **Gmail**, enter a Gmail search
-   such as `in:inbox` or `from:someone@example.com` and choose **Search / refresh**.
-   ByteQuay saves up to 25 messages on this Mac; **Next page** replaces the saved
-   selection. Message bodies are displayed as text, with **Open Gmail** for the
-   original message and replies.
-4. In **Calendar**, select a calendar and the start of a week, then choose
-   **Refresh agenda**. The saved agenda remains available offline. The current
-   connector can omit events in busy calendars and declined invitations, so use
-   **Open Calendar** when checking a complete schedule.
-5. To use this context with an agent, enable **Let task agents read saved Google
-   data** in Google Apps settings, then start an interactive task. Ask it to use the
-   `google_workspace` tool to read the saved mail or agenda. The selected model
-   receives the content the tool reads. This tool does not send mail, change
-   events, or refresh the Google account.
+Connect Gmail and Calendar from **Settings → Integrations → Google Apps**.
+Install the connector and choose **Sign in with Google**. For another account,
+use **Add account** on the Google Apps page, complete browser sign-in, and switch
+with the email-address selector. Each account has its own cached items and
+Gemini conversation. Existing shared terminal logins need a separate sign-in
+for this account-isolated setup.
 
-Refreshes are manual. Each view shows when its data was saved, and failed reads
-keep the last snapshot. **Disconnect and clear saved data** removes ByteQuay's
-mail, events, and agent access and removes the sidebar tab; it leaves Gemini CLI
-signed in. Existing task conversations retain any Google context already read
-by their agents.
+Gmail and Calendar load only when you refresh them. Mail pages contain up to
+25 messages with **Next page** for more. Calendar offers **Day** and **Week**
+views and a start date; choose **Refresh agenda** to fetch that range.
+Changing views does not fetch automatically. Connector result limits can omit
+events in busy calendars. Mail and events stay in memory until ByteQuay quits;
+account sign-ins remain available for the next launch.
 
-For a separate Gemini conversation with live Gmail access, use **Gemini in
-Terminal** on the same settings page:
+Use **Compose** or **Reply** to write email. **Review email** shows the sender
+and recipients before **Send email** sends it. **Archive** removes a selected
+message from the inbox. If sending cannot be confirmed, check Sent mail and
+Drafts before trying again. Refresh manually after Gemini changes Google data.
 
-1. Choose **Create API key…** to open Google AI Studio. Complete Google's
-   sign-in, terms, and project selection, or use a key you already have.
-2. Paste the key and choose **Save key**. ByteQuay checks Gemini API access
-   and saves the key in macOS Keychain. Free usage depends on your project's
-   models and quota; a billing-enabled project can incur charges. ByteQuay
-   does not create projects or enable billing.
-3. Choose **Open Gemini in Terminal**. Complete any folder trust or
-   authentication prompts. Ask, for example, “Search Gmail for booking ABC's
-   refund request and any replies; tell me the status without changing mail.”
-   The Workspace extension reads live Gmail; this session is not limited to
-   ByteQuay's saved 25-message page. Results appear in Terminal, and the
-   extension's own tools and approval settings govern its actions.
+To use the conversation on the Google Apps page, save a Gemini API key in the
+same settings page. **Create API key…** opens Google AI Studio for its sign-in,
+terms, and project selection. Free usage depends on the project's model and
+quota; a billing-enabled project can incur charges. ByteQuay does not create
+projects or enable billing.
 
-This launch uses the saved key in a separate folder without changing your shell
-profile or global Gemini settings. **Remove key** deletes only ByteQuay's Keychain
-entry; it does not revoke the Google key or close running Gemini sessions.
+Ask Gemini, for example, “Search Gmail for replies about booking ABC's refund.”
+It can search live Google data beyond the displayed mail page. Responses appear
+beside your inbox, and actions needing approval appear in the conversation.
+**Stop** ends a running session; use **Clear conversation** to start fresh after
+stopping. Conversations clear when ByteQuay quits. Sign-ins and the saved model
+key remain. Removing the key ends the app's Gemini sessions but does not revoke
+the key in Google AI Studio.
+
+Optional task-agent access reads only the selected account's in-memory items.
+Consent resets on restart or account switching. Shared content can remain in
+those task conversations under their usual retention settings.
 
 <a id="commits-and-backports"></a>
 

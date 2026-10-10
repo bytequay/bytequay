@@ -83,29 +83,29 @@ previewed revision to an explicit provider destination before sending it. Its du
 receipt links the remote identity to the existing item. An uncertain outcome blocks
 another create until the user reconciles the existing issue or ticket.
 
-Google app reads run through the installed Gemini CLI Workspace extension's local
-MCP server. The backend owns each bounded connector process and admits only
-identity, Gmail search/read, and Calendar list/read calls. The extension owns its
-shared Gemini CLI login and hosted OAuth exchange; tokens never enter ByteQuay's
-SQLite snapshots, renderer, or agent prompts. Connector processes do not inherit
-the desktop session token or model credentials.
+Google Apps uses the installed Workspace extension's local MCP server. The
+backend owns bounded read and explicit mail-write processes. Account metadata
+is durable, but each account's mail page and calendar selection live only in
+memory. Manual refresh verifies identity before replacing a cache; failures
+preserve existing data. Task tools, when explicitly enabled, can read only the
+selected account's cache and bind consent to that account. Their ordinary task
+conversation retention still applies to shared content.
 
-Google snapshots are one saved mail page and one bounded agenda selection, with
-account identity, query/range and capture time. Refresh verifies the shared login
-still belongs to that account before replacing data. Failures preserve the last
-snapshot. Explicitly enabled interactive task tools read only these local
-snapshots and recheck consent on every call. Disconnect clears ByteQuay's data
-and access without revoking the extension's shared login.
+The extension owns OAuth and token refresh. ByteQuay isolates its credential
+namespace and encrypted-file fallback per account without changing the shared
+terminal installation. The bootstrap verifies the expected upstream credential
+and email-scope layout and rejects unsupported bundles. Connector processes do not inherit
+model credentials or the desktop session token.
 
-Optional Gemini terminal setup belongs to Electron's native integration boundary.
-The desktop checks a user-supplied model key with Google's model-list endpoint
-and stores it in a ByteQuay-owned macOS Keychain entry. A private launcher reads
-the key into its environment at execution, outside repositories; the launcher
-contains no secret. This opens an independent Gemini CLI session with the user's
-installed extensions, rather than a ByteQuay task or saved-snapshot tool. Its
-provider permissions govern live Google access. Google project creation, terms,
-and billing remain in AI Studio; removing the local key does not revoke it or
-terminate existing terminal sessions.
+Electron owns the Google Apps Gemini conversation through CLI ACP. It reads the
+model key from macOS Keychain and supplies it over the provider protocol. Each
+account has its own process and conversation, only the admitted Google tools,
+and one-time approvals for writes. Stop kills that process group; restarting a
+stopped session requires clearing it, so cancelled sends are never replayed.
+Conversation state is in memory. Gemini's temporary on-disk runtime is isolated
+and removed on quit or the next startup after a crash. The normal Gemini CLI
+configuration is unchanged. External account sign-in, Google project creation,
+and billing remain with Google.
 
 ## Agent execution
 

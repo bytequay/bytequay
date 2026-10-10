@@ -24,13 +24,22 @@ export type GoogleSnapshot = {
   calendars: { id: string; summary: string }[]; events: GoogleEvent[];
   calendarId: string; timeMin: string; timeMax: string; calendarSavedAt: string;
 };
-export type GoogleStatus = { installed: boolean; operation: string; error: string | null; snapshot: GoogleSnapshot | null };
-export type GeminiTerminalStatus = { configured: boolean; installed: boolean };
+export type GoogleAccount = { profile: string; accountId: string; email: string; name: string };
+export type GoogleStatus = { accounts: GoogleAccount[]; profile: string; installed: boolean; operation: string; error: string | null; snapshot: GoogleSnapshot | null };
+export type GeminiSetupStatus = { configured: boolean; installed: boolean };
 export type GoogleBridge = {
-  getGeminiTerminalStatus: () => Promise<GeminiTerminalStatus>;
-  saveGeminiTerminalKey: (key: string) => Promise<GeminiTerminalStatus>;
-  removeGeminiTerminalKey: () => Promise<GeminiTerminalStatus>;
-  openGeminiTerminal: () => Promise<void>;
+  getGeminiSetupStatus: () => Promise<GeminiSetupStatus>;
+  saveGeminiSetupKey: (key: string) => Promise<GeminiSetupStatus>;
+  removeGeminiSetupKey: () => Promise<GeminiSetupStatus>;
+  getGoogleChat: (profile: string) => Promise<GoogleChatState>;
+  promptGoogleChat: (profile: string, text: string) => Promise<GoogleChatState>;
+  approveGoogleChat: (profile: string, id: string, option: string) => Promise<GoogleChatState>;
+  stopGoogleChat: (profile: string) => Promise<GoogleChatState>;
+  clearGoogleChat: (profile: string) => Promise<GoogleChatState>;
+  addGoogleAccount: () => Promise<GoogleStatus>;
+  selectGoogleAccount: (profile: string) => Promise<GoogleStatus>;
+  archiveGoogleMail: (profile: string, messageId: string) => Promise<GoogleStatus>;
+  sendGoogleMail: (request: GoogleSendRequest) => Promise<GoogleStatus>;
   getGoogleStatus: () => Promise<GoogleStatus>;
   installGoogleConnector: () => Promise<GoogleStatus>;
   connectGoogle: () => Promise<GoogleStatus>;
@@ -39,6 +48,13 @@ export type GoogleBridge = {
   setGoogleAgentAccess: (enabled: boolean) => Promise<GoogleStatus>;
   refreshGoogleMail: (query: string, pageToken: string) => Promise<GoogleStatus>;
   refreshGoogleCalendar: (calendarId: string, timeMin: string, timeMax: string) => Promise<GoogleStatus>;
+};
+
+export type GoogleSendRequest = { profile: string; to: string; subject: string; body: string; replyId: string };
+export type GoogleChatState = {
+  messages: { role: 'user' | 'assistant'; text: string }[];
+  busy: boolean; activity: string; error: string | null;
+  approval: { id: string; title: string; detail: string; options: { id: string; label: string }[] } | null;
 };
 
 export const GOOGLE_CHANGED = 'bytequay:google-changed';
@@ -55,10 +71,10 @@ export function gmailLink(mail: GoogleMail, email: string): string {
   return `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#all/${encodeURIComponent(mail.threadId || mail.id)}`;
 }
 
-export function agendaRange(date: string): { timeMin: string; timeMax: string } {
+export function agendaRange(date: string, days = 7): { timeMin: string; timeMax: string } {
   const start = new Date(`${date}T00:00:00`);
   const end = new Date(start);
-  end.setDate(end.getDate() + 7);
+  end.setDate(end.getDate() + days);
   return { timeMin: start.toISOString(), timeMax: end.toISOString() };
 }
 

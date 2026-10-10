@@ -19,6 +19,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import org.springframework.stereotype.Service;
 
@@ -27,9 +28,13 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -40,7 +45,10 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class GoogleWorkspaceService
 {
-    private static final String KEY = "google.workspace.snapshot";
+    private static final String KEY = "google.workspace.accounts";
+    private final Map<String, GoogleSnapshot.Account> accounts = new LinkedHashMap<>();
+    private final Map<String, GoogleSnapshot> cache = new LinkedHashMap<>();
+    private String profile = "";
     private final WorkspaceConnector connector;
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
@@ -59,19 +67,46 @@ public class GoogleWorkspaceService
 
     public synchronized GoogleSnapshot.Status status()
     {
-        return new GoogleSnapshot.Status(connector.installed(), operation, error, snapshot());
+        return new GoogleSnapshot.Status(connector.installed(), operation, error, snapshot(), ImmutableList.copyOf(accounts.values()), profile);
+    }
+
+    @PostConstruct
+    public synchronized void loadAccounts()
+    {
+        settings.delete("google.workspace.snapshot");
+        settings.get(KEY).ifPresent(raw -> {
+            try {
+                for (GoogleSnapshot.Account account : mapper.readValue(raw, GoogleSnapshot.Account[].class)) {
+                    accounts.put(account.profile(), account);
+                }
+                profile = accounts.keySet().stream().findFirst().orElse("");
+            }
+            catch (JsonProcessingException failure) {
+                throw new IllegalStateException("Google account settings could not be read.");
+            }
+        });
     }
 
     public synchronized Optional<GoogleSnapshot> snapshot()
     {
-        return settings.get(KEY).map(raw -> {
-            try {
-                return mapper.readValue(raw, GoogleSnapshot.class);
-            }
-            catch (JsonProcessingException failure) {
-                throw new IllegalStateException("Saved Google data could not be read. Disconnect to clear it and reconnect.");
-            }
-        });
+        return Optional.ofNullable(accounts.get(profile)).map(account -> cache.computeIfAbsent(profile,
+                ignored -> GoogleSnapshot.empty(account.accountId(), account.email(), account.name())));
+    }
+
+    public synchronized GoogleSnapshot.Status select(String selected)
+    {
+        checkState(operation.isEmpty(), "Wait for the current Google operation to finish.");
+        checkArgument(accounts.containsKey(selected), "Unknown Google account.");
+        cache.replaceAll((key, value) -> value.withAgentAccess(false));
+        profile = selected;
+        error = Optional.empty();
+        return status();
+    }
+
+    public synchronized List<String> chatCommand(String selected)
+    {
+        checkArgument(accounts.containsKey(selected), "Unknown Google account.");
+        return connector.profileCommand(selected);
     }
 
     public synchronized GoogleSnapshot.Status install()
@@ -81,18 +116,31 @@ public class GoogleWorkspaceService
 
     public synchronized GoogleSnapshot.Status connect()
     {
+        return connect(false);
+    }
+
+    public synchronized GoogleSnapshot.Status connect(boolean add)
+    {
         checkState(connector.installed(), "Install the Google connector first.");
+        String target = add || profile.isEmpty() ? UUID.randomUUID().toString() : profile;
         return start("Waiting for Google sign-in", () -> {
-            try (var session = connector.open(true)) {
+            try (var session = connector.open(target, true)) {
                 JsonNode person = session.call("people_getMe", ImmutableMap.of());
                 String id = required(person, "resourceName");
+                String email = person.path("emailAddresses").path(0).path("value").asText();
+                checkState(!email.isBlank(), "Google did not return an email address for this account.");
                 synchronized (this) {
-                    Optional<GoogleSnapshot> saved = snapshot();
-                    // Changing the shared CLI account never mixes mail from two people or carries forward agent consent.
-                    if (saved.isEmpty() || !saved.orElseThrow().accountId().equals(id)) {
-                        save(GoogleSnapshot.empty(id, person.path("emailAddresses").path(0).path("value").asText(),
-                                person.path("names").path(0).path("displayName").asText()));
-                    }
+                    checkState(!cancelled, "Google operation cancelled.");
+                    checkState(!accounts.containsKey(target) || accounts.get(target).accountId().equals(id),
+                            "This profile belongs to another Google account. Use Add account to connect a different email.");
+                    checkState(accounts.values().stream().noneMatch(account -> !account.profile().equals(target) && account.accountId().equals(id)),
+                            "This Google account is already connected. Select its email address.");
+                    GoogleSnapshot.Account account = new GoogleSnapshot.Account(target, id, email, person.path("names").path(0).path("displayName").asText());
+                    cache.replaceAll((key, value) -> value.withAgentAccess(false));
+                    accounts.put(target, account);
+                    profile = target;
+                    save(GoogleSnapshot.empty(id, email, account.name()));
+                    saveAccounts();
                 }
             }
         });
@@ -105,7 +153,7 @@ public class GoogleWorkspaceService
         GoogleSnapshot before = connected();
         checkArgument(pageToken.isEmpty() || before.query().equals(query) && before.nextPageToken().equals(pageToken), "Refresh this search before loading its next page.");
         return start("Loading Gmail", () -> {
-            try (var session = connector.open(false)) {
+            try (var session = connector.open(profile, false)) {
                 verifyAccount(session, before);
                 JsonNode results = session.call("gmail_search", ImmutableMap.of("query", query, "maxResults", 25, "pageToken", pageToken));
                 JsonNode messages = results.path("messages");
@@ -141,7 +189,7 @@ public class GoogleWorkspaceService
         checkArgument(end.isAfter(start) && !end.isAfter(start.plus(31, ChronoUnit.DAYS)), "Choose a calendar range of up to 31 days.");
         GoogleSnapshot before = connected();
         return start("Loading Calendar", () -> {
-            try (var session = connector.open(false)) {
+            try (var session = connector.open(profile, false)) {
                 verifyAccount(session, before);
                 JsonNode calendars = session.call("calendar_list", ImmutableMap.of());
                 checkState(calendars.isArray(), "Unexpected calendar list.");
@@ -180,9 +228,12 @@ public class GoogleWorkspaceService
     public synchronized GoogleSnapshot.Status disconnect()
     {
         checkState(operation.isEmpty(), "Wait for the current Google operation to finish.");
-        settings.delete(KEY);
+        cache.remove(profile);
+        accounts.remove(profile);
+        profile = accounts.keySet().stream().findFirst().orElse("");
+        saveAccounts();
         error = Optional.empty();
-        // The connector's Keychain entry belongs to Gemini CLI as well. Never delete or revoke that shared login here.
+        // Removing account metadata never revokes the Google credential or changes a terminal login.
         return status();
     }
 
@@ -199,7 +250,7 @@ public class GoogleWorkspaceService
     private void verifyAccount(WorkspaceConnector.Session session, GoogleSnapshot expected)
     {
         JsonNode person = session.call("people_getMe", ImmutableMap.of());
-        checkState(expected.accountId().equals(required(person, "resourceName")), "Gemini CLI is signed into another Google account. Reconnect in Settings before refreshing.");
+        checkState(expected.accountId().equals(required(person, "resourceName")), "The connector is signed into another Google account. Reconnect before refreshing.");
     }
 
     private GoogleSnapshot connected()
@@ -240,12 +291,68 @@ public class GoogleWorkspaceService
     private void save(GoogleSnapshot snapshot)
     {
         checkState(!cancelled, "Google operation cancelled.");
+        cache.put(profile, snapshot);
+    }
+
+    private void saveAccounts()
+    {
         try {
-            settings.put(KEY, mapper.writeValueAsString(snapshot));
+            settings.put(KEY, mapper.writeValueAsString(accounts.values()));
         }
         catch (JsonProcessingException failure) {
-            throw new IllegalStateException("Unable to save Google data.");
+            throw new IllegalStateException("Unable to save Google accounts.");
         }
+    }
+
+    public synchronized GoogleSnapshot.Status archive(String selected, String messageId)
+    {
+        checkArgument(profile.equals(selected), "Select the account again before archiving.");
+        GoogleSnapshot before = connected();
+        checkArgument(before.mail().stream().anyMatch(mail -> mail.id().equals(messageId)), "Refresh and select a message first.");
+        return start("Archiving message", () -> {
+            try (var session = connector.open(selected, false)) {
+                verifyAccount(session, before);
+                session.call("gmail_modify", ImmutableMap.of("messageId", messageId, "removeLabelIds", ImmutableList.of("INBOX")));
+                synchronized (this) {
+                    GoogleSnapshot current = connected();
+                    save(new GoogleSnapshot(current.accountId(), current.email(), current.name(), current.agentAccess(),
+                            current.mail().stream().filter(mail -> !mail.id().equals(messageId)).collect(ImmutableList.toImmutableList()), current.query(),
+                            current.nextPageToken(), current.mailSavedAt(), current.calendars(), current.events(), current.calendarId(),
+                            current.timeMin(), current.timeMax(), current.calendarSavedAt()));
+                }
+            }
+        });
+    }
+
+    public synchronized GoogleSnapshot.Status send(String selected, String to, String subject, String body, String replyId)
+    {
+        checkArgument(profile.equals(selected), "Select the account again before sending.");
+        checkArgument(to != null && !to.isBlank() && to.length() <= 2000 && !to.contains("\r") && !to.contains("\n"), "Enter valid recipients.");
+        List<String> recipients = Arrays.stream(to.split(",", -1)).map(String::trim).collect(ImmutableList.toImmutableList());
+        checkArgument(recipients.stream().allMatch(value -> value.matches("[^\\s@<>]+@[^\\s@<>]+\\.[^\\s@<>]+")), "Enter comma-separated email addresses.");
+        checkArgument(subject != null && subject.length() <= 1000 && !subject.contains("\r") && !subject.contains("\n"), "Enter a valid subject.");
+        checkArgument(body != null && !body.isBlank() && body.length() <= 100000, "Enter a message of up to 100,000 characters.");
+        checkArgument(replyId != null, "Invalid reply.");
+        GoogleSnapshot before = connected();
+        Optional<GoogleSnapshot.Mail> reply = before.mail().stream().filter(mail -> mail.id().equals(replyId)).findFirst();
+        checkArgument(replyId.isEmpty() || reply.isPresent(), "Refresh and select the message to reply to.");
+        return start("Sending message", () -> {
+            try (var session = connector.open(selected, false)) {
+                verifyAccount(session, before);
+                var args = ImmutableMap.<String, Object>builder().put("to", recipients).put("subject", subject).put("body", body).put("isHtml", false);
+                if (reply.isPresent()) {
+                    args.put("threadId", reply.orElseThrow().threadId());
+                    JsonNode draft = session.call("gmail_createDraft", args.buildOrThrow());
+                    required(session.call("gmail_sendDraft", ImmutableMap.of("draftId", required(draft, "id"))), "id");
+                }
+                else {
+                    required(session.call("gmail_send", args.buildOrThrow()), "id");
+                }
+            }
+            catch (RuntimeException failure) {
+                throw new IllegalStateException("Sending could not be confirmed. Check Sent mail and Drafts before retrying.");
+            }
+        });
     }
 
     private static String required(JsonNode node, String field)

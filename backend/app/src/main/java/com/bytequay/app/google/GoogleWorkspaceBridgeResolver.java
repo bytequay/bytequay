@@ -51,7 +51,7 @@ public class GoogleWorkspaceBridgeResolver
     @Override
     public Optional<GoogleWorkspaceBridge> resolve(String taskId)
     {
-        return readable(taskId).map(snapshot -> new GoogleWorkspaceBridge(raw -> call(taskId, raw)));
+        return readable(taskId).map(snapshot -> new GoogleWorkspaceBridge(raw -> call(taskId, snapshot.accountId(), raw)));
     }
 
     private Optional<GoogleSnapshot> readable(String taskId)
@@ -61,9 +61,10 @@ public class GoogleWorkspaceBridgeResolver
                 .flatMap(task -> google.snapshot()).filter(GoogleSnapshot::agentAccess);
     }
 
-    private String call(String taskId, String raw)
+    private String call(String taskId, String accountId, String raw)
     {
         GoogleSnapshot data = readable(taskId).orElseThrow(() -> new IllegalStateException("Google data access is disabled or this task is no longer open."));
+        checkState(data.accountId().equals(accountId), "Google account changed. Start a new task to use this account.");
         checkArgument(raw.length() <= 4096, "Google request is too long.");
         try {
             JsonNode args = mapper.readTree(raw);
@@ -77,7 +78,7 @@ public class GoogleWorkspaceBridgeResolver
             ObjectNode result = mapper.createObjectNode();
             result.put("savedAt", mail ? data.mailSavedAt() : data.calendarSavedAt());
             result.put("loaded", !(mail ? data.mailSavedAt() : data.calendarSavedAt()).isEmpty());
-            result.put("coverage", mail ? "One saved Gmail search page, up to 25 messages. Query: " + data.query()
+            result.put("coverage", mail ? "One in-memory Gmail search page, up to 25 messages. Query: " + data.query()
                     : "One connector result for " + data.calendarId() + ", " + data.timeMin() + " to " + data.timeMax()
                             + ". The connector may omit events in busy calendars and declined invitations.");
             String query = args.path("query").asText("").toLowerCase(Locale.ROOT);
@@ -101,7 +102,7 @@ public class GoogleWorkspaceBridgeResolver
                 result.set("item", mapper.valueToTree(item));
             }
             String response = mapper.writeValueAsString(result);
-            checkState(response.length() <= 1100000, "Saved Google result is too large.");
+            checkState(response.length() <= 1100000, "Cached Google result is too large.");
             return response;
         }
         catch (JsonProcessingException failure) {

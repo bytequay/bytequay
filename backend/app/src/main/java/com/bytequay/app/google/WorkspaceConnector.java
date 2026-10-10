@@ -45,7 +45,8 @@ public class WorkspaceConnector
 {
     private static final String SOURCE = "https://github.com/gemini-cli-extensions/workspace";
     private static final String REVISION = "089927ead01433f38c65c12cdcd2ed9a18165277";
-    private static final Set<String> READ_TOOLS = ImmutableSet.of("people_getMe", "gmail_search", "gmail_get", "calendar_list", "calendar_listEvents");
+    private static final Set<String> TOOLS = ImmutableSet.of("people_getMe", "gmail_search", "gmail_get", "calendar_list", "calendar_listEvents",
+            "gmail_modify", "gmail_send", "gmail_createDraft", "gmail_sendDraft");
     private final ObjectMapper mapper;
     private final Path directory;
     private final String node;
@@ -83,11 +84,42 @@ public class WorkspaceConnector
         checkState(installed(), "The Google connector did not finish building. Retry installation.");
     }
 
-    public Session open(boolean interactive)
+    // The upstream extension hard-codes one credential namespace. Isolate both Keychain and its encrypted-file fallback without editing the installation.
+    static final String PROFILE_BOOTSTRAP = """
+            const fs = require('node:fs'), path = require('node:path'), Module = require('node:module');
+            const [entry, root, profile] = process.argv.slice(1);
+            const allowed = new Set(['PATH', 'HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'BROWSER', 'HTTP_PROXY', 'HTTPS_PROXY', 'NO_PROXY']);
+            for (const key of Object.keys(process.env)) if (!allowed.has(key)) delete process.env[key];
+            if (!/^[a-f0-9-]{36}$/.test(profile)) throw new Error('Invalid Google profile');
+            let source = fs.readFileSync(entry, 'utf8');
+            const marker = '"gemini-cli-workspace-oauth"';
+            if (source.split(marker).length !== 2) throw new Error('Unsupported Workspace connector credential layout. Repair connector.');
+            source = source.replace(marker, JSON.stringify('com.bytequay.google.' + profile));
+            const emailScope = '"userinfo.profile"';
+            if (source.split(emailScope).length !== 2) throw new Error('Unsupported Workspace connector identity scope layout. Repair connector.');
+            source = source.replace(emailScope, '"userinfo.profile","userinfo.email"');
+            const filename = path.join(root, 'workspace-server/dist/index.js');
+            fs.mkdirSync(path.dirname(filename), { recursive: true, mode: 0o700 });
+            fs.writeFileSync(path.join(root, 'gemini-extension.json'), '{}', { mode: 0o600 });
+            const mod = new Module(filename);
+            mod.filename = filename;
+            mod.paths = Module._nodeModulePaths(path.dirname(entry));
+            mod._compile(source, filename);
+            """;
+
+    public List<String> profileCommand(String profile)
+    {
+        checkArgument(profile != null && profile.matches("[a-f0-9-]{36}"), "Invalid Google profile.");
+        Path root = Path.of(System.getProperty("user.home"), "Library", "Application Support", "ByteQuay", "google-accounts", profile);
+        return command(ImmutableList.of(node, "-e", PROFILE_BOOTSTRAP, directory.resolve("workspace-server/dist/index.js").toString(), root.toString(), profile),
+                System.getenv()).command();
+    }
+
+    public Session open(String profile, boolean interactive)
     {
         checkState(installed(), "Install the Google connector in Settings first.");
         try {
-            ProcessBuilder builder = command(ImmutableList.of(node, directory.resolve("workspace-server/dist/index.js").toString()), System.getenv());
+            ProcessBuilder builder = command(profileCommand(profile), System.getenv());
             builder.directory(directory.toFile()).redirectError(ProcessBuilder.Redirect.DISCARD);
             if (!interactive) {
                 // Refresh and agent reads must never open an unexpected login window.
@@ -184,7 +216,7 @@ public class WorkspaceConnector
 
         public JsonNode call(String tool, Map<String, Object> arguments)
         {
-            checkArgument(READ_TOOLS.contains(tool), "This Google tool is not available in ByteQuay.");
+            checkArgument(TOOLS.contains(tool), "This Google tool is not available in ByteQuay.");
             JsonNode result = request("tools/call", ImmutableMap.of("name", tool, "arguments", arguments));
             checkState(!result.path("isError").asBoolean(), "Google could not complete %s. Reconnect in Settings and check account permissions.", tool);
             try {

@@ -16,6 +16,7 @@ package com.bytequay.app.google;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,10 +63,11 @@ class TestGoogleWorkspaceService
             return null;
         }).when(settings).delete(anyString());
         when(connector.installed()).thenReturn(true);
-        when(connector.open(anyBoolean())).thenReturn(session);
+        when(connector.open(anyString(), anyBoolean())).thenReturn(session);
         when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/one\",\"emailAddresses\":[{\"value\":\"one@example.com\"}]}"));
         when(session.call(eq("gmail_search"), anyMap())).thenReturn(json("{\"messages\":[{\"id\":\"m1\"}],\"nextPageToken\":\"next\"}"));
         when(session.call(eq("gmail_get"), anyMap())).thenReturn(json("{\"id\":\"m1\",\"subject\":\"Project\",\"body\":\"saved text\",\"labelIds\":[\"UNREAD\"]}"));
+        google.loadAccounts();
         google.connect();
         awaitDone();
     }
@@ -101,7 +103,7 @@ class TestGoogleWorkspaceService
             throws Exception
     {
         GoogleSnapshot initial = google.snapshot().orElseThrow();
-        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/two\"}"));
+        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/two\",\"emailAddresses\":[{\"value\":\"two@example.com\"}]}"));
         google.refreshMail("in:inbox", "");
         awaitDone();
         assertThat(google.status().error()).get().asString().contains("another Google account");
@@ -110,8 +112,8 @@ class TestGoogleWorkspaceService
         google.agentAccess(true);
         google.connect();
         awaitDone();
-        assertThat(google.snapshot().orElseThrow().accountId()).isEqualTo("people/two");
-        assertThat(google.snapshot().orElseThrow().agentAccess()).isFalse();
+        assertThat(google.snapshot().orElseThrow().accountId()).isEqualTo("people/one");
+        assertThat(google.status().error()).get().asString().contains("Use Add account");
     }
 
     @Test
@@ -187,6 +189,92 @@ class TestGoogleWorkspaceService
         assertThat(data.timeMin()).isEqualTo("2026-10-09T00:00:00+08:00");
         assertThatThrownBy(() -> google.refreshCalendar("primary", "2026-10-09T00:00:00Z", "2027-10-09T00:00:00Z"))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void keepsMailOnlyInMemoryAcrossRestarts()
+            throws Exception
+    {
+        google.refreshMail("in:inbox", "");
+        awaitDone();
+        assertThat(saved.values()).allSatisfy(value -> assertThat(value).doesNotContain("saved text", "Project", "mailSavedAt"));
+        verify(settings).delete("google.workspace.snapshot");
+        var restarted = new GoogleWorkspaceService(connector, settings, mapper);
+        try {
+            restarted.loadAccounts();
+            assertThat(restarted.snapshot().orElseThrow().mail()).isEmpty();
+            assertThat(restarted.status().accounts()).hasSize(1);
+        }
+        finally {
+            restarted.close();
+        }
+    }
+
+    @Test
+    void switchesAccountsWithoutMixingCachedMailOrConsent()
+            throws Exception
+    {
+        google.refreshMail("in:inbox", "");
+        awaitDone();
+        String first = google.status().profile();
+        google.agentAccess(true);
+        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/two\",\"emailAddresses\":[{\"value\":\"two@example.com\"}]}"));
+        google.connect(true);
+        awaitDone();
+        assertThat(google.status().accounts()).hasSize(2);
+        assertThat(google.snapshot().orElseThrow().mail()).isEmpty();
+        assertThatThrownBy(() -> google.send(first, "to@example.com", "Subject", "Body", "")).hasMessageContaining("Select the account");
+        google.select(first);
+        assertThat(google.snapshot().orElseThrow().mail()).hasSize(1);
+        assertThat(google.snapshot().orElseThrow().agentAccess()).isFalse();
+    }
+
+    @Test
+    void verifiesAccountBeforeWritesAndPreservesMailAfterFailure()
+            throws Exception
+    {
+        google.refreshMail("in:inbox", "");
+        awaitDone();
+        String selected = google.status().profile();
+        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/wrong\"}"));
+        google.archive(selected, "m1");
+        awaitDone();
+        verify(session, never()).call(eq("gmail_modify"), anyMap());
+        assertThat(google.snapshot().orElseThrow().mail()).hasSize(1);
+        assertThatThrownBy(() -> google.send(selected, "a@example.com\r\nBcc: b@example.com", "Hi", "Body", ""))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void sendsToValidatedRecipientsAndArchivesOnlyTheSelectedMessage()
+            throws Exception
+    {
+        google.refreshMail("in:inbox", "");
+        awaitDone();
+        when(session.call(eq("gmail_send"), anyMap())).thenReturn(json("{\"id\":\"sent-1\"}"));
+        google.send(google.status().profile(), "one@example.com, two@example.com", "Hello", "Message", "");
+        awaitDone();
+        assertThat(google.status().error()).isEmpty();
+        verify(session).call("gmail_send", ImmutableMap.of("to", ImmutableList.of("one@example.com", "two@example.com"),
+                "subject", "Hello", "body", "Message", "isHtml", false));
+        google.archive(google.status().profile(), "m1");
+        awaitDone();
+        assertThat(google.status().error()).isEmpty();
+        assertThat(google.snapshot().orElseThrow().mail()).isEmpty();
+    }
+
+    @Test
+    void sendsRepliesAsThreadedDraftsWithoutAutomaticRetries()
+            throws Exception
+    {
+        google.refreshMail("in:inbox", "");
+        awaitDone();
+        when(session.call(eq("gmail_createDraft"), anyMap())).thenReturn(json("{\"id\":\"draft-1\"}"));
+        when(session.call(eq("gmail_sendDraft"), anyMap())).thenThrow(new IllegalStateException("timeout"));
+        google.send(google.status().profile(), "to@example.com", "Re: Project", "Reply body", "m1");
+        awaitDone();
+        verify(session).call("gmail_sendDraft", ImmutableMap.of("draftId", "draft-1"));
+        assertThat(google.status().error()).get().asString().contains("Check Sent mail and Drafts");
     }
 
     private void awaitDone()

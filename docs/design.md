@@ -30,7 +30,7 @@ and the resulting changes close enough to inspect together.
 | Work items | Read GitHub issues, Jira tickets, and private local work together; retain their context through development and optional publication. |
 | Memory and specifications | Retain useful repository guidance and compare code with its intended behavior. |
 | Related workspaces and backports | Follow changes across related repositories and choose where they should be carried next. |
-| Google apps | Read a saved Gmail selection and Calendar agenda, and optionally share that context with interactive task agents. |
+| Google apps | Browse memory-cached mail and day/week calendars, write email, switch accounts, and talk to Gemini inside Google Apps. |
 | Circles | Keep a personal view of the people and work that matter to you. |
 
 These are feature descriptions, not fixed screen layouts or promises about every

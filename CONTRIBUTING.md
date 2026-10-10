@@ -138,20 +138,29 @@ Gemini inference or debug logging. The default directory is
 `bytequay.google.node`, `bytequay.google.gemini`, and `bytequay.google.npm` can
 select non-default development installations.
 
-The connector shares its account with Gemini CLI. Disconnect in ByteQuay clears
-only ByteQuay's saved data. Sign out or change the upstream account through the
-extension, then reconnect in ByteQuay. A changed account clears the old snapshots
-and requires new consent for task-agent access.
+Google Apps keeps mail pages and calendar selections in backend memory, per
+account. Startup removes the former database snapshot. Only account IDs and
+email labels are stored in SQLite; each restart begins with empty caches and
+agent consent off. Refresh and mail writes verify the account identity first.
 
-The Google settings page can also save a user-supplied Gemini model API key in
-the `com.bytequay.gemini` macOS Keychain service and open Gemini CLI in Terminal.
-Electron owns this optional setup; it does not route through the backend or
-add an agent provider. Key validation lists models without generating content.
-The private launcher and folder-level authentication settings live under
-`gemini-terminal` in Electron's application data directory. The launcher reads
-the key at runtime, uses the existing global Workspace extension, and leaves
-global Gemini settings and shell profiles alone. Key creation requires the
-user's AI Studio setup; ByteQuay does not provision Cloud projects or billing.
+Each account uses a separate connector credential namespace and fallback root
+under `google-accounts` in ByteQuay's application data directory. A small Node
+bootstrap loads the installed bundle with that namespace; it does not edit the
+installation or the terminal's shared login. It checks the upstream credential
+and email-scope markers and fails closed if the installed bundle has an unsupported layout.
+The isolated sign-in also requests the primary email scope for account labels.
+The extension still owns OAuth sign-in, token refresh, and credential storage.
+
+The Google settings page saves a user-supplied Gemini API key in the
+`com.bytequay.gemini` macOS Keychain service. Validation lists models without
+inference. Electron runs Gemini CLI in ACP mode for the Google Apps composer,
+with a separate session per account, an allowlist of Gmail/Calendar MCP tools,
+and one-time approval for writes. There are no coding or shell tools in this
+surface. Prompts and approval responses travel over stdin, never shell arguments.
+Gemini's own session files stay under `google-chat-runtime`, which is removed
+on stop, quit, and the next startup after a crash. The app conversation is held
+in memory and is never stored in SQLite. Sign-ins and the API key survive quit.
+Key creation and billing remain in Google AI Studio.
 
 ## Project layout
 

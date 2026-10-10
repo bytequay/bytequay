@@ -40,3 +40,38 @@
 .google-screen__placeholder { padding: 24px; }
 .google-screen__error { padding: 12px 24px; margin: 0 30px 12px; border: 1px solid var(--border); color: var(--red); border-radius: 6px; }
 @media (max-width: 900px) { .google-screen__header, .google-screen__message-heading { align-items: flex-start; flex-direction: column; } .google-screen__header, .google-screen__toolbar { padding-left: 18px; padding-right: 18px; } }
+.google-screen__accounts { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.google-screen__accounts select, .google-mail-compose input { color: var(--text-1); background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 8px; }
+.google-screen__workspace { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 36%); flex: 1; min-height: 0; }
+.google-screen__content { display: flex; flex-direction: column; min-width: 0; overflow: auto; }
+.google-chat { min-height: 0; min-width: 0; display: flex; flex-direction: column; border-left: 1px solid var(--border); padding: 18px; gap: 16px; }
+.google-chat > header { display: flex; align-items: start; justify-content: space-between; gap: 8px; }
+.google-chat h2 { margin: 0 0 4px; }
+.google-chat small { color: var(--text-2); overflow-wrap: anywhere; }
+.google-chat__messages { flex: 1; min-height: 160px; overflow: auto; }
+.google-chat__messages article { margin-bottom: 18px; padding: 12px; border-radius: 8px; overflow-wrap: anywhere; }
+.google-chat__messages article > strong { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+.google-chat__user { background: var(--bg-hover); }
+.google-chat__approval { padding: 12px; border: 1px solid var(--accent); border-radius: 8px; margin: 12px 0; }
+.google-chat__approval pre { max-height: 250px; overflow: auto; font-size: 12px; }
+.google-chat__approval > div { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.google-chat .google-screen__error { margin: 10px 0; }
+.google-mail-compose { padding: 20px 30px; border-block: 1px solid var(--border); }
+.google-mail-compose > label { display: grid; grid-template-columns: 65px 1fr; gap: 8px; align-items: center; margin-bottom: 10px; }
+.google-mail-compose__confirm { padding-top: 12px; }
+.google-mail-compose__confirm button + button { margin-left: 8px; }
+.google-calendar { display: grid; grid-template-columns: repeat(7, minmax(120px, 1fr)); overflow: auto; flex: 1; border-top: 1px solid var(--border); }
+.google-calendar.is-day { grid-template-columns: 1fr; }
+.google-calendar > section { border-right: 1px solid var(--border); padding: 12px; }
+.google-calendar h2 { font-size: 13px; margin-bottom: 18px; }
+.google-calendar article { background: var(--bg-hover); border-left: 3px solid var(--accent); border-radius: 4px; padding: 10px; margin-bottom: 12px; }
+.google-calendar h3 { font-size: 13px; overflow-wrap: anywhere; }
+.google-calendar time, .google-calendar > section > p { font-size: 11px; color: var(--text-2); }
+.google-calendar pre { font-size: 12px; max-height: 150px; overflow: auto; }
+@media (max-width: 1100px) { .google-screen__workspace { grid-template-columns: minmax(0, 1fr); overflow: auto; } .google-chat { min-height: 400px; border-top: 1px solid var(--border); border-left: 0; } }
+
+.google-chat .markdown-body { padding: 0; }
+.google-chat__approval h3 { font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 300px; overflow: auto; }
+.google-chat .agr-composer { margin-top: 0; }
+.google-screen__message-heading { flex-wrap: wrap; }
+.google-screen__message-heading h2 { flex: 1 1 200px; }

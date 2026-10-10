@@ -620,3 +620,30 @@ it('reads API-key usage by stable ID while retaining the alias and desktop authe
   expect(() => desktop.handlers.get('usage:read')?.({}, 'api-key-../codex')).toThrow('Invalid usage account');
   expect(fetch).toHaveBeenCalledTimes(2);
 });
+
+it('authenticates Google account, mail and Gemini connector requests without exposing the session token', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetcher = vi.fn(async () => new Response('{}'));
+  vi.stubGlobal('fetch', fetcher);
+  const profile = '00000000-0000-0000-0000-000000000001';
+  const requests: [string, string, unknown[]][] = [
+    ['google:accounts:add', '/accounts', []],
+    ['google:account:select', '/account', [profile]],
+    ['google:archive', '/archive', [profile, 'message']],
+    ['google:send', '/send', [{ profile, to: 'to@example.com', subject: 'Hello', body: 'Text', replyId: '' }]],
+  ];
+  for (const [channel, endpoint, args] of requests) {
+    await desktop.handlers.get(channel)?.({}, ...args);
+    expect(fetcher).toHaveBeenLastCalledWith(`http://127.0.0.1:9527/api/google${endpoint}`, expect.objectContaining({
+      headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
+    }));
+  }
+  // Reject before credentials or a provider process are touched; inspect the real native chat command request.
+  fetcher.mockImplementation(async () => new Response('Account unavailable', { status: 403 }));
+  await desktop.handlers.get('google-chat:prompt')?.({}, profile, 'Read mail');
+  expect(fetcher).toHaveBeenLastCalledWith('http://127.0.0.1:9527/api/google/chat-command', expect.objectContaining({
+    headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' }, body: JSON.stringify({ profile }),
+  }));
+  await desktop.handlers.get('google-chat:clear')?.({}, profile);
+});

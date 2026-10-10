@@ -52,7 +52,7 @@ class TestGoogleWorkspaceBridgeResolver
         when(service.snapshot()).thenReturn(Optional.of(snapshot.withAgentAccess(true)));
         GoogleWorkspaceBridge bridge = resolver.resolve(id).orElseThrow();
         String read = "{\"action\":\"LIST\",\"source\":\"MAIL\"}";
-        assertThat(bridge.call().apply(read)).contains("One saved Gmail search page", "savedAt");
+        assertThat(bridge.call().apply(read)).contains("One in-memory Gmail search page", "savedAt");
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"SEND\",\"source\":\"MAIL\"}"))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> bridge.call().apply("{\"action\":\"LIST\",\"source\":\"MAIL\",\"refresh\":true}"))

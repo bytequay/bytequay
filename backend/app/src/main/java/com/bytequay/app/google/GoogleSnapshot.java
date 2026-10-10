@@ -20,7 +20,7 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-/** The bounded selection the user saved, not a complete mailbox or calendar mirror. */
+/** The bounded in-memory selection the user loaded, not a complete mailbox or calendar mirror. */
 public record GoogleSnapshot(
         String accountId, String email, String name, boolean agentAccess,
         List<Mail> mail, String query, String nextPageToken, String mailSavedAt,
@@ -61,10 +61,14 @@ public record GoogleSnapshot(
 
     public record Event(String id, String summary, String description, String start, String end, boolean allDay, String url) {}
 
-    public record Status(boolean installed, String operation, Optional<String> error, Optional<GoogleSnapshot> snapshot)
+    public record Account(String profile, String accountId, String email, String name) {}
+
+    public record Status(boolean installed, String operation, Optional<String> error, Optional<GoogleSnapshot> snapshot, List<Account> accounts, String profile)
     {
         public Status
         {
+            accounts = ImmutableList.copyOf(accounts);
+            requireNonNull(profile, "profile is null");
             requireNonNull(operation, "operation is null");
             requireNonNull(error, "error is null");
             requireNonNull(snapshot, "snapshot is null");

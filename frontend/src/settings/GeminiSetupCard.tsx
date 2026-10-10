@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { GeminiTerminalStatus } from '../google/contracts';
+import type { GeminiSetupStatus } from '../google/contracts';
 import { Badge, SettingsCard, SettingsRow } from './primitives';
 
-export default function GeminiTerminalCard() {
-  const [status, setStatus] = useState<GeminiTerminalStatus | null>(null);
+export default function GeminiSetupCard() {
+  const [status, setStatus] = useState<GeminiSetupStatus | null>(null);
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -24,7 +24,7 @@ export default function GeminiTerminalCard() {
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     let active = true;
-    const refresh = () => { void window.bridge.getGeminiTerminalStatus().then(next => {
+    const refresh = () => { void window.bridge.getGeminiSetupStatus().then(next => {
       if (active) setStatus(next);
     }).catch(() => { if (active) setError('Unable to read Gemini setup. Check macOS Keychain access and retry.'); }); };
     refresh();
@@ -39,8 +39,8 @@ export default function GeminiTerminalCard() {
   }
   const openLink = (url: string) => { void act(() => window.bridge.openExternal(url)); };
   return <>
-    <div className="setw-section"><span className="setw-section-title">Gemini in Terminal</span></div>
-    {error && <div className="setw-error" role="alert">{error} <button type="button" className="setw-link" disabled={busy} onClick={() => { void act(async () => setStatus(await window.bridge.getGeminiTerminalStatus())); }}>Retry</button></div>}
+    <div className="setw-section"><span className="setw-section-title">Gemini assistant</span></div>
+    {error && <div className="setw-error" role="alert">{error} <button type="button" className="setw-link" disabled={busy} onClick={() => { void act(async () => setStatus(await window.bridge.getGeminiSetupStatus())); }}>Retry</button></div>}
     {notice && <p className="setw-footnote" role="status">{notice}</p>}
     <SettingsCard>
       <SettingsRow title="Gemini API key" badge={<Badge>{status?.configured ? 'Saved in Keychain' : 'Setup needed'}</Badge>}
@@ -51,9 +51,9 @@ export default function GeminiTerminalCard() {
         event.preventDefault();
         if (busy || !key.trim()) return;
         void act(async () => {
-          const next = await window.bridge.saveGeminiTerminalKey(key.trim());
+          const next = await window.bridge.saveGeminiSetupKey(key.trim());
           setKey(''); setEditing(false); setStatus(next);
-          setNotice('Key saved. Open Gemini in Terminal to start.');
+          setNotice('Key saved. Start a conversation on the Google Apps page.');
         });
       }}>
         <input type="password" aria-label="Gemini API key" autoComplete="off" spellCheck={false} maxLength={4096}
@@ -62,15 +62,13 @@ export default function GeminiTerminalCard() {
         <button type="submit" className="setw-btn-primary" disabled={busy || !key.trim()}>Save key</button>
         {editing && <button type="button" className="setw-btn" disabled={busy} onClick={() => { setKey(''); setEditing(false); }}>Cancel</button>}
       </form>}
-      {status?.configured && <SettingsRow title="Start a Gemini session" subtitle="Uses this key in a separate folder. Your normal Gemini CLI settings stay unchanged.">
+      {status?.configured && <SettingsRow title="Gemini assistant">
         {!editing && <button type="button" className="setw-btn" disabled={busy} onClick={() => setEditing(true)}>Replace key…</button>}
         <button type="button" className="setw-btn is-danger" disabled={busy} onClick={() => { void act(async () => {
-          setStatus(await window.bridge.removeGeminiTerminalKey()); setKey(''); setEditing(false);
-          setNotice('Saved key removed. Existing terminal sessions keep access until you close them. The key still exists in Google AI Studio.');
+          setStatus(await window.bridge.removeGeminiSetupKey()); setKey(''); setEditing(false);
+          setNotice('Saved key removed. The key still exists in Google AI Studio.');
         }); }}>Remove key</button>
-        <button type="button" className="setw-btn-primary" disabled={busy || !status.installed} onClick={() => { void act(async () => {
-          await window.bridge.openGeminiTerminal(); setNotice('Gemini opened in Terminal. Complete any folder trust or authentication prompts there.');
-        }); }}>Open Gemini in Terminal</button>
+        <a className="setw-btn-primary" href="#/google">Open Google Apps</a>
       </SettingsRow>}
     </SettingsCard>
     {status && !status.installed && <p className="setw-footnote">Install Gemini CLI first. <button type="button" className="setw-link" disabled={busy} onClick={() => openLink('https://geminicli.com/docs/get-started/installation/')}>Installation guide</button></p>}

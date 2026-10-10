@@ -1,0 +1,102 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
+import { GeminiChat } from './geminiChat';
+import type { GeminiSetup } from './geminiSetup';
+
+const mocks = vi.hoisted(() => ({ spawn: vi.fn(), mkdirSync: vi.fn(), writeFileSync: vi.fn(), rmSync: vi.fn() }));
+vi.mock('node:child_process', () => ({ spawn: mocks.spawn }));
+vi.mock('node:fs', () => ({ mkdirSync: mocks.mkdirSync, writeFileSync: mocks.writeFileSync, rmSync: mocks.rmSync }));
+const profile = '00000000-0000-0000-0000-000000000001';
+const second = '00000000-0000-0000-0000-000000000002';
+const secret = 'test-only-secret';
+const setup = { credentials: vi.fn(async () => ({ executable: '/test/gemini', key: secret, searchPath: '/test/bin' })) } as unknown as GeminiSetup;
+let chat: GeminiChat;
+let requests: Record<string, unknown>[];
+let children: ReturnType<typeof child>[];
+const command = vi.fn(async () => ['/test/node', '-e', 'connector', 'profile']);
+function child() {
+  const value = Object.assign(new EventEmitter(), { pid: 12345, killed: false, stdout: new PassThrough(), stderr: new PassThrough(), stdin: new PassThrough(), kill: vi.fn() });
+  value.stdin.on('data', (data: Buffer) => {
+    const request = JSON.parse(data.toString()) as Record<string, unknown>;
+    requests.push(request);
+    if (request.method === 'initialize' || request.method === 'authenticate' || request.method === 'session/new') {
+      queueMicrotask(() => value.stdout.write(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: request.method === 'session/new' ? { sessionId: profile } : {} })}\n`));
+    }
+  });
+  return value;
+}
+const settle = async () => { for (let i = 0; i < 12; i++) await Promise.resolve(); };
+function receive(message: unknown, index = 0) { children[index].stdout.write(`${JSON.stringify(message)}\n`); }
+beforeEach(() => {
+  vi.clearAllMocks(); requests = []; children = [];
+  vi.spyOn(process, 'kill').mockImplementation(() => true);
+  mocks.spawn.mockImplementation(() => { const value = child(); children.push(value); return value; });
+  chat = new GeminiChat('/private/test', setup, command);
+});
+afterEach(() => { chat.dispose(); vi.restoreAllMocks(); });
+
+it('streams responses and confines secrets, tools and temporary history to the native process', async () => {
+  await chat.prompt(profile, 'Find my booking reply'); await settle();
+  expect(requests.map(item => item.method)).toEqual(['initialize', 'authenticate', 'session/new', 'session/prompt']);
+  expect(JSON.stringify(mocks.spawn.mock.calls)).not.toContain(secret);
+  expect(JSON.stringify(mocks.writeFileSync.mock.calls)).not.toContain(secret);
+  const config = JSON.parse(mocks.writeFileSync.mock.calls[0][1]);
+  expect(config.tools.core.every((tool: string) => tool.startsWith('mcp_google-workspace_'))).toBe(true);
+  expect(config.tools.confirmationRequired).toContain('mcp_google-workspace_gmail_send');
+  expect(config.mcpServers['google-workspace'].includeTools).not.toContain('drive_search');
+  expect(config.mcpServers['google-workspace'].trust).toBe(false);
+  receive({ method: 'session/update', params: { sessionId: profile, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Confirmed ' } } } });
+  receive({ method: 'session/update', params: { sessionId: profile, update: { sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: '✓' } } } });
+  const prompt = requests.find(item => item.method === 'session/prompt');
+  receive({ id: prompt?.id, result: { stopReason: 'end_turn' } }); await settle();
+  expect(chat.status(profile).messages.at(-1)?.text).toBe('Confirmed ✓');
+  expect(chat.status(profile).busy).toBe(false);
+});
+
+it('waits for explicit one-time approval and rejects stale or persistent approvals', async () => {
+  await chat.prompt(profile, 'Send my reply'); await settle();
+  receive({ id: 'approval-1', method: 'session/request_permission', params: { sessionId: profile,
+    toolCall: { title: 'Send email', content: [{ type: 'text', text: 'To: test@example.com' }] },
+    options: [{ kind: 'allow_once', optionId: 'once', name: 'Allow once' }, { kind: 'allow_always', optionId: 'always', name: 'Always' }] } });
+  expect(chat.status(profile).approval?.options).toEqual([{ id: 'once', label: 'Allow once' }]);
+  expect(requests.some(item => item.id === 'approval-1')).toBe(false);
+  expect(() => chat.approve(profile, 'approval-1', 'always')).toThrow('no longer');
+  chat.approve(profile, 'approval-1', 'once');
+  expect(requests.at(-1)?.result).toEqual({ outcome: { outcome: 'selected', optionId: 'once' } });
+  expect(() => chat.approve(profile, 'approval-1', 'once')).toThrow('no longer');
+});
+
+it('isolates account conversations and cancels the whole process group without replaying writes', async () => {
+  await chat.prompt(profile, 'One'); await settle();
+  await chat.prompt(second, 'Two'); await settle();
+  expect(chat.status(second).messages[0].text).toBe('Two');
+  chat.stop(profile); await settle();
+  expect(process.kill).toHaveBeenCalledWith(-12345, 'SIGKILL');
+  expect(chat.status(profile).busy).toBe(false);
+  expect(chat.status(second).busy).toBe(true);
+  await expect(chat.prompt(profile, 'Retry')).rejects.toThrow('Clear the conversation');
+  chat.clear(profile);
+  expect(chat.status(profile).messages).toEqual([]);
+});
+
+it('fails closed on malformed protocol data and cleans runtime files on quit', async () => {
+  await chat.prompt(profile, 'Read mail'); await settle();
+  children[0].stdout.write('not-json\n'); await settle();
+  expect(chat.status(profile).error).toContain('stopped');
+  chat.dispose();
+  expect(mocks.rmSync).toHaveBeenLastCalledWith('/private/test/google-chat-runtime', { recursive: true, force: true });
+});

@@ -17,7 +17,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
@@ -27,6 +30,29 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestWorkspaceConnector
 {
+    @Test
+    void isolatesCredentialNamespaceAndFallbackPathsWithoutEditingInstallation(@TempDir Path temporary)
+            throws Exception
+    {
+        Path entry = temporary.resolve("index.js");
+        String original = "console.log(\"gemini-cli-workspace-oauth\", [\"userinfo.profile\"], __dirname, process.env.GEMINI_API_KEY || 'no-key')";
+        Files.writeString(entry, original);
+        String profile = "00000000-0000-0000-0000-000000000001";
+        ProcessBuilder builder = WorkspaceConnector.command(ImmutableList.of("node", "-e", WorkspaceConnector.PROFILE_BOOTSTRAP,
+                entry.toString(), temporary.resolve("profile").toString(), profile), System.getenv());
+        builder.environment().put("GEMINI_API_KEY", "must-not-inherit");
+        Process process = builder.start();
+        assertThat(process.waitFor(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(process.exitValue()).isZero();
+        assertThat(new String(process.getInputStream().readAllBytes(), UTF_8))
+                .contains("com.bytequay.google." + profile, "profile/workspace-server/dist", "userinfo.email", "no-key").doesNotContain("must-not-inherit");
+        assertThat(Files.readString(entry)).isEqualTo(original);
+        Files.writeString(entry, "console.log('unsupported')");
+        Process unsupported = builder.start();
+        assertThat(unsupported.waitFor(5, TimeUnit.SECONDS)).isTrue();
+        assertThat(unsupported.exitValue()).isNotZero();
+    }
+
     @Test
     void resolvesDesktopCommandsWithoutPassingDesktopOrModelSecrets()
             throws Exception
@@ -41,7 +67,7 @@ class TestWorkspaceConnector
     }
 
     @Test
-    void speaksMcpAndRejectsWritesAndEmbeddedToolErrors()
+    void speaksMcpAndRejectsUnlistedToolsAndEmbeddedToolErrors()
             throws Exception
     {
         Process process = new ProcessBuilder("/bin/sh", "-c", """
@@ -56,7 +82,7 @@ class TestWorkspaceConnector
                 """).start();
         try (var session = new WorkspaceConnector.Session(process, new ObjectMapper(), Duration.ofSeconds(2))) {
             assertThat(session.call("gmail_search", ImmutableMap.of()).path("messages").isArray()).isTrue();
-            assertThatThrownBy(() -> session.call("gmail_send", ImmutableMap.of())).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> session.call("auth_clear", ImmutableMap.of())).isInstanceOf(IllegalArgumentException.class);
             assertThatThrownBy(() -> session.call("gmail_get", ImmutableMap.of()))
                     .hasMessageContaining("Google could not complete").hasMessageNotContaining("private upstream");
         }

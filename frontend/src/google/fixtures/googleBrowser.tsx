@@ -16,7 +16,7 @@ import GoogleScreen from '../GoogleScreen';
 import GooglePage from '../../settings/GooglePage';
 import AppSidebar from '../../AppSidebar';
 import { useGoogle } from '../useGoogle';
-import { GOOGLE_CHANGED, type GoogleStatus } from '../contracts';
+import { GOOGLE_CHANGED, type GoogleChatState, type GoogleStatus } from '../contracts';
 import type { Bridge } from '../../types';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
@@ -26,12 +26,15 @@ let root: Root | null = null;
 let status: GoogleStatus;
 let searches: string[];
 let opened: string[];
+let chat: GoogleChatState;
+const profile = '00000000-0000-0000-0000-000000000001';
 
 export async function mountPreview(settings = false) {
   root?.unmount();
   document.body.innerHTML = '<div id="root" style="height:100vh"></div>';
   searches = []; opened = [];
-  status = { installed: true, operation: '', error: null, snapshot: {
+  chat = { messages: [], busy: false, activity: '', error: null, approval: null };
+  status = { profile, accounts: [{ profile, accountId: 'people/one', email: 'alex@example.com', name: 'Alex Chen' }], installed: true, operation: '', error: null, snapshot: {
     accountId: 'people/one', name: 'Alex Chen', email: 'alex@example.com', agentAccess: false,
     query: 'in:inbox', nextPageToken: 'next', mailSavedAt: '2026-10-09T02:00:00Z',
     mail: [
@@ -45,10 +48,18 @@ export async function mountPreview(settings = false) {
     ],
   } };
   const bridge: Partial<Bridge> = {
-    getGeminiTerminalStatus: async () => ({ configured: false, installed: true }),
-    saveGeminiTerminalKey: async () => ({ configured: true, installed: true }),
-    removeGeminiTerminalKey: async () => ({ configured: false, installed: true }),
-    openGeminiTerminal: async () => {},
+    getGeminiSetupStatus: async () => ({ configured: false, installed: true }),
+    saveGeminiSetupKey: async () => ({ configured: true, installed: true }),
+    removeGeminiSetupKey: async () => ({ configured: false, installed: true }),
+    getGoogleChat: async () => structuredClone(chat),
+    promptGoogleChat: async (_profile, text) => { chat.messages.push({ role: 'user', text }, { role: 'assistant', text: 'Your booking has been confirmed.' }); return structuredClone(chat); },
+    clearGoogleChat: async () => { chat.messages = []; return structuredClone(chat); },
+    stopGoogleChat: async () => { chat.busy = false; chat.approval = null; return structuredClone(chat); },
+    approveGoogleChat: async () => { chat.approval = null; return structuredClone(chat); },
+    addGoogleAccount: async () => structuredClone(status),
+    selectGoogleAccount: async selected => { status.profile = selected; return structuredClone(status); },
+    archiveGoogleMail: async (_profile, id) => { if (status.snapshot) status.snapshot.mail = status.snapshot.mail.filter(mail => mail.id !== id); return structuredClone(status); },
+    sendGoogleMail: async () => structuredClone(status),
     getGoogleStatus: async () => structuredClone(status),
     refreshGoogleMail: async (query, token) => { searches.push(`${query}:${token}`); status.error = 'Google is offline. Saved data remains available.'; return structuredClone(status); },
     refreshGoogleCalendar: async () => structuredClone(status),
@@ -83,7 +94,7 @@ function ConnectionNavigation() {
 export async function run() {
   const results: { name: string; error?: string }[] = [];
   const scenarios: Record<string, () => Promise<void>> = {
-    async 'sets up Gemini terminal access without changing Google app consent'() {
+    async 'sets up Gemini access without changing Google app consent'() {
       await mountPreview(true);
       button('Create API key…').click(); await settle();
       assert(opened[0] === 'https://aistudio.google.com/apikey', 'Key creation goes to Google');
@@ -91,21 +102,17 @@ export async function run() {
       const input = document.querySelector<HTMLInputElement>('[aria-label="Gemini API key"]');
       assert(input !== null && input.type === 'password', 'Key input is masked');
       changeInput(input, 'AQ.fixture-only-key'); await settle();
-      window.bridge.saveGeminiTerminalKey = async () => { throw new Error('Google did not accept this key.'); };
+      window.bridge.saveGeminiSetupKey = async () => { throw new Error('Google did not accept this key.'); };
       button('Save key').click(); await settle(); await settle();
       assert(document.querySelector('[role="alert"]')?.textContent?.includes('did not accept'), 'Failed save is visible');
       assert(input.value === 'AQ.fixture-only-key', 'Failed save preserves input for correction');
-      window.bridge.saveGeminiTerminalKey = async key => {
+      window.bridge.saveGeminiSetupKey = async key => {
         assert(key === 'AQ.fixture-only-key', 'Only the entered key is sent');
         return { configured: true, installed: true };
       };
       button('Save key').click(); await settle(); await settle();
       assert(document.querySelector('[aria-label="Gemini API key"]') === null, 'Saved secret leaves the form');
       assert(!status.snapshot?.agentAccess, 'Saving a model key does not enable task access');
-      let launched = false;
-      window.bridge.openGeminiTerminal = async () => { launched = true; };
-      button('Open Gemini in Terminal').click(); await settle();
-      assert(launched, 'Explicit launch opens the terminal');
       button('Replace key…').click(); await settle();
       assert(document.querySelector<HTMLInputElement>('[aria-label="Gemini API key"]')?.value === '', 'Replacement never reveals stored key');
       button('Remove key').click(); await settle(); await settle();
@@ -115,7 +122,7 @@ export async function run() {
     async 'shows the apps navigation only after completed sign-in and removes it on disconnect'() {
       await mountPreview(true);
       const saved = status.snapshot;
-      status = { installed: false, snapshot: null, operation: '', error: null };
+      status = { profile: '', accounts: [], installed: false, snapshot: null, operation: '', error: null };
       root?.render(<ConnectionNavigation />); await settle(); await settle();
       const googleTab = () => document.querySelector('[aria-label="Application navigation"] [aria-label="Google Apps"]');
       assert(googleTab() === null, 'Unconfigured integration stays out of navigation');
@@ -133,7 +140,7 @@ export async function run() {
       button('Disconnect and clear').click(); await settle(); await settle();
       assert(googleTab() === null, 'Disconnect removes Google Apps without a reload');
     },
-    async 'shows saved mail, escapes email markup, and retains data when refresh fails'() {
+    async 'shows cached mail, escapes email markup, and retains data when refresh fails'() {
       await mountPreview();
       assert(document.querySelector('h2')?.textContent === 'Design review for next week', 'First message opens');
       const messages = document.querySelectorAll<HTMLButtonElement>('.google-screen__list > button');
@@ -152,14 +159,50 @@ export async function run() {
     async 'shows calendar coverage and rejects non-Google event links'() {
       await mountPreview(); button('Calendar').click(); await settle();
       assert(document.body.textContent?.includes('2026-10-13 · All day'), 'All-day dates stay date-only');
-      assert(document.body.textContent?.includes('may omit events'), 'Agenda does not promise complete sync');
-      assert(document.querySelectorAll('.google-screen__agenda article button').length === 1, 'Unsafe event URL has no action');
-      button('Open Calendar').click(); await settle();
+      assert(document.body.textContent?.includes('Cached range:'), 'Calendar shows the fetched range');
+      assert(document.querySelectorAll('.google-calendar article button').length === 1, 'Unsafe event URL has no action');
+      button('Open event').click(); await settle();
       assert(opened[0]?.startsWith('https://calendar.google.com/'), 'Opens the expected Google destination');
+    },
+    async 'supports manual day and week views without fetching on view changes'() {
+      await mountPreview(); button('Calendar').click(); await settle();
+      let refreshed = 0;
+      window.bridge.refreshGoogleCalendar = async (_calendar, start, end) => {
+        refreshed++; assert(new Date(end).getTime() - new Date(start).getTime() === 86400000, 'Day refresh requests one day');
+        return structuredClone(status);
+      };
+      const view = document.querySelector<HTMLSelectElement>('[aria-label="Calendar view"]');
+      assert(view !== null, 'Calendar view exists'); view.value = '1'; view.dispatchEvent(new Event('change', { bubbles: true })); await settle();
+      assert(document.querySelectorAll('.google-calendar > section').length === 1 && refreshed === 0, 'View change uses memory only');
+      button('Refresh agenda').click(); await settle(); await settle();
+      assert(Number(refreshed) === 1, 'Manual refresh fetches the selected range');
+    },
+    async 'archives selected mail and keeps explicit send confirmation'() {
+      await mountPreview();
+      let sent = 0;
+      window.bridge.sendGoogleMail = async request => { sent++; assert(request.profile === profile && request.replyId === 'mail-one' && request.to === 'maya@example.com', 'Reply binds account and original message'); return structuredClone(status); };
+      button('Reply').click(); await settle();
+      const body = document.querySelector<HTMLTextAreaElement>('[aria-label="Email body"]');
+      assert(body !== null, 'Reply body exists'); changeInput(body, 'Thanks, see you then.'); await settle();
+      button('Review email').click(); await settle();
+      assert(sent === 0 && document.querySelector('[aria-label="Confirm send"]') !== null, 'Review never sends');
+      button('Send email').click(); await settle(); await settle();
+      assert(Number(sent) === 1, 'Explicit send sends once');
+      button('Archive').click(); await settle(); await settle();
+      assert(status.snapshot?.mail.length === 1, 'Archived mail leaves memory view');
+    },
+    async 'sends prompts and displays Gemini responses in the page'() {
+      await mountPreview();
+      const input = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Gemini"]');
+      assert(input !== null, 'Gemini composer exists'); changeInput(input, 'Has my booking been confirmed?'); await settle();
+      button('Send to Gemini').click(); await settle(); await settle();
+      assert(document.querySelector('[aria-label="Conversation messages"]')?.textContent?.includes('Your booking has been confirmed.'), 'Response appears inside Google Apps');
+      button('Clear conversation').click(); await settle(); await settle();
+      assert(chat.messages.length === 0, 'Clear removes conversation');
     },
     async 'requires explicit agent access and confirms local data removal'() {
       await mountPreview(true);
-      const toggle = button('Let task agents read saved Google data');
+      const toggle = button('Let task agents read cached Google data');
       assert(toggle.getAttribute('aria-checked') === 'false', 'Agent access starts off');
       toggle.click(); await settle(); await settle();
       assert(status.snapshot?.agentAccess, 'Explicit toggle enables saved context');

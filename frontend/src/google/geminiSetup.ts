@@ -13,9 +13,9 @@
  */
 import { execFile } from 'node:child_process';
 import { constants } from 'node:fs';
-import { access, mkdir, writeFile, chmod } from 'node:fs/promises';
+import { access } from 'node:fs/promises';
 import path from 'node:path';
-import type { GeminiTerminalStatus } from './contracts';
+import type { GeminiSetupStatus } from './contracts';
 
 const SERVICE = 'com.bytequay.gemini';
 const ACCOUNT = 'gemini-api-key';
@@ -25,7 +25,7 @@ function run(file: string, args: string[], input?: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const child = execFile(file, args, { timeout: 30_000, maxBuffer: 16_384 }, (error, stdout) => {
       // Never forward subprocess errors: they can contain credentials or command input.
-      if (error) reject(new Error('Gemini setup could not access macOS Keychain or Terminal. Try again and allow access if macOS asks.'));
+      if (error) reject(new Error('Gemini setup could not access macOS Keychain. Try again and allow access if macOS asks.'));
       else resolve(stdout.trim());
     });
     child.stdin?.on('error', () => { /* Completion is reported by execFile. */ });
@@ -33,14 +33,10 @@ function run(file: string, args: string[], input?: string): Promise<string> {
   });
 }
 
-function shellQuote(value: string): string { return `'${value.replaceAll("'", "'\\''")}'`; }
-
-export class GeminiTerminal {
-  private readonly directory: string;
+export class GeminiSetup {
   private readonly searchPath: string;
 
-  constructor(userData: string, home: string, environmentPath = process.env.PATH ?? '') {
-    this.directory = path.join(userData, 'gemini-terminal');
+  constructor(home: string, environmentPath = process.env.PATH ?? '') {
     this.searchPath = [environmentPath, '/opt/homebrew/bin', '/usr/local/bin', '/usr/bin', '/bin', path.join(home, '.local/bin')].filter(Boolean).join(':');
   }
 
@@ -52,7 +48,7 @@ export class GeminiTerminal {
     return null;
   }
 
-  async status(): Promise<GeminiTerminalStatus> {
+  async status(): Promise<GeminiSetupStatus> {
     // security exits 44 for a missing item. Other failures must not look like an unsaved key.
     const configured = await new Promise<boolean>((resolve, reject) => {
       execFile('/usr/bin/security', ['find-generic-password', ...KEY_ARGS], { timeout: 10_000 }, error => {
@@ -64,7 +60,7 @@ export class GeminiTerminal {
     return { configured, installed: await this.executable() !== null };
   }
 
-  async save(value: unknown): Promise<GeminiTerminalStatus> {
+  async save(value: unknown): Promise<GeminiSetupStatus> {
     if (typeof value !== 'string' || !/^[\x21-\x7e]{10,4096}$/.test(value.trim())) throw new Error('Paste a valid Gemini API key.');
     const key = value.trim();
     let response: Response;
@@ -87,29 +83,15 @@ export class GeminiTerminal {
     return this.status();
   }
 
-  async remove(): Promise<GeminiTerminalStatus> {
+  async remove(): Promise<GeminiSetupStatus> {
     if ((await this.status()).configured) await run('/usr/bin/security', ['delete-generic-password', ...KEY_ARGS]);
     return this.status();
   }
 
-  async open(): Promise<void> {
+  async credentials(): Promise<{ executable: string; key: string; searchPath: string }> {
     const executable = await this.executable();
-    if (!executable) throw new Error('Install Gemini CLI before opening a terminal.');
-    if (!(await this.status()).configured) throw new Error('Save a Gemini API key first.');
-    const settingsDirectory = path.join(this.directory, '.gemini');
-    await mkdir(settingsDirectory, { recursive: true, mode: 0o700 });
-    await writeFile(path.join(settingsDirectory, 'settings.json'), JSON.stringify({ security: { auth: { selectedType: 'gemini-api-key' } } }), { mode: 0o600 });
-    const launcher = path.join(this.directory, 'Open Gemini.command');
-    await writeFile(launcher, `#!/bin/sh
-set -eu
-cd ${shellQuote(this.directory)}
-export PATH=${shellQuote(this.searchPath)}
-unset GOOGLE_API_KEY GOOGLE_GENAI_USE_VERTEXAI
-GEMINI_API_KEY=$(/usr/bin/security find-generic-password -s ${SERVICE} -a ${ACCOUNT} -w) || { echo 'Unable to read Gemini key. Open ByteQuay Settings to save it again.'; exit 1; }
-export GEMINI_API_KEY
-exec ${shellQuote(executable)}
-`, { mode: 0o700 });
-    await chmod(launcher, 0o700);
-    await run('/usr/bin/open', ['-a', 'Terminal', launcher]);
+    if (!executable) throw new Error('Install Gemini CLI first.');
+    if (!(await this.status()).configured) throw new Error('Save a Gemini API key in Google Apps settings first.');
+    return { executable, key: await run('/usr/bin/security', ['find-generic-password', ...KEY_ARGS, '-w']), searchPath: this.searchPath };
   }
 }

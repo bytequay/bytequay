@@ -46,10 +46,18 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
-  getGeminiTerminalStatus: () => ipcRenderer.invoke('gemini-terminal:status'),
-  saveGeminiTerminalKey: key => ipcRenderer.invoke('gemini-terminal:save', key),
-  removeGeminiTerminalKey: () => ipcRenderer.invoke('gemini-terminal:remove'),
-  openGeminiTerminal: () => ipcRenderer.invoke('gemini-terminal:open'),
+  getGeminiSetupStatus: () => ipcRenderer.invoke('gemini:status'),
+  saveGeminiSetupKey: key => ipcRenderer.invoke('gemini:save', key),
+  removeGeminiSetupKey: () => ipcRenderer.invoke('gemini:remove'),
+  getGoogleChat: profile => ipcRenderer.invoke('google-chat:status', profile),
+  promptGoogleChat: (profile, text) => ipcRenderer.invoke('google-chat:prompt', profile, text),
+  approveGoogleChat: (profile, id, option) => ipcRenderer.invoke('google-chat:approve', profile, id, option),
+  stopGoogleChat: profile => ipcRenderer.invoke('google-chat:stop', profile),
+  clearGoogleChat: profile => ipcRenderer.invoke('google-chat:clear', profile),
+  addGoogleAccount: () => ipcRenderer.invoke('google:accounts:add'),
+  selectGoogleAccount: profile => ipcRenderer.invoke('google:account:select', profile),
+  archiveGoogleMail: (profile, messageId) => ipcRenderer.invoke('google:archive', profile, messageId),
+  sendGoogleMail: request => ipcRenderer.invoke('google:send', request),
   getGoogleStatus: () => ipcRenderer.invoke('google:status'),
   installGoogleConnector: () => ipcRenderer.invoke('google:install'),
   connectGoogle: () => ipcRenderer.invoke('google:connect'),

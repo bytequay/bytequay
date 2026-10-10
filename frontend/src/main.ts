@@ -20,7 +20,9 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
-import { GeminiTerminal } from './google/geminiTerminal';
+import { GeminiSetup } from './google/geminiSetup';
+import { GeminiChat } from './google/geminiChat';
+import type { GoogleStatus } from './google/contracts';
 import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -551,6 +553,8 @@ function prUrl(pathname: string, repo: string, number: number): URL {
   url.searchParams.set('number', String(number));
   return url;
 }
+
+let googleChat: GeminiChat | undefined;
 
 function registerIpc(): void {
   ipcMain.handle('window:fullscreen', () => mainWindow?.isFullScreen() ?? false);
@@ -1808,15 +1812,29 @@ function registerIpc(): void {
     backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
     backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
-  const geminiTerminal = new GeminiTerminal(app.getPath('userData'), os.homedir());
-  ipcMain.handle('gemini-terminal:status', () => geminiTerminal.status());
-  ipcMain.handle('gemini-terminal:save', (_event, key: unknown) => geminiTerminal.save(key));
-  ipcMain.handle('gemini-terminal:remove', () => geminiTerminal.remove());
-  ipcMain.handle('gemini-terminal:open', () => geminiTerminal.open());
+  const geminiSetup = new GeminiSetup(os.homedir());
+  ipcMain.handle('gemini:status', () => geminiSetup.status());
+  ipcMain.handle('gemini:save', async (_event, key: unknown) => { const status = await geminiSetup.save(key); googleChat?.dispose(); return status; });
+  ipcMain.handle('gemini:remove', () => { googleChat?.dispose(); return geminiSetup.remove(); });
+  googleChat = new GeminiChat(app.getPath('userData'), geminiSetup, profile =>
+    backendJson<string[]>(`${backendBase()}/api/google/chat-command`, jsonInit('POST', { profile }, agentHeaders())));
+  ipcMain.handle('google-chat:status', (_event, profile: string) => googleChat?.status(profile));
+  ipcMain.handle('google-chat:prompt', (_event, profile: string, input: unknown) => googleChat?.prompt(profile, input));
+  ipcMain.handle('google-chat:approve', (_event, profile: string, id: string, option: string) => googleChat?.approve(profile, id, option));
+  ipcMain.handle('google-chat:stop', (_event, profile: string) => googleChat?.stop(profile));
+  ipcMain.handle('google-chat:clear', (_event, profile: string) => googleChat?.clear(profile));
+  ipcMain.handle('google:accounts:add', () => backendJson(`${backendBase()}/api/google/accounts`, jsonInit('POST', {}, agentHeaders())));
+  ipcMain.handle('google:account:select', (_event, profile: string) => backendJson(`${backendBase()}/api/google/account`, jsonInit('PUT', { profile }, agentHeaders())));
+  ipcMain.handle('google:archive', (_event, profile: string, messageId: string) => backendJson(`${backendBase()}/api/google/archive`, jsonInit('POST', { profile, messageId }, agentHeaders())));
+  ipcMain.handle('google:send', (_event, request: unknown) => backendJson(`${backendBase()}/api/google/send`, jsonInit('POST', request, agentHeaders())));
   ipcMain.handle('google:status', () => backendJson(`${backendBase()}/api/google`, { headers: agentHeaders() }));
   ipcMain.handle('google:install', () => backendJson(`${backendBase()}/api/google/install`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('google:connect', () => backendJson(`${backendBase()}/api/google/connect`, { method: 'POST', headers: agentHeaders() }));
-  ipcMain.handle('google:disconnect', () => backendJson(`${backendBase()}/api/google`, { method: 'DELETE', headers: agentHeaders() }));
+  ipcMain.handle('google:disconnect', async () => {
+    const status = await backendJson<GoogleStatus>(`${backendBase()}/api/google`, { headers: agentHeaders() });
+    googleChat?.clear(status.profile);
+    return backendJson(`${backendBase()}/api/google`, { method: 'DELETE', headers: agentHeaders() });
+  });
   ipcMain.handle('google:cancel', () => backendJson(`${backendBase()}/api/google/cancel`, { method: 'POST', headers: agentHeaders() }));
   ipcMain.handle('google:agent-access', (_event, enabled: boolean) => backendJson(`${backendBase()}/api/google/agent-access`, jsonInit('PUT', { enabled }, agentHeaders())));
   ipcMain.handle('google:mail', (_event, query: string, pageToken: string) => backendJson(`${backendBase()}/api/google/mail`, jsonInit('POST', { query, pageToken }, agentHeaders())));
@@ -2162,6 +2180,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 app.on('before-quit', () => {
+  googleChat?.dispose();
   clearInterval(prNotificationTimer);
   // Streams read from the backend, so they stop before it does.
   agentSubscriptions.stopAll();

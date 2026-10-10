@@ -21,6 +21,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -81,6 +83,42 @@ public class GoogleWorkspaceController
     {
         return google.agentAccess(request.enabled());
     }
+
+    @PostMapping("/accounts")
+    public GoogleSnapshot.Status addAccount()
+    {
+        return google.connect(true);
+    }
+
+    @PutMapping("/account")
+    public GoogleSnapshot.Status selectAccount(@RequestBody AccountRequest request)
+    {
+        return google.select(request.profile());
+    }
+
+    @PostMapping("/chat-command")
+    public List<String> chatCommand(@RequestBody AccountRequest request)
+    {
+        return google.chatCommand(request.profile());
+    }
+
+    @PostMapping("/archive")
+    public GoogleSnapshot.Status archive(@RequestBody ArchiveRequest request)
+    {
+        return google.archive(request.profile(), request.messageId());
+    }
+
+    @PostMapping("/send")
+    public GoogleSnapshot.Status send(@RequestBody SendRequest request)
+    {
+        return google.send(request.profile(), request.to(), request.subject(), request.body(), request.replyId());
+    }
+
+    public record AccountRequest(String profile) {}
+
+    public record ArchiveRequest(String profile, String messageId) {}
+
+    public record SendRequest(String profile, String to, String subject, String body, String replyId) {}
 
     public record MailRequest(String query, String pageToken) {}
 

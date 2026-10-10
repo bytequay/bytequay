@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { GeminiTerminal } from './geminiTerminal';
+import { GeminiSetup } from './geminiSetup';
 
 const mocks = vi.hoisted(() => ({ execFile: vi.fn(), access: vi.fn(), mkdir: vi.fn(), writeFile: vi.fn(), chmod: vi.fn(), fetch: vi.fn(), end: vi.fn() }));
 vi.mock('node:child_process', () => ({ execFile: mocks.execFile }));
@@ -42,7 +42,7 @@ beforeEach(() => {
   });
 });
 afterEach(() => { vi.unstubAllGlobals(); });
-const terminal = () => new GeminiTerminal("/test/ByteQuay's data", '/test/home', '/test/bin');
+const terminal = () => new GeminiSetup('/test/home', '/test/bin');
 
 it('validates before replacing a key and never sends secrets through process arguments or status', async () => {
   expect(await terminal().save(` ${secret} `)).toEqual({ installed: true, configured: true });
@@ -77,26 +77,17 @@ it('distinguishes missing credentials from Keychain access failures', async () =
   await expect(terminal().status()).rejects.toThrow('Cannot read Gemini key status');
 });
 
-it('opens a private launcher that retrieves the key at runtime without embedding it or changing global settings', async () => {
+it('provides credentials only to the native chat process without writing a launcher', async () => {
   stored = secret;
-  await terminal().open();
-  const writes = mocks.writeFile.mock.calls;
-  expect(writes).toHaveLength(2);
-  expect(writes[0][0]).toBe("/test/ByteQuay's data/gemini-terminal/.gemini/settings.json");
-  expect(JSON.parse(writes[0][1])).toEqual({ security: { auth: { selectedType: 'gemini-api-key' } } });
-  expect(writes[1][1]).toContain("cd '/test/ByteQuay'\\''s data/gemini-terminal'");
-  expect(writes[1][1]).toContain('security find-generic-password');
-  expect(writes[1][1]).toContain('unset GOOGLE_API_KEY GOOGLE_GENAI_USE_VERTEXAI');
-  expect(writes[1][1]).toContain("exec '/test/bin/gemini'");
-  expect(JSON.stringify(writes)).not.toContain(secret);
-  expect(writes[1][2]).toEqual({ mode: 0o700 });
-  expect(mocks.execFile).toHaveBeenLastCalledWith('/usr/bin/open', ['-a', 'Terminal', writes[1][0]], expect.anything(), expect.any(Function));
+  expect(await terminal().credentials()).toEqual({ key: secret, executable: '/test/bin/gemini', searchPath: expect.any(String) });
+  expect(mocks.writeFile).not.toHaveBeenCalled();
+  expect(JSON.stringify(mocks.execFile.mock.calls.map(call => call.slice(0, 3)))).not.toContain(secret);
 });
 
 it('refuses to launch without a key or CLI and removes only the ByteQuay key', async () => {
-  await expect(terminal().open()).rejects.toThrow('Save a Gemini API key first');
+  await expect(terminal().credentials()).rejects.toThrow('Save a Gemini API key');
   stored = secret; mocks.access.mockRejectedValue(new Error('missing'));
-  await expect(terminal().open()).rejects.toThrow('Install Gemini CLI');
+  await expect(terminal().credentials()).rejects.toThrow('Install Gemini CLI');
   expect(mocks.writeFile).not.toHaveBeenCalled();
   expect(await terminal().remove()).toEqual({ configured: false, installed: false });
   expect(mocks.execFile.mock.calls.find(call => call[1][0] === 'delete-generic-password')?.[1])
@@ -109,5 +100,5 @@ it('does not expose subprocess output when launching fails', async () => {
     callback(null, ''); return { stdin: { on: vi.fn(), end: vi.fn() } };
   });
   processFailure = true;
-  await expect(terminal().open()).rejects.toThrow('Gemini setup could not access');
+  await expect(terminal().credentials()).rejects.toThrow('Gemini setup could not access');
 });

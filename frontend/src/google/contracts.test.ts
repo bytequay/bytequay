@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { agendaRange, eventTime, googleLink } from './contracts';
+import { agendaRange, dayLayout, eventTime, githubLink, googleLink } from './contracts';
 
 describe('Google display boundaries', () => {
   it('keeps all-day dates in their original calendar day', () => {
-    expect(eventTime({ id: 'day', summary: '', description: '', start: '2026-10-09', end: '2026-10-10', allDay: true, url: '' })).toBe('2026-10-09 · All day');
+    expect(eventTime({ id: 'day', summary: '', description: '', start: '2026-10-09', end: '2026-10-10', allDay: true, url: '' })).toMatch(/\b9\b.* · All day$/);
     const range = agendaRange('2026-10-09');
     expect(new Date(range.timeMin).getDate()).toBe(9);
     expect(new Date(range.timeMax).getDate()).toBe(16);
@@ -26,5 +26,11 @@ describe('Google display boundaries', () => {
       expect(googleLink(link)).toBeNull();
     }
     expect(googleLink('https://calendar.google.com/calendar/event?eid=abc')).toBe('https://calendar.google.com/calendar/event?eid=abc');
+    expect(githubLink('https://github.com.evil.test/a/b/pull/1')).toBeNull();
+    expect(githubLink('https://github.com/a/b/pull/1')).toBe('https://github.com/a/b/pull/1');
+  });
+  it('puts overlapping events side by side and gives the next free slot back', () => {
+    expect(dayLayout([{ start: 9, end: 10 }, { start: 9.5, end: 11 }, { start: 10, end: 10.5 }, { start: 13, end: 14 }])).toEqual([
+      { column: 0, columns: 2 }, { column: 1, columns: 2 }, { column: 0, columns: 2 }, { column: 0, columns: 1 }]);
   });
 });

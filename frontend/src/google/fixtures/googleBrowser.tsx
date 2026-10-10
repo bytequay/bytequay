@@ -28,6 +28,9 @@ let searches: string[];
 let opened: string[];
 let chat: GoogleChatState;
 const profile = '00000000-0000-0000-0000-000000000001';
+// The calendar opens on today, so its fixture events are dated from today.
+const day = (offset: number) => { const value = new Date(); value.setDate(value.getDate() + offset); return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`; };
+const at = (offset: number, hour: number) => new Date(`${day(offset)}T${String(hour).padStart(2, '0')}:00:00`).toISOString();
 
 export async function mountPreview(settings = false) {
   root?.unmount();
@@ -40,11 +43,13 @@ export async function mountPreview(settings = false) {
     mail: [
       { id: 'mail-one', threadId: 'thread-one', subject: 'Design review for next week', from: 'Maya <maya@example.com>', to: 'alex@example.com', date: 'Fri, 9 Oct 2026 09:15:00 +0800', snippet: 'Could we review the calendar integration on Monday?', body: 'Hi Alex,\n\nCould we review the calendar integration on Monday?\n\nThe agenda should show our saved events even when we’re offline. Please bring your notes on sign-in and permissions.\n\nThanks,\nMaya', unread: true },
       { id: 'mail-two', threadId: 'thread-two', subject: 'Release checklist', from: 'Sam <sam@example.com>', to: 'alex@example.com', date: 'Thu, 8 Oct 2026 16:20:00 +0800', snippet: 'The latest build is ready for review.', body: '<script>window.googleInjected = true</script><img src="https://example.test/tracker.png">Review notes', unread: false },
+      { id: 'mail-three', threadId: 'thread-three', subject: 'Re: [bytequay/bytequay] Fix flaky sign-in test (PR #42)', from: 'Maya <notifications@github.com>', to: '"bytequay/bytequay" <bytequay@noreply.github.com>', date: 'Thu, 8 Oct 2026 11:05:00 +0800', snippet: '@maya commented on this pull request.',
+        body: '@maya commented on this pull request.\n\n\n\nIn src/signIn.ts:\n\n> +  await settle();\n-  await sleep(500);\n\nSame cause as #40.\n\n-- \nReply to this email directly or view it on GitHub:\nhttps://github.com/bytequay/bytequay/pull/42#discussion_r1\nYou are receiving this because you are subscribed to this thread.\n\nMessage ID: <bytequay/bytequay/pull/42/review/1@github.com>', unread: false },
     ],
-    calendars: [{ id: 'primary', summary: 'Personal' }], calendarId: 'primary', timeMin: '2026-10-09T00:00:00+08:00', timeMax: '2026-10-16T00:00:00+08:00', calendarSavedAt: '2026-10-09T02:00:00Z',
+    calendars: [{ id: 'primary', summary: 'Personal' }], calendarId: 'primary', timeMin: at(0, 0), timeMax: at(7, 0), calendarSavedAt: '2026-10-09T02:00:00Z',
     events: [
-      { id: 'event-one', summary: 'Design review', description: 'Review the Google integration and browser sign-in flow.', start: '2026-10-12T10:00:00+08:00', end: '2026-10-12T11:00:00+08:00', allDay: false, url: 'https://calendar.google.com/calendar/event?eid=one' },
-      { id: 'event-two', summary: 'Focus day', description: '', start: '2026-10-13', end: '2026-10-14', allDay: true, url: 'javascript:alert(1)' },
+      { id: 'event-one', summary: 'Design review', description: 'Review the Google integration and browser sign-in flow.', start: at(1, 10), end: at(1, 11), allDay: false, url: 'https://calendar.google.com/calendar/event?eid=one' },
+      { id: 'event-two', summary: 'Focus day', description: '', start: day(2), end: day(3), allDay: true, url: 'javascript:alert(1)' },
     ],
   } };
   const bridge: Partial<Bridge> = {
@@ -142,19 +147,41 @@ export async function run() {
     },
     async 'shows cached mail, escapes email markup, and retains data when refresh fails'() {
       await mountPreview();
-      assert(document.querySelector('h2')?.textContent === 'Design review for next week', 'First message opens');
-      const messages = document.querySelectorAll<HTMLButtonElement>('.google-screen__list > button');
+      assert(document.querySelector('.google-reader h2')?.textContent === 'Design review for next week', 'First message opens');
+      assert(document.querySelector('.google-screen__tabs [aria-label="1 unread"]') !== null, 'The tab counts unread mail');
+      const messages = document.querySelectorAll<HTMLButtonElement>('.google-mail__item');
       messages[1].click(); await settle();
-      assert(document.querySelector('article pre')?.textContent?.includes('<script>'), 'HTML is rendered as text');
-      assert(!document.querySelector('article script, article img'), 'Email cannot create executable or remote elements');
+      assert(document.querySelector('.google-mail-text')?.textContent?.includes('<script>'), 'HTML is rendered as text');
+      assert(!document.querySelector('.google-reader script, .google-reader img'), 'Email cannot create executable or remote elements');
       button('Search / refresh').click(); await settle(); await settle();
       assert(searches[0] === 'in:inbox:', 'Search uses current query');
       assert(document.querySelector('[role="alert"]')?.textContent?.includes('offline'), 'Refresh failure is visible');
-      assert(document.querySelectorAll('.google-screen__list > button').length === 2, 'Saved mail remains readable');
+      assert(document.querySelectorAll('.google-mail__item').length === 3, 'Saved mail remains readable');
       button('Next page').click(); await settle(); await settle();
       assert(searches[1] === 'in:inbox:next', 'Pagination uses saved search token');
+      button('Unread').click(); await settle(); await settle();
+      assert(searches[2] === 'in:inbox is:unread:', 'A filter searches with its query');
       const screen = document.querySelector('.google-screen');
       assert(screen !== null && screen.scrollWidth <= screen.clientWidth, 'Page fits the viewport');
+    },
+    async 'reads a GitHub notification as a comment card with GitHub-only links'() {
+      await mountPreview();
+      const item = document.querySelectorAll<HTMLButtonElement>('.google-mail__item')[2];
+      assert(item.querySelector('.google-mail__subject')?.textContent === 'Fix flaky sign-in test', 'The list drops the repository and PR from the subject');
+      assert(item.querySelector('.google-labels')?.textContent === 'bytequay/bytequay#42', 'They become labels');
+      item.click(); await settle();
+      assert(document.querySelector('.google-notice__head')?.textContent?.includes('@maya') === true, 'The card names who acted');
+      assert(document.querySelector('.google-quote__file')?.textContent === 'src/signIn.ts', 'The quoted diff names its file');
+      assert(document.querySelectorAll('.google-quote__lines .is-add').length === 1 && document.querySelectorAll('.google-quote__lines .is-del').length === 1, 'Added and removed lines are told apart');
+      button('#40').click(); button('View on GitHub').click(); await settle();
+      assert(opened[0] === 'https://github.com/bytequay/bytequay/issues/40' && opened[1] === 'https://github.com/bytequay/bytequay/pull/42#discussion_r1', 'Links open on GitHub');
+      button('to bytequay/bytequay').click(); await settle();
+      assert(document.querySelector('.google-reader__details')?.textContent?.includes('<bytequay/bytequay/pull/42/review/1@github.com>') === true, 'Details show the message ID');
+      const press = (target: Element) => target.dispatchEvent(new KeyboardEvent('keydown', { key: 'r', bubbles: true, cancelable: true }));
+      press(document.querySelector('[aria-label="Search Gmail"]') ?? document.body); await settle();
+      assert(document.querySelector('[aria-label="Reply to email"]') === null, 'Typing r in a field is only typing');
+      press(document.body); await settle();
+      assert(document.querySelector('[aria-label="Reply to email"]') !== null, 'R replies to the open message');
     },
     async 'recovers sign-in polling after a transient status failure'() {
       await mountPreview(true);
@@ -177,9 +204,14 @@ export async function run() {
     },
     async 'shows calendar coverage and rejects non-Google event links'() {
       await mountPreview(); button('Calendar').click(); await settle();
-      assert(document.body.textContent?.includes('2026-10-13 · All day'), 'All-day dates stay date-only');
-      assert(document.body.textContent?.includes('Cached range:'), 'Calendar shows the fetched range');
-      assert(document.querySelectorAll('.google-calendar article button').length === 1, 'Unsafe event URL has no action');
+      assert(document.querySelector('.google-cal')?.getAttribute('aria-label') === 'Week calendar' && document.querySelectorAll('.google-cal__day').length === 7, 'The week opens on today');
+      assert(document.querySelector('.google-status.is-bar')?.textContent?.startsWith('Cached ') === true, 'Calendar shows the fetched range');
+      document.querySelector<HTMLButtonElement>('.google-cal__chip')?.click(); await settle();
+      const detail = () => document.querySelector('.google-cal__detail');
+      assert(detail()?.textContent?.includes('All day') === true, 'All-day events have no times');
+      assert(![...detail()?.querySelectorAll('button') ?? []].some(item => item.textContent === 'Open event'), 'Unsafe event URL has no action');
+      document.querySelector<HTMLButtonElement>('.google-cal__event')?.click(); await settle();
+      assert(detail()?.textContent?.includes('Design review') === true, 'A timed event opens its details');
       button('Open event').click(); await settle();
       assert(opened[0]?.startsWith('https://calendar.google.com/'), 'Opens the expected Google destination');
     },
@@ -190,11 +222,15 @@ export async function run() {
         refreshed++; assert(new Date(end).getTime() - new Date(start).getTime() === 86400000, 'Day refresh requests one day');
         return structuredClone(status);
       };
-      const view = document.querySelector<HTMLSelectElement>('[aria-label="Calendar view"]');
-      assert(view !== null, 'Calendar view exists'); view.value = '1'; view.dispatchEvent(new Event('change', { bubbles: true })); await settle();
-      assert(document.querySelectorAll('.google-calendar > section').length === 1 && refreshed === 0, 'View change uses memory only');
+      button('Day').click(); await settle();
+      assert(document.querySelectorAll('.google-cal__day').length === 1 && refreshed === 0, 'View change uses memory only');
+      for (let step = 0; step < 8; step++) button('Next').click();
+      await settle();
+      assert(document.querySelector('.google-status.is-bar')?.textContent?.startsWith('Not cached') === true && refreshed === 0, 'Leaving the cached range says so without fetching');
       button('Refresh agenda').click(); await settle(); await settle();
       assert(Number(refreshed) === 1, 'Manual refresh fetches the selected range');
+      button('Today').click(); await settle();
+      assert(document.querySelector('.google-cal__head .is-today') !== null, 'Today returns to the current day');
     },
     async 'archives selected mail and keeps explicit send confirmation'() {
       await mountPreview();
@@ -207,14 +243,22 @@ export async function run() {
       assert(sent === 0 && document.querySelector('[aria-label="Confirm send"]') !== null, 'Review never sends');
       button('Send email').click(); await settle(); await settle();
       assert(Number(sent) === 1, 'Explicit send sends once');
+      assert(document.querySelector('[aria-label="Email body"]') === null && document.querySelector('.google-toast')?.textContent === 'Reply sent', 'A sent reply closes and confirms');
       button('Archive').click(); await settle(); await settle();
-      assert(status.snapshot?.mail.length === 1, 'Archived mail leaves memory view');
+      assert(status.snapshot?.mail.length === 2, 'Archived mail leaves memory view');
+      button('Compose').click(); await settle();
+      assert(document.querySelector('[aria-label="Email recipients"]') !== null && button('Review email').disabled, 'A new email needs a recipient and a body');
     },
     async 'sends prompts and displays Gemini responses in the page'() {
       await mountPreview();
       const input = document.querySelector<HTMLTextAreaElement>('[aria-label="Message Gemini"]');
-      assert(input !== null, 'Gemini composer exists'); changeInput(input, 'Has my booking been confirmed?'); await settle();
+      assert(input !== null, 'Gemini composer exists');
+      button('Ask Gemini').click(); await settle();
+      assert(document.querySelector('.google-chat__context')?.textContent === 'Design review for next week', 'Ask Gemini attaches the open email');
+      changeInput(input, 'Has my booking been confirmed?'); await settle();
       button('Send to Gemini').click(); await settle(); await settle();
+      assert(chat.messages[0].text.includes('Gmail message ID mail-one') && chat.messages[0].text.endsWith('Has my booking been confirmed?'), 'The question names the email it is about');
+      assert(document.querySelector('.google-chat__context') === null, 'The attachment is used once');
       assert(document.querySelector('[aria-label="Conversation messages"]')?.textContent?.includes('Your booking has been confirmed.'), 'Response appears inside Google Apps');
       button('Clear conversation').click(); await settle(); await settle();
       assert(chat.messages.length === 0, 'Clear removes conversation');
@@ -224,7 +268,7 @@ export async function run() {
       window.bridge.getGeminiSetupStatus = async () => ({ configured: false, installed: true });
       window.dispatchEvent(new Event('focus')); await settle(); await settle();
       assert(document.querySelector('[aria-label="Message Gemini"]') === null, 'Cannot submit without a saved key');
-      const link = document.querySelector<HTMLAnchorElement>('.google-chat a.setw-btn-primary');
+      const link = document.querySelector<HTMLAnchorElement>('.google-chat a.google-primary-btn');
       assert(link?.textContent === 'Add API key' && link.getAttribute('href') === '#/settings/integrations/google', 'Setup links to Google Apps settings');
       assert(!button('Search / refresh').disabled, 'Gmail still works without a Gemini key');
       assert(chat.messages.length === 0, 'Setup does not start a failed conversation');

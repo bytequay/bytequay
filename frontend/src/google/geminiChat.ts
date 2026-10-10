@@ -197,7 +197,12 @@ class ChatSession {
       } else if (update.sessionUpdate === 'tool_call' || update.sessionUpdate === 'tool_call_update') {
         const id = text(update.toolCallId);
         if (update.status === 'completed' || update.status === 'failed') this.activeTools.delete(id);
-        else if (id) this.activeTools.set(id, text(update.title).slice(0, 200) || this.activeTools.get(id) || 'Using Google Apps…');
+        else if (id) {
+          const title = text(update.title).slice(0, 200);
+          // The conversation keeps one row per call, so the answer shows what it was based on.
+          if (title && !this.activeTools.has(id)) this.state.messages.push({ role: 'tool', text: title });
+          this.activeTools.set(id, title || this.activeTools.get(id) || 'Using Google Apps…');
+        }
         this.state.activity = [...this.activeTools.values()].at(-1) || 'Gemini is reviewing Google results…';
       }
     } else if (message.method === 'session/request_permission' && (typeof message.id === 'string' || typeof message.id === 'number')) {

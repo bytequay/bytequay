@@ -131,7 +131,8 @@ it('clears completed Gmail activity while retaining other in-progress tools and 
   update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'Here is what I found.' } });
   receive({ id: requests.find(item => item.method === 'session/prompt')?.id, result: { stopReason: 'end_turn' } }); await settle();
   expect(chat.status(profile)).toMatchObject({ busy: false, activity: '', error: null });
-  expect(chat.status(profile).messages.at(-1)?.text).toBe('Here is what I found.');
+  expect(chat.status(profile).messages.slice(1)).toEqual([{ role: 'tool', text: 'Reading first email' }, { role: 'tool', text: 'Reading second email' },
+    { role: 'assistant', text: 'Here is what I found.' }]);
 });
 
 it('times out silence rather than the whole turn, and permits a fresh conversation', async () => {

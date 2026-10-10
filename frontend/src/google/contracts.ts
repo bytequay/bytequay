@@ -52,20 +52,25 @@ export type GoogleBridge = {
 
 export type GoogleSendRequest = { profile: string; to: string; subject: string; body: string; replyId: string };
 export type GoogleChatState = {
-  messages: { role: 'user' | 'assistant'; text: string }[];
+  /** A `tool` entry names one Gmail or Calendar call Gemini made, in the order it happened. */
+  messages: { role: 'user' | 'assistant' | 'tool'; text: string }[];
   busy: boolean; activity: string; error: string | null;
   approval: { id: string; title: string; detail: string; options: { id: string; label: string }[] } | null;
 };
 
 export const GOOGLE_CHANGED = 'bytequay:google-changed';
 
-export function googleLink(raw: string): string | null {
+function trustedLink(raw: string, hosts: string[]): string | null {
   try {
     const url = new URL(raw);
-    return url.protocol === 'https:' && ['calendar.google.com', 'www.google.com'].includes(url.hostname)
+    return url.protocol === 'https:' && hosts.includes(url.hostname)
       && !url.username && !url.password && !url.port ? url.href : null;
   } catch { return null; }
 }
+
+export const googleLink = (raw: string) => trustedLink(raw, ['calendar.google.com', 'www.google.com']);
+/** Mail bodies are untrusted, so a link taken from one opens only when it is GitHub's own. */
+export const githubLink = (raw: string) => trustedLink(raw, ['github.com']);
 
 export function gmailLink(mail: GoogleMail, email: string): string {
   return `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#all/${encodeURIComponent(mail.threadId || mail.id)}`;
@@ -83,9 +88,32 @@ export function localDate(): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
+const clock = (value: Date) => value.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }).replace(':00', '');
+const day = (value: Date) => value.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+
 export function eventTime(event: GoogleEvent): string {
-  if (event.allDay) return `${event.start} · All day`;
+  // An all-day date has no time zone; noon keeps it on its own calendar day everywhere.
+  if (event.allDay) return `${day(new Date(`${event.start}T12:00:00`))} · All day`;
   const start = new Date(event.start);
   const end = new Date(event.end);
-  return `${start.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} – ${end.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}`;
+  return `${day(start)} · ${clock(start)} – ${day(start) === day(end) ? '' : `${day(end)} · `}${clock(end)}`;
+}
+
+/** Side-by-side columns for the events of one day, so overlapping ones stay readable. */
+export function dayLayout(events: { start: number; end: number }[]): { column: number; columns: number }[] {
+  const layout = events.map(() => ({ column: 0, columns: 1 }));
+  const order = events.map((_, index) => index).sort((a, b) => events[a].start - events[b].start || events[b].end - events[a].end);
+  let group: number[] = [];
+  let ends: number[] = [];
+  const close = () => { for (const index of group) layout[index].columns = ends.length; group = []; ends = []; };
+  for (const index of order) {
+    if (group.length && ends.every(end => end <= events[index].start)) close();
+    const free = ends.findIndex(end => end <= events[index].start);
+    const column = free === -1 ? ends.length : free;
+    ends[column] = events[index].end;
+    layout[index].column = column;
+    group.push(index);
+  }
+  close();
+  return layout;
 }

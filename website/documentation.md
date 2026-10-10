@@ -500,15 +500,17 @@ Gemini conversation. Existing shared terminal logins need a separate sign-in
 for this account-isolated setup.
 
 Gmail and Calendar load only when you refresh them. Mail pages contain up to
-25 messages with **Next page** for more. Calendar offers **Day** and **Week**
-views and a start date; choose **Refresh agenda** to fetch that range.
-Changing views does not fetch automatically. Connector result limits can omit
+25 messages with **Next page** for more; **Inbox**, **Unread**, and **GitHub**
+run those searches. GitHub notifications show who acted, the quoted change,
+and **View on GitHub**. Calendar offers **Day** and **Week** grids; **Today**
+and the arrows move the range, and **Refresh agenda** fetches it. Changing
+views or dates does not fetch automatically. Connector result limits can omit
 events in busy calendars. Mail and events stay in memory until ByteQuay quits;
 account sign-ins remain available for the next launch.
 
-Use **Compose** or **Reply** to write email. **Review email** shows the sender
-and recipients before **Send email** sends it. **Archive** removes a selected
-message from the inbox. If sending cannot be confirmed, check Sent mail and
+Use **Compose** or **Reply** to write email; a reply opens under the message
+you are reading. **Review email** names the recipients before **Send email**
+sends it. **Archive** removes a selected message from the inbox. If sending cannot be confirmed, check Sent mail and
 Drafts before trying again. Refresh manually after Gemini changes Google data.
 
 To use the conversation on the Google Apps page, save a Gemini API key in the
@@ -518,10 +520,11 @@ quota; a billing-enabled project can incur charges. ByteQuay does not create
 projects or enable billing.
 
 Ask Gemini, for example, “Search Gmail for replies about booking ABC's refund.”
-It can search live Google data beyond the displayed mail page. Responses appear
-beside your inbox, and actions needing approval appear in the conversation.
-**Stop** ends a running session; use **Clear conversation** to start fresh after
-stopping. Conversations clear when ByteQuay quits. Sign-ins and the saved model
+It can search live Google data beyond the displayed mail page. **Ask Gemini**
+on an email or event attaches it to your next question. Responses appear
+beside your inbox with the searches behind them, and actions needing approval
+appear in the conversation. **Stop** ends a running session; use **Clear** to
+start fresh after stopping. Conversations clear when ByteQuay quits. Sign-ins and the saved model
 key remain. Removing the key ends the app's Gemini sessions but does not revoke
 the key in Google AI Studio.
 

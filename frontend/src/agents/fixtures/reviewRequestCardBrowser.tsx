@@ -12,13 +12,18 @@
  * limitations under the License.
  */
 import { flushSync } from 'react-dom';
+import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ReviewRequestCard } from '../ReviewRequestCard';
+import { ReviewRequestCard, type ReviewCardFocus } from '../ReviewRequestCard';
+import AgentReviewTab from '../../pulls/agent-review/AgentReviewTab';
+import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
+import { findingConversation } from '../../pulls/local-review/conversation';
 import { TurnView } from '../AgentConversation';
 import { parseAgentTurn } from '../contracts';
 import contracts from './agent-contracts-v1.json';
 import '../../css/base.css';
 import '../../css/agents.css';
+import '../../css/agent-review.css';
 import { assert, settle } from '../../fixtures/harness';
 
 const question = "Please provide the Maven command that you used. Why did you compile the tests directly rather than building the Snowflake module first?";
@@ -87,6 +92,50 @@ export async function verify(open: boolean, expectedActions = 0, expectedOpens =
 export function clickToggle() { toggle().click(); }
 export function openReview() { card().querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); }
 export function retry() { card().querySelector<HTMLButtonElement>('.agt-review-request__content button')?.click(); }
+
+export async function fixRequest(delivery = 'TURN') {
+  const turn = parseAgentTurn(contracts.turn);
+  const review = reviewFixture({ sourceTaskId: turn.taskId });
+  const finding = review.findings[0];
+  const instruction = 'Please investigate and address this finding. Keep the existing public API.';
+  const prompt = `${instruction}\n\n${findingConversation(review, finding)}`;
+  function Surface() {
+    const [focus, setFocus] = useState<ReviewCardFocus | null>(null);
+    return <><TurnView
+      turn={{ turnId: turn.id, ordinal: 2, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+        users: [...(delivery === 'STEER' ? [{ id: 'ordinary', text: 'Continue the implementation.', attachments: [], delivery: 'TURN', at: '' }] : []),
+          { id: 'fix', text: prompt, attachments: [], delivery, at: '' }] }}
+      first={false} open={false} now={0} models={[]} durableTurns={{ [turn.id]: turn }} activityChoice={{}} previews={{}} agentLabels={{}}
+      onToggle={() => {}} onToggleActivity={() => {}} onOpenReview={target => setFocus(value => ({ target, token: (value?.token ?? 0) + 1 }))} />
+      {focus !== null && <div data-fix-review><AgentReviewTab review={{ ...review, state: 'CLOSED', findings: [{ ...finding, state: 'RESOLVED' }] }}
+        workspaceId={review.workspaceId} viewer={null} ownStream={false} onReviewChange={() => {}} focusFindingId={null}
+        focusReviewCard={focus} onNavigateToChanges={() => {}} /></div>}</>;
+  }
+  flushSync(() => root.render(<Surface key={`${innerWidth}:${delivery}`} />));
+  await settle();
+  const request = card();
+  assert(request.innerText.includes(`Fix the agent review`) && request.innerText.includes(`#${finding.label}`)
+    && request.innerText.includes(finding.title), 'The fix card must name its finding');
+  assert(request.innerText.includes(instruction) && !request.innerText.includes('Private ByteQuay review context'),
+    'Only the user instruction belongs in the compact preview');
+  assert(request.getBoundingClientRect().height <= 130 && request.scrollWidth <= request.clientWidth + 1,
+    'The long fix prompt must stay compact and fit narrow conversations');
+  const topic = request.querySelector<HTMLElement>('.agt-review-request__topic');
+  assert(topic !== null && topic.clientWidth >= 140, 'The finding number and title need their own readable line at narrow widths');
+  if (delivery === 'STEER') assert(host.querySelector('.agt-user__bubble')?.textContent === 'Continue the implementation.',
+    'A queued fix steered into a turn must preserve the ordinary opening message');
+  toggle().click(); await settle();
+  assert(request.innerText.includes('Private ByteQuay review context') && request.innerText.includes(finding.evidence[0].excerpt),
+    'The complete saved evidence must remain available on explicit expansion');
+  toggle().click(); await settle();
+  openReview(); await settle();
+  const destination = host.querySelector<HTMLElement>(`[data-fix-review] [data-finding-id="${finding.id}"]`);
+  assert(destination !== null && destination.querySelector('details')?.open === true
+    && (document.activeElement === destination || destination.contains(document.activeElement)),
+  'Opening a fix must show, expand and focus its original finding even after resolution');
+  assert(toggle().getAttribute('aria-expanded') === 'false', 'Opening the finding must keep the generated prompt folded');
+  return { width: innerWidth, delivery };
+}
 
 export async function generatedPrompt(markdown = false) {
   const path = 'worktree/'.repeat(60) + 'Implementation.java';

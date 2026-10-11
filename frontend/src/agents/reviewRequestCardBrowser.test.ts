@@ -15,6 +15,23 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
+it('folds saved developer fix prompts and opens their original findings, including queued steering', async () => {
+  const results = await runBrowserFixture<{ width: number; delivery: string }[]>({
+    prefix: 'bytequay-review-fix-', entry: 'src/agents/fixtures/reviewRequestCardBrowser.tsx', global: 'ReviewRequestTests', styles: true,
+    body: `
+      const results = [];
+      for (const width of [760, 320]) {
+        window.setContentSize(width, 900);
+        for (const delivery of ['TURN', 'STEER']) {
+          results.push(await window.webContents.executeJavaScript('ReviewRequestTests.fixRequest(' + JSON.stringify(delivery) + ')'));
+        }
+      }
+    `,
+  });
+  expect(results).toEqual([{ width: 760, delivery: 'TURN' }, { width: 760, delivery: 'STEER' },
+    { width: 320, delivery: 'TURN' }, { width: 320, delivery: 'STEER' }]);
+}, 30_000);
+
 it('discloses complete review requests with keyboard and pointer without overflow or side effects in Chromium', async () => {
   const results = await runBrowserFixture<{ width: number; open: boolean }[]>({
     prefix: 'bytequay-review-requests-',

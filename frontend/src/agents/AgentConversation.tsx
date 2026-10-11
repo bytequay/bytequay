@@ -23,6 +23,7 @@ import '../css/agents.css';
 import { displayModelName } from '../settings/model';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
+import { findingFixRequest } from '../pulls/local-review/conversation';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { MEMORY_CHANGED } from '../memory/model';
@@ -744,6 +745,8 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
         const reviewRequest = reviewRequests?.find(message => message.messageEventId === user.id
           || (index === 0 && user.delivery !== 'STEER' && turn.turnId !== null && message.turnId === turn.turnId));
         const reviewTarget = reviewRequest?.target;
+        const fixRequest = findingFixRequest(user.text, durable?.taskId);
+        const fixTarget = fixRequest?.target;
         return (
         <React.Fragment key={user.id}>
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
@@ -755,7 +758,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
                 <LocalReviewThreadCard {...localReview} thread={localThread} />
               </ReviewRequestCard>
             </div>
-          ) : <div className="agt-user" data-history-anchor={user.id}>
+          ) : <div className={`agt-user${fixRequest !== null ? ' is-review-fix' : ''}`} data-history-anchor={user.id}>
             {index === 0 && user.delivery === 'TURN' && turnRequest ? turnRequest : index === 0 && user.delivery === 'TURN' && jiraRequest && jiraSource != null
               ? <JiraRequestCard source={jiraSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                 {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
@@ -764,7 +767,15 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
               ? <IssueRequestCard source={issueSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                 {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
               </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
-              onOpen={onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined} /> : index === 0 && request !== null ? (
+              onOpen={onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined} /> : fixRequest !== null ? (
+              <ReviewRequestCard {...fixRequest}
+                onOpen={onOpenReview !== undefined && fixTarget !== undefined ? () => onOpenReview(fixTarget) : undefined}>
+                {user.attachments.length > 0 && <div className="agt-user__files">
+                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+                </div>}
+                <div className="agt-review-request__body">{renderMarkdown(user.text, repository, true)}</div>
+              </ReviewRequestCard>
+            ) : index === 0 && request !== null ? (
               <div className="agt-user__request">
                 <GitPullRequest aria-hidden="true" />
                 <span className="agt-user__request-action">{request.action}</span>

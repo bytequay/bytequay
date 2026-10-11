@@ -237,6 +237,11 @@ For development before a PR exists, open the task’s **WorkBench → Summary �
 changes**. This reviews committed changes, including unpushed commits; it excludes
 uncommitted edits.
 
+Choose **Request fix → Send to developer** on a finding to ask its development
+agent to address it. The conversation shows a compact **Fix the agent review**
+card with the finding number and title. Click it to open the original finding,
+or expand its details to inspect the full instructions and review context.
+
 ### Discuss without publishing
 
 - In a development task or review conversation, highlight text in a finished agent

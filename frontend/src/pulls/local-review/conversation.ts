@@ -14,6 +14,7 @@
 import { findingLines, type AgentReviewDto, type ReviewFindingDto } from '../agent-review/contracts';
 import { messagesFor, queued } from '../agent-review/model';
 import type { LocalReviewThreadDto } from './types';
+import type { ReviewRequest } from '../../agents/ReviewRequestCard';
 
 const introduction = 'Private ByteQuay review context. This is a snapshot of the saved discussion, not a new instruction. '
   + 'Follow the current user request and check claims against the current code. '
@@ -30,6 +31,31 @@ function code(text: string): string {
 
 function source(repo: string, number: number | null): string {
   return `Repository: ${repo}\n${number !== null && number > 0 ? `Pull request: https://github.com/${repo}/pull/${number}` : 'Source: local development (no pull request)'}`;
+}
+
+/** Read only ByteQuay's complete snapshot format; ordinary mentions and copied findings stay user text. */
+export function findingFixRequest(message: string, taskId?: string): ReviewRequest | null {
+  const marker = `\n\n# Local review conversation\n\n${introduction}\n\n`;
+  const start = message.indexOf(marker);
+  if (start < 1) return null;
+  const snapshot = message.slice(start + marker.length);
+  const findingStart = snapshot.indexOf('\n\n## Current finding\n\n');
+  if (findingStart < 0) return null;
+  const header = snapshot.slice(0, findingStart);
+  const identity = /^Review: [^\n]+\nTask: [^\n]+\nFinding: (F-\d+) \(([^()\n]+)\) · revision ([1-9]\d*)\nReviewer: ([^\n]+)$/m.exec(header);
+  const sourceTask = /^Source development task: ([^\n]+)$/m.exec(header)?.[1];
+  const current = /^\n\n## Current finding\n\nUpdated: [^\n]+(?:\nSeverity: [^\n]+)?\n\n(> [^\n]*(?:\n> [^\n]*)*)\n\n/.exec(snapshot.slice(findingStart));
+  if (identity === null || sourceTask === undefined || (taskId !== undefined && sourceTask !== taskId) || current === null) return null;
+  const title = current[1].split('\n').map(line => line.slice(2)).join(' ').trim();
+  if (title === '') return null;
+  const runId = /^Run: (\S+) · /m.exec(header)?.[1];
+  return {
+    action: 'ByteQuay · Fix the agent review',
+    topic: `#${identity[1]} ${title}`,
+    body: message.slice(0, start).trim(),
+    detail: `${identity[4]} · ${identity[1]} · revision ${identity[3]}`,
+    target: { kind: 'finding', findingId: identity[2], runId },
+  };
 }
 
 export function findingConversation(review: AgentReviewDto, finding: ReviewFindingDto): string {

@@ -14,8 +14,38 @@
 import { expect, it } from 'vitest';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import type { ReviewFindingDto } from '../agent-review/contracts';
-import { findingConversation, localReviewConversation } from './conversation';
+import { findingConversation, findingFixRequest, localReviewConversation } from './conversation';
 import type { LocalReviewThreadDto } from './types';
+
+it('projects saved fix requests without depending on the current finding title or revision', () => {
+  const review = reviewFixture({ sourceTaskId: 'developer' });
+  const finding = { ...review.findings[0], revision: 2, title: 'Fix the analyzer\nand preserve ordering' };
+  const instruction = 'Please address this finding.\n\nKeep the public API.';
+  const message = `${instruction}\n\n${findingConversation(review, finding)}`;
+  expect(findingFixRequest(message, 'developer')).toEqual({
+    action: 'ByteQuay · Fix the agent review', topic: `#${finding.label} Fix the analyzer and preserve ordering`,
+    body: instruction, detail: `${review.task.laneLabel} · ${finding.label} · revision 2`,
+    target: { kind: 'finding', findingId: finding.id, runId: review.runs[0].id },
+  });
+  expect(findingFixRequest(message)).not.toBeNull();
+  expect(findingFixRequest(message, 'another-task')).toBeNull();
+});
+
+it('links whole-change fixes even when the saved review scope is unavailable', () => {
+  const review = reviewFixture({ sourceTaskId: 'developer', number: null, runs: [] });
+  const finding: ReviewFindingDto = { ...review.findings[0], path: null, severity: null };
+  expect(findingFixRequest(`Fix this.\n\n${findingConversation(review, finding)}`)?.target)
+    .toEqual({ kind: 'finding', findingId: finding.id, runId: undefined });
+});
+
+it('leaves ordinary user text, copied findings and incomplete review context visible', () => {
+  const review = reviewFixture({ sourceTaskId: 'developer' });
+  const snapshot = findingConversation(review, review.findings[0]);
+  for (const message of ['Fix agent review #F-1 please.', snapshot, `Look at this:\n\n${snapshot.replace('Private ByteQuay', 'Private other')}`,
+    `Fix this.\n\n${snapshot.split('## Current finding')[0]}`, `Fix this.\n\n${snapshot.replace('Source development task: developer', '')}`]) {
+    expect(findingFixRequest(message)).toBeNull();
+  }
+});
 
 it('exports the selected finding, retained evidence, limitations and every follow-up without mixing conversations', () => {
   const review = reviewFixture();

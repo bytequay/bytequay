@@ -17,7 +17,7 @@ import { useId, useState, type ReactNode } from 'react';
 
 export type ReviewRequestTarget =
   | { kind: 'card'; runId: string; cardId: string }
-  | { kind: 'finding'; runId: string; findingId: string }
+  | { kind: 'finding'; runId?: string; findingId: string }
   | { kind: 'local'; threadId: string };
 export type ReviewCardFocus = { target: ReviewRequestTarget; token: number };
 

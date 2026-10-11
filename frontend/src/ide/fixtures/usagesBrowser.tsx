@@ -42,7 +42,9 @@ export async function verifyUsages() {
   ];
   const declaration: languages.Location = { uri: source, range: { startLineNumber: 2, endLineNumber: 2, startColumn: 10, endColumn: 17 } };
   const sameFile: languages.Location = { uri: source, range: { startLineNumber: 4, endLineNumber: 4, startColumn: 20, endColumn: 27 } };
-  let mode: 'ready' | 'slow' | 'empty' | 'error' | 'single' | 'self' = 'ready';
+  // A definition away from every usage, so a Command-click that also followed it would be visible.
+  const elsewhere: languages.Location = { uri: uri('src/main/java/Api.java'), range: { startLineNumber: 2, endLineNumber: 2, startColumn: 13, endColumn: 20 } };
+  let mode: 'ready' | 'slow' | 'empty' | 'error' | 'single' | 'self' | 'declared' = 'ready';
   let finish: ((locations: languages.Location[]) => void) | undefined;
   let cancelled = false;
   let searches = 0;
@@ -53,11 +55,13 @@ export async function verifyUsages() {
     if (mode === 'empty') return [];
     if (mode === 'single') return [links[1]];
     if (mode === 'self') return [declaration];
+    // The Java extension applies its own setting and returns the declaration even when asked not to.
+    if (mode === 'declared') return [declaration, links[1]];
     if (mode === 'slow') { token.onCancellationRequested(() => { cancelled = true; }); return new Promise<languages.Location[]>(resolve => { finish = resolve; }); }
     return [links[2], links[0], links[1], links[0]];
   } });
   let references = registerReferences();
-  let definition = links[0];
+  let definition = elsewhere;
   const definitions = languages.registerDefinitionProvider('java', { provideDefinition: () => definition });
   const root = createRoot(shell);
   flushSync(() => root.render(<Usages editors={codeEditors} workspace={workspace} />));
@@ -136,7 +140,10 @@ export async function verifyUsages() {
     const only = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === links[1].uri.toString());
     assert(only?.getSelection()?.startLineNumber === 2 && only.getSelection()?.startColumn === 13, 'The single usage is selected');
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
-    mode = 'self'; click();
+    definition = declaration; mode = 'declared'; click();
+    await until(() => editors.activeEditor?.resource?.toString() === links[1].uri.toString() && !popup(), 'A declaration the language service returns anyway is not counted, so the one real usage opens directly');
+    await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
+    definition = elsewhere; mode = 'self'; click();
     await until(() => rows().length === 1 && popup()?.querySelector('[role="status"]')?.textContent === '1 usage', 'A lone usage under the cursor is listed instead of jumping onto itself');
     key('Escape'); await settle();
     definition = declaration;
@@ -149,7 +156,7 @@ export async function verifyUsages() {
     await until(() => rows().length === 3 && popup()?.querySelector('[role="status"]')?.textContent === '3 usages', 'The project search completes the list');
     assert(rows()[0].title === 'Service.java:4' && rows()[1].title === 'src/main/java/Caller.java:2' && rows()[2].title === 'src/test/java/Caller.java:3', 'Usages in the open file stay first');
     assert(!popup()?.textContent?.includes('Still searching.'), 'A finished search no longer reports waiting');
-    highlights.dispose(); definition = links[0]; mode = 'ready';
+    highlights.dispose(); definition = elsewhere; mode = 'ready';
     code.getModel()?.applyEdits([{ range: { startLineNumber: 3, endLineNumber: 3, startColumn: 1, endColumn: 1 }, text: ' ' }]);
     await settle(); assert(!popup(), 'Editing the queried document dismisses stale locations');
     references.dispose(); click();

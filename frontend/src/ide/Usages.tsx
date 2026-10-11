@@ -21,7 +21,7 @@ import { isMacintosh } from '@codingame/monaco-vscode-api/vscode/vs/base/common/
 import type { URI } from '@codingame/monaco-vscode-api/vscode/vs/base/common/uri';
 import { MouseTargetType, type ICodeEditor } from '@codingame/monaco-vscode-api/vscode/vs/editor/browser/editorBrowser';
 import type { Position } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/core/position';
-import { Range } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/core/range';
+import { Range, type IRange } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/core/range';
 import type { Location, LocationLink } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/languages';
 import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/model';
 import { ReferencesModel, type OneReference } from '@codingame/monaco-vscode-api/vscode/vs/editor/contrib/gotoSymbol/browser/referencesModel';
@@ -30,10 +30,12 @@ import { serviceLanguages } from './languages';
 
 type Request = { id: number; editor: ICodeEditor; model: ITextModel; position: Position; name: string; x: number; y: number };
 type Usage = { reference: OneReference; code?: string; start?: number; end?: number; unavailable?: boolean };
+type Declaration = { uri: string; range: IRange };
 
 // A fast search ends in a jump or a list; drawing the popup sooner would flash it before a jump.
 const REVEAL_DELAY = 400;
 const SLOW_SEARCH = 2000;
+const DECLARATION_WAIT = 1000;
 
 function snippet(model: ITextModel, reference: OneReference): Omit<Usage, 'reference'> {
   const line = model.getLineContent(reference.range.startLineNumber);
@@ -129,27 +131,30 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
         if (source.token.isCancellationRequested) return;
         setWaiting(false);
       }
-      // The open file answers long before the project search does. Its declaration is an occurrence but not a usage,
-      // and the editor's own word-match fallback would list every same-named method.
+      // The declaration is an occurrence but not a usage, and a language service may return it whatever the search asks for.
+      const declarations = Promise.all(features.definitionProvider.ordered(request.model).map(provider => provider.provideDefinition(request.model, request.position, source.token)))
+        .then(found => found.flatMap((links): (Location | LocationLink)[] => Array.isArray(links) ? links : links ? [links] : [])
+          .map(link => ({ uri: link.uri.toString(), range: ('targetSelectionRange' in link ? link.targetSelectionRange : undefined) ?? link.range })))
+        .catch((): Declaration[] => []);
+      const declared = (known: Declaration[], uri: URI, range: IRange) => known.some(item => item.uri === uri.toString() && Range.areIntersectingOrTouching(item.range, range));
+      // The open file answers long before the project search does; the editor's own word-match fallback would list every same-named method.
       const occurrences = features.documentHighlightProvider.ordered(request.model).filter(provider => (provider as { selector?: { language?: string } }).selector?.language !== '*');
-      void Promise.all([
-        Promise.all(occurrences.map(provider => provider.provideDocumentHighlights(request.model, request.position, source.token))),
-        Promise.all(features.definitionProvider.ordered(request.model).map(provider => provider.provideDefinition(request.model, request.position, source.token))),
-      ]).then(([highlights, definitions]) => {
+      void Promise.all([Promise.all(occurrences.map(provider => provider.provideDocumentHighlights(request.model, request.position, source.token))), declarations]).then(([highlights, known]) => {
         if (complete || source.token.isCancellationRequested) return;
-        const declarations = definitions.flatMap((found): (Location | LocationLink)[] => Array.isArray(found) ? found : found ? [found] : [])
-          .filter(link => link.uri.toString() === here).map(link => ('targetSelectionRange' in link ? link.targetSelectionRange : undefined) ?? link.range);
-        const local = (highlights.find(found => found?.length) ?? []).filter(found => !declarations.some(range => Range.areIntersectingOrTouching(range, found.range)));
+        const local = (highlights.find(found => found?.length) ?? []).filter(found => !declared(known, request.model.uri, found.range));
         if (!local.length) return;
         const early = new ReferencesModel(local.map(found => ({ uri: request.model.uri, range: found.range })), request.name);
         results.push(early);
         setRows(early.references.map(reference => ({ reference, ...snippet(request.model, reference) })));
       }).catch(() => { /* The project search below still answers. */ });
       const providers = features.referenceProvider.ordered(request.model);
-      const links = await Promise.all(providers.map(provider => provider.provideReferences(request.model, request.position, { includeDeclaration: false }, source.token)));
+      const links = (await Promise.all(providers.map(provider => provider.provideReferences(request.model, request.position, { includeDeclaration: false }, source.token)))).flatMap(items => items ?? []);
       if (source.token.isCancellationRequested) return;
       complete = true;
-      const references = new ReferencesModel(links.flatMap(items => items ?? []), request.name);
+      // A definition lookup that never answers must not hold back usages that already arrived.
+      const known = await Promise.race([declarations, new Promise<Declaration[]>(resolve => setTimeout(() => resolve([]), DECLARATION_WAIT))]);
+      if (source.token.isCancellationRequested) return;
+      const references = new ReferencesModel(links.filter(link => !declared(known, link.uri, link.range)), request.name);
       results.push(references);
       const all = references.references;
       if (!all.length) {

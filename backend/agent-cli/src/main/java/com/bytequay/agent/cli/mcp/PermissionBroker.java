@@ -38,6 +38,7 @@ import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.PullRequestContextBridge;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
@@ -151,6 +152,7 @@ public final class PermissionBroker
     private final BridgeResolver<LocalReviewBridge> localReviews;
     private final BridgeResolver<PullRequestCiBridge> pullRequestChecks;
     private final BridgeResolver<IssueContextBridge> issueContexts;
+    private final BridgeResolver<PullRequestContextBridge> pullRequestContexts;
     private final BridgeResolver<MemoryBridge> memories;
     private final BridgeResolver<WorkItemBridge> workItems;
     private final BridgeResolver<GoogleWorkspaceBridge> googleWorkspace;
@@ -276,6 +278,18 @@ public final class PermissionBroker
             BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork, BridgeResolver<WorkItemBridge> workItems,
             BridgeResolver<GoogleWorkspaceBridge> googleWorkspace)
     {
+        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts,
+                memories, relatedWork, workItems, googleWorkspace, BridgeResolver.none());
+    }
+
+    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
+            BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
+            DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
+            BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork, BridgeResolver<WorkItemBridge> workItems,
+            BridgeResolver<GoogleWorkspaceBridge> googleWorkspace, BridgeResolver<PullRequestContextBridge> pullRequestContexts)
+    {
+        this.pullRequestContexts = requireNonNull(pullRequestContexts, "pullRequestContexts is null");
         this.googleWorkspace = requireNonNull(googleWorkspace, "googleWorkspace is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
         this.relatedWork = requireNonNull(relatedWork, "relatedWork is null");
@@ -535,6 +549,7 @@ public final class PermissionBroker
         Optional<LocalReviewBridge> localReview = restricted ? Optional.empty() : localReviews.resolve(taskId);
         Optional<PullRequestCiBridge> pullRequestCi = !restricted && (permissionPolicy == AgentPermissionPolicy.CI_AUTOFIX || scope.githubCommands())
                 ? pullRequestChecks.resolve(taskId) : Optional.empty();
+        Optional<PullRequestContextBridge> pullRequestContext = restricted ? Optional.empty() : pullRequestContexts.resolve(taskId);
         Optional<IssueContextBridge> issueContext = restricted ? Optional.empty() : issueContexts.resolve(taskId);
         Optional<MemoryBridge> memory = restricted ? Optional.empty() : memories.resolve(taskId);
         Optional<WorkItemBridge> work = restricted ? Optional.empty() : workItems.resolve(taskId);
@@ -546,7 +561,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeQueries, discussionContext, review, development, localReview, pullRequestCi, issueContext, memory, related, work,
+                codeQueries, discussionContext, review, development, localReview, pullRequestCi, pullRequestContext, issueContext, memory, related, work,
                 restricted || review.isPresent() ? Optional.empty() : googleWorkspace.resolve(taskId), reviewChildren, new AtomicReference<>());
     }
 
@@ -563,6 +578,7 @@ public final class PermissionBroker
                         context.localReview().map(LocalReviewBridge::instruction),
                         context.pullRequestCi().map(PullRequestCiBridge::instruction),
                         context.issueContext().map(IssueContextBridge::instruction),
+                        context.pullRequestContext().map(ignored -> PullRequestContextBridge.INSTRUCTION),
                         context.memory().map(ignored -> MemoryBridge.INSTRUCTION),
                         context.workItems().map(ignored -> WorkItemBridge.INSTRUCTION),
                         context.googleWorkspace().map(ignored -> GoogleWorkspaceBridge.INSTRUCTION),
@@ -631,6 +647,7 @@ public final class PermissionBroker
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeQueryBridge.TOOL_NAME -> codeQueriesExplore(request.id(), params.arguments(), context);
             case DiscussionContextBridge.TOOL_NAME -> readDiscussionContext(request.id(), params.arguments(), context);
+            case PullRequestContextBridge.TOOL_NAME -> readPullRequestContext(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
             case RelatedWorkspaceBridge.TOOL_NAME -> relatedWork(request.id(), params.arguments(), context);
             case WorkItemBridge.TOOL_NAME -> workItems(request.id(), params.arguments(), context);
@@ -1146,6 +1163,31 @@ public final class PermissionBroker
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", markdown)), false));
     }
 
+    private McpHttpResponse readPullRequestContext(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.pullRequestContext().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        PullRequestContextBridge.Query query;
+        try {
+            checkArgument(arguments != null && arguments.isObject() && arguments.path("section").isTextual(), "section is required");
+            checkArgument(arguments.size() == (arguments.has("offset") ? 2 : 1), "Unexpected arguments");
+            checkArgument(!arguments.has("offset") || arguments.get("offset").isIntegralNumber() && arguments.get("offset").canConvertToInt(), "offset must be an integer");
+            query = new PullRequestContextBridge.Query(arguments.get("section").textValue(), arguments.path("offset").asInt(0));
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, "Invalid read_pull_request_context arguments");
+        }
+        try {
+            String text = pullRequestContexts.resolve(context.taskId()).orElseThrow(() -> new IllegalStateException("PR context is no longer available")).read().apply(query);
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
+        }
+        catch (RuntimeException failure) {
+            String reason = Optional.ofNullable(failure.getMessage()).orElse("Saved context is unavailable");
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(reason))), true));
+        }
+    }
+
     private McpHttpResponse readDiscussionContext(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         if (context.discussionContext().isEmpty()) {
@@ -1385,6 +1427,12 @@ public final class PermissionBroker
                             "reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000)),
                             "required", ImmutableList.of("jobId", "reason"), "additionalProperties", false)));
         }
+        context.pullRequestContext().ifPresent(ignored -> tools.add(new ToolDefinition(PullRequestContextBridge.TOOL_NAME,
+                "Read the assigned PR snapshot, cached description or discussion in pages. Read-only; no remote fetch. Use CI tools for checks and logs",
+                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                        "section", ImmutableMap.of("type", "string", "enum", ImmutableList.of("snapshot", "description", "discussion")),
+                        "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Integer.MAX_VALUE)),
+                        "required", ImmutableList.of("section"), "additionalProperties", false))));
         context.discussionContext().ifPresent(ignored -> tools.add(new ToolDefinition(DiscussionContextBridge.TOOL_NAME,
                 "Read saved context for this private discussion only. Use source, history or discussion and follow nextOffset for more reference text",
                 ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
@@ -1740,6 +1788,7 @@ public final class PermissionBroker
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
             Optional<PullRequestCiBridge> pullRequestCi,
+            Optional<PullRequestContextBridge> pullRequestContext,
             Optional<IssueContextBridge> issueContext,
             Optional<MemoryBridge> memory,
             Optional<RelatedWorkspaceBridge> relatedWork,
@@ -1763,6 +1812,7 @@ public final class PermissionBroker
             requireNonNull(development, "development is null");
             requireNonNull(localReview, "localReview is null");
             requireNonNull(pullRequestCi, "pullRequestCi is null");
+            requireNonNull(pullRequestContext, "pullRequestContext is null");
             requireNonNull(issueContext, "issueContext is null");
             requireNonNull(memory, "memory is null");
             requireNonNull(relatedWork, "relatedWork is null");

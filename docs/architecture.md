@@ -148,6 +148,13 @@ logs does not remove the discussion's premise. Session tokens cannot select anot
 discussion, and closing the session revokes its access. Task write tools remain
 withheld on both provider lanes.
 
+Imported PR tasks carry a short PR reference alongside the user's request, including
+when their provider session is recovered. A read-only, task-bound context tool pages
+through the retained assignment snapshot or cached PR description and discussion;
+it labels missing, incomplete and possibly stale data. Each read rechecks the open
+task and workspace association. CI tools reuse that PR identity even when the local
+branch has a different name, without granting rerun or publication permissions.
+
 ## Trust and external services
 
 Local-first means local application state and execution; it does not mean offline

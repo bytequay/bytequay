@@ -64,6 +64,7 @@ import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.MemoryBridge;
 import com.bytequay.agent.spi.PullRequestCiBridge;
+import com.bytequay.agent.spi.PullRequestContextBridge;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.WorkItemBridge;
@@ -147,6 +148,7 @@ public class AgentConfiguration
             BridgeResolver<LocalReviewBridge> localReviews,
             BridgeResolver<PullRequestCiBridge> pullRequestChecks,
             BridgeResolver<IssueContextBridge> issueContexts,
+            BridgeResolver<PullRequestContextBridge> pullRequestContexts,
             BridgeResolver<MemoryBridge> memories,
             BridgeResolver<RelatedWorkspaceBridge> relatedWork,
             BridgeResolver<WorkItemBridge> workItems,
@@ -165,7 +167,7 @@ public class AgentConfiguration
                 localReviews,
                 pullRequestChecks,
                 issueContexts,
-                memories, relatedWork, workItems, googleWorkspace);
+                memories, relatedWork, workItems, googleWorkspace, pullRequestContexts);
     }
 
     @Bean(destroyMethod = "close")

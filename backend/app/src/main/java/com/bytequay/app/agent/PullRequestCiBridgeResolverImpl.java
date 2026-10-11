@@ -45,6 +45,7 @@ import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -78,6 +79,7 @@ public class PullRequestCiBridgeResolverImpl
     private final WorkspaceStore workspaces;
     private final ManagedWorktreeService worktrees;
     private final PullRequestStore pullRequests;
+    private final PullRequestTaskStore assignments;
     private final PullRequestService pullRequestCatalog;
     private final PrDetailStore details;
     private final GitHubActionsClient actions;
@@ -92,8 +94,9 @@ public class PullRequestCiBridgeResolverImpl
             AgentTaskStore tasks, WorkspaceStore workspaces, ManagedWorktreeService worktrees,
             PullRequestStore pullRequests, PullRequestService pullRequestCatalog, PrDetailStore details,
             GitHubActionsClient actions, TaskLogStore logs, ObjectMapper objectMapper, CiRawLogStore rawLogs, CiAutofixStore ciRuns,
-            AgentTurnStore turns, ObjectProvider<CiAutofixService> ci)
+            AgentTurnStore turns, ObjectProvider<CiAutofixService> ci, PullRequestTaskStore assignments)
     {
+        this.assignments = requireNonNull(assignments, "assignments is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.worktrees = requireNonNull(worktrees, "worktrees is null");
@@ -148,9 +151,15 @@ public class PullRequestCiBridgeResolverImpl
             }
             return workspaces.findById(worktree.workspaceId())
                     .filter(workspace -> workspace.selectedRepository().fullName().equalsIgnoreCase(physicalRepository(worktree).fullName()))
-                    .map(workspace -> new Scope(worktree, workspace.monitoredRepository(), physicalRepository(worktree),
-                            Stream.concat(Stream.of(worktree.generatedBranch()), worktrees.currentBranch(worktree).stream())
-                                    .distinct().collect(toImmutableList()), Optional.empty(), Optional.empty()));
+                    .map(workspace -> {
+                        Optional<PullRequestRef> assigned = assignments.findByTaskId(taskId.toString())
+                                .filter(link -> link.taskId().equals(taskId.toString()) && link.workspaceId().equals(worktree.workspaceId())
+                                        && link.repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()))
+                                .map(link -> PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), link.number()));
+                        return new Scope(worktree, workspace.monitoredRepository(), physicalRepository(worktree),
+                                Stream.concat(Stream.of(worktree.generatedBranch()), worktrees.currentBranch(worktree).stream())
+                                        .distinct().collect(toImmutableList()), assigned, Optional.empty());
+                    });
         });
     }
 
@@ -167,9 +176,10 @@ public class PullRequestCiBridgeResolverImpl
             if (scope.pullRequest().isPresent()) {
                 CiHeadSnapshot head = actions.inspect(scope.pullRequest().orElseThrow());
                 if (!head.pullRequest().equals(scope.pullRequest().orElseThrow()) || !matches(scope, head)) {
-                    return message("stale", "The CI Autofix pull request no longer matches this task's authorized head.");
+                    return message("stale", "The pull request no longer matches this task's authorized scope.");
                 }
-                candidates = ImmutableList.of(new Candidate(-1, head));
+                long rowId = scope.expectedHead().isPresent() ? -1 : pullRequests.findIdByRepoAndNumber(head.pullRequest().repoFullName(), head.pullRequest().number()).orElse(-1L);
+                candidates = ImmutableList.of(new Candidate(rowId, head));
             }
             else {
                 // A cached match cannot rule out another matching PR created since the panel refreshed.
@@ -221,9 +231,11 @@ public class PullRequestCiBridgeResolverImpl
     {
         return head.open()
                 && head.pullRequest().repoFullName().equalsIgnoreCase(scope.repository().fullName())
-                && head.headRepository().fullName().equalsIgnoreCase(scope.headRepository().fullName())
-                && scope.branches().contains(head.headRef())
-                && scope.expectedHead().map(head.headSha()::equals).orElse(true);
+                // Imported PR tasks have a generated local branch independent of the remote PR branch.
+                && (scope.pullRequest().isPresent() && scope.expectedHead().isEmpty()
+                || head.headRepository().fullName().equalsIgnoreCase(scope.headRepository().fullName())
+                        && scope.branches().contains(head.headRef())
+                        && scope.expectedHead().map(head.headSha()::equals).orElse(true));
     }
 
     private String overview(TaskId taskId, Scope scope, Candidate candidate)
@@ -256,7 +268,7 @@ public class PullRequestCiBridgeResolverImpl
         ci.put("workflowsOmitted", head.workflowRuns().size() - workflows.size());
         ci.put("jobsOmitted", head.jobs().size() - includedJobs);
         cachedChecks(result, candidate);
-        if (scope.pullRequest().isPresent()) {
+        if (scope.expectedHead().isPresent()) {
             String description = actions.readDescription(head.pullRequest());
             text(result, "description", description, 60_000);
         }

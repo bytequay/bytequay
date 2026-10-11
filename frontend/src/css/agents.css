@@ -375,6 +375,9 @@
 
 .agt-pr-chip:hover { background: #f6f8fa; }
 .agt-pr-chip[aria-pressed="true"] { background: #f6f8fa; }
+.agt-pr-chip { max-width: 100%; }
+.agt-pr-chip > svg, .agt-pr-chip__number { flex-shrink: 0; }
+.agt-pr-chip__title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .agt-pr-chip__number { color: #59636e; font-weight: 400; }
 
 .agt-pr-chip:focus-visible {

@@ -45,11 +45,13 @@ import com.bytequay.core.domain.PrRawDetail;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
 import com.bytequay.core.domain.PullRequestRef;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.StoredPrDetail;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.PrDetailStore;
 import com.bytequay.core.store.PullRequestStore;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -109,6 +111,7 @@ class TestPullRequestCiBridgeResolverImpl
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final ManagedWorktreeService worktrees = mock(ManagedWorktreeService.class, withSettings().mockMaker(MockMakers.INLINE));
+    private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
     private final PullRequestStore pullRequests = mock(PullRequestStore.class);
     private final PullRequestService catalog = mock(PullRequestService.class);
     private final PrDetailStore details = mock(PrDetailStore.class);
@@ -118,7 +121,7 @@ class TestPullRequestCiBridgeResolverImpl
     private final CiAutofixStore ciRuns = mock(CiAutofixStore.class);
     private final ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
     private final PullRequestCiBridgeResolverImpl resolver = new PullRequestCiBridgeResolverImpl(
-            tasks, workspaces, worktrees, pullRequests, catalog, details, actions, logs, mapper, rawLogs, ciRuns, mock(AgentTurnStore.class), mock(ObjectProvider.class));
+            tasks, workspaces, worktrees, pullRequests, catalog, details, actions, logs, mapper, rawLogs, ciRuns, mock(AgentTurnStore.class), mock(ObjectProvider.class), assignments);
     private final TaskId taskId = TaskId.random();
     private final TaskWorktree worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf(FORK.fullName()),
             Path.of("/tmp", taskId.toString()), "bytequay/task/" + taskId, BASE);
@@ -138,6 +141,23 @@ class TestPullRequestCiBridgeResolverImpl
         when(worktrees.inspect(worktree)).thenReturn(new WorktreeSnapshot(worktree, HEAD, false, false, false));
         when(pullRequests.findByHeadRef(UPSTREAM.fullName(), BRANCH)).thenReturn(ImmutableList.of(row(PR)));
         when(actions.inspect(PR)).thenReturn(failing);
+    }
+
+    @Test
+    void readsTheAssignedPrEvenWhenItsRemoteBranchDiffersFromTheLocalBranch()
+            throws Exception
+    {
+        when(assignments.findByTaskId(taskId.toString())).thenReturn(Optional.of(new PullRequestTask(taskId.toString(), "workspace", UPSTREAM.fullName(), PR.number(), "saved")));
+        when(worktrees.currentBranch(worktree)).thenReturn(Optional.of("renamed-local-branch"));
+        PullRequestCiBridge bridge = resolver.resolve(taskId.toString()).orElseThrow();
+        assertThat(read(bridge, Optional.empty()).at("/pullRequest/headSha").asText()).isEqualTo(HEAD);
+        verifyNoInteractions(catalog);
+        verify(actions, never()).readDescription(any());
+        assertThat(bridge.requestRerun()).isEmpty();
+        storeLog(COMMIT_FAILURE, false);
+        assertThat(read(bridge, Optional.of(201L)).toString()).contains("check-commit-messages");
+        when(actions.inspect(PR)).thenReturn(snapshot(new PullRequestRef("trinodb", "trino", 9), HEAD, 1, "job", "failure"));
+        assertThat(read(bridge, Optional.empty()).path("status").asText()).isEqualTo("stale");
     }
 
     @Test

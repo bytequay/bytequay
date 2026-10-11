@@ -1318,6 +1318,7 @@ export function AgentTaskBody({
         >
           <PullRequestStateIcon pullRequest={taskPr} size={16} />
           PR <span className="agt-pr-chip__number">#{taskPr.number}</span>
+          <span className="agt-pr-chip__title">{taskPr.title}</span>
         </button>
       )}
 

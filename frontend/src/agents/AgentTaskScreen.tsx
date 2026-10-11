@@ -36,7 +36,7 @@ import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
 import { privateThreadSource } from '../pulls/PrivateThread';
-import { canSubmitReview, PullDetailHeader } from '../pulls/PullsScreen';
+import { canSubmitReview, carriedPanelTab, PullDetailHeader } from '../pulls/PullsScreen';
 import { usePreparedAgentInput } from './preparedInput';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
@@ -694,6 +694,8 @@ function SidePanel({
       review={review}
       onReviewChange={setReview}
       agentTab={agentTab}
+      onNavigate={route => { window.location.hash = route; }}
+      agent="developer"
       onTab={tab => onSelectTab(tab === 'overview' ? 'pr' : tab)}
       onRefresh={pullRequestDetail.refresh}
       refreshing={pullRequestDetail.loading}
@@ -1501,7 +1503,8 @@ export default function AgentTaskScreen({
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [planOpen, setPlanOpen] = useState(true);
-  const [panelChoice, setPanelChoice] = useState<boolean | null>(null);
+  // A switch from the reviewer keeps its panel open on the same tab; only the conversation changes.
+  const [panelChoice, setPanelChoice] = useState<boolean | null>(() => carriedPanelTab() === null ? null : true);
   // Unsaved Code & Tests drafts in the side panel are dropped when the panel closes or the task screen is left.
   const codeUnsaved = useRef(0);
   const trackCodeUnsaved = useCallback((count: number) => { codeUnsaved.current = count; }, []);
@@ -1516,7 +1519,10 @@ export default function AgentTaskScreen({
   };
   const [ciPollingError, setCiPollingError] = useState<string | null>(null);
   const [openAgent, setOpenAgent] = useState<string | null>(null);
-  const [panelTab, setPanelTab] = useState<PanelTab>('changes');
+  const [panelTab, setPanelTab] = useState<PanelTab>(() => {
+    const carried = carriedPanelTab();
+    return carried === null ? 'changes' : carried === 'overview' ? 'pr' : carried;
+  });
   const [utilityTabs, setUtilityTabs] = useState<UtilityTab[]>([]);
   // The view a Subagents or Discussions tab covers, shown again when that tab closes.
   const coveredTab = useRef<PanelTab>('changes');

@@ -636,6 +636,9 @@
 .pull-detail__tabs button:hover { background: #f6f8fa; color: #24292f; }
 .pull-detail__tabs button.is-active { background: #f1f2f3; color: #24292f; }
 .pull-detail__tabs svg { width: 17px; height: 17px; }
+/* The pull request's agents, apart from the pane's own tabs. The tinted one is the agent whose screen this is. */
+.pull-detail__agents { display: inline-flex; gap: 6px; border-left: 1px solid var(--line-default); margin-left: 2px; padding-left: 8px; }
+.pull-detail__tabs .pull-detail__agents button[aria-current="true"] { background: var(--bg-info); color: var(--accent); cursor: default; }
 .pull-detail__subtoolbar { display: flex; min-width: 0; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 5px; }
 .pull-detail__subtabs { flex: 0 0 auto; }
 .pull-detail__subtabs button { min-height: 28px; border-radius: 8px; padding: 4px 9px; font-size: var(--font-size-md); }

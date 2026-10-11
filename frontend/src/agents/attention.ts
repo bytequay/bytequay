@@ -235,6 +235,29 @@ export function useTaskAttention(
   return { ...state, refresh };
 }
 
+/**
+ * One task's card state for a page that is not the task's own, re-read on the attention tick while the
+ * page is visible. Null without a task, and until the first read lands.
+ */
+export function useTaskCardState(workspaceId: string | null, taskId: string | null): TaskCardState | null {
+  const [read, setRead] = useState<{ taskId: string; state: TaskCardState } | null>(null);
+  useEffect(() => {
+    if (workspaceId === null || taskId === null) return;
+    let active = true;
+    // A failed read, even a synchronous one, keeps the last state; the next tick reads again.
+    const load = (): void => {
+      if (document.hidden) return;
+      void Promise.resolve().then(() => Promise.all([window.bridge.getAgentTask(taskId, workspaceId), window.bridge.listAgentTaskActivity(workspaceId)]))
+        .then(([task, activity]) => { if (active) setRead({ taskId, state: taskCardState(task, activity[taskId] ?? null) }); })
+        .catch(() => {});
+    };
+    load();
+    const timer = window.setInterval(load, TASK_ATTENTION_POLL_MS);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [workspaceId, taskId]);
+  return read !== null && read.taskId === taskId ? read.state : null;
+}
+
 /** How many of a workspace's tasks wait on an answer or approval from the user: zero without a workspace and until the first read lands. */
 export function useTasksWaiting(workspaceId: string | null): number {
   const [read, setRead] = useState<{ workspaceId: string; count: number } | null>(null);

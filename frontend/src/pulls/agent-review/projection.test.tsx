@@ -74,7 +74,7 @@ const detail = {
 function header(
   tab: 'overview' | 'files' | 'changes' | 'review' | 'code' | null,
   review: AgentReviewDto | null,
-  options: Partial<Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom' | 'zoom' | 'pr' | 'detail'>> = {},
+  options: Partial<Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom' | 'zoom' | 'pr' | 'detail' | 'onNavigate' | 'agent'>> = {},
 ): string {
   return renderToStaticMarkup(
     <PullDetailHeader
@@ -122,6 +122,24 @@ describe('the pane tab row', () => {
     expect(active(header('files', null))[0]).toContain('WorkBench');
     expect(active(header('files', null))[1]).toContain('Changes');
     expect(header('files', null)).not.toContain('Changes source');
+  });
+
+  it('keeps both agents of a pull request in the tab row and marks the one whose screen it is', () => {
+    const fromTask = reviewFixture({ sourceTaskId: 'task-1' });
+    // Each agent the row names, with a star on the current one.
+    const agents = (review: AgentReviewDto | null, options: Parameters<typeof header>[2] = { onNavigate: () => {} }) =>
+      header('review', review, options).split('<button').flatMap((button) => {
+        const name = button.slice(button.indexOf('>') + 1, button.indexOf('</button>')).replace(/<[^>]*>/g, '').trim();
+        return name === 'Developer' || name === 'Reviewer' ? [`${name}${button.slice(0, button.indexOf('>')).includes('aria-current="true"') ? '*' : ''}`] : [];
+      });
+    expect(agents(fromTask)).toEqual(['Developer', 'Reviewer']);
+    expect(agents(fromTask, { onNavigate: () => {}, agent: 'developer' })).toEqual(['Developer*', 'Reviewer']);
+    expect(agents(fromTask, { onNavigate: () => {}, agent: 'reviewer' })).toEqual(['Developer', 'Reviewer*']);
+    // One agent alone needs no switch on its own screen; elsewhere it is still a way to it.
+    expect(agents(reviewFixture(), { onNavigate: () => {}, agent: 'reviewer' })).toEqual([]);
+    expect(agents(null, { onNavigate: () => {}, agent: 'developer' })).toEqual([]);
+    expect(agents(reviewFixture())).toEqual(['Reviewer']);
+    expect(agents(fromTask, {})).toEqual([]);
   });
 
   it('keeps task utilities at the top level beside the linked PR actions', () => {

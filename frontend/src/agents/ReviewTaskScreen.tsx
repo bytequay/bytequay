@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import PullsScreen, { PullDetailHeader, type HeaderTab } from '../pulls/PullsScreen';
+import PullsScreen, { carriedPanelTab, PullDetailHeader, type HeaderTab } from '../pulls/PullsScreen';
 import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-review/AgentReviewTab';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
@@ -75,7 +75,11 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
   headerAction?: ReactNode;
 }): React.JSX.Element {
   const pane = useTaskPane();
-  const [tab, setTab] = useState<HeaderTab | 'agents' | 'discussions'>('changes');
+  // Changes, or the tab an agent switch carried here; a local review's Changes is its worktree's.
+  const [tab, setTab] = useState<HeaderTab | 'agents' | 'discussions'>(() => {
+    const carried = carriedPanelTab();
+    return carried === null || carried === 'files' ? 'changes' : carried;
+  });
   const coveredAgentTab = useRef<HeaderTab>('changes');
   if (tab !== 'agents' && tab !== 'discussions') coveredAgentTab.current = tab;
   const [agentTabTarget, setAgentTabTarget] = useState<HTMLSpanElement | null>(null);
@@ -89,15 +93,15 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
   const [commitSelection, setCommitSelection] = useState<{ commitSha: string; headSha?: string; baseSha?: string; token: number } | null>(null);
   const selectCommit = (commitSha: string, snapshot?: { headSha: string; baseSha: string }): void => { setNavigation(null); setCommitSelection(current => ({ commitSha, ...snapshot, token: (current?.token ?? 0) + 1 })); setTab('changes'); };
   const unsaved = useRef(0);
-  const [discard, setDiscard] = useState(false);
+  const [discard, setDiscard] = useState<{ act: () => void } | null>(null);
   if (tab === 'code' && !codeVisited) setCodeVisited(true);
   if (tab === 'changes' && !changesVisited) setChangesVisited(true);
-  const back = (): void => { if (unsaved.current === 0) onBack(); else setDiscard(true); };
+  const leave = (act: () => void): void => { if (unsaved.current === 0) act(); else setDiscard({ act }); };
   const navigateToChanges = (target: ReviewNavigationTarget): void => { setCommitSelection(null); setNavigation(target); setTab('changes'); };
   return <div className="pulls-page pulls-page--review-workspace">
     <section className="agr-workspace-conversation" aria-label="Review agent conversation">
       <header className="agt-screen-head">
-        <button type="button" className="agt-back" aria-label="Back to tasks" onClick={back}>‹ Tasks</button>
+        <button type="button" className="agt-back" aria-label="Back to tasks" onClick={() => leave(onBack)}>‹ Tasks</button>
         <strong>{review.repo} · {review.replay === undefined ? 'Local review'
           : `Replay of #${review.replay.number} · ${review.replay.memory ? 'with' : 'without'} memory`}</strong><span className="agt-spacer" />{headerAction}
       </header>
@@ -113,7 +117,8 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
         agentTab={<span ref={setAgentTabTarget} />}
         onChangesToolbar={setChangesToolbar}
         onRefresh={async () => onReviewChange(await window.bridge.getAgentReview(review.id))} refreshing={false}
-        onReviewSubmitted={() => {}} pendingComments={[]} onPendingCommentsChange={() => {}} />
+        onReviewSubmitted={() => {}} pendingComments={[]} onPendingCommentsChange={() => {}}
+        onNavigate={route => leave(() => { window.location.hash = route; })} agent="reviewer" />
       <div className="agt-panel__scroll" ref={setAgentBodyTarget} hidden={tab !== 'agents' && tab !== 'discussions'} />
       <div className="pull-detail__body pull-detail__review" hidden={tab !== 'review'}>
         <AgentReviewTab workspaceId={review.workspaceId} viewer={null} review={review} onReviewChange={onReviewChange}
@@ -130,8 +135,8 @@ function LocalReviewWorkspace({ review, onReviewChange, onBack, headerAction }: 
       </div>}
       {(tab === 'overview' || tab === 'files') && <div className="agt-panel__empty">No pull request is linked to this local review.</div>}
     </section>
-    {discard && <ConfirmDialog title={`Discard unsaved changes to ${unsaved.current} files?`} confirmLabel="Discard"
-      onConfirm={() => { setDiscard(false); onBack(); }} onCancel={() => setDiscard(false)}>
+    {discard !== null && <ConfirmDialog title={`Discard unsaved changes to ${unsaved.current} files?`} confirmLabel="Discard"
+      onConfirm={() => { setDiscard(null); discard.act(); }} onCancel={() => setDiscard(null)}>
       <p>Your edits in Code &amp; Tests were never saved to the worktree.</p>
     </ConfirmDialog>}
   </div>;

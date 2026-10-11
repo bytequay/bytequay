@@ -13,7 +13,7 @@
  */
 import { PendingReviewComments } from './ReviewDrafts';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ComponentProps, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { Bell, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
+import { Bell, Bot, Check, CircleSlash, Code, Diff, Ellipsis, Eye, GitPullRequest, Maximize, MessageCircle, PanelRight, RefreshCw, UserRound, X } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { isFindShortcut } from '../FindBar';
@@ -48,8 +48,9 @@ import { useRecentTouch } from '../recent/useRecentTouch';
 import { pullRequestItem } from '../home/attention';
 import PinButton from '../home/PinButton';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
-import { workspaceReviewTaskRoute } from '../workspaces/model';
+import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
+import { useTaskCardState } from '../agents/attention';
 import { useResizablePane } from '../useResizablePane';
 import '../css/review-tasks.css';
 import {
@@ -72,6 +73,21 @@ import { useZoom, ZoomActions, ZoomScrim, type ZoomControls } from '../Zoom';
 
 /** The tabs PullDetailHeader draws itself; hosts add their own through its `agentTab` slot. */
 export type HeaderTab = 'overview' | 'files' | 'changes' | 'review' | 'code';
+
+/**
+ * The panel tab an agent switch takes to the other agent's screen. Developer and Reviewer change the
+ * conversation, so the screen they open starts on the tab the user was on, not on its own default.
+ */
+let carriedTab: { route: string; tab: HeaderTab } | null = null;
+// Leaving the screen it was carried to drops it, so opening that screen another way gets the default again.
+if (typeof window !== 'undefined') {
+  window.addEventListener('hashchange', () => { if (carriedTab?.route !== window.location.hash) carriedTab = null; });
+}
+
+/** The tab a switch carried to the screen now opening; null when the user came another way. */
+export function carriedPanelTab(): HeaderTab | null {
+  return carriedTab !== null && carriedTab.route === window.location.hash ? carriedTab.tab : null;
+}
 type DetailTab = HeaderTab;
 
 type AgentReviewContext = {
@@ -364,8 +380,14 @@ export default function PullsScreen({
   const [reviewCardFocus, setReviewCardFocus] = useState<ReviewCardFocus | null>(null);
   const [tab, setTab] = useState<PullTab>(PULL_TABS[0].key);
   const [selected, setSelected] = useState<number | null>(null);
-  const [detailTab, setDetailTab] = useState<DetailTab | 'agents' | 'discussions'>(initialReviewId === undefined ? 'overview' : 'files');
-  const coveredAgentTab = useRef<DetailTab>(initialReviewId === undefined ? 'overview' : 'files');
+  // A review opens on Changes, or on the tab an agent switch carried here. Its Changes is the pull request's.
+  const [initialDetailTab] = useState<DetailTab>(() => {
+    if (initialReviewId === undefined) return 'overview';
+    const carried = carriedPanelTab();
+    return carried === null || carried === 'changes' ? 'files' : carried;
+  });
+  const [detailTab, setDetailTab] = useState<DetailTab | 'agents' | 'discussions'>(initialDetailTab);
+  const coveredAgentTab = useRef<DetailTab>(initialDetailTab);
   if (detailTab !== 'agents' && detailTab !== 'discussions') coveredAgentTab.current = detailTab;
   const [agentTabTarget, setAgentTabTarget] = useState<HTMLSpanElement | null>(null);
   const [agentBodyTarget, setAgentBodyTarget] = useState<HTMLDivElement | null>(null);
@@ -384,6 +406,10 @@ export default function PullsScreen({
     if (pr !== undefined) void completeAttentionVisit(`${pr.repo}#${pr.number}`);
     onClose();
   }), [withCodeDrafts, onClose]);
+  const navigate = (route: string): void => withCodeDrafts(() => {
+    onClose?.();
+    window.location.hash = route;
+  });
   const [pendingReviewComments, setPendingReviewComments] = useState<InlineReviewCommentDto[]>([]);
   const [paneOpen, setPaneOpen] = useState(true);
   const [detailZoomed, setDetailZoomed] = useState(false);
@@ -1159,6 +1185,8 @@ export default function PullsScreen({
             onPendingCommentsChange={setPendingReviewComments}
             zoom={zoomLayer ? zoom : undefined}
             onZoom={zoomLayer ? undefined : () => setDetailZoomed(true)}
+            onNavigate={navigate}
+            agent={reviewWorkspace === undefined ? undefined : 'reviewer'}
           />
           {reviewWorkspace !== undefined && <div className="agt-panel__scroll" ref={setAgentBodyTarget} hidden={detailTab !== 'agents' && detailTab !== 'discussions'} />}
           {displayedDetailError && <div className="pull-detail__error">{displayedDetailError}</div>}
@@ -1250,10 +1278,7 @@ export default function PullsScreen({
                 authored={viewerLogin ? detail.author?.toLowerCase() === viewerLogin.toLowerCase() : selectedPr.origin === 'AUTHORED'}
                 workspaceId={workspaceId} loading={reviewLoading} contextError={reviewError} review={review}
                 onRetryContext={() => setReviewReload(value => value + 1)}
-                onNavigate={route => withCodeDrafts(() => {
-                  onClose?.();
-                  window.location.hash = route;
-                })} /> : undefined}
+                onNavigate={navigate} /> : undefined}
               pr={selectedPr}
               detail={detail}
               workspaceId={workspaceId}
@@ -1366,6 +1391,8 @@ export function PullDetailHeader({
   onZoom,
   zoom,
   onClose,
+  onNavigate,
+  agent,
 }: {
   pr: PullRequestDto | null;
   detail: PullRequestDetailDto | null;
@@ -1393,6 +1420,10 @@ export function PullDetailHeader({
   onZoom?: () => void;
   zoom?: ZoomControls;
   onClose?: () => void;
+  /** Leaves for another route. With it, the header names the pull request's development and review agents and switches between them. */
+  onNavigate?: (route: string) => void;
+  /** The agent whose own screen this header is on; its button stays in place, marked as the current one. */
+  agent?: 'developer' | 'reviewer';
 }) {
   useAttentionVisit(pr === null || detail === null ? null : pullRequestItem(pr));
   const [mergeQueue, setMergeQueue] = useState<boolean | null | undefined>(undefined);
@@ -1402,6 +1433,18 @@ export function PullDetailHeader({
   // Promoted findings are outgoing comments too, so the count the button shows covers both.
   const pendingCommentCount = pendingComments.length + pendingDraftCount(review?.draft ?? null);
   const reviewChip = review === null ? null : reviewStatus(review);
+  const developerTaskId = review?.sourceTaskId ?? null;
+  // An agent shows once there is another one to switch to; a task or review alone on its own screen needs no switch.
+  const showDeveloper = onNavigate !== undefined && review !== null && (agent === 'developer' || developerTaskId !== null);
+  const showReviewer = onNavigate !== undefined && review !== null && (agent !== 'reviewer' || developerTaskId !== null);
+  // The development task's own screen already shows its state, so only a link to it reads the task.
+  const developer = useTaskCardState(review?.workspaceId ?? null, showDeveloper && agent !== 'developer' ? developerTaskId : null);
+  const switchAgent = (route: string): void => {
+    carriedTab = tab === null ? null : { route, tab };
+    onNavigate?.(route);
+  };
+  // An idle or finished developer needs no chip.
+  const developerTone = developer?.label === 'Needs you' ? 'warn' : developer?.label === 'Running' ? 'running' : developer?.label === 'Failed' ? 'danger' : null;
   const prSelected = tab === 'overview';
   const workbenchSelected = tab !== null && !prSelected;
   const changesSelected = tab === 'files' || tab === 'changes';
@@ -1459,6 +1502,23 @@ export function PullDetailHeader({
               {reviewChip.busy && <span className="agr-spinner" aria-hidden="true" />}{reviewChip.chip}
             </span>}
           </button>
+          {review !== null && (showDeveloper || showReviewer) && <span className="pull-detail__agents" role="group" aria-label="Agents">
+            {showDeveloper && <button type="button" aria-current={agent === 'developer' ? 'true' : undefined}
+              title={agent === 'developer' ? 'This is the development task'
+                : `Open the development task${developer === null ? '' : ` · ${developer.reason ?? developer.label}`}`}
+              onClick={agent === 'developer' || developerTaskId === null ? undefined
+                : () => switchAgent(workspaceAgentTaskRoute(review.workspaceId, developerTaskId))}>
+              <Bot size={14} strokeWidth={1.8} aria-hidden="true" /> Developer
+              {developer !== null && developerTone !== null && <span className={`pull-detail__review-chip is-${developerTone}`}>
+                {developer.spinning && <span className="agr-spinner" aria-hidden="true" />}{developer.label}
+              </span>}
+            </button>}
+            {showReviewer && <button type="button" aria-current={agent === 'reviewer' ? 'true' : undefined}
+              title={agent === 'reviewer' ? 'This is the review task' : 'Open the review task'}
+              onClick={agent === 'reviewer' ? undefined : () => switchAgent(workspaceReviewTaskRoute(review.workspaceId, review.id))}>
+              <Eye size={14} strokeWidth={1.8} aria-hidden="true" /> Reviewer
+            </button>}
+          </span>}
           {agentTab}
         </nav>
         <div className="pull-detail__header-actions">

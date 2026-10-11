@@ -20,7 +20,9 @@ import AgentTaskScreen, { AgentTaskBody } from '../AgentTaskScreen';
 import DevelopmentLearningPanel from '../DevelopmentLearningPanel';
 import type { TaskReviewOptions } from '../../pulls/agent-review/TaskReviewSummary';
 import { useLocalReviewThreads } from '../../pulls/local-review/useLocalReviewThreads';
-import { PullDetailHeader } from '../../pulls/PullsScreen';
+import { carriedPanelTab, PullDetailHeader } from '../../pulls/PullsScreen';
+import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
+import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../../workspaces/model';
 import { loadHandled } from '../../home/attention';
 import WorktreeChanges from '../../pulls/code-tests/WorktreeChanges';
 import { initialAgentTaskState } from '../model';
@@ -251,5 +253,61 @@ export async function utilityTabs(): Promise<string> {
   }
   finally {
     flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
+  }
+}
+
+/** Developer and Reviewer change the conversation only: the screen a switch opens keeps the panel tab the user was on. */
+export async function agentSwitch(): Promise<string> {
+  const bridge = createPreviewBridge('workspace-1');
+  const taskId = bridge.events[0].taskId;
+  const review = reviewFixture({ id: 'review-1', workspaceId: 'workspace-1', sourceTaskId: taskId });
+  const getTask = bridge.getAgentTask;
+  bridge.getAgentTask = async (id, workspaceId) => ({ ...await getTask(id, workspaceId), interactive: true });
+  const originalBridge = window.bridge;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: { ...bridge, findTaskAgentReview: async () => review,
+    readWorktreeChanges: async (): Promise<WorktreeChangesDto> => ({ scope: 'ALL', selectedCommit: null, sourceFingerprint: 'working-copy',
+      baseSha: 'base', headSha: 'head', baseLabel: 'main', branch: 'feature', truncated: false,
+      commits: [], staged: [], unstaged: [], untracked: [], files: [] }),
+  } });
+  const host = document.createElement('div');
+  host.style.cssText = 'width:1400px;height:850px';
+  document.body.append(host);
+  const root = createRoot(host);
+  const go = async (route: string): Promise<void> => {
+    const changed = new Promise(resolve => window.addEventListener('hashchange', resolve, { once: true }));
+    window.location.hash = route;
+    await changed;
+  };
+  const agent = (name: string) => [...host.querySelectorAll<HTMLButtonElement>('[aria-label="Agents"] button')].find(button => button.textContent?.trim().startsWith(name));
+  const panel = async (label: string): Promise<boolean> => {
+    for (let frame = 0; frame < 60 && host.querySelector('.agt-panel')?.getAttribute('aria-label') !== label; frame++) await settle();
+    return host.querySelector('.agt-panel')?.getAttribute('aria-label') === label;
+  };
+  const developerRoute = workspaceAgentTaskRoute('workspace-1', taskId);
+  const reviewerRoute = workspaceReviewTaskRoute('workspace-1', review.id);
+  try {
+    // The reviewer's header, on the pull request tab.
+    flushSync(() => root.render(<PullDetailHeader pr={null} detail={null} tab="overview" review={review} agent="reviewer" onTab={() => {}}
+      onRefresh={async () => {}} onReviewSubmitted={() => {}} refreshing={false} pendingComments={[]} onPendingCommentsChange={() => {}}
+      onNavigate={(route) => { void go(route); }} />));
+    await settle();
+    assert(agent('Reviewer')?.getAttribute('aria-current') === 'true' && agent('Developer')?.getAttribute('aria-current') === null, 'The reviewer screen must mark Reviewer as the current agent');
+    agent('Developer')?.click(); await settle();
+    assert(window.location.hash === developerRoute, 'Developer must open the development task');
+    flushSync(() => root.render(<AgentTaskScreen key="developer" workspaceId="workspace-1" taskId={taskId} bridge={bridge} onBack={() => {}} />));
+    assert(await panel('Pull request'), 'The development task must open its panel on the tab the reviewer was on, not on its default Changes');
+    assert(agent('Developer')?.getAttribute('aria-current') === 'true', 'The development task must mark Developer as the current agent');
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim().startsWith('WorkBench'))?.click();
+    assert(await panel('Changes'), 'WorkBench must open on Changes');
+    agent('Reviewer')?.click(); await settle();
+    assert(window.location.hash === reviewerRoute && carriedPanelTab() === 'changes', 'Reviewer must open the review with the tab the developer was on');
+    await go('#/workspaces/workspace-1/tasks');
+    await go(reviewerRoute);
+    assert(carriedPanelTab() === null, 'Opening the review another way must get its own default tab');
+    return 'An agent switch keeps the panel tab';
+  }
+  finally {
+    flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge });
+    window.location.hash = '';
   }
 }

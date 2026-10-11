@@ -3369,7 +3369,7 @@ class TestCodexCliDriver
         AtomicBoolean localReview = new AtomicBoolean();
         var related = new RelatedWorkspaceBridge(arguments -> "linked");
         ReviewBridge privateReview = new ReviewBridge(ImmutableList.of(), "This task is in private local review of commit abc.");
-        LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
+        LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
                 taskId -> localReview.get() ? Optional.of(privateReview) : Optional.empty(), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
                 taskId -> localReview.get() ? Optional.of(local) : Optional.empty(), BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(),
@@ -3489,7 +3489,7 @@ class TestCodexCliDriver
                         ImmutableList.of(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME));
             }
             case LOCAL_REVIEW -> {
-                LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
+                LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
                 yield new BridgedTool(
                         new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
                                 BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, taskId -> Optional.of(local)),

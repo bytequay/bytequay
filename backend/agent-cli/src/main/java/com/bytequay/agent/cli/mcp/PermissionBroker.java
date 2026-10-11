@@ -922,7 +922,8 @@ public final class PermissionBroker
             JsonNode arguments = params.arguments();
             checkArgument(arguments != null && arguments.isObject(), "arguments must be an object");
             Set<String> fields = switch (params.name()) {
-                case LocalReviewBridge.LIST_TOOL -> arguments.has("commentId") ? ImmutableSet.of("commentId") : ImmutableSet.of();
+                case LocalReviewBridge.LIST_TOOL -> arguments.has("contextOffset") ? ImmutableSet.of("commentId", "contextOffset")
+                        : arguments.has("commentId") ? ImmutableSet.of("commentId") : ImmutableSet.of();
                 case LocalReviewBridge.REPLY_TOOL -> ImmutableSet.of("commentId", "body", "operationKey");
                 case LocalReviewBridge.RESOLVE_TOOL -> ImmutableSet.of("commentId", "resolved", "operationKey");
                 default -> throw new IllegalArgumentException("Unknown local review tool");
@@ -937,8 +938,14 @@ public final class PermissionBroker
                     checkArgument(!value.isBlank() && value.length() <= LocalReviewBridge.MAXIMUM_ID_LENGTH, "Invalid commentId");
                     commentId = Optional.of(value);
                 }
+                if (arguments.has("contextOffset")) {
+                    JsonNode offset = arguments.get("contextOffset");
+                    checkArgument(offset.isIntegralNumber() && offset.canConvertToInt() && offset.intValue() >= 0 && offset.intValue() <= 60_000,
+                            "contextOffset must be an integer from 0 to 60000");
+                }
+                int contextOffset = arguments.path("contextOffset").asInt(0);
                 Optional<String> selectedComment = commentId;
-                action = () -> bridge.orElseThrow().list().apply(selectedComment);
+                action = () -> bridge.orElseThrow().list().apply(selectedComment, contextOffset);
             }
             else {
                 checkArgument(arguments.path("commentId").isTextual(), "commentId must be a string");
@@ -1480,8 +1487,12 @@ public final class PermissionBroker
             tools.add(new ToolDefinition(
                     LocalReviewBridge.LIST_TOOL,
                     "Read bounded unresolved/recent summaries of this task's private comments and, for a development task, of the review findings on its changes " +
-                            "and pull request; or supply a comment's or finding's id as commentId for its code, evidence and recent discussion. Omissions and excerpts are marked",
-                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of("commentId", identifier), "additionalProperties", false)));
+                            "and pull request; or supply a comment's or finding's id as commentId for its code, evidence and recent discussion. " +
+                            "Omissions and excerpts are marked. " +
+                            "For selected code or saved learning cards, pass nextContextOffset as contextOffset with the same commentId to read the next page",
+                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                            "commentId", identifier,
+                            "contextOffset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", 60_000)), "additionalProperties", false)));
             tools.add(new ToolDefinition(
                     LocalReviewBridge.REPLY_TOOL,
                     "Reply privately to one returned comment or review finding; reuse the operationKey when retrying the same reply",

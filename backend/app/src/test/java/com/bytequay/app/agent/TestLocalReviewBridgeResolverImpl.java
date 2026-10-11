@@ -28,6 +28,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import java.time.Instant;
@@ -70,11 +72,11 @@ class TestLocalReviewBridgeResolverImpl
         LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
         // Not a development task, so nothing here speaks of review findings.
         assertThat(bridge.instruction()).isEqualTo(LocalReviewBridge.INSTRUCTION);
-        JsonNode listed = mapper.readTree(bridge.list().apply(Optional.empty()));
+        JsonNode listed = mapper.readTree(bridge.list().apply(Optional.empty(), 0));
         assertThat(listed.path("comments").get(0).path("id").asText()).isEqualTo("comment-1");
         assertThat(listed.has("findings") || listed.has("omittedFindingCount")).isFalse();
-        assertThat(mapper.readTree(bridge.list().apply(Optional.of("comment-1"))).path("code").asText()).isEqualTo("selected code");
-        assertThatThrownBy(() -> bridge.list().apply(Optional.of("foreign-comment")))
+        assertThat(mapper.readTree(bridge.list().apply(Optional.of("comment-1"), 0)).path("code").asText()).isEqualTo("selected code");
+        assertThatThrownBy(() -> bridge.list().apply(Optional.of("foreign-comment"), 0))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("is available to this task");
         assertThat(mapper.readTree(bridge.reply().apply(new LocalReviewBridge.Reply("comment-1", "Answer", "reply-1"))).path("id").asText()).isEqualTo("comment-1");
         assertThat(mapper.readTree(bridge.resolve().apply(new LocalReviewBridge.Resolution("comment-1", false, "reopen-1"))).has("operations")).isFalse();
@@ -110,7 +112,7 @@ class TestLocalReviewBridgeResolverImpl
 
         LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
         assertThat(bridge.instruction()).isEqualTo(LocalReviewBridge.INSTRUCTION + LocalReviewBridge.FINDINGS_INSTRUCTION);
-        JsonNode listed = mapper.readTree(bridge.list().apply(Optional.empty()));
+        JsonNode listed = mapper.readTree(bridge.list().apply(Optional.empty(), 0));
         assertThat(listed.path("comments")).isEmpty();
         // Open findings come first, and the two F-1 of different reviews stay apart by id and review.
         assertThat(listed.path("findings")).extracting(finding -> finding.path("id").asText()).containsExactly("finding-2", "finding-3", "finding-1");
@@ -128,14 +130,16 @@ class TestLocalReviewBridgeResolverImpl
         assertThat(summary.at("/latestMessage/author").asText()).isEqualTo("DEVELOPER");
         assertThat(summary.has("body") || summary.has("evidence")).isFalse();
 
-        JsonNode detail = mapper.readTree(bridge.list().apply(Optional.of("finding-2")));
+        JsonNode detail = mapper.readTree(bridge.list().apply(Optional.of("finding-2"), 0));
+        assertThatThrownBy(() -> bridge.list().apply(Optional.of("finding-2"), 4000))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("selected code or saved learning cards");
         assertThat(detail.path("body").asText()).isEqualTo("Body of finding-2");
         assertThat(detail.path("code").asText()).isEqualTo("first\nsecond");
         assertThat(detail.at("/evidence/0/excerpt").asText()).isEqualTo("return left == right;");
         assertThat(detail.path("omittedEvidenceCount").intValue()).isZero();
         assertThat(detail.path("messages")).extracting(message -> message.path("author").asText()).containsExactly("USER", "REVIEWER", "DEVELOPER", "DEVELOPER");
         assertThat(detail.path("messages")).extracting(message -> message.path("developer").asText()).containsExactly("", "", "ANOTHER_TASK", "THIS_TASK");
-        assertThat(mapper.readTree(bridge.list().apply(Optional.of("finding-1"))).path("stateReason").asText()).isEqualTo("Reason");
+        assertThat(mapper.readTree(bridge.list().apply(Optional.of("finding-1"), 0)).path("stateReason").asText()).isEqualTo("Reason");
 
         when(service.replyToFindingFromAgent("task-1", "finding-2", "Fixed in abc1234", "reply-1")).thenReturn(Optional.of(discussion.getLast()));
         JsonNode replied = mapper.readTree(bridge.reply().apply(new LocalReviewBridge.Reply("finding-2", "Fixed in abc1234", "reply-1")));
@@ -188,14 +192,14 @@ class TestLocalReviewBridgeResolverImpl
         when(service.findingsForAgent("task-1")).thenReturn(findings);
         LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
 
-        String summary = bridge.list().apply(Optional.empty());
+        String summary = bridge.list().apply(Optional.empty(), 0);
         assertThat(summary.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
         JsonNode listed = mapper.readTree(summary);
         assertThat(listed.path("findings")).isNotEmpty();
         assertThat(listed.path("findings").size() + listed.path("omittedFindingCount").intValue()).isEqualTo(300);
         assertThat(listed.at("/findings/0/latestMessage/bodyTruncated").booleanValue()).isTrue();
 
-        String detail = bridge.list().apply(Optional.of("finding-0"));
+        String detail = bridge.list().apply(Optional.of("finding-0"), 0);
         assertThat(detail.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
         JsonNode read = mapper.readTree(detail);
         assertThat(read.path("bodyTruncated").booleanValue()).isTrue();
@@ -210,7 +214,7 @@ class TestLocalReviewBridgeResolverImpl
         assertThat(read.path("messages").get(read.path("messages").size() - 1).path("id").asText()).isEqualTo("message-199");
         assertThat(read.path("omittedMessageCount").intValue()).isGreaterThan(0);
 
-        String escaped = bridge.list().apply(Optional.of("finding-1"));
+        String escaped = bridge.list().apply(Optional.of("finding-1"), 0);
         assertThat(escaped.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
         assertThat(mapper.readTree(escaped).path("omittedEvidenceCount").intValue()).isEqualTo(60);
         assertThat(mapper.readTree(escaped).path("messages").get(0).path("id").asText()).isEqualTo("message-199");
@@ -232,13 +236,62 @@ class TestLocalReviewBridgeResolverImpl
         when(service.availableForAgent("task-1")).thenReturn(true);
         when(service.listForAgent("task-1")).thenReturn(ImmutableList.of(thread));
         LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
-        var detail = mapper.readTree(bridge.list().apply(Optional.of("learning")));
+        var detail = mapper.readTree(bridge.list().apply(Optional.of("learning"), 0));
         assertThat(detail.at("/learningAnchor/turnId").asText()).isEqualTo("summary-turn");
         assertThat(detail.at("/learningAnchor/body").asText()).isEqualTo("Saved implementation summary");
         assertThat(detail.has("path") || detail.has("number") || detail.has("side") || detail.has("line") || detail.has("code")).isFalse();
-        var listed = mapper.readTree(bridge.list().apply(Optional.empty())).path("comments").get(0);
+        var listed = mapper.readTree(bridge.list().apply(Optional.empty(), 0)).path("comments").get(0);
         assertThat(listed.path("learningAnchor")).isEqualTo(detail.path("learningAnchor"));
         assertThat(listed.has("path")).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void retrievesCompleteSavedContextInBoundedPages(boolean learning)
+            throws Exception
+    {
+        LocalReviewService service = mock(LocalReviewService.class);
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+        beans.registerSingleton("localReviewService", service);
+        LocalReviewBridgeResolverImpl resolver = new LocalReviewBridgeResolverImpl(beans.getBeanProvider(LocalReviewService.class), mapper);
+        String context = "x".repeat(3999) + "\uD83D\uDE80" + "\u0001".repeat(55_999);
+        Optional<LocalReviewLearningAnchor> anchor = learning
+                ? Optional.of(new LocalReviewLearningAnchor("summary-turn", "purpose", "Saved card", context)) : Optional.empty();
+        LocalReviewView thread = new LocalReviewView("comment", "task-1", "workspace-1", "owner/repo", learning ? 0 : 7,
+                learning ? "" : "src/Example.java", "RIGHT", learning ? 0 : 1, learning ? 0 : 2, Optional.empty(), Optional.empty(),
+                learning ? "" : context, false, 1, Instant.EPOCH, Instant.EPOCH, 0, ImmutableList.of(), anchor);
+        when(service.availableForAgent("task-1")).thenReturn(true);
+        when(service.listForAgent("task-1")).thenReturn(ImmutableList.of(thread));
+        LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
+        StringBuilder restored = new StringBuilder();
+        int offset = 0;
+        while (true) {
+            String output = bridge.list().apply(Optional.of("comment"), offset);
+            assertThat(output.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
+            JsonNode page = mapper.readTree(output);
+            String text = page.at(learning ? "/learningAnchor/body" : "/code").asText();
+            assertThat(text.length()).isBetween(1, 4000);
+            assertThat(Character.isHighSurrogate(text.charAt(text.length() - 1)) || Character.isLowSurrogate(text.charAt(0))).isFalse();
+            assertThat(page.path("contextOffset").intValue()).isEqualTo(offset);
+            assertThat(page.path("contextLength").intValue()).isEqualTo(context.length());
+            restored.append(text);
+            if (page.path("nextContextOffset").isNull()) {
+                break;
+            }
+            assertThat(page.path("nextContextOffset").intValue()).isEqualTo(offset + text.length());
+            offset = page.path("nextContextOffset").intValue();
+        }
+        assertThat(restored.toString()).isEqualTo(context);
+        JsonNode end = mapper.readTree(bridge.list().apply(Optional.of("comment"), context.length()));
+        assertThat(end.at(learning ? "/learningAnchor/body" : "/code").asText()).isEmpty();
+        assertThat(end.path("nextContextOffset").isNull()).isTrue();
+        for (int invalid : ImmutableList.of(-1, 4000, context.length() + 1, Integer.MAX_VALUE)) {
+            assertThatThrownBy(() -> bridge.list().apply(Optional.of("comment"), invalid)).isInstanceOf(IllegalArgumentException.class);
+        }
+        assertThatThrownBy(() -> bridge.list().apply(Optional.empty(), 4000)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> bridge.list().apply(Optional.of("foreign-comment"), 0)).isInstanceOf(IllegalArgumentException.class);
+        verify(service, never()).listForAgent("task-2");
     }
 
     @Test
@@ -264,12 +317,12 @@ class TestLocalReviewBridgeResolverImpl
         when(service.replyFromAgent("task-1", "comment-499", "Answer", "reply-1")).thenReturn(threads.getLast());
         LocalReviewBridge bridge = resolver.resolve("task-1").orElseThrow();
 
-        String summary = bridge.list().apply(Optional.empty());
+        String summary = bridge.list().apply(Optional.empty(), 0);
         assertThat(summary.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
         assertThat(mapper.readTree(summary).at("/comments/0/id").asText()).isEqualTo("comment-499");
         assertThat(mapper.readTree(summary).path("omittedCommentCount").intValue()).isGreaterThan(0);
         assertThat(mapper.readTree(summary).at("/comments/0/latestMessage/bodyTruncated").booleanValue()).isTrue();
-        String detail = bridge.list().apply(Optional.of("comment-499"));
+        String detail = bridge.list().apply(Optional.of("comment-499"), 0);
         assertThat(detail.length()).isLessThanOrEqualTo(LocalReviewBridgeResolverImpl.MAXIMUM_OUTPUT_LENGTH);
         assertThat(mapper.readTree(detail).path("codeTruncated").booleanValue()).isTrue();
         assertThat(mapper.readTree(detail).path("omittedMessageCount").intValue()).isGreaterThan(0);

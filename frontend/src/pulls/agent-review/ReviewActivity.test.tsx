@@ -51,7 +51,7 @@ describe('the unified review conversation', () => {
     expect(html).toContain('title="The previous turn failed"');
     expect(render({ review: { ...review, queuePause: null }, onResumeQueue: () => {} })).not.toContain('Resume queue');
   });
-  it('renders saved local discussions in place of their generated context prompt', () => {
+  it('folds saved local discussions and retains the exact generated prompt for inspection', () => {
     const first = events[0];
     const html = render({ localReview: {
       threads: [{ id: 'local-review', taskId: props.review.task.id, taskVersion: 1, workspaceId: props.review.workspaceId,
@@ -64,7 +64,9 @@ describe('the unified review conversation', () => {
     } });
     expect(html).toContain('data-local-review-thread="local-review"');
     expect(html).toContain('Explain this return value');
-    expect(html).not.toContain('Review the authentication change');
+    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+    expect(html).toContain('Review the authentication change');
+    expect(html).not.toContain('class="agt-user__bubble"');
   });
 
   it('shares the walking turtle and preserves reconnect, approval and completion states', () => {

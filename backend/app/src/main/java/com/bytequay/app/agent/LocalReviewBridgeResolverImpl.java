@@ -33,6 +33,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Resolves lazily because the local discussion service also starts turns through the provider drivers. */
@@ -63,7 +64,8 @@ public class LocalReviewBridgeResolverImpl
         // A review task reads its findings through the review tools, so only a development task is told about them here.
         boolean development = service.readsFindings(taskId);
         return Optional.of(new LocalReviewBridge(
-                commentId -> list(taskId, service.listForAgent(taskId), development ? Optional.of(service.findingsForAgent(taskId)) : Optional.empty(), commentId),
+                (commentId, contextOffset) -> list(taskId, service.listForAgent(taskId),
+                        development ? Optional.of(service.findingsForAgent(taskId)) : Optional.empty(), commentId, contextOffset),
                 reply -> service.replyToFindingFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()).map(this::findingReply)
                         .orElseGet(() -> mutation(service.replyFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()))),
                 resolution -> service.resolveFindingFromAgent(taskId, resolution.commentId(), resolution.resolved())
@@ -73,19 +75,30 @@ public class LocalReviewBridgeResolverImpl
                 development ? LocalReviewBridge.INSTRUCTION + LocalReviewBridge.FINDINGS_INSTRUCTION : LocalReviewBridge.INSTRUCTION));
     }
 
-    private String list(String taskId, List<LocalReviewView> threads, Optional<List<AgentFinding>> findings, Optional<String> commentId)
+    private String list(String taskId, List<LocalReviewView> threads, Optional<List<AgentFinding>> findings, Optional<String> commentId, int contextOffset)
     {
+        checkArgument(contextOffset >= 0 && (commentId.isPresent() || contextOffset == 0), "contextOffset requires a selected comment and must be nonnegative");
         if (commentId.isPresent()) {
             Optional<LocalReviewView> selected = threads.stream().filter(value -> value.id().equals(commentId.orElseThrow())).findFirst();
             if (selected.isEmpty()) {
+                checkArgument(contextOffset == 0, "contextOffset is only available for selected code or saved learning cards");
                 return findingDetail(taskId, findings.orElse(ImmutableList.of()).stream().filter(value -> value.finding().id().equals(commentId.orElseThrow())).findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("No local review comment or review finding with this id is available to this task")));
             }
             LocalReviewView thread = selected.orElseThrow();
             ObjectNode result = anchor(thread);
-            if (thread.learningAnchor().isEmpty()) {
-                excerpt(result, "code", thread.code(), 4000);
+            String context = thread.learningAnchor().map(value -> value.body()).orElse(thread.code());
+            checkArgument(contextOffset <= context.length(), "contextOffset exceeds the saved context length");
+            checkArgument(contextOffset == context.length() || !Character.isLowSurrogate(context.charAt(contextOffset)), "contextOffset splits a character");
+            int end = Math.min(contextOffset + 4000, context.length());
+            if (end < context.length() && Character.isLowSurrogate(context.charAt(end))) {
+                end--;
             }
+            ObjectNode target = thread.learningAnchor().isPresent() ? (ObjectNode) result.get("learningAnchor") : result;
+            String field = thread.learningAnchor().isPresent() ? "body" : "code";
+            target.put(field, context.substring(contextOffset, end)).put(field + "Truncated", contextOffset > 0 || end < context.length());
+            result.put("contextOffset", contextOffset).put("contextLength", context.length());
+            result.put("nextContextOffset", end < context.length() ? end : null);
             ArrayNode messages = result.putArray("messages");
             result.put("omittedMessageCount", thread.messages().size());
             // Add newest messages first for the budget, but return the retained conversation in time order.

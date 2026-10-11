@@ -75,7 +75,7 @@ class TestPermissionBroker
     {
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_extra_evidence", "Read more evidence", ImmutableMap.of("type", "object"), arguments -> "evidence")), "Review this PR");
-        LocalReviewBridge local = new LocalReviewBridge(commentId -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
+        LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory",
@@ -308,7 +308,7 @@ class TestPermissionBroker
         List<String> operations = new ArrayList<>();
         AtomicReference<Boolean> available = new AtomicReference<>(true);
         LocalReviewBridge local = new LocalReviewBridge(
-                commentId -> "[{\"id\":\"" + commentId.orElse("comment-1") + "\"}]",
+                (commentId, contextOffset) -> "[{\"id\":\"" + commentId.orElse("comment-1") + "\",\"contextOffset\":" + contextOffset + "}]",
                 reply -> {
                     if (!reply.commentId().equals("comment-1")) {
                         throw new IllegalArgumentException("Comment belongs to another task known-secret");
@@ -364,6 +364,13 @@ class TestPermissionBroker
                     assertThat(localReviewCall(broker, token, LocalReviewBridge.REPLY_TOOL, invalid).at("/error/code").intValue()).isEqualTo(-32602);
                 }
                 assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, "{\"commentId\":\"comment-1\"}").at("/result/content/0/text").textValue()).contains("comment-1");
+                JsonNode page = localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, "{\"commentId\":\"comment-1\",\"contextOffset\":4000}");
+                assertThat(objectMapper.readTree(page.at("/result/content/0/text").textValue()).get(0).path("contextOffset").intValue()).isEqualTo(4000);
+                for (String offset : ImmutableList.of("-1", "60001", "2147483648", "0.5", "null", "\"4000\"")) {
+                    String arguments = "{\"commentId\":\"comment-1\",\"contextOffset\":" + offset + "}";
+                    assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, arguments).at("/error/code").intValue()).isEqualTo(-32602);
+                }
+                assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, "{\"contextOffset\":0}").at("/error/code").intValue()).isEqualTo(-32602);
                 for (String invalid : ImmutableList.of("{\"taskId\":\"task-2\"}", "{\"commentId\":null}", "{\"commentId\":\" \"}", "{\"commentId\":\"comment-1\",\"taskId\":\"task-2\"}")) {
                     assertThat(localReviewCall(broker, token, LocalReviewBridge.LIST_TOOL, invalid).at("/error/code").intValue()).isEqualTo(-32602);
                 }

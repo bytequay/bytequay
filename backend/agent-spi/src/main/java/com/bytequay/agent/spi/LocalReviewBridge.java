@@ -17,6 +17,7 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
@@ -24,7 +25,11 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Fixed private discussion operations available to agents within one development or review task. */
-public record LocalReviewBridge(Function<Optional<String>, String> list, Function<Reply, String> reply, Function<Resolution, String> resolve, String instruction)
+public record LocalReviewBridge(
+        BiFunction<Optional<String>, Integer, String> list,
+        Function<Reply, String> reply,
+        Function<Resolution, String> resolve,
+        String instruction)
 {
     public static final String LIST_TOOL = "list_local_review_comments";
     public static final String REPLY_TOOL = "reply_local_review_comment";
@@ -35,7 +40,9 @@ public record LocalReviewBridge(Function<Optional<String>, String> list, Functio
     public static final String INSTRUCTION = """
             Local review comments are private conversations attached to this task's code changes or saved learning cards.
             Use list_local_review_comments without arguments for bounded unresolved/recent summaries, or pass
-            commentId to read one comment's anchored code or learningAnchor and recent discussion. Output explicitly marks
+            commentId to read one comment's anchored code or learningAnchor and recent discussion. For more selected code or
+            saved card text, pass the returned nextContextOffset as contextOffset with the same commentId until it is null.
+            Context offsets count UTF-16 characters; contextLength is the full saved text length. Output explicitly marks
             omitted comments/messages and truncated excerpts. Use reply_local_review_comment to record
             your answer on that same comment.
             Use resolve_local_review_comment with resolved=true only after answering the question or completing

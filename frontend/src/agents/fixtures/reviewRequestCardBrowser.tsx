@@ -19,10 +19,12 @@ import AgentReviewTab from '../../pulls/agent-review/AgentReviewTab';
 import { reviewRequests } from '../../pulls/agent-review/model';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
 import { findingConversation, findingFixPrompt } from '../../pulls/local-review/conversation';
+import type { LocalReviewMessageDto, LocalReviewThreadDto } from '../../pulls/local-review/types';
 import { TurnView } from '../AgentConversation';
 import { parseAgentTurn } from '../contracts';
 import contracts from './agent-contracts-v1.json';
 import '../../css/base.css';
+import '../../css/pulls.css';
 import '../../css/agents.css';
 import '../../css/agent-review.css';
 import { assert, settle } from '../../fixtures/harness';
@@ -241,4 +243,46 @@ export async function generatedCi(snapshot = false) {
   assert(sent.open && sent.querySelector('.agt-review-request__body')?.textContent === prompt, 'Current and saved CI prompts must remain exactly inspectable');
   assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'CI prompt must fit narrow conversations');
   return { width: innerWidth, snapshot };
+}
+
+export async function localDiscussion(learning = false, snapshot = false) {
+  let mutations = 0;
+  const turn = parseAgentTurn(contracts.turn);
+  const savedContext = 'Saved private context. '.repeat(300);
+  const prompt = snapshot ? 'Historical private discussion instructions.\n' + savedContext
+    : 'Read list_local_review_comments with commentId="local-thread". Keep this discussion private.';
+  const comment: LocalReviewMessageDto = { id: 'question', author: 'USER', body: 'Why is this change needed?', createdAt: '2026-01-01T12:00:00Z',
+    turnId: 'previous-turn', queuedInputId: 'queue', messageEventId: 'local-event', deliveryState: 'COMPLETED', deliveryError: null };
+  const thread: LocalReviewThreadDto = { id: 'local-thread', taskId: turn.taskId, taskVersion: 1, workspaceId: 'workspace', repo: 'acme/demo', number: learning ? 0 : 17,
+    path: learning ? '' : 'src/Example.java', side: 'RIGHT', startLine: learning ? 0 : 12, line: learning ? 0 : 13,
+    baseSha: null, headSha: null, code: learning ? '' : savedContext, resolved: false, version: 1,
+    createdAt: comment.createdAt, updatedAt: comment.createdAt, messages: [comment],
+    ...(learning ? { learningAnchor: { turnId: 'summary-turn', cardId: 'purpose', title: 'What this change does', body: savedContext } } : {}) };
+  flushSync(() => root.render(<TurnView key={`local:${innerWidth}:${learning}:${snapshot}`}
+    turn={{ turnId: turn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+      users: [{ id: 'local-event', text: prompt, attachments: [], delivery: 'QUEUED', at: '' },
+        { id: 'local-steer', text: 'Also explain the edge case.', attachments: [], delivery: 'STEER', at: '' }] }}
+    first={false} open={false} now={0} models={[]} durableTurns={{ [turn.id]: turn }} activityChoice={{}} previews={{}} agentLabels={{}}
+    localReview={{ threads: [thread], onReply: async () => { mutations++; }, onResolve: async () => { mutations++; }, onRetry: async () => { mutations++; } }}
+    onToggle={() => {}} onToggleActivity={() => {}} />));
+  await settle();
+  const request = card();
+  assert(request.innerText.includes(learning ? 'Ask about summary' : 'Ask about review') && request.innerText.includes(comment.body),
+    'The compact local request must show the question and distinguish summaries from code');
+  assert(request.getBoundingClientRect().height <= 130 && !request.innerText.includes(savedContext), 'Saved context must start folded');
+  assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Also explain the edge case.'), 'Unrelated steering must remain visible');
+  toggle().click(); await settle();
+  const sent = request.querySelector<HTMLDetailsElement>('.agt-review-request__prompt');
+  assert(sent !== null && !sent.open && !request.innerText.includes(prompt), 'Opening the discussion must keep machine instructions folded');
+  const saved = request.querySelector<HTMLElement>(learning ? '.lrc-message__body' : '.pr-local-review__snapshot pre');
+  assert(saved !== null && saved.textContent?.trim() === savedContext.trim() && saved.getBoundingClientRect().height > 0,
+    `The saved ${learning ? 'summary' : 'code'} must remain readable`);
+  assert(request.innerText.includes(learning ? 'Private summary discussion' : 'Private code discussion'), 'The discussion must show its private scope');
+  const buttons = Array.from(request.querySelectorAll('button')).filter(button => button.getBoundingClientRect().height > 0).map(button => button.textContent);
+  assert(buttons.includes('Reply') && buttons.includes('Resolve'), 'Private reply and resolution controls must remain available');
+  sent.querySelector('summary')?.click(); await settle();
+  assert(sent.open && sent.querySelector('.agt-review-request__body')?.textContent === prompt, 'The original delivered prompt must remain exactly inspectable');
+  assert(mutations === 0, 'Inspecting the discussion or its prompt must not write or resolve anything');
+  assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Local context must fit narrow conversations');
+  return { width: innerWidth, learning, snapshot };
 }

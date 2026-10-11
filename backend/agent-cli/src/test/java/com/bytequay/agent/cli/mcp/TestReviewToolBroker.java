@@ -112,7 +112,7 @@ class TestReviewToolBroker
             throws Exception
     {
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
-        LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
+        LocalReviewBridge local = new LocalReviewBridge((id, contextOffset) -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> {
@@ -163,7 +163,7 @@ class TestReviewToolBroker
     void reviewSessionsRetainTheirLocalDiscussionToolsForBothProviders()
             throws Exception
     {
-        LocalReviewBridge local = new LocalReviewBridge(id -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
+        LocalReviewBridge local = new LocalReviewBridge((id, contextOffset) -> "[]", reply -> "saved", resolution -> "resolved", LocalReviewBridge.INSTRUCTION);
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
                 taskId -> Optional.of(bridge(new AtomicReference<>())), BridgeResolver.none(), DraftPullRequestPublisher.NONE,

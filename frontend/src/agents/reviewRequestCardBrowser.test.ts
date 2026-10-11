@@ -120,3 +120,20 @@ it('keeps current and historical CI requests compact while preserving the exact 
   });
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
 }, 30_000);
+
+it('keeps private code and learning discussions compact with their exact sent prompts available on demand', async () => {
+  const results = await fixture.run<{ width: number; learning: boolean; snapshot: boolean }[]>({
+    body: `
+      const results = [];
+      for (const width of [760, 320]) {
+        window.setContentSize(width, 900);
+        for (const learning of [false, true]) {
+          for (const snapshot of [false, true]) {
+            results.push(await window.webContents.executeJavaScript('ReviewRequestTests.localDiscussion(' + learning + ', ' + snapshot + ')'));
+          }
+        }
+      }
+    `,
+  });
+  expect(results).toEqual([760, 320].flatMap(width => [false, true].flatMap(learning => [false, true].map(snapshot => ({ width, learning, snapshot })))));
+}, 30_000);

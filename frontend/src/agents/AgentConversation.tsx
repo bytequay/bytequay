@@ -783,9 +783,11 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
           {first && index === 0 && <div className="agt-stamp">{stamp(user.at, now)}</div>}
           {localThread !== undefined && localMessage !== undefined && localReview !== undefined ? (
             <div className="agt-user agt-local-review" data-history-anchor={user.id}>
-              <ReviewRequestCard action={localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about review' : 'Reply to review'}
+              <ReviewRequestCard action={`${localThread.messages.find(message => message.author === 'USER')?.id === localMessage.id ? 'Ask about' : 'Reply to'} ${localThread.learningAnchor ? 'summary' : 'review'}`}
                 topic={localThread.learningAnchor?.title ?? `${localThread.path}:${localThread.side === 'LEFT' ? 'L' : 'R'}${localThread.line}`}
-                body={localMessage.body} onOpen={onOpenReview === undefined ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
+                detail={localThread.learningAnchor ? 'Private summary discussion' : 'Private code discussion'}
+                body={localMessage.body} prompt={user.text}
+                onOpen={onOpenReview === undefined ? undefined : () => onOpenReview({ kind: 'local', threadId: localThread.id })}>
                 <LocalReviewThreadCard {...localReview} thread={localThread} />
               </ReviewRequestCard>
             </div>

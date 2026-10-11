@@ -283,7 +283,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     assert(transcriptCard.textContent?.includes(request.body) === true
       && transcriptCard.querySelector('.pr-local-review__snapshot')?.textContent?.includes(request.code) === true,
     'Task transcript card must show the human comment and its reference code');
-    assert(!host.textContent?.includes(INTERNAL_PROMPT), 'Internal instructions must not appear in the task transcript or queue preview');
+    assert(!host.innerText.includes(INTERNAL_PROMPT), 'Internal instructions must stay hidden until their disclosure is opened, including in the queue preview');
     if (mode === 'unsent') {
       assert(localCard.textContent?.includes('Not sent') === true && localCard.textContent?.includes('Agent unavailable; retry this saved comment') === true,
         'A saved but undispatched comment must visibly offer retry');
@@ -357,7 +357,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       'Private UI must dispatch through the durable local-review endpoint without direct task or GitHub writes');
     flushSync(() => root.unmount()); root = createRoot(host); render(); await settle();
     assert(host.querySelector(`[data-local-review-thread="${request.id}"]`)?.textContent?.includes(request.body) === true
-      && !host.textContent?.includes(INTERNAL_PROMPT), 'Reopening a task must recover local discussion data without exposing internal prompts');
+      && !host.innerText.includes(INTERNAL_PROMPT), 'Reopening a task must recover local discussion data with internal prompts folded');
   }
   finally { flushSync(() => root.unmount()); host.remove(); Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
 }

@@ -45,7 +45,8 @@ describe('Local review conversation projection', () => {
     const review: LocalReviewThreads = { ...actions, threads: [learning], disabledReason: 'Code feedback requires an open pull request.', learningDisabledReason: null };
     const html = render(turn, review);
     expect(html).toContain('Makes the result reusable.');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+    expect(html).toContain('PRIVATE INTERNAL CONTEXT PROMPT');
     expect(html).not.toContain('Code feedback requires an open pull request.');
     expect(html).not.toContain('disabled=""');
     expect(render(turn, { ...review, learningDisabledReason: 'Reconnect to the task.' })).toContain('Reconnect to the task.');
@@ -58,14 +59,16 @@ describe('Local review conversation projection', () => {
     expect(html).toContain('private Result result()');
     expect(html).toContain('src/Example.java:R12–R13');
     expect(html).toContain('class="lrc is-local"');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+    expect(html).toContain('PRIVATE INTERNAL CONTEXT PROMPT');
   });
 
   it('matches queued input by the durable message event even when the current turn association changed', () => {
     const queued = { ...thread, messages: [{ ...thread.messages[0], turnId: 'retry-turn', queuedInputId: 'queue-1', messageEventId: 'event-1' }] };
     const html = render({ ...turn, users: [{ ...turn.users[0], delivery: 'QUEUED' }] }, { ...actions, threads: [queued] });
     expect(html).toContain('Can this method be static?');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+    expect(html).toContain('PRIVATE INTERNAL CONTEXT PROMPT');
   });
 
   it('does not replace an ordinary user request because an agent replied to a local review during that turn', () => {
@@ -80,7 +83,8 @@ describe('Local review conversation projection', () => {
       { ...actions, threads: [thread] });
     expect(html).toContain('Can this method be static?');
     expect(html).toContain('Also run the focused tests');
-    expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+    expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+    expect(html).toContain('PRIVATE INTERNAL CONTEXT PROMPT');
   });
 
   it('rejects malformed ranges and narrows internal storage fields at the desktop boundary', () => {
@@ -101,5 +105,6 @@ it('folds local review replies around the specific saved user message', () => {
   expect(html).toContain('<article class="agt-user__request agt-review-request">');
   expect(html).toContain('>Reply</button>');
   expect(html).toContain('>Resolve</button>');
-  expect(html).not.toContain('PRIVATE INTERNAL CONTEXT PROMPT');
+  expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+  expect(html).toContain('PRIVATE INTERNAL CONTEXT PROMPT');
 });

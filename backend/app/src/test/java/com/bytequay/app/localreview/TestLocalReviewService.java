@@ -184,10 +184,32 @@ class TestLocalReviewService
             assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
-            assertThat(command.message()).contains("reply_local_review_comment", "never quote private feedback in commit messages", "newValue", "User comment:\nPlease fix this");
+            assertThat(command.message()).contains("list_local_review_comments with commentId=", "reply_local_review_comment",
+                    "never quote private feedback in commit messages", "User comment:\nPlease fix this", "locate its current counterpart first")
+                    .doesNotContain("newValue", "Selected code (reference only)");
             accepted.put(command.idempotencyKey(), turn);
             return turn;
         });
+    }
+
+    @Test
+    void leavesLongSelectedCodeInTheSavedThreadAndKeepsTheCompleteQuestion()
+    {
+        String code = "newValue".repeat(7500);
+        String question = ("Please fix this " + "and keep this question intact. ".repeat(400)).strip();
+        doAnswer(call -> {
+            StartAgentTurnCommand command = call.getArgument(0);
+            assertThat(command.message()).contains("list_local_review_comments with commentId=\"thread\"", "contextOffset")
+                    .doesNotContain("newValue").endsWith("User comment:\n" + question);
+            assertThat(command.message().length() - question.length()).isLessThan(1200);
+            assertThat(command.developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+            return turn;
+        }).when(turns).start(any());
+        LocalReviewView saved = service.create(taskId.toString(), "workspace", new LocalReviewService.Create("thread", "message", "owner/repo", 7,
+                "src/Example.java", "RIGHT", 10, 11, Optional.of("a".repeat(40)), Optional.of("b".repeat(40)), code, question, 0), "create");
+        assertThat(saved.code()).isEqualTo(code);
+        assertThat(saved.messages().getFirst().body()).isEqualTo(question);
+        verify(turns).start(any());
     }
 
     @Test
@@ -542,8 +564,9 @@ class TestLocalReviewService
             assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
             assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
-            assertThat(command.message()).contains("Saved card body:\nKeep null values", "reply_local_review_comment", "Do not edit code",
-                    "Never commit, push, or publish", "reference evidence", "User comment:");
+            assertThat(command.message()).contains("list_local_review_comments with commentId=\"learning-thread\"", "reply_local_review_comment", "Do not edit code",
+                    "Never commit, push, or publish", "reference evidence", "User comment:")
+                    .doesNotContain("Keep null values", "Preserve nullable values");
             accepted.put(command.idempotencyKey(), turn);
             return turn;
         }).when(turns).start(any());

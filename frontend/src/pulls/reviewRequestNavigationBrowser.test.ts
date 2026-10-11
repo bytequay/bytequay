@@ -30,5 +30,5 @@ it('opens saved review requests in the matching Summary card in the real PR work
     `,
     timeoutMs: 30_000,
   });
-  expect(results).toHaveLength(4);
+  expect(results).toHaveLength(5);
 }, 40_000);

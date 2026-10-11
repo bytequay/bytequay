@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import ConversationUtilityTab, { type ConversationUtility } from '../../agents/ConversationUtilityTab';
 import { DiscussionsPanel, discussionTurnSummaries } from '../../agents/discussions/DiscussionsPanel';
@@ -43,7 +43,7 @@ export type ReviewConversationPanel = {
 /** Review owns its scoped actions; Tasks owns the shared conversation presentation. */
 export default function ReviewActivity({
   review, events, turns, models, pendingApprovals, now, composer, busy,
-  localReview, onOpenReview, conversationPanel, pendingMessage = null,
+  localReview, onOpenReview, conversationPanel, composerContext, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   reviewSequence = lastSequence,
   onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued, onSteerQueued, onResumeQueue,
@@ -52,6 +52,8 @@ export default function ReviewActivity({
   localReview?: LocalReviewThreads;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   conversationPanel?: ReviewConversationPanel;
+  /** What the conversation is about, shown above the composer the way a development task shows its pull request. */
+  composerContext?: ReactNode;
   events: AgentEventEnvelope[];
   pendingMessage?: PendingMessage | null;
   turns: Record<string, AgentTurnDto>;
@@ -173,6 +175,7 @@ export default function ReviewActivity({
       {recovery && <div className="agt-notice" role="status">
         Recovery required. The last turn ended, but runtime cleanup is unverified. New messages wait until cleanup is verified.
       </div>}
+      {composerContext}
       {review.state !== 'CLOSED' && !recovery && (
         <ConversationComposer
           value={composer} onChange={onCompose} onSend={send} onStop={onStop} onSteer={steer} onQueue={onQueue}

@@ -47,6 +47,7 @@ import { pullRequestDiffRevision, usePullRequestChanges } from './usePullRequest
 import { useRecentTouch } from '../recent/useRecentTouch';
 import { pullRequestItem } from '../home/attention';
 import PinButton from '../home/PinButton';
+import { PullRequestStateIcon } from './PullRequestStateIcon';
 import { completeAttentionVisit, recordAttentionAction, useAttentionVisit } from '../home/useAttentionVisit';
 import { workspaceAgentTaskRoute, workspaceReviewTaskRoute } from '../workspaces/model';
 import TaskPaneDivider, { useTaskPane } from '../agents/TaskPaneDivider';
@@ -1114,6 +1115,11 @@ export default function PullsScreen({
         </header>
         {detail !== null && review !== null ? <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer}
           review={review} onReviewChange={updateReview} mode="conversation" localReview={localReview}
+          composerContext={selectedPr === null ? undefined : <button type="button" className="agt-pr-chip" aria-pressed={paneShown && detailTab === 'overview'}
+            title={`#${selectedPr.number} ${selectedPr.title}`} onClick={() => { setDetailTab('overview'); setPaneOpen(true); }}>
+            <PullRequestStateIcon pullRequest={selectedPr} size={16} />
+            PR <span className="agt-pr-chip__number">#{selectedPr.number}</span>
+          </button>}
           conversationPanel={{ tabTarget: agentTabTarget, bodyTarget: agentBodyTarget, active: detailTab === 'agents' || detailTab === 'discussions' ? detailTab : null,
             onSelect: tab => { setDetailTab(tab); setPaneOpen(true); },
             onClose: tab => { if (detailTab === tab) setDetailTab(coveredAgentTab.current); } }}

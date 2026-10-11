@@ -289,6 +289,13 @@ export async function run(): Promise<string[]> {
       'The separate disclosure must expose the complete user question');
     assert(!replyCard.innerText.includes('review_reply'), 'Expanding the request must keep generated instructions hidden');
     results.push('Repeated clicks, older-run identity and complete user-text disclosure work');
+    const chip = conversation.querySelector<HTMLButtonElement>('.agt-pr-chip');
+    assert(chip !== null && chip.textContent?.includes(`#${review.number}`) === true && chip.getAttribute('aria-pressed') === 'false',
+      'The reviewer conversation must name its pull request above the composer, unpressed while WorkBench shows');
+    chip.click(); await settle();
+    assert(chip.getAttribute('aria-pressed') === 'true' && pane.querySelector('.pull-detail__pr-tab')?.getAttribute('aria-pressed') === 'true',
+      'The pull request chip must show the pull request in the panel');
+    results.push('The pull request chip above the composer opens the pull request');
     return results;
   }
   finally { flushSync(() => root.unmount()); host.remove(); Object.assign(window, { bridge: previous }); }

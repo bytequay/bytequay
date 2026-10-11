@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { usePreparedAgentInput } from '../../agents/preparedInput';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
 import type { ReviewCardFocus, ReviewRequestTarget } from '../../agents/ReviewRequestCard';
@@ -90,6 +90,7 @@ export default function AgentReviewTab({
   onSelectCommit,
   toolbarTarget,
   conversationPanel,
+  composerContext,
 }: {
   detail?: PullRequestDetailDto | null;
   /** The workspace whose managed clone the review runs in; without one there is nothing to check out. */
@@ -104,6 +105,7 @@ export default function AgentReviewTab({
   onOpenReview?: (target: ReviewRequestTarget) => void;
   toolbarTarget?: HTMLElement | null;
   conversationPanel?: ReviewConversationPanel;
+  composerContext?: ReactNode;
   mode?: 'cards' | 'conversation';
   /**
    * Cards on a development task's Summary timeline: the page's own strip and review event carry the status and actions,
@@ -772,6 +774,7 @@ export default function AgentReviewTab({
         <ReviewActivity
           key={review.id}
           conversationPanel={conversationPanel}
+          composerContext={composerContext}
           review={review}
           onOpenReview={onOpenReview}
           localReview={localReview === undefined ? undefined : { ...localReview, threads: localReview.threads.filter(thread => thread.taskId === review.task.id) }}

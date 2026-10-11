@@ -27,6 +27,7 @@ import type { IRange } from '@codingame/monaco-vscode-api/vscode/vs/editor/commo
 import type { DocumentSymbol, LocationLink } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/languages';
 import type { CancellationToken } from '@codingame/monaco-vscode-api/vscode/vs/base/common/cancellation';
 import { parseCodeQuery, queryFailure, workspacePath, type CodeQuery, type CodeQueryItem, type CodeQueryReply } from './codeQuery';
+import { serviceLanguages } from './languages';
 
 function cancelled(token: CancellationToken) {
   if (token.isCancellationRequested) throw new Error('Code query cancelled');
@@ -87,7 +88,7 @@ export async function semanticQuery(workspace: URI, input: CodeQuery, token: Can
     if (items.length < query.limit) items.push(item); else truncated = true;
   };
   try {
-    if (!['java', 'go', 'rust'].includes(language)) return queryFailure('UNSUPPORTED', `Semantic queries are not configured for ${language}. Use file and text search.`);
+    if (!serviceLanguages.includes(language)) return queryFailure('UNSUPPORTED', `Semantic queries are not configured for ${language}. Use file and text search.`);
     if (!model.validatePosition(position).equals(position)) return queryFailure('STALE', 'The requested position is outside the current file. Read the source again.');
     const available = () => {
       switch (query.operation) {

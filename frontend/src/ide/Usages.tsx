@@ -24,6 +24,7 @@ import type { Position } from '@codingame/monaco-vscode-api/vscode/vs/editor/com
 import type { ITextModel } from '@codingame/monaco-vscode-api/vscode/vs/editor/common/model';
 import { ReferencesModel, type OneReference } from '@codingame/monaco-vscode-api/vscode/vs/editor/contrib/gotoSymbol/browser/referencesModel';
 import { fileName, isTestFile } from '../pulls/code-tests/codeModel';
+import { serviceLanguages } from './languages';
 
 type Request = { id: number; editor: ICodeEditor; model: ITextModel; position: Position; name: string; x: number; y: number };
 type Usage = { reference: OneReference; code?: string; start?: number; end?: number; unavailable?: boolean };
@@ -99,7 +100,7 @@ function UsageResults({ request, workspace, onClose }: { request: Request; works
       const [features, models] = await Promise.all([getService(ILanguageFeaturesService), getService(ITextModelService)]);
       if (source.token.isCancellationRequested) return;
       while (!features.referenceProvider.has(request.model)) {
-        if (!['java', 'go', 'rust'].includes(request.model.getLanguageId())) throw new Error('Reference search is not available for this file.');
+        if (!serviceLanguages.includes(request.model.getLanguageId())) throw new Error('Reference search is not available for this file.');
         setWaiting(true);
         await new Promise<void>(resolve => {
           const listeners = new DisposableStore();

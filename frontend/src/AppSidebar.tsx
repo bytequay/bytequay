@@ -34,6 +34,7 @@ import {
 import { workspaceHasReadableCode, type WorkspaceTab } from './workspaces/model';
 import PinButton from './home/PinButton';
 import { useMemoryNeeds } from './memory/needs';
+import { useTasksWaiting } from './agents/attention';
 import { openPinned, usePinnedItems } from './home/pinned';
 
 /** What the sidebar needs to be the settings window's nav. Absent on every other page. */
@@ -142,6 +143,7 @@ export default function AppSidebar({
   }, [pickerOpen]);
   const sidebar = useResizablePane(222, 200, 420);
   const memoryNeeds = useMemoryNeeds(workspace?.id ?? null, workspaceTab) ?? 0;
+  const tasksWaiting = useTasksWaiting(workspace?.id ?? null);
 
   const historyControls = (
     <div className="app-sidebar__history" role="group" aria-label="View history">
@@ -197,7 +199,8 @@ export default function AppSidebar({
       active: workspaceTab === tab || tab === 'issues' && workspaceTab === 'jira',
       disabled: reason !== null,
       title: reason ?? label,
-      badge: tab === 'context' && memoryNeeds > 0 ? { count: memoryNeeds, label: `${memoryNeeds} need you` } : undefined,
+      badge: tab === 'context' && memoryNeeds > 0 ? { count: memoryNeeds, label: `${memoryNeeds} need you` }
+        : tab === 'tasks' && tasksWaiting > 0 ? { count: tasksWaiting, label: `${tasksWaiting} need you` } : undefined,
       onClick: () => onWorkspaceTab(tab),
     });
   };

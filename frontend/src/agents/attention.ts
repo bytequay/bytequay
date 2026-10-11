@@ -234,3 +234,22 @@ export function useTaskAttention(
   }, [bridge, key, laneNames, tick]);
   return { ...state, refresh };
 }
+
+/** How many of a workspace's tasks wait on an answer or approval from the user: zero without a workspace and until the first read lands. */
+export function useTasksWaiting(workspaceId: string | null): number {
+  const [read, setRead] = useState<{ workspaceId: string; count: number } | null>(null);
+  useEffect(() => {
+    if (workspaceId === null) return;
+    let active = true;
+    const load = (): void => {
+      if (document.hidden) return;
+      void Promise.resolve().then(() => window.bridge.listAgentTaskActivity(workspaceId))
+        .then(activity => { if (active) setRead({ workspaceId, count: Object.values(activity).filter(facts => facts.pendingApproval != null).length }); })
+        .catch(() => {});
+    };
+    load();
+    const timer = window.setInterval(load, TASK_ATTENTION_POLL_MS);
+    return () => { active = false; window.clearInterval(timer); };
+  }, [workspaceId]);
+  return read !== null && read.workspaceId === workspaceId ? read.count : 0;
+}

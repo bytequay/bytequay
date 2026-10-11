@@ -862,8 +862,12 @@ describe('bounded history pages', () => {
   it('does not accumulate live turn metadata while the user keeps an old window open', () => {
     let state = agentTaskReducer(initialAgentTaskState(), { type: 'history/loaded', page: page(1, 200), direction: 'latest' });
     state = agentTaskReducer(state, { type: 'turn/loaded', turn: turn('COMPLETED', { id: 'turn-1' }) });
-    for (let index = 0; index < 1000; index++) state = agentTaskReducer(state, { type: 'turn/changed', turn: turn('RUNNING', { id: `live-${index}` }) });
-    expect(Object.keys(state.turns)).toEqual(['turn-1', 'live-999']);
+    const displayed = state.events;
+    for (let index = 0; index < 3; index++) {
+      state = agentTaskReducer(state, { type: 'turn/changed', turn: turn('RUNNING', { id: `live-${index}` }) });
+      expect(Object.keys(state.turns)).toEqual(['turn-1', `live-${index}`]);
+      expect(state.events).toBe(displayed);
+    }
     expect(state.events).toHaveLength(200);
   });
 

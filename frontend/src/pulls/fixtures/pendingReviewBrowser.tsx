@@ -125,7 +125,8 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     const due = polls;
     polls = [];
     for (const callback of due) callback();
-    for (let attempt = 0; attempt < 10; attempt++) await settle();
+    for (let attempt = 0; attempt < 10 && polls.length === 0; attempt++) await settle();
+    assert(polls.length > 0, 'The detail refresh must finish and schedule the next poll');
   };
   try {
     flushSync(() => root.render(<PullsScreen initialPr={{ repo: review.repo, number: review.number }} initialReviewId={review.id}

@@ -45,21 +45,39 @@ export type BrowserFixture = {
   timeoutMs?: number;
 };
 
-/** Builds a fixture as a page, runs it in a headless Electron window, and returns what it printed. */
-export async function runBrowserFixture<T>(fixture: BrowserFixture): Promise<T>
-{
-  const directory = await mkdtemp(join(tmpdir(), fixture.prefix));
+/** One bundle per suite; each run still gets its own Electron process and browser profile. */
+export async function buildBrowserFixture(fixture: BrowserFixture) {
+  const bundle = await mkdtemp(join(tmpdir(), fixture.prefix));
+  const dispose = () => rm(bundle, { recursive: true, force: true });
   try {
     await build({
       configFile: false, logLevel: 'silent', define: { 'process.env.NODE_ENV': '"production"' },
       esbuild: { jsx: 'automatic', jsxDev: false },
-      build: { outDir: directory, emptyOutDir: false, lib: {
+      build: { outDir: bundle, emptyOutDir: false, lib: {
         entry: resolve(fixture.entry), name: fixture.global, formats: ['iife'], fileName: () => 'renderer.js',
       } },
     });
+    return {
+      run: <T>(options: Partial<Omit<BrowserFixture, 'prefix' | 'entry' | 'global'>> = {}) => runBuiltFixture<T>({ ...fixture, ...options }, bundle),
+      dispose,
+    };
+  }
+  catch (error) { await dispose(); throw error; }
+}
+
+/** Builds a one-off fixture and removes its bundle after the browser exits. */
+export async function runBrowserFixture<T>(fixture: BrowserFixture): Promise<T> {
+  const built = await buildBrowserFixture(fixture);
+  try { return await built.run<T>(); }
+  finally { await built.dispose(); }
+}
+
+async function runBuiltFixture<T>(fixture: BrowserFixture, bundle: string): Promise<T> {
+  const directory = await mkdtemp(join(bundle, 'run-'));
+  try {
     const charset = fixture.charset !== false ? '<meta charset="UTF-8">' : '';
-    const styles = fixture.styles === true ? '<link rel="stylesheet" href="style.css">' : '';
-    await writeFile(join(directory, 'index.html'), `<!doctype html>${charset}${styles}<body><script src="renderer.js"></script>`);
+    const styles = fixture.styles === true ? '<link rel="stylesheet" href="../style.css">' : '';
+    await writeFile(join(directory, 'index.html'), `<!doctype html>${charset}${styles}<body><script src="../renderer.js"></script>`);
     if (fixture.preload !== undefined) {
       await writeFile(join(directory, 'preload.cjs'), fixture.preload);
     }

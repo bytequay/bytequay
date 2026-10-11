@@ -13,10 +13,10 @@
  */
 
 import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { runBrowserFixture } from '../fixtures/browserFixture';
 
 it('loads selected PR commits and rejects stale comparison responses in Chromium', async () => {
-  const results = await runBrowserFixture<ScenarioResult[]>({
+  const results = await runBrowserFixture<string[]>({
     prefix: 'bytequay-pull-changes-',
     entry: 'src/pulls/fixtures/pullRequestChangesBrowser.tsx',
     global: 'PullChangesTests',
@@ -27,5 +27,16 @@ it('loads selected PR commits and rejects stale comparison responses in Chromium
       const results = await window.webContents.executeJavaScript('PullChangesTests.run()');
     `,
   });
-  expect(results).toHaveLength(19);
+  expect(results).toEqual([
+    'Select a commit and return to all commits',
+    'Ignore out-of-order comparison responses',
+    'Reset selections across PR and head changes',
+    'Keep failed and invalid comparisons distinct from all commits',
+    'Defer hidden reads until activated',
+    'Select a published commit before first opening Changes',
+    'Reject unavailable commits and allow a valid published range',
+    'Reject removed commits after a force push',
+    'Refresh clears unavailable published commit selection',
+    'Show commit messages without changing the selection',
+  ]);
 }, 30_000);

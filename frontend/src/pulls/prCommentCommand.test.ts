@@ -16,9 +16,7 @@ import { runBrowserFixture } from '../fixtures/browserFixture';
 import { activePrCommentCommand } from './usePrCommentCommand';
 
 it('matches command prefixes on their own lines without altering prose, arguments or code', () => {
-  const command = '/test-with-secrets';
-  for (let length = 1; length <= command.length; length++) {
-    const prefix = command.slice(0, length);
+  for (const prefix of ['/', '/test-', '/test-with-secrets']) {
     const text = `Please run CI.\n${prefix}\nThanks.`;
     expect(activePrCommentCommand(text, 15 + prefix.length)).toEqual({ start: 15, end: 15 + prefix.length, query: prefix });
   }

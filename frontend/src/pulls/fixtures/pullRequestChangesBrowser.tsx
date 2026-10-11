@@ -18,8 +18,9 @@ import { createRoot } from 'react-dom/client';
 import type { Bridge, DiffCommitDto, DiffFileDto } from '../../types';
 import { DiffViewer, type CommitRange } from '../PullChanges';
 import { usePullRequestChanges, type PullRequestChangesSource } from '../usePullRequestChanges';
-import { runAssignedPrActions, runCheckLogs, runListSearch, runMainScreen, runOpenReviewWorkspaceStream, runReviewSheet, runReviewWorkspace, runSelectionStability } from './pullsScreenBrowser';
 import { assert, settle } from '../../fixtures/harness';
+import '../../css/base.css';
+import '../../css/pulls.css';
 
 const file = (filename: string): DiffFileDto => ({ filename, status: 'modified', additions: 1, deletions: 1, patch: '@@ -1 +1 @@\n-old\n+new' });
 const commits: DiffCommitDto[] = ['one', 'two'].map((sha, index): DiffCommitDto => ({ sha, parentSha: index === 0 ? 'base' : 'one', message: sha, author: null, authoredAt: null }));
@@ -323,14 +324,5 @@ export async function run(): Promise<string[]> {
   const completed = await runHook();
   completed.push(...await runDirectCommitSelection());
   completed.push(await runCommitMessages());
-  completed.push(await runMainScreen());
-  completed.push(await runAssignedPrActions());
-  completed.push(await runCheckLogs());
-  completed.push(await runReviewWorkspace());
-  completed.push(await runReviewWorkspace(true));
-  completed.push(await runOpenReviewWorkspaceStream());
-  completed.push(await runReviewSheet());
-  completed.push(await runSelectionStability());
-  completed.push(await runListSearch());
   return completed;
 }

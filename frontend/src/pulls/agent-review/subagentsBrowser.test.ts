@@ -11,13 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../../fixtures/browserFixture';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { buildBrowserFixture } from '../../fixtures/browserFixture';
+
+let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
+beforeAll(async () => {
+  fixture = await buildBrowserFixture({
+    prefix: 'bytequay-subagents-', entry: 'src/pulls/agent-review/fixtures/subagentsBrowser.tsx', global: 'SubagentsTests', styles: true, width: 1550, height: 950,
+  });
+}, 30_000);
+afterAll(() => fixture?.dispose());
 
 it.each([false, true])('opens review subagents and passage discussions in the shared right panel in Chromium (local: %s)', async local => {
-  const result = await runBrowserFixture<string>({ prefix: 'bytequay-review-subagents-',
-    entry: 'src/pulls/agent-review/fixtures/subagentsBrowser.tsx', global: 'SubagentsTests',
-    styles: true, charset: true, width: 1550, height: 950,
+  const result = await fixture.run<string>({
     body: `const results = await window.webContents.executeJavaScript('SubagentsTests.run(${local})');` });
   expect(result).toContain('live, completed and nested subagents');
   expect(result).toContain('selected answers open reusable discussions');

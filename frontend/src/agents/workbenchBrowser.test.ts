@@ -11,25 +11,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { buildBrowserFixture } from '../fixtures/browserFixture';
+
+let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
+beforeAll(async () => {
+  fixture = await buildBrowserFixture({
+    prefix: 'bytequay-workbench-', entry: 'src/agents/fixtures/workbenchBrowser.tsx', global: 'WorkbenchTests', styles: true, width: 1450, height: 950,
+  });
+}, 30_000);
+afterAll(() => fixture?.dispose());
 
 it('keeps local WorkBench views and drafts when switching destinations in Chromium', async () => {
-  const result = await runBrowserFixture<string>({ prefix: 'bytequay-workbench-', entry: 'src/agents/fixtures/workbenchBrowser.tsx',
-    global: 'WorkbenchTests', styles: true, charset: true, width: 1450, height: 950 });
+  const result = await fixture.run<string>();
   expect(result).toContain('unsaved code before a PR exists');
 }, 30_000);
 
 it('opens Discussions from the conversation as a tab that closes in Chromium', async () => {
-  const result = await runBrowserFixture<string>({ prefix: 'bytequay-workbench-utility-', entry: 'src/agents/fixtures/workbenchBrowser.tsx',
-    global: 'WorkbenchTests', styles: true, charset: true, width: 1450, height: 950,
+  const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.utilityTabs()');" });
   expect(result).toContain('closes back to the covered view');
 }, 30_000);
 
 it('keeps the panel tab when switching between a pull request\'s developer and reviewer in Chromium', async () => {
-  const result = await runBrowserFixture<string>({ prefix: 'bytequay-workbench-agents-', entry: 'src/agents/fixtures/workbenchBrowser.tsx',
-    global: 'WorkbenchTests', styles: true, charset: true, width: 1450, height: 950,
+  const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('WorkbenchTests.agentSwitch()');" });
   expect(result).toContain('keeps the panel tab');
 }, 30_000);

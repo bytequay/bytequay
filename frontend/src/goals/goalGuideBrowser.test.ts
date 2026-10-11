@@ -11,25 +11,29 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { buildBrowserFixture } from '../fixtures/browserFixture';
+
+let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
+beforeAll(async () => {
+  fixture = await buildBrowserFixture({
+    prefix: 'bytequay-goalGuide-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, width: 1200, height: 900,
+  });
+}, 30_000);
+afterAll(() => fixture?.dispose());
 
 it('colors numbers, resolves inline titles, and previews and zooms Goal references', async () => {
-  expect(await runBrowserFixture<boolean>({
-    prefix: 'bytequay-goal-references-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 1200, height: 900,
+  expect(await fixture.run<boolean>({
     body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.references()');",
   })).toBe(true);
 }, 30_000);
 
 it('clarifies a goal from free text and a suggested answer to an accepted definition', async () => {
-  expect(await runBrowserFixture<boolean>({
-    prefix: 'bytequay-goal-guide-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 1200, height: 900,
-  })).toBe(true);
+  expect(await fixture.run<boolean>()).toBe(true);
 }, 30_000);
 
 it('guides an unsure user by suggested answers alone, by keyboard, in a narrow window', async () => {
-  expect(await runBrowserFixture<boolean>({
-    prefix: 'bytequay-goal-unsure-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 380, height: 760,
+  expect(await fixture.run<boolean>({ width: 380, height: 760,
     preload: `const { contextBridge, ipcRenderer } = require('electron');
       contextBridge.exposeInMainWorld('goalKeys', (keys) => ipcRenderer.invoke('goal-keys', keys));`,
     setup: `ipcMain.handle('goal-keys', (_event, keys) => {
@@ -44,8 +48,7 @@ it('guides an unsure user by suggested answers alone, by keyboard, in a narrow w
 }, 30_000);
 
 it('walks the reference journey from a vague Iceberg goal to a merged pull request on its work', async () => {
-  expect(await runBrowserFixture<boolean>({
-    prefix: 'bytequay-goal-reference-', entry: 'src/goals/fixtures/goalGuideBrowser.tsx', global: 'GoalGuideTests', styles: true, charset: true, width: 1200, height: 900,
+  expect(await fixture.run<boolean>({
     body: "const results = await window.webContents.executeJavaScript('GoalGuideTests.reference()');",
   })).toBe(true);
 }, 60_000);

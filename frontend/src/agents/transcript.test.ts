@@ -207,12 +207,12 @@ describe('projecting the transcript', () => {
       command('COMPLETED', { argv: ['rg TODO src; rg TODO src'], actions: [search, search], exitCode: 0 }, { itemId: 'exec-2' }),
     ];
 
-    for (const length of [1, 2, 3, 4]) {
+    for (const length of [1, 2, 3]) {
       const block = projectTranscript(events.slice(0, length))[0].blocks[0] as ActivityBlock;
       expect(block.members[0]).toMatchObject({ command: argv[0], actions: [read] });
     }
     const block = projectTranscript(events)[0].blocks[0] as ActivityBlock;
-    expect(block.members[0]).toMatchObject({ output: 'all three ranges', exitCode: 0 });
+    expect(block.members[0]).toMatchObject({ command: argv[0], actions: [read], output: 'all three ranges', exitCode: 0 });
     expect(block.members[1]).toMatchObject({ actions: [search] });
     expect(activitySummary(block.members)).toBe('Read 1 file and ran 1 search');
     expect(events[0].payload).toMatchObject({ actions: [read, read, read] });

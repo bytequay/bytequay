@@ -12,13 +12,19 @@
  * limitations under the License.
  */
 
-import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { buildBrowserFixture } from '../fixtures/browserFixture';
+
+let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
+beforeAll(async () => {
+  fixture = await buildBrowserFixture({
+    prefix: 'bytequay-worktreeSync-', entry: 'src/pulls/code-tests/fixtures/worktreeSyncBrowser.tsx', global: 'WorktreeSyncTests', styles: true, width: 1100, height: 900,
+  });
+}, 30_000);
+afterAll(() => fixture?.dispose());
 
 it('creates an exploration worktree on demand and opens it without starting a review', async () => {
-  const result = await runBrowserFixture<string>({ prefix: 'bytequay-worktree-explore-',
-    entry: 'src/pulls/code-tests/fixtures/worktreeSyncBrowser.tsx', global: 'WorktreeSyncTests',
-    styles: true, charset: true, width: 1100, height: 900,
+  const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('WorktreeSyncTests.runExploration()');" });
   expect(result).toContain('opens the prepared checkout');
 }, 30_000);

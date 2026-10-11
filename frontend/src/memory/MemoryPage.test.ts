@@ -11,25 +11,30 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { buildBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+
+let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
+beforeAll(async () => {
+  fixture = await buildBrowserFixture({
+    prefix: 'bytequay-Memory-', entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, width: 1100, height: 750,
+  });
+}, 30_000);
+afterAll(() => fixture?.dispose());
 
 it('switches memory sections without stacking content or losing filters', async () => {
-  const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-memory-tabs-',
-    entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 750 });
+  const results = await fixture.run<ScenarioResult[]>();
   expect(results).toEqual([{ name: 'Memory section navigation, filters, scrolling and spec entry' }]);
 }, 30_000);
 
 it('finds one closed pull request by number or title words and learns from it only on Learn', async () => {
-  const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-memory-learn-one-',
-    entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 750,
+  const results = await fixture.run<ScenarioResult[]>({
     body: 'const results = await window.webContents.executeJavaScript("MemoryPageTests.runLearnOne()");' });
   expect(results).toEqual([{ name: 'Find one closed pull request by number or title words and learn from it' }]);
 }, 30_000);
 
 it('shows confirmed findings on the page and opens their retained local work', async () => {
-  const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-spec-findings-',
-    entry: 'src/memory/fixtures/memoryPageBrowser.tsx', global: 'MemoryPageTests', styles: true, charset: true, width: 1100, height: 900,
+  const results = await fixture.run<ScenarioResult[]>({ height: 900,
     body: 'const results = await window.webContents.executeJavaScript("MemoryPageTests.runFindings()");' });
   expect(results).toEqual([{ name: 'Inline spec findings and retained local work' }]);
 }, 30_000);

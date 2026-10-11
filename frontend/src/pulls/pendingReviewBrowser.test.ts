@@ -12,24 +12,24 @@
  * limitations under the License.
  */
 
-import { expect, it } from 'vitest';
-import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { buildBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
+
+let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
+beforeAll(async () => {
+  fixture = await buildBrowserFixture({
+    prefix: 'bytequay-pendingReview-', entry: 'src/pulls/fixtures/pendingReviewBrowser.tsx', global: 'PendingReviewTests', styles: true,
+  });
+}, 30_000);
+afterAll(() => fixture?.dispose());
 
 it('keeps and edits staged review comments across panel tabs in Chromium', async () => {
-  const results = await runBrowserFixture<ScenarioResult[]>({
-    prefix: 'bytequay-pending-review-',
-    entry: 'src/pulls/fixtures/pendingReviewBrowser.tsx',
-    global: 'PendingReviewTests',
-    styles: true,
-    charset: true,
-  });
-  expect(results.filter(result => result.error !== undefined)).toEqual([]);
+  const results = await fixture.run<ScenarioResult[]>();
+  expect(results).toEqual([{ name: 'A staged review lasts as long as the pull request page' }]);
 }, 40_000);
 
 it('edits saved review comments with validation, retry and explicit publication in Chromium', async () => {
-  const result = await runBrowserFixture<string>({
-    prefix: 'bytequay-review-comment-edit-', entry: 'src/pulls/fixtures/pendingReviewBrowser.tsx', global: 'PendingReviewTests',
-    styles: true, charset: true,
+  const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('PendingReviewTests.runDraftCommentEdit()');",
   });
   expect(result).toContain('Saved draft comments support editing');

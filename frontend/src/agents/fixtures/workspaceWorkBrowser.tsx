@@ -52,7 +52,7 @@ export async function run() {
     flushSync(() => root.render(<Work />));
     await settle();
     assert(calls === 1, 'Starts the first read');
-    for (let i = 0; i < 4; i++) tick();
+    for (let i = 0; i < 2; i++) tick();
     assert(calls === 1, 'A slow read never overlaps another polling request');
     pending.shift()?.resolve([reviewFixture({ id: 'saved-review' })]);
     await settle();

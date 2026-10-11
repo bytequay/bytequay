@@ -12,12 +12,19 @@
  * limitations under the License.
  */
 
-import { expect, it } from 'vitest';
-import { runBrowserFixture } from '../fixtures/browserFixture';
+import { afterAll, beforeAll, expect, it } from 'vitest';
+import { buildBrowserFixture } from '../fixtures/browserFixture';
+
+let fixture: Awaited<ReturnType<typeof buildBrowserFixture>>;
+beforeAll(async () => {
+  fixture = await buildBrowserFixture({
+    prefix: 'bytequay-reviewRequestCard-', entry: 'src/agents/fixtures/reviewRequestCardBrowser.tsx', global: 'ReviewRequestTests', styles: true,
+  });
+}, 30_000);
+afterAll(() => fixture?.dispose());
 
 it('folds saved developer fix prompts and opens their original findings, including queued steering', async () => {
-  const results = await runBrowserFixture<{ width: number; delivery: string }[]>({
-    prefix: 'bytequay-review-fix-', entry: 'src/agents/fixtures/reviewRequestCardBrowser.tsx', global: 'ReviewRequestTests', styles: true,
+  const results = await fixture.run<{ width: number; delivery: string }[]>({
     body: `
       const results = [];
       for (const width of [760, 320]) {
@@ -33,12 +40,7 @@ it('folds saved developer fix prompts and opens their original findings, includi
 }, 30_000);
 
 it('discloses complete review requests with keyboard and pointer without overflow or side effects in Chromium', async () => {
-  const results = await runBrowserFixture<{ width: number; open: boolean }[]>({
-    prefix: 'bytequay-review-requests-',
-    entry: 'src/agents/fixtures/reviewRequestCardBrowser.tsx',
-    global: 'ReviewRequestTests',
-    styles: true,
-    charset: true,
+  const results = await fixture.run<{ width: number; open: boolean }[]>({
     setup: `
       let navigations = 0;
       window.webContents.on('will-navigate', event => { event.preventDefault(); navigations++; });
@@ -75,12 +77,7 @@ it('discloses complete review requests with keyboard and pointer without overflo
 }, 30_000);
 
 it('folds generated summary prompts into compact request cards with complete expandable instructions', async () => {
-  const results = await runBrowserFixture<{ width: number; compact: boolean }[]>({
-    prefix: 'bytequay-generated-requests-',
-    entry: 'src/agents/fixtures/reviewRequestCardBrowser.tsx',
-    global: 'ReviewRequestTests',
-    styles: true,
-    charset: true,
+  const results = await fixture.run<{ width: number; compact: boolean }[]>({
     body: `
       const results = [];
       for (const width of [760, 320]) {

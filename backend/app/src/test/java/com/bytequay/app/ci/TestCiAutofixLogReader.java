@@ -18,7 +18,6 @@ import com.bytequay.agent.core.AgentEventPayload;
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentEventSource;
 import com.bytequay.agent.core.AgentHistoryPage;
-import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.BlobRef;
 import com.bytequay.agent.core.EventId;
 import com.bytequay.agent.core.TaskId;
@@ -60,7 +59,7 @@ class TestCiAutofixLogReader
     void readsTheTurnsOwnLatestAnswerNewestFirst()
     {
         AgentEventService events = mock(AgentEventService.class);
-        CiAutofixLogReader reader = new CiAutofixLogReader(mock(GitHubActionsClient.class), mock(AgentResourceService.class), events);
+        CiAutofixLogReader reader = new CiAutofixLogReader(mock(GitHubActionsClient.class), events);
         TaskId taskId = TaskId.random();
         TurnId turnId = TurnId.random();
         AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(),
@@ -86,7 +85,7 @@ class TestCiAutofixLogReader
             throws Exception
     {
         GitHubActionsClient gitHub = mock(GitHubActionsClient.class);
-        CiAutofixLogReader reader = new CiAutofixLogReader(gitHub, mock(AgentResourceService.class), mock(AgentEventService.class));
+        CiAutofixLogReader reader = new CiAutofixLogReader(gitHub, mock(AgentEventService.class));
         TaskId taskId = TaskId.random();
         CiHeadSnapshot snapshot = snapshot();
         CountDownLatch entered = new CountDownLatch(4);
@@ -140,8 +139,9 @@ class TestCiAutofixLogReader
 
         CiAutofixAttempt attempt = CiAutofixAttempt.create(CiAutofixAttemptId.random(), CiAutofixRunId.random(), 1, HEAD_SHA, failures, Instant.EPOCH);
         assertThat(new CiAutofixPromptBuilder().build(snapshot, attempt))
-                .contains("log unavailable: GitHub returned HTTP 404", "2 additional failed jobs omitted", "CI log excerpts",
-                        "every original line and stack frame", "last 32 KiB", "read_pull_request_ci", "read_ci_raw_log", "untrusted evidence");
+                .hasSizeLessThan(2600)
+                .contains("read_pull_request_ci", "read_ci_raw_log", "untrusted evidence")
+                .doesNotContain("GitHub returned HTTP 404", "Job 2", "Failed jobs:", "workflow run");
     }
 
     private static BoundedCiLog log(long jobId)

@@ -1580,7 +1580,7 @@ public class DefaultCiAutofixService
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 task.id(),
                 promptBuilder.build(snapshot, attempt),
-                logReader.attachments(task.id(), attempt.failures()),
+                ImmutableList.of(),
                 attempt.id().toString()));
         return store.update(run.linkAttemptTurn(attempt.id(), turn.id().toString(), Instant.now(clock)));
     }

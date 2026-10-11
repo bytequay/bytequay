@@ -30,6 +30,7 @@ import { MEMORY_CHANGED } from '../memory/model';
 import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto } from '../types';
 import { AgentMark } from './AgentMark';
 import { developmentTurnRequest,draftPullRequestRequest } from './DevelopmentFacts';
+import { ciAutofixRequest } from './ciAutofix';
 import type { AgentEventEnvelope } from './events';
 import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
@@ -744,6 +745,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
   const opening = turn.users[0];
   const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) : null;
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
+  const ciRequest = opening?.delivery === 'TURN' ? ciAutofixRequest(durable, opening.text) : null;
   // Legacy source responses lack the ID; ordinal 1 is known only when history includes its beginning.
   const jiraRequest = jiraSource != null && turn.turnId != null && (jiraSource.initialTurnId != null
     ? turn.turnId === jiraSource.initialTurnId : first && turn.ordinal === 1);
@@ -792,6 +794,13 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
                   <summary>Prompt sent to agent</summary>
                   <div className="agt-review-request__body">{renderMarkdown(user.text, repository, true)}</div>
                 </details>
+              </ReviewRequestCard>
+            ) : index === 0 && ciRequest !== null ? (
+              <ReviewRequestCard {...ciRequest} prompt={user.text}>
+                <div className="agt-review-request__body">{ciRequest.body}</div>
+                {user.attachments.length > 0 && <div className="agt-user__files">
+                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+                </div>}
               </ReviewRequestCard>
             ) : index === 0 && request !== null ? (
               <div className="agt-user__request">

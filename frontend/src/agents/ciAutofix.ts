@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 
-import type { AgentDevelopmentCiDto } from '../types';
+import type { AgentDevelopmentCiDto, AgentTurnDto } from '../types';
 import { runtimeStatus, type AgentTaskState } from './model';
 
 export function ciActivity(ci: Pick<AgentDevelopmentCiDto, 'status' | 'activity' | 'attemptsUsed' | 'maxAttempts' | 'finishReason' | 'canMessage'>): string {
@@ -61,4 +61,17 @@ export function ciMessageUnavailable(state: AgentTaskState): string | null {
   if (!message) return 'Add a message with @ci.';
   if (message.length > 16_384) return 'CI Autofix messages must be 16,384 characters or fewer.';
   return null;
+}
+
+/** Only the CI task's opening template is folded; user replies and steering remain ordinary messages. */
+export function ciAutofixRequest(turn: AgentTurnDto | undefined, text: string) {
+  if (turn?.settings?.permissionPolicy !== 'CI_AUTOFIX') return null;
+  const repository = /^Verified current CI context:\n- Pull request: ([^\s#]+\/[^\s#]+#[1-9]\d*)\n/.exec(text)?.[1];
+  if (repository === undefined) return null;
+  return {
+    action: 'ByteQuay · Fix CI',
+    topic: repository,
+    body: 'Investigate failed checks, repair their cause and run useful local checks.',
+    detail: 'ByteQuay verifies repairs and handles authorized publication.',
+  };
 }

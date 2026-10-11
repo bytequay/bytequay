@@ -217,3 +217,28 @@ export async function generatedReview(snapshot = false) {
   assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded review prompt must fit narrow conversations');
   return { width: innerWidth, snapshot };
 }
+
+export async function generatedCi(snapshot = false) {
+  const prompt = 'Verified current CI context:\n- Pull request: acme/demo#17\n- Remote head: ' + 'a'.repeat(40)
+    + (snapshot ? '\nSaved job evidence '.repeat(1500) : '\nRead read_pull_request_ci for current failures.');
+  const turn = parseAgentTurn({ ...contracts.turn, settings: { ...contracts.turn.settings, permissionPolicy: 'CI_AUTOFIX' } });
+  flushSync(() => root.render(<TurnView key={`ci:${innerWidth}:${snapshot}`}
+    turn={{ turnId: turn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+      users: [{ id: 'generated-ci', text: prompt, attachments: [], delivery: 'TURN', at: '' },
+        { id: 'ci-steer', text: 'Keep the compatibility fix.', attachments: [], delivery: 'STEER', at: '' }] }}
+    first={false} open={false} now={0} models={[]} durableTurns={{ [turn.id]: turn }} activityChoice={{}} previews={{}} agentLabels={{}}
+    onToggle={() => {}} onToggleActivity={() => {}} />));
+  await settle();
+  const request = card();
+  assert(request.innerText.includes('ByteQuay · Fix CI') && request.innerText.includes('acme/demo#17'), 'CI card must name the repair and PR');
+  assert(request.getBoundingClientRect().height <= 130 && !request.innerText.includes('Remote head:'), 'CI request must start compact');
+  assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Keep the compatibility fix.'), 'User steering must remain visible');
+  toggle().click(); await settle();
+  const sent = request.querySelector<HTMLDetailsElement>('.agt-review-request__prompt');
+  assert(sent !== null && !sent.open && !request.innerText.includes('Remote head:'), 'Machine details must stay folded when the card opens');
+  assert(request.innerText.includes('ByteQuay verifies repairs and handles authorized publication.'), 'Expanded details must explain publication ownership');
+  sent.querySelector('summary')?.click(); await settle();
+  assert(sent.open && sent.querySelector('.agt-review-request__body')?.textContent === prompt, 'Current and saved CI prompts must remain exactly inspectable');
+  assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'CI prompt must fit narrow conversations');
+  return { width: innerWidth, snapshot };
+}

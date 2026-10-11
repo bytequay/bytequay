@@ -460,10 +460,10 @@ class TestCiAutofixEndToEnd
                 .runtimeDirectory()
                 .resolve(initial.attempts().getFirst().failures().getFirst().log().orElseThrow().path());
         assertThat(Files.readString(log)).isEqualTo(CiAutofixE2eHarness.RAW_COMPILE_LOG);
-        Path realLog = log.toRealPath();
-        assertThat(agent.turns()).singleElement().satisfies(turn ->
-                assertThat(turn.attachments()).singleElement().satisfies(attachment ->
-                        assertThat(attachment.path()).isEqualTo(realLog)));
+        assertThat(agent.turns()).singleElement().satisfies(turn -> {
+            assertThat(turn.attachments()).isEmpty();
+            assertThat(turn.message()).contains("read_pull_request_ci", "read_ci_raw_log").doesNotContain(CiAutofixE2eHarness.RAW_COMPILE_LOG);
+        });
         assertThat(gitHub.logCalls()).hasSize(1);
         assertThat(initial.attempts()).hasSize(1);
 

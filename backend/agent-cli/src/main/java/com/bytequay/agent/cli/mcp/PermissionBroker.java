@@ -1431,8 +1431,17 @@ public final class PermissionBroker
         });
         if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::proposeDescription).isPresent()) {
             tools.add(new ToolDefinition(CiDescriptionProposal.TOOL_NAME,
-                    "Propose a minimal PR-description repair for a current failed job. Read the complete description first. " +
-                            "ByteQuay applies it after the turn and verifies a new check",
+                    """
+                    Propose a minimal PR-description repair for a current failed job. Call read_pull_request_ci
+                    without arguments for the description; if descriptionTruncated is true, do not propose a partial body.
+                    Supply the failed jobId, the exact description as expectedBody, and the complete corrected body.
+                    Change only what the check requires; preserve release notes, user restrictions and other change details.
+                    Never include local execution details: commands, test runs or counts, pass/fail results, build or
+                    validation outcomes, logs or environment limitations. Omit these even if already present, including
+                    in a test-plan section; report them only in the task conversation.
+                    This saves a proposal. ByteQuay applies it after the turn and verifies a new check. It grants no
+                    shell/API write access. Do not rerun the old event yourself.
+                    """,
                     ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
                             "jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE),
                             "expectedBody", ImmutableMap.of("type", "string", "maxLength", 60_000),
@@ -1441,8 +1450,14 @@ public final class PermissionBroker
         }
         if (context.scope().policy() == AgentPermissionPolicy.CI_AUTOFIX && context.pullRequestCi().flatMap(PullRequestCiBridge::requestRerun).isPresent()) {
             tools.add(new ToolDefinition(PullRequestCiBridge.RERUN_TOOL_NAME,
-                    "Request one failed-job rerun only after diagnosing evidence of a flaky test or transient infrastructure failure. " +
-                            "Give the current failed jobId and an evidence-based reason; repair deterministic failures instead",
+                    """
+                    Request one failed-job rerun only after diagnosing evidence of a flaky test or transient infrastructure failure.
+                    Supply a current failed jobId and a reason citing that evidence. A clean worktree or inability to reproduce
+                    does not establish flakiness. Repair deterministic failures such as description validation, compilation or
+                    reproducible assertions instead. This saves an assessment for ByteQuay to consider after the turn, without
+                    directly rerunning anything. Each accepted request allows one rerun of that workflow's failed jobs.
+                    After a failed rerun, diagnose the new evidence and repair the cause; explain any unrepairable blocker.
+                    """,
                     ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
                             "jobId", ImmutableMap.of("type", "integer", "minimum", 1, "maximum", Long.MAX_VALUE),
                             "reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000)),

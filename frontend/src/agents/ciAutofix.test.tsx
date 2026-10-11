@@ -15,8 +15,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { expect, it } from 'vitest';
 import type { AgentTaskDto } from '../types';
-import { ciActivity, ciMessage, ciMessageUnavailable } from './ciAutofix';
-import { parseAgentDevelopmentCi, parseAgentTask, parseCiAutofixRun } from './contracts';
+import { ciActivity, ciAutofixRequest, ciMessage, ciMessageUnavailable } from './ciAutofix';
+import { parseAgentDevelopmentCi, parseAgentTask, parseAgentTurn, parseCiAutofixRun } from './contracts';
 import { AgentTaskBody } from './AgentTaskScreen';
 import { initialAgentTaskState, type AgentTaskState } from './model';
 import { CI_PROJECTION, CI_RUN } from './fixtures/ciAutofix';
@@ -97,4 +97,16 @@ it('allows steering the linked CI turn using its own provider capability', () =>
   ]) {
     expect(ciMessageUnavailable({ ...active, task: { ...paused.task, developmentCi: { ...CI_PROJECTION, ...ci } } })).not.toBeNull();
   }
+});
+
+it('folds only a saved CI turn’s generated opening request', () => {
+  const turn = parseAgentTurn(contracts.turn);
+  const ciTurn = { ...turn, settings: { ...contracts.turn.settings, permissionPolicy: 'CI_AUTOFIX' } };
+  const prompt = 'Verified current CI context:\n- Pull request: acme/demo#17\n- Remote head: ' + 'a'.repeat(40);
+  expect(ciAutofixRequest(ciTurn, prompt)).toMatchObject({ action: 'ByteQuay · Fix CI', topic: 'acme/demo#17' });
+  expect(ciAutofixRequest(turn, prompt)).toBeNull();
+  expect(ciAutofixRequest(undefined, prompt)).toBeNull();
+  expect(ciAutofixRequest(ciTurn, 'Please retry the failing check')).toBeNull();
+  expect(ciAutofixRequest(ciTurn, 'Explain this request:\n' + prompt)).toBeNull();
+  expect(ciAutofixRequest(ciTurn, prompt.replace('acme/demo#17', 'arbitrary text'))).toBeNull();
 });

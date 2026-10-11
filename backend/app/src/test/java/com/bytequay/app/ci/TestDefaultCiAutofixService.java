@@ -22,7 +22,6 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentHistoryPage;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
-import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -52,7 +51,6 @@ import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
-import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentCapabilities;
 import com.bytequay.agent.spi.AgentDriver;
 import com.bytequay.agent.spi.AgentDriverRegistry;
@@ -161,7 +159,6 @@ class TestDefaultCiAutofixService
     private WorktreeService worktreeService;
     private WorkspaceRepositoryService workspaces;
     private WorkspaceProvisioningService provisioning;
-    private AgentResourceService resourceService;
     private AgentEventService eventService;
     private CiAutofixLogReader logReader;
     private CiMemoryService memoryService;
@@ -198,7 +195,6 @@ class TestDefaultCiAutofixService
         worktreeService = mock(WorktreeService.class);
         workspaces = mock(WorkspaceRepositoryService.class);
         provisioning = mock(WorkspaceProvisioningService.class);
-        resourceService = mock(AgentResourceService.class);
         eventService = mock(AgentEventService.class);
         memoryService = mock(CiMemoryService.class);
         gitService = mock(CiGitService.class);
@@ -288,9 +284,8 @@ class TestDefaultCiAutofixService
         });
         when(gitService.removeSynchronizedBase(any())).thenReturn(true);
         when(rebaseService.start(any())).thenAnswer(invocation -> completedRebase(invocation.getArgument(0)));
-        when(resourceService.require(any())).thenReturn(resources);
         when(eventService.readAfter(any(), any(Long.class), any(Integer.class))).thenReturn(ImmutableList.of());
-        logReader = new CiAutofixLogReader(gitHub, resourceService, eventService);
+        logReader = new CiAutofixLogReader(gitHub, eventService);
 
         recoveryRequests = new AtomicInteger();
         recovery = new ObjectProvider<>()
@@ -329,8 +324,7 @@ class TestDefaultCiAutofixService
     }
 
     @Test
-    void startsOneDurableTaskAndTurnWithTheLockedPromptAndLogAttachment()
-            throws Exception
+    void startsOneDurableTaskAndTurnWithFrozenRevisionsAndEvidenceReadThroughTools()
     {
         CiAutofixRun run = service.start(startCommand("start-1"));
 
@@ -358,20 +352,17 @@ class TestDefaultCiAutofixService
                 .contains("- Remote head: " + HEAD + " (feature)")
                 .contains("- Prepared local head: " + HEAD)
                 .contains("- Base: " + BASE + " (main)")
-                .contains("Build / compile failed at Compile")
-                .contains("call read_ci_memory")
-                .contains("Fix compile, type-check, dependency, or build failures before downstream test")
-                .contains("Do not fetch, update, or rebase onto the target branch")
-                .contains("Commit the repair as \"fixup! <target subject>\"")
-                .contains("ByteQuay does not parse it");
-        Path expectedAttachment = resources.blobsDirectory().resolve("ci.log").toRealPath();
-        assertThat(turn.getValue().attachments()).singleElement().satisfies(attachment -> {
-            assertThat(attachment.name()).isEqualTo("github-actions-job-200-attempt-1.log");
-            assertThat(attachment.mediaType()).isEqualTo("text/plain");
-            assertThat(attachment.path()).isEqualTo(expectedAttachment);
+                .contains("read_pull_request_ci", "read_ci_raw_log", "read_ci_memory")
+                .contains("compile, type-check, dependency and build errors before downstream tests")
+                .contains("Do not fetch, update, or rebase")
+                .contains("Commit repairs as \"fixup! <target subject>\"")
+                .contains("at most one fixup", "Never push", "final answer is not parsed")
+                .doesNotContain("Build / compile failed at Compile", "workflow run", "error: cannot find symbol");
+        assertThat(turn.getValue().attachments()).isEmpty();
+        assertThat(run.attempts().getFirst().failures()).singleElement().satisfies(failure -> {
+            assertThat(failure.summary()).contains("Build / compile failed at Compile");
+            assertThat(failure.log()).isPresent();
         });
-        assertThat(turn.getValue().attachments()).extracting(AgentAttachment::path)
-                .noneMatch(path -> path.getFileName().toString().equals("ci-memory.md"));
         verify(gitHub, never()).rerunFailedJobs(any());
         assertThat(service.get(run.id())).isEqualTo(run);
         assertThat(service.list(10)).containsExactly(run);
@@ -406,7 +397,8 @@ class TestDefaultCiAutofixService
         ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(turnService).start(turn.capture());
         assertThat(turn.getValue().attachments()).isEmpty();
-        assertThat(turn.getValue().message()).contains("Build / compile failed at Compile", "log download failed after one retry", "not evidence that a check passed");
+        assertThat(turn.getValue().message()).contains("read_pull_request_ci", "missing or omitted logs do not mean success")
+                .doesNotContain("Build / compile failed at Compile", "log download failed after one retry");
         verify(gitHub, never()).rerunFailedJobs(any());
     }
 

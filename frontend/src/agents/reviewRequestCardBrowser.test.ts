@@ -105,3 +105,18 @@ it('keeps current and historical review prompts behind a separate disclosure', a
   });
   expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
 }, 30_000);
+
+it('keeps current and historical CI requests compact while preserving the exact prompt and user steering', async () => {
+  const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
+    body: `
+      const results = [];
+      for (const width of [760, 320]) {
+        window.setContentSize(width, 900);
+        for (const snapshot of [false, true]) {
+          results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedCi(' + snapshot + ')'));
+        }
+      }
+    `,
+  });
+  expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
+}, 30_000);

@@ -225,7 +225,10 @@ class TestPullRequestCiTool
                         assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
                         continue;
                     }
-                    assertThat(list(broker, token).at("/result/tools").findValuesAsText("name")).contains(CiDescriptionProposal.TOOL_NAME);
+                    assertThat(list(broker, token).at("/result/tools").findValuesAsText("description"))
+                            .anySatisfy(description -> assertThat(description).contains("descriptionTruncated", "expectedBody", "complete corrected body",
+                                    "preserve release notes", "Never include local execution details", "even if already present", "test-plan section",
+                                    "no\nshell/API write access", "Do not rerun the old event"));
                     assertThat(text(broker.handle(token, request).body().orElseThrow())).isEqualTo("Saved");
                     ((ObjectNode) request.at("/params/arguments")).put("repo", "other/repo");
                     assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
@@ -260,6 +263,9 @@ class TestPullRequestCiTool
                         assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);
                         continue;
                     }
+                    assertThat(list(broker, token).at("/result/tools").findValuesAsText("description"))
+                            .anySatisfy(description -> assertThat(description).contains("current failed jobId", "does not establish flakiness",
+                                    "Repair deterministic failures", "without\ndirectly rerunning anything", "After a failed rerun"));
                     assertThat(text(broker.handle(token, request).body().orElseThrow())).isEqualTo("Assessment saved");
                     ((ObjectNode) request.at("/params/arguments")).put("reason", " ");
                     assertThat(broker.handle(token, request).body().orElseThrow().at("/error/code").intValue()).isEqualTo(-32602);

@@ -15,21 +15,14 @@ package com.bytequay.app.ci;
 
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentHistoryPage;
-import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskResources;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.core.ci.CiAutofixAttempt.FailureEvidence;
 import com.bytequay.core.ci.CiAutofixAttempt.LogReference;
-import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
@@ -54,16 +47,13 @@ final class CiAutofixLogReader
     private static final int MAXIMUM_NOTE_CHARACTERS = 16 * 1024;
 
     private final GitHubActionsClient gitHub;
-    private final AgentResourceService resourceService;
     private final AgentEventService eventService;
 
     CiAutofixLogReader(
             GitHubActionsClient gitHub,
-            AgentResourceService resourceService,
             AgentEventService eventService)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
-        this.resourceService = requireNonNull(resourceService, "resourceService is null");
         this.eventService = requireNonNull(eventService, "eventService is null");
     }
 
@@ -136,26 +126,6 @@ final class CiAutofixLogReader
                 reference);
     }
 
-    List<AgentAttachment> attachments(TaskId taskId, List<FailureEvidence> failures)
-    {
-        TaskResources resources = resourceService.require(taskId);
-        Path root = realPath(resources.runtimeDirectory(), "task runtime directory", true);
-        ImmutableList.Builder<AgentAttachment> attachments = ImmutableList.builder();
-        for (FailureEvidence failure : failures) {
-            if (failure.log().isEmpty()) {
-                continue;
-            }
-            LogReference log = failure.log().orElseThrow();
-            Path path = realPath(root.resolve(log.path()).normalize(), "CI log attachment", false);
-            checkArgument(path.startsWith(root), "CI log attachment escapes task runtime directory");
-            attachments.add(new AgentAttachment(
-                    "github-actions-job-" + failure.jobId() + "-attempt-" + failure.jobAttempt() + ".log",
-                    log.mediaType(),
-                    path));
-        }
-        return attachments.build();
-    }
-
     static String failureSignature(CiWorkflowRun workflowRun, CiJob job, BoundedCiLog log)
     {
         checkArgument(job.workflowRunId() == workflowRun.id(), "job does not belong to workflowRun");
@@ -174,18 +144,5 @@ final class CiAutofixLogReader
         }
         log.terminalErrorLines().forEach(line -> canonical.append(line.toLowerCase(Locale.ROOT)).append('\n'));
         return "ci-" + Hashing.sha256().hashString(canonical.toString(), StandardCharsets.UTF_8);
-    }
-
-    /** Resolves links so the containment check compares real paths. */
-    private static Path realPath(Path path, String name, boolean directory)
-    {
-        try {
-            Path real = path.toRealPath();
-            checkArgument(directory ? Files.isDirectory(real) : Files.isRegularFile(real), "%s is not a %s", name, directory ? "directory" : "regular file");
-            return real;
-        }
-        catch (IOException e) {
-            throw new IllegalArgumentException("Cannot resolve " + name, e);
-        }
     }
 }

@@ -27,7 +27,8 @@ type MockView = {
   options: { webPreferences: Record<string, unknown> };
   setVisible: ReturnType<typeof vi.fn>;
   setBounds: ReturnType<typeof vi.fn>;
-  webContents: {
+  webContents: MockView['contents'] | undefined;
+  contents: {
     destroyed: boolean; mainFrame: object; isDestroyed: () => boolean;
     loadURL: ReturnType<typeof vi.fn>; close: ReturnType<typeof vi.fn>; send: ReturnType<typeof vi.fn>;
     emit: (name: string, ...args: unknown[]) => void;
@@ -49,10 +50,11 @@ vi.mock('electron', async () => {
     net: { fetch: vi.fn(async () => new Response('asset')) },
     WebContentsView: class {
       private readonly handled = new Set<string>();
-      webContents = Object.assign(new EventEmitter(), {
+      get webContents() { return this.contents.destroyed ? undefined : this.contents; }
+      contents = Object.assign(new EventEmitter(), {
         destroyed: false, mainFrame: {},
-        isDestroyed: () => this.webContents.destroyed,
-        close: vi.fn(() => { this.webContents.destroyed = true; }),
+        isDestroyed: () => this.contents.destroyed,
+        close: vi.fn(() => { this.contents.destroyed = true; }),
         loadURL: vi.fn(async (): Promise<void> => undefined), send: vi.fn(), setWindowOpenHandler: vi.fn(),
         session: { fetch: vi.fn(async () => new Response('avatar')), protocol: { handle: vi.fn((scheme: string) => this.handled.add(scheme)),
           isProtocolHandled: vi.fn(async (scheme: string) => this.handled.has(scheme)),
@@ -74,7 +76,7 @@ const window = { isDestroyed: () => false, webContents: sender, contentView: { a
   getContentBounds: () => ({ width: 1000, height: 800 }) } as unknown as BrowserWindow;
 const fetchMock = vi.fn();
 const parent = () => ({ sender, senderFrame: sender.mainFrame });
-const child = () => ({ sender: desktop.views[0].webContents, senderFrame: desktop.views[0].webContents.mainFrame });
+const child = () => ({ sender: desktop.views[0].contents, senderFrame: desktop.views[0].contents.mainFrame });
 const invoke = (name: string, ...args: unknown[]) => desktop.handlers.get(name)?.(...args);
 let views: IdeViews;
 beforeEach(() => {
@@ -89,7 +91,7 @@ it('deduplicates worktree opens and keeps native credentials out of renderer URL
   const [first, second] = await Promise.all([invoke('ide:open', parent(), host), invoke('ide:open', parent(), host)]);
   expect(first).toBe(second); expect(desktop.views).toHaveLength(1);
   expect(desktop.views[0].options.webPreferences).toMatchObject({ sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false });
-  expect(desktop.views[0].webContents.loadURL).toHaveBeenCalledWith('bytequay-ide://app/ide/index.html');
+  expect(desktop.views[0].contents.loadURL).toHaveBeenCalledWith('bytequay-ide://app/ide/index.html');
   expect(invoke('ide:bootstrap', child())).toEqual({ connection, context: null });
   expect(() => invoke('ide:bootstrap', parent())).toThrow('Unknown IDE view');
   expect(() => invoke('ide:present', { sender, senderFrame: {} }, first, null)).toThrow('Unknown IDE owner');
@@ -97,7 +99,7 @@ it('deduplicates worktree opens and keeps native credentials out of renderer URL
 
 it('loads public GitHub avatars through the IDE policies without allowing arbitrary remote requests', async () => {
   await invoke('ide:open', parent(), host);
-  const session = desktop.views[0].webContents.session;
+  const session = desktop.views[0].contents.session;
   const serve = session.protocol.handle.mock.calls.find(([scheme]) => scheme === 'https')?.[1] as (request: Request) => Promise<Response>;
   const filter = session.webRequest.onBeforeRequest.mock.calls[0][0] as (details: { url: string }, callback: (result: { cancel: boolean }) => void) => void;
   for (const url of ['https://avatars.githubusercontent.com/u/123?v=4', 'https://avatars.githubusercontent.com/in/123?v=4', 'https://github.com/ravi-moreau.png?size=44']) {
@@ -130,13 +132,13 @@ it('stops a hidden idle worktree even if the parent keeps reporting hidden bound
   const id = await invoke('ide:open', parent(), host);
   invoke('ide:present', parent(), id, { x: 0, y: 0, width: 900, height: 700 });
   await vi.advanceTimersByTimeAsync(150_000);
-  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   invoke('ide:present', parent(), id, null);
   for (let i = 0; i < 9; i++) {
     invoke('ide:present', parent(), id, null);
     await vi.advanceTimersByTimeAsync(15_000);
   }
-  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
   expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/ide/task/session', expect.objectContaining({ method: 'DELETE' }));
   expect(sender.send).toHaveBeenCalledWith('ide:event', expect.objectContaining({ id, closed: true }));
 });
@@ -145,13 +147,13 @@ it('keeps unsaved drafts, running tests and paused debugging alive while hidden'
   await invoke('ide:open', parent(), host);
   invoke('ide:report', child(), { dirty: 1, busy: false });
   await vi.advanceTimersByTimeAsync(150_000);
-  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   invoke('ide:report', child(), { dirty: 0, busy: true });
   await vi.advanceTimersByTimeAsync(150_000);
-  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   invoke('ide:report', child(), { dirty: 0, busy: false });
   await vi.advanceTimersByTimeAsync(15_000);
-  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });
 
 it('retries failed process cleanup before acknowledging a closed editor', async () => {
@@ -160,8 +162,48 @@ it('retries failed process cleanup before acknowledging a closed editor', async 
   await expect(invoke('ide:close', parent(), id)).rejects.toThrow('Process is still live');
   expect(sender.send).not.toHaveBeenCalledWith('ide:event', expect.objectContaining({ closed: true }));
   await vi.advanceTimersByTimeAsync(15_000);
-  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
   expect(sender.send).toHaveBeenCalledWith('ide:event', expect.objectContaining({ id, closed: true }));
+});
+
+it.each([true, false])('waits for backend cleanup before reopening an editor (native destruction finished: %s)', async destroyed => {
+  const id = await invoke('ide:open', parent(), host);
+  const view = desktop.views[0];
+  view.contents.close.mockImplementationOnce(() => { view.contents.destroyed = destroyed; });
+  let finishCleanup: (response: Response) => void = () => { throw new Error('Cleanup did not start'); };
+  fetchMock.mockImplementationOnce(() => new Promise<Response>(resolve => { finishCleanup = resolve; }));
+  const closing = invoke('ide:close', parent(), id);
+  expect(view.webContents).toBe(destroyed ? undefined : view.contents);
+  expect(() => invoke('ide:present', parent(), id, null)).not.toThrow();
+  expect(() => invoke('ide:present', parent(), id, { x: 0, y: 0, width: 900, height: 700 })).toThrow('The editor is closing');
+  expect(() => invoke('ide:update', parent(), id, { host })).toThrow('The editor is closing');
+  const reopening = invoke('ide:open', parent(), host);
+  expect(desktop.views).toHaveLength(1);
+  view.contents.destroyed = true;
+  finishCleanup(new Response(''));
+  await closing;
+  expect(() => invoke('ide:present', parent(), id, null)).not.toThrow();
+  const reopened = await reopening;
+  expect(reopened).not.toBe(id);
+  expect(desktop.views).toHaveLength(2);
+  expect(view.contents.close).toHaveBeenCalledOnce();
+  expect(() => invoke('ide:present', parent(), reopened, { x: 0, y: 0, width: 900, height: 700 })).not.toThrow();
+});
+
+it('reconnects after a renderer crash even when the first backend cleanup fails', async () => {
+  const id = await invoke('ide:open', parent(), host);
+  const view = desktop.views[0];
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ message: 'Process is still live' }), { status: 409 }));
+  view.contents.emit('render-process-gone');
+  await vi.advanceTimersByTimeAsync(0);
+  expect(view.webContents).toBeUndefined();
+  expect(sender.send).toHaveBeenCalledWith('ide:event', expect.objectContaining({ id, error: expect.stringContaining('editor stopped') }));
+  expect(sender.send).not.toHaveBeenCalledWith('ide:event', expect.objectContaining({ id, closed: true }));
+  expect(() => views.releaseWindow()).not.toThrow();
+  await invoke('ide:close', parent(), id);
+  expect(sender.send).toHaveBeenCalledWith('ide:event', expect.objectContaining({ id, closed: true }));
+  expect(await invoke('ide:open', parent(), host)).not.toBe(id);
+  expect(view.contents.close).toHaveBeenCalledOnce();
 });
 
 it('binds encoded saves to the owning task and rejects escapes and malformed bytes', async () => {
@@ -252,11 +294,11 @@ it('reuses a query-only view for the visible editor and binds replies to that ch
   const answer = views.query(request, controller.signal);
   await vi.advanceTimersByTimeAsync(0);
   expect(desktop.views).toHaveLength(1);
-  expect(desktop.views[0].webContents.send).not.toHaveBeenCalledWith('ide:query', expect.anything());
+  expect(desktop.views[0].contents.send).not.toHaveBeenCalledWith('ide:query', expect.anything());
   invoke('ide:query-ready', child());
-  expect(desktop.views[0].webContents.send).toHaveBeenCalledWith('ide:query', request);
+  expect(desktop.views[0].contents.send).toHaveBeenCalledWith('ide:query', request);
   await vi.advanceTimersByTimeAsync(150_000);
-  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   const id = await invoke('ide:open', parent(), { kind: 'review', reviewId: 'review' });
   expect(desktop.views).toHaveLength(1);
   invoke('ide:update', parent(), id, { host: { kind: 'review', reviewId: 'review' }, review: null, task: null, detail: null });
@@ -265,7 +307,7 @@ it('reuses a query-only view for the visible editor and binds replies to that ch
   invoke('ide:query-reply', child(), 'query', result);
   expect(await answer).toEqual({ connection, result });
   await vi.advanceTimersByTimeAsync(135_000);
-  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });
 
 it('cancels semantic work when its caller stops and rejects malformed replies', async () => {
@@ -276,7 +318,7 @@ it('cancels semantic work when its caller stops and rejects malformed replies', 
   await vi.advanceTimersByTimeAsync(0);
   invoke('ide:query-ready', child()); controller.abort();
   expect((await answer).result.status).toBe('CANCELLED');
-  expect(desktop.views[0].webContents.send).toHaveBeenCalledWith('ide:query', { ...request, cancel: true });
+  expect(desktop.views[0].contents.send).toHaveBeenCalledWith('ide:query', { ...request, cancel: true });
   const another = views.query({ ...request, id: 'another' }, new AbortController().signal);
   await vi.advanceTimersByTimeAsync(0);
   invoke('ide:query-reply', child(), 'another', { status: 'READY', items: [{ path: '../outside' }], truncated: false, message: '' });
@@ -284,8 +326,8 @@ it('cancels semantic work when its caller stops and rejects malformed replies', 
   const crashController = new AbortController();
   const afterCrash = views.query({ ...request, id: 'after-crash' }, crashController.signal);
   await vi.advanceTimersByTimeAsync(0);
-  desktop.views[0].webContents.destroyed = true;
-  desktop.views[0].webContents.send.mockImplementation(() => { throw new Error('Object has been destroyed'); });
+  desktop.views[0].contents.destroyed = true;
+  desktop.views[0].contents.send.mockImplementation(() => { throw new Error('Object has been destroyed'); });
   crashController.abort();
   expect((await afterCrash).result.status).toBe('CANCELLED');
 });
@@ -340,11 +382,11 @@ it('binds execution metadata to the owning task and keeps cleanup-pending runs a
   fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...run, status: 'COMPLETED', treeUnverified: true })));
   await invoke('ide:execution', child(), finish);
   await vi.advanceTimersByTimeAsync(150_000);
-  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...run, status: 'COMPLETED', treeUnverified: false })));
   await invoke('ide:execution', child(), finish);
   await vi.advanceTimersByTimeAsync(15_000);
-  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });
 
 
@@ -358,10 +400,10 @@ it('binds an interactive terminal to its known editor and retains that hidden sh
   expect(views.terminalHost(child() as unknown as IpcMainInvokeEvent)).toEqual(host);
   expect(() => views.terminalHost(parent() as unknown as IpcMainInvokeEvent)).toThrow('Unknown');
   await vi.advanceTimersByTimeAsync(150_000);
-  expect(desktop.views[0].webContents.close).not.toHaveBeenCalled();
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
   terminal.mockReturnValue(false);
   await vi.advanceTimersByTimeAsync(15_000);
-  expect(desktop.views[0].webContents.close).toHaveBeenCalledOnce();
+  expect(desktop.views[0].contents.close).toHaveBeenCalledOnce();
 });
 
 it('hosts hidden queries after the macOS window closes and releases the background window when idle', async () => {

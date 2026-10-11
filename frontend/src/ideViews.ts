@@ -34,6 +34,7 @@ type Editor = {
   host: CodeHostRef;
   connection: IdeConnection;
   view: WebContentsView;
+  contents: WebContents;
   context: IdeContext | null;
   visible: boolean;
   dirty: number;
@@ -96,7 +97,7 @@ export class IdeViews {
   }
 
   terminalHost(event: IpcMainInvokeEvent): CodeHostRef {
-    const editor = [...this.editors.values()].find(item => item.view.webContents === event.sender);
+    const editor = [...this.editors.values()].find(item => item.contents === event.sender);
     if (!editor?.context || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown IDE terminal owner');
     return editor.host;
   }
@@ -107,14 +108,14 @@ export class IdeViews {
       if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown IDE owner');
     };
     const child = (event: IpcMainInvokeEvent): Editor => {
-      const editor = [...this.editors.values()].find(item => item.view.webContents === event.sender);
+      const editor = [...this.editors.values()].find(item => item.contents === event.sender);
       if (!editor || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown IDE view');
       return editor;
     };
     ipcMain.on('ide:query-ready', event => {
       const editor = child(event);
       editor.queryReady = true;
-      for (const { request } of editor.queries.values()) editor.view.webContents.send('ide:query', request);
+      for (const { request } of editor.queries.values()) editor.contents.send('ide:query', request);
     });
     ipcMain.on('ide:query-reply', (event, id: unknown, value: unknown) => {
       const editor = child(event);
@@ -127,10 +128,11 @@ export class IdeViews {
     ipcMain.handle('ide:open', (event, host: unknown) => { parent(event); return this.open(parseCodeHost(host)); });
     ipcMain.handle('ide:present', (event, id: string, bounds: unknown) => {
       parent(event);
+      const retained = this.editors.get(id);
+      if (bounds === null && (!retained || retained.closing || retained.contents.isDestroyed())) return;
       const editor = this.require(id);
       const window = this.window();
       if (!window) return;
-      if (editor.view.webContents.isDestroyed()) throw new Error('The editor is closing; reopen Code & Tests');
       if (bounds !== null || editor.visible) editor.lastUsed = Date.now();
       editor.visible = bounds !== null;
       if (bounds === null) {
@@ -146,7 +148,7 @@ export class IdeViews {
       const editor = this.require(id);
       if (codeHostKey(parseCodeHost(context.host)) !== codeHostKey(editor.host)) throw new Error('IDE context belongs to another task');
       editor.context = context;
-      editor.view.webContents.send('ide:context', context);
+      editor.contents.send('ide:context', context);
     });
     ipcMain.handle('ide:close', async (event, id: string) => { parent(event); await this.close(id); });
     ipcMain.handle('ide:bootstrap', event => {
@@ -269,7 +271,7 @@ export class IdeViews {
   open(host: CodeHostRef): Promise<string> {
     const key = codeHostKey(host);
     const existing = [...this.editors.values()].find(item => codeHostKey(item.host) === key);
-    if (existing && !existing.view.webContents.isDestroyed()) return Promise.resolve(existing.id);
+    if (existing && !existing.closing && !existing.contents.isDestroyed()) return Promise.resolve(existing.id);
     if (existing) return this.close(existing.id).then(() => this.open(host));
     const pending = this.opening.get(key);
     if (pending) return pending;
@@ -284,7 +286,7 @@ export class IdeViews {
     const connection = suppliedConnection ?? connectionFrom(await runtimeRequest(route, 'POST'));
     const existing = [...this.editors.values()].find(item => item.connection.taskId === connection.taskId);
     if (existing) {
-      if (existing.connection.sessionId !== connection.sessionId || existing.view.webContents.isDestroyed()) {
+      if (existing.closing || existing.connection.sessionId !== connection.sessionId || existing.contents.isDestroyed()) {
         await this.close(existing.id);
         return this.create(host, connection);
       }
@@ -296,7 +298,9 @@ export class IdeViews {
     const view = new WebContentsView({ webPreferences: {
       preload: path.join(__dirname, 'idePreload.js'), sandbox: true, contextIsolation: true, nodeIntegration: false, backgroundThrottling: false, partition: `persist:bytequay-ide-${connection.taskId}`,
     } });
-    const editor: Editor = { id, host, connection, view, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };
+    // Electron clears view.webContents on destruction; retain the handle for cleanup and isDestroyed().
+    const contents = view.webContents;
+    const editor: Editor = { id, host, connection, view, contents, context: null, visible: false, dirty: 0, busy: false, lastUsed: Date.now(), queryReady: false, execution: null, executionStarting: false, queries: new Map(), closing: null, pending: new Map() };
     this.editors.set(id, editor);
     try {
       const resources = await Promise.all(['extensions', 'server'].map(name => realpath(path.join(connection.bundleRoot, name))));
@@ -306,7 +310,7 @@ export class IdeViews {
           const url = new URL(request.url);
           // Shared PR cards load public avatars without the desktop's GitHub session or credentials.
           if (request.method === 'GET' && isGitHubAvatar(url)) {
-            return await view.webContents.session.fetch(url.href, { bypassCustomProtocolHandlers: true, credentials: 'omit' });
+            return await contents.session.fetch(url.href, { bypassCustomProtocolHandlers: true, credentials: 'omit' });
           }
           const isApp = url.protocol === 'bytequay-ide:' && url.hostname === 'app';
           if (!isApp && url.hostname !== 'ide-assets.bytequay.invalid') return new Response('Forbidden', { status: 403 });
@@ -317,14 +321,14 @@ export class IdeViews {
         }
         catch { return new Response('Not found', { status: 404 }); }
       };
-      const session = view.webContents.session;
+      const session = contents.session;
       for (const scheme of ['bytequay-ide', 'https']) {
         if (await session.protocol.isProtocolHandled(scheme)) session.protocol.unhandle(scheme);
       }
       session.protocol.handle('bytequay-ide', serve);
       session.protocol.handle('https', serve);
-      session.setPermissionRequestHandler((contents, permission, callback) => callback(contents === view.webContents && permission === 'clipboard-sanitized-write'));
-      session.setPermissionCheckHandler((contents, permission) => contents === view.webContents && permission === 'clipboard-sanitized-write');
+      session.setPermissionRequestHandler((requester, permission, callback) => callback(requester === contents && permission === 'clipboard-sanitized-write'));
+      session.setPermissionCheckHandler((requester, permission) => requester === contents && permission === 'clipboard-sanitized-write');
       const dev = typeof IDE_WINDOW_VITE_DEV_SERVER_URL === 'string' ? new URL(IDE_WINDOW_VITE_DEV_SERVER_URL) : null;
       session.webRequest.onBeforeRequest((details, callback) => {
         const url = new URL(details.url);
@@ -332,10 +336,10 @@ export class IdeViews {
         const resource = url.protocol === 'https:' && url.hostname === 'ide-assets.bytequay.invalid';
         callback({ cancel: !local && !resource && !isGitHubAvatar(url) && !['bytequay-ide:', 'data:', 'blob:'].includes(url.protocol) });
       });
-      view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-      view.webContents.on('will-navigate', event => event.preventDefault());
-      view.webContents.on('will-attach-webview', event => event.preventDefault());
-      view.webContents.on('render-process-gone', () => {
+      contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      contents.on('will-navigate', event => event.preventDefault());
+      contents.on('will-attach-webview', event => event.preventDefault());
+      contents.on('render-process-gone', () => {
         this.window()?.webContents.send('ide:event', { id, dirty: editor.dirty, busy: false, error: 'The editor stopped. Reopen Code & Tests to reconnect.' } satisfies IdeEvent);
         void this.close(id).catch(() => {});
       });
@@ -343,7 +347,7 @@ export class IdeViews {
       // Unattached native views can stall initialization before agent queries become ready.
       view.setBounds({ x: 0, y: 0, width: 1000, height: 700 });
       this.owner().contentView.addChildView(view);
-      await view.webContents.loadURL(dev ? new URL('ide/index.html', dev).href : 'bytequay-ide://app/ide/index.html');
+      await contents.loadURL(dev ? new URL('ide/index.html', dev).href : 'bytequay-ide://app/ide/index.html');
       return id;
     }
     catch (error) {
@@ -357,7 +361,7 @@ export class IdeViews {
     const query = parseCodeQuery(request.query);
     const connection = connectionFrom(request.connection);
     if (connection.taskId !== request.taskId) throw new Error('Code query belongs to another runtime');
-    const existing = [...this.editors.values()].find(editor => editor.connection.taskId === request.taskId && editor.connection.sessionId === connection.sessionId && !editor.view.webContents.isDestroyed());
+    const existing = [...this.editors.values()].find(editor => editor.connection.taskId === request.taskId && editor.connection.sessionId === connection.sessionId && !editor.closing && !editor.contents.isDestroyed());
     const id = existing?.id ?? await this.create({ kind: 'task', taskId: request.taskId, workspaceId: request.workspaceId }, connection);
     const editor = this.require(id);
     if (signal.aborted) return { result: queryFailure('CANCELLED', 'Code query cancelled'), connection: editor.connection };
@@ -365,7 +369,7 @@ export class IdeViews {
     editor.lastUsed = Date.now();
     const result = await new Promise<CodeQueryReply>(resolve => {
       const cancel = () => {
-        if (!editor.view.webContents.isDestroyed()) editor.view.webContents.send('ide:query', { ...request, cancel: true });
+        if (!editor.contents.isDestroyed()) editor.contents.send('ide:query', { ...request, cancel: true });
         finish(queryFailure('CANCELLED', 'Code query cancelled'));
       };
       const timeout = setTimeout(cancel, Math.max(0, request.expiresAt - Date.now()));
@@ -376,7 +380,7 @@ export class IdeViews {
       signal.addEventListener('abort', cancel, { once: true });
       const bounded = { ...request, query };
       editor.queries.set(request.id, { request: bounded, finish });
-      if (editor.queryReady) editor.view.webContents.send('ide:query', bounded);
+      if (editor.queryReady) editor.contents.send('ide:query', bounded);
     });
     return { result, connection: editor.connection };
   }
@@ -435,12 +439,13 @@ export class IdeViews {
   private require(id: string): Editor {
     const editor = this.editors.get(id);
     if (!editor) throw new Error('The IDE session has ended');
+    if (editor.closing || editor.contents.isDestroyed()) throw new Error('The editor is closing; reopen Code & Tests');
     return editor;
   }
 
   private async maintain(): Promise<void> {
     await Promise.allSettled([...this.editors.values()].map(async editor => {
-      if (editor.view.webContents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && !this.terminalOpen(editor.view.webContents) && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
+      if (editor.contents.isDestroyed() || (!editor.visible && editor.dirty === 0 && !editor.busy && !this.terminalOpen(editor.contents) && editor.pending.size === 0 && editor.queries.size === 0 && editor.execution === null && !editor.executionStarting && Date.now() - editor.lastUsed > 120_000)) {
         await this.close(editor.id);
         return;
       }
@@ -460,9 +465,9 @@ export class IdeViews {
       const window = this.window();
       if (window && !window.isDestroyed()) window.contentView.removeChildView(editor.view);
       this.background?.contentView.removeChildView(editor.view);
-      if (!editor.view.webContents.isDestroyed()) {
+      if (!editor.contents.isDestroyed()) {
         editor.view.setVisible(false);
-        editor.view.webContents.close({ waitForBeforeUnload: false });
+        editor.contents.close({ waitForBeforeUnload: false });
       }
       for (const pending of editor.pending.values()) {
         clearTimeout(pending.timer);
@@ -484,7 +489,7 @@ export class IdeViews {
     for (const editor of this.editors.values()) {
       editor.visible = false;
       editor.lastUsed = Date.now();
-      if (!editor.view.webContents.isDestroyed()) {
+      if (!editor.contents.isDestroyed()) {
         editor.view.setVisible(false);
         this.owner().contentView.addChildView(editor.view);
       }
@@ -497,7 +502,7 @@ export class IdeViews {
     for (const controller of this.runningQueries.values()) controller.abort();
     this.runningQueries.clear();
     for (const editor of this.editors.values()) {
-      if (!editor.view.webContents.isDestroyed()) editor.view.webContents.close({ waitForBeforeUnload: false });
+      if (!editor.contents.isDestroyed()) editor.contents.close({ waitForBeforeUnload: false });
     }
     this.background?.destroy(); this.background = null;
     // Spring shutdown performs the verified process-tree stop; renderer destruction alone is not its proof.

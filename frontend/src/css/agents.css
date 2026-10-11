@@ -48,7 +48,6 @@
   margin: auto -32px 0;
   padding: 28px 32px 20px;
   background: linear-gradient(to bottom, rgba(255, 255, 255, 0), #ffffff 38%);
-  pointer-events: none;
 }
 
 .agt-dock__inner {
@@ -62,12 +61,6 @@
   align-items: center;
   gap: 6px;
   margin-bottom: 10px;
-}
-
-.agt-dock__chips,
-.agt-dock .agt-compose-dock,
-.agt-dock .cmt-error {
-  pointer-events: auto;
 }
 
 .agt-repo-chip {

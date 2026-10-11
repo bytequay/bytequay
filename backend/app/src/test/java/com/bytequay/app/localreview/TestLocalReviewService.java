@@ -62,6 +62,8 @@ import com.bytequay.core.localreview.LocalReviewStore;
 import com.bytequay.core.localreview.LocalReviewThread;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.store.PullRequestStore;
 import com.bytequay.core.store.PullRequestTaskStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -71,6 +73,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.ArgumentCaptor;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -368,6 +371,65 @@ class TestLocalReviewService
     }
 
     @Test
+    void developmentAgentReadsItsOwnReviewAndTheOpenReviewsOfItsPullRequest()
+    {
+        // Newest update first, as the store lists them.
+        AgentReview own = review("own", OptionalInt.empty(), Optional.of(taskId.toString())).closed(Instant.EPOCH);
+        when(reviews.listReviews("workspace")).thenReturn(ImmutableList.of(
+                own,
+                review("earlier-own", OptionalInt.empty(), Optional.of(taskId.toString())),
+                review("pull-request", OptionalInt.of(7), Optional.empty()),
+                review("another-task", OptionalInt.of(7), Optional.of(TaskId.random().toString())),
+                review("ended", OptionalInt.of(7), Optional.empty()).closed(Instant.EPOCH),
+                review("another-pull-request", OptionalInt.of(8), Optional.empty())));
+        when(reviews.listFindings(anyString())).thenAnswer(call -> ImmutableList.of(finding("finding-" + call.getArgument(0), call.getArgument(0))));
+        ReviewMessage question = new ReviewMessage("question", "pull-request", Optional.of("finding-pull-request"), Optional.empty(), ReviewMessage.Author.USER,
+                "Is this real?", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH);
+        ReviewMessage summaryQuestion = new ReviewMessage("summary", "pull-request", Optional.empty(), Optional.empty(), ReviewMessage.Author.USER,
+                "What changed?", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH);
+        when(reviews.listMessages("pull-request")).thenReturn(ImmutableList.of(question, summaryQuestion));
+
+        assertThat(service.readsFindings(taskId.toString())).isTrue();
+        // Its own newest review stays readable after it ends, as the task's panel still shows it; the pull request's other reviews only while open.
+        assertThat(service.findingsForAgent(taskId.toString())).extracting(value -> value.review().id()).containsExactly("own", "pull-request", "another-task");
+        assertThat(service.findingsForAgent(taskId.toString()).get(1).messages()).containsExactly(question);
+
+        ReviewMessage saved = new ReviewMessage("reply", "another-task", Optional.of("finding-another-task"), Optional.empty(), ReviewMessage.Author.AGENT,
+                "Fixed in abc1234", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Optional.of(taskId.toString()));
+        when(reviewTasks.replyFromDeveloper(eq("another-task"), eq("finding-another-task"), eq(taskId.toString()), anyString(), eq("Fixed in abc1234"))).thenReturn(saved);
+        assertThat(service.replyToFindingFromAgent(taskId.toString(), "finding-another-task", "  Fixed in abc1234  ", "key-1")).contains(saved);
+        assertThat(service.replyToFindingFromAgent(taskId.toString(), "finding-another-task", "Fixed in abc1234", "key-1")).contains(saved);
+        service.replyToFindingFromAgent(taskId.toString(), "finding-another-task", "Fixed in abc1234", "key-2");
+        ArgumentCaptor<String> replyIds = ArgumentCaptor.forClass(String.class);
+        verify(reviewTasks, times(3)).replyFromDeveloper(eq("another-task"), eq("finding-another-task"), eq(taskId.toString()), replyIds.capture(), eq("Fixed in abc1234"));
+        // A retried key names the same reply, so the review service returns the saved one instead of adding another.
+        assertThat(replyIds.getAllValues().get(0)).isEqualTo(replyIds.getAllValues().get(1)).isNotEqualTo(replyIds.getAllValues().get(2));
+
+        // Other ids fall through to the task's own comments.
+        assertThat(service.replyToFindingFromAgent(taskId.toString(), "finding-another-pull-request", "Fixed", "key-3")).isEmpty();
+        assertThat(service.replyToFindingFromAgent(taskId.toString(), "finding-ended", "Fixed", "key-4")).isEmpty();
+        assertThatThrownBy(() -> service.replyToFindingFromAgent(taskId.toString(), "finding-own", "Fixed", " ")).hasMessageContaining("operation key");
+        verify(reviewTasks, times(3)).replyFromDeveloper(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void reviewTaskReadsNoFindingsThroughTheLocalReviewTools()
+    {
+        task = AgentTask.created(taskId, false, "Review", TitleSource.USER, AgentLaneId.CODEX_CLI, task.taskWorktree().orElseThrow(),
+                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
+        when(tasks.get(taskId)).thenReturn(task);
+        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(7), OptionalLong.empty(), taskId.toString(), Optional.empty(),
+                AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+        when(reviews.findReviewByTask(taskId.toString())).thenReturn(Optional.of(review));
+        when(reviews.listReviews("workspace")).thenReturn(ImmutableList.of(review));
+
+        assertThat(service.readsFindings(taskId.toString())).isFalse();
+        assertThat(service.findingsForAgent(taskId.toString())).isEmpty();
+        assertThat(service.replyToFindingFromAgent(taskId.toString(), "finding-review", "Fixed", "key")).isEmpty();
+        verify(reviews, never()).listFindings(anyString());
+    }
+
+    @Test
     void creationMustMatchTheTaskBranch()
     {
         when(pullRequests.findByHeadRef("owner/repo", task.taskWorktree().orElseThrow().generatedBranch())).thenReturn(ImmutableList.of());
@@ -578,6 +640,18 @@ class TestLocalReviewService
         mvc.perform(post(route).param("workspaceId", "workspace").contentType(MediaType.APPLICATION_JSON).content(request))
                 .andExpect(status().isBadRequest());
         verify(turns, times(2)).start(any());
+    }
+
+    private static AgentReview review(String id, OptionalInt number, Optional<String> sourceTaskId)
+    {
+        return new AgentReview(id, "workspace", "owner/repo", number, OptionalLong.empty(), "task-of-" + id, sourceTaskId, AgentReview.State.OPEN,
+                false, Optional.empty(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH, Optional.empty());
+    }
+
+    private static ReviewFinding finding(String id, String reviewId)
+    {
+        return new ReviewFinding(id, reviewId, "run", 1, "Title", "Body", Optional.empty(), Optional.empty(), ImmutableList.of(), 1, ReviewFinding.State.OPEN,
+                Optional.empty(), "b".repeat(40), false, 0, Instant.EPOCH, Instant.EPOCH, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
     }
 
     private LocalReviewView create(long expectedTaskVersion)

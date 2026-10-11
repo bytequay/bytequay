@@ -76,6 +76,15 @@ public interface AgentReviewService
     /** Admits a discussion input under the same lock as review head updates and closure. */
     void sendMessage(String reviewId, long expectedTaskVersion, String message, String idempotencyKey, boolean queued);
 
+    /**
+     * Records a development agent's private reply on a finding. It starts no reviewer turn and leaves the finding's state alone.
+     *
+     * @param developerTaskId the development task whose agent replies
+     * @param messageId the caller's identity for this reply; repeating it with the same reply returns the saved one
+     * @throws com.bytequay.core.review.ReviewConflictException when the identity already holds a different message
+     */
+    ReviewMessage replyFromDeveloper(String reviewId, String findingId, String developerTaskId, String messageId, String body);
+
     ReviewFinding resolveFinding(String reviewId, String findingId, long expectedVersion, String reason);
 
     ReviewFinding reopenFinding(String reviewId, String findingId, long expectedVersion);

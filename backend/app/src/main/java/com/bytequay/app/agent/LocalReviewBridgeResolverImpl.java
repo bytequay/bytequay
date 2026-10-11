@@ -16,11 +16,16 @@ package com.bytequay.app.agent;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.app.localreview.LocalReviewService;
+import com.bytequay.app.localreview.LocalReviewService.AgentFinding;
 import com.bytequay.app.localreview.LocalReviewView;
+import com.bytequay.core.review.ReviewEvidence;
+import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewMessage;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +41,8 @@ public class LocalReviewBridgeResolverImpl
         implements BridgeResolver<LocalReviewBridge>
 {
     static final int MAXIMUM_OUTPUT_LENGTH = 64_000;
+    /** Kept free of a finding's evidence, so its newest discussion is always returned. */
+    private static final int DISCUSSION_RESERVE = 10_000;
 
     private final ObjectProvider<LocalReviewService> services;
     private final ObjectMapper objectMapper;
@@ -53,20 +60,30 @@ public class LocalReviewBridgeResolverImpl
         if (!service.availableForAgent(taskId)) {
             return Optional.empty();
         }
+        // A review task reads its findings through the review tools, so only a development task is told about them here.
+        boolean development = service.readsFindings(taskId);
         return Optional.of(new LocalReviewBridge(
-                commentId -> list(service.listForAgent(taskId), commentId),
-                reply -> mutation(service.replyFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey())),
-                resolution -> mutation(service.resolveFromAgent(taskId, resolution.commentId(), resolution.resolved(), resolution.operationKey())),
-                LocalReviewBridge.INSTRUCTION));
+                commentId -> list(taskId, service.listForAgent(taskId), development ? Optional.of(service.findingsForAgent(taskId)) : Optional.empty(), commentId),
+                reply -> service.replyToFindingFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()).map(this::findingReply)
+                        .orElseGet(() -> mutation(service.replyFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()))),
+                resolution -> {
+                    if (service.findingsForAgent(taskId).stream().anyMatch(value -> value.finding().id().equals(resolution.commentId()))) {
+                        throw new IllegalArgumentException("Only the user resolves a review finding, and only its reviewer withdraws one; reply with your result instead");
+                    }
+                    return mutation(service.resolveFromAgent(taskId, resolution.commentId(), resolution.resolved(), resolution.operationKey()));
+                },
+                development ? LocalReviewBridge.INSTRUCTION + LocalReviewBridge.FINDINGS_INSTRUCTION : LocalReviewBridge.INSTRUCTION));
     }
 
-    private String list(List<LocalReviewView> threads, Optional<String> commentId)
+    private String list(String taskId, List<LocalReviewView> threads, Optional<List<AgentFinding>> findings, Optional<String> commentId)
     {
         if (commentId.isPresent()) {
-            LocalReviewView thread = threads.stream()
-                    .filter(value -> value.id().equals(commentId.orElseThrow()))
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException("Local review comment does not belong to this task"));
+            Optional<LocalReviewView> selected = threads.stream().filter(value -> value.id().equals(commentId.orElseThrow())).findFirst();
+            if (selected.isEmpty()) {
+                return findingDetail(taskId, findings.orElse(ImmutableList.of()).stream().filter(value -> value.finding().id().equals(commentId.orElseThrow())).findFirst()
+                        .orElseThrow(() -> new IllegalArgumentException("No local review comment or review finding with this id is available to this task")));
+            }
+            LocalReviewView thread = selected.orElseThrow();
             ObjectNode result = anchor(thread);
             if (thread.learningAnchor().isEmpty()) {
                 excerpt(result, "code", thread.code(), 4000);
@@ -106,7 +123,104 @@ public class LocalReviewBridgeResolverImpl
                 break;
             }
         }
+        findings.ifPresent(available -> findingSummaries(taskId, available, result));
         return json(result);
+    }
+
+    private void findingSummaries(String taskId, List<AgentFinding> findings, ObjectNode result)
+    {
+        ArrayNode summaries = result.putArray("findings");
+        result.put("omittedFindingCount", findings.size());
+        // Open findings first; within a state they keep their review and its numbering.
+        List<AgentFinding> ordered = findings.stream().sorted(Comparator.comparing(value -> value.finding().state() != ReviewFinding.State.OPEN)).limit(40).toList();
+        for (AgentFinding item : ordered) {
+            ObjectNode summary = findingAnchor(taskId, item);
+            summary.put("messageCount", item.messages().size());
+            if (!item.messages().isEmpty()) {
+                summary.set("latestMessage", findingMessage(taskId, item.messages().getLast(), 256));
+            }
+            summaries.add(summary);
+            result.put("omittedFindingCount", findings.size() - summaries.size());
+            if (json(result).length() > MAXIMUM_OUTPUT_LENGTH) {
+                summaries.remove(summaries.size() - 1);
+                result.put("omittedFindingCount", findings.size() - summaries.size());
+                break;
+            }
+        }
+    }
+
+    private String findingDetail(String taskId, AgentFinding item)
+    {
+        ReviewFinding finding = item.finding();
+        ObjectNode result = findingAnchor(taskId, item);
+        // These limits fit the output even when escaping makes every character six.
+        excerpt(result, "body", finding.body(), 6000);
+        finding.stateReason().ifPresent(reason -> excerpt(result, "stateReason", reason, 500));
+        finding.anchor().filter(anchor -> !anchor.excerpt().isEmpty()).ifPresent(anchor -> excerpt(result, "code", String.join("\n", anchor.excerpt()), 2000));
+        ArrayNode evidence = result.putArray("evidence");
+        result.put("omittedEvidenceCount", finding.evidence().size());
+        for (ReviewEvidence saved : finding.evidence()) {
+            ObjectNode entry = objectMapper.createObjectNode().put("source", saved.source()).put("provenance", saved.provenance());
+            excerpt(entry, "excerpt", saved.excerpt(), 4000);
+            excerpt(entry, "explanation", saved.explanation(), 1500);
+            evidence.add(entry);
+            result.put("omittedEvidenceCount", finding.evidence().size() - evidence.size());
+            if (json(result).length() > MAXIMUM_OUTPUT_LENGTH - DISCUSSION_RESERVE) {
+                evidence.remove(evidence.size() - 1);
+                result.put("omittedEvidenceCount", finding.evidence().size() - evidence.size());
+                break;
+            }
+        }
+        ArrayNode messages = result.putArray("messages");
+        result.put("omittedMessageCount", item.messages().size());
+        for (int index = item.messages().size() - 1; index >= Math.max(0, item.messages().size() - 8); index--) {
+            messages.insert(0, findingMessage(taskId, item.messages().get(index), 1000));
+            result.put("omittedMessageCount", index);
+            if (json(result).length() > MAXIMUM_OUTPUT_LENGTH) {
+                messages.remove(0);
+                result.put("omittedMessageCount", index + 1);
+                break;
+            }
+        }
+        return json(result);
+    }
+
+    private ObjectNode findingAnchor(String taskId, AgentFinding item)
+    {
+        ReviewFinding finding = item.finding();
+        ObjectNode result = objectMapper.createObjectNode()
+                .put("id", finding.id())
+                .put("label", finding.label())
+                .put("reviewId", item.review().id())
+                .put("reviewOf", item.review().sourceTaskId().map(source -> source.equals(taskId) ? "THIS_TASK" : "ANOTHER_TASK").orElse("PULL_REQUEST"))
+                .put("repo", item.review().repo())
+                .put("title", clip(finding.title(), 300))
+                .put("state", finding.state().name())
+                .put("outdated", finding.outdated())
+                .put("revision", finding.revision())
+                .put("validatedHeadSha", finding.validatedHeadSha())
+                .put("updatedAt", finding.updatedAt().toString());
+        item.review().number().ifPresent(number -> result.put("number", number));
+        finding.severity().ifPresent(severity -> result.put("severity", severity));
+        finding.anchor().ifPresent(anchor -> result.put("path", clip(anchor.path(), 500)).put("side", anchor.side())
+                .put("startLine", anchor.startLine()).put("line", anchor.endLine()));
+        return result;
+    }
+
+    private ObjectNode findingMessage(String taskId, ReviewMessage message, int limit)
+    {
+        ObjectNode result = objectMapper.createObjectNode()
+                .put("id", message.id())
+                .put("author", message.developerTaskId().isPresent() ? "DEVELOPER" : message.author() == ReviewMessage.Author.USER ? "USER" : "REVIEWER")
+                .put("createdAt", message.createdAt().toString());
+        message.developerTaskId().ifPresent(developer -> result.put("developer", developer.equals(taskId) ? "THIS_TASK" : "ANOTHER_TASK"));
+        excerpt(result, "body", message.body(), limit);
+        return result;
+    }
+
+    private String findingReply(ReviewMessage reply)
+    {
+        return json(objectMapper.createObjectNode().put("id", reply.findingId().orElseThrow()).put("latestMessageId", reply.id()));
     }
 
     private ObjectNode anchor(LocalReviewView thread)
@@ -142,8 +256,13 @@ public class LocalReviewBridgeResolverImpl
 
     private static void excerpt(ObjectNode result, String field, String value, int limit)
     {
-        result.put(field, value.substring(0, Math.min(limit, value.length())));
+        result.put(field, clip(value, limit));
         result.put(field + "Truncated", value.length() > limit);
+    }
+
+    private static String clip(String value, int limit)
+    {
+        return value.substring(0, Math.min(limit, value.length()));
     }
 
     private String mutation(LocalReviewView thread)

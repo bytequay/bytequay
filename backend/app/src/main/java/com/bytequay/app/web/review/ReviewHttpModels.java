@@ -164,7 +164,8 @@ final class ReviewHttpModels
                 view.turnId(),
                 message.queuedInputId(),
                 view.messageEventId(),
-                message.createdAt());
+                message.createdAt(),
+                message.developerTaskId());
     }
 
     private static TaskResponse task(AgentReviewProjection.TaskView task)
@@ -323,7 +324,8 @@ final class ReviewHttpModels
             Optional<String> turnId,
             Optional<String> queuedInputId,
             Optional<String> messageEventId,
-            Instant createdAt) {}
+            Instant createdAt,
+            Optional<String> developerTaskId) {}
 
     record TaskResponse(
             String id,

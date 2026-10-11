@@ -242,6 +242,13 @@ agent to address it. The conversation shows a compact **Fix the agent review**
 card with the finding number and title. Click it to open the original finding,
 or expand its details to inspect the full instructions and review context.
 
+The development agent can also read the saved findings itself, so you can ask in
+its task for several at once, such as “fix the open findings”. It reads the review
+of its own changes and the open reviews of its pull request; a later task on the
+same pull request reads them too. Its reply appears on the finding as **Developer**
+and stays private. It cannot close a finding: choose **Resolve**, or **Update
+review** to have the reviewer check the fix.
+
 ### Discuss without publishing
 
 - In a development task or review conversation, highlight text in a finished agent

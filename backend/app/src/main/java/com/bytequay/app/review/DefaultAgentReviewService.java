@@ -679,7 +679,8 @@ public class DefaultAgentReviewService
                 turnId,
                 queuedId,
                 question.version(),
-                question.createdAt()));
+                question.createdAt(),
+                question.developerTaskId()));
     }
 
     @Override
@@ -688,6 +689,30 @@ public class DefaultAgentReviewService
         locked(reviewId, () -> {
             TaskInput.send(turns, TaskId.valueOf(requireOpen(reviewId).taskId()), expectedTaskVersion, message, idempotencyKey, queued, Optional.empty());
             return null;
+        });
+    }
+
+    @Override
+    public ReviewMessage replyFromDeveloper(String reviewId, String findingId, String developerTaskId, String messageId, String body)
+    {
+        requireNonNull(developerTaskId, "developerTaskId is null");
+        requireNonNull(messageId, "messageId is null");
+        String text = requireNonNull(body, "body is null").strip();
+        if (text.isEmpty()) {
+            throw new ReviewInvalidRequestException("body must not be blank");
+        }
+        return locked(reviewId, () -> {
+            ReviewFinding finding = requireFinding(requireReview(reviewId), findingId);
+            Optional<ReviewMessage> saved = store.findMessage(messageId);
+            if (saved.isPresent()) {
+                ReviewMessage reply = saved.orElseThrow();
+                if (!reply.developerTaskId().equals(Optional.of(developerTaskId)) || !reply.findingId().equals(Optional.of(finding.id())) || !reply.body().equals(text)) {
+                    throw new ReviewConflictException("The reply identity was reused for a different message");
+                }
+                return reply;
+            }
+            return store.insertMessage(new ReviewMessage(messageId, reviewId, Optional.of(finding.id()), Optional.empty(), ReviewMessage.Author.AGENT, text,
+                    finding.revision(), finding.runId(), Optional.empty(), Optional.empty(), 0, Instant.now(clock), Optional.of(developerTaskId)));
         });
     }
 

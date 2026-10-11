@@ -66,6 +66,9 @@ public class AgentReviewMessageEntity
     @Column(name = "queued_input_id")
     private String queuedInputId;
 
+    @Column(name = "developer_task_id")
+    private String developerTaskId;
+
     @Version
     @Getter
     private long version;
@@ -96,6 +99,7 @@ public class AgentReviewMessageEntity
         runId = message.runId();
         turnId = message.turnId().orElse(null);
         queuedInputId = message.queuedInputId().orElse(null);
+        developerTaskId = message.developerTaskId().orElse(null);
         createdAt = message.createdAt();
     }
 
@@ -113,6 +117,7 @@ public class AgentReviewMessageEntity
                 Optional.ofNullable(turnId),
                 Optional.ofNullable(queuedInputId),
                 version,
-                createdAt);
+                createdAt,
+                Optional.ofNullable(developerTaskId));
     }
 }

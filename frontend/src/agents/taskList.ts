@@ -118,7 +118,8 @@ export function reviewItem(review: AgentReviewDto): TaskListItem {
     title,
     state,
     at,
-    message: last === null ? null : { who: last.author === 'USER' ? 'You' : review.task.laneLabel, text: last.body, at: last.createdAt },
+    message: last === null ? null
+      : { who: last.author === 'USER' ? 'You' : last.developerTaskId != null ? 'Developer' : review.task.laneLabel, text: last.body, at: last.createdAt },
     links: review.number === null ? []
       : [pullRequestLink(review.number, review.pullRequest?.title ?? review.repo, review.pullRequest?.state ?? null, review.pullRequest?.draft ?? false)],
     change: REVIEW_CHANGES.has(status.status) ? status.chip : null,

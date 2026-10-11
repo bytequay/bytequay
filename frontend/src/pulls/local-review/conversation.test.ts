@@ -58,8 +58,13 @@ it('exports the selected finding, retained evidence, limitations and every follo
   review.messages = [...review.messages, ...Array.from({ length: 25 }, (_, index) => ({
     ...review.messages[index % 2], id: `follow-up-${index}`, findingId: finding.id, body: `Follow-up ${index}\n\n\`\`\`java\ncode\n\`\`\``,
     queuedInputId: index === 24 ? 'queued-question' : null,
+    // The fixture alternates the user and the reviewer; one of the reviewer's turns stands in for a development agent's reply.
+    ...(index === 3 ? { developerTaskId: 'developer-task' } : {}),
   }))];
   const output = findingConversation(review, finding);
+  expect(output).toContain('### 1. User · ');
+  expect(output).toContain('### 2. Agent review · ');
+  expect(output).toContain('### 4. Developer · ');
   for (const value of [review.repo, String(review.number), finding.path, finding.validatedHeadSha, finding.body,
     'RESOLVED · Outdated', finding.stateReason, 'Finding revision: 1', 'Queued', 'Race not reproduced', 'Integration test needs credentials',
     ...finding.evidence.flatMap(item => [item.ref, item.source, item.provenance, item.excerpt, item.explanation])]) {

@@ -1343,11 +1343,12 @@ public final class PermissionBroker
             Map<String, Object> identifier = ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_ID_LENGTH);
             tools.add(new ToolDefinition(
                     LocalReviewBridge.LIST_TOOL,
-                    "Read bounded unresolved/recent summaries, or supply commentId for its anchored code and recent discussion; omissions and excerpts are marked",
+                    "Read bounded unresolved/recent summaries of this task's private comments and, for a development task, of the review findings on its changes " +
+                            "and pull request; or supply a comment's or finding's id as commentId for its code, evidence and recent discussion. Omissions and excerpts are marked",
                     ImmutableMap.of("type", "object", "properties", ImmutableMap.of("commentId", identifier), "additionalProperties", false)));
             tools.add(new ToolDefinition(
                     LocalReviewBridge.REPLY_TOOL,
-                    "Reply privately to one returned comment; reuse the operationKey when retrying the same reply",
+                    "Reply privately to one returned comment or review finding; reuse the operationKey when retrying the same reply",
                     ImmutableMap.of(
                             "type", "object",
                             "properties", ImmutableMap.of(
@@ -1358,7 +1359,7 @@ public final class PermissionBroker
                             "additionalProperties", false)));
             tools.add(new ToolDefinition(
                     LocalReviewBridge.RESOLVE_TOOL,
-                    "Resolve or reopen one private comment; resolved is explicit and operationKey identifies this exact update",
+                    "Resolve or reopen one private comment, never a review finding; resolved is explicit and operationKey identifies this exact update",
                     ImmutableMap.of(
                             "type", "object",
                             "properties", ImmutableMap.of("commentId", identifier, "operationKey", identifier, "resolved", ImmutableMap.of("type", "boolean")),

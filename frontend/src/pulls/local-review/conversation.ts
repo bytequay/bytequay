@@ -87,7 +87,7 @@ export function findingConversation(review: AgentReviewDto, finding: ReviewFindi
     `## Discussion (${messages.length} saved messages)`,
     'Messages retain their original target revision; earlier finding bodies are not included.',
     ...messages.flatMap((message, index) => [
-      `### ${index + 1}. ${message.author === 'USER' ? 'User' : 'Agent review'} · ${message.createdAt}`,
+      `### ${index + 1}. ${message.author === 'USER' ? 'User' : message.developerTaskId != null ? 'Developer' : 'Agent review'} · ${message.createdAt}`,
       `Finding revision: ${message.targetRevision}${message.runId ? ` · run ${message.runId}` : ''}${queued(review, message) ? ' · Queued' : ''}`,
       quote(message.body),
     ]),

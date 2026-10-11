@@ -209,7 +209,8 @@ class InMemoryReviewStore
         ReviewMessage stored = messages.get(message.id());
         checkUpdate(stored == null ? OptionalLong.empty() : OptionalLong.of(stored.version()), message.version(), "Review message", message.id());
         ReviewMessage next = new ReviewMessage(message.id(), message.reviewId(), message.findingId(), message.cardId(), message.author(),
-                message.body(), message.targetRevision(), message.runId(), message.turnId(), message.queuedInputId(), message.version() + 1, message.createdAt());
+                message.body(), message.targetRevision(), message.runId(), message.turnId(), message.queuedInputId(), message.version() + 1, message.createdAt(),
+                message.developerTaskId());
         messages.put(next.id(), next);
         return next;
     }

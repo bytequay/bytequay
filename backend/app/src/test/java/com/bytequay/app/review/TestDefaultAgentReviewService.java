@@ -89,6 +89,7 @@ import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewInvestigation;
 import com.bytequay.core.review.ReviewMessage;
+import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewPerspectiveAssessment;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
@@ -1094,6 +1095,47 @@ class TestDefaultAgentReviewService
                 .isInstanceOf(ReviewConflictException.class)
                 .hasMessageContaining("Only a locally resolved finding can be reopened");
         assertThat(fixture.store.findFinding(stored.id()).orElseThrow().state()).isEqualTo(ReviewFinding.State.OPEN);
+    }
+
+    @Test
+    void developerReplyIsRecordedWithoutAskingTheReviewerOrClosingTheFinding()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        String runId = fixture.store.listRuns(reviewId).getLast().id();
+        ReviewFinding stored = fixture.store.insertFinding(finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN));
+
+        ReviewMessage reply = fixture.service.replyFromDeveloper(reviewId, stored.id(), "developer-task", "reply-1", "  Fixed in abc1234  ");
+        assertThat(reply.author()).isEqualTo(ReviewMessage.Author.AGENT);
+        assertThat(reply.developerTaskId()).contains("developer-task");
+        assertThat(reply.findingId()).contains(stored.id());
+        assertThat(reply.body()).isEqualTo("Fixed in abc1234");
+        assertThat(reply.targetRevision()).isEqualTo(stored.revision());
+        assertThat(reply.turnId()).isEmpty();
+        assertThat(reply.queuedInputId()).isEmpty();
+
+        assertThat(fixture.service.replyFromDeveloper(reviewId, stored.id(), "developer-task", "reply-1", "Fixed in abc1234")).isEqualTo(reply);
+        assertThat(fixture.store.listMessages(reviewId)).containsExactly(reply);
+        assertThatThrownBy(() -> fixture.service.replyFromDeveloper(reviewId, stored.id(), "developer-task", "reply-1", "Rejected instead"))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining("reused");
+        assertThatThrownBy(() -> fixture.service.replyFromDeveloper(reviewId, stored.id(), "another-task", "reply-1", "Fixed in abc1234"))
+                .isInstanceOf(ReviewConflictException.class);
+        assertThatThrownBy(() -> fixture.service.replyFromDeveloper(reviewId, "missing", "developer-task", "reply-2", "Fixed"))
+                .isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> fixture.service.replyFromDeveloper(reviewId, stored.id(), "developer-task", "reply-3", "  "))
+                .isInstanceOf(ReviewInvalidRequestException.class);
+
+        // Only the review's own start asked for a turn: a developer's reply is a record, not a question to the reviewer.
+        verify(fixture.turns, times(1)).start(any(StartAgentTurnCommand.class));
+        verify(fixture.turns, never()).enqueue(any(QueueAgentInputCommand.class));
+        assertThat(fixture.store.findFinding(stored.id()).orElseThrow()).isEqualTo(stored);
+        assertThat(fixture.service.get(reviewId).messages().getFirst().message()).isEqualTo(reply);
+
+        // An ended review keeps its findings on screen, so the reply is still recorded there.
+        fixture.service.end(reviewId);
+        assertThat(fixture.service.replyFromDeveloper(reviewId, stored.id(), "developer-task", "reply-4", "Rejected: the caller already checks this").developerTaskId())
+                .contains("developer-task");
     }
 
     @ParameterizedTest

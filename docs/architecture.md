@@ -132,6 +132,13 @@ the relevant task and working copy. They reuse existing services rather than
 creating a separate task engine for each feature. User-started local tools and
 provider-sandboxed tools have different execution boundaries.
 
+A development task's private-review tools also read the findings that reviews
+saved about that task's changes and its pull request, and record the agent's
+replies on them. The application selects those reviews from the task, so a later
+task on the same pull request reads them without a copy in its conversation. An
+agent cannot name another task or review, and closing a finding stays with the
+user or the finding's reviewer.
+
 ## Trust and external services
 
 Local-first means local application state and execution; it does not mean offline

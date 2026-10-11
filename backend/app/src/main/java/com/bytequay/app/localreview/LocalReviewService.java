@@ -33,6 +33,7 @@ import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.agent.TaskInput;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.review.AgentReviewService;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.localreview.LocalReviewLearningAnchor;
 import com.bytequay.core.localreview.LocalReviewMessage;
 import com.bytequay.core.localreview.LocalReviewMessage.Author;
@@ -41,6 +42,8 @@ import com.bytequay.core.localreview.LocalReviewStore;
 import com.bytequay.core.localreview.LocalReviewThread;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewFinding;
+import com.bytequay.core.review.ReviewMessage;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.hash.Hashing;
@@ -53,6 +56,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.locks.Lock;
 import java.util.function.Supplier;
@@ -118,6 +122,68 @@ public class LocalReviewService
     {
         requireAgentTask(taskId);
         return store.listByTask(taskId).stream().map(this::view).collect(toImmutableList());
+    }
+
+    /** Whether the task is a development task, whose agent also reads review findings through the local review tools. */
+    public boolean readsFindings(String taskId)
+    {
+        return tasks.get(TaskId.valueOf(taskId)).interactive();
+    }
+
+    /**
+     * The review findings a development task's agent may read: those of the newest review of the task's own changes, which
+     * its panel keeps showing after that review ends, and of every open review of the pull request the task links. The task
+     * never names a review, so a later task on the same pull request reads them too. A review task gets none here; it reads
+     * its own through the review tools.
+     */
+    public List<AgentFinding> findingsForAgent(String taskId)
+    {
+        requireAgentTask(taskId);
+        ImmutableList.Builder<AgentFinding> findings = ImmutableList.builder();
+        for (AgentReview review : reviewsForAgent(tasks.get(TaskId.valueOf(taskId)))) {
+            List<ReviewMessage> messages = reviews.listMessages(review.id());
+            for (ReviewFinding finding : reviews.listFindings(review.id())) {
+                findings.add(new AgentFinding(review, finding,
+                        messages.stream().filter(message -> message.findingId().equals(Optional.of(finding.id()))).collect(toImmutableList())));
+            }
+        }
+        return findings.build();
+    }
+
+    /**
+     * Records the agent's reply on a finding it may read; empty when the id names no such finding. The finding keeps its
+     * state: closing it is the user's or its reviewer's.
+     */
+    public Optional<ReviewMessage> replyToFindingFromAgent(String taskId, String findingId, String body, String operationKey)
+    {
+        return findingsForAgent(taskId).stream().filter(value -> value.finding().id().equals(findingId)).findFirst().map(target -> {
+            checkArgument(operationKey != null && !operationKey.isBlank() && operationKey.length() <= 100, "Invalid operation key");
+            // The same key on the same finding names the same reply, so a retry returns it instead of adding another.
+            String messageId = UUID.nameUUIDFromBytes(("developer-reply:" + taskId + ":" + findingId + ":" + operationKey).getBytes(UTF_8)).toString();
+            return reviewTasks.replyFromDeveloper(target.review().id(), findingId, taskId, messageId, normalizedBody(body));
+        });
+    }
+
+    private List<AgentReview> reviewsForAgent(AgentTask task)
+    {
+        if (!task.interactive() || task.workspaceId().isEmpty()) {
+            return ImmutableList.of();
+        }
+        String taskId = task.id().toString();
+        List<AgentReview> workspaceReviews = reviews.listReviews(task.workspaceId().orElseThrow());
+        // The newest one, open or ended, as the task's panel shows it.
+        Optional<String> own = workspaceReviews.stream().filter(review -> review.sourceTaskId().equals(Optional.of(taskId))).map(AgentReview::id).findFirst();
+        // Read from stored rows only: every list and reply comes through here, so it must not run Git or wait on the workspace.
+        Optional<PullRequest> linked = pullRequestOwnership.linkedPullRequest(task);
+        return workspaceReviews.stream()
+                .filter(review -> own.equals(Optional.of(review.id()))
+                        || (review.state() == AgentReview.State.OPEN && review.replay().isEmpty() && linked.filter(pullRequest -> isReviewOf(review, pullRequest)).isPresent()))
+                .collect(toImmutableList());
+    }
+
+    private static boolean isReviewOf(AgentReview review, PullRequest pullRequest)
+    {
+        return review.repo().equalsIgnoreCase(pullRequest.repo()) && review.number().equals(OptionalInt.of(pullRequest.number()));
     }
 
     public LocalReviewView create(String taskId, String workspaceId, Create request, String operationKey)
@@ -472,6 +538,17 @@ public class LocalReviewService
                 + "Path: " + thread.path() + "; side: " + thread.side() + "; lines: " + thread.startLine() + "–" + thread.line()
                 + "; base: " + thread.baseSha().orElse("PR base") + "; head: " + thread.headSha().orElse("unknown") + "\n"
                 + "Selected code (reference only):\n" + fence + "\n" + thread.code() + "\n" + fence + "\n\nUser comment:\n" + message.body();
+    }
+
+    /** One review finding with the review that owns it and the finding's private discussion, oldest message first. */
+    public record AgentFinding(AgentReview review, ReviewFinding finding, List<ReviewMessage> messages)
+    {
+        public AgentFinding
+        {
+            requireNonNull(review, "review is null");
+            requireNonNull(finding, "finding is null");
+            messages = ImmutableList.copyOf(messages);
+        }
     }
 
     public record Create(String id, String messageId, String repo, int number, String path, String side, int startLine, int line,

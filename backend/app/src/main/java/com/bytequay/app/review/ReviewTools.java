@@ -240,7 +240,7 @@ public class ReviewTools
                                 + "command_output (latest completed command, optional commandId), "
                                 + "investigation (its candidates and their validations come " + CANDIDATE_PAGE + " to a page; read every nextPage), findings "
                                 + "(omit target for the list; target=findingId for its body and historical evidence), "
-                                + "summary, discussion (target), or evidence (ref). "
+                                + "summary, discussion (target; a DEVELOPER message is the development agent's own unverified claim), or evidence (ref). "
                                 + "Only current-review diff lines carry anchor ids; related patch pages and other source reads return evidence refs. "
                                 + "For related diffs, read the file index first, then send its diffVersion on every path or later page. "
                                 + "refresh=true is only for a related initial index without diffVersion. Patch fragments may split lines. "
@@ -2295,7 +2295,7 @@ public class ReviewTools
                 .filter(message -> message.cardId().equals(cardId)
                         || (message.cardId().isEmpty() && purposeRun.filter(message.runId()::equals).isPresent()))
                 .filter(message -> findingId.isPresent() || cardId.isPresent() || message.runId().equals(call.run().id()))
-                .map(message -> ImmutableMap.of("author", message.author().name(), "at", message.createdAt().toString(),
+                .map(message -> ImmutableMap.of("author", message.developerTaskId().isPresent() ? "DEVELOPER" : message.author().name(), "at", message.createdAt().toString(),
                         "targetRevision", message.targetRevision(), "body", message.body()))
                 .collect(toImmutableList()));
     }

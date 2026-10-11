@@ -1600,6 +1600,21 @@ class TestReviewTools
     }
 
     @Test
+    void findingDiscussionNamesADevelopmentAgentsReply()
+    {
+        store.insertMessage(new ReviewMessage("question", REVIEW_ID, Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER, "Is this real?", 1, RUN_ID,
+                Optional.empty(), Optional.empty(), 0, NOW));
+        store.insertMessage(new ReviewMessage("answer", REVIEW_ID, Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.AGENT, "It is", 1, RUN_ID,
+                Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(1)));
+        store.insertMessage(new ReviewMessage("developer", REVIEW_ID, Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.AGENT, "Fixed in abc1234", 1, RUN_ID,
+                Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(2), Optional.of("developer-task")));
+
+        // The reviewer must be able to tell the developer's claim from its own earlier answer.
+        JsonNode discussion = call("review_get_context", ImmutableMap.of("kind", "discussion", "target", "finding-1"));
+        assertThat(discussion.path("messages")).extracting(message -> message.path("author").asText()).containsExactly("USER", "AGENT", "DEVELOPER");
+    }
+
+    @Test
     void discussionCanClarifyButCannotRewriteTheRetainedExplanation()
     {
         store.updateRun(store.findRun(RUN_ID).orElseThrow().ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW));

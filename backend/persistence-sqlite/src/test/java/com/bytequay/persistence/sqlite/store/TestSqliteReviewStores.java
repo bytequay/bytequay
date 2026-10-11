@@ -168,12 +168,15 @@ class TestSqliteReviewStores
         ReviewFinding finding = newFinding("finding-1", "review-1", "run-1");
         ReviewMessage question = newMessage("message-1", Optional.of("finding-1"), ReviewMessage.Author.USER, "Why is this critical?", NOW.plusSeconds(8));
         ReviewMessage answer = newMessage("message-2", Optional.empty(), ReviewMessage.Author.AGENT, "The published count never reaches the caller.", NOW.plusSeconds(9));
+        ReviewMessage developerReply = new ReviewMessage("message-3", "review-1", Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.AGENT,
+                "Fixed in abc1234.", 2, "run-1", Optional.empty(), Optional.empty(), 0, NOW.plusSeconds(10), Optional.of("developer-task"));
 
         store.insertReview(review);
         store.insertRun(run);
         store.insertFinding(finding);
         store.insertMessage(question);
         store.insertMessage(answer);
+        store.insertMessage(developerReply);
         entityManager.clear();
 
         assertThat(store.findReview("review-1")).contains(review);
@@ -181,7 +184,12 @@ class TestSqliteReviewStores
         assertThat(store.listRuns("review-1")).containsExactly(run);
         assertThat(store.findFinding("finding-1")).contains(finding);
         assertThat(store.listFindings("review-1")).containsExactly(finding);
-        assertThat(store.listMessages("review-1")).containsExactly(question, answer);
+        // The development task that replied stays on the message; the user's and the reviewer's messages name none.
+        assertThat(store.listMessages("review-1")).containsExactly(question, answer, developerReply);
+        assertThat(store.findMessage("message-3")).map(ReviewMessage::developerTaskId).contains(Optional.of("developer-task"));
+        assertThatThrownBy(() -> new ReviewMessage("message-4", "review-1", Optional.of("finding-1"), Optional.empty(), ReviewMessage.Author.USER,
+                "Mine", 2, "run-1", Optional.empty(), Optional.empty(), 0, NOW, Optional.of("developer-task")))
+                .isInstanceOf(IllegalArgumentException.class);
 
         // A finding about the whole pull request has no lines, and keeps none through storage; the memories it cites survive.
         ReviewFinding whole = new ReviewFinding("finding-whole", "review-1", "run-1", 2, "Nit: commit subject", "Commit message: name the behavior.", Optional.empty(),

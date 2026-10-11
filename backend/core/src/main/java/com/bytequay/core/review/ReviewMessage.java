@@ -26,6 +26,8 @@ import static java.util.Objects.requireNonNull;
  * @param cardId the run-scoped summary card, or empty for a finding or a whole-summary discussion
  * @param queuedInputId the queue row carrying a user question while the agent was busy; a question
  *        with a queue row and no turn is still waiting
+ * @param developerTaskId the development task whose agent replied to the finding; empty for the
+ *        user and for the review's own agent
  */
 public record ReviewMessage(
         String id,
@@ -39,7 +41,8 @@ public record ReviewMessage(
         Optional<String> turnId,
         Optional<String> queuedInputId,
         long version,
-        Instant createdAt)
+        Instant createdAt,
+        Optional<String> developerTaskId)
 {
     public ReviewMessage
     {
@@ -56,6 +59,26 @@ public record ReviewMessage(
         requireNonNull(queuedInputId, "queuedInputId is null");
         checkArgument(version >= 0, "version is negative");
         requireNonNull(createdAt, "createdAt is null");
+        requireNonNull(developerTaskId, "developerTaskId is null");
+        checkArgument(developerTaskId.isEmpty() || (author == Author.AGENT && findingId.isPresent()), "Only an agent's reply to a finding names a development task");
+    }
+
+    /** A message from the user or from the review's own agent. */
+    public ReviewMessage(
+            String id,
+            String reviewId,
+            Optional<String> findingId,
+            Optional<String> cardId,
+            Author author,
+            String body,
+            int targetRevision,
+            String runId,
+            Optional<String> turnId,
+            Optional<String> queuedInputId,
+            long version,
+            Instant createdAt)
+    {
+        this(id, reviewId, findingId, cardId, author, body, targetRevision, runId, turnId, queuedInputId, version, createdAt, Optional.empty());
     }
 
     public enum Author

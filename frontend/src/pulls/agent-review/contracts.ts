@@ -187,6 +187,8 @@ export type ReviewMessageDto = {
   queuedInputId: string | null;
   messageEventId?: string | null;
   createdAt: string;
+  /** The development task whose agent wrote this reply on a finding; absent for you and for the reviewer. */
+  developerTaskId?: string | null;
 };
 
 
@@ -522,6 +524,7 @@ function parseMessage(value: unknown): ReviewMessageDto {
     queuedInputId: optionalText(message.queuedInputId),
     messageEventId: optionalText(message.messageEventId),
     createdAt: text(message.createdAt, 'message time'),
+    developerTaskId: optionalText(message.developerTaskId),
   };
 }
 

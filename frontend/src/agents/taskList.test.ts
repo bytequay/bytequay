@@ -116,6 +116,10 @@ describe('task list items', () => {
     expect(finished.change).toMatch(/finding|open/);
     expect(finished.links[0]).toMatchObject({ source: 'pr', key: '#30304' });
     expect(reviewItem(reviewFixture({ number: null })).title).toBe('trinodb/trino · Local changes');
+    // The last word may be a development agent's reply on a finding, which is not the reviewer speaking.
+    const [last] = reviewFixture().messages.slice(-1);
+    expect(finished.message?.who).toBe(reviewFixture().task.laneLabel);
+    expect(reviewItem(reviewFixture({ messages: [{ ...last, findingId: 'finding-1', developerTaskId: 'developer-task' }] })).message?.who).toBe('Developer');
   });
 
   it('reads a cherry-pick by how far it came, and a canceled one as finished, not completed', () => {

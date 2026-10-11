@@ -39,10 +39,14 @@ export default function ReviewThread({ review, messages, viewerLogin, viewerAvat
     <div className="agr-thread">
       {messages.map(message => {
         const mine = message.author === 'USER';
+        // A development agent answers a finding from its own task, so its reply must not read as the reviewer's.
+        const developer = message.developerTaskId != null;
+        const author = mine ? 'You' : developer ? 'Developer' : 'Agent review';
         return (
-          <LocalCardMessage key={message.id} timestamp={message.createdAt} author={mine ? 'You' : 'Agent review'}
-            attributes={commentIndexTarget(mine ? 'human' : 'agent', mine ? 'You' : 'Agent review', message.body)}
-            avatar={mine ? <Avatar login={viewerLogin || 'You'} avatarUrl={viewerAvatarUrl} size={22} allowGitHubFallback={false} /> : <ReviewerAvatar />}
+          <LocalCardMessage key={message.id} timestamp={message.createdAt} author={author}
+            attributes={commentIndexTarget(mine ? 'human' : 'agent', author, message.body)}
+            avatar={mine ? <Avatar login={viewerLogin || 'You'} avatarUrl={viewerAvatarUrl} size={22} allowGitHubFallback={false} />
+              : developer ? <Avatar login="Agent" size={22} allowGitHubFallback={false} /> : <ReviewerAvatar />}
             menu={queued(review, message) && (
               <span className="agr-pill is-queued"><Spinner />Queued · runs after the current turn</span>
             )}>

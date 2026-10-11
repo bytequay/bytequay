@@ -678,6 +678,17 @@ function SidePanel({
       .finally(() => { if (active) setReviewLoading(false); });
     return () => { active = false; };
   }, [workspaceId, prRepo, prNumber, reviewReload, task?.id, task?.interactive]);
+  // This task's agent replies on findings from its own turns, which the review's events never report. Re-reading the review whenever the
+  // active turn changes shows a finished turn's replies, also when a queued turn starts right behind it.
+  const shownReview = useRef(review);
+  shownReview.current = review;
+  const activeTurn = task?.mutationClaim?.kind === 'TURN' ? task.mutationClaim.ownerId : null;
+  useEffect(() => {
+    const shown = shownReview.current;
+    if (shown === null) return;
+    void Promise.resolve().then(() => window.bridge.getAgentReview(shown.id))
+      .then(value => setReview(current => (current === shown ? value : current)), () => {});
+  }, [activeTurn]);
   const privateThreads = discussions === undefined || pullRequest === null || task?.interactive !== true ? undefined
     : privateThreadSource(discussions, pullRequest);
   const agentCount = agents.length + expiredChildren.length;

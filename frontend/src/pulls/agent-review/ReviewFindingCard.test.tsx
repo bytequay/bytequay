@@ -15,7 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import ReviewFindingCard from './ReviewFindingCard';
 import { reviewFixture } from './fixtures/review';
-import type { AgentReviewDto, ReviewDraftItemDto, ReviewFindingDto } from './contracts';
+import type { AgentReviewDto, ReviewDraftItemDto, ReviewFindingDto, ReviewMessageDto } from './contracts';
 
 const body = 'Guard the empty value.\n\n```suggestion\n    return input.orElseThrow();\n```';
 const finding: ReviewFindingDto = { ...reviewFixture().findings[0], startLine: 118, endLine: 119, range: 'R118–R119', body,
@@ -24,8 +24,8 @@ const draftItem: ReviewDraftItemDto = { id: 'draft-suggestion', source: 'AGENT_F
   findingRevision: finding.revision, commitId: finding.validatedHeadSha, path: finding.path, side: 'RIGHT', line: finding.endLine, startLine: finding.startLine,
   body, included: true, published: false, publication: null };
 
-function render(value = finding, item?: ReviewDraftItemDto, projection: 'review' | 'changes' = 'review') {
-  const review: AgentReviewDto = reviewFixture({ findings: [value], draft: item === undefined ? null : {
+function render(value = finding, item?: ReviewDraftItemDto, projection: 'review' | 'changes' = 'review', messages: ReviewMessageDto[] = []) {
+  const review: AgentReviewDto = reviewFixture({ findings: [value], messages, draft: item === undefined ? null : {
     repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items: [item], version: 1, updatedAt: value.updatedAt,
   } });
   return renderToStaticMarkup(<ReviewFindingCard review={review} finding={value} projection={projection}
@@ -49,6 +49,19 @@ describe('finding suggestions', () => {
     expect(html).not.toContain('<span>suggestion</span>');
     expect(html).not.toContain('Reviewed code');
     expect(html).not.toContain('pr-local-review__snapshot');
+  });
+
+  it("names a development agent's reply apart from the reviewer's own", () => {
+    const message: Omit<ReviewMessageDto, 'id' | 'body' | 'createdAt'> = { findingId: finding.id, author: 'AGENT', targetRevision: finding.revision, turnId: null, queuedInputId: null };
+    const html = render(finding, undefined, 'review', [
+      { ...message, id: 'answer', body: 'The value can be empty.', createdAt: '2026-09-06T16:19:00Z' },
+      { ...message, id: 'reply', body: 'Fixed in abc1234.', createdAt: '2026-09-06T16:20:00Z', developerTaskId: 'developer-task' },
+    ]);
+    expect(html).toContain('data-review-comment-label="Agent review" data-review-comment-preview="The value can be empty."');
+    expect(html).toContain('data-review-comment-label="Developer" data-review-comment-preview="Fixed in abc1234."');
+    expect(html).toContain('<strong>Developer</strong>');
+    // Only the reviewer's own messages carry the reviewer's mark: the finding and its answer, not the developer's reply.
+    expect(html.match(/class="lrc-bot"/g)).toHaveLength(2);
   });
 
   it('folds the repository memories the reviewer cited', () => {

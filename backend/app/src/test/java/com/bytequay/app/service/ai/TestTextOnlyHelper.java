@@ -109,4 +109,16 @@ class TestTextOnlyHelper
         assertThatThrownBy(() -> answer.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(AgentUnavailableException.class);
         verify(turn).cancel();
     }
+
+    @Test
+    void aTimedOutAnswerCancelsTheTurnAndReleasesScratch()
+    {
+        assertThatThrownBy(() -> helper.answer(MODEL, "Answer slowly", "", "No answer", Duration.ofMillis(10), "timeout"))
+                .isInstanceOf(AgentUnavailableException.class)
+                .hasMessageContaining("No answer")
+                .hasMessageContaining("did not answer in time");
+        verify(turn).cancel();
+        verify(session).close();
+        verify(resources).delete(any());
+    }
 }

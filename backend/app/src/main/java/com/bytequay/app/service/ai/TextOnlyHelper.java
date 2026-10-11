@@ -82,7 +82,13 @@ public class TextOnlyHelper
      */
     public String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure)
     {
-        return answer(model, prompt, managedInstructions, failure, MAXIMUM_RUNTIME, UUID.randomUUID().toString());
+        return answer(new AgentLaneId(model.configId()), Optional.of(model.model()), model.effort(), prompt, managedInstructions, failure);
+    }
+
+    /** Runs a short text request using the task's selected provider, model and effort. */
+    public String answer(AgentLaneId laneId, Optional<String> model, Optional<String> effort, String prompt, String managedInstructions, String failure)
+    {
+        return answer(laneId, model, effort, prompt, managedInstructions, failure, MAXIMUM_RUNTIME, UUID.randomUUID().toString());
     }
 
     /**
@@ -93,12 +99,18 @@ public class TextOnlyHelper
      */
     public String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure, Duration maximumRuntime, String key)
     {
+        return answer(new AgentLaneId(model.configId()), Optional.of(model.model()), model.effort(), prompt, managedInstructions, failure, maximumRuntime, key);
+    }
+
+    private String answer(AgentLaneId laneId, Optional<String> model, Optional<String> effort, String prompt, String managedInstructions,
+            String failure, Duration maximumRuntime, String key)
+    {
         Running current = new Running();
         if (running.putIfAbsent(key, current) != null) {
             throw new IllegalStateException("An answer is already running for " + key);
         }
         try {
-            return answer(model, prompt, managedInstructions, failure, maximumRuntime, current);
+            return answer(laneId, model, effort, prompt, managedInstructions, failure, maximumRuntime, current);
         }
         finally {
             running.remove(key, current);
@@ -114,15 +126,16 @@ public class TextOnlyHelper
         }
     }
 
-    private String answer(AgentModelSetting model, String prompt, String managedInstructions, String failure, Duration maximumRuntime, Running current)
+    private String answer(AgentLaneId laneId, Optional<String> model, Optional<String> effort, String prompt, String managedInstructions,
+            String failure, Duration maximumRuntime, Running current)
     {
         AgentTurnResult result;
         try {
-            result = OneShotSession.run(resources, drivers.require(new AgentLaneId(model.configId())), (taskId, scratch) -> new AgentSessionContext(
+            result = OneShotSession.run(resources, drivers.require(laneId), (taskId, scratch) -> new AgentSessionContext(
                             taskId.toString(), OneShotSession.scratchWorktree(scratch, "text-only-worktree"), scratch.runtimeDirectory(), scratch.providerDirectory(),
                             AgentPermissionPolicy.AUTO, Optional.empty(),
                             (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                            Optional.of(model.model()), model.effort(), SessionAccess.TEXT_ONLY, Optional.empty(), managedInstructions),
+                            model, effort, SessionAccess.TEXT_ONLY, Optional.empty(), managedInstructions),
                     prompt, maximumRuntime, current::started).result();
         }
         catch (AgentUnavailableException unavailable) {

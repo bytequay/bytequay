@@ -434,7 +434,7 @@ class TestInteractiveAgentTaskCreator
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspace(repository));
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT, false));
-        TaskNames generated = new TaskNames("Fix duplicate table samples", "fix-dup-table-sample-issue-31178");
+        TaskNames generated = new TaskNames("Fix duplicate table samples", "fix-duplicate-table-samples");
         when(names.generate(any(), any(), any())).thenReturn(Optional.of(generated));
         creator.create(TASK_ID, "workspace-1", "Develop the following GitHub issue", AgentLaneId.CODEX_CLI, defaults(), "create-key",
                 Optional.empty(), Optional.empty(), Optional.of(issue()), Optional.empty());
@@ -445,7 +445,7 @@ class TestInteractiveAgentTaskCreator
         ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(tasks).createInteractive(command.capture());
         assertThat(command.getValue().names()).contains(generated);
-        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/fix-dup-table-sample-issue-31178");
+        assertThat(command.getValue().generatedBranch()).isEqualTo("chenjian2664/bytequay/fix-duplicate-table-samples");
         InOrder order = inOrder(names, tasks);
         order.verify(names).generate(any(), any(), any());
         order.verify(tasks).createInteractive(any());

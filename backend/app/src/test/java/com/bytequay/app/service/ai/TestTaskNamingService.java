@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.agent.core.impl;
+package com.bytequay.app.service.ai;
 
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTaskDefaults;
@@ -28,10 +28,13 @@ import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.RunningTurn;
+import com.bytequay.app.service.settings.AgentSkillService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 
 import java.nio.file.Path;
@@ -47,10 +50,10 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class TestDefaultAgentTaskTitleService
+class TestTaskNamingService
 {
     private static final String RESULT = """
-            {"title":"Fix duplicate table samples","branch":"fix-dup-table-sample-issue-31178"}
+            {"title":"Fix duplicate table samples","branch":"fix-duplicate-table-samples"}
             """;
     private static final AgentTaskDefaults DEFAULTS = new AgentTaskDefaults(Optional.of("model-a"), Optional.of("high"), AgentPermissionPolicy.AUTO);
 
@@ -61,7 +64,7 @@ class TestDefaultAgentTaskTitleService
     private AgentDriver driver;
     private AgentSession session;
     private RunningTurn turn;
-    private DefaultAgentTaskTitleService service;
+    private TaskNamingService service;
 
     @BeforeEach
     void setUp()
@@ -78,7 +81,9 @@ class TestDefaultAgentTaskTitleService
         when(session.reference()).thenReturn(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "session"));
         when(session.start(any())).thenReturn(turn);
         complete(RESULT);
-        service = new DefaultAgentTaskTitleService(resources, drivers, () -> "Common instructions", Duration.ofMillis(100));
+        AgentSkillService skills = mock(AgentSkillService.class);
+        when(skills.instructions()).thenReturn("Common instructions");
+        service = new TaskNamingService(new TextOnlyHelper(drivers, resources), skills);
     }
 
     @Test
@@ -88,29 +93,44 @@ class TestDefaultAgentTaskTitleService
         String request = "Develop the following GitHub issue\n" + "Boilerplate ".repeat(200)
                 + "\nIssue #31178: TABLESAMPLE emits duplicate tables. Please fix duplicate table samples.\n\t\"quoted\"";
         assertThat(service.generate(AgentLaneId.CODEX_CLI, DEFAULTS, request))
-                .contains(new TaskNames("Fix duplicate table samples", "fix-dup-table-sample-issue-31178"));
+                .contains(new TaskNames("Fix duplicate table samples", "fix-duplicate-table-samples"));
 
         ArgumentCaptor<AgentSessionContext> context = ArgumentCaptor.forClass(AgentSessionContext.class);
         verify(driver).open(context.capture(), any());
         assertThat(context.getValue().textOnly()).isTrue();
-        assertThat(context.getValue().worktree()).isEqualTo(temporaryDirectory.resolve("naming-worktree"));
+        assertThat(context.getValue().worktree()).isEqualTo(temporaryDirectory.resolve("text-only-worktree"));
         assertThat(context.getValue().model()).contains("model-a");
         assertThat(context.getValue().effort()).contains("high");
         assertThat(context.getValue().managedInstructions()).isEqualTo("Common instructions");
         ArgumentCaptor<AgentTurnCommand> command = ArgumentCaptor.forClass(AgentTurnCommand.class);
         verify(session).start(command.capture());
+        assertThat(command.getValue().maximumRuntime()).isEqualTo(Duration.ofSeconds(45));
         String prompt = command.getValue().message();
         assertThat(prompt).contains("Infer the intended change", "Read the issue body for intent", "No username");
+        assertThat(prompt).contains("direct action", "fix-iceberg-compaction", "fix-connector-icks-todo", "close-connector-icks-issue",
+                "find-iceberg-issue", "Do not invent a specific defect", "Omit search filters", "Omit issue/ticket numbers");
         String encoded = prompt.substring(prompt.indexOf("Request and context as a JSON string:\n") + "Request and context as a JSON string:\n".length());
         assertThat(new ObjectMapper().readValue(encoded, String.class)).isEqualTo(request);
         verify(session).close();
         verify(resources).delete(TaskId.valueOf(context.getValue().taskId()));
     }
 
-    @Test
-    void rejectsMalformedNamesInsteadOfSilentlyTruncatingOrUsingUnsafeBranches()
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"title\":\"Fix samples\",\"branch\":\"refs/heads/main\"}",
+            "{\"title\":\"Fix samples\",\"branch\":\"fix--samples\"}",
+            "{\"title\":\"Fix samples\",\"branch\":\"fix-samples-that-keep-duplicating-across-all-the-table-sample-retries\"}",
+            "{\"title\":\"Fix samples\"}",
+            "{\"title\":\"Fix samples\",\"branch\":42}",
+            "{\"title\":\"Fix samples\",\"branch\":\"\"}",
+            "{\"title\":\"\",\"branch\":\"fix-samples\"}",
+            "```json\n{\"title\":\"Fix samples\",\"branch\":\"fix-samples\"}\n```",
+            "null",
+            ""
+    })
+    void rejectsMalformedNamesInsteadOfSilentlyTruncatingOrUsingUnsafeBranches(String response)
     {
-        complete("{\"title\":\"Fix samples\",\"branch\":\"refs/heads/main\"}");
+        complete(response);
         assertThat(service.generate(AgentLaneId.CODEX_CLI, DEFAULTS, "Fix samples")).isEmpty();
         verify(session).close();
         verify(resources).delete(any());
@@ -127,16 +147,6 @@ class TestDefaultAgentTaskTitleService
     }
 
     @Test
-    void cancelsAStuckNamingTurn()
-    {
-        when(turn.completion()).thenReturn(new CompletableFuture<>());
-        assertThat(service.generate(AgentLaneId.CODEX_CLI, DEFAULTS, "Fix samples")).isEmpty();
-        verify(turn).cancel();
-        verify(session).close();
-        verify(resources).delete(any());
-    }
-
-    @Test
     void retainsScratchAndRejectsResultWhenShutdownCannotBeVerified()
     {
         doThrow(new IllegalStateException("still running")).when(session).close();
@@ -146,7 +156,8 @@ class TestDefaultAgentTaskTitleService
 
     private void complete(String response)
     {
-        when(turn.completion()).thenReturn(CompletableFuture.completedFuture(new AgentTurnResult(
-                AgentTurnResult.State.COMPLETED, Optional.of(response), Optional.empty(), Duration.ZERO, true)));
+        AgentTurnResult result = new AgentTurnResult(
+                AgentTurnResult.State.COMPLETED, Optional.of(response).filter(value -> !value.isEmpty()), Optional.empty(), Duration.ZERO, true);
+        when(turn.completion()).thenReturn(CompletableFuture.completedFuture(result));
     }
 }

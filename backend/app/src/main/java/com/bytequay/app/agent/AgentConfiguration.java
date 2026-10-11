@@ -28,7 +28,6 @@ import com.bytequay.agent.core.AgentMetricsService;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskService;
-import com.bytequay.agent.core.AgentTaskTitleService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.CodeQueryService;
@@ -42,7 +41,6 @@ import com.bytequay.agent.core.impl.DefaultAgentCompletionService;
 import com.bytequay.agent.core.impl.DefaultAgentEventService;
 import com.bytequay.agent.core.impl.DefaultAgentMetricsService;
 import com.bytequay.agent.core.impl.DefaultAgentTaskService;
-import com.bytequay.agent.core.impl.DefaultAgentTaskTitleService;
 import com.bytequay.agent.core.impl.DefaultAgentTurnService;
 import com.bytequay.agent.core.impl.FileAgentResourceService;
 import com.bytequay.agent.core.impl.FileTaskLogStore;
@@ -334,12 +332,6 @@ public class AgentConfiguration
                 resourceService,
                 driverRegistry,
                 agentClock);
-    }
-
-    @Bean
-    public AgentTaskTitleService agentTaskTitleService(AgentResourceService resourceService, AgentDriverRegistry driverRegistry, AgentSkillService skills)
-    {
-        return new DefaultAgentTaskTitleService(resourceService, driverRegistry, skills::instructions);
     }
 
     @Bean

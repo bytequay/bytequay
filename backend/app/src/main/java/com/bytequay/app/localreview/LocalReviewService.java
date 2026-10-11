@@ -151,8 +151,8 @@ public class LocalReviewService
     }
 
     /**
-     * Records the agent's reply on a finding it may read; empty when the id names no such finding. The finding keeps its
-     * state: closing it is the user's or its reviewer's.
+     * Records the agent's reply on a finding it may read; empty when the id names no such finding. A reply alone leaves
+     * the finding's state as it is.
      */
     public Optional<ReviewMessage> replyToFindingFromAgent(String taskId, String findingId, String body, String operationKey)
     {
@@ -161,6 +161,20 @@ public class LocalReviewService
             // The same key on the same finding names the same reply, so a retry returns it instead of adding another.
             String messageId = UUID.nameUUIDFromBytes(("developer-reply:" + taskId + ":" + findingId + ":" + operationKey).getBytes(UTF_8)).toString();
             return reviewTasks.replyFromDeveloper(target.review().id(), findingId, taskId, messageId, normalizedBody(body));
+        });
+    }
+
+    /**
+     * Resolves a finding the agent fixed, or reopens one a development agent resolved; empty when the id names no finding it
+     * may read. Resolving an open finding needs the agent's own reply on it first, because that reply is the reason the card
+     * shows.
+     */
+    public Optional<ReviewFinding> resolveFindingFromAgent(String taskId, String findingId, boolean resolved)
+    {
+        return findingsForAgent(taskId).stream().filter(value -> value.finding().id().equals(findingId)).findFirst().map(target -> {
+            boolean answered = target.messages().stream().anyMatch(message -> message.developerTaskId().equals(Optional.of(taskId)));
+            checkArgument(!resolved || answered || target.finding().state() != ReviewFinding.State.OPEN, "Reply on the finding with what you changed before resolving it");
+            return reviewTasks.resolveFromDeveloper(target.review().id(), findingId, taskId, resolved);
         });
     }
 

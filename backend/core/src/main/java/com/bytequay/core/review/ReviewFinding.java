@@ -24,13 +24,15 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * One finding with its stable identity, its frozen location, and the local decisions made
- * about it. Agent revisions move {@code revision}; a user resolution is a state the agent cannot undo.
+ * about it. Agent revisions move {@code revision}; a user resolution is a state no agent can undo.
  *
  * @param anchor the diff lines the finding is about, or empty for a finding about the whole pull
  *        request, such as a commit message or the description, which has no lines
  * @param validatedHeadSha the head at which the agent last supported this claim with evidence;
  *        mapping its anchor to a later head does not advance that verification
  * @param outdated whether the finding needs reassessment or a new anchor for a later review
+ * @param resolvedByTaskId the development task whose agent resolved the finding after fixing it;
+ *        empty when the user resolved it and while it is not resolved
  */
 public record ReviewFinding(
         String id,
@@ -51,7 +53,8 @@ public record ReviewFinding(
         Instant createdAt,
         Instant updatedAt,
         List<MemoryCitation> memories,
-        Origin origin)
+        Origin origin,
+        Optional<String> resolvedByTaskId)
 {
     public ReviewFinding
     {
@@ -73,6 +76,34 @@ public record ReviewFinding(
         requireNonNull(updatedAt, "updatedAt is null");
         memories = ImmutableList.copyOf(memories);
         requireNonNull(origin, "origin is null");
+        requireNonNull(resolvedByTaskId, "resolvedByTaskId is null");
+        checkArgument(resolvedByTaskId.isEmpty() || state == State.RESOLVED, "Only a resolved finding names the development task that resolved it");
+    }
+
+    /** A finding no development agent resolved. */
+    public ReviewFinding(
+            String id,
+            String reviewId,
+            String runId,
+            int ordinal,
+            String title,
+            String body,
+            Optional<String> severity,
+            Optional<ReviewAnchor> anchor,
+            List<ReviewEvidence> evidence,
+            int revision,
+            State state,
+            Optional<String> stateReason,
+            String validatedHeadSha,
+            boolean outdated,
+            long version,
+            Instant createdAt,
+            Instant updatedAt,
+            List<MemoryCitation> memories,
+            Origin origin)
+    {
+        this(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated, version, createdAt, updatedAt,
+                memories, origin, Optional.empty());
     }
 
     /** The label shown on cards, derived from the review-local ordinal. */
@@ -85,7 +116,7 @@ public record ReviewFinding(
     public ReviewFinding withMemories(List<MemoryCitation> cited)
     {
         return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated,
-                version, createdAt, updatedAt, cited, origin);
+                version, createdAt, updatedAt, cited, origin, resolvedByTaskId);
     }
 
     public ReviewFinding withVersion(long updatedVersion)
@@ -109,7 +140,8 @@ public record ReviewFinding(
                 createdAt,
                 updatedAt,
                 memories,
-                origin);
+                origin,
+                resolvedByTaskId);
     }
 
     /** An evidence-backed agent revision at the current reviewed scope clears pending reassessment. */
@@ -141,9 +173,11 @@ public record ReviewFinding(
                 createdAt,
                 now,
                 memories,
-                origin);
+                origin,
+                resolvedByTaskId);
     }
 
+    /** A state the user or the reviewer sets, so the finding names no development task afterwards. */
     public ReviewFinding withState(State updatedState, Optional<String> reason, Instant now)
     {
         return new ReviewFinding(
@@ -165,7 +199,15 @@ public record ReviewFinding(
                 createdAt,
                 now,
                 memories,
-                origin);
+                origin,
+                Optional.empty());
+    }
+
+    /** Resolved by the agent of the development task that fixed it; the task's own reply on the finding says what changed. */
+    public ReviewFinding resolvedByDeveloper(String developerTaskId, Instant now)
+    {
+        return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, State.RESOLVED, Optional.empty(), validatedHeadSha, outdated,
+                version, createdAt, now, memories, origin, Optional.of(developerTaskId));
     }
 
     /** A new source scope requires another conclusion even when the location maps exactly. */
@@ -190,7 +232,8 @@ public record ReviewFinding(
                 createdAt,
                 now,
                 memories,
-                origin);
+                origin,
+                resolvedByTaskId);
     }
 
     /**
@@ -200,7 +243,7 @@ public record ReviewFinding(
     public ReviewFinding carried(Optional<ReviewAnchor> carriedAnchor, String headSha, Instant now)
     {
         return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, carriedAnchor, evidence, revision, state, stateReason, headSha, false,
-                version, createdAt, now, memories, origin);
+                version, createdAt, now, memories, origin, resolvedByTaskId);
     }
 
     public enum Origin
@@ -212,7 +255,7 @@ public record ReviewFinding(
     public enum State
     {
         OPEN,
-        /** Resolved locally by the user; cannot be newly promoted, but existing user drafts are independent. */
+        /** Resolved locally, by the user or by a development agent that fixed it; cannot be newly promoted, but existing user drafts are independent. */
         RESOLVED,
         /** Withdrawn by the agent with an explanation; cannot be newly promoted. */
         WITHDRAWN

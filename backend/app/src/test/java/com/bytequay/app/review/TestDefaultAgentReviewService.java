@@ -1098,6 +1098,51 @@ class TestDefaultAgentReviewService
     }
 
     @Test
+    void developerResolvesWhatItFixedAndCannotUndoTheUsersResolution()
+    {
+        Fixture fixture = new Fixture();
+        String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        String runId = fixture.store.listRuns(reviewId).getLast().id();
+        ReviewFinding stored = fixture.store.insertFinding(finding("finding-1", reviewId, runId, 1, ReviewFinding.State.OPEN));
+
+        ReviewFinding resolved = fixture.service.resolveFromDeveloper(reviewId, stored.id(), "developer-task", true);
+        assertThat(resolved.state()).isEqualTo(ReviewFinding.State.RESOLVED);
+        assertThat(resolved.resolvedByTaskId()).contains("developer-task");
+        assertThat(resolved.stateReason()).isEmpty();
+        assertThat(resolved.version()).isEqualTo(stored.version() + 1);
+        // Already resolved: a repeat, also from another task, changes nothing.
+        assertThat(fixture.service.resolveFromDeveloper(reviewId, stored.id(), "another-task", true)).isEqualTo(resolved);
+
+        ReviewFinding reopened = fixture.service.resolveFromDeveloper(reviewId, stored.id(), "developer-task", false);
+        assertThat(reopened.state()).isEqualTo(ReviewFinding.State.OPEN);
+        assertThat(reopened.resolvedByTaskId()).isEmpty();
+        assertThat(fixture.service.resolveFromDeveloper(reviewId, stored.id(), "developer-task", false)).isEqualTo(reopened);
+
+        // The user's own resolution keeps its reason and is not the agent's to reopen.
+        ReviewFinding mine = fixture.service.resolveFinding(reviewId, stored.id(), reopened.version(), "Handled elsewhere");
+        assertThat(fixture.service.resolveFromDeveloper(reviewId, stored.id(), "developer-task", true)).isEqualTo(mine);
+        assertThat(mine.resolvedByTaskId()).isEmpty();
+        assertThatThrownBy(() -> fixture.service.resolveFromDeveloper(reviewId, stored.id(), "developer-task", false))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining("only the user reopens");
+        assertThat(fixture.store.findFinding(stored.id()).orElseThrow()).isEqualTo(mine);
+
+        // The user reopens what a development agent resolved, and the finding then names no task.
+        fixture.service.reopenFinding(reviewId, stored.id(), mine.version());
+        ReviewFinding byDeveloper = fixture.service.resolveFromDeveloper(reviewId, stored.id(), "developer-task", true);
+        assertThat(byDeveloper.resolvedByTaskId()).contains("developer-task");
+        ReviewFinding byUser = fixture.service.reopenFinding(reviewId, stored.id(), byDeveloper.version());
+        assertThat(byUser.state()).isEqualTo(ReviewFinding.State.OPEN);
+        assertThat(byUser.resolvedByTaskId()).isEmpty();
+
+        ReviewFinding withdrawn = fixture.store.insertFinding(finding("finding-2", reviewId, runId, 2, ReviewFinding.State.WITHDRAWN));
+        assertThatThrownBy(() -> fixture.service.resolveFromDeveloper(reviewId, withdrawn.id(), "developer-task", true))
+                .isInstanceOf(ReviewConflictException.class)
+                .hasMessageContaining("withdrew");
+        assertThatThrownBy(() -> fixture.service.resolveFromDeveloper(reviewId, "missing", "developer-task", true)).isInstanceOf(ReviewNotFoundException.class);
+    }
+
+    @Test
     void developerReplyIsRecordedWithoutAskingTheReviewerOrClosingTheFinding()
     {
         Fixture fixture = new Fixture();

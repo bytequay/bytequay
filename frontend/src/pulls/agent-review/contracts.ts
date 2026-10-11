@@ -157,6 +157,8 @@ export type ReviewFindingDto = {
   revision: number;
   state: ReviewFindingState;
   stateReason: string | null;
+  /** The development task whose agent resolved the finding after fixing it; absent when you resolved it. */
+  resolvedByTaskId?: string | null;
   outdated: boolean;
   validatedHeadSha: string;
   version: number;
@@ -499,6 +501,7 @@ function parseFinding(value: unknown): ReviewFindingDto {
     revision: count(finding.revision, 'finding revision'),
     state: oneOf(finding.state, ['OPEN', 'RESOLVED', 'WITHDRAWN'] as const, 'finding state'),
     stateReason: optionalText(finding.stateReason),
+    resolvedByTaskId: optionalText(finding.resolvedByTaskId),
     outdated: flag(finding.outdated),
     validatedHeadSha: text(finding.validatedHeadSha, 'finding head'),
     version: count(finding.version, 'finding version'),

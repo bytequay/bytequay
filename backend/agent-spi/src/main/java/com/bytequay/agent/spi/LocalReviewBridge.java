@@ -57,8 +57,11 @@ public record LocalReviewBridge(Function<Optional<String>, String> list, Functio
             Findings and their discussion are private: never post them to GitHub comments, reviews or the PR description,
             and never quote them in commit messages.
             After you fix or reject a finding, use reply_local_review_comment with its id to record what you changed or why
-            you disagree. The reply stays private, starts no reviewer turn and does not close the finding. Only the user
-            resolves a finding and only its reviewer withdraws one, so resolve_local_review_comment refuses a finding's id.
+            you disagree. The reply stays private and starts no reviewer turn.
+            Use resolve_local_review_comment with resolved=true only on a finding you fixed, verified and replied on. Its
+            card then shows that a development agent resolved it, and the user can reopen it. Leave a finding you reject
+            open, with your reason in the reply, for the user to decide. resolved=false reopens only a finding that a
+            development agent resolved: a resolution the user made stays, and only its reviewer withdraws a finding.
             """;
 
     public LocalReviewBridge

@@ -64,6 +64,15 @@ describe('finding suggestions', () => {
     expect(html.match(/class="lrc-bot"/g)).toHaveLength(2);
   });
 
+  it('says who resolved a finding and keeps Reopen either way', () => {
+    const mine = render({ ...finding, state: 'RESOLVED', stateReason: 'Handled elsewhere' });
+    expect(mine).toContain('Resolved locally by you · “Handled elsewhere”');
+    const developer = render({ ...finding, state: 'RESOLVED', stateReason: null, resolvedByTaskId: 'developer-task' });
+    expect(developer).toContain('Resolved by Developer');
+    expect(developer).not.toContain('Resolved locally by you');
+    for (const html of [mine, developer]) expect(html).toContain('>Reopen</button>');
+  });
+
   it('folds the repository memories the reviewer cited', () => {
     expect(render()).not.toContain('Memory used');
     const html = render({ ...finding, memories: [{ id: 'm12', line: 'Document every new table property. (PR #31188 @alice)' }] });

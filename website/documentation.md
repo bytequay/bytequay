@@ -246,8 +246,10 @@ The development agent can also read the saved findings itself, so you can ask in
 its task for several at once, such as “fix the open findings”. It reads the review
 of its own changes and the open reviews of its pull request; a later task on the
 same pull request reads them too. Its reply appears on the finding as **Developer**
-and stays private. It cannot close a finding: choose **Resolve**, or **Update
-review** to have the reviewer check the fix.
+and stays private. It resolves a finding only after fixing it and replying; the
+card then says **Resolved by Developer** and you can **Reopen** it. A finding it
+rejects stays open with its reason, for you to decide. **Update review** still
+has the reviewer check the open findings.
 
 ### Discuss without publishing
 

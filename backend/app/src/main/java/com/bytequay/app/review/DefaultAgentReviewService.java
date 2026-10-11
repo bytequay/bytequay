@@ -732,6 +732,28 @@ public class DefaultAgentReviewService
     }
 
     @Override
+    public ReviewFinding resolveFromDeveloper(String reviewId, String findingId, String developerTaskId, boolean resolved)
+    {
+        requireNonNull(developerTaskId, "developerTaskId is null");
+        return locked(reviewId, () -> {
+            ReviewFinding finding = requireFinding(requireReview(reviewId), findingId);
+            if (finding.state() == ReviewFinding.State.WITHDRAWN) {
+                throw new ReviewConflictException("The reviewer withdrew this finding");
+            }
+            if (resolved) {
+                return finding.state() == ReviewFinding.State.RESOLVED ? finding : store.updateFinding(finding.resolvedByDeveloper(developerTaskId, Instant.now(clock)));
+            }
+            if (finding.state() == ReviewFinding.State.OPEN) {
+                return finding;
+            }
+            if (finding.resolvedByTaskId().isEmpty()) {
+                throw new ReviewConflictException("The user resolved this finding, and only the user reopens it");
+            }
+            return store.updateFinding(finding.withState(ReviewFinding.State.OPEN, Optional.empty(), Instant.now(clock)));
+        });
+    }
+
+    @Override
     public ReviewFinding reopenFinding(String reviewId, String findingId, long expectedVersion)
     {
         return locked(reviewId, () -> {

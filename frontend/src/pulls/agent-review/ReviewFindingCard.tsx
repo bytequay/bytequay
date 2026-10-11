@@ -253,7 +253,8 @@ export default function ReviewFindingCard({
             <div className="agr-notice is-resolved">
               <span aria-hidden="true">✓</span>
               <span>
-                Resolved locally by you
+                {/* A development agent resolves what it fixed; its reply below says what changed. */}
+                {finding.resolvedByTaskId != null ? 'Resolved by Developer' : 'Resolved locally by you'}
                 {finding.stateReason ? ` · “${finding.stateReason}”` : ''}
                 {outgoingBody !== null ? ' · your saved review is unchanged' : ''}
               </span>

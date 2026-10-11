@@ -94,6 +94,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
@@ -410,6 +411,41 @@ class TestLocalReviewService
         assertThat(service.replyToFindingFromAgent(taskId.toString(), "finding-ended", "Fixed", "key-4")).isEmpty();
         assertThatThrownBy(() -> service.replyToFindingFromAgent(taskId.toString(), "finding-own", "Fixed", " ")).hasMessageContaining("operation key");
         verify(reviewTasks, times(3)).replyFromDeveloper(anyString(), anyString(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void developmentAgentResolvesOnlyAFindingItAnswered()
+    {
+        when(reviews.listReviews("workspace")).thenReturn(ImmutableList.of(
+                review("own", OptionalInt.empty(), Optional.of(taskId.toString())), review("another-pull-request", OptionalInt.of(8), Optional.empty())));
+        when(reviews.listFindings(anyString())).thenAnswer(call -> ImmutableList.of(finding("finding-" + call.getArgument(0), call.getArgument(0))));
+        ReviewFinding open = finding("finding-own", "own");
+        ReviewFinding resolved = open.resolvedByDeveloper(taskId.toString(), Instant.EPOCH);
+        when(reviewTasks.resolveFromDeveloper("own", "finding-own", taskId.toString(), true)).thenReturn(resolved);
+        when(reviewTasks.resolveFromDeveloper("own", "finding-own", taskId.toString(), false)).thenReturn(open);
+
+        // The card's reason is the agent's own reply, so resolving without one is refused; another task's reply is not its own.
+        assertThatThrownBy(() -> service.resolveFindingFromAgent(taskId.toString(), "finding-own", true)).hasMessageContaining("Reply on the finding");
+        when(reviews.listMessages("own")).thenReturn(ImmutableList.of(new ReviewMessage("earlier", "own", Optional.of("finding-own"), Optional.empty(),
+                ReviewMessage.Author.AGENT, "Fixed", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Optional.of(TaskId.random().toString()))));
+        assertThatThrownBy(() -> service.resolveFindingFromAgent(taskId.toString(), "finding-own", true)).hasMessageContaining("Reply on the finding");
+        verify(reviewTasks, never()).resolveFromDeveloper(anyString(), anyString(), anyString(), eq(true));
+
+        when(reviews.listMessages("own")).thenReturn(ImmutableList.of(new ReviewMessage("reply", "own", Optional.of("finding-own"), Optional.empty(),
+                ReviewMessage.Author.AGENT, "Fixed in abc1234", 1, "run", Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Optional.of(taskId.toString()))));
+        assertThat(service.resolveFindingFromAgent(taskId.toString(), "finding-own", true)).contains(resolved);
+        assertThat(service.resolveFindingFromAgent(taskId.toString(), "finding-own", false)).contains(open);
+
+        // An id it may not read falls through to the task's own comments.
+        assertThat(service.resolveFindingFromAgent(taskId.toString(), "finding-another-pull-request", true)).isEmpty();
+        verify(reviewTasks, times(2)).resolveFromDeveloper(anyString(), anyString(), anyString(), anyBoolean());
+
+        // A finding someone already resolved needs no reply: the review service leaves it with whoever resolved it.
+        ReviewFinding mine = open.withState(ReviewFinding.State.RESOLVED, Optional.of("Handled elsewhere"), Instant.EPOCH);
+        when(reviews.listFindings("own")).thenReturn(ImmutableList.of(mine));
+        when(reviews.listMessages("own")).thenReturn(ImmutableList.of());
+        when(reviewTasks.resolveFromDeveloper("own", "finding-own", taskId.toString(), true)).thenReturn(mine);
+        assertThat(service.resolveFindingFromAgent(taskId.toString(), "finding-own", true)).contains(mine);
     }
 
     @Test

@@ -1359,7 +1359,7 @@ public final class PermissionBroker
                             "additionalProperties", false)));
             tools.add(new ToolDefinition(
                     LocalReviewBridge.RESOLVE_TOOL,
-                    "Resolve or reopen one private comment, never a review finding; resolved is explicit and operationKey identifies this exact update",
+                    "Resolve or reopen one private comment, or a review finding you fixed and replied on; resolved is explicit and operationKey identifies this exact update",
                     ImmutableMap.of(
                             "type", "object",
                             "properties", ImmutableMap.of("commentId", identifier, "operationKey", identifier, "resolved", ImmutableMap.of("type", "boolean")),

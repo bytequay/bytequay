@@ -136,8 +136,9 @@ A development task's private-review tools also read the findings that reviews
 saved about that task's changes and its pull request, and record the agent's
 replies on them. The application selects those reviews from the task, so a later
 task on the same pull request reads them without a copy in its conversation. An
-agent cannot name another task or review, and closing a finding stays with the
-user or the finding's reviewer.
+agent cannot name another task or review. It resolves only a finding it fixed and
+answered, the finding records which task did, and a resolution the user made is
+not an agent's to undo.
 
 ## Trust and external services
 

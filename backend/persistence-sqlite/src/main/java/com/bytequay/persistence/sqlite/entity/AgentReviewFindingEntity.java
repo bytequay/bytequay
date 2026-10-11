@@ -88,6 +88,9 @@ public class AgentReviewFindingEntity
     @Column(name = "state_reason", columnDefinition = "TEXT")
     private String stateReason;
 
+    @Column(name = "resolved_by_task_id")
+    private String resolvedByTaskId;
+
     @Column(name = "validated_head_sha", nullable = false)
     private String validatedHeadSha;
 
@@ -132,6 +135,7 @@ public class AgentReviewFindingEntity
         state = finding.state();
         origin = finding.origin();
         stateReason = finding.stateReason().orElse(null);
+        resolvedByTaskId = finding.resolvedByTaskId().orElse(null);
         validatedHeadSha = finding.validatedHeadSha();
         outdated = finding.outdated();
         createdAt = finding.createdAt();
@@ -159,6 +163,7 @@ public class AgentReviewFindingEntity
                 createdAt,
                 updatedAt,
                 Optional.ofNullable(memoriesJson).map(json -> REVIEW.read(json, MEMORIES, "finding memories")).orElse(ImmutableList.of()),
-                origin);
+                origin,
+                Optional.ofNullable(resolvedByTaskId));
     }
 }

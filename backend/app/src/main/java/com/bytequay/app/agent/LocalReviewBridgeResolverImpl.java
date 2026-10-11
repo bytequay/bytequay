@@ -66,12 +66,10 @@ public class LocalReviewBridgeResolverImpl
                 commentId -> list(taskId, service.listForAgent(taskId), development ? Optional.of(service.findingsForAgent(taskId)) : Optional.empty(), commentId),
                 reply -> service.replyToFindingFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()).map(this::findingReply)
                         .orElseGet(() -> mutation(service.replyFromAgent(taskId, reply.commentId(), reply.body(), reply.operationKey()))),
-                resolution -> {
-                    if (service.findingsForAgent(taskId).stream().anyMatch(value -> value.finding().id().equals(resolution.commentId()))) {
-                        throw new IllegalArgumentException("Only the user resolves a review finding, and only its reviewer withdraws one; reply with your result instead");
-                    }
-                    return mutation(service.resolveFromAgent(taskId, resolution.commentId(), resolution.resolved(), resolution.operationKey()));
-                },
+                resolution -> service.resolveFindingFromAgent(taskId, resolution.commentId(), resolution.resolved())
+                        .map(finding -> json(objectMapper.createObjectNode().put("id", finding.id()).put("state", finding.state().name())
+                                .put("resolvedBy", resolvedBy(taskId, finding).orElse(null))))
+                        .orElseGet(() -> mutation(service.resolveFromAgent(taskId, resolution.commentId(), resolution.resolved(), resolution.operationKey()))),
                 development ? LocalReviewBridge.INSTRUCTION + LocalReviewBridge.FINDINGS_INSTRUCTION : LocalReviewBridge.INSTRUCTION));
     }
 
@@ -202,9 +200,17 @@ public class LocalReviewBridgeResolverImpl
                 .put("updatedAt", finding.updatedAt().toString());
         item.review().number().ifPresent(number -> result.put("number", number));
         finding.severity().ifPresent(severity -> result.put("severity", severity));
+        resolvedBy(taskId, finding).ifPresent(resolver -> result.put("resolvedBy", resolver));
         finding.anchor().ifPresent(anchor -> result.put("path", clip(anchor.path(), 500)).put("side", anchor.side())
                 .put("startLine", anchor.startLine()).put("line", anchor.endLine()));
         return result;
+    }
+
+    /** Who resolved a resolved finding, so the agent knows which resolutions are the user's and not its to reopen. */
+    private static Optional<String> resolvedBy(String taskId, ReviewFinding finding)
+    {
+        return finding.state() != ReviewFinding.State.RESOLVED ? Optional.empty()
+                : Optional.of(finding.resolvedByTaskId().map(resolver -> resolver.equals(taskId) ? "THIS_TASK" : "ANOTHER_TASK").orElse("USER"));
     }
 
     private ObjectNode findingMessage(String taskId, ReviewMessage message, int limit)

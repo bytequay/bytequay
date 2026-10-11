@@ -142,7 +142,8 @@ final class ReviewHttpModels
                 finding.version(),
                 finding.updatedAt(),
                 finding.memories(),
-                finding.origin().name());
+                finding.origin().name(),
+                finding.resolvedByTaskId());
     }
 
     private static EvidenceResponse evidence(ReviewEvidence evidence)
@@ -309,7 +310,8 @@ final class ReviewHttpModels
             long version,
             Instant updatedAt,
             List<ReviewFinding.MemoryCitation> memories,
-            String origin) {}
+            String origin,
+            Optional<String> resolvedByTaskId) {}
 
     record EvidenceResponse(String ref, String source, String provenance, String excerpt, String explanation) {}
 

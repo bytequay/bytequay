@@ -117,6 +117,8 @@ class TestLocalReviewBridgeResolverImpl
         assertThat(listed.path("findings")).extracting(finding -> finding.path("label").asText()).containsExactly("F-2", "F-1", "F-1");
         assertThat(listed.path("findings")).extracting(finding -> finding.path("reviewOf").asText()).containsExactly("THIS_TASK", "PULL_REQUEST", "THIS_TASK");
         assertThat(listed.path("omittedFindingCount").intValue()).isZero();
+        // A resolved finding says who resolved it; this one is the user's, so it is not the agent's to reopen.
+        assertThat(listed.path("findings")).extracting(finding -> finding.path("resolvedBy").asText()).containsExactly("", "", "USER");
         JsonNode summary = listed.at("/findings/0");
         assertThat(summary.path("reviewId").asText()).isEqualTo("own");
         assertThat(summary.path("number").intValue()).isEqualTo(7);
@@ -140,8 +142,16 @@ class TestLocalReviewBridgeResolverImpl
         assertThat(replied.path("id").asText()).isEqualTo("finding-2");
         assertThat(replied.path("latestMessageId").asText()).isEqualTo("reply");
         verify(service, never()).replyFromAgent(anyString(), anyString(), anyString(), anyString());
-        assertThatThrownBy(() -> bridge.resolve().apply(new LocalReviewBridge.Resolution("finding-2", true, "resolve-1")))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Only the user resolves a review finding");
+
+        when(service.resolveFindingFromAgent("task-1", "finding-2", true)).thenReturn(Optional.of(open.resolvedByDeveloper("task-1", Instant.EPOCH)));
+        JsonNode closed = mapper.readTree(bridge.resolve().apply(new LocalReviewBridge.Resolution("finding-2", true, "resolve-1")));
+        assertThat(closed.path("id").asText()).isEqualTo("finding-2");
+        assertThat(closed.path("state").asText()).isEqualTo("RESOLVED");
+        assertThat(closed.path("resolvedBy").asText()).isEqualTo("THIS_TASK");
+        when(service.resolveFindingFromAgent("task-1", "finding-2", false)).thenReturn(Optional.of(open));
+        JsonNode reopened = mapper.readTree(bridge.resolve().apply(new LocalReviewBridge.Resolution("finding-2", false, "reopen-1")));
+        assertThat(reopened.path("state").asText()).isEqualTo("OPEN");
+        assertThat(reopened.path("resolvedBy").isNull()).isTrue();
         verify(service, never()).resolveFromAgent(anyString(), anyString(), anyBoolean(), anyString());
     }
 

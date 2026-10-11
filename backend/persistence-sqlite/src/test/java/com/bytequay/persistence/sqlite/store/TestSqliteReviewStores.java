@@ -201,6 +201,19 @@ class TestSqliteReviewStores
         assertThat(store.findFinding("finding-whole")).contains(whole);
         assertThat(store.findFinding("finding-whole")).map(ReviewFinding::anchor).contains(Optional.empty());
 
+        // A development agent's resolution names its task; the user's or the reviewer's own decision names none.
+        ReviewFinding fixed = store.updateFinding(store.findFinding("finding-whole").orElseThrow().resolvedByDeveloper("developer-task", NOW.plusSeconds(11)));
+        entityManager.clear();
+        assertThat(store.findFinding("finding-whole")).contains(fixed);
+        assertThat(fixed.state()).isEqualTo(ReviewFinding.State.RESOLVED);
+        assertThat(fixed.resolvedByTaskId()).contains("developer-task");
+        assertThat(fixed.withMemories(ImmutableList.of()).resolvedByTaskId()).contains("developer-task");
+        assertThat(fixed.withState(ReviewFinding.State.RESOLVED, Optional.of("Mine"), NOW).resolvedByTaskId()).isEmpty();
+        assertThatThrownBy(() -> new ReviewFinding("finding-open", "review-1", "run-1", 3, "Title", "Body", Optional.empty(), Optional.empty(), ImmutableList.of(), 1,
+                ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC,
+                Optional.of("developer-task")))
+                .isInstanceOf(IllegalArgumentException.class);
+
         // A replay has no pull request number, so the pull request's own review lookup never finds it.
         AgentReview replay = new AgentReview("review-replay", "workspace-a", "bytequay/sample", OptionalInt.empty(), OptionalLong.empty(), "task-replay",
                 Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(HEAD_SHA), Optional.of(HEAD_SHA), 0, NOW, NOW, Optional.empty(),

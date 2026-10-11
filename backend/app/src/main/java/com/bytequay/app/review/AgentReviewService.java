@@ -87,6 +87,15 @@ public interface AgentReviewService
 
     ReviewFinding resolveFinding(String reviewId, String findingId, long expectedVersion, String reason);
 
+    /**
+     * Resolves a finding for the development agent that fixed it, or reopens one a development agent resolved. A finding
+     * that is already resolved keeps whoever resolved it, and one the user resolved is the user's to reopen.
+     *
+     * @param developerTaskId the development task whose agent decides
+     * @throws com.bytequay.core.review.ReviewConflictException when the reviewer withdrew the finding, or the agent would reopen the user's resolution
+     */
+    ReviewFinding resolveFromDeveloper(String reviewId, String findingId, String developerTaskId, boolean resolved);
+
     ReviewFinding reopenFinding(String reviewId, String findingId, long expectedVersion);
 
     /** The task a review owns, for the review-scoped activity routes. */

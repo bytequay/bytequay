@@ -65,9 +65,8 @@ public record TaskDiscussion(
         long version)
 {
     /**
-     * The character bound standing in for the 300,000-token context limit, at four characters per
-     * token. No provider reports a context window, so the budget is enforced here and fails rather
-     * than shortening a premise the reader is relying on.
+     * Bounds the retained snapshot, which the discussion reads in pages rather than loading into
+     * its prompt. Fail rather than silently shorten the premise the reader is relying on.
      */
     public static final int MAX_SEED_CHARACTERS = 1_200_000;
 

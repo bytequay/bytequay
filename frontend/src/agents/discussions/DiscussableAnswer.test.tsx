@@ -182,6 +182,19 @@ describe('the panel', () => {
     resolve: async () => {}, retry: async () => {}, askComment: async () => discussion(), draftReply: async () => '',
   });
 
+  it('keeps a long passage behind a closed disclosure while showing the question', () => {
+    const quote = 'The coordinator limits splits per thread. '.repeat(100);
+    const html = renderToStaticMarkup(
+      <DiscussionCard discussion={discussion({ quote, pending: true })} siblings={[]} discussions={stub(null)} open onToggle={() => {}} />);
+    const heading = html.slice(0, html.indexOf('agt-disc-card__body'));
+    expect(heading).not.toContain(quote);
+    expect(heading.length).toBeLessThan(1500);
+    expect(html).toContain('<details class="agt-disc-card__source"><summary>Selected passage</summary><blockquote>' + quote);
+    expect(html).toContain('why?');
+    expect(html).toContain('Checking the passage and relevant context…');
+    expect(html).not.toContain('Reading the task history');
+  });
+
   it('offers a reply while the task still holds its files', () => {
     const html = renderToStaticMarkup(
       <DiscussionCard discussion={discussion()} siblings={[]} discussions={stub(null)} open onToggle={() => {}} />);

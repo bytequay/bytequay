@@ -43,6 +43,7 @@ import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeQueryBridge;
+import com.bytequay.agent.spi.DiscussionContextBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
@@ -109,6 +110,31 @@ class TestCodexCliDriver
 
     @TempDir
     private Path worktree;
+
+    @Test
+    void readOnlyDiscussionsReceiveTheirContextToolWithoutWritePermissions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
+        supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
+        supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
+        CodexCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
+        AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
+                plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
+                Optional.empty(), "", Optional.of(new DiscussionContextBridge(query -> "saved context")));
+        try (AgentSession session = driver.open(discussion, event -> {})) {
+            assertThat(supervisor.serverArgv().getLast()).anyMatch(argument -> argument.contains("read_discussion_context"));
+            JsonNode thread = supervisor.server().threadRequests().getFirst();
+            assertThat(thread.path("developerInstructions").asText()).contains(DiscussionContextBridge.INSTRUCTION);
+            RunningTurn turn = session.start(command("explain this"));
+            JsonNode request = supervisor.server().turnRequests().getFirst();
+            assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
+            assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
+            supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"answer\",\"text\":\"Explained.\",\"phase\":\"final_answer\"}]");
+            assertThat(turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+        }
+    }
 
     @Test
     void deepSeekAdvertisesCiAutofix()

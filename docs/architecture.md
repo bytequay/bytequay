@@ -140,6 +140,14 @@ agent cannot name another task or review. It resolves only a finding it fixed an
 answered, the finding records which task did, and a resolution the user made is
 not an agent's to undo.
 
+Private question sessions receive a read-only context capability scoped to their
+selected discussion or comment batch. The prompt carries the question and a short
+passage; the capability pages through source material, earlier messages, and saved
+history. Passage history comes from its retained snapshot, so deleting runtime
+logs does not remove the discussion's premise. Session tokens cannot select another
+discussion, and closing the session revokes its access. Task write tools remain
+withheld on both provider lanes.
+
 ## Trust and external services
 
 Local-first means local application state and execution; it does not mean offline

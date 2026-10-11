@@ -255,6 +255,8 @@ has the reviewer check the open findings.
 
 - In a development task or review conversation, highlight text in a finished agent
   answer and choose **Ask about this → Ask** for a private side conversation. Reopen it from **Discussions**.
+  The card keeps your question in view; expand **Selected passage** for the full quote.
+  The agent can read saved context as needed and check the code, but cannot change it.
 - On someone else’s GitHub comment, **Ask agent** opens a private discussion beside
   the comment. Send your question to prepare the PR’s code context automatically;
   a full review is not required. Existing task or review context is reused. If setup

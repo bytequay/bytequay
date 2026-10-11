@@ -44,8 +44,8 @@ public interface TaskDiscussionService
 
     /**
      * Asks a follow-up in an existing discussion, resuming its provider conversation. A resume that
-     * fails falls back to a re-seeded conversation carrying every prior message, so a lost provider
-     * session costs context rather than the thread.
+     * fails starts a fresh conversation with read-only access to the retained premise and earlier
+     * messages, so a lost provider session does not lose the discussion.
      */
     TaskDiscussionView ask(AskDiscussionCommand command);
 

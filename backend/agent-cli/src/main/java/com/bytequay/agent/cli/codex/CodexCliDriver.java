@@ -639,9 +639,9 @@ public final class CodexCliDriver
                 : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
-        Optional<McpRegistration> codeQueries = context.restricted() ? Optional.empty() : permissions.registerTools(
+        Optional<McpRegistration> codeQueries = context.restricted() && context.discussionContext().isEmpty() ? Optional.empty() : permissions.registerTools(
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
-                deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries());
+                deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries(), context.access(), context.discussionContext());
         boolean review = codeQueries.flatMap(McpRegistration::review).isPresent();
         // Private local review of a development task has a review boundary but no review tools to keep with the root.
         boolean reviewTools = codeQueries.flatMap(McpRegistration::review).filter(bridge -> !bridge.tools().isEmpty()).isPresent();

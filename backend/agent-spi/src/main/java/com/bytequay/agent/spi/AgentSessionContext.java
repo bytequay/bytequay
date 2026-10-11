@@ -32,8 +32,18 @@ public record AgentSessionContext(
         Optional<String> effort,
         SessionAccess access,
         Optional<CodeQueryBridge> codeQueries,
-        String managedInstructions)
+        String managedInstructions,
+        Optional<DiscussionContextBridge> discussionContext)
 {
+    public AgentSessionContext(
+            String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
+            Optional<AgentSessionRef> sessionReference, AgentApprovalHandler approvals, Optional<String> model, Optional<String> effort,
+            SessionAccess access, Optional<CodeQueryBridge> codeQueries, String managedInstructions)
+    {
+        this(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, sessionReference, approvals, model, effort,
+                access, codeQueries, managedInstructions, Optional.empty());
+    }
+
     public AgentSessionContext
     {
         checkNotBlank(taskId, "taskId");
@@ -48,6 +58,8 @@ public record AgentSessionContext(
         requireNonNull(access, "access is null");
         requireNonNull(codeQueries, "codeQueries is null");
         requireNonNull(managedInstructions, "managedInstructions is null");
+        requireNonNull(discussionContext, "discussionContext is null");
+        checkArgument(discussionContext.isEmpty() || access == SessionAccess.READ_ONLY, "Discussion context requires a read-only session");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(runtimeDirectory.isAbsolute() && providerDirectory.isAbsolute(), "runtime directories are not absolute");

@@ -29,6 +29,7 @@ import com.bytequay.agent.spi.CodeQuery;
 import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DevelopmentResultReport;
+import com.bytequay.agent.spi.DiscussionContextBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.GoogleWorkspaceBridge;
 import com.bytequay.agent.spi.IssueContextBridge;
@@ -340,6 +341,14 @@ public final class PermissionBroker
             Optional<CodeQueryBridge> codeQueries,
             Map<String, String> environment)
     {
+        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, access, approvals, redactor, codeQueries, environment, Optional.empty());
+    }
+
+    public McpRegistration register(
+            String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
+            SessionAccess access, AgentApprovalHandler approvals, SecretRedactor redactor, Optional<CodeQueryBridge> codeQueries,
+            Map<String, String> environment, Optional<DiscussionContextBridge> discussionContext)
+    {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(runtimeDirectory, "runtimeDirectory is null");
@@ -353,7 +362,7 @@ public final class PermissionBroker
         Path settingsFile = providerDirectory.resolve("sandbox-settings.json");
         Path childGateFile = providerDirectory.resolve("review-child-gate.sh");
         requireNonNull(codeQueries, "codeQueries is null");
-        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, access, true, environment);
+        PermissionContext context = resolveContext(taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, access, true, environment, discussionContext);
         contexts.put(token, context);
         Optional<Path> childGate = (context.reviewChildren() || context.relatedWork().isPresent()) ? Optional.of(childGateFile) : Optional.empty();
         try {
@@ -417,6 +426,13 @@ public final class PermissionBroker
             SecretRedactor redactor,
             Optional<CodeQueryBridge> codeQueries)
     {
+        return registerTools(taskId, worktree, permissionPolicy, approvals, redactor, codeQueries, SessionAccess.FULL, Optional.empty());
+    }
+
+    public Optional<McpRegistration> registerTools(
+            String taskId, Path worktree, AgentPermissionPolicy permissionPolicy, AgentApprovalHandler approvals, SecretRedactor redactor,
+            Optional<CodeQueryBridge> codeQueries, SessionAccess access, Optional<DiscussionContextBridge> discussionContext)
+    {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(worktree, "worktree is null");
         requireNonNull(permissionPolicy, "permissionPolicy is null");
@@ -425,7 +441,7 @@ public final class PermissionBroker
         requireNonNull(codeQueries, "codeQueries is null");
         String token = token();
         PermissionContext context = resolveContext(
-                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, SessionAccess.FULL, false, ImmutableMap.of());
+                taskId, worktree, permissionPolicy, approvals, redactor.withSecret(token), codeQueries, access, false, ImmutableMap.of(), discussionContext);
         // A policy-only review still needs registration to select the provider's review execution profile.
         if (context.review().isEmpty() && tools(context).isEmpty()) {
             return Optional.empty();
@@ -503,8 +519,11 @@ public final class PermissionBroker
             Optional<CodeQueryBridge> codeQueries,
             SessionAccess access,
             boolean permissionTools,
-            Map<String, String> environment)
+            Map<String, String> environment,
+            Optional<DiscussionContextBridge> discussionContext)
     {
+        requireNonNull(discussionContext, "discussionContext is null");
+        checkArgument(discussionContext.isEmpty() || access == SessionAccess.READ_ONLY, "Discussion context requires a read-only session");
         boolean restricted = access.restricted();
         // A restricted session may carry a real task id, so every bridge is withheld by access
         // rather than by the caller having invented an id no bridge can resolve.
@@ -527,7 +546,7 @@ public final class PermissionBroker
                 .map(home -> ImmutableMap.of("HOME", home)).orElse(ImmutableMap.of());
         return new PermissionContext(
                 taskId, worktree, scope, fileWriteEnvironment, approvals, redactor, permissionTools,
-                codeQueries, review, development, localReview, pullRequestCi, issueContext, memory, related, work,
+                codeQueries, discussionContext, review, development, localReview, pullRequestCi, issueContext, memory, related, work,
                 restricted || review.isPresent() ? Optional.empty() : googleWorkspace.resolve(taskId), reviewChildren, new AtomicReference<>());
     }
 
@@ -539,6 +558,7 @@ public final class PermissionBroker
                                 ? Optional.of(TOOL_DISCOVERY_INSTRUCTION) : Optional.<String>empty(),
                         context.review().map(ReviewBridge::instruction),
                         context.codeQueries().map(CodeQueryBridge::instruction),
+                        context.discussionContext().map(ignored -> DiscussionContextBridge.INSTRUCTION),
                         context.development().map(DevelopmentResultBridge::instruction),
                         context.localReview().map(LocalReviewBridge::instruction),
                         context.pullRequestCi().map(PullRequestCiBridge::instruction),
@@ -610,6 +630,7 @@ public final class PermissionBroker
             case "permission_prompt" -> context.permissionTools() ? permission(request.id(), params.arguments(), context) : error(request.id(), -32602, "Unknown tool");
             case "read_ci_memory" -> readCiMemory(request.id(), params.arguments(), context);
             case CodeQueryBridge.TOOL_NAME -> codeQueriesExplore(request.id(), params.arguments(), context);
+            case DiscussionContextBridge.TOOL_NAME -> readDiscussionContext(request.id(), params.arguments(), context);
             case IssueContextBridge.TOOL_NAME -> readIssueContext(request.id(), params.arguments(), context);
             case RelatedWorkspaceBridge.TOOL_NAME -> relatedWork(request.id(), params.arguments(), context);
             case WorkItemBridge.TOOL_NAME -> workItems(request.id(), params.arguments(), context);
@@ -1125,6 +1146,31 @@ public final class PermissionBroker
         return response(id, new ToolResult(ImmutableList.of(new TextContent("text", markdown)), false));
     }
 
+    private McpHttpResponse readDiscussionContext(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        if (context.discussionContext().isEmpty()) {
+            return error(id, -32602, "Unknown tool");
+        }
+        DiscussionContextBridge.Query query;
+        try {
+            checkArgument(arguments != null && arguments.isObject() && arguments.path("section").isTextual(), "section is required");
+            checkArgument(arguments.size() == (arguments.has("offset") ? 2 : 1), "Unexpected arguments");
+            checkArgument(!arguments.has("offset") || arguments.get("offset").isIntegralNumber() && arguments.get("offset").canConvertToInt(), "offset must be an integer");
+            query = new DiscussionContextBridge.Query(arguments.get("section").textValue(), arguments.path("offset").asInt(0));
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, "Invalid read_discussion_context arguments");
+        }
+        try {
+            String text = context.discussionContext().orElseThrow().read().apply(query);
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
+        }
+        catch (RuntimeException failure) {
+            String reason = Optional.ofNullable(failure.getMessage()).orElse("Saved context is unavailable");
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(reason))), true));
+        }
+    }
+
     private McpHttpResponse codeQueriesExplore(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         Optional<CodeQuery> query = codeQuery(arguments);
@@ -1339,6 +1385,12 @@ public final class PermissionBroker
                             "reason", ImmutableMap.of("type", "string", "minLength", 1, "maxLength", 4000)),
                             "required", ImmutableList.of("jobId", "reason"), "additionalProperties", false)));
         }
+        context.discussionContext().ifPresent(ignored -> tools.add(new ToolDefinition(DiscussionContextBridge.TOOL_NAME,
+                "Read saved context for this private discussion only. Use source, history or discussion and follow nextOffset for more reference text",
+                ImmutableMap.of("type", "object", "properties", ImmutableMap.of(
+                        "section", ImmutableMap.of("type", "string", "enum", ImmutableList.of("source", "history", "discussion")),
+                        "offset", ImmutableMap.of("type", "integer", "minimum", 0, "maximum", Integer.MAX_VALUE)),
+                        "required", ImmutableList.of("section"), "additionalProperties", false))));
         context.localReview().ifPresent(ignored -> {
             Map<String, Object> identifier = ImmutableMap.of("type", "string", "minLength", 1, "maxLength", LocalReviewBridge.MAXIMUM_ID_LENGTH);
             tools.add(new ToolDefinition(
@@ -1683,6 +1735,7 @@ public final class PermissionBroker
             SecretRedactor redactor,
             boolean permissionTools,
             Optional<CodeQueryBridge> codeQueries,
+            Optional<DiscussionContextBridge> discussionContext,
             Optional<ReviewBridge> review,
             Optional<DevelopmentResultBridge> development,
             Optional<LocalReviewBridge> localReview,
@@ -1705,6 +1758,7 @@ public final class PermissionBroker
             requireNonNull(redactor, "redactor is null");
             requireNonNull(codexReviewTools, "codexReviewTools is null");
             requireNonNull(codeQueries, "codeQueries is null");
+            requireNonNull(discussionContext, "discussionContext is null");
             requireNonNull(review, "review is null");
             requireNonNull(development, "development is null");
             requireNonNull(localReview, "localReview is null");

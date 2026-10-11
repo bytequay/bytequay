@@ -63,8 +63,7 @@ function Message({ message, lane, repository }: { message: DiscussionMessageDto;
 /**
  * One discussion in the panel.
  *
- * <p>The quote is the card's subject and stays pinned at the top when the card opens, because the
- * thread is about that passage and the passage may be far away in the transcript.
+ * <p>The short passage label keeps the subject visible; its full text is available separately from the questions.
  */
 export function DiscussionCard({ discussion, repository, siblings, discussions, open, onToggle, onJump, onHover }: {
   discussion: TaskDiscussionDto;
@@ -113,7 +112,7 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
       <button className="agt-disc-card__head" type="button" aria-expanded={open} onClick={onToggle}>
         <span className="agt-disc-card__rail" />
         <span className="agt-disc-card__main">
-          <span className={`agt-disc-card__quote${label.mono ? ' is-mono' : ''}`}>{discussion.quote}</span>
+          <span className={`agt-disc-card__quote${label.mono ? ' is-mono' : ''}`}>{label.text}</span>
           <span className="agt-disc-card__meta">
             <span className="agt-disc-card__who">
               {asked === undefined ? 'You' : `You · ${relativeTime(asked.createdAt)}`}
@@ -135,6 +134,10 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
 
       {open && (
         <div className="agt-disc-card__body">
+          <details className="agt-disc-card__source">
+            <summary>Selected passage</summary>
+            <blockquote>{discussion.quote}</blockquote>
+          </details>
           <div className="agt-disc-card__messages">
             {discussion.messages.map(message => (
               <Message key={message.id} message={message} lane={discussion.providerLane} repository={repository} />
@@ -144,7 +147,7 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
                 <span className="agt-disc-msg__avatar">A</span>
                 <div className="agt-disc-msg__main">
                   <div className="agt-disc-msg__byline"><span>Agent</span>{` · ${discussion.providerLane} · read-only`}</div>
-                  <div className="agt-disc-msg__shimmer">Reading the task history and the repository…</div>
+                  <div className="agt-disc-msg__shimmer">Checking the passage and relevant context…</div>
                 </div>
               </div>
             )}

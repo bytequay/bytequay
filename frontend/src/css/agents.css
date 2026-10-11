@@ -4469,6 +4469,11 @@ button.agt-disc-mark:hover {
 @keyframes agt-disc-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
 
 .agt-disc-card__body { padding: 0 11px 11px; }
+.agt-disc-card__source { margin: 0 14px 12px; color: var(--disc-fg2); font-size: 12px; }
+.agt-disc-card__source > summary { width: fit-content; cursor: pointer; }
+.agt-disc-card__source > summary:focus-visible { outline: 2px solid var(--disc-bl); outline-offset: 3px; border-radius: 3px; }
+.agt-disc-card__source > blockquote { margin: 8px 0 0; padding-left: 10px; border-left: 2px solid var(--disc-bd); white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .agt-disc-card__messages { display: flex; flex-direction: column; gap: 2px; }
 .agt-disc-msg { display: flex; gap: 8px; padding: 8px 9px; border-radius: 7px; border-left: 2px solid transparent; }
 .agt-disc-msg.is-reader { background: var(--disc-bg2); border-left-color: var(--disc-bd); }

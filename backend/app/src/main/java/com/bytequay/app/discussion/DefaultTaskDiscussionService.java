@@ -29,6 +29,7 @@ import com.bytequay.agent.spi.AgentSessionContext;
 import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.agent.spi.DiscussionContextBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.SessionAccess;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
@@ -671,7 +672,7 @@ public class DefaultTaskDiscussionService
                 return;
             }
             // The recorded conversation is gone. Re-seeding costs the provider's memory of what it
-            // read, not the thread: the same renderer carries the premise and every prior message.
+            // read, not the thread: the context tool still holds the premise and every prior message.
             log.info("Discussion {} lost its provider conversation; re-seeding", discussionId, failure);
             try {
                 run(task, discussion, Optional.empty(), Optional.empty());
@@ -697,32 +698,28 @@ public class DefaultTaskDiscussionService
     {
         // A resumed conversation already holds the preamble, the premise and the exchange;
         // sending them again would duplicate the whole thread in its context.
+        Optional<AgentReview> review = discussion.comment().flatMap(ignored -> reviews.findReviewByTask(task.id().toString()));
+        List<DiscussionMessage> earlier = earlier(discussion);
         String prompt = resume.isPresent() ? lastQuestion(discussion) : discussion.comment()
-                .map(comment -> commentPrompt(task, discussion, comment, history))
-                .orElseGet(() -> DiscussionPrompt.render(discussion.seed().orElseThrow(), discussion.anchor().quote(), earlier(discussion), lastQuestion(discussion)));
-        Answered answered = converse(task, discussion.providerModel(), resume, prompt, MAXIMUM_RUNTIME);
+                .map(ignored -> DiscussionPrompt.renderComments(review.isPresent(), 1, !earlier.isEmpty(), lastQuestion(discussion)))
+                .orElseGet(() -> DiscussionPrompt.render(discussion.anchor().quote(), !earlier.isEmpty(), lastQuestion(discussion)));
+        String source = discussion.comment().map(comment -> SavedDiscussionContext.comments(ImmutableList.of(comment.snapshot())))
+                .orElseGet(() -> JsonNodeFactory.instance.objectNode().put("passage", discussion.anchor().quote()).toString());
+        DiscussionContextBridge context = SavedDiscussionContext.bridge(
+                () -> discussion.seed().or(() -> history).orElseGet(() -> review.map(this::reviewPremise).orElseGet(() -> seed(task.id(), Optional.empty()).text())),
+                source, earlier);
+        Answered answered = converse(task, discussion.providerModel(), resume, prompt, context, MAXIMUM_RUNTIME);
         record(discussion.id(), answered.result(), answered.reference());
     }
 
-    /** A review's agent answers as the reviewer's assistant, from what the review saved; a task's agent from the task's history. */
-    private String commentPrompt(AgentTask task, TaskDiscussion discussion, ReviewCommentAnchor comment, Optional<String> premise)
-    {
-        List<String> snapshots = ImmutableList.of(comment.snapshot());
-        Optional<AgentReview> review = reviews.findReviewByTask(task.id().toString());
-        if (review.isPresent()) {
-            return DiscussionPrompt.renderReviewComments(premise.orElseGet(() -> reviewPremise(review.orElseThrow())), snapshots, earlier(discussion), lastQuestion(discussion));
-        }
-        return DiscussionPrompt.renderComments(premise.orElseGet(() -> seed(task.id(), Optional.empty()).text()), snapshots, earlier(discussion), lastQuestion(discussion));
-    }
-
     /** One question in a disposable read-only session on the task's worktree; approvals are denied and events discarded. */
-    private Answered converse(AgentTask task, Optional<String> model, Optional<DiscussionSession> resume, String prompt, Duration limit)
+    private Answered converse(AgentTask task, Optional<String> model, Optional<DiscussionSession> resume, String prompt, DiscussionContextBridge context, Duration limit)
     {
         OneShotSession.Answer answer = OneShotSession.run(resources, drivers.require(task.laneId()), (scratchId, scratch) -> new AgentSessionContext(
                         task.id().toString(), task.taskWorktree().orElseThrow().canonicalWorktree(), scratch.runtimeDirectory(), scratch.providerDirectory(),
                         AgentPermissionPolicy.AUTO, resume.map(reference -> new AgentSessionRef(task.laneId(), reference.contractVersion(), reference.providerValue())),
                         (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
-                        model, Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), ""),
+                        model, Optional.empty(), SessionAccess.READ_ONLY, Optional.empty(), "", Optional.of(context)),
                 prompt, limit, turn -> {});
         return new Answered(answer.result(), answer.reference());
     }
@@ -735,9 +732,10 @@ public class DefaultTaskDiscussionService
     {
         List<String> verdicts;
         try {
-            String prompt = DiscussionPrompt.renderComments(history, threads.stream().map(thread -> thread.comment().orElseThrow().snapshot()).collect(toImmutableList()),
-                    ImmutableList.of(), DiscussionPrompt.summaryRequest(threads.size()));
-            AgentTurnResult result = converse(task, task.defaults().model(), Optional.empty(), prompt, MAXIMUM_BATCH_RUNTIME).result();
+            String prompt = DiscussionPrompt.renderComments(false, threads.size(), false, DiscussionPrompt.summaryRequest(threads.size()));
+            DiscussionContextBridge context = SavedDiscussionContext.bridge(() -> history,
+                    SavedDiscussionContext.comments(threads.stream().map(thread -> thread.comment().orElseThrow().snapshot()).collect(toImmutableList())), ImmutableList.of());
+            AgentTurnResult result = converse(task, task.defaults().model(), Optional.empty(), prompt, context, MAXIMUM_BATCH_RUNTIME).result();
             String answer = result.finalResponse().orElse("").strip();
             if (result.state() != AgentTurnResult.State.COMPLETED || answer.isEmpty()) {
                 threads.forEach(thread -> fail(thread.id(), result.terminalReason().orElse("The answer could not be produced")));

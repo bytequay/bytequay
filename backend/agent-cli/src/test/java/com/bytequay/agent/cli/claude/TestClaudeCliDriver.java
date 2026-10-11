@@ -44,6 +44,7 @@ import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
+import com.bytequay.agent.spi.DiscussionContextBridge;
 import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
@@ -96,6 +97,27 @@ class TestClaudeCliDriver
 
     @TempDir
     private Path worktree;
+
+    @Test
+    void readOnlyDiscussionsReceiveTheirContextToolWithoutWritePermissions()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
+        AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
+                plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
+                Optional.empty(), "", Optional.of(new DiscussionContextBridge(query -> "saved context")));
+        try (AgentSession session = driver.open(discussion, event -> {})) {
+            assertThat(await(session.start(command("explain this"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            ProcessSpec spec = supervisor.turns().getLast().spec();
+            assertThat(spec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
+            assertThat(spec.argv()).anyMatch(argument -> argument.contains("mcp__bytequay__read_discussion_context"));
+            assertThat(spec.argv()).anyMatch(argument -> argument.contains(DiscussionContextBridge.INSTRUCTION));
+            assertThat(spec.argv()).noneMatch(argument -> argument.contains("Edit") || argument.contains("Write"));
+        }
+        driver.close();
+    }
 
     @Test
     void terminalClaudeReviewResolvesARealSupervisorObservationGapAndResumes()

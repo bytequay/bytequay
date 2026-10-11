@@ -14,6 +14,10 @@
 import type { PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto } from '../types';
 import { relativeTime } from '../relativeTime';
 
+export function canSubmitReview(pr: PullRequestDto, detail: PullRequestDetailDto | null) {
+  return pr.origin !== 'AUTHORED' && detail?.state?.toLowerCase() === 'open';
+}
+
 /** A timeline payload with every field at rest, so a caller sets only what its event carries. */
 export const EMPTY_TIMELINE_PAYLOAD: PullTimelinePayloadDto = {
   actorAvatarUrl: null,

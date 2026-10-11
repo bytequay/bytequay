@@ -14,6 +14,14 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
+it('preserves review and merge sheet focus, dismissal, and in-flight guards', async () => {
+  const result = await runBrowserFixture<string>({
+    prefix: 'bytequay-action-sheets-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'ActionSheetTests', styles: true,
+    body: "const results = await window.webContents.executeJavaScript('ActionSheetTests.runActionSheetDismissal()');",
+  });
+  expect(result).toContain('preserve dismissal and busy behavior');
+}, 30_000);
+
 it('opens distinct development and review tasks from the same PR without duplicating agents', async () => {
   const result = await runBrowserFixture<string>({
     prefix: 'bytequay-pr-tasks-', entry: 'src/pulls/fixtures/pullsScreenBrowser.tsx', global: 'PullTaskTests', styles: true,

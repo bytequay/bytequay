@@ -17,10 +17,10 @@ import type { ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
-import { EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
+import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model';
 import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
-import PullsScreen, { canSubmitReview, hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
+import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
 import { reviewFixture } from './agent-review/fixtures/review';
 import type { PrivateThreads } from './PrivateThread';
 
@@ -1732,7 +1732,7 @@ function captureReviewControls(props: Parameters<typeof ReviewDialog>[0]): { sub
   let controls: { submit: () => void; close: () => void };
   function CaptureDialog() {
     const view = ReviewDialog(props);
-    const footer = view.props.children.props.children.find((child: ReactElement) => child.type === 'footer');
+    const footer = view.props.footer;
     controls = {
       submit: footer.props.children.find((child: ReactElement<{ className?: string }>) => child && child.props.className === 'is-primary').props.onClick,
       close: footer.props.children.find((child: ReactElement<{ children?: unknown }>) => child && child.props.children === 'Cancel').props.onClick,
@@ -1747,7 +1747,7 @@ function captureMergeSubmit(props: Parameters<typeof MergeDialog>[0], action: 'r
   let submit: () => void;
   function CaptureDialog() {
     const view = MergeDialog(props);
-    const footer = view.props.children.props.children.find((child: ReactElement) => child.type === 'footer');
+    const footer = view.props.footer;
     submit = footer.props.children[action === 'ready' ? 1 : 2].props.onClick;
     return view;
   }

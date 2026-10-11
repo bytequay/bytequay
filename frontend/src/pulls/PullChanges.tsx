@@ -81,28 +81,12 @@ export type ReviewThreads = {
   onDetailUpdate: PullDetailUpdater;
 };
 
-type PullChangesProps = {
-  repo: string;
-  number: number;
-  workspaceId?: string;
-  files: DiffFileDto[];
+type PullChangesProps = Omit<DiffViewerProps, 'review' | 'loadFileContent'> & ReviewOptions & {
   commits: DiffCommitDto[];
   commitRange: CommitRange;
   loading: boolean;
-  toolbarTarget?: HTMLElement | null;
-  toolbarStart?: ReactNode;
-  toolbarVisible?: boolean;
-  defaultTreeOpen?: boolean;
-  canReview: boolean;
-  pendingComments: InlineReviewCommentDto[];
   reviewThreads: ReviewThreads;
-  agentReview?: AgentReviewProjection;
-  localReview?: LocalReviewThreads;
-  onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
-  onAskAgentDisabled?: string | null;
   onCommitRangeChange: (range: CommitRange) => void;
-  onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
-  onDetailChange: (detail: PullRequestDetailDto) => void;
 };
 
 type ReviewOptions = {
@@ -114,6 +98,13 @@ type ReviewOptions = {
   onPendingCommentsChange: (comments: InlineReviewCommentDto[]) => void;
   onDetailChange: (detail: PullRequestDetailDto) => void;
 };
+
+/** Changes and Code & Tests share the same GitHub thread source and refresh actions. */
+export function pullReviewThreads(pr: PullRequestDto, detail: PullRequestDetailDto, workspaceId: string | undefined,
+  onRefresh: ReviewThreads['onRefresh'], onDetailUpdate: PullDetailUpdater): ReviewThreads {
+  return { activities: detail.recentActivity, pr, workspaceId,
+    unavailable: detail.unavailableSections.includes('reviewThreads'), onRefresh, onDetailUpdate };
+}
 
 export type DiffViewerProps = {
   files: DiffFileDto[];
@@ -142,41 +133,15 @@ export default function PullChanges({
   repo,
   number,
   workspaceId,
-  files,
-  commits,
-  commitRange,
-  loading,
-  toolbarTarget,
-  toolbarStart,
-  toolbarVisible,
-  defaultTreeOpen,
   canReview,
   pendingComments,
-  reviewThreads,
-  agentReview,
-  localReview,
-  onAskAgent,
-  onAskAgentDisabled,
-  onCommitRangeChange,
   onPendingCommentsChange,
   onDetailChange,
+  ...diff
 }: PullChangesProps) {
   return (
     <DiffViewer
-      files={files}
-      commits={commits}
-      commitRange={commitRange}
-      loading={loading}
-      toolbarTarget={toolbarTarget}
-      toolbarStart={toolbarStart}
-      toolbarVisible={toolbarVisible}
-      defaultTreeOpen={defaultTreeOpen}
-      reviewThreads={reviewThreads}
-      agentReview={agentReview}
-      localReview={localReview}
-      onAskAgent={onAskAgent}
-      onAskAgentDisabled={onAskAgentDisabled}
-      onCommitRangeChange={onCommitRangeChange}
+      {...diff}
       review={{
         repo,
         number,

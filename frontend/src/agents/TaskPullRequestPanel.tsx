@@ -15,10 +15,10 @@
 import { GitPullRequest } from 'lucide-react';
 import React from 'react';
 import type { LocalReviewThreads } from '../pulls/local-review/types';
-import PullChanges, { DiffViewer, type AgentReviewProjection, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
+import PullChanges, { DiffViewer, pullReviewThreads, type AgentReviewProjection, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import PullOverview, { type PullDetailUpdater } from '../pulls/PullOverview';
 import { usePrivateThreads, type PrivateThreadSource } from '../pulls/PrivateThread';
-import { canSubmitReview } from '../pulls/PullsScreen';
+import { canSubmitReview } from '../pulls/model';
 import type { PullRequestDetailSource } from '../pulls/usePullRequestDetail';
 import type {
   DiffCommitDto,
@@ -174,48 +174,21 @@ export function TaskChangesView({
   };
   const loadFileContent = (path: string, baseSha?: string, headSha?: string) =>
     window.bridge.refreshPrDiffFileContent(pr.repo, pr.number, path, baseSha, headSha);
+  const diff = { toolbarTarget, toolbarStart, defaultTreeOpen, toolbarVisible,
+    files: changes.files, commits: changes.commits, loading: changes.loading, commitRange, onCommitRangeChange,
+    localReview: pullRequestReview, agentReview, onAskAgent, onAskAgentDisabled };
   return (
     <>
       {changes.error !== null && <div className="agt-note" role="alert">{changes.error}</div>}
       {detail === null ? (
-        <DiffViewer
-          toolbarTarget={toolbarTarget} toolbarStart={toolbarStart} defaultTreeOpen={defaultTreeOpen} toolbarVisible={toolbarVisible}
-          files={changes.files}
-          commits={changes.commits}
-          commitRange={commitRange}
-          loading={changes.loading}
-          onCommitRangeChange={onCommitRangeChange}
-          loadFileContent={loadFileContent}
-          localReview={pullRequestReview}
-          agentReview={agentReview}
-          onAskAgent={onAskAgent}
-          onAskAgentDisabled={onAskAgentDisabled}
-        />
+        <DiffViewer {...diff} loadFileContent={loadFileContent} />
       ) : (
         <PullChanges
-          toolbarTarget={toolbarTarget} toolbarStart={toolbarStart} defaultTreeOpen={defaultTreeOpen} toolbarVisible={toolbarVisible}
-          repo={detail.repo}
-          number={detail.number}
-          workspaceId={workspaceId}
-          files={changes.files}
-          commits={changes.commits}
-          commitRange={commitRange}
-          loading={changes.loading}
+          {...diff}
+          repo={detail.repo} number={detail.number} workspaceId={workspaceId}
           canReview={canSubmitReview(pr, detail)}
-          localReview={pullRequestReview}
-          agentReview={agentReview}
-          onAskAgent={onAskAgent}
-          onAskAgentDisabled={onAskAgentDisabled}
+          reviewThreads={pullReviewThreads(pr, detail, workspaceId, onRefresh, onDetailUpdate)}
           pendingComments={pendingComments}
-          onCommitRangeChange={onCommitRangeChange}
-          reviewThreads={{
-            activities: detail.recentActivity,
-            pr,
-            workspaceId,
-            unavailable: detail.unavailableSections.includes('reviewThreads'),
-            onRefresh,
-            onDetailUpdate,
-          }}
           onPendingCommentsChange={onPendingCommentsChange}
           onDetailChange={onDetailChange}
         />

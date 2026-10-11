@@ -30,7 +30,7 @@ import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-re
 import { draftCommentCommit, pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
-import PullChanges, { updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
+import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
 import MarkdownBody from './MarkdownBody';
 import MarkdownEditor from './MarkdownEditor';
 import BetterWordsButton from './BetterWordsButton';
@@ -55,6 +55,7 @@ import { useTaskCardState } from '../agents/attention';
 import { useResizablePane } from '../useResizablePane';
 import '../css/review-tasks.css';
 import {
+  canSubmitReview,
   exactPullNumber,
   keepSelectedPullRequest,
   parsePullSearch,
@@ -1234,17 +1235,10 @@ export default function PullsScreen({
                     number: detail.number,
                     workspaceId: repositoryScope?.workspaceId,
                     canReview: canSubmitReview(selectedPr, detail),
+                    threads: pullReviewThreads(selectedPr, detail, repositoryScope?.workspaceId, refresh, updateSelectedDetail),
                     viewer,
                     pending: pendingReviewComments,
                     onPendingChange: setPendingReviewComments,
-                    threads: {
-                      activities: detail.recentActivity,
-                      pr: selectedPr,
-                      workspaceId: repositoryScope?.workspaceId,
-                      unavailable: detail.unavailableSections.includes('reviewThreads'),
-                      onRefresh: refresh,
-                      onDetailUpdate: updateSelectedDetail,
-                    },
                     onDetailChange: value => applyPostedDetail(value, 'review'),
                     localReview,
                     onAskAgent: askAgent,
@@ -1274,7 +1268,6 @@ export default function PullsScreen({
             {(detailTab === 'overview' || detailTab === 'files') && <DetailBody
               localReview={localReview}
               privateThreads={privateThreads}
-              ownReviewStream={reviewWorkspace === undefined}
               tab={detailTab}
               toolbarTarget={changesToolbar}
               defaultTreeOpen={zoomLayer}
@@ -1287,19 +1280,11 @@ export default function PullsScreen({
                 onNavigate={navigate} /> : undefined}
               pr={selectedPr}
               detail={detail}
-              workspaceId={workspaceId}
               viewer={viewer}
               review={review}
               reviewNavigation={reviewNavigation}
-              focusFindingId={focusFindingId}
-              reviewCardFocus={reviewCardFocus}
               onReviewChange={updateReview}
-              onOpenWorkspace={review === null || reviewWorkspace !== undefined ? undefined : () => {
-                onClose?.();
-                window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id);
-              }}
               onAskAgent={askAgent}
-              onNavigateToChanges={navigateToChanges}
               onOpenInReview={findingId => {
                 setFocusFindingId(findingId);
                 setReviewCardFocus(null);
@@ -1600,10 +1585,6 @@ export function PullDetailHeader({
   );
 }
 
-export function canSubmitReview(pr: PullRequestDto, detail: PullRequestDetailDto | null) {
-  return pr.origin !== 'AUTHORED' && detail?.state?.toLowerCase() === 'open';
-}
-
 export function isReviewRequestedForViewer(detail: PullRequestDetailDto | null, viewerLogin: string | null) {
   return detail?.state?.toLowerCase() === 'open'
     && Boolean(viewerLogin && detail.reviewers.some(reviewer =>
@@ -1645,6 +1626,38 @@ export function mergeStatus(detail: PullRequestDetailDto) {
   return { pending, failing, successful, unresolved, checksReported: detail.checkRuns.length > 0, state };
 }
 
+
+function PullActionSheet({ kind, busy, onClose, children, footer }: {
+  kind: 'review' | 'merge';
+  busy: boolean;
+  onClose: () => void | Promise<void>;
+  children: ReactNode;
+  footer: ReactNode;
+}) {
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.key !== 'Escape') return;
+      event.preventDefault();
+      void onClose();
+    };
+    document.addEventListener('keydown', escape);
+    return () => document.removeEventListener('keydown', escape);
+  }, [onClose]);
+
+  const className = `pr-${kind}-sheet`;
+  return <div className="pr-sheet-overlay" onMouseDown={event => {
+    if (event.target === event.currentTarget) void onClose();
+  }}>
+    <section className={className} role="dialog" aria-modal="true" aria-labelledby={`pr-${kind}-title`}>
+      <div className={`${className}__header`}>
+        <h2 id={`pr-${kind}-title`}>{kind === 'review' ? 'Submit review' : 'Merge pull request'}</h2>
+        <button type="button" aria-label={`Close ${kind} dialog`} autoFocus={kind === 'merge'} disabled={busy} onClick={() => { void onClose(); }}>×</button>
+      </div>
+      <div className={`${className}__content`}>{children}</div>
+      <footer className={`${className}__footer`}>{footer}</footer>
+    </section>
+  </div>;
+}
 
 export function ReviewDialog({
   pr,
@@ -1813,16 +1826,6 @@ export function ReviewDialog({
     return file ? commentedCodeLines(file.patch, comment.side, comment.startLine, comment.line) : [];
   };
 
-  useEffect(() => {
-    const keyDown = (keyboardEvent: KeyboardEvent) => {
-      if (keyboardEvent.defaultPrevented || keyboardEvent.key !== 'Escape') return;
-      keyboardEvent.preventDefault();
-      void close();
-    };
-    document.addEventListener('keydown', keyDown);
-    return () => document.removeEventListener('keydown', keyDown);
-  }, [close]);
-
   const submit = async () => {
     if (inFlight.current || command.loading || commentEdit !== null || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
     inFlight.current = true;
@@ -1894,15 +1897,16 @@ export function ReviewDialog({
   };
 
   return (
-    <div className="pr-sheet-overlay" onMouseDown={mouseEvent => {
-      if (mouseEvent.target === mouseEvent.currentTarget) void close();
-    }}>
-    <section className="pr-review-sheet" role="dialog" aria-modal="true" aria-labelledby="pr-review-title">
-      <div className="pr-review-sheet__header">
-        <h2 id="pr-review-title">Submit review</h2>
-        <button type="button" aria-label="Close review dialog" disabled={busy} onClick={() => { void close(); }}>×</button>
-      </div>
-      <div className="pr-review-sheet__content">
+    <PullActionSheet kind="review" busy={busy} onClose={close} footer={<>
+        {unsavedClose && <button type="button" disabled={busy} onClick={() => { reloadReview(); onClose(); }}>Close without saving</button>}
+        <button type="button" disabled={busy} onClick={() => { void close(); }}>Cancel</button>
+        <button className="is-primary" type="button"
+          disabled={busy || commentEdit !== null || (bodyRequired && !body.trim())}
+          title={commentEdit !== null ? 'Save or cancel the comment edit before submitting.' : undefined}
+          onClick={() => { void submit(); }}>
+          {submitting ? 'Submitting…' : 'Submit review'}
+        </button>
+    </>}>
         <textarea
           ref={bodyRef}
           autoFocus
@@ -1971,19 +1975,7 @@ export function ReviewDialog({
           description="Submit feedback that must be addressed before merging."
           onChange={() => { edited.current = true; setEvent('REQUEST_CHANGES'); }} />}
         {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
-      </div>
-      <footer className="pr-review-sheet__footer">
-        {unsavedClose && <button type="button" disabled={busy} onClick={() => { reloadReview(); onClose(); }}>Close without saving</button>}
-        <button type="button" disabled={busy} onClick={() => { void close(); }}>Cancel</button>
-        <button className="is-primary" type="button"
-          disabled={busy || commentEdit !== null || (bodyRequired && !body.trim())}
-          title={commentEdit !== null ? 'Save or cancel the comment edit before submitting.' : undefined}
-          onClick={() => { void submit(); }}>
-          {submitting ? 'Submitting…' : 'Submit review'}
-        </button>
-      </footer>
-    </section>
-    </div>
+    </PullActionSheet>
   );
 }
 
@@ -2029,15 +2021,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
     return () => { mounted.current = false; };
   }, []);
 
-  useEffect(() => {
-    const close = (keyboardEvent: KeyboardEvent) => {
-      if (keyboardEvent.defaultPrevented || keyboardEvent.key !== 'Escape') return;
-      keyboardEvent.preventDefault();
-      if (!submitting) onClose();
-    };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [onClose, submitting]);
+  const close = useCallback(() => { if (!submitting) onClose(); }, [onClose, submitting]);
 
   const submit = async (action: 'ready' | 'merge' | 'remove') => {
     const allowed = action === 'ready' ? canMarkReady : action === 'remove' ? canRemoveFromQueue : canMerge;
@@ -2072,15 +2056,19 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
   };
 
   return (
-    <div className="pr-sheet-overlay" onMouseDown={mouseEvent => {
-      if (mouseEvent.target === mouseEvent.currentTarget && !submitting) onClose();
-    }}>
-    <section className="pr-merge-sheet" role="dialog" aria-modal="true" aria-labelledby="pr-merge-title">
-      <div className="pr-merge-sheet__header">
-        <h2 id="pr-merge-title">Merge pull request</h2>
-        <button type="button" aria-label="Close merge dialog" autoFocus disabled={submitting} onClick={onClose}>×</button>
-      </div>
-      <div className="pr-merge-sheet__content">
+    <PullActionSheet kind="merge" busy={submitting} onClose={close} footer={<>
+        <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
+        {!queued && <button className="is-primary" type="button" disabled={submitting || !canMarkReady}
+          onClick={() => { void submit('ready'); }}>
+          <PullRequestIcon /> {submitting && detail.draft ? 'Marking ready…' : 'Ready for review'}
+        </button>}
+        <button className={queued ? undefined : 'is-primary'} type="button" disabled={submitting || !(queued ? canRemoveFromQueue : canMerge)}
+          onClick={() => { void submit(queued ? 'remove' : 'merge'); }}>
+          {queued ? <X size={14} aria-hidden="true" /> : <PullRequestIcon />}
+          {queued ? submitting ? 'Removing…' : 'Remove from merge queue'
+            : submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}
+        </button>
+    </>}>
         <div className={`pr-merge-status-card${blocked && !queued ? ' is-danger' : ''}`}>
           {queued
             ? <span className="pr-merge-dot is-queue" aria-hidden="true" />
@@ -2131,22 +2119,7 @@ export function MergeDialog({ pr, detail, mergeQueue, onClose, onRefresh, onDeta
           </div>
         )}
         {error && <div className="pr-merge-sheet__error" role="alert">{error}</div>}
-      </div>
-      <footer className="pr-merge-sheet__footer">
-        <button type="button" disabled={submitting} onClick={onClose}>Cancel</button>
-        {!queued && <button className="is-primary" type="button" disabled={submitting || !canMarkReady}
-          onClick={() => { void submit('ready'); }}>
-          <PullRequestIcon /> {submitting && detail.draft ? 'Marking ready…' : 'Ready for review'}
-        </button>}
-        <button className={queued ? undefined : 'is-primary'} type="button" disabled={submitting || !(queued ? canRemoveFromQueue : canMerge)}
-          onClick={() => { void submit(queued ? 'remove' : 'merge'); }}>
-          {queued ? <X size={14} aria-hidden="true" /> : <PullRequestIcon />}
-          {queued ? submitting ? 'Removing…' : 'Remove from merge queue'
-            : submitting && !detail.draft ? 'Submitting…' : mergeQueue === false ? 'Rebase and merge' : 'Merge when ready'}
-        </button>
-      </footer>
-    </section>
-    </div>
+    </PullActionSheet>
   );
 }
 
@@ -2163,18 +2136,14 @@ function ConflictIcon() {
 }
 
 function DetailBody({
-  tab, localReview, privateThreads, ownReviewStream, taskActions, toolbarTarget, defaultTreeOpen,
+  tab, localReview, privateThreads, taskActions, toolbarTarget, defaultTreeOpen,
   pr,
   detail,
-  workspaceId,
   viewer,
   review,
   reviewNavigation,
-  focusFindingId, reviewCardFocus,
   onReviewChange,
-  onOpenWorkspace,
   onAskAgent,
-  onNavigateToChanges,
   onOpenInReview,
   diffs,
   diffCommits,
@@ -2189,27 +2158,20 @@ function DetailBody({
   onDiscussionPosted,
   onReviewPosted,
 }: {
-  tab: DetailTab;
+  tab: 'overview' | 'files';
   toolbarTarget?: HTMLElement | null;
   defaultTreeOpen?: boolean;
   localReview?: LocalReviewThreads;
   /** The private threads of the conversation's host; absent when the pull request has none. */
   privateThreads?: PrivateThreadSource;
-  /** False in the review workspace, whose conversation pane already streams this review. */
-  ownReviewStream: boolean;
   taskActions?: ReactNode;
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
-  workspaceId: string | undefined;
   viewer: UserProfileDto | null;
   review: AgentReviewDto | null;
   reviewNavigation: ReviewNavigationTarget | null;
-  focusFindingId: string | null;
-  reviewCardFocus?: ReviewCardFocus | null;
   onReviewChange: (review: AgentReviewDto) => void;
-  onOpenWorkspace?: () => void;
   onAskAgent?: (comment: DiffAgentComment) => Promise<void>;
-  onNavigateToChanges: (target: ReviewNavigationTarget) => void;
   onOpenInReview: (findingId: string) => void;
   diffs: DiffFileDto[] | null;
   diffCommits: DiffCommitDto[];
@@ -2224,22 +2186,6 @@ function DetailBody({
   onDiscussionPosted: (detail: PullRequestDetailDto) => void;
   onReviewPosted: (detail: PullRequestDetailDto) => void;
 }) {
-  if (tab === 'review') {
-    return <div className="pull-detail__body pull-detail__review"><AgentReviewTab
-      key={`${workspaceId ?? ''}:${detail.repo.toLowerCase()}#${detail.number}`}
-      detail={detail}
-      workspaceId={workspaceId}
-      viewer={viewer}
-      review={review}
-      onReviewChange={onReviewChange}
-      ownStream={ownReviewStream}
-      localReview={localReview}
-      onOpenWorkspace={onOpenWorkspace}
-      onNavigateToChanges={onNavigateToChanges}
-      focusFindingId={focusFindingId}
-      focusReviewCard={reviewCardFocus}
-    /></div>;
-  }
   if (tab === 'files') {
     if (diffs === null) return <div className="hp-loading">Loading files…</div>;
     return <div className="pull-detail__body pull-detail__changes"><PullChanges
@@ -2247,14 +2193,13 @@ function DetailBody({
       localReview={localReview}
       onAskAgent={onAskAgent}
       onAskAgentDisabled={review?.task.mutationClaim === 'LOCAL_RUN' ? 'A run is using this working copy' : null}
-      repo={detail.repo}
-      number={detail.number}
-      workspaceId={contributorsWorkspaceId}
+      repo={detail.repo} number={detail.number} workspaceId={contributorsWorkspaceId}
+      canReview={canSubmitReview(pr, detail)}
+      reviewThreads={pullReviewThreads(pr, detail, contributorsWorkspaceId, onRefresh, onDetailUpdate)}
       files={diffs}
       commits={diffCommits}
       commitRange={diffRange}
       loading={diffLoading}
-      canReview={canSubmitReview(pr, detail)}
       pendingComments={pendingComments}
       agentReview={review === null ? undefined : {
         review,
@@ -2264,14 +2209,6 @@ function DetailBody({
         onOpenInReview,
       }}
       onCommitRangeChange={onCommitRangeChange}
-      reviewThreads={{
-        activities: detail.recentActivity,
-        pr,
-        workspaceId: contributorsWorkspaceId,
-        unavailable: detail.unavailableSections.includes('reviewThreads'),
-        onRefresh,
-        onDetailUpdate,
-      }}
       onPendingCommentsChange={onPendingCommentsChange}
       onDetailChange={onReviewPosted}
     /></div>;

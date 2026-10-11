@@ -36,7 +36,8 @@ import { useRenameDraft } from '../renameDraft';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import ReviewCommentIndex from '../pulls/ReviewCommentIndex';
 import { privateThreadSource } from '../pulls/PrivateThread';
-import { canSubmitReview, carriedPanelTab, PullDetailHeader } from '../pulls/PullsScreen';
+import { carriedPanelTab, PullDetailHeader } from '../pulls/PullsScreen';
+import { canSubmitReview } from '../pulls/model';
 import { usePreparedAgentInput } from './preparedInput';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
@@ -70,7 +71,7 @@ WorkspaceDto
 } from '../types';
 import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import { AgentConversation,ConversationComposer,ConversationQueue,modelName,PlanSteps,serviceTierName,Spinner,stateClass,useConversationHistory,useOutputWheel,type ApprovalDecider,type AttachmentPreview } from './AgentConversation';
-import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
+import { pullReviewThreads, type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
 import ConversationUtilityTab from './ConversationUtilityTab';
@@ -735,17 +736,10 @@ function SidePanel({
           number: pullRequest.number,
           workspaceId,
           canReview: canSubmitReview(pullRequest, detail),
+          threads: pullReviewThreads(pullRequest, detail, workspaceId, pullRequestDetail.refresh, pullRequestDetail.update),
           viewer: null,
           pending: pullRequestPendingComments,
           onPendingChange: onPullRequestPendingCommentsChange,
-          threads: {
-            activities: detail.recentActivity,
-            pr: pullRequest,
-            workspaceId,
-            unavailable: detail.unavailableSections.includes('reviewThreads'),
-            onRefresh: pullRequestDetail.refresh,
-            onDetailUpdate: pullRequestDetail.update,
-          },
           onDetailChange: pullRequestDetail.replace,
           localReview: localThreads,
           onAskAgent: onAskAgentDisabled == null ? onAskAgent : undefined,

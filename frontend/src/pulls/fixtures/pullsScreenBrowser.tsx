@@ -18,7 +18,7 @@ import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileD
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
-import PullsScreen, { remotePullRequest, ReviewDialog } from '../PullsScreen';
+import PullsScreen, { MergeDialog, remotePullRequest, ReviewDialog } from '../PullsScreen';
 import ReviewTaskScreen from '../../agents/ReviewTaskScreen';
 import type { AgentEventEnvelope } from '../../agents/events';
 import { createPreviewBridge, previewTask } from '../../agents/fixtures/previewBridge';
@@ -432,6 +432,61 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
     return 'Open review workspace keeps its conversation live after Summary remounts';
   }
   finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}
+
+export async function runActionSheetDismissal(): Promise<string> {
+  const detail = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true };
+  const pr = remotePullRequest(detail, 'bob');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const originalBridge = window.bridge;
+  let closes = 0;
+  let finishMerge = () => {};
+  const merging = new Promise<void>(resolve => { finishMerge = resolve; });
+  Object.assign(window, { bridge: { ...originalBridge, mergePr: () => merging } });
+  const close = () => { closes++; };
+  const escape = (handled = false) => {
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    if (handled) event.preventDefault();
+    document.dispatchEvent(event);
+    assert(event.defaultPrevented, 'A sheet must consume Escape before the underlying screen sees it');
+  };
+  try {
+    for (const kind of ['review', 'merge'] as const) {
+      closes = 0;
+      flushSync(() => root.render(kind === 'review'
+        ? <ReviewDialog pr={pr} detail={detail} review={null} onClose={close} onReviewSubmitted={() => {}} />
+        : <MergeDialog pr={pr} detail={detail} mergeQueue={false} onClose={close} onRefresh={async () => {}} />));
+      await settle();
+      assert(document.activeElement === host.querySelector(kind === 'review' ? 'textarea' : '[aria-label="Close merge dialog"]'),
+        'Each sheet must retain its initial focus target');
+      escape(true);
+      host.querySelector('[role="dialog"]')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      assert(closes === 0, 'Handled Escape and presses inside the sheet must not dismiss it');
+      escape();
+      assert(Number(closes) === 1, 'Unhandled Escape must dismiss the sheet once');
+      host.querySelector('.pr-sheet-overlay')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+      assert(Number(closes) === 2, 'A backdrop press must dismiss the sheet');
+    }
+    host.querySelector<HTMLButtonElement>('.pr-merge-sheet__footer .is-primary:not(:disabled)')?.click();
+    await settle();
+    const before = closes;
+    escape();
+    host.querySelector('.pr-sheet-overlay')?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    assert(closes === before && host.querySelector<HTMLButtonElement>('[aria-label="Close merge dialog"]')?.disabled,
+      'A pending merge must block keyboard, backdrop, and close-button dismissal');
+    finishMerge();
+    await settle();
+    assert(closes === before + 1, 'A completed merge must close the sheet');
+    return 'Shared review and merge sheets preserve dismissal and busy behavior';
+  }
+  finally {
+    finishMerge();
     flushSync(() => root.unmount());
     host.remove();
     Object.assign(window, { bridge: originalBridge });

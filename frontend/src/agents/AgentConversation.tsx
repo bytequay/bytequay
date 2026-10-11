@@ -773,7 +773,11 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
                 {user.attachments.length > 0 && <div className="agt-user__files">
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
                 </div>}
-                <div className="agt-review-request__body">{renderMarkdown(user.text, repository, true)}</div>
+                <div className="agt-review-request__body">{renderMarkdown(fixRequest.body, repository, true)}</div>
+                <details className="agt-review-request__prompt">
+                  <summary>Prompt sent to agent</summary>
+                  <div className="agt-review-request__body">{renderMarkdown(user.text, repository, true)}</div>
+                </details>
               </ReviewRequestCard>
             ) : index === 0 && request !== null ? (
               <div className="agt-user__request">

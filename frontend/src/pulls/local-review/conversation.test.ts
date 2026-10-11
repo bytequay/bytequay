@@ -14,8 +14,43 @@
 import { expect, it } from 'vitest';
 import { reviewFixture } from '../agent-review/fixtures/review';
 import type { ReviewFindingDto } from '../agent-review/contracts';
-import { findingConversation, findingFixRequest, localReviewConversation } from './conversation';
+import { findingConversation, findingFixPrompt, findingFixRequest, localReviewConversation } from './conversation';
 import type { LocalReviewThreadDto } from './types';
+
+it('sends a short fix request with a tool lookup instead of the saved evidence and discussion', () => {
+  const review = reviewFixture({ sourceTaskId: 'developer' });
+  const finding = { ...review.findings[0], revision: 2, title: 'Fix the analyzer\nand preserve ordering' };
+  const instruction = 'Please investigate this finding.\n\nKeep the public API.';
+  const message = findingFixPrompt(review, finding, instruction);
+  expect(message).toContain('list_local_review_comments');
+  expect(message).toContain('as commentId');
+  expect(message).toContain(finding.validatedHeadSha);
+  expect(message).toContain(finding.path);
+  expect(message).toContain('verify the claim against the current code');
+  expect(message).not.toContain(finding.body);
+  for (const evidence of finding.evidence) expect(message).not.toContain(evidence.excerpt);
+  for (const reply of review.messages) expect(message).not.toContain(reply.body);
+  expect(findingFixRequest(message, 'developer')).toEqual({
+    action: 'ByteQuay · Request fix', topic: '#F-1 Fix the analyzer and preserve ordering', body: instruction,
+    detail: `${review.task.laneLabel} · F-1 · revision 2`, target: { kind: 'finding', findingId: finding.id },
+  });
+  expect(findingFixRequest(message, 'another-task')).toBeNull();
+  const expanded = { ...finding, body: finding.body.repeat(100), evidence: Array.from({ length: 100 }, () => finding.evidence[0]) };
+  expect(findingFixPrompt({ ...review, messages: [...review.messages, ...review.messages] }, expanded, instruction)).toBe(message);
+});
+
+it('keeps incomplete or edited fix requests visible and supports findings without a code location', () => {
+  const review = reviewFixture({ sourceTaskId: 'developer', number: null });
+  const finding: ReviewFindingDto = { ...review.findings[0], path: null };
+  const message = findingFixPrompt(review, finding, 'Investigate this.');
+  expect(message).toContain('Location: Whole change');
+  expect(findingFixRequest(message)?.target).toEqual({ kind: 'finding', findingId: finding.id });
+  for (const text of [message.slice(message.indexOf('# Review fix request')), message + '\nAn extra instruction.',
+    message.replace('Title: ', ''), message.replace('revision 1', 'revision 0')]) {
+    expect(findingFixRequest(text)).toBeNull();
+  }
+  expect(() => findingFixPrompt({ ...review, sourceTaskId: null }, finding, 'Fix this.')).toThrow('source development task');
+});
 
 it('projects saved fix requests without depending on the current finding title or revision', () => {
   const review = reviewFixture({ sourceTaskId: 'developer' });

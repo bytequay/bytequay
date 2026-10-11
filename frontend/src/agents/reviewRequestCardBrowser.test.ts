@@ -24,19 +24,20 @@ beforeAll(async () => {
 afterAll(() => fixture?.dispose());
 
 it('folds saved developer fix prompts and opens their original findings, including queued steering', async () => {
-  const results = await fixture.run<{ width: number; delivery: string }[]>({
+  const results = await fixture.run<{ width: number; delivery: string; snapshot: boolean }[]>({
     body: `
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
         for (const delivery of ['TURN', 'STEER']) {
-          results.push(await window.webContents.executeJavaScript('ReviewRequestTests.fixRequest(' + JSON.stringify(delivery) + ')'));
+          for (const snapshot of [false, true]) {
+            results.push(await window.webContents.executeJavaScript('ReviewRequestTests.fixRequest(' + JSON.stringify(delivery) + ', ' + snapshot + ')'));
+          }
         }
       }
     `,
   });
-  expect(results).toEqual([{ width: 760, delivery: 'TURN' }, { width: 760, delivery: 'STEER' },
-    { width: 320, delivery: 'TURN' }, { width: 320, delivery: 'STEER' }]);
+  expect(results).toEqual([760, 320].flatMap(width => ['TURN', 'STEER'].flatMap(delivery => [false, true].map(snapshot => ({ width, delivery, snapshot })))));
 }, 30_000);
 
 it('discloses complete review requests with keyboard and pointer without overflow or side effects in Chromium', async () => {

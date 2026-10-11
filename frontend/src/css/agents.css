@@ -3931,6 +3931,10 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-review-request__body > .agt-md { line-height: 1.6; }
 .agt-review-request__body .agt-md li + li { margin-top: 6px; }
 .agt-review-request__detail { margin-bottom: 8px; color: #6e7781; font-size: 11.5px; }
+.agt-review-request__prompt { margin-top: 12px; }
+.agt-review-request__prompt > summary { width: fit-content; color: #57606a; cursor: pointer; font-size: 12px; }
+.agt-review-request__prompt > summary:focus-visible { outline: 2px solid #27845d; outline-offset: 3px; border-radius: 3px; }
+.agt-review-request__prompt > .agt-review-request__body { margin-top: 10px; }
 .agt-review-request.is-open .agt-review-request__heading { flex-wrap: wrap; gap: 0 8px; }
 .agt-review-request.is-open .agt-review-request__topic { white-space: normal; overflow-wrap: anywhere; }
 

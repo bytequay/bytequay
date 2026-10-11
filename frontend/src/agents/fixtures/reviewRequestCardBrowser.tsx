@@ -17,7 +17,7 @@ import { createRoot } from 'react-dom/client';
 import { ReviewRequestCard, type ReviewCardFocus } from '../ReviewRequestCard';
 import AgentReviewTab from '../../pulls/agent-review/AgentReviewTab';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
-import { findingConversation } from '../../pulls/local-review/conversation';
+import { findingConversation, findingFixPrompt } from '../../pulls/local-review/conversation';
 import { TurnView } from '../AgentConversation';
 import { parseAgentTurn } from '../contracts';
 import contracts from './agent-contracts-v1.json';
@@ -93,12 +93,12 @@ export function clickToggle() { toggle().click(); }
 export function openReview() { card().querySelector<HTMLButtonElement>('.agt-review-request__open')?.click(); }
 export function retry() { card().querySelector<HTMLButtonElement>('.agt-review-request__content button')?.click(); }
 
-export async function fixRequest(delivery = 'TURN') {
+export async function fixRequest(delivery = 'TURN', snapshot = false) {
   const turn = parseAgentTurn(contracts.turn);
   const review = reviewFixture({ sourceTaskId: turn.taskId });
   const finding = review.findings[0];
   const instruction = 'Please investigate and address this finding. Keep the existing public API.';
-  const prompt = `${instruction}\n\n${findingConversation(review, finding)}`;
+  const prompt = snapshot ? `${instruction}\n\n${findingConversation(review, finding)}` : findingFixPrompt(review, finding, instruction);
   function Surface() {
     const [focus, setFocus] = useState<ReviewCardFocus | null>(null);
     return <><TurnView
@@ -111,10 +111,10 @@ export async function fixRequest(delivery = 'TURN') {
         workspaceId={review.workspaceId} viewer={null} ownStream={false} onReviewChange={() => {}} focusFindingId={null}
         focusReviewCard={focus} onNavigateToChanges={() => {}} /></div>}</>;
   }
-  flushSync(() => root.render(<Surface key={`${innerWidth}:${delivery}`} />));
+  flushSync(() => root.render(<Surface key={`${innerWidth}:${delivery}:${snapshot}`} />));
   await settle();
   const request = card();
-  assert(request.innerText.includes(`Fix the agent review`) && request.innerText.includes(`#${finding.label}`)
+  assert(request.innerText.includes(snapshot ? 'Fix the agent review' : 'Request fix') && request.innerText.includes(`#${finding.label}`)
     && request.innerText.includes(finding.title), 'The fix card must name its finding');
   assert(request.innerText.includes(instruction) && !request.innerText.includes('Private ByteQuay review context'),
     'Only the user instruction belongs in the compact preview');
@@ -125,8 +125,18 @@ export async function fixRequest(delivery = 'TURN') {
   if (delivery === 'STEER') assert(host.querySelector('.agt-user__bubble')?.textContent === 'Continue the implementation.',
     'A queued fix steered into a turn must preserve the ordinary opening message');
   toggle().click(); await settle();
-  assert(request.innerText.includes('Private ByteQuay review context') && request.innerText.includes(finding.evidence[0].excerpt),
-    'The complete saved evidence must remain available on explicit expansion');
+  assert(request.innerText.includes(instruction) && !request.innerText.includes(finding.id) && !request.innerText.includes(finding.evidence[0].excerpt)
+    && !request.innerText.includes('list_local_review_comments'), 'Expanded fix details must show the request without machine context or saved logs');
+  const sentPrompt = request.querySelector<HTMLDetailsElement>('.agt-review-request__prompt');
+  assert(sentPrompt !== null && !sentPrompt.open, 'Exact agent instructions must have their own closed disclosure');
+  sentPrompt.querySelector('summary')?.click(); await settle();
+  assert(sentPrompt.open && sentPrompt.innerText.includes(finding.id) && sentPrompt.innerText.includes(finding.validatedHeadSha),
+    'The exact request sent to the agent must remain inspectable');
+  assert(snapshot ? sentPrompt.innerText.includes(finding.evidence[0].excerpt)
+    : sentPrompt.innerText.includes('list_local_review_comments') && !sentPrompt.innerText.includes(finding.evidence[0].excerpt),
+  'New requests must fetch evidence through tools while saved requests retain their original text');
+  assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1,
+    'The complete prompt must wrap within narrow conversations');
   toggle().click(); await settle();
   openReview(); await settle();
   const destination = host.querySelector<HTMLElement>(`[data-fix-review] [data-finding-id="${finding.id}"]`);
@@ -134,7 +144,7 @@ export async function fixRequest(delivery = 'TURN') {
     && (document.activeElement === destination || destination.contains(document.activeElement)),
   'Opening a fix must show, expand and focus its original finding even after resolution');
   assert(toggle().getAttribute('aria-expanded') === 'false', 'Opening the finding must keep the generated prompt folded');
-  return { width: innerWidth, delivery };
+  return { width: innerWidth, delivery, snapshot };
 }
 
 export async function generatedPrompt(markdown = false) {

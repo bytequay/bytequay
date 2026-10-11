@@ -115,8 +115,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         'Fixes must go to the developer and retain their identity across retry');
       assert(fixes[0].message.includes(review.findings[0].validatedHeadSha) && host.textContent?.includes('Sent to developer') === true,
         'The fix must retain its reviewed revision and confirm accepted delivery');
-      assert(discussionReview.messages.every(message => fixes[0].message.includes(message.body))
-        && fixes[0].message.includes(review.findings[0].evidence[1].excerpt), 'The developer must receive the full discussion and evidence');
+      assert(fixes[0].message.includes(review.findings[0].id) && fixes[0].message.includes('list_local_review_comments')
+        && discussionReview.messages.every(message => !fixes[0].message.includes(message.body))
+        && !fixes[0].message.includes(review.findings[0].evidence[1].excerpt), 'The developer must receive a lookup for the finding instead of a discussion and evidence dump');
     });
     await scenario('Published and withdrawn findings keep their private reviewer conversation open', async () => {
       const finding = { ...review.findings[0], state: 'WITHDRAWN' as const, outdated: true, stateReason: 'Fixed by the latest commit' };

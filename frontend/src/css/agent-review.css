@@ -291,6 +291,11 @@
 .agr-run { overflow: hidden; border: 1px solid var(--line-default); border-radius: 8px; background: var(--surface-canvas); color: var(--fg-muted); font-size: 13px; }
 .agr-run__head { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 10px; padding: 12px 16px 0; }
 .agr-run__head.is-ruled { column-gap: 8px; border-bottom: 1px solid var(--line-subtle); padding: 10px 16px; }
+.agr-run:not([open]) > .agr-run__head { border-bottom: 0; }
+.agr-run:not([open]) > .agr-run__head:not(.is-ruled) { padding-bottom: 12px; }
+.agr-run[open] > .agr-run__head > .chev { transform: rotate(90deg); }
+.agr-run > .agr-run__head:hover { background: light-dark(#f6f8fa, var(--dark-subtle)); }
+.agr-run > .agr-run__head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
 .agr-run__head > strong { color: var(--text-1); font-weight: 600; }
 .agr-run__meta { color: var(--fg-dim); font-size: 12px; }
 .agr-run__live { display: inline-flex; align-items: center; gap: 6px; color: var(--accent); font-size: 12px; font-weight: 600; }

@@ -45,13 +45,14 @@ function ProgressCard({ review, run, now }: { review: AgentReviewDto; run: Revie
   const commits = reviewProgress(review, true)?.facts[0] ?? '';
   const gaps = reviewProgress(review)?.gaps ?? [];
   const complete = completeCoverage(run);
-  return <section className="agr-run" aria-label="Review progress">
-    <header className="agr-run__head">
+  return <details className="agr-run" aria-label="Review progress" open>
+    <summary className="agr-run__head">
+      <Chevron />
       <strong>Review progress</strong>
       <span className={`pull-detail__review-chip is-${status.tone}`}>{status.label === 'Reviewing' && current >= 0 ? PASSES[current][0] : status.label}</span>
       <span className="agr-spacer" />
       {elapsed !== null && <span className="agr-run__elapsed">{elapsed}</span>}
-    </header>
+    </summary>
     <ol className="agr-run__passes">
       {PASSES.map(([label, hint], index) => <li key={label} className={`is-${passes[index]}`} aria-current={index === current ? 'step' : undefined}>
         <span className="agr-run__dot">{passes[index] === 'done' ? <Check size={11} strokeWidth={3} aria-hidden="true" />
@@ -67,7 +68,7 @@ function ProgressCard({ review, run, now }: { review: AgentReviewDto; run: Revie
       <div><dt>Evidence</dt><dd>{plural(run.evidence.length, 'reference')}</dd></div>
       <div><dt>Coverage</dt><dd className={complete ? 'is-complete' : 'is-open'}>{complete ? 'Complete' : running ? 'Not recorded yet' : 'Not recorded'}</dd></div>
     </dl>
-  </section>;
+  </details>;
 }
 
 type ReviewHistory = { events: AgentEventEnvelope[]; complete: boolean };
@@ -127,15 +128,16 @@ function ActivityCard({ review, run, now, visible }: { review: AgentReviewDto; r
   if (actions.length === 0 && !running) return null;
   const clock = running ? now : Date.now();
   const worked = turns.reduce((total, turn) => total + (turnElapsedMs(turn, clock) ?? 0), 0);
-  return <section className="agr-run" aria-label="Review activity">
-    <header className="agr-run__head is-ruled">
+  return <details className="agr-run" aria-label="Review activity" open>
+    <summary className="agr-run__head is-ruled">
+      <Chevron />
       <Activity size={15} aria-hidden="true" />
       <strong>Activity</strong>
       {actions.length > 0 && <span className="agr-run__meta">{history.complete
         ? `${plural(actions.length, 'action')} · ${plural(turns.length, 'turn')} · worked ${formatDuration(worked)}` : `latest ${plural(actions.length, 'action')}`}</span>}
       <span className="agr-spacer" />
       {running && <span className="agr-run__live">Live</span>}
-    </header>
+    </summary>
     {actions.length === 0 ? <p className="agr-run__empty">No actions yet.</p> : <ol className="agr-run__actions">
       {(all ? actions : actions.slice(0, VISIBLE_ACTIONS)).map(({ member, at }, index) => {
         const live = running && index === 0 && member.kind !== 'file' && (member.state === 'STARTED' || member.state === 'PROGRESS');
@@ -150,18 +152,19 @@ function ActivityCard({ review, run, now, visible }: { review: AgentReviewDto; r
     {actions.length > VISIBLE_ACTIONS && <button type="button" className="agr-run__more" aria-expanded={all} onClick={() => setAll(value => !value)}>
       {all ? 'Show less' : `Show all ${actions.length} actions`}
     </button>}
-  </section>;
+  </details>;
 }
 
 function EvidenceCard({ review, run }: { review: AgentReviewDto; run: ReviewRunDto }) {
   const complete = completeCoverage(run);
   const groups = evidenceGroups(run.evidence, review.number === null ? null : `${review.repo}#${review.number}`);
-  return <section className="agr-run" aria-label="Context and evidence">
-    <header className="agr-run__head is-ruled">
+  return <details className="agr-run" aria-label="Context and evidence" open>
+    <summary className="agr-run__head is-ruled">
+      <Chevron />
       <BookOpen size={15} aria-hidden="true" />
       <strong>Context &amp; evidence</strong>
       <span className="agr-run__meta">{plural(run.evidence.length, 'reference')} · frozen at head {shortSha(run.headSha)}</span>
-    </header>
+    </summary>
     {groups.length === 0 && <p className="agr-run__empty">No context or validation evidence was recorded.</p>}
     {groups.map((group, index) => <details key={group.subject} className="agr-run__group" open={index === 0}>
       <summary>
@@ -196,7 +199,7 @@ function EvidenceCard({ review, run }: { review: AgentReviewDto; run: ReviewRunD
       {complete ? 'Complete coverage was recorded for the review scope.'
         : reviewRunning(review) ? 'Complete coverage has not been recorded yet.' : 'Complete coverage has not been recorded.'}
     </footer>
-  </section>;
+  </details>;
 }
 
 /** A review on a task's Summary timeline: where its passes stand, what the reviewer just did, and what it has read. */

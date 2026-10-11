@@ -77,18 +77,24 @@ it('discloses complete review requests with keyboard and pointer without overflo
   expect(results.every(result => result.open)).toBe(true);
 }, 30_000);
 
-it('folds generated summary prompts into compact request cards with complete expandable instructions', async () => {
-  const results = await fixture.run<{ width: number; compact: boolean }[]>({
+it('keeps development follow-ups compact with their authorization scope and exact prompts available on demand', async () => {
+  const results = await fixture.run<{ width: number; kind: string; snapshot: boolean; existing: boolean }[]>({
     body: `
       const results = [];
       for (const width of [760, 320]) {
         window.setContentSize(width, 900);
-        results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedPrompt()'));
-        results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedPrompt(true)'));
+        for (const kind of ['AUTO_COMMIT', 'REFINE_SUMMARY', 'CREATE_DRAFT_PR']) {
+          for (const snapshot of [false, true]) {
+            for (const existing of kind === 'CREATE_DRAFT_PR' ? [false, true] : [false]) {
+              results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedPrompt(' + JSON.stringify(kind) + ', ' + snapshot + ', ' + existing + ')'));
+            }
+          }
+        }
       }
     `,
   });
-  expect(results).toEqual([{ width: 760, compact: true }, { width: 760, compact: true }, { width: 320, compact: true }, { width: 320, compact: true }]);
+  expect(results).toEqual([760, 320].flatMap(width => ['AUTO_COMMIT', 'REFINE_SUMMARY', 'CREATE_DRAFT_PR'].flatMap(kind =>
+    [false, true].flatMap(snapshot => (kind === 'CREATE_DRAFT_PR' ? [false, true] : [false]).map(existing => ({ width, kind, snapshot, existing }))))));
 }, 30_000);
 
 it('keeps current and historical review prompts behind a separate disclosure', async () => {

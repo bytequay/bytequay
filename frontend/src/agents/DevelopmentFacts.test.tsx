@@ -60,7 +60,7 @@ it('attributes generated requests using trusted durable origins and names live a
   expect(taskHtml({ ...baseTurn, state: 'COMPLETED' })).not.toContain('ByteQuay · Auto commit');
 });
 
-it('shows the create-PR request as the action and the branches it names, never as the prompt', () => {
+it('shows the create-PR action and branches with the exact prompt available on demand', () => {
   const ordinary: AgentTurnDto = { ...baseTurn, taskId: 'c587a121' };
   const branch = 'chenjian2664/bytequay/find-and-refactor-minor-issue-c587a121';
   const route = { action: 'Open draft pull request', head: branch, base: 'master' };
@@ -94,7 +94,9 @@ it('shows the create-PR request as the action and the branches it names, never a
     first={false} open={false} now={0} models={[]} durableTurns={{ [generated.id]: generated }} activityChoice={{}} previews={{}} agentLabels={{}} generatedBranch={branch}
     onToggle={() => {}} onToggleActivity={() => {}} />);
   expect(html).toContain('Open draft pull request');
-  expect(html).toContain(`title="${route.head}">${route.head}</span>`);
+  expect(html).toContain(`title="${route.head} → master">${route.head} → master</span>`);
+  expect(html).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+  expect(html).toContain("Exact clean HEAD to publish: e5083dc3.");
   expect(html).toContain('→ master');
   expect(html).not.toContain('agt-user__bubble');
   expect(html).not.toContain('gh pr create');
@@ -108,13 +110,14 @@ it('folds only trusted generated development requests while preserving user mess
     turn={{ turnId: baseTurn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null, users }}
     first={false} open={false} now={0} models={[]} durableTurns={durable === undefined ? {} : { [durable.id]: durable }}
     activityChoice={{}} previews={{}} agentLabels={{}} onToggle={() => {}} onToggleActivity={() => {}} />);
-  for (const kind of ['REFINE_SUMMARY', 'AUTO_COMMIT'] as const) {
+  for (const kind of ['REFINE_SUMMARY', 'AUTO_COMMIT', 'CREATE_DRAFT_PR'] as const) {
     const generated = { ...baseTurn, developmentOrigin: { kind, parentUserTurnId: 'source-turn' } };
     const markup = html(generated);
     expect(markup).toContain('agt-review-request__preview');
     expect(markup).toContain('aria-expanded="false"');
     expect(markup).toContain('class="agt-review-request__content" hidden=""');
-    expect(markup).toContain(`<div class="agt-review-request__body"><div class="agt-md"><p>${promptHtml}</p></div></div>`);
+    expect(markup).toContain('<details class="agt-review-request__prompt"><summary>Prompt sent to agent</summary>');
+    expect(markup).toContain(`<div class="agt-review-request__body">${promptHtml}</div>`);
     expect(markup).not.toContain('agt-user__bubble');
     for (const delivery of ['STEER', 'QUEUED'] as const) {
       const ordinary = html(generated, [{ ...user, delivery }]);

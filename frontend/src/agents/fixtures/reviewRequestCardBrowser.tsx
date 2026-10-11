@@ -150,50 +150,43 @@ export async function fixRequest(delivery = 'TURN', snapshot = false) {
   return { width: innerWidth, delivery, snapshot };
 }
 
-export async function generatedPrompt(markdown = false) {
-  const path = 'worktree/'.repeat(60) + 'Implementation.java';
-  const prompt = markdown ? '# ByteQuay · Refining summary\n\nRefresh the summary from the final code and actual commits.\n\n'
-    + '## Scope\n\n- **Worktree:** `' + path + '`\n- **Expected HEAD:** `9d4fa8f`\n\n'
-    + '## Instructions\n\n- Read the current diff and commit history, including uncommitted changes.\n'
-    + '- Explain the task’s intention and each commit’s design.\n- Preserve the existing question.\n\n'
-    + '## Report\n\nCall `report_development_result` with `readyForDelivery=true` and `learningSummary`.\n\n'
-    + 'This records the private summary; it does not authorize delivery of held work.'
-    : 'ByteQuay · Refining summary\nRefresh this development task’s private Review & Learning cards from the final code and actual commits.\n'
-    + 'Read the current diff and commit history, including any uncommitted changes. '.repeat(30)
-    + '\n' + path;
-  const turn = parseAgentTurn({ ...contracts.turn, developmentOrigin: { kind: 'REFINE_SUMMARY', parentUserTurnId: 'source-turn' } });
-  flushSync(() => root.render(<TurnView
+export async function generatedPrompt(kind: 'AUTO_COMMIT' | 'REFINE_SUMMARY' | 'CREATE_DRAFT_PR' = 'REFINE_SUMMARY', snapshot = false, existing = false) {
+  const branch = 'developer/bytequay/' + 'completed-change-'.repeat(15);
+  const title = kind === 'AUTO_COMMIT' ? 'Auto commit' : kind === 'REFINE_SUMMARY' ? 'Refining summary' : 'Create draft PR';
+  const prompt = `ByteQuay · ${title}\nWorktree: '/private/worktree'. Branch: '${branch}'. Expected HEAD: abc1234.\n`
+    + "Base repository/branch: upstream/repo / 'release'. Push repository: developer/repo.\n"
+    + (existing ? 'Pull request https://github.com/upstream/repo/pull/12 already tracks this branch; publishing updates it and creates no second one.\n' : '')
+    + (snapshot ? '## Saved instructions\n\n' + 'Historical follow-up context. '.repeat(1500) : 'Inspect the current code and Git state. Follow the accepted authorization.');
+  const turn = parseAgentTurn({ ...contracts.turn, developmentOrigin: { kind, parentUserTurnId: 'source-turn' } });
+  flushSync(() => root.render(<TurnView key={`${innerWidth}:${kind}:${snapshot}:${existing}`}
     turn={{ turnId: turn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
-      users: [{ id: 'generated', text: prompt, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' }] }}
-    first={false} open={false} now={0} models={[]} durableTurns={{ [turn.id]: turn }} activityChoice={{}} previews={{}} agentLabels={{}}
+      users: [{ id: 'generated', text: prompt, attachments: [], delivery: 'TURN', at: '2026-01-01T12:00:00Z' },
+        { id: 'steer', text: 'Keep my requested behavior.', attachments: [], delivery: 'STEER', at: '' }] }}
+    first={false} open={false} now={0} models={[]} durableTurns={{ [turn.id]: turn }} activityChoice={{}} previews={{}} agentLabels={{}} generatedBranch={branch}
     onToggle={() => {}} onToggleActivity={() => {}} />));
   await settle();
   const request = card();
   const content = request.querySelector<HTMLElement>('.agt-review-request__content');
-  assert(content !== null, 'Generated prompt must have a disclosure');
-  assert(host.querySelector('.agt-user__bubble') === null, 'Generated prompt must not render as an ordinary user bubble');
-  assert(request.querySelector('.agt-user__request-action')?.textContent === 'ByteQuay · Refine summary', 'Card must name the trusted origin');
-  assert(content.hidden && content.getBoundingClientRect().height === 0, 'Generated instructions must start hidden');
-  assert(request.getBoundingClientRect().height <= 100, 'Generated request must remain compact');
-  assert(request.scrollWidth <= request.clientWidth + 1, 'Collapsed generated request must fit its card');
-  toggle().click();
-  await settle();
-  assert(!content.hidden && content.getBoundingClientRect().height > 0, 'Disclosure must expose generated instructions');
-  const rendered = request.querySelector('.agt-review-request__body > .agt-md');
-  assert(rendered !== null, 'Expanded instructions must use the conversation Markdown renderer');
-  if (markdown) {
-    assert(rendered.querySelector('p > strong')?.textContent === 'ByteQuay · Refining summary', 'Markdown headings must render without their source markers');
-    assert(rendered.querySelectorAll('li').length === 5 && rendered.querySelector('code')?.textContent === path,
-      'Instructions must render readable lists and complete code-formatted paths');
-    assert(rendered.textContent?.includes('report_development_result') && !rendered.textContent?.includes('`'), 'Report fields must render as inline code');
-  } else {
-    assert(rendered.textContent === prompt, 'Saved plain-text instructions must retain their complete text and line breaks');
-  }
-  assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded instructions must wrap at narrow widths');
-  toggle().click();
-  await settle();
-  assert(content.hidden && request.getBoundingClientRect().height <= 100, 'Generated request must collapse back to its summary');
-  return { width: innerWidth, compact: content.hidden };
+  const action = kind === 'AUTO_COMMIT' ? 'ByteQuay · Auto commit' : kind === 'REFINE_SUMMARY' ? 'ByteQuay · Refine summary'
+    : existing ? 'Update pull request #12' : 'Open draft pull request';
+  assert(request.querySelector('.agt-user__request-action')?.textContent === action, 'The trusted origin must determine the action');
+  assert(content !== null && content.hidden && !request.innerText.includes('/private/worktree'), 'Machine instructions must start hidden');
+  assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Keep my requested behavior.'), 'User steering must stay visible');
+  assert(request.getBoundingClientRect().height <= 130 && request.scrollWidth <= request.clientWidth + 1, 'Generated requests must stay compact');
+  const topic = request.querySelector<HTMLElement>('.agt-review-request__topic');
+  assert(topic !== null && topic.clientWidth >= 140, 'Scope must have its own readable line at narrow widths');
+  if (kind === 'CREATE_DRAFT_PR') assert(topic.textContent === `${branch} → release`, 'The publication destination must remain visible');
+  toggle().click(); await settle();
+  const sent = request.querySelector<HTMLDetailsElement>('.agt-review-request__prompt');
+  assert(!content.hidden && sent !== null && !sent.open && !request.innerText.includes('/private/worktree'), 'Opening details must keep the exact prompt folded');
+  assert(request.innerText.includes(kind === 'REFINE_SUMMARY' ? 'Reporting only' : kind === 'AUTO_COMMIT' ? 'Authorized local commits' : 'authorized publication'),
+    'Expanded details must explain the authorization scope');
+  sent.querySelector('summary')?.click(); await settle();
+  assert(sent.open && sent.querySelector('.agt-review-request__body')?.textContent === prompt, 'New and historical prompts must remain exactly inspectable');
+  assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'The complete prompt must fit narrow conversations');
+  toggle().click(); await settle();
+  assert(content.hidden && request.getBoundingClientRect().height <= 130, 'The generated request must fold back to its summary');
+  return { width: innerWidth, kind, snapshot, existing };
 }
 
 export async function generatedReview(snapshot = false) {

@@ -3955,7 +3955,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
 .agt-review-request__open:focus-visible,
 .agt-review-request__toggle:focus-visible { outline: 2px solid #27845d; outline-offset: -3px; border-radius: 6px; }
 .agt-review-request__heading { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
-.agt-user.is-review-fix .agt-review-request__heading { flex-direction: column; align-items: stretch; gap: 2px; }
+.agt-user:is(.is-review-fix, .is-development-request) .agt-review-request__heading { flex-direction: column; align-items: stretch; gap: 2px; }
 .agt-review-request__heading .agt-user__request-action { flex: none; }
 .agt-review-request__topic { min-width: 0; color: #476b61; }
 .agt-review-request__topic,

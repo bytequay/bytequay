@@ -892,12 +892,42 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
+    void conciseFollowupsKeepTheirScopeAndDistinctAuthorizationRules()
+    {
+        var baseline = new DevelopmentBaseline(worktree, route, local(BASE, false));
+        String summary = DevelopmentFollowupCoordinator.summaryPrompt(baseline, local(HEAD, true));
+        String commit = DevelopmentFollowupCoordinator.commitPrompt(baseline, local(HEAD, true));
+        String publication = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty());
+        for (String prompt : ImmutableList.of(summary, commit, publication)) {
+            assertThat(prompt).contains(worktree.canonicalWorktree().toString(), route.headBranch(), HEAD, "report_development_result");
+        }
+        assertThat(summary).contains(BASE, "Read the current diff and commit history", "Reporting only", "do not edit files, create or rewrite commits",
+                "push, publish, run repairs, or start a review", "Keep all text private", "never write a summary file",
+                "Preserve the existing question and pending user decision", "do not release held work", "only purpose and",
+                "one per actual commit, with full sha, title and summary", "does not authorize delivery of held work");
+        assertThat(commit).contains("accepted Auto commit setting", "only the completed task changes", "Verify ownership, branch and HEAD",
+                "stop and report any mismatch", "Preserve existing commits", "never amend, rebase, reset, or change branches",
+                "Do not discard changes", "Exclude ignored build output and credentials", "local validation limitations", "Do not push or create a pull request",
+                "readyForDelivery=false if a user decision remains", "ByteQuay controls later stages using accepted automation settings");
+        assertThat(publication).contains("accepted Auto draft PR setting", "single publication of the verified revision", "Recheck branch, exact HEAD",
+                "clean staged/unstaged/untracked status (excluding ignored build output)", "no open Git operation", "Stop and report any mismatch",
+                "exactly once with title and body as tool input", "never write a body file", "its own lease", "draft PR creation or existing PR update",
+                "Do not commit, edit code, amend, rebase, reset, switch branches", "independent CI repair loop", "stop without retrying",
+                "Keep local execution details private", "commands run, test classes, counts, pass/fail results", "build or validation outcomes",
+                "logs, tooling, sandbox and environment limitations", "Never put these in the PR", "Testing, Validation or Test plan",
+                "readyForDelivery=false if a user decision is needed");
+        assertThat(summary.length()).isLessThan(1600);
+        assertThat(commit.length()).isLessThan(1250);
+        assertThat(publication.length()).isLessThan(2100);
+    }
+
+    @Test
     void publicationPromptAsksForNoToolingNotesAndNoSignOff()
     {
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
                 local(HEAD, false), Optional.empty());
         assertThat(prompt).contains(
-                "an empty section is better than one filled to look complete",
+                "Fill relevant sections only", "leave other sections exactly as the template leaves them",
                 "attribution, co-authorship, or generated-with trailer");
         assertThat(prompt).doesNotContain("preserve local-check limitations", "local-check limitations");
     }

@@ -568,44 +568,24 @@ public class DevelopmentFollowupCoordinator
     static String summaryPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local)
     {
         return """
-                # ByteQuay · Refining summary
+                ByteQuay · Refining summary
+                Refresh this task's private Review & Learning cards from the final code and actual commits.
+                Worktree: %s. Branch: %s. Expected HEAD: %s. Frozen comparison base: %s.
 
-                Refresh this development task's private Review & Learning cards from the final code and actual commits.
+                Read the current diff and commit history, including any uncommitted changes. Explain the intention and
+                why each commit's design and implementation solve it. Explain uncommitted work in the intention; distinguish
+                stated intent from inferred rationale.
+                Ground explanations in code; never invent rationale or verification. Follow shared card writing targets and
+                applicable writing skills: short, complete sentences. Put bugs and code improvements in anchored Findings
+                when review tools are available. Replace stale prose rather than appending another recap.
 
-                ## Scope
+                Reporting only: do not edit files, create or rewrite commits, push, publish, run repairs, or start a review.
+                Keep all text private; never write a summary file. Preserve the existing question and pending user decision;
+                do not release held work.
 
-                - **Worktree:** %s
-                - **Branch:** %s
-                - **Expected HEAD:** `%s`
-                - **Frozen comparison base:** `%s`
-
-                Read the current diff and commit history, including any uncommitted changes. Explain the task's intention
-                and each commit's design and implementation. Ground explanations in the final code; do not invent rationale
-                or verification. Distinguish inferred rationale from the stated intent.
-
-                ## Guardrails
-
-                - This is a reporting-only follow-up. Do not edit files, create or rewrite commits, push, publish, or run repairs.
-                - Do not release held work or resolve a pending user decision. Preserve the task's existing question.
-                - Do not write the summary into a worktree file. All text stays private to this task.
-                - This reporting-only follow-up does not start a new review.
-
-                ## Writing
-
-                Explain how uncommitted work differs from the commits in the intention.
-
-                Follow the shared card writing targets and applicable writing skills. Use short, complete sentences for
-                the intention and each commit; explain why the design and implementation solve the problem. Keep bugs and
-                concrete code improvements in anchored Findings when the review tools are available.
-
-                Replace stale prose; do not append another recap.
-
-                ## Report
-
-                Call `report_development_result` with `readyForDelivery=true` and `learningSummary` containing `purpose`,
-                `commits` (one object per actual commit with full `sha`, `title`, and `summary`). Include only these two fields.
-
-                `readyForDelivery` here only confirms this summary was recorded; it does not authorize delivery of held work.
+                Call report_development_result with readyForDelivery=true and learningSummary containing only purpose and
+                commits (one per actual commit, with full sha, title and summary); only these two fields.
+                Readiness here records the summary only; it does not authorize delivery of held work.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha(), baseline.route().baseSha());
     }
 
@@ -630,34 +610,19 @@ public class DevelopmentFollowupCoordinator
     static String commitPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local)
     {
         return """
-                # ByteQuay · Auto commit
+                ByteQuay · Auto commit
+                The accepted Auto commit setting authorizes committing only the completed task changes.
+                Worktree: %s. Branch: %s. Expected starting HEAD: %s.
 
-                The user's accepted Auto commit setting authorizes this bounded follow-up for the completed task work.
+                Work only in this worktree and branch. Verify ownership, branch and HEAD before changes; stop and report any mismatch.
+                Make focused commits from the actual changes using repository commit conventions.
+                Preserve existing commits: never amend, rebase, reset, or change branches. Do not discard changes to clean
+                the checkout. Exclude ignored build output and credentials. Never add an attribution, co-authorship, or
+                generated-with trailer. Preserve previously reported local validation limitations.
+                Do not push or create a pull request in this turn.
 
-                ## Scope
-
-                - **Worktree:** %s
-                - **Branch:** %s
-                - **Expected starting HEAD:** `%s`
-
-                Work only in this worktree and on this branch. Check that ownership and HEAD still match before making
-                changes. If they do not, stop and report the problem.
-
-                ## Commit
-
-                Commit the completed task changes in focused commits, choosing subjects and bodies from the actual changes
-                and the repository's commit conventions.
-
-                - Never add an attribution, co-authorship, or generated-with trailer.
-                - Preserve existing commits; do not amend, rebase, reset, or change branches.
-                - Do not discard changes merely to make the checkout clean. Exclude ignored build output and credentials.
-                - Do not push or create a pull request in this turn.
-                - Preserve the previously reported local validation limitations.
-
-                ## Report
-
-                If a user decision remains, call `report_development_result` with `readyForDelivery=false` and ask in the final response.
-                Otherwise report readiness before ending. ByteQuay controls later stages using the user's accepted automation settings.
+                Call report_development_result before ending: readyForDelivery=false if a user decision remains, and ask
+                in the final response; otherwise report readiness. ByteQuay controls later stages using accepted automation settings.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(baseline.route().headBranch()), local.headSha());
     }
 
@@ -759,32 +724,30 @@ public class DevelopmentFollowupCoordinator
                 .orElse("No pull request tracked this branch at verification.");
         return """
                 ByteQuay · Create draft PR
-                The user's accepted Auto draft PR setting authorizes this single publication of the verified revision.
+                The accepted Auto draft PR setting authorizes this single publication of the verified revision.
                 Worktree: %s. Branch: %s. Exact clean HEAD to publish: %s.
                 Base repository/branch: %s / %s. Push repository: %s.
+                %s
+
+                Recheck branch, exact HEAD, clean staged/unstaged/untracked status (excluding ignored build output),
+                and no open Git operation. Stop and report any mismatch.
                 Do not commit, edit code, amend, rebase, reset, switch branches, or run an independent CI repair loop.
-                Recheck the branch, exact HEAD, clean staged/unstaged/untracked status (excluding ignored build output),
-                and no open Git operation. If any check differs, stop and report the difference.
-                Publish by calling %s exactly once with a title and body.
-                ByteQuay owns the push and the GitHub write: it pushes that exact HEAD under its own lease and opens the
-                pull request as a draft. Never run git push, a GitHub CLI command, or any other remote write for this,
-                and never read or ask for credentials. %s
-                Choose title and body from the actual change and the repository PR template. Fill only the
-                template sections this change actually has something to say for, and leave the rest exactly as
-                the template leaves them: an empty section is better than one filled to look complete. Do not
-                include local execution details: commands run, test classes executed, test counts, pass/fail
-                results, build or validation outcomes, logs, tooling, sandbox, or environment limitations.
-                Keep all local execution reporting in the ByteQuay task conversation, never the PR description,
-                including its Testing, Validation, or Test plan sections. Describe tests added or changed by
-                the behavior they cover, without reporting that they ran or passed. Never add an
-                attribution, co-authorship, or generated-with trailer.
-                Pass the body as tool input; do not write a body file into the worktree.
-                The tool reports the resulting pull request. If it refuses or its result is uncertain, stop without
-                retrying and report what it said.
-                If a user decision is needed, report readyForDelivery=false and ask it. Otherwise report readiness before ending.
+                Call %s exactly once with title and body as tool input; never write a body file.
+                ByteQuay owns the push and the GitHub write: exact HEAD, its own lease, draft PR creation or existing PR update.
+                Never run git push, a GitHub CLI command, or other remote writes; never read or ask for credentials.
+
+                Derive title and body from the actual change and repository PR template. Fill relevant sections only;
+                leave other sections exactly as the template leaves them. Describe changed tests by the behavior they cover.
+                Keep local execution details private to this task: commands run, test classes, counts, pass/fail results,
+                build or validation outcomes, logs, tooling, sandbox and environment limitations. Never put these in the PR,
+                including Testing, Validation or Test plan sections. Never add an attribution, co-authorship, or generated-with trailer.
+
+                If the tool refuses or its result is uncertain, stop without retrying and report its response.
+                Call report_development_result before ending: readyForDelivery=false if a user decision is needed, and ask it;
+                otherwise report readiness.
                 """.formatted(quote(baseline.worktree().canonicalWorktree().toString()), quote(route.headBranch()), local.headSha(),
                         route.baseRepository().fullName(), quote(route.baseBranch()), route.headRepository().fullName(),
-                        DevelopmentResultBridge.PUBLISH_TOOL_NAME, prInstruction);
+                        prInstruction, DevelopmentResultBridge.PUBLISH_TOOL_NAME);
     }
 
     private static String quote(String value)

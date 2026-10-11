@@ -19,11 +19,13 @@ export function developmentTurnRequest(turn: AgentTurnDto | null | undefined) {
     action: 'ByteQuay · Refine summary',
     topic: 'WorkBench',
     body: 'Refresh the change intention and commit explanations from the current code and commit history.',
+    detail: 'Private summary · Reporting only',
   };
   if (turn?.developmentOrigin?.kind === 'AUTO_COMMIT') return {
     action: 'ByteQuay · Auto commit',
     topic: 'Working changes',
     body: 'Commit the completed changes in this task’s worktree.',
+    detail: 'Authorized local commits · Publication is a separate step',
   };
   return null;
 }

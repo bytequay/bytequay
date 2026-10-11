@@ -218,8 +218,8 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     render();
     await settle();
     assert(Number(submitted) === 1, 'Reopening final results must never send development or publication again');
-    assert(host.textContent?.includes('ByteQuay · Auto commit') === true && host.textContent?.includes(`Open draft pull request ${task.generatedBranch}`) === true
-      && !host.textContent?.includes('Push the revision and create its draft'), 'Replay must retain the commit label and show publication as its action');
+    assert(host.innerText.includes('ByteQuay · Auto commit') && host.innerText.includes('Open draft pull request') && host.innerText.includes(task.generatedBranch)
+      && !host.innerText.includes('Push the revision and create its draft'), 'Replay must retain the commit label and fold the exact publication prompt');
     if (outcome === 'ready') {
       turn = { ...turn, id: 'later-question', developmentOrigin: null, developmentResult: { readyForDelivery: false, message: question } };
       recordTurn();

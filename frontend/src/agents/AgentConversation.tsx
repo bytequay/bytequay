@@ -15,7 +15,7 @@
 import type { JiraTaskSource } from '../jira/contracts';
 import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
-import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,GitPullRequest,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
+import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -791,7 +791,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
                 <LocalReviewThreadCard {...localReview} thread={localThread} />
               </ReviewRequestCard>
             </div>
-          ) : <div className={`agt-user${fixRequest !== null ? ' is-review-fix' : ''}`} data-history-anchor={user.id}>
+          ) : <div className={`agt-user${fixRequest !== null ? ' is-review-fix' : ''}${index === 0 && (request !== null || developmentRequest !== null) ? ' is-development-request' : ''}`} data-history-anchor={user.id}>
             {index === 0 && user.delivery === 'TURN' && turnRequest ? turnRequest : index === 0 && user.delivery === 'TURN' && jiraRequest && jiraSource != null
               ? <JiraRequestCard source={jiraSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                 {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
@@ -820,18 +820,21 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
                 </div>}
               </ReviewRequestCard>
             ) : index === 0 && request !== null ? (
-              <div className="agt-user__request">
-                <GitPullRequest aria-hidden="true" />
-                <span className="agt-user__request-action">{request.action}</span>
-                {request.head !== null && <>{' '}<span className="agt-user__request-head" title={request.head}>{request.head}</span></>}
-                {request.base !== null && <>{' '}<span className="agt-user__request-base">→ {request.base}</span></>}
-              </div>
-            ) : index === 0 && developmentRequest !== null ? (
-              <ReviewRequestCard {...developmentRequest} detail="Generated instructions sent to the agent">
+              <ReviewRequestCard action={request.action}
+                topic={[request.head, request.base === null ? null : `→ ${request.base}`].filter(Boolean).join(' ') || 'Pull request'}
+                body="Publish this task’s verified changes to its pull request."
+                detail="ByteQuay verifies the branch and revision and handles the authorized publication." prompt={user.text}>
+                <div className="agt-review-request__body">Publish this task’s verified changes to its pull request.</div>
                 {user.attachments.length > 0 && <div className="agt-user__files">
                   {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
                 </div>}
-                <div className="agt-review-request__body">{renderMarkdown(user.text, repository, true)}</div>
+              </ReviewRequestCard>
+            ) : index === 0 && developmentRequest !== null ? (
+              <ReviewRequestCard {...developmentRequest} prompt={user.text}>
+                <div className="agt-review-request__body">{developmentRequest.body}</div>
+                {user.attachments.length > 0 && <div className="agt-user__files">
+                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+                </div>}
               </ReviewRequestCard>
             ) : (
               <div className="agt-user__bubble">

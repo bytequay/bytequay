@@ -192,6 +192,10 @@ export default function App() {
     return () => { stopAttention(); stopNotification(); };
   }, []);
 
+  useEffect(() => window.bridge.onAppNoticeOpen?.(target => {
+    zoomReference({ kind: 'task', taskId: target.taskId, workspaceId: target.workspaceId });
+  }), []);
+
   useEffect(() => {
     if (status !== 'ready') return;
     let request = 0;

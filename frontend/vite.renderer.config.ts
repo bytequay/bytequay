@@ -13,12 +13,14 @@
  */
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'node:path';
 import { encodingDetector, textmateImports } from './ideBuild';
 
 // https://vitejs.dev/config
 export default defineConfig({
   cacheDir: 'node_modules/.vite/main',
   plugins: [react(), encodingDetector(), textmateImports()],
+  build: { rollupOptions: { input: { main: resolve(__dirname, 'index.html'), notices: resolve(__dirname, 'notices.html') } } },
   server: {
     host: '127.0.0.1',
   },

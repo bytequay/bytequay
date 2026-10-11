@@ -29,6 +29,14 @@ database, enforced by an operating-system lock. Desktop browser surfaces use
 Electron `WebContentsView`; external web sessions stay separate from the
 application's privileged bridge and backend credentials.
 
+App notices project existing task, turn, approval, and queue state through the
+authenticated `/agent/notices` endpoint. Electron polls this local snapshot and
+keeps deduplication and recent notices in memory for the session. A separate
+sandboxed `WebContentsView` displays the bottom-right cards above browser and
+editor views. Its restricted bridge can read, dismiss, resize, and navigate to
+a validated task; it cannot approve or execute task actions. Recovery notices
+wait for ordinary shutdown cleanup to settle before announcing a block.
+
 ## Backend organization
 
 The backend is a six-module Maven application. Modules define dependency and

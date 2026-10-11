@@ -99,6 +99,7 @@ const config: ForgeConfig = {
           target: 'preload',
         },
         { entry: 'src/idePreload.ts', config: 'vite.main.config.ts', target: 'preload' },
+        { entry: 'src/noticePreload.ts', config: 'vite.main.config.ts', target: 'preload' },
       ],
       renderer: [
         { name: 'ide_window', config: 'vite.ide.config.ts' },

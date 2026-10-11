@@ -46,6 +46,12 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
+  onAppNoticeOpen: callback => {
+    const receive = (_event: unknown, target: { taskId: string; workspaceId: string; turnId: string | null }) => callback(target);
+    ipcRenderer.on('notices:open-task', receive);
+    return () => { ipcRenderer.removeListener('notices:open-task', receive); };
+  },
+  setNoticeSource: (key, source) => ipcRenderer.invoke('notices:source', key, source),
   getGeminiSetupStatus: () => ipcRenderer.invoke('gemini:status'),
   saveGeminiSetupKey: key => ipcRenderer.invoke('gemini:save', key),
   removeGeminiSetupKey: () => ipcRenderer.invoke('gemini:remove'),

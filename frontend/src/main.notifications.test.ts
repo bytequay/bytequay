@@ -18,6 +18,10 @@ import path from 'node:path';
 import type { EventEmitter } from 'node:events';
 import type { PullRequestDto } from './types';
 
+vi.mock('./notices/host', () => ({ NoticeHost: class {
+    register = vi.fn(); attach = vi.fn(); start = vi.fn(); stop = vi.fn(); releaseWindow = vi.fn(); raise = vi.fn();
+} }));
+
 const desktop = vi.hoisted(() => ({
   listeners: new Map<string, () => Promise<void>>(),
   notifications: [] as EventEmitter[],

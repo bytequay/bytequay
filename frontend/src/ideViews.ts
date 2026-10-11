@@ -91,7 +91,8 @@ export class IdeViews {
   private readonly opening = new Map<string, Promise<string>>();
   private readonly timer: ReturnType<typeof setInterval>;
 
-  constructor(private readonly window: () => BrowserWindow | null, private readonly terminalOpen: (sender: WebContents) => boolean = () => false) {
+  constructor(private readonly window: () => BrowserWindow | null, private readonly terminalOpen: (sender: WebContents) => boolean = () => false,
+    private readonly onPresent: () => void = () => {}) {
     this.timer = setInterval(() => { void this.maintain(); }, 15_000);
     this.timer.unref();
   }
@@ -142,6 +143,7 @@ export class IdeViews {
       editor.view.setBounds(browserBounds(bounds, window));
       window.contentView.addChildView(editor.view);
       editor.view.setVisible(true);
+      this.onPresent();
     });
     ipcMain.handle('ide:update', (event, id: string, context: IdeContext) => {
       parent(event);

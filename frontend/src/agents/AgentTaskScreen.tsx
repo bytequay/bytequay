@@ -13,6 +13,7 @@
  */
 
 import { PendingReviewComments } from '../pulls/ReviewDrafts';
+import { useNoticeSource } from '../notices/useNoticeSource';
 import { LinkedWorkRequest, LinkedWorkCard, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import { BackportChainCard, useBackportChains } from './BackportChains';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
@@ -1046,6 +1047,7 @@ export function AgentTaskBody({
     before, after, loading: historyLoading, onLoad: onLoadHistory, onFollow: onFollowHistory,
   });
   const { following, changeFollowing, followSend, loadHistory } = scroll;
+  useNoticeSource(state.task?.id ?? null, state.turn?.id ?? null, after === null && following);
   const pendingIds = new Set(pendingApprovals?.map((approval) => approval.approvalId) ?? []);
   const project = (threadId: string | null): TranscriptTurn[] => {
     const atLatest = after === null && (following || (state.events.at(-1)?.sequence ?? 0) >= state.lastSequence);

@@ -71,7 +71,7 @@ export class BrowserTabs {
   private surface: { id: string; bounds: Rectangle } | null = null;
   private attached: WebContentsView | null = null;
 
-  constructor(private readonly window: () => BrowserWindow | null, private readonly storagePath: () => string) {}
+  constructor(private readonly window: () => BrowserWindow | null, private readonly storagePath: () => string, private readonly onPresent: () => void = () => {}) {}
 
   getState(): InAppBrowserState {
     this.restore();
@@ -279,6 +279,7 @@ export class BrowserTabs {
     this.detach();
     window.contentView.addChildView(tab.view);
     tab.view.setVisible(true);
+    this.onPresent();
     this.attached = tab.view;
     tab.view.webContents.focus();
   }

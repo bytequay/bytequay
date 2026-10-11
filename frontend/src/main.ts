@@ -20,6 +20,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
+import { NoticeHost } from './notices/host';
 import { GeminiSetup } from './google/geminiSetup';
 import { GeminiChat } from './google/geminiChat';
 import type { GoogleStatus } from './google/contracts';
@@ -276,8 +277,16 @@ function imageMediaType(filePath: string): string {
   if (extension === '.gif') return 'image/gif';
   return 'image/jpeg';
 }
-const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender));
-const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'));
+const appNotices = new NoticeHost(() => mainWindow,
+  () => backendJson(`${backendBase()}/agent/notices`, { headers: agentHeaders() }),
+  async notice => {
+    await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(notice.taskId)}?workspaceId=${encodeURIComponent(notice.workspaceId)}`, { headers: agentHeaders() });
+    browserTabs.hide();
+    mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId });
+    mainWindow?.webContents.focus();
+  });
+const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender), () => appNotices.raise());
+const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'), () => appNotices.raise());
 let pendingWindow: Promise<void> | null = null;
 
 if (!app.requestSingleInstanceLock()) {
@@ -394,6 +403,7 @@ async function createWindow(): Promise<void> {
   if (process.platform === 'darwin') mainWindow.setWindowButtonVisibility(false);
   mainWindow.webContents.on('dom-ready', () => draftAttachments.clear());
   mainWindow.on('closed', () => {
+    appNotices.releaseWindow();
     draftAttachments.clear();
     browserTabs.releaseWindow();
     ideViews.releaseWindow();
@@ -433,6 +443,7 @@ async function createWindow(): Promise<void> {
       path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
     );
   }
+  appNotices.attach(mainWindow);
 }
 
 function extractMessage(body: string): string {
@@ -2163,6 +2174,7 @@ function registerIpc(): void {
     if (/^https?:/i.test(url)) await shell.openExternal(url);
   });
   registerBrowserTabIpc(browserTabs, () => mainWindow);
+  appNotices.register();
   ideViews.register();
   ipcMain.handle('inapp:popout', (_event, url: string) => openPopup(url));
 }
@@ -2176,6 +2188,7 @@ app.on('ready', async () => {
   await ensureWindow();
   if (!backendReady) return;
   ideViews.startQueries();
+  appNotices.start();
   refreshDashboardInBackground();
   void pollPrNotifications();
   prNotificationTimer = setInterval(() => { void pollPrNotifications(); }, 5_000);
@@ -2185,6 +2198,7 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 app.on('before-quit', () => {
+  appNotices.stop();
   googleChat?.dispose();
   clearInterval(prNotificationTimer);
   // Streams read from the backend, so they stop before it does.

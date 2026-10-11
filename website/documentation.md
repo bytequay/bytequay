@@ -337,6 +337,20 @@ If sign-in expires, sign in again and refresh login status. Where offered, inspe
 **Retry last message…** before resending. A **Delivery uncertain** message needs
 inspection; it is not automatically resent.
 
+App notices stack in the bottom-right corner when another task finishes a turn,
+asks a question, requests approval, fails, or has queued messages paused. Choose
+the card’s button to open that task. Up to three cards appear at once; **Notices**
+or **Needs you** keeps the remaining items accessible. Completion cards disappear
+after eight seconds of viewing, with the timer paused while you hover, focus a
+card, or switch away from ByteQuay. Closing a popup does not answer a question,
+grant permission, or resume a queue.
+
+**Task is blocked** means ByteQuay could not verify that the agent stopped and
+keeps its working copy locked. Automatic startup cleanup runs first; a notice
+appears only if the block remains. Inspect the task before stopping its runtime
+or marking it failed. Paused queues contain your submitted follow-up messages
+that stopped advancing after an interruption or delivery problem.
+
 ### Reuse instructions
 
 Open **Settings → Agents → Skills → Add skill**. Enter a name, choose **Global**,

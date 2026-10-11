@@ -1004,19 +1004,24 @@ function registerIpc(): void {
     return review(`/${encodeURIComponent(reviewId)}/end`, {}, { method: 'POST' });
   });
   // A review's private threads are discussions of its task, which only the review routes reach.
-  const commentThreadUrl = (reviewId: string, suffix = ''): string => reviewUrl(`/${encodeURIComponent(reviewId)}/comment-threads${suffix}`);
-  ipcMain.handle('review:comment-threads:list', async (_event, reviewId: string) =>
-    parseTaskDiscussions(await backendJson(commentThreadUrl(reviewId), { headers: agentHeaders() })));
-  ipcMain.handle('review:comment-threads:ask', async (_event, reviewId: string, key: string, question: string) =>
-    parseTaskDiscussion(await backendJson(commentThreadUrl(reviewId), jsonInit('POST', { key, question }, agentHeaders(true)))));
-  ipcMain.handle('review:comment-threads:resolve', async (_event, reviewId: string, discussionId: string, resolved: boolean, expectedVersion: number) =>
-    parseTaskDiscussion(await backendJson(commentThreadUrl(reviewId, `/${encodeURIComponent(discussionId)}`),
+  const reviewDiscussionUrl = (reviewId: string, suffix = ''): string => reviewUrl(`/${encodeURIComponent(reviewId)}/discussions${suffix}`);
+  ipcMain.handle('review:discussions:list', async (_event, reviewId: string) =>
+    parseTaskDiscussions(await backendJson(reviewDiscussionUrl(reviewId), { headers: agentHeaders() })));
+  ipcMain.handle('review:discussions:open', async (_event, reviewId: string, request: Omit<OpenDiscussionRequest, keyof DiscussionQuery>) =>
+    parseTaskDiscussion(await backendJson(reviewDiscussionUrl(reviewId), jsonInit('POST', request, agentHeaders(true)))));
+  ipcMain.handle('review:discussions:ask', async (_event, reviewId: string, discussionId: string, question: string) =>
+    parseTaskDiscussion(await backendJson(reviewDiscussionUrl(reviewId, `/${encodeURIComponent(discussionId)}/messages`),
+      jsonInit('POST', { question }, agentHeaders(true)))));
+  ipcMain.handle('review:discussions:ask-comment', async (_event, reviewId: string, key: string, question: string) =>
+    parseTaskDiscussion(await backendJson(reviewDiscussionUrl(reviewId, '/comments'), jsonInit('POST', { key, question }, agentHeaders(true)))));
+  ipcMain.handle('review:discussions:resolve', async (_event, reviewId: string, discussionId: string, resolved: boolean, expectedVersion: number) =>
+    parseTaskDiscussion(await backendJson(reviewDiscussionUrl(reviewId, `/${encodeURIComponent(discussionId)}`),
       jsonInit('PATCH', { resolved, expectedVersion }, agentHeaders(true)))));
-  ipcMain.handle('review:comment-threads:retry', async (_event, reviewId: string, discussionId: string, messageId: string) =>
-    parseTaskDiscussion(await backendJson(commentThreadUrl(reviewId, `/${encodeURIComponent(discussionId)}/messages/${encodeURIComponent(messageId)}/retry`),
+  ipcMain.handle('review:discussions:retry', async (_event, reviewId: string, discussionId: string, messageId: string) =>
+    parseTaskDiscussion(await backendJson(reviewDiscussionUrl(reviewId, `/${encodeURIComponent(discussionId)}/messages/${encodeURIComponent(messageId)}/retry`),
       jsonInit('POST', {}, agentHeaders(true)))));
-  ipcMain.handle('review:comment-threads:draft-reply', async (_event, reviewId: string, discussionId: string) =>
-    parseDiscussionReplyDraft(await backendJson(commentThreadUrl(reviewId, `/${encodeURIComponent(discussionId)}/reply-draft`),
+  ipcMain.handle('review:discussions:draft-reply', async (_event, reviewId: string, discussionId: string) =>
+    parseDiscussionReplyDraft(await backendJson(reviewDiscussionUrl(reviewId, `/${encodeURIComponent(discussionId)}/reply-draft`),
       jsonInit('POST', {}, agentHeaders(true)))));
   // Code & Tests reads a review's working copy through its review, and a development task's through the task and its PR.
   const codeUrl = (value: unknown, path: string, query: Record<string, string> = {}): string => {

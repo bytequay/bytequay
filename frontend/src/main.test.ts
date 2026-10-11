@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import type { TaskDiscussionDto } from './agents/discussions/contracts';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
 import { parseAgentReview } from './pulls/agent-review/contracts';
@@ -298,6 +299,41 @@ it('refreshes only the explanation using its displayed owner and revision', asyn
     method: 'POST', body: JSON.stringify({ runId: 'run/one', expectedRevision: 3 }),
     headers: { 'Content-Type': 'application/json', 'X-ByteQuay-Session': 'test-session' },
   }));
+});
+
+it('routes review passage and comment discussions through their owning review', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const discussion: TaskDiscussionDto = { id: 'discussion/one', taskId: 'task-1', turnId: 'turn-1', quote: 'releases the writer', occurrence: 1,
+    resolved: false, pending: false, providerLane: 'codex', messages: [], version: 1, comment: null,
+    createdAt: '2026-09-06T16:00:00Z', updatedAt: '2026-09-06T16:00:00Z' };
+  const open = { turnId: 'turn-1', quote: discussion.quote, occurrence: 1, question: 'How?' };
+  const cases: { channel: string; args: unknown[]; path: string; method: string; body: unknown; response: unknown; expected: unknown }[] = [
+    { channel: 'list', args: [], path: '', method: 'GET', body: undefined, response: [discussion], expected: [discussion] },
+    { channel: 'open', args: [open], path: '', method: 'POST', body: open, response: discussion, expected: discussion },
+    { channel: 'ask', args: [discussion.id, 'Again?'], path: '/discussion%2Fone/messages', method: 'POST',
+      body: { question: 'Again?' }, response: discussion, expected: discussion },
+    { channel: 'ask-comment', args: ['review_comment:1', 'Why?'], path: '/comments', method: 'POST',
+      body: { key: 'review_comment:1', question: 'Why?' }, response: discussion, expected: discussion },
+    { channel: 'resolve', args: [discussion.id, true, 1], path: '/discussion%2Fone', method: 'PATCH',
+      body: { resolved: true, expectedVersion: 1 }, response: discussion, expected: discussion },
+    { channel: 'retry', args: [discussion.id, 'message/one'], path: '/discussion%2Fone/messages/message%2Fone/retry', method: 'POST',
+      body: {}, response: discussion, expected: discussion },
+    { channel: 'draft-reply', args: [discussion.id], path: '/discussion%2Fone/reply-draft', method: 'POST',
+      body: {}, response: { text: 'Draft reply' }, expected: 'Draft reply' },
+  ];
+  for (const entry of cases) {
+    const fetch = vi.fn(async () => new Response(JSON.stringify(entry.response), { headers: { 'Content-Type': 'application/json' } }));
+    vi.stubGlobal('fetch', fetch);
+    const handler = desktop.handlers.get(`review:discussions:${entry.channel}`);
+    expect(handler).toBeDefined();
+    await expect(handler?.({}, 'review/one', ...entry.args)).resolves.toEqual(entry.expected);
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe(`http://127.0.0.1:9527/api/agent-review/review%2Fone/discussions${entry.path}`);
+    expect(init.method ?? 'GET').toBe(entry.method);
+    expect(init.body).toBe(entry.body === undefined ? undefined : JSON.stringify(entry.body));
+    expect(init.headers).toMatchObject({ 'X-ByteQuay-Session': 'test-session' });
+  }
 });
 
 it('routes Code & Tests reads and writes to the review or the development task that hosts the working copy', async () => {

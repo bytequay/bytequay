@@ -89,8 +89,14 @@ public interface TaskDiscussionService
     /** Drafts a GitHub reply from one comment thread; stores nothing and posts nothing. */
     String draftReply(String workspaceId, String taskId, String discussionId);
 
-    /** The private threads a review's task holds on its pull request's comments; an ended review's stay readable. */
+    /** Passage and comment discussions belonging to the review's task; an ended review's stay readable. */
     List<TaskDiscussionView> listReviewThreads(String reviewId);
+
+    /** {@link #open} through the review that owns the task, including local and replay reviews. */
+    TaskDiscussionView openReviewDiscussion(String reviewId, String turnId, String quote, int occurrence, String question);
+
+    /** {@link #ask} on a passage discussion belonging to the review's task. */
+    TaskDiscussionView askReviewDiscussion(String reviewId, String discussionId, String question);
 
     /**
      * {@link #askComment} on the review's own pull request, answered by the review's task from what the review saved

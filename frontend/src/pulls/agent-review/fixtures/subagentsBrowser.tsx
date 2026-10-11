@@ -15,6 +15,7 @@ import { installDesktopFixture } from '../../../ide/fixtures/desktop';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, PullRequestDetailDto } from '../../../types';
+import type { TaskDiscussionDto } from '../../../agents/discussions/contracts';
 import type { AgentEventEnvelope } from '../../../agents/events';
 import { agentTurn, createPreviewBridge } from '../../../agents/fixtures/previewBridge';
 import { assert, changeInput, settle } from '../../../fixtures/harness';
@@ -51,6 +52,7 @@ export async function run(local = false): Promise<string> {
   text('done', 'root', '/root/sdk_semantics', 'COMMENTARY', 'Checking the failure path.');
   text('done', 'root', '/root/sdk_semantics', 'ANSWER', 'The failure releases the writer.');
   life('done', 'root', '/root/sdk_semantics', 'AGENT_COMPLETED');
+  text('root', null, null, 'ANSWER', 'Cancellation releases the writer.');
   const detail: PullRequestDetailDto = {
     id: 9001, repo: review.repo, number: initial.number, title: 'Cancel uploads', htmlUrl: null, state: 'open', draft: false,
     mergeable: null, mergeableState: null, author: 'alice', authorAvatarUrl: null, createdAt: null, updatedAt: null,
@@ -62,7 +64,38 @@ export async function run(local = false): Promise<string> {
   let stops = 0;
   let notify: Parameters<Bridge['subscribeAgentReview']>[2] = () => {};
   const previous = window.bridge;
+  let discussion: TaskDiscussionDto | null = null;
+  let opens = 0;
+  let replies = 0;
   const stubs = {
+    listReviewDiscussions: async () => discussion === null ? [] : [discussion],
+    openReviewDiscussion: async (reviewId, request) => {
+      assert(reviewId === review.id && request.turnId === 'turn-1' && request.quote === 'releases the writer' && request.occurrence === 1,
+        'The selected passage must go through the owning review');
+      assert(request.question === 'How does cancellation do that?', 'The inline question changed');
+      opens++;
+      discussion = { id: 'passage-1', taskId: review.task.id, ...request, pending: false, resolved: false,
+        providerLane: review.task.laneId, comment: null, version: 1, createdAt: review.createdAt, updatedAt: review.createdAt,
+        messages: [
+          { id: 'question-1', author: 'USER', body: request.question, createdAt: review.createdAt, error: null },
+          { id: 'answer-1', author: 'AGENT', body: 'Cancellation closes the writer.', createdAt: review.createdAt, error: null },
+        ] };
+      return discussion;
+    },
+    askReviewDiscussion: async (reviewId, id, question) => {
+      assert(reviewId === review.id && id === discussion?.id, 'Follow-ups must stay on the review discussion');
+      replies++;
+      discussion = { ...discussion, version: discussion.version + 1, messages: [...discussion.messages,
+        { id: 'question-2', author: 'USER', body: question, createdAt: review.createdAt, error: null },
+        { id: 'answer-2', author: 'AGENT', body: 'Repeated cancellation is safe.', createdAt: review.createdAt, error: null },
+      ] };
+      return discussion;
+    },
+    resolveReviewDiscussion: async (reviewId, id, resolved, version) => {
+      assert(reviewId === review.id && id === discussion?.id && version === discussion.version, 'Resolve must use the current review discussion version');
+      discussion = { ...discussion, resolved, version: version + 1 };
+      return discussion;
+    },
     getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     getAgentReview: async () => review,
@@ -163,7 +196,43 @@ export async function run(local = false): Promise<string> {
     assert(tab() !== null && panel()?.textContent?.includes('The failure releases the writer.'), 'A finished chip must reopen a closed tab');
     assert(input.value === 'Keep this unsent question' && window.location.hash === route && subscriptions === 1 && stops === 0,
       'Inspecting agents must preserve the draft and route and reuse exactly one review subscription');
-    return 'Review chips open live, completed and nested subagents in the existing inspector';
+    click('WorkBench'); await settle();
+    click('Code & Tests'); await settle();
+    const answer = conversation.querySelector('.agt-answer .agt-md p');
+    assert(answer?.firstChild !== null && answer?.firstChild !== undefined, 'Missing the root agent answer');
+    const quote = 'releases the writer';
+    const node = answer.firstChild;
+    const offset = (node.textContent ?? '').indexOf(quote);
+    window.getSelection()?.setBaseAndExtent(node, offset, node, offset + quote.length);
+    document.body.dispatchEvent(new MouseEvent('mouseup', { bubbles: true })); await settle();
+    const ask = conversation.querySelector<HTMLButtonElement>('.agt-disc-pill');
+    assert(ask !== null, 'Review text selection must offer Ask about this');
+    ask.click(); await settle();
+    const question = conversation.querySelector<HTMLTextAreaElement>('[aria-label="Ask about this passage"]');
+    assert(question !== null, 'The shared passage composer must open');
+    changeInput(question, 'How does cancellation do that?'); await settle();
+    conversation.querySelector<HTMLButtonElement>('.agt-disc-pop__ask')?.click(); await settle();
+    assert(opens === 1 && panel()?.textContent?.includes('Cancellation closes the writer.'), 'The saved discussion must open in the side panel');
+    assert(code.hasAttribute('hidden') && input.value === 'Keep this unsent question', 'Discussing text must preserve the code surface and main draft');
+    panel()?.querySelector<HTMLButtonElement>('.agt-disc-card__reply')?.click(); await settle();
+    const reply = panel()?.querySelector<HTMLTextAreaElement>('[aria-label="Reply"]');
+    assert(reply !== null && reply !== undefined, 'A discussion must accept follow-up questions');
+    changeInput(reply, 'What if it repeats?'); await settle();
+    panel()?.querySelector<HTMLButtonElement>('.agt-disc-reply__ask')?.click(); await settle();
+    assert(replies === 1 && panel()?.textContent?.includes('Repeated cancellation is safe.'), 'The follow-up must use the review bridge');
+    panel()?.querySelector<HTMLButtonElement>('.agt-disc-card__done')?.click(); await settle();
+    assert(panel()?.textContent?.includes('Reopen'), 'The discussion must resolve locally');
+    host.querySelector<HTMLButtonElement>('[aria-label="Close Discussions"]')?.click(); await settle();
+    assert(!code.hasAttribute('hidden'), 'Closing Discussions must restore the covered WorkBench view');
+    conversation.querySelector<HTMLButtonElement>('.agt-disc-mark')?.click(); await settle();
+    assert(panel()?.textContent?.includes('Repeated cancellation is safe.'), 'The highlighted passage must reopen its saved discussion');
+    assert(subscriptions === 1 && stops === 0 && window.location.hash === route, 'Discussion must reuse the review workspace and subscription');
+    review.state = 'CLOSED';
+    notify({ kind: 'changed', taskId: review.task.id, subscriptionId: 'review-stream', sequence: events.length, turnId: 'turn-1' });
+    for (let attempt = 0; attempt < 60 && !panel()?.textContent?.includes('discussions are read-only'); attempt++) await settle();
+    assert(panel()?.textContent?.includes('discussions are read-only') && panel()?.querySelector('.agt-disc-card__reply') === null,
+      'Ended reviews must retain discussions without accepting questions');
+    return 'Review chips open live, completed and nested subagents; selected answers open reusable discussions';
   }
   finally {
     flushSync(() => root.unmount()); host.remove(); desktop.dispose(); Object.assign(window, { bridge: previous });

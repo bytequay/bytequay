@@ -28,11 +28,11 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Private threads a review's agent answers on its pull request's GitHub comments. They are discussions of the review's
+ * Private discussions of a review's answers and its pull request's GitHub comments. They belong to the review's
  * task, reached only through the review, because the interactive task routes refuse a workflow-owned task.
  */
 @RestController
-@RequestMapping("/api/agent-review/{reviewId}/comment-threads")
+@RequestMapping("/api/agent-review/{reviewId}/discussions")
 public class ReviewThreadController
 {
     private final TaskDiscussionService discussions;
@@ -49,6 +49,18 @@ public class ReviewThreadController
     }
 
     @PostMapping
+    public TaskDiscussionView open(@PathVariable String reviewId, @RequestBody Open request)
+    {
+        return discussions.openReviewDiscussion(reviewId, request.turnId(), request.quote(), request.occurrence(), request.question());
+    }
+
+    @PostMapping("/{id}/messages")
+    public TaskDiscussionView askPassage(@PathVariable String reviewId, @PathVariable String id, @RequestBody Question request)
+    {
+        return discussions.askReviewDiscussion(reviewId, id, request.question());
+    }
+
+    @PostMapping("/comments")
     public TaskDiscussionView ask(@PathVariable String reviewId, @RequestBody Ask request)
     {
         return discussions.askReviewComment(reviewId, request.key(), request.question());
@@ -74,6 +86,10 @@ public class ReviewThreadController
     }
 
     public record Ask(String key, String question) {}
+
+    public record Open(String turnId, String quote, int occurrence, String question) {}
+
+    public record Question(String question) {}
 
     public record Resolve(boolean resolved, long expectedVersion) {}
 

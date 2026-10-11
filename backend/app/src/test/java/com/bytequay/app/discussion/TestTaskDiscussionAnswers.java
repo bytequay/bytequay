@@ -772,6 +772,79 @@ class TestTaskDiscussionAnswers
         assertThat(service.draftReviewReply(REVIEW, reviewThread)).isEqualTo("+1, close() evicts them.");
     }
 
+    @Test
+    void reviewPassagesReuseTheTaskDiscussionLifecycleInAReadOnlySession()
+    {
+        hostReview(review(AgentReview.State.OPEN, OptionalInt.of(12), Optional.empty()));
+        TurnId turn = TurnId.random();
+        events.add(new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, REVIEW_TASK, Optional.of(turn),
+                AgentEventSource.root(), NOW, new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "Cancellation releases the writer.")));
+
+        TaskDiscussionView opened = service.openReviewDiscussion(REVIEW, turn.toString(), "releases the writer", 1, "How?");
+        assertThat(opened.taskId()).isEqualTo(REVIEW_TASK.toString());
+        assertThat(opened.comment()).isEmpty();
+        assertThat(driver.lastContext.access()).isEqualTo(SessionAccess.READ_ONLY);
+        assertThat(prompts.getFirst()).contains("Cancellation releases the writer.", "How?");
+        verify(tasks, never()).getInteractive(anyString(), eq(REVIEW_TASK));
+
+        assertThatThrownBy(() -> service.askReviewDiscussion(REVIEW, opened.id(), " "))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Question must contain");
+        assertThatThrownBy(() -> service.askReviewDiscussion(REVIEW, opened.id(), "x".repeat(16_001)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("Question must contain");
+        service.askReviewDiscussion(REVIEW, opened.id(), "What if cancellation repeats?");
+        assertThat(rows.get(opened.id()).messages()).extracting(DiscussionMessage::body)
+                .containsExactly("How?", "Answered.", "What if cancellation repeats?", "Answered.");
+        assertThat(service.openReviewDiscussion(REVIEW, turn.toString(), "releases the writer", 1, "Again?").id()).isEqualTo(opened.id());
+        assertThat(service.listReviewThreads(REVIEW)).hasSize(1);
+        assertThat(service.resolveReviewThread(REVIEW, opened.id(), true, rows.get(opened.id()).version()).resolved()).isTrue();
+
+        when(reviews.findReview(REVIEW)).thenReturn(Optional.of(review(AgentReview.State.CLOSED, OptionalInt.of(12), Optional.empty())));
+        assertThatThrownBy(() -> service.openReviewDiscussion(REVIEW, turn.toString(), "releases the writer", 1, "How?"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("read-only");
+        assertThatThrownBy(() -> service.askReviewDiscussion(REVIEW, opened.id(), "Still?"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("read-only");
+        assertThatThrownBy(() -> service.retryReviewThread(REVIEW, opened.id(), "missing"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("read-only");
+        assertThat(service.listReviewThreads(REVIEW)).hasSize(1);
+        assertThat(service.resolveReviewThread(REVIEW, opened.id(), false, rows.get(opened.id()).version()).resolved()).isFalse();
+    }
+
+    @Test
+    void localAndReplayReviewsCanDiscussTheirOwnAnswersAndRetryFailures()
+    {
+        hostReview(new AgentReview(REVIEW, "w1", REPO, OptionalInt.empty(), OptionalLong.empty(), REVIEW_TASK.toString(),
+                Optional.of(TASK.toString()), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty()));
+        TurnId turn = TurnId.random();
+        events.add(new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, REVIEW_TASK, Optional.of(turn),
+                AgentEventSource.root(), NOW, new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "Cancellation releases the writer.")));
+        driver.result = new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of("Provider failed"), Duration.ZERO, true);
+        String id = service.openReviewDiscussion(REVIEW, turn.toString(), "releases the writer", 1, "How?").id();
+        assertThat(rows.get(id).messages().getLast().error()).isPresent();
+        driver.result = new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Answered."), Optional.empty(), Duration.ZERO, true);
+        service.retryReviewThread(REVIEW, id, rows.get(id).messages().getLast().id());
+        assertThat(rows.get(id).messages()).extracting(DiscussionMessage::body).containsExactly("How?", "Answered.");
+
+        hostReview(review(AgentReview.State.OPEN, OptionalInt.empty(), Optional.of(new AgentReview.Replay("replay-1", 12, true, NOW))));
+        service.askReviewDiscussion(REVIEW, id, "At this historical revision?");
+        assertThat(rows.get(id).messages().getLast().body()).isEqualTo("Answered.");
+    }
+
+    @Test
+    void reviewPassagesCannotQuoteOrContinueAnotherTasksConversation()
+    {
+        hostReview(review(AgentReview.State.OPEN, OptionalInt.of(12), Optional.empty()));
+        TurnId turn = TurnId.random();
+        answered(turn, "Cancellation releases the writer.");
+        String other = service.open(new OpenDiscussionCommand("w1", TASK.toString(), turn.toString(), "releases the writer", 1, "How?")).id();
+        assertThatThrownBy(() -> service.openReviewDiscussion(REVIEW, turn.toString(), "releases the writer", 1, "How?"))
+                .isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> service.askReviewDiscussion(REVIEW, other, "How?"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("no longer exists");
+        assertThatThrownBy(() -> service.retryReviewThread(REVIEW, other, "missing"))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("no longer exists");
+        assertThat(service.listReviewThreads(REVIEW)).isEmpty();
+    }
+
     private String idOf(String key)
     {
         return rows.values().stream().filter(thread -> thread.comment().map(ReviewCommentAnchor::key).filter(key::equals).isPresent())
@@ -834,7 +907,7 @@ class TestTaskDiscussionAnswers
         when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
         TaskLogStore logStore = mock(TaskLogStore.class);
         when(logStore.readAfter(any(), anyLong(), anyInt())).thenAnswer(call -> events.stream()
-                .filter(event -> event.sequence() > call.getArgument(1, Long.class))
+                .filter(event -> event.taskId().equals(call.getArgument(0)) && event.sequence() > call.getArgument(1, Long.class))
                 .limit(call.getArgument(2, Integer.class))
                 .collect(toImmutableList()));
         when(ownership.owns(any(), eq(REPO), eq(12), eq(false))).thenReturn(true);

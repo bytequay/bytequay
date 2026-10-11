@@ -43,7 +43,7 @@ import MarkdownBody from '../MarkdownBody';
 import ReviewCommentIndex from '../ReviewCommentIndex';
 import LocalReviewThreadCard from '../local-review/LocalReviewThreadCard';
 import type { LocalReviewThreads } from '../local-review/types';
-import ReviewActivity, { type ReviewAgentPanel } from './ReviewActivity';
+import ReviewActivity, { type ReviewConversationPanel } from './ReviewActivity';
 import ReviewFindingCard from './ReviewFindingCard';
 import ReviewDetails from './ReviewDetails';
 import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
@@ -88,7 +88,7 @@ export default function AgentReviewTab({
   localReview,
   onSelectCommit,
   toolbarTarget,
-  agentPanel,
+  conversationPanel,
 }: {
   detail?: PullRequestDetailDto | null;
   /** The workspace whose managed clone the review runs in; without one there is nothing to check out. */
@@ -102,7 +102,7 @@ export default function AgentReviewTab({
   focusReviewCard?: ReviewCardFocus | null;
   onOpenReview?: (target: ReviewRequestTarget) => void;
   toolbarTarget?: HTMLElement | null;
-  agentPanel?: ReviewAgentPanel;
+  conversationPanel?: ReviewConversationPanel;
   mode?: 'cards' | 'conversation';
   /**
    * Cards on a development task's Summary timeline: the page's own strip and review event carry the status and actions,
@@ -771,7 +771,7 @@ export default function AgentReviewTab({
       ) : (
         <ReviewActivity
           key={review.id}
-          agentPanel={agentPanel}
+          conversationPanel={conversationPanel}
           review={review}
           onOpenReview={onOpenReview}
           localReview={localReview === undefined ? undefined : { ...localReview, threads: localReview.threads.filter(thread => thread.taskId === review.task.id) }}

@@ -157,7 +157,11 @@ public class DefaultTaskDiscussionService
     public TaskDiscussionView open(OpenDiscussionCommand command)
     {
         requireNonNull(command, "command is null");
-        AgentTask task = askableTask(command.workspaceId(), command.taskId());
+        return open(askableTask(command.workspaceId(), command.taskId()), command);
+    }
+
+    private TaskDiscussionView open(AgentTask task, OpenDiscussionCommand command)
+    {
         String normalized = DiscussionQuotes.normalize(command.quote());
         checkArgument(normalized.length() >= DiscussionQuotes.MINIMUM_QUOTE_CHARACTERS, "Select more of the passage to discuss it");
 
@@ -172,7 +176,11 @@ public class DefaultTaskDiscussionService
     public TaskDiscussionView ask(AskDiscussionCommand command)
     {
         requireNonNull(command, "command is null");
-        AgentTask task = askableTask(command.workspaceId(), command.taskId());
+        return ask(askableTask(command.workspaceId(), command.taskId()), command);
+    }
+
+    private TaskDiscussionView ask(AgentTask task, AskDiscussionCommand command)
+    {
         return claimed(task, slot -> submit(task, discussion(task, command.discussionId()), command.question(), slot, Optional.empty()));
     }
 
@@ -361,6 +369,24 @@ public class DefaultTaskDiscussionService
     }
 
     @Override
+    public TaskDiscussionView openReviewDiscussion(String reviewId, String turnId, String quote, int occurrence, String question)
+    {
+        AgentReview review = requireReview(reviewId);
+        return open(askableReviewDiscussionTask(review), new OpenDiscussionCommand(review.workspaceId(), review.taskId(), turnId, quote, occurrence, question));
+    }
+
+    @Override
+    public TaskDiscussionView askReviewDiscussion(String reviewId, String discussionId, String question)
+    {
+        AgentReview review = requireReview(reviewId);
+        AskDiscussionCommand command = new AskDiscussionCommand(review.workspaceId(), review.taskId(), discussionId, question);
+        AgentTask task = askableReviewDiscussionTask(review);
+        TaskDiscussion discussion = discussion(task, discussionId);
+        checkArgument(discussion.comment().isEmpty(), "Use the comment action to ask about a GitHub comment");
+        return ask(task, command);
+    }
+
+    @Override
     public TaskDiscussionView askReviewComment(String reviewId, String key, String question)
     {
         AgentReview review = requireReview(reviewId);
@@ -373,7 +399,12 @@ public class DefaultTaskDiscussionService
     @Override
     public TaskDiscussionView retryReviewThread(String reviewId, String discussionId, String messageId)
     {
-        return retry(askableReviewTask(requireReview(reviewId)), discussionId, messageId);
+        AgentReview review = requireReview(reviewId);
+        AgentTask task = askableReviewDiscussionTask(review);
+        if (discussion(task, discussionId).comment().isPresent()) {
+            askableReviewTask(review);
+        }
+        return retry(task, discussionId, messageId);
     }
 
     @Override
@@ -409,6 +440,11 @@ public class DefaultTaskDiscussionService
         if (review.number().isEmpty()) {
             throw new AgentConflictException("This review has no pull request");
         }
+        return askableReviewDiscussionTask(review);
+    }
+
+    private AgentTask askableReviewDiscussionTask(AgentReview review)
+    {
         AgentTask task = reviewTask(review);
         if (review.state() != AgentReview.State.OPEN || task.taskWorktree().isEmpty() || task.worktreeRemovedAt().isPresent()) {
             throw new AgentConflictException("This review has ended, so its threads are read-only");

@@ -19,6 +19,7 @@ import { discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
 import { relativeTime } from '../../relativeTime';
 import { renderMarkdown } from '../markdown';
 import { ANSWERING_ELSEWHERE, type DiscussionMessageDto, type TaskDiscussionDto } from './contracts';
+import type { TranscriptTurn } from '../transcript';
 import type { TaskDiscussions } from './useTaskDiscussions';
 
 const JUMP = (
@@ -199,6 +200,12 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
       )}
     </div>
   );
+}
+
+export function discussionTurnSummaries(turns: TranscriptTurn[]): { turnId: string; ordinal: number; synopsis: string }[] {
+  return turns.flatMap(turn => turn.turnId === null || turn.answer === null || turn.ordinal < 1 ? [] : [{
+    turnId: turn.turnId, ordinal: turn.ordinal, synopsis: turn.answer.text.replace(/\s+/g, ' ').trim().slice(0, 90),
+  }]);
 }
 
 /**

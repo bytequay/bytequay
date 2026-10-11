@@ -234,8 +234,8 @@ uncommitted edits.
 
 ### Discuss without publishing
 
-- Highlight text in a finished agent answer and choose **Ask about this → Ask** for a
-  private side conversation. Reopen it from **Discussions**.
+- In a development task or review conversation, highlight text in a finished agent
+  answer and choose **Ask about this → Ask** for a private side conversation. Reopen it from **Discussions**.
 - On someone else’s GitHub comment, **Ask agent** opens a private discussion beside
   the comment. Send your question to prepare the PR’s code context automatically;
   a full review is not required. Existing task or review context is reused. If setup

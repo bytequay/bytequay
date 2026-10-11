@@ -14,10 +14,11 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../../fixtures/browserFixture';
 
-it.each([false, true])('opens review subagent chips in the shared right panel in Chromium (local: %s)', async local => {
+it.each([false, true])('opens review subagents and passage discussions in the shared right panel in Chromium (local: %s)', async local => {
   const result = await runBrowserFixture<string>({ prefix: 'bytequay-review-subagents-',
     entry: 'src/pulls/agent-review/fixtures/subagentsBrowser.tsx', global: 'SubagentsTests',
     styles: true, charset: true, width: 1550, height: 950,
     body: `const results = await window.webContents.executeJavaScript('SubagentsTests.run(${local})');` });
   expect(result).toContain('live, completed and nested subagents');
+  expect(result).toContain('selected answers open reusable discussions');
 }, 30_000);

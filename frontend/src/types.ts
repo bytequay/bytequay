@@ -1895,12 +1895,14 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   refreshAgentReviewExplanation: (reviewId: string, runId: string, expectedRevision: number) => Promise<AgentReviewDto>;
   /** Completes the task, closes the review, then cleans the worktree. */
   endAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
-  /** The private threads the review's task holds on its pull request's GitHub comments. */
-  listReviewCommentThreads: (reviewId: string) => Promise<TaskDiscussionDto[]>;
+  /** Private discussions of the review's answers and GitHub comments. */
+  listReviewDiscussions: (reviewId: string) => Promise<TaskDiscussionDto[]>;
+  openReviewDiscussion: (reviewId: string, request: Omit<OpenDiscussionRequest, keyof DiscussionQuery>) => Promise<TaskDiscussionDto>;
+  askReviewDiscussion: (reviewId: string, discussionId: string, question: string) => Promise<TaskDiscussionDto>;
   /** Asks the review's agent about one comment of the review's own pull request; a blank question asks for the summary. */
   askReviewCommentThread: (reviewId: string, key: string, question: string) => Promise<TaskDiscussionDto>;
-  resolveReviewCommentThread: (reviewId: string, discussionId: string, resolved: boolean, expectedVersion: number) => Promise<TaskDiscussionDto>;
-  retryReviewCommentThread: (reviewId: string, discussionId: string, messageId: string) => Promise<TaskDiscussionDto>;
+  resolveReviewDiscussion: (reviewId: string, discussionId: string, resolved: boolean, expectedVersion: number) => Promise<TaskDiscussionDto>;
+  retryReviewDiscussion: (reviewId: string, discussionId: string, messageId: string) => Promise<TaskDiscussionDto>;
   /** Drafts a GitHub reply in the reviewer's voice; nothing is posted. */
   draftReviewCommentReply: (reviewId: string, discussionId: string) => Promise<string>;
   /** Every file of the host's working copy, or of a review's reviewed revision once its working copy is gone. */

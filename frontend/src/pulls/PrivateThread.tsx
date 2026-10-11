@@ -87,17 +87,16 @@ export function privateThreadSource(discussions: TaskDiscussions, pr: Pick<PullR
   };
 }
 
-/** A review's private threads through the review routes, which reach its workflow-owned task; a review hosts no passage discussions. */
+/** Private discussions through the review routes, which reach its workflow-owned task. */
 export function reviewThreadBridge(reviewId: string): DiscussionBridgePort {
-  const passage = async (): Promise<never> => { throw new Error('A review hosts no passage discussions.'); };
   return {
-    listTaskDiscussions: () => window.bridge.listReviewCommentThreads(reviewId),
+    listTaskDiscussions: () => window.bridge.listReviewDiscussions(reviewId),
     askTaskDiscussionComment: request => window.bridge.askReviewCommentThread(reviewId, request.key, request.question),
-    resolveTaskDiscussion: request => window.bridge.resolveReviewCommentThread(reviewId, request.discussionId, request.resolved, request.expectedVersion),
-    retryTaskDiscussion: request => window.bridge.retryReviewCommentThread(reviewId, request.discussionId, request.messageId),
+    resolveTaskDiscussion: request => window.bridge.resolveReviewDiscussion(reviewId, request.discussionId, request.resolved, request.expectedVersion),
+    retryTaskDiscussion: request => window.bridge.retryReviewDiscussion(reviewId, request.discussionId, request.messageId),
     draftTaskDiscussionReply: request => window.bridge.draftReviewCommentReply(reviewId, request.discussionId),
-    openTaskDiscussion: passage,
-    askTaskDiscussion: passage,
+    openTaskDiscussion: request => window.bridge.openReviewDiscussion(reviewId, { turnId: request.turnId, quote: request.quote, occurrence: request.occurrence, question: request.question }),
+    askTaskDiscussion: request => window.bridge.askReviewDiscussion(reviewId, request.discussionId, request.question),
   };
 }
 

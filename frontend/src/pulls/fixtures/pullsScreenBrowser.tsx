@@ -1161,7 +1161,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
       asked.push({ taskId: request.taskId, reviewId: null, key: request.key, question: request.question });
       return pending(request.taskId, request.key);
     },
-    listReviewCommentThreads: async () => [],
+    listReviewDiscussions: async () => [],
     askReviewCommentThread: async (reviewId, key, question) => {
       asked.push({ taskId: review.task.id, reviewId, key, question });
       return pending(review.task.id, key);
@@ -1174,7 +1174,7 @@ export async function runPrivateThreads(answeredBy: 'task' | 'review' = 'task'):
     recordRecentTouch: async () => {},
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
     | 'fetchPrDiffCommits' | 'findAgentReview' | 'findPullRequestTask' | 'getAgentTask' | 'listTaskDiscussions' | 'askTaskDiscussionComment'
-    | 'listReviewCommentThreads' | 'askReviewCommentThread' | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs'
+    | 'listReviewDiscussions' | 'askReviewCommentThread' | 'listLocalReviewComments' | 'listWorkspaces' | 'fetchAttentionPrs'
     | 'setPrAttentionHandled' | 'fetchMergeMode' | 'recordRecentTouch'>;
   Object.assign(window, { bridge });
   const host = document.createElement('div');
@@ -1266,7 +1266,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
     findAgentReview: async (_workspace: string, _repo: string, requested: number) => requested === number ? prepared : null,
     findPullRequestTask: async () => null,
     listLocalReviewComments: async () => [],
-    listReviewCommentThreads: async () => [...saved],
+    listReviewDiscussions: async () => [...saved],
     fetchMergeMode: async () => ({ mergeQueue: false }),
     setPrAttentionHandled: async () => {},
     recordRecentTouch: async () => {},
@@ -1292,7 +1292,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
       return thread;
     },
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPullRequestDetailByRef' | 'fetchAttentionPrs' | 'listWorkspaces' | 'findAgentReview'
-    | 'findPullRequestTask' | 'listLocalReviewComments' | 'listReviewCommentThreads' | 'fetchMergeMode' | 'setPrAttentionHandled'
+    | 'findPullRequestTask' | 'listLocalReviewComments' | 'listReviewDiscussions' | 'fetchMergeMode' | 'setPrAttentionHandled'
     | 'recordRecentTouch' | 'getModelSettings' | 'prepareReviewWorktree' | 'startAgentReview' | 'askReviewCommentThread'
     | 'searchRepositories' | 'previewWatch' | 'watchRepository'>;
   Object.assign(window, { bridge });

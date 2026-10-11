@@ -19,13 +19,10 @@ import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import {
 Archive,
 ArchiveRestore,
-Bot,
 CircleCheck,
 ListChecks,
-MessageCircle,
 PanelRight,
-TriangleAlert,
-X
+TriangleAlert
 } from 'lucide-react';
 import React,{ useCallback,useEffect,useReducer,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -76,7 +73,8 @@ import { AgentConversation,ConversationComposer,ConversationQueue,modelName,Plan
 import { type CommitRange, type DiffAgentComment } from '../pulls/PullChanges';
 import { useTaskDiscussions, type TaskDiscussions } from './discussions/useTaskDiscussions';
 import { revealPassage, type SelectedPassage } from './discussions/DiscussableAnswer';
-import { DiscussionsPanel } from './discussions/DiscussionsPanel';
+import ConversationUtilityTab from './ConversationUtilityTab';
+import { DiscussionsPanel, discussionTurnSummaries } from './discussions/DiscussionsPanel';
 import { useLocalReviewThreads } from '../pulls/local-review/useLocalReviewThreads';
 import type { LocalReviewThreadDto, LocalReviewThreads } from '../pulls/local-review/types';
 import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-review/AgentReviewTab';
@@ -683,20 +681,9 @@ function SidePanel({
     : privateThreadSource(discussions, pullRequest);
   const agentCount = agents.length + expiredChildren.length;
   const shownUtilities = utilityTabs.filter(utility => (utility === 'agents' ? showAgents : discussions !== undefined));
-  const agentTab = shownUtilities.length === 0 ? undefined : shownUtilities.map(utility => {
-    const label = utility === 'agents' ? 'Subagents' : 'Discussions';
-    const count = utility === 'agents' ? agentCount : discussions?.discussions.length ?? 0;
-    return (
-      <span key={utility} className={`pull-detail__utility${tab === utility ? ' is-active' : ''}`}>
-        <button type="button" className={tab === utility ? 'is-active' : ''} aria-pressed={tab === utility} onClick={() => onSelectTab(utility)}>
-          {utility === 'agents' ? <Bot aria-hidden="true" /> : <MessageCircle aria-hidden="true" />} {label}
-          {count > 0 && <span className="agt-chip">{count}</span>}
-        </button>
-        <button type="button" className="pull-detail__utility-close" aria-label={`Close ${label}`} title={`Close ${label}`}
-          onClick={() => onCloseUtility(utility)}><X aria-hidden="true" /></button>
-      </span>
-    );
-  });
+  const agentTab = shownUtilities.map(utility => <ConversationUtilityTab key={utility} tab={utility}
+    count={utility === 'agents' ? agentCount : discussions?.discussions.length ?? 0} active={tab === utility}
+    onSelect={() => onSelectTab(utility)} onClose={() => onCloseUtility(utility)} />);
   const tabs = <PullDetailHeader
       pr={pullRequest}
       detail={pullRequestDetail.detail}
@@ -1067,11 +1054,7 @@ export function AgentTaskBody({
   ));
   // The group header names the answer a thread hangs under; a turn that has left the loaded window
   // has no ordinal and no synopsis, and the panel then draws no header rather than a useless one.
-  const discussionTurns = turns.flatMap(turn => (turn.turnId === null || turn.answer === null || turn.ordinal < 1 ? [] : [{
-    turnId: turn.turnId,
-    ordinal: turn.ordinal,
-    synopsis: turn.answer.text.replace(/\s+/g, ' ').trim().slice(0, 90),
-  }]));
+  const discussionTurns = discussionTurnSummaries(turns);
   const onSend = (): void => { followSend(); send(); };
   const onSteer = (): void => { changeFollowing(true); steer(); };
   const supportsNestedAgents = state.capabilities?.nestedAgentActivity === true;

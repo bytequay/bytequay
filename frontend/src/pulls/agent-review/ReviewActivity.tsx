@@ -13,7 +13,11 @@
  */
 import { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Bot, X } from 'lucide-react';
+import ConversationUtilityTab, { type ConversationUtility } from '../../agents/ConversationUtilityTab';
+import { DiscussionsPanel, discussionTurnSummaries } from '../../agents/discussions/DiscussionsPanel';
+import { revealPassage } from '../../agents/discussions/DiscussableAnswer';
+import { useTaskDiscussions } from '../../agents/discussions/useTaskDiscussions';
+import { reviewThreadBridge } from '../PrivateThread';
 import SubagentsPanel from '../../agents/SubagentsPanel';
 import type { ReviewRequestTarget } from '../../agents/ReviewRequestCard';
 import { AgentConversation, ConversationComposer, ConversationQueue, useConversationHistory, type ApprovalDecider, type ConversationHistory, type ConversationQueuedInput } from '../../agents/AgentConversation';
@@ -28,18 +32,18 @@ import { reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
 const EMPTY_HISTORY: ConversationHistory = { before: null, after: null, loading: false, onLoad: () => {}, onFollow: () => {} };
 
 /** The workspace supplies destinations; the conversation retains its one stream and inspection state. */
-export type ReviewAgentPanel = {
+export type ReviewConversationPanel = {
   tabTarget: HTMLElement | null;
   bodyTarget: HTMLElement | null;
-  active: boolean;
-  onSelect: () => void;
-  onClose: () => void;
+  active: ConversationUtility | null;
+  onSelect: (tab: ConversationUtility) => void;
+  onClose: (tab: ConversationUtility) => void;
 };
 
 /** Review owns its scoped actions; Tasks owns the shared conversation presentation. */
 export default function ReviewActivity({
   review, events, turns, models, pendingApprovals, now, composer, busy,
-  localReview, onOpenReview, agentPanel, pendingMessage = null,
+  localReview, onOpenReview, conversationPanel, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   reviewSequence = lastSequence,
   onCompose, onSend, onSteer, onQueue, onStop, onDecide, onRemoveQueued, onSteerQueued, onResumeQueue,
@@ -47,7 +51,7 @@ export default function ReviewActivity({
   review: AgentReviewDto;
   localReview?: LocalReviewThreads;
   onOpenReview?: (target: ReviewRequestTarget) => void;
-  agentPanel?: ReviewAgentPanel;
+  conversationPanel?: ReviewConversationPanel;
   events: AgentEventEnvelope[];
   pendingMessage?: PendingMessage | null;
   turns: Record<string, AgentTurnDto>;
@@ -74,6 +78,20 @@ export default function ReviewActivity({
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [discussionsOpen, setDiscussionsOpen] = useState<boolean | null>(null);
+  const [discussionFocus, setDiscussionFocus] = useState<{ id: string } | null>(null);
+  const [hoveredDiscussion, setHoveredDiscussion] = useState<string | null>(null);
+  const discussionBridge = useMemo(() => reviewThreadBridge(review.id), [review.id]);
+  const discussions = useTaskDiscussions({ taskId: review.task.id, workspaceId: review.workspaceId }, {
+    active: conversationPanel !== undefined,
+    bridge: discussionBridge,
+    disabledReason: review.state === 'CLOSED' ? 'This review has ended, so its discussions are read-only.' : null,
+  });
+  const openDiscussion = (id: string): void => {
+    setDiscussionsOpen(true);
+    setDiscussionFocus({ id });
+    conversationPanel?.onSelect('discussions');
+  };
   const [openAgent, setOpenAgent] = useState<string | null>(null);
   const [logChoice, setLogChoice] = useState<string | null>(null);
   const latestTurn = Object.values(turns).at(-1);
@@ -95,7 +113,7 @@ export default function ReviewActivity({
   const openSubagent = (threadId: string): void => {
     setOpenAgent(threadId);
     setAgentsOpen(true);
-    agentPanel?.onSelect();
+    conversationPanel?.onSelect('agents');
   };
   const toggleActivity = (id: string, open: boolean): void => setActivityChoice(choices => ({ ...choices, [id]: open }));
   const running = reviewRunning(review);
@@ -107,31 +125,38 @@ export default function ReviewActivity({
 
   return (
     <>
-    {agentPanel !== undefined && review.task.nestedAgents && agentsOpen && <>
-      {agentPanel.tabTarget !== null && createPortal(
-        <span className={`pull-detail__utility${agentPanel.active ? ' is-active' : ''}`}>
-          <button type="button" className={agentPanel.active ? 'is-active' : ''} aria-pressed={agentPanel.active} onClick={agentPanel.onSelect}>
-            <Bot aria-hidden="true" /> Subagents <span className="agt-chip">{agents.length}</span>
-          </button>
-          <button type="button" className="pull-detail__utility-close" aria-label="Close Subagents" title="Close Subagents"
-            onClick={() => { setAgentsOpen(false); setOpenAgent(null); agentPanel.onClose(); }}><X aria-hidden="true" /></button>
-        </span>, agentPanel.tabTarget)}
-      {agentPanel.bodyTarget !== null && agentPanel.active && createPortal(
+    {conversationPanel !== undefined && <>
+      {conversationPanel.tabTarget !== null && createPortal(<>
+        {review.task.nestedAgents && agentsOpen && <ConversationUtilityTab tab="agents" count={agents.length}
+          active={conversationPanel.active === 'agents'} onSelect={() => conversationPanel.onSelect('agents')}
+          onClose={() => { setAgentsOpen(false); setOpenAgent(null); conversationPanel.onClose('agents'); }} />}
+        {(discussionsOpen ?? discussions.discussions.length > 0) && <ConversationUtilityTab tab="discussions" count={discussions.discussions.length}
+          active={conversationPanel.active === 'discussions'} onSelect={() => conversationPanel.onSelect('discussions')}
+          onClose={() => { setDiscussionsOpen(false); conversationPanel.onClose('discussions'); }} />}
+      </>, conversationPanel.tabTarget)}
+      {conversationPanel.bodyTarget !== null && conversationPanel.active === 'agents' && createPortal(
         <SubagentsPanel agents={agents} openAgent={openAgent} expiredChildren={[]} deleteAfter={null}
           transcript={openAgent === null ? [] : withApprovalAuthority(projectTranscript(events, openAgent, turns, history.before === null, history.after === null), pendingIds)}
           now={now} repository={review.repo} activityChoice={activityChoice} onOpenAgent={openSubagent} onCloseAgent={() => setOpenAgent(null)}
           onToggleActivity={toggleActivity} onDecide={onDecide} logChoice={logChoice} onToggleLog={setLogChoice}
           historyUnloaded={history.before !== null || history.after !== null} historyLoading={history.loading}
-          onLoadEarlier={() => scroll.loadHistory('older')} />, agentPanel.bodyTarget)}
+          onLoadEarlier={() => scroll.loadHistory('older')} />, conversationPanel.bodyTarget)}
+      {conversationPanel.bodyTarget !== null && conversationPanel.active === 'discussions' && createPortal(
+        <DiscussionsPanel discussions={discussions} repository={review.repo} focus={discussionFocus}
+          turns={discussionTurnSummaries(projected)} onJump={revealPassage} onHover={setHoveredDiscussion} />, conversationPanel.bodyTarget)}
     </>}
     <AgentConversation
       turns={projected} repository={review.repo} durableTurns={turns} models={models} now={now} scroll={scroll} workspaceId={review.workspaceId}
+      discussions={discussions.discussions} discussionBusy={discussions.busy}
+      onSelectPassage={conversationPanel === undefined || discussions.disabledReason !== null ? undefined
+        : async (passage, question) => { const discussion = await discussions.open({ ...passage, question }); openDiscussion(discussion.id); }}
+      onOpenDiscussion={openDiscussion} focusedDiscussion={hoveredDiscussion} onHoverDiscussion={setHoveredDiscussion}
       localReview={localReview} reviewRequests={requests} onOpenReview={onOpenReview}
       connection={connection} running={running} activeTurn={review.activeTurn} waiting={waiting} pendingMessage={pendingMessage}
       activityChoice={activityChoice} turnChoice={turnChoice} pendingApprovals={pendingApprovals}
       generatedTurnIds={new Set(review.byteQuayTurnIds)} label="Review agent conversation"
       onToggleTurn={(id, open) => setTurnChoice(choices => ({ ...choices, [id]: open }))}
-      agentLabels={agentLabels} onOpenAgent={agentPanel !== undefined && review.task.nestedAgents ? openSubagent : undefined}
+      agentLabels={agentLabels} onOpenAgent={conversationPanel !== undefined && review.task.nestedAgents ? openSubagent : undefined}
       onToggleActivity={toggleActivity}
       onDecide={onDecide}>
       <ConversationQueue

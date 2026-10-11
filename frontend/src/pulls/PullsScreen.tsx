@@ -364,9 +364,9 @@ export default function PullsScreen({
   const [reviewCardFocus, setReviewCardFocus] = useState<ReviewCardFocus | null>(null);
   const [tab, setTab] = useState<PullTab>(PULL_TABS[0].key);
   const [selected, setSelected] = useState<number | null>(null);
-  const [detailTab, setDetailTab] = useState<DetailTab | 'agents'>(initialReviewId === undefined ? 'overview' : 'files');
+  const [detailTab, setDetailTab] = useState<DetailTab | 'agents' | 'discussions'>(initialReviewId === undefined ? 'overview' : 'files');
   const coveredAgentTab = useRef<DetailTab>(initialReviewId === undefined ? 'overview' : 'files');
-  if (detailTab !== 'agents') coveredAgentTab.current = detailTab;
+  if (detailTab !== 'agents' && detailTab !== 'discussions') coveredAgentTab.current = detailTab;
   const [agentTabTarget, setAgentTabTarget] = useState<HTMLSpanElement | null>(null);
   const [agentBodyTarget, setAgentBodyTarget] = useState<HTMLDivElement | null>(null);
   // Code & Tests stays mounted after its first visit so drafts, open files and runs survive tab switches.
@@ -1088,9 +1088,9 @@ export default function PullsScreen({
         </header>
         {detail !== null && review !== null ? <AgentReviewTab detail={detail} workspaceId={workspaceId} viewer={viewer}
           review={review} onReviewChange={updateReview} mode="conversation" localReview={localReview}
-          agentPanel={{ tabTarget: agentTabTarget, bodyTarget: agentBodyTarget, active: detailTab === 'agents',
-            onSelect: () => { setDetailTab('agents'); setPaneOpen(true); },
-            onClose: () => { if (detailTab === 'agents') setDetailTab(coveredAgentTab.current); } }}
+          conversationPanel={{ tabTarget: agentTabTarget, bodyTarget: agentBodyTarget, active: detailTab === 'agents' || detailTab === 'discussions' ? detailTab : null,
+            onSelect: tab => { setDetailTab(tab); setPaneOpen(true); },
+            onClose: tab => { if (detailTab === tab) setDetailTab(coveredAgentTab.current); } }}
           onOpenReview={target => {
             setReviewCardFocus(previous => ({ target, token: (previous?.token ?? 0) + 1 }));
             setFocusFindingId(null);
@@ -1139,7 +1139,7 @@ export default function PullsScreen({
           <PullDetailHeader
             pr={selectedPr}
             detail={detail}
-            tab={detailTab === 'agents' ? null : detailTab}
+            tab={detailTab === 'agents' || detailTab === 'discussions' ? null : detailTab}
             agentTab={reviewWorkspace === undefined ? undefined : <span ref={setAgentTabTarget} />}
             review={review}
             onReviewChange={updateReview}
@@ -1160,7 +1160,7 @@ export default function PullsScreen({
             zoom={zoomLayer ? zoom : undefined}
             onZoom={zoomLayer ? undefined : () => setDetailZoomed(true)}
           />
-          {reviewWorkspace !== undefined && <div className="agt-panel__scroll" ref={setAgentBodyTarget} hidden={detailTab !== 'agents'} />}
+          {reviewWorkspace !== undefined && <div className="agt-panel__scroll" ref={setAgentBodyTarget} hidden={detailTab !== 'agents' && detailTab !== 'discussions'} />}
           {displayedDetailError && <div className="pull-detail__error">{displayedDetailError}</div>}
           {showBlockingDetailLoading(detailLoading, detail !== null) ? (
             <div className="pull-detail__body"><DetailSkeleton label="Loading details…" /></div>

@@ -1546,6 +1546,10 @@
 }
 
 .agt-live {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 28px;
   margin-top: 20px;
   color: #656d76;
   font-size: 13.5px;
@@ -1561,17 +1565,46 @@
   vertical-align: bottom;
 }
 
-.agt-live__label.is-active {
-  background: linear-gradient(100deg, var(--text-2) 35%, var(--text-1) 50%, var(--text-2) 65%);
-  background-size: 250% 100%;
-  background-clip: text;
-  color: transparent;
-  animation: agt-thinking 2s linear infinite;
+.agt-turtle {
+  flex: none;
+  width: 42px;
+  height: 28px;
+  color: light-dark(#638568, #92b895);
 }
 
-@keyframes agt-thinking {
-  from { background-position: 100% 0; }
-  to { background-position: 0 0; }
+.agt-turtle__eye {
+  fill: light-dark(#f7faf4, #202b22);
+}
+
+.agt-turtle__shell {
+  fill: none;
+  stroke: light-dark(#f7faf4, #202b22);
+  stroke-width: 1.2px;
+  stroke-linejoin: round;
+  opacity: .65;
+}
+
+.agt-turtle.is-walking .agt-turtle__foot {
+  animation: agt-turtle-step 3.2s linear infinite;
+}
+
+.agt-turtle.is-walking .agt-turtle__foot.is-offset {
+  animation-delay: -1.6s;
+}
+
+.agt-turtle.is-walking .agt-turtle__body {
+  animation: agt-turtle-bob 1.6s ease-in-out infinite;
+}
+
+@keyframes agt-turtle-step {
+  0%, 100% { transform: rotate(-24deg); }
+  55% { transform: rotate(22deg); }
+  75% { transform: translateY(-2px) rotate(-4deg); }
+}
+
+@keyframes agt-turtle-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-.5px); }
 }
 
 .agt-text,
@@ -3809,10 +3842,9 @@ button:is(.agt-type-chip, .agt-type-tile) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agt-live__label.is-active {
+  .agt-turtle.is-walking .agt-turtle__foot,
+  .agt-turtle.is-walking .agt-turtle__body {
     animation: none;
-    background: none;
-    color: #656d76;
   }
 
   .agt-compose__streamer::after,

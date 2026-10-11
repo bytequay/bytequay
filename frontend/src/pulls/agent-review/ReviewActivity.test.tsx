@@ -67,16 +67,19 @@ describe('the unified review conversation', () => {
     expect(html).not.toContain('Review the authentication change');
   });
 
-  it('uses the task live status for thinking, commands, reconnect, approval and completion', () => {
-    expect(liveLine()).toContain('>Thinking</span>');
+  it('shares the walking turtle and preserves reconnect, approval and completion states', () => {
+    expect(liveLine()).toContain('agt-turtle is-walking');
+    expect(liveLine()).toContain('aria-label="Agent working"');
     const command = events.find(event => event.type === 'command');
     if (command?.type !== 'command') throw new Error('Missing command fixture');
     const running: AgentEventEnvelope = { ...command, payload: { ...command.payload, state: 'STARTED', exitCode: null, output: null } };
-    expect(liveLine({ events: [...props.events, running] })).toContain('>Running npm test</span>');
-    expect(liveLine({ events: [...props.events, command] })).toContain('>Thinking</span>');
+    expect(render({ events: [...props.events, running] }).match(/>Running npm test<\/span>/g)).toHaveLength(1);
+    expect(liveLine({ events: [...props.events, running] })).not.toContain('Running npm test');
+    expect(liveLine({ events: [...props.events, command] })).toContain('agt-turtle is-walking');
     expect(liveLine({ connection: 'reconnecting' })).toContain('>Reconnecting…</span>');
-    expect(liveLine({ connection: 'reconnecting' })).not.toContain('is-active');
+    expect(liveLine({ connection: 'reconnecting' })).not.toContain('is-walking');
     expect(liveLine({ review: { ...props.review, pendingApprovals: 1 } })).toContain('>Waiting for approval</span>');
+    expect(liveLine({ review: { ...props.review, pendingApprovals: 1 } })).not.toContain('is-walking');
     expect(liveLine({ review: reviewFixture() })).toBeUndefined();
     expect(liveLine({ history: { before: null, after: 'newer', loading: false, onLoad: () => {}, onFollow: () => {} } })).toBeUndefined();
   });

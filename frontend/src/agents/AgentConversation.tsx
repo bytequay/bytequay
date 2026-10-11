@@ -149,13 +149,6 @@ function runningActivityLabel(member: ActivityMember): string {
   return memberLabel(member);
 }
 
-function currentActivityLabel(turn: TranscriptTurn | undefined): string {
-  const member = currentActivity(turn?.blocks.flatMap((block) => block.kind === 'activity' ? block.members : []) ?? []);
-  if (member !== undefined) return runningActivityLabel(member);
-  if (turn?.answer && !turn.answer.complete) return 'Writing response';
-  return 'Thinking';
-}
-
 /** Providers namespace their MCP tools as `mcp__<server>__<tool>`; a row shows the tool. */
 function toolLabel(name: string): string {
   return name.replace(/^mcp__.+?__/, '');
@@ -173,9 +166,31 @@ function toolDetail(text: string): string {
   }
 }
 
-function LiveActivity({ label, animated = true }: { label: string; animated?: boolean }): React.JSX.Element {
-  return <div className="agt-live" role="status" aria-live="polite">
-    <span className={`agt-live__label${animated ? ' is-active' : ''}`} title={label}>{label}</span>
+function LiveActivity({ label, animated }: { label: string | null; animated: boolean }): React.JSX.Element {
+  return <div className="agt-live" role="status" aria-live="polite" aria-label={label ?? 'Agent working'}>
+    <svg className={`agt-turtle${animated ? ' is-walking' : ''}`} viewBox="0 0 48 32" aria-hidden="true">
+      <g fill="currentColor">
+        <g transform="translate(16 21)" opacity=".55">
+          <path className="agt-turtle__foot" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
+        </g>
+        <g transform="translate(30 21)" opacity=".55">
+          <path className="agt-turtle__foot is-offset" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
+        </g>
+        <g className="agt-turtle__body">
+          <path d="m9 19-6 1 6 4zm22 0 5-5c1-3 8-3 9 1 2 5-2 8-6 7l-6 3z" />
+          <circle cx="41" cy="16" r="1" className="agt-turtle__eye" />
+          <path d="M8 23c0-10 5-16 13-16s14 6 14 16c-7 3-20 3-27 0Z" />
+          <path className="agt-turtle__shell" d="m18 8-3 8 5 6 8-2 2-8m-15 4-6 2m11 4-1 3m9-5 6 2m-19-6 9-3 6-1m-6 1 4 7" />
+        </g>
+        <g transform="translate(12 22)">
+          <path className="agt-turtle__foot is-offset" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
+        </g>
+        <g transform="translate(28 22)">
+          <path className="agt-turtle__foot" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
+        </g>
+      </g>
+    </svg>
+    {label !== null && <span className="agt-live__label">{label}</span>}
   </div>;
 }
 
@@ -1161,7 +1176,7 @@ export function AgentConversation({
     : waiting ? 'Waiting for approval'
       : activeTurn?.cancellationRequestedAt != null ? 'Stopping…'
         : activeTurn?.state === 'ACCEPTED' ? 'Starting…'
-          : liveTurn?.endedAt != null ? 'Finishing…' : currentActivityLabel(liveTurn);
+          : liveTurn?.endedAt != null ? 'Finishing…' : null;
   // Reading earlier in the live page must not hide what the agent is doing; only an older page can.
   const liveActivity = (running || pending !== null) && scroll.after === null
     && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />;

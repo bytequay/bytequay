@@ -1505,31 +1505,39 @@ describe('agent task detail', () => {
     expect(body({ ...state, events }, {}, closed)).toContain('I found one authentication regression.');
   });
 
-  it('shows a live thinking line, the current command, and returns to thinking when it finishes', () => {
+  it('shows a walking turtle during work without repeating the activity above it', () => {
     const start = events.slice(0, 2);
     const state = { task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING', { id: start[0].turnId ?? 'turn-1' }), connection: 'open' as const };
     const liveLine = (shown: AgentEventEnvelope[]) => body({ ...state, events: shown }).match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
-    expect(liveLine(start)).toContain('>Thinking</span>');
-    expect(liveLine(start)).toContain('agt-live__label is-active');
+    expect(liveLine(start)).toContain('aria-label="Agent working"');
+    expect(liveLine(start)).toContain('agt-turtle is-walking');
+    expect(liveLine(start)).not.toContain('agt-live__label');
     const command = events.find((event) => event.type === 'command');
     if (command?.type !== 'command') throw new Error('Missing command fixture');
     const running: AgentEventEnvelope = { ...command, payload: { ...command.payload, state: 'STARTED', exitCode: null, output: null } };
-    expect(liveLine([...start, running])).toContain('>Running npm test</span>');
-    expect(liveLine([...start, command])).toContain('>Thinking</span>');
+    const working = body({ ...state, events: [...start, running] });
+    expect(working.match(/>Running npm test<\/span>/g)).toHaveLength(1);
+    expect(liveLine([...start, running])).toContain('agt-turtle is-walking');
+    expect(liveLine([...start, running])).not.toContain('Running npm test');
+    expect(liveLine([...start, command])).toContain('agt-turtle is-walking');
     const read: AgentEventEnvelope = { ...running, payload: { ...running.payload, actions: [{ kind: 'READ', name: 'DEVELOPMENT.md', path: 'DEVELOPMENT.md', query: null }] } };
-    expect(liveLine([...start, read])).toContain('>Reading DEVELOPMENT.md</span>');
+    expect(body({ ...state, events: [...start, read] })).toContain('Reading DEVELOPMENT.md');
+    expect(liveLine([...start, read])).not.toContain('DEVELOPMENT.md');
     expect(body({ ...state, events: start, turn: turn('ACCEPTED') })).toContain('>Starting…</span>');
     expect(body({ ...state, events: start, turn: turn('RUNNING', { cancellationRequestedAt: '2026-08-20T10:00:02Z' }) })).toContain('>Stopping…</span>');
     expect(body({ ...state, events: start, connection: 'reconnecting' })).toContain('>Reconnecting…</span>');
-    expect(body({ ...state, events: start, connection: 'reconnecting' })).not.toContain('agt-live__label is-active');
+    expect(body({ ...state, events: start, connection: 'reconnecting' })).not.toContain('agt-turtle is-walking');
+    expect(body({ ...state, events: start, gap: true })).toContain('>Reconnecting…</span>');
+    expect(body({ ...state, events: start, gap: true })).not.toContain('agt-turtle is-walking');
     expect(body({ ...state, events, turn: turn('COMPLETED', { endedAt: '2026-08-20T10:00:12Z' }) })).not.toContain('class="agt-live"');
     expect(body({ ...state, events: start, historyPages: [{ events: start, beforeCursor: null, afterCursor: 'newer', latestSequence: 20 }] })).not.toContain('class="agt-live"');
   });
 
-  it('waits for approval without animating a thinking label', () => {
+  it('keeps the turtle still while waiting for approval', () => {
     const markup = body({ task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING'), events, connection: 'open' });
     expect(markup).toContain('>Waiting for approval</span>');
-    expect(markup).not.toContain('agt-live__label is-active');
+    expect(markup).toContain('class="agt-turtle"');
+    expect(markup).not.toContain('agt-turtle is-walking');
   });
 
   it('folds command output behind a keyboard-operable disclosure', () => {
@@ -1595,7 +1603,8 @@ describe('agent task detail', () => {
       const live = markup.match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
       expect(fold).toContain(`<span>${label}</span>`);
       expect(fold).toContain(`title="${label}"`);
-      expect(live).toContain(`>${label}</span>`);
+      expect(live).toContain('agt-turtle is-walking');
+      expect(live).not.toContain(label);
       expect(markup).not.toContain('agt-act__body');
       const block = projectTranscript(shown.events)[0].blocks.find(block => block.kind === 'activity');
       if (block === undefined) throw new Error('Missing activity block');

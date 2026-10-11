@@ -132,15 +132,15 @@ export default function DevelopmentLearningPanel({ task, repository, refreshKey,
           ? <button type="button" className="agr-summary-strip__sha" title="Open this commit's diff in Changes"
             onClick={() => onSelectCommit(last.sha)}>{last.sha.slice(0, 7)}</button>
           : <code>{last.sha.slice(0, 7)}</code>}</span>}
+        {(summary == null || turn === null) && <span role="status">
+          {loading ? 'Loading learning summary…' : refining ? 'The learning cards will appear when this step finishes.'
+            : 'After a turn changes code or commits, the agent will refine the summary here automatically.'}
+        </span>}
       </div>
       {review !== undefined && <TaskReviewControls state={reviewer}
         onShowReview={() => reviewSection.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />}
     </div>
     {error !== null && <p className="agt-note" role="alert">{error} <button type="button" className="agt-action" onClick={() => setRetry(value => value + 1)}>Retry</button></p>}
-    {(summary == null || turn === null) && <p className="agr-card__empty" role="status">
-      {loading ? 'Loading learning summary…' : refining ? 'The learning cards will appear when this step finishes.'
-        : 'After a turn changes code or commits, the agent will refine the summary here automatically.'}
-    </p>}
     <div className="agr-timeline">
       {summary != null && turn !== null && <>
         <TimelineEvent avatar={<Avatar login="Agent" size={32} allowGitHubFallback={false} />}>

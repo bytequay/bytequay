@@ -68,7 +68,7 @@ export function latestExplanationRun(review: AgentReviewDto): ReviewRunDto | nul
   return review.runs.findLast(isExplanationRun) ?? null;
 }
 
-function completeCoverage(run: ReviewRunDto): boolean {
+export function completeCoverage(run: ReviewRunDto): boolean {
   return run.coverage?.complete === true && run.coverage.omissions.length === 0;
 }
 
@@ -283,6 +283,73 @@ export function reviewElapsed(review: AgentReviewDto, now: number): string | nul
 
 export function shortSha(sha: string): string {
   return sha.slice(0, 7);
+}
+
+/** What a run covers, as "Full review · master → 6466c90". */
+export function reviewScope(run: ReviewRunDto): string {
+  return `${run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · ${run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → ${shortSha(run.headSha)}`;
+}
+
+const PASS_ORDER = ['INVESTIGATE', 'COLLECT_EVIDENCE', 'VALIDATE'] as const;
+
+/**
+ * Where a review run stands in its three passes. Validation can send a run back to collect more evidence,
+ * so a pass after the current one is never shown as done.
+ */
+export function reviewPasses(run: ReviewRunDto): Array<'done' | 'active' | 'todo'> {
+  if (run.state === 'ACCEPTED' && completeCoverage(run)) return PASS_ORDER.map(() => 'done');
+  const kind = run.steps.at(-1)?.kind;
+  const current = Math.max(0, PASS_ORDER.findIndex(pass => pass === kind));
+  return PASS_ORDER.map((_, index) => index < current ? 'done' : index === current ? 'active' : 'todo');
+}
+
+type ReviewEvidence = ReviewRunDto['evidence'][number];
+
+export type ReviewEvidenceGroup = {
+  title: string;
+  /** The pull request, issue or file the items were read from; empty for evidence with no single subject. */
+  subject: string;
+  items: Array<{ evidence: ReviewEvidence; label: string; detail: string }>;
+};
+
+/**
+ * Evidence grouped by what it was read from, in the order the agent first read each subject. The source line is
+ * the only place a subject is named, so the groups follow the forms the review tools write there.
+ */
+export function evidenceGroups(evidence: ReviewEvidence[], pullRequest: string | null): ReviewEvidenceGroup[] {
+  const groups = new Map<string, ReviewEvidenceGroup>();
+  for (const item of evidence) {
+    const file = /^(.+) (L\d+–L\d+) \((.+)\)$/.exec(item.source);
+    const thread = file === null ? /^(History )?(\S+#\d+)(?:(:?) (.+))?$/s.exec(item.source) : null;
+    const subject = file?.[1] ?? thread?.[2] ?? '';
+    let group = groups.get(subject);
+    if (group === undefined) {
+      group = { subject, items: [], title: file !== null ? 'Source' : thread === null ? 'Other context'
+        : subject === pullRequest ? 'This pull request' : 'Linked discussion' };
+      groups.set(subject, group);
+    }
+    // Only an issue read by its number is recorded with its title.
+    if (thread?.[3] === ':' && group.title === 'Linked discussion') group.title = 'Linked issue';
+    const part = thread?.[4] ?? (thread?.[1] === undefined ? '' : 'History');
+    group.items.push({
+      evidence: item,
+      label: file?.[2] ?? (part === '' ? item.source : part.charAt(0).toUpperCase() + part.slice(1)),
+      detail: file?.[3] ?? item.excerpt.trim().split('\n', 1)[0],
+    });
+  }
+  return [...groups.values()];
+}
+
+/** A provenance line as its recorded `key=value` facts, with the prose around them kept as written. */
+export function provenanceFacts(provenance: string): { notes: string; facts: Array<[string, string]> } {
+  const notes: string[] = [];
+  const facts: Array<[string, string]> = [];
+  for (const part of provenance.split('; ')) {
+    const fact = /^([A-Za-z]+)=(.*)$/s.exec(part);
+    if (fact === null) notes.push(part);
+    else facts.push([fact[1].replace(/[A-Z]/g, letter => ` ${letter.toLowerCase()}`).replace(/^./, first => first.toUpperCase()), fact[2]]);
+  }
+  return { notes: notes.join('; '), facts };
 }
 
 /** Whether the agent can take a question right now, or the question has to queue behind a turn. */

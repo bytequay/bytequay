@@ -183,7 +183,7 @@ const TOOL_ICONS: Record<string, LucideIcon> = {
 };
 
 /** Activity type is the primary icon; a live/failing state temporarily overrides it. */
-function ActivityIcon({ member, action }: { member: ActivityMember; action?: CommandAction['kind'] }): React.JSX.Element {
+export function ActivityIcon({ member, action }: { member: ActivityMember; action?: CommandAction['kind'] }): React.JSX.Element {
   const state = memberState(member);
   if (state === 'running') return <span className="agt-icon is-running"><Spinner /></span>;
   if (state === 'failed') return <Glyph icon={CircleX} className="is-failed" />;
@@ -395,7 +395,7 @@ function ActivityView({ block, expanded, onToggle }: {
 }
 
 /** The one line a running member is named by, in the group's fold. */
-function memberLabel(member: ActivityMember): string {
+export function memberLabel(member: ActivityMember): string {
   if (member.kind === 'command') return commandLabel(member);
   if (member.kind === 'tool') return member.description ?? toolLabel(member.name);
   return `${CHANGE_VERBS[member.change] ?? member.change} ${member.path}`;

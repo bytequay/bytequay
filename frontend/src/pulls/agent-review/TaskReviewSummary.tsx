@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { Eye, Lock, PanelsTopLeft } from 'lucide-react';
+import { Check, Eye, Lock, PanelsTopLeft } from 'lucide-react';
 import type { ReviewCardFocus } from '../../agents/ReviewRequestCard';
 import { relativeTime } from '../../relativeTime';
 import type { AgentTaskDto } from '../../types';
@@ -178,7 +178,8 @@ export function TaskReviewSection({ options, state }: { options: TaskReviewOptio
     </div>}
     {loading && review === null && <p className="agr-card__empty" role="status">Loading reviewer…</p>}
     {review !== null && <>
-      <TimelineEvent avatar={running ? <span className="agr-spinner" aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
+      <TimelineEvent avatar={running ? <span className="agr-spinner" aria-hidden="true" />
+        : reviewStatus(review).tone === 'ready' ? <Check size={15} className="agr-event__done" aria-hidden="true" /> : <Eye size={15} aria-hidden="true" />}
         actions={<span className="agr-event__actions">
           {review.state === 'OPEN' && !running && reviewStatus(review).status === 'stopped' && <button type="button" className="agr-event__action"
             disabled={pending !== null || blocked !== null} title={blocked ?? undefined} onClick={() => { void state.resume(); }}>

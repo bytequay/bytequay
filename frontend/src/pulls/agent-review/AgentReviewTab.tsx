@@ -46,6 +46,7 @@ import type { LocalReviewThreads } from '../local-review/types';
 import ReviewActivity, { type ReviewConversationPanel } from './ReviewActivity';
 import ReviewFindingCard from './ReviewFindingCard';
 import ReviewDetails from './ReviewDetails';
+import ReviewRunCards from './ReviewRunCards';
 import { recordReviewAttentionAction, useFindingActions } from './useFindingActions';
 import ReviewSummaryCard from './ReviewSummaryCard';
 import { findingLines } from './contracts';
@@ -612,10 +613,8 @@ export default function AgentReviewTab({
     <div className={`agr-pane${timeline ? ' is-timeline' : ''}`}>
       {toolbarTarget && toolbar ? createPortal(toolbar, toolbarTarget) : toolbar}
 
-      {mode === 'cards' && progress !== null && (timeline ? running || progress.gaps.length > 0 : progress.gaps.length > 0) && <section className="agr-progress" aria-label="Review progress">
-        {timeline && <div className="agr-progress__phase"><strong>Review progress</strong><span>{progress.phase}</span></div>}
-        {timeline && <div className="agr-progress__facts">{progress.facts.map(fact => <span key={fact}>{fact}</span>)}</div>}
-        {progress.gaps.length > 0 && <div className="agr-progress__gaps">{progress.gaps.map(gap => <span key={gap}>{gap}</span>)}</div>}
+      {mode === 'cards' && !timeline && progress !== null && progress.gaps.length > 0 && <section className="agr-progress" aria-label="Review progress">
+        <div className="agr-progress__gaps">{progress.gaps.map(gap => <span key={gap}>{gap}</span>)}</div>
       </section>}
 
       {error !== null && <div className="agr-error" role="alert">{error}</div>}
@@ -674,12 +673,13 @@ export default function AgentReviewTab({
             </div>
           )}
 
+          {timeline && run !== null && <ReviewRunCards review={review} run={run} now={now} visible={ownStream} />}
           {run !== null && (timeline || run.id !== summaryRun?.id || run.summary === null) && <>
             {(run.coverage?.warnings.length ?? 0) > 0 && <aside className="agr-banner is-warn agr-summary-card__warnings" aria-label="Verification warning">
               <strong className="agr-banner__chip">Verification warning</strong>
               <div className="agr-banner__text"><MarkdownBody body={[...new Set(run.coverage?.warnings)].map(warning => `- ${warning}`).join('\n')} repository={review.repo} /></div>
             </aside>}
-            <div data-review-card={timeline ? undefined : `${run.id}:details`}><ReviewDetails run={run} repository={review.repo} retainedFindings={retainedFindings} /></div>
+            <div data-review-card={timeline ? undefined : `${run.id}:details`}><ReviewDetails run={run} repository={review.repo} evidence={!timeline} retainedFindings={retainedFindings} /></div>
           </>}
           {!timeline && <ReviewSummaryCard
             review={review}
@@ -737,7 +737,7 @@ export default function AgentReviewTab({
           {findings.length === 0 && status?.status !== 'nofindings' && provisional(review) && running && (
             <div className="agr-pending">
               <span className="agr-spinner" aria-hidden="true" />
-              Findings appear after the agent checks its candidates. The report stays provisional until validation and complete coverage are accepted.
+              <span>{timeline && <strong>Findings · none yet</strong>}Findings appear after the agent checks its candidates. The report stays provisional until validation and complete coverage are accepted.</span>
             </div>
           )}
 

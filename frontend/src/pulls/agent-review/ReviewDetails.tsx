@@ -15,7 +15,7 @@ import MarkdownBody from '../MarkdownBody';
 import type { ReactNode } from 'react';
 import { evidenceTarget, validationTarget, ReviewEvidenceLink } from './ReviewEvidenceLinks';
 import type { ReviewCandidateDto, ReviewCandidateValidationDto, ReviewInvestigationDto, ReviewRunDto, ReviewThreadVerdictDto } from './contracts';
-import { isExplanationRun, shortSha } from './model';
+import { completeCoverage, isExplanationRun, reviewScope, shortSha } from './model';
 
 const OUTCOMES = { SUPPORTED: 'Supported', REJECTED: 'Rejected', NEEDS_EVIDENCE: 'Needs evidence', UNRESOLVED: 'Unresolved' } as const;
 const PERSPECTIVES = { BEHAVIOR: 'Behavior and contracts', INTERACTIONS: 'Interactions and operating constraints', DESIGN: 'Design and verification' } as const;
@@ -77,7 +77,11 @@ function EvidenceAnswers({ answers, repository }: { answers: ReviewInvestigation
   </li>)}</ol>;
 }
 
-export default function ReviewDetails({ run, repository, compact = false, retainedFindings }: { run: ReviewRunDto; repository: string; compact?: boolean; retainedFindings?: ReactNode }) {
+export default function ReviewDetails({ run, repository, compact = false, evidence: showEvidence = true, retainedFindings }: {
+  run: ReviewRunDto; repository: string; compact?: boolean; retainedFindings?: ReactNode;
+  /** False where the page lists evidence and coverage itself; details with nothing else to say are then omitted. */
+  evidence?: boolean;
+}) {
   if (isExplanationRun(run)) return <details className={`agr-review-details${compact ? ' is-compact' : ''}`}>
     <summary>Explanation details · {run.commits.length} {run.commits.length === 1 ? 'commit' : 'commits'} · head <code>{shortSha(run.headSha)}</code></summary>
     <div className="agr-review-details__body">
@@ -92,6 +96,8 @@ export default function ReviewDetails({ run, repository, compact = false, retain
   const currentStep = run.steps.at(-1);
   const unsealed = currentStep !== undefined && currentStep.kind !== 'VALIDATE' && currentStep.investigation === null;
   const threadVerdicts = run.steps.findLast(step => (step.validation?.threadVerdicts?.length ?? 0) > 0)?.validation?.threadVerdicts ?? [];
+  if (!showEvidence && investigation === null && threadVerdicts.length === 0 && retainedFindings === undefined
+    && (run.coverage?.omissions.length ?? 0) === 0 && run.steps.every(step => step.investigation === null && step.validation === null)) return null;
   return <details className={`agr-review-details${compact ? ' is-compact' : ''}`}>
     <summary>{compact ? <>
       <span>{run.commits.length} {run.commits.length === 1 ? 'commit' : 'commits'}</span>
@@ -104,9 +110,7 @@ export default function ReviewDetails({ run, repository, compact = false, retain
       {threadVerdicts.length > 0 ? ` · ${threadVerdicts.length} of your ${threadVerdicts.length === 1 ? 'comment' : 'comments'} followed up` : ''}
     </span></>}</summary>
     <div className="agr-review-details__body">
-      <p className="agr-learning-cards__scope">
-        {run.scope === 'FULL' ? 'Full review' : 'Incremental review'} · {run.priorHeadSha === null ? run.baseRef : shortSha(run.priorHeadSha)} → {shortSha(run.headSha)}
-      </p>
+      <p className="agr-learning-cards__scope">{reviewScope(run)}</p>
       {threadVerdicts.length > 0 && <ThreadVerdicts verdicts={threadVerdicts} repository={repository} runId={run.id} />}
       {investigation !== null && <>
         <p><strong>Discovery · {unsealed ? 'Unsealed checkpoint' : 'Sealed investigation'}</strong></p>
@@ -137,7 +141,7 @@ export default function ReviewDetails({ run, repository, compact = false, retain
           <ul className="agr-review-details__files">{investigation.reviewedFiles.map(path => <li key={path}><code>{path}</code></li>)}</ul>
         </details>
       </>}
-      <details>
+      {showEvidence && <details>
         <summary>Context &amp; validation evidence · {evidence.length} {evidence.length === 1 ? 'reference' : 'references'}</summary>
         {evidence.length === 0 && <p>No context or validation evidence was recorded.</p>}
         {evidence.map(item => <details className="agr-evidence__item" key={item.ref} id={evidenceTarget(run.id, item.ref)} tabIndex={-1}>
@@ -147,7 +151,7 @@ export default function ReviewDetails({ run, repository, compact = false, retain
           <pre className="agr-evidence__excerpt">{item.excerpt}</pre>
           {item.explanation && <div className="agr-evidence__why">{item.explanation}</div>}
         </details>)}
-      </details>
+      </details>}
       {run.steps.length > 0 && <details>
         <summary>Review passes · {run.steps.length}</summary>
         {run.steps.map(step => <details key={step.number}>
@@ -178,8 +182,7 @@ export default function ReviewDetails({ run, repository, compact = false, retain
             ? 'No candidate defects required validation.' : 'Validation has not been recorded.'}</p>}
           <ValidationConclusions validations={validations} repository={repository} runId={run.id} step={0} />
       </details>}
-      <p>{run.coverage?.complete === true && run.coverage.omissions.length === 0
-        ? 'Complete coverage was recorded for the review scope.' : 'Complete coverage has not been recorded.'}</p>
+      {showEvidence && <p>{completeCoverage(run) ? 'Complete coverage was recorded for the review scope.' : 'Complete coverage has not been recorded.'}</p>}
       {(run.coverage?.omissions.length ?? 0) > 0 && <><h3>Not reviewed</h3>
         <ul>{run.coverage?.omissions.map(omission => <li key={omission}>{omission}</li>)}</ul></>}
       {retainedFindings}

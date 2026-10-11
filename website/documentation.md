@@ -78,11 +78,12 @@ colors, plus **GitHub Dark** with a dark canvas and GitHub-style syntax colors.
 License headers and imports fold on first open; expand them with the
 gutter arrows. Symbol search, callers, and usages remain available through the
 editor shortcuts and context menu. Press **Shift twice** or **⌘⇧F**,
-or click **Search**, to open Search Everywhere. Results put normal classes before
-test classes, then fields and other symbols, files, and matching source lines.
+or click **Search**, to open Search Everywhere. Exact class and file names rank
+first. Other results put normal classes before test classes, then fields and other
+symbols, files, and matching source lines. **All** combines a class and its matching
+source file into one result that opens the declaration.
 The popup shows up to 30 matches and skips content search when name matches fill it.
-Exact names rank first within each group. Module names appear
-on the right; test-file rows are green. Filter with **Classes**, **Files**,
+Module names appear on the right; test-file rows are green. Filter with **Classes**, **Files**,
 **Symbols**, or **Text**. **⌘F** opens the same popup for text in the current file,
 including unsaved edits. Use **↑/↓** and **Enter** to open a result, or **Escape**
 to close. Search respects project ignore and exclude settings; refine the query

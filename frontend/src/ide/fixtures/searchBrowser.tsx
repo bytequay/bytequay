@@ -50,6 +50,10 @@ export async function verifySearch() {
     ['plugin/iceberg/src/test/java/ATestIcebergMetadata.java', 'class ATestIcebergMetadata {}'],
     ['plugin/iceberg/src/main/java/IcebergMetadataColumn.java', 'class IcebergMetadataColumn {}'],
     ['plugin/iceberg/src/main/java/IcebergMetadata.java', 'class IcebergMetadata {}'],
+    ['src/main/java/ExactName.java', 'class ExactName {}'],
+    ['src/main/java/ExactNameFactory.java', 'class ExactNameFactory {}'],
+    ['src/main/java/ExactNameTestFactory.java', 'class ExactNameTestFactory {}'],
+    ['src/test/java/ExactNameTest.java', 'class ExactNameTest {}'],
     ['src/main/java/Stalled.java', 'class Stalled {}'],
   ]);
   const mainPath = [...sources.keys()][0];
@@ -93,11 +97,11 @@ export async function verifySearch() {
         });
         if (results.length) onProgress?.({ resource: uri(path), results });
       }
-      return { results: [], messages: [], limitHit: query.contentPattern.pattern === 'query' };
+      return { results: [], messages: [], limitHit: query.contentPattern.pattern === 'quer' };
     },
   };
   const searches = [search.registerSearchResultProvider(workspace.scheme, SearchProviderType.file, provider), search.registerSearchResultProvider(workspace.scheme, SearchProviderType.text, provider)];
-  const classSymbols = [...sources.keys()].filter(path => path.endsWith('.java')).map(path => ({ name: path.split('/').at(-1)?.replace(/\.java$/, '') ?? '', kind: SymbolKind.Class,
+  const classSymbols = [...sources.keys()].filter(path => path.endsWith('.java') && !path.endsWith('/ExactName.java')).map(path => ({ name: path.split('/').at(-1)?.replace(/\.java$/, '') ?? '', kind: SymbolKind.Class,
     containerName: 'example.query', location: { uri: uri(path), range: { startLineNumber: 1, startColumn: 7, endLineNumber: 1, endColumn: 19 } } }));
   const symbols = WorkspaceSymbolProviderRegistry.register({ provideWorkspaceSymbols: async (query, token) => {
     if (slowSymbols) {
@@ -115,6 +119,7 @@ export async function verifySearch() {
   } });
   const outline = languages.registerDocumentSymbolProvider('java', { provideDocumentSymbols: async (model, token) => {
     outlineCalls++;
+    if (model.uri.path.endsWith('/ExactName.java')) return [];
     const result: languages.DocumentSymbol[] = [{
       name: model.uri.path.split('/').at(-1)?.replace(/\.java$/, '') ?? '', detail: '', tags: [], kind: languages.SymbolKind.Class,
       range: model.getFullModelRange(), selectionRange: { startLineNumber: 1, startColumn: 7, endLineNumber: 1, endColumn: 19 },
@@ -145,12 +150,13 @@ export async function verifySearch() {
     await editors.openEditor({ resource: uri(mainPath), options: { pinned: true } });
     const code = codeEditors.getActiveCodeEditor(); assert(code !== null, 'Source editor is active');
     code.focus();
-    await commands.executeCommand('workbench.action.findInFiles'); await settle(); changeInput(input(), 'query');
+    await commands.executeCommand('workbench.action.findInFiles'); await settle(); changeInput(input(), 'quer');
     await until(() => idle() && rows().some(row => row.dataset.kind === 'field'), 'Outlines supply fields omitted by the workspace symbol provider');
     const kinds = rows().map(row => row.dataset.kind);
     assert(kinds[0] === 'class' && kinds.indexOf('field') > kinds.lastIndexOf('class') && kinds.indexOf('text') > kinds.lastIndexOf('file'), 'Classes, fields, files and text are ranked in that order');
     assert(!popup()?.textContent?.includes('QueryExternal'), 'Exclude symbols outside the project');
     assert(rows().filter(row => row.dataset.kind === 'class').length === 2, 'Workspace and document symbols are deduplicated');
+    assert(!rows().some(row => row.dataset.kind === 'file' && row.title.endsWith('.java:1')), 'All merges namesake classes and files into one declaration result');
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'query-engine'), 'Java results show their Maven module');
     assert(rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'tools') && rows().some(row => row.querySelector('.ide-search-module')?.textContent === 'rust'), 'Go and Rust results show their nearest module');
     assert(popup()?.textContent?.includes('limited set'), 'Search result limits are explicit');
@@ -170,6 +176,7 @@ export async function verifySearch() {
     assert(rows()[0].querySelector('.ide-search-title')?.textContent === 'IcebergMetadata', 'Exact production class ranks first');
     const icebergClasses = rows().filter(row => row.dataset.kind === 'class');
     assert(icebergClasses.length === 3 && icebergClasses.at(-1)?.classList.contains('is-test'), 'Production classes precede an alphabetically earlier test class');
+    assert(!rows().some(row => row.dataset.kind === 'file'), 'Matching classes do not repeat as files below the symbols');
     assert(!rows().some(row => row.title.includes('00000-data.json')), 'All excludes path-only fixtures and data text matches');
     category('Files');
     await until(() => idle() && rows().length === 4, 'Files retains fuzzy path matches');
@@ -178,6 +185,12 @@ export async function verifySearch() {
     await until(() => idle() && rows().some(row => row.title.includes('00000-data.json')), 'Text can still search test data');
     category('All'); changeInput(input(), 'iceberg/metadata');
     await until(() => idle() && rows().some(row => row.title.includes('00000-data.json')), 'Explicit paths still find resources in All');
+    changeInput(input(), 'exactname');
+    await until(() => idle() && rows()[0]?.title.endsWith('/ExactName.java:1') === true, 'An exact filename ranks ahead of partial classes when its type is unavailable');
+    assert(rows()[0].dataset.kind === 'file' && rows().some(row => row.dataset.kind === 'class'), 'The exact file remains available alongside other type results');
+    changeInput(input(), 'ExactNameTest');
+    await until(() => idle() && rows()[0]?.title.endsWith('/ExactNameTest.java:1') === true, 'An exact test class ranks ahead of a partial production class');
+    assert(rows()[0].dataset.kind === 'class' && rows()[0].classList.contains('is-test'), 'The merged result keeps its class navigation and test styling');
     const textBefore = textSearches, outlinesBefore = outlineCalls;
     changeInput(input(), 'Bulk');
     await until(() => idle() && rows().length === 30, 'Large result sets stop at 30');

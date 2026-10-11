@@ -76,7 +76,8 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
     const score = scoreItemFuzzy(row, prepared, true, accessor, scores);
     return score.labelMatch?.length && !score.descriptionMatch?.length ? 1 : 2;
   };
-  const compare = (a: SearchRow, b: SearchRow) => priority[a.kind] - priority[b.kind]
+  const compare = (a: SearchRow, b: SearchRow) => Number(relevance(a) !== 0) - Number(relevance(b) !== 0)
+    || priority[a.kind] - priority[b.kind]
     || (model ? 0 : Number(isTestFile(a.uri.path)) - Number(isTestFile(b.uri.path)))
     || relevance(a) - relevance(b)
     || (a.kind === 'text' ? 0 : compareItemsByFuzzyScore(a, b, prepared, true, accessor, scores))
@@ -93,9 +94,12 @@ export async function searchCode(workspace: URI, query: string, tab: SearchTab, 
     if (token.isCancellationRequested || (!model && relativeSearchPath(workspace, row.uri) === undefined)) return;
     if (tab === 'Classes' && row.kind !== 'class' || tab === 'Files' && row.kind !== 'file'
       || tab === 'Symbols' && ['file', 'text'].includes(row.kind) || tab === 'Text' && row.kind !== 'text') return;
-    const id = `${row.uri}:${row.kind}:${row.range.startLineNumber}:${row.kind === 'text' ? row.range.startColumn : row.name}`;
+    // A source file and its namesake type share one result, upgraded to the type's declaration when available.
+    const representsFile = row.kind === 'file' || row.kind === 'class' && row.name === fileName(row.uri.path).replace(/\.[^.]+$/, '');
+    const id = representsFile ? `${row.uri}:file` : `${row.uri}:${row.kind}:${row.range.startLineNumber}:${row.kind === 'text' ? row.range.startColumn : row.name}`;
     const previous = rows.get(id);
-    rows.set(id, { ...row, detail: previous?.detail || row.detail, resolve: previous?.resolve ?? row.resolve, id });
+    if (previous?.kind === 'class' && row.kind === 'file') return;
+    rows.set(id, { ...row, detail: previous?.kind === row.kind && previous.detail || row.detail, resolve: previous?.resolve ?? row.resolve, id });
     if (rows.size > limit) {
       limited = true;
       const last = [...rows.values()].sort(compare).at(-1);

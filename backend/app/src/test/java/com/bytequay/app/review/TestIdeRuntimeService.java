@@ -40,6 +40,7 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -61,6 +62,7 @@ class TestIdeRuntimeService
     private final ManagedProcess process = mock(ManagedProcess.class);
     private final PreparedProcess prepared = mock(PreparedProcess.class);
     private final Clock clock = mock(Clock.class);
+    private final LoginShellEnvironment login = mock(LoginShellEnvironment.class);
     private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
     private IdeRuntimeService runtime;
     private TaskWorktree worktree;
@@ -80,7 +82,6 @@ class TestIdeRuntimeService
         worktree = new TaskWorktree(taskId, "workspace", RepositoryIdentity.valueOf("acme/project"), root, "bytequay/task/" + taskId, commit);
         AgentProperties properties = new AgentProperties(directory.resolve("runtime"), Duration.ofHours(1), "test-session", "codex", "0.159.3",
                 directory.resolve("codex"), "claude", directory.resolve("claude"));
-        LoginShellEnvironment login = mock(LoginShellEnvironment.class);
         when(login.get()).thenReturn(ImmutableMap.of("PATH", "/usr/bin"));
         when(clock.instant()).thenReturn(Instant.EPOCH);
         when(supervisor.prepare(any())).thenReturn(prepared);
@@ -119,6 +120,40 @@ class TestIdeRuntimeService
         verify(process, never()).stopAndVerify();
         runtime.stopWorktree(worktree);
         verify(supervisor).acknowledge("launch");
+    }
+
+    @Test
+    void runsTheJavaServerOnTheNewestJdkAndRebuildsStateFromAnotherRuntime()
+            throws IOException
+    {
+        Path profile = directory.resolve("runtime/ide").resolve(worktree.taskId().toString()).resolve("a".repeat(40));
+        Path settings = profile.resolve("data/data/Machine/settings.json");
+        Path storage = profile.resolve("data/data/User/workspaceStorage").resolve(worktree.taskId().toString());
+        Path javaState = storage.resolve("redhat.java/jdt_ws/index");
+        Path otherState = Files.createDirectories(storage.resolve("vadimcn.vscode-lldb")).resolve("state");
+        Files.writeString(otherState, "kept");
+
+        // No suitable JDK: the bundled runtime stays, and so does the state it imported.
+        Files.createDirectories(javaState.getParent());
+        Files.writeString(javaState, "bundled");
+        runtime.open(worktree);
+        assertThat(Files.readString(settings)).isEqualTo("{}");
+        assertThat(javaState).exists();
+        runtime.stopWorktree(worktree);
+
+        Path jdk = directory.resolve("jdk-26");
+        when(login.javaHomeAtLeast(21)).thenReturn(Optional.of(jdk));
+        runtime.open(worktree);
+        assertThat(new ObjectMapper().readTree(settings.toFile()).required("java.jdt.ls.java.home").asText()).isEqualTo(jdk.toString());
+        assertThat(storage.resolve("redhat.java")).doesNotExist();
+        assertThat(otherState).hasContent("kept");
+        runtime.stopWorktree(worktree);
+
+        // The same JDK again keeps what it imported.
+        Files.createDirectories(javaState.getParent());
+        Files.writeString(javaState, "current");
+        runtime.open(worktree);
+        assertThat(javaState).hasContent("current");
     }
 
     @Test

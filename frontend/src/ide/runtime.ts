@@ -74,8 +74,10 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'workbench.startupEditor': 'none', 'workbench.editor.restoreViewState': true,
     'editor.bracketPairColorization.enabled': false, 'editor.folding': true, 'editor.foldingHighlight': false, 'editor.foldingImportsByDefault': true, 'editor.semanticHighlighting.enabled': true,
     'editor.minimap.enabled': false, 'editor.fontSize': 12, 'editor.fontFamily': 'Menlo, monospace',
-    'telemetry.telemetryLevel': 'off', 'java.autobuild.enabled': true,
+    'telemetry.telemetryLevel': 'off', 'java.autobuild.enabled': true, 'java.maxConcurrentBuilds': 8,
     'java.configuration.updateBuildConfiguration': 'automatic', 'java.trace.server': 'off',
+    // The index of a library JAR is the same for every task.
+    'java.sharedIndexes.enabled': 'on',
     'go.showWelcome': false, 'go.toolsManagement.autoUpdate': false, 'go.toolsManagement.checkForUpdates': 'off',
     'rust-analyzer.testExplorer': true, 'extensions.autoUpdate': false, 'extensions.autoCheckUpdates': false,
     'testing.saveBeforeTest': false, 'debug.saveBeforeStart': 'none', 'task.saveBeforeRun': 'never',

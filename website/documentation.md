@@ -93,7 +93,9 @@ results and a notice. **⌘-click** a method to show its usages
 with filenames, line numbers, and source lines; test-file results are green.
 Select a result to jump there, or press **Escape** to close the popup.
 If the language service is still preparing the project, the popup waits
-and runs the search automatically when it is ready.
+and runs the search automatically when it is ready. Java code is analyzed
+with the newest installed JDK, release 21 or later, so install the release
+your build plugins require.
 Working-copy reset and discard are in the
 **…** menu and require confirmation.
 

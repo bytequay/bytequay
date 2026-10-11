@@ -29,6 +29,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.io.MoreFiles;
+import com.google.common.io.RecursiveDeleteOption;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,9 +60,11 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.Objects.requireNonNull;
 
@@ -71,6 +75,8 @@ public class IdeRuntimeService
     private static final Logger log = LoggerFactory.getLogger(IdeRuntimeService.class);
     private static final Pattern LISTENING = Pattern.compile("Extension host agent listening on (\\d+)\\r?\\n");
     private static final Duration CLIENT_TIMEOUT = Duration.ofSeconds(90);
+    // The oldest release the bundled Java extension accepts for its language server.
+    private static final int MINIMUM_JAVA_SERVER_RELEASE = 21;
     private final ProcessSupervisor supervisor;
     private final LaunchIntentRecorder intents;
     private final LoginShellEnvironment loginShell;
@@ -262,6 +268,7 @@ public class IdeRuntimeService
                     Files.createSymbolicLink(link, target);
                 }
             }
+            configureJavaRuntime(profile, loginShell.javaHomeAtLeast(MINIMUM_JAVA_SERVER_RELEASE));
             byte[] secret = new byte[32];
             new SecureRandom().nextBytes(secret);
             String token = HexFormat.of().formatHex(secret);
@@ -313,6 +320,38 @@ public class IdeRuntimeService
         catch (IOException failure) {
             throw new ReviewConflictException("Cannot prepare the IDE runtime: " + failure.getMessage(), failure);
         }
+    }
+
+    /**
+     * The Java extension otherwise runs its language server on a bundled JRE 21. Maven import happens inside that
+     * process, so a build plugin compiled for a newer release fails to load there and its modules lose Java support.
+     */
+    private void configureJavaRuntime(Path profile, Optional<Path> javaHome)
+            throws IOException
+    {
+        Path userData = profile.resolve("data").resolve("data");
+        Path marker = profile.resolve("java-home");
+        String selected = javaHome.map(Path::toString).orElse("");
+        String previous = Files.exists(marker) ? Files.readString(marker) : "";
+        if (!previous.equals(selected)) {
+            // Project state imported under another runtime keeps its missing modules, so it is rebuilt.
+            Path storage = userData.resolve("User").resolve("workspaceStorage");
+            if (Files.isDirectory(storage)) {
+                try (Stream<Path> workspaces = Files.list(storage)) {
+                    for (Path workspace : workspaces.collect(toImmutableList())) {
+                        Path javaState = workspace.resolve("redhat.java");
+                        if (Files.exists(javaState, LinkOption.NOFOLLOW_LINKS)) {
+                            // macOS has no secure directory stream, so the insecure walk is the only option here.
+                            MoreFiles.deleteRecursively(javaState, RecursiveDeleteOption.ALLOW_INSECURE);
+                        }
+                    }
+                }
+            }
+            Files.writeString(marker, selected);
+        }
+        // Machine-scoped settings are read from the server's own profile; the renderer's user settings cannot set them.
+        Path settings = Files.createDirectories(userData.resolve("Machine")).resolve("settings.json");
+        mapper.writeValue(settings.toFile(), javaHome.map(home -> ImmutableMap.of("java.jdt.ls.java.home", home.toString())).orElse(ImmutableMap.of()));
     }
 
     private void stop(Live live)

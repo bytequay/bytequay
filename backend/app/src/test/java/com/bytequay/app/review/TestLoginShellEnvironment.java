@@ -123,6 +123,30 @@ class TestLoginShellEnvironment
         assertThat(new LoginShellEnvironment(ImmutableMap.of(), script("failing_java_home", "#!/bin/sh\nexit 1\n")).hasJava(ImmutableMap.of())).isFalse();
     }
 
+    @Test
+    void offersTheInstalledJdkOnlyWhenItsReleaseIsNewEnough()
+            throws IOException
+    {
+        assertThat(javaHome("26", "JAVA_VERSION=\"26\"").javaHomeAtLeast(21)).contains(directory.resolve("26"));
+        assertThat(javaHome("25", "IMPLEMENTOR=\"Example\"\nJAVA_VERSION=\"25.0.1\"").javaHomeAtLeast(21)).contains(directory.resolve("25"));
+        assertThat(javaHome("21", "JAVA_VERSION=\"21.0.6\"").javaHomeAtLeast(21)).contains(directory.resolve("21"));
+        assertThat(javaHome("17", "JAVA_VERSION=\"17.0.9\"").javaHomeAtLeast(21)).isEmpty();
+        assertThat(javaHome("8", "JAVA_VERSION=\"1.8.0_452\"").javaHomeAtLeast(8)).contains(directory.resolve("8"));
+        assertThat(javaHome("legacy", "JAVA_VERSION=\"1.8.0_452\"").javaHomeAtLeast(21)).isEmpty();
+        assertThat(javaHome("unknown", "IMPLEMENTOR=\"Example\"").javaHomeAtLeast(21)).isEmpty();
+        assertThat(new LoginShellEnvironment(ImmutableMap.of(), script("failing_java_home", "#!/bin/sh\nexit 1\n")).javaHomeAtLeast(21)).isEmpty();
+        assertThat(new LoginShellEnvironment(ImmutableMap.of(), directory.resolve("no-java-home")).javaHomeAtLeast(21)).isEmpty();
+    }
+
+    /** An environment whose java_home tool reports a JDK with the given release file. */
+    private LoginShellEnvironment javaHome(String name, String release)
+            throws IOException
+    {
+        Path home = Files.createDirectories(directory.resolve(name));
+        Files.writeString(home.resolve("release"), release + "\n");
+        return new LoginShellEnvironment(ImmutableMap.of(), script("java_home_" + name, "#!/bin/sh\necho '%s'\n".formatted(home)));
+    }
+
     private Path script(String name, String content)
             throws IOException
     {

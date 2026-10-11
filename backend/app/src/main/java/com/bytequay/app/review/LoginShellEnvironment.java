@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
@@ -42,6 +43,7 @@ class LoginShellEnvironment
 {
     private static final Duration PROBE_TIMEOUT = Duration.ofSeconds(10);
     private static final Pattern NAME = Pattern.compile("[A-Za-z_][A-Za-z0-9_]*");
+    private static final Pattern JAVA_VERSION = Pattern.compile("JAVA_VERSION=\"(\\d+)(?:\\.(\\d+))?.*\"");
     // A macOS stub that exists without any JDK and can open an install dialog, so it is never counted or run.
     private static final Path SYSTEM_JAVA_STUB = Path.of("/usr/bin/java");
 
@@ -88,6 +90,38 @@ class LoginShellEnvironment
             }
         }
         return executable(javaHomeTool) && run(login, new ProcessBuilder(javaHomeTool.toString())).isPresent();
+    }
+
+    /** The newest installed JDK, when its feature release is at least the given one. */
+    Optional<Path> javaHomeAtLeast(int feature)
+    {
+        if (!executable(javaHomeTool)) {
+            return Optional.empty();
+        }
+        // The tool's own version filter falls back to the default JDK when nothing matches, so the release file decides.
+        return run(withoutByteQuay(backendEnvironment), new ProcessBuilder(javaHomeTool.toString()))
+                .map(String::strip)
+                .filter(home -> !home.isEmpty())
+                .map(Path::of)
+                .filter(home -> featureRelease(home).filter(release -> release >= feature).isPresent());
+    }
+
+    private static Optional<Integer> featureRelease(Path javaHome)
+    {
+        try {
+            for (String line : Files.readAllLines(javaHome.resolve("release"))) {
+                Matcher version = JAVA_VERSION.matcher(line);
+                if (version.matches()) {
+                    // Releases before 9 are numbered 1.x.
+                    boolean legacy = version.group(1).equals("1") && version.group(2) != null;
+                    return Optional.of(Integer.parseInt(version.group(legacy ? 2 : 1)));
+                }
+            }
+        }
+        catch (IOException | NumberFormatException failure) {
+            return Optional.empty();
+        }
+        return Optional.empty();
     }
 
     private Map<String, String> probe()

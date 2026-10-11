@@ -76,8 +76,8 @@ export async function startRuntime(connection: IdeConnection, container: HTMLEle
     'editor.minimap.enabled': false, 'editor.fontSize': 12, 'editor.fontFamily': 'Menlo, monospace',
     'telemetry.telemetryLevel': 'off', 'java.autobuild.enabled': true, 'java.maxConcurrentBuilds': 8,
     'java.configuration.updateBuildConfiguration': 'automatic', 'java.trace.server': 'off',
-    // The index of a library JAR is the same for every task.
-    'java.sharedIndexes.enabled': 'on',
+    // Library JARs cannot call project code, so searching them only slows usages; their index is the same for every task.
+    'java.search.scope': 'projectOnly', 'java.sharedIndexes.enabled': 'on',
     'go.showWelcome': false, 'go.toolsManagement.autoUpdate': false, 'go.toolsManagement.checkForUpdates': 'off',
     'rust-analyzer.testExplorer': true, 'extensions.autoUpdate': false, 'extensions.autoCheckUpdates': false,
     'testing.saveBeforeTest': false, 'debug.saveBeforeStart': 'none', 'task.saveBeforeRun': 'never',

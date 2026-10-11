@@ -89,11 +89,14 @@ to close. Search respects project ignore and exclude settings; refine the query
 when results are limited. **All** favors names and source code; use **Files** for
 paths or **Text** to search other content, including fixtures and logs. Changing
 the query cancels the previous search; slow searches finish with the available
-results and a notice. **⌘-click** a method to show its usages
-with filenames, line numbers, and source lines; test-file results are green.
-Select a result to jump there, or press **Escape** to close the popup.
-If the language service is still preparing the project, the popup waits
-and runs the search automatically when it is ready. Java code is analyzed
+results and a notice. **⌘-click** a method to see its usages. A single usage
+opens directly; otherwise a popup lists filenames, line numbers, and source
+lines, with test-file results in green. Usages in the current file appear
+first while the rest of the project is searched. Usages inside library JARs
+and the JDK are not listed. Select a result to jump there, or press
+**Escape** to close the popup. If the language service is still preparing
+the project, the popup waits and runs the search automatically when it is
+ready. Java code is analyzed
 with the newest installed JDK, release 21 or later, so install the release
 your build plugins require.
 Working-copy reset and discard are in the

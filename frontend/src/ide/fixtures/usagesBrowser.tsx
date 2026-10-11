@@ -32,7 +32,7 @@ export async function verifyUsages() {
   const workspace = Uri.parse('usages:/workspace');
   const uri = (path: string) => Uri.joinPath(workspace, path);
   const source = uri('Service.java');
-  const sourceText = 'class Service {\n    void request() {}\n    void unused() {}\n}';
+  const sourceText = 'class Service {\n    void request() {}\n    void unused() {}\n    void again() { request(); }\n}';
   const contents = models.registerTextModelContentProvider('usages', { provideTextContent: async resource => editor.getModel(resource)
     ?? editor.createModel(resource.toString() === source.toString() ? sourceText : 'class Caller {\n    service.request();\n    service.request();\n}', 'java', resource) });
   const links: languages.Location[] = [
@@ -40,7 +40,9 @@ export async function verifyUsages() {
     { uri: uri('src/test/java/Caller.java'), range: { startLineNumber: 2, endLineNumber: 2, startColumn: 13, endColumn: 20 } },
     { uri: uri('src/test/java/Caller.java'), range: { startLineNumber: 3, endLineNumber: 3, startColumn: 13, endColumn: 20 } },
   ];
-  let mode: 'ready' | 'slow' | 'empty' | 'error' = 'ready';
+  const declaration: languages.Location = { uri: source, range: { startLineNumber: 2, endLineNumber: 2, startColumn: 10, endColumn: 17 } };
+  const sameFile: languages.Location = { uri: source, range: { startLineNumber: 4, endLineNumber: 4, startColumn: 20, endColumn: 27 } };
+  let mode: 'ready' | 'slow' | 'empty' | 'error' | 'single' | 'self' = 'ready';
   let finish: ((locations: languages.Location[]) => void) | undefined;
   let cancelled = false;
   let searches = 0;
@@ -49,11 +51,14 @@ export async function verifyUsages() {
     assert(!context.includeDeclaration, 'Usages exclude the method declaration');
     if (mode === 'error') throw new Error('Fixture reference failure');
     if (mode === 'empty') return [];
+    if (mode === 'single') return [links[1]];
+    if (mode === 'self') return [declaration];
     if (mode === 'slow') { token.onCancellationRequested(() => { cancelled = true; }); return new Promise<languages.Location[]>(resolve => { finish = resolve; }); }
     return [links[2], links[0], links[1], links[0]];
   } });
   let references = registerReferences();
-  const definitions = languages.registerDefinitionProvider('java', { provideDefinition: () => links[0] });
+  let definition = links[0];
+  const definitions = languages.registerDefinitionProvider('java', { provideDefinition: () => definition });
   const root = createRoot(shell);
   flushSync(() => root.render(<Usages editors={codeEditors} workspace={workspace} />));
   const until = async (test: () => boolean, message: string) => {
@@ -98,18 +103,53 @@ export async function verifyUsages() {
     const target = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === links[1].uri.toString());
     assert(target?.getSelection()?.startLineNumber === 2 && target.getSelection()?.startColumn === 13, 'Navigation selects the exact call site');
     await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
-    click(false); await settle(); assert(!popup(), 'Plain click retains normal editing');
+    const plain = searches;
+    click(false); await settle(); assert(!popup() && searches === plain, 'Plain click retains normal editing');
     click(); await until(() => rows().length === 3, 'Usages can reopen');
     key('Escape'); await settle(); assert(!popup() && code.hasTextFocus(), 'Escape closes and restores editor focus');
-    mode = 'slow'; click(); await until(() => finish !== undefined, 'Start a cancellable reference lookup');
+    mode = 'slow'; click(); await until(() => finish !== undefined && popup() !== null, 'A lookup that outlasts a quick jump shows a cancellable popup');
+    assert(rows().length === 0, 'Word matches in the open file are not presented as usages');
     key('Escape'); await settle(); assert(cancelled, 'Closing cancels the language-service request');
     finish?.(links); await settle(); assert(!popup(), 'Late results cannot reopen the popup');
     mode = 'empty'; click(); await until(() => popup()?.textContent?.includes('No usages found.') === true, 'An empty search is explicit');
     key('Escape'); await settle();
+    let outline: languages.DocumentSymbol[] = [];
+    const symbols = languages.registerDocumentSymbolProvider('java', { provideDocumentSymbols: () => outline });
+    click(); await until(() => popup()?.textContent?.includes('has not loaded this file as part of a project') === true, 'A file the language service has not loaded is not reported as unused');
+    assert(popup()?.querySelector('[role="status"]')?.textContent === 'Search unavailable' && !popup()?.textContent?.includes('No usages found.'), 'An unloaded file must not report zero usages');
+    key('Escape'); await settle();
+    outline = [{ name: 'Service', detail: '', kind: languages.SymbolKind.Class, tags: [], range: declaration.range, selectionRange: declaration.range }];
+    click(); await until(() => popup()?.textContent?.includes('No usages found.') === true, 'A loaded file with no usages still says so');
+    key('Escape'); await settle(); symbols.dispose();
     mode = 'error'; click(); await until(() => popup()?.textContent?.includes('Fixture reference failure') === true, 'A provider failure is not presented as zero usages');
     assert(popup()?.querySelector('[role="status"]')?.textContent === 'Search unavailable', 'A failed search must not report zero usages');
     key('Escape'); await settle();
     mode = 'ready'; click(); await until(() => rows().length === 3, 'Usages recover after a provider failure');
+    key('Escape'); await settle();
+    let appeared = false;
+    const watcher = new MutationObserver(() => { appeared ||= popup() !== null; });
+    watcher.observe(host, { childList: true, subtree: true });
+    mode = 'single'; click();
+    await until(() => editors.activeEditor?.resource?.toString() === links[1].uri.toString(), 'A single usage opens directly');
+    await settle(); watcher.disconnect();
+    assert(!appeared && !popup(), 'A single usage must not flash the popup before opening');
+    const only = codeEditors.listCodeEditors().find(item => item.getModel()?.uri.toString() === links[1].uri.toString());
+    assert(only?.getSelection()?.startLineNumber === 2 && only.getSelection()?.startColumn === 13, 'The single usage is selected');
+    await editors.openEditor({ resource: source, options: { pinned: true } }); await settle();
+    mode = 'self'; click();
+    await until(() => rows().length === 1 && popup()?.querySelector('[role="status"]')?.textContent === '1 usage', 'A lone usage under the cursor is listed instead of jumping onto itself');
+    key('Escape'); await settle();
+    definition = declaration;
+    const highlights = languages.registerDocumentHighlightProvider('java', { provideDocumentHighlights: () => [{ range: declaration.range }, { range: sameFile.range }] });
+    finish = undefined; mode = 'slow'; click();
+    await until(() => rows().length === 1 && rows()[0].title === 'Service.java:4' && popup()?.querySelector('[role="status"]')?.textContent === 'Finding more…', 'Usages in the open file are listed while the project search runs, without the declaration');
+    assert(rows()[0].querySelector('code')?.textContent === 'void again() { request(); }' && rows()[0].querySelector('code strong')?.textContent === 'request', 'An early usage shows its source line');
+    await until(() => popup()?.textContent?.includes('Still searching.') === true, 'A long search explains the wait');
+    finish?.([links[2], sameFile, links[0]]);
+    await until(() => rows().length === 3 && popup()?.querySelector('[role="status"]')?.textContent === '3 usages', 'The project search completes the list');
+    assert(rows()[0].title === 'Service.java:4' && rows()[1].title === 'src/main/java/Caller.java:2' && rows()[2].title === 'src/test/java/Caller.java:3', 'Usages in the open file stay first');
+    assert(!popup()?.textContent?.includes('Still searching.'), 'A finished search no longer reports waiting');
+    highlights.dispose(); definition = links[0]; mode = 'ready';
     code.getModel()?.applyEdits([{ range: { startLineNumber: 3, endLineNumber: 3, startColumn: 1, endColumn: 1 }, text: ' ' }]);
     await settle(); assert(!popup(), 'Editing the queried document dismisses stale locations');
     references.dispose(); click();

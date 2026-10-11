@@ -780,7 +780,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
               : index === 0 && user.delivery === 'TURN' && issueRequest && issueSource != null
               ? <IssueRequestCard source={issueSource} attachments={user.attachments.length > 0 && <div className="agt-user__files">
                 {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
-              </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest}
+              </div>} /> : reviewRequest !== undefined ? <ReviewRequestCard {...reviewRequest} prompt={reviewRequest.generated ? user.text : undefined}
               onOpen={onOpenReview !== undefined && reviewTarget !== undefined ? () => onOpenReview(reviewTarget) : undefined} /> : fixRequest !== null ? (
               <ReviewRequestCard {...fixRequest}
                 onOpen={onOpenReview !== undefined && fixTarget !== undefined ? () => onOpenReview(fixTarget) : undefined}>

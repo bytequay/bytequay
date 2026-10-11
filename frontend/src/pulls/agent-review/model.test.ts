@@ -618,6 +618,16 @@ describe('review request topics', () => {
 
 
 describe('review request navigation and generated turns', () => {
+  it('labels generated local and replay requests without a null PR number and keeps user questions separate', () => {
+    const local = reviewFixture({ number: null, sourceTaskId: 'source-task' });
+    const requests = reviewRequests(local);
+    expect(requests.filter(request => request.generated)).toHaveLength(1);
+    expect(requests.find(request => request.generated)).toMatchObject({ action: 'Review changes', topic: `${local.repo} · Local changes` });
+    expect(requests.find(request => request.action === 'Ask about review')?.generated).toBeUndefined();
+    const replay: AgentReviewDto = { ...local, sourceTaskId: null, replay: { id: 'replay', number: 7, memory: false } };
+    expect(reviewRequests(replay).find(request => request.generated)?.topic).toBe(`${local.repo} · Past change`);
+  });
+
   it('opens current review details for an update that reuses the original explanation', () => {
     const review = reviewFixture();
     const current: AgentReviewDto['runs'][number] = { ...review.runs[0], id: 'run-2', ordinal: 2, summary: null, turnIds: ['update-turn'] };

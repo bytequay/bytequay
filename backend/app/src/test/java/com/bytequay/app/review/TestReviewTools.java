@@ -48,6 +48,7 @@ import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PrTimelinePayload;
 import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.domain.PullRequestDetail;
+import com.bytequay.core.domain.PullRequestTask;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssueDetail;
@@ -72,6 +73,7 @@ import com.bytequay.core.review.ReviewSummary;
 import com.bytequay.core.review.ReviewTestCheck;
 import com.bytequay.core.review.ReviewThreadVerdict;
 import com.bytequay.core.review.ReviewValidation;
+import com.bytequay.core.store.PullRequestTaskStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -179,6 +181,7 @@ class TestReviewTools
     private InMemoryMemoryStore memoryStore;
     private LocalRunStore localRuns;
     private CredentialService credentials;
+    private PullRequestTaskStore sourceAssignments;
 
     @BeforeEach
     void setUp()
@@ -202,6 +205,7 @@ class TestReviewTools
         assignments = mock(ReviewToolAssignment.class);
         localRuns = mock(LocalRunStore.class);
         credentials = mock(CredentialService.class);
+        sourceAssignments = mock(PullRequestTaskStore.class);
         locks = new ReviewLocks();
         TurnId turn = TurnId.random();
         capturedTurn = turn;
@@ -213,7 +217,7 @@ class TestReviewTools
         memoryStore = new InMemoryMemoryStore();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, historySources,
-                repositories, issues, issueRefresh, events, workspaces, git, objectMapper, locks, assignments,
+                repositories, issues, issueRefresh, events, workspaces, git, objectMapper, locks, assignments, sourceAssignments,
                 new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, credentials, clock);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
@@ -221,6 +225,43 @@ class TestReviewTools
         when(git.run(repository, "show", HEAD_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta\ngamma\n", false));
 
         bridge = tools.bridge(TASK_ID).orElseThrow();
+    }
+
+    @Test
+    void developmentOriginPagesTheSavedRequestAndAssignmentWithoutAuthorizingWrites()
+    {
+        String source = TaskId.random().toString();
+        AgentReview original = store.findReview(REVIEW_ID).orElseThrow();
+        store.updateReview(new AgentReview(original.id(), original.workspaceId(), original.repo(), OptionalInt.empty(), OptionalLong.empty(), original.taskId(),
+                Optional.of(source), original.state(), original.followUpPaused(), original.latestCompletedRunId(), original.observedHeadSha(), original.worktreeHeadSha(),
+                original.version(), original.createdAt(), original.updatedAt(), original.closedAt()));
+        String request = "initial request " + "long reference ".repeat(2000) + "request end";
+        when(events.readAfter(TaskId.valueOf(source), 0, 100)).thenReturn(ImmutableList.of(new AgentEventEnvelope(
+                AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, TaskId.valueOf(source), Optional.empty(), AgentEventSource.root(), NOW,
+                new AgentEventPayload.UserMessage(request, ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN))));
+        when(sourceAssignments.findByTaskId(source)).thenReturn(Optional.of(new PullRequestTask(source, WORKSPACE_ID, original.repo(), 7, "saved assignment end")));
+        StringBuilder restored = new StringBuilder();
+        int page = 1;
+        do {
+            JsonNode result = call("review_get_context", ImmutableMap.of("kind", "origin", "page", page));
+            assertThat(result.path("referenceOnly").asBoolean()).isTrue();
+            restored.append(result.path("text").asText());
+            page = result.path("nextPage").asInt(0);
+        }
+        while (page > 0);
+        assertThat(restored.toString()).contains(request, "no developer actions authorized", "saved assignment end");
+        when(sourceAssignments.findByTaskId(source)).thenReturn(Optional.of(new PullRequestTask(source, "other-workspace", original.repo(), 7, "private other task")));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "origin", "page", 3)).path("text").asText()).doesNotContain("private other task");
+        verifyNoInteractions(selectedPullRequests);
+    }
+
+    @Test
+    void assignmentProvidesGuidanceForTheCurrentPass()
+    {
+        JsonNode assignment = call("review_get_context", ImmutableMap.of("kind", "assignment"));
+        assertThat(assignment.path("guidance").asText()).isEqualTo(ReviewPrompts.stepGuidance(store.findRun(RUN_ID).orElseThrow()));
+        assertThat(assignment.path("guidance").asText()).contains("Validate the investigation", "Reuse completed checks");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "scope")).path("assignment").has("guidance")).isFalse();
     }
 
     @Test
@@ -1058,6 +1099,12 @@ class TestReviewTools
                     .contains("a replay reviews past code, so it cannot read " + kind);
         }
         verifyNoInteractions(selectedPullRequests, historySources);
+        PullRequestDetail cached = pullRequestDetail(31188, "Cached description", ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
+        when(pullRequests.findPullRequestDetail(original.repo(), 31188)).thenReturn(Optional.of(cached));
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "origin")).path("text").asText()).contains("Selected pull request 31188", "Cached description");
+        assertThat(call("review_get_context", ImmutableMap.of("kind", "assignment")).path("replayRestriction").asText()).contains("Do not read PR discussion");
+        verify(pullRequests, never()).getPullRequestDetail(anyString(), anyInt());
+
         assertThat(call("review_get_context", ImmutableMap.of("kind", "scope")).has("number")).isFalse();
 
         readSource();
@@ -2603,16 +2650,16 @@ class TestReviewTools
     void requestsAuthorizeBoundedDelegationAndReuseVerificationAcrossAssignments()
     {
         ReviewRun initial = run(RUN_ID, 1, PATCH, false);
-        assertThat(ReviewPrompts.reviewRequest(review(AgentReview.State.OPEN), initial, Optional.empty(), ImmutableList.of(), "reviewer"))
+        assertThat(ReviewPrompts.stepGuidance(initial))
                 .contains("Default to two concurrent read-only subagents", "Keep edits, tests, review decisions and saved reports in the main agent");
-        assertThat(ReviewPrompts.stepRequest(run())).contains("Default to two concurrent read-only subagents", "verification recipe", "Reuse completed checks",
+        assertThat(ReviewPrompts.stepGuidance(run())).contains("Default to two concurrent read-only subagents", "verification recipe", "Reuse completed checks",
                 "After each batch, reassess", "within the current review step");
-        assertThat(ReviewPrompts.stepRequest(initial.withStep(ReviewStep.initial().next(COLLECT_EVIDENCE), NOW)))
+        assertThat(ReviewPrompts.stepGuidance(initial.withStep(ReviewStep.initial().next(COLLECT_EVIDENCE), NOW)))
                 .contains("Default to two concurrent read-only subagents", "After each batch, reassess", "do not repeat settled checks",
                         "or restart broad discovery during evidence collection");
         ReviewRun repair = run().replaceCurrentStep(run().currentStep().orElseThrow().forRepair(), NOW);
-        assertThat(ReviewPrompts.stepRequest(repair)).contains("Default to two concurrent read-only subagents", "do not repeat completed checks");
-        assertThat(ReviewPrompts.stepRequest(initial.replaceCurrentStep(ReviewStep.initial().withInvestigation(run().investigation().orElseThrow()), NOW)))
+        assertThat(ReviewPrompts.stepGuidance(repair)).contains("Default to two concurrent read-only subagents", "do not repeat completed checks");
+        assertThat(ReviewPrompts.stepGuidance(initial.replaceCurrentStep(ReviewStep.initial().withInvestigation(run().investigation().orElseThrow()), NOW)))
                 .doesNotContain("Default to two concurrent read-only subagents").contains("already saved and sealed");
     }
 

@@ -808,7 +808,7 @@ public final class ClaudeCliDriver
                     ClaudeCliDriver.this.redactor,
                     context.codeQueries(),
                     environment,
-                    context.discussionContext());
+                    context.discussionContext(), context.reviewContext());
             this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());
             this.resume = resume;

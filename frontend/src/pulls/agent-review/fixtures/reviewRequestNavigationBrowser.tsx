@@ -133,8 +133,8 @@ export async function run(): Promise<string[]> {
     assert(conversation !== null && pane !== null && conversation.parentElement === pane.parentElement,
       'Review requests and destinations must render in the actual sibling conversation and PR panes');
     assert(conversation.querySelectorAll('.agt-review-request').length === 8, 'Replay must compact the generated request, six discussions and local question');
-    assert(!conversation.textContent?.includes('review_get_context') && !conversation.textContent?.includes('review_reply')
-      && !conversation.textContent?.includes('Selected card:'), 'Generated review instructions must never appear in replayed request cards');
+    assert(!conversation.innerText.includes('review_get_context') && !conversation.innerText.includes('review_reply')
+      && !conversation.innerText.includes('Selected card:'), 'Generated review instructions must remain folded and saved questions must omit copied context');
     assert(conversation.textContent?.includes('Also check cancellation separately.') === true
       && conversation.textContent?.includes('Please keep my ordinary question visible.') === true,
     'Ordinary user text and steering must remain visible');

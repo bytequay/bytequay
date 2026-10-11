@@ -441,7 +441,8 @@ class TestDefaultAgentReviewService
         assertThat(started.getValue().message())
                 .contains("Review pull request owner/repo#7")
                 .contains("a1b2c3d")
-                .contains("review_record_discovery", "review_save_investigation", "BEHAVIOR", "INTERACTIONS", "DESIGN");
+                .contains("review_get_context", "assignment and scope", "assignment.guidance")
+                .hasSizeLessThan(600);
         assertThat(started.getValue().idempotencyKey()).startsWith("review-step:");
         verify(fixture.observer, times(1)).watch(any(AgentReview.class));
     }
@@ -544,8 +545,8 @@ class TestDefaultAgentReviewService
         assertThat(created.getValue().startCommit()).isEqualTo(HEAD);
         ArgumentCaptor<StartAgentTurnCommand> turn = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(fixture.turns).start(turn.capture());
-        assertThat(turn.getValue().message()).startsWith("Review a past change in " + REPO + " at head").contains("This is a replay")
-                .contains("Pull request title: Fix the parser").contains("and do not fetch.").doesNotContain(REPO + "#" + NUMBER);
+        assertThat(turn.getValue().message()).startsWith("Review a past change in " + REPO + " at frozen head").contains("Replay cutoff", "origin", "and do not fetch.")
+                .doesNotContain("Pull request title: Fix the parser", REPO + "#" + NUMBER);
         assertThat(fixture.service.list(WORKSPACE)).isEmpty();
         assertThat(fixture.service.find(WORKSPACE, REPO, NUMBER)).isEmpty();
 
@@ -602,17 +603,17 @@ class TestDefaultAgentReviewService
     void preparationFailureEndsTheRunAndPausesFollowUp()
     {
         Fixture fixture = new Fixture();
-        GitHubCredential credential = fixture.credentials.resolveGitHubCredential();
-        when(fixture.credentials.resolveGitHubCredential()).thenReturn(credential).thenThrow(new IllegalStateException("GitHub credential unavailable"));
+        when(fixture.turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString())).thenThrow(new AgentConflictException("Assignment unavailable"))
+                .thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("GitHub credential unavailable");
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("Assignment unavailable");
 
         AgentReview review = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow();
         ReviewRun failed = fixture.store.listRuns(review.id()).getLast();
         assertThat(failed.state()).isEqualTo(ReviewRun.State.FAILED);
-        assertThat(failed.outcome()).contains("Cannot start the review turn: GitHub credential unavailable");
+        assertThat(failed.outcome()).contains("Cannot start the review turn: Assignment unavailable");
         assertThat(failed.turnIds()).isEmpty();
         assertThat(review.followUpPaused()).isTrue();
         verify(fixture.turns, never()).start(any(StartAgentTurnCommand.class));
@@ -622,8 +623,8 @@ class TestDefaultAgentReviewService
     void reconcileDispatchesAPersistedStartupAssignmentExactlyOnce()
     {
         Fixture fixture = new Fixture();
-        GitHubCredential credential = fixture.credentials.resolveGitHubCredential();
-        when(fixture.credentials.resolveGitHubCredential()).thenReturn(credential).thenThrow(new NoClassDefFoundError("Startup class unavailable"));
+        when(fixture.turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString())).thenThrow(new NoClassDefFoundError("Startup class unavailable"))
+                .thenAnswer(invocation -> Optional.ofNullable(fixture.acceptedTurns.get(invocation.getArgument(1))));
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
         String reviewId = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow().id();
         assertThat(fixture.store.listRuns(reviewId).getLast().state()).isEqualTo(ReviewRun.State.RUNNING);
@@ -657,11 +658,8 @@ class TestDefaultAgentReviewService
     void resumeContinuesAPersistedStartupOnTheSameReviewAndTask()
     {
         Fixture fixture = new Fixture();
-        GitHubCredential credential = fixture.credentials.resolveGitHubCredential();
-        when(fixture.credentials.resolveGitHubCredential())
-                .thenReturn(credential)
-                .thenThrow(new NoClassDefFoundError("Startup class unavailable"))
-                .thenReturn(credential);
+        when(fixture.turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString())).thenThrow(new NoClassDefFoundError("Startup class unavailable"))
+                .thenAnswer(invocation -> Optional.ofNullable(fixture.acceptedTurns.get(invocation.getArgument(1))));
         assertThatThrownBy(() -> fixture.service.start(WORKSPACE, REPO, NUMBER)).isInstanceOf(NoClassDefFoundError.class);
         String reviewId = fixture.store.findOpenReview(WORKSPACE, REPO, NUMBER).orElseThrow().id();
 
@@ -737,14 +735,13 @@ class TestDefaultAgentReviewService
             throws Exception
     {
         Fixture fixture = new Fixture();
-        GitHubCredential credential = fixture.credentials.resolveGitHubCredential();
         CountDownLatch preparing = new CountDownLatch(1);
         CountDownLatch continueStartup = new CountDownLatch(1);
         CountDownLatch reconciling = new CountDownLatch(1);
-        when(fixture.credentials.resolveGitHubCredential()).thenReturn(credential).thenAnswer(invocation -> {
+        when(fixture.turns.findTurnByIdempotencyKey(eq(TASK_ID), anyString())).thenAnswer(invocation -> {
             preparing.countDown();
             assertThat(continueStartup.await(5, TimeUnit.SECONDS)).isTrue();
-            return credential;
+            return Optional.ofNullable(fixture.acceptedTurns.get(invocation.getArgument(1)));
         });
         when(fixture.turns.get(TURN_ONE)).thenReturn(AgentTurn.accepted(TURN_ONE, TASK_ID, "review-run", SETTINGS, NOW));
 

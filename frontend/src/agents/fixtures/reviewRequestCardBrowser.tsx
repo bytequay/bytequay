@@ -16,6 +16,7 @@ import { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { ReviewRequestCard, type ReviewCardFocus } from '../ReviewRequestCard';
 import AgentReviewTab from '../../pulls/agent-review/AgentReviewTab';
+import { reviewRequests } from '../../pulls/agent-review/model';
 import { reviewFixture } from '../../pulls/agent-review/fixtures/review';
 import { findingConversation, findingFixPrompt } from '../../pulls/local-review/conversation';
 import { TurnView } from '../AgentConversation';
@@ -191,4 +192,28 @@ export async function generatedPrompt(markdown = false) {
   await settle();
   assert(content.hidden && request.getBoundingClientRect().height <= 100, 'Generated request must collapse back to its summary');
   return { width: innerWidth, compact: content.hidden };
+}
+
+export async function generatedReview(snapshot = false) {
+  const turn = parseAgentTurn(contracts.turn);
+  const review = reviewFixture();
+  const prompt = snapshot ? 'Saved review instructions.\n' + 'Historical evidence '.repeat(1500)
+    : 'Review the frozen head. Read review_get_context kind assignment and scope.';
+  const requests = reviewRequests({ ...review, byteQuayTurnIds: [turn.id], messages: [], runs: [{ ...review.runs[0], turnIds: [turn.id] }] });
+  flushSync(() => root.render(<TurnView key={`${innerWidth}:${snapshot}`}
+    turn={{ turnId: turn.id, ordinal: 1, blocks: [], answer: null, startedAt: null, endedAt: null, outcome: null,
+      users: [{ id: 'generated-review', text: prompt, attachments: [], delivery: 'TURN', at: '' }] }}
+    first={false} open={false} now={0} models={[]} durableTurns={{ [turn.id]: turn }} activityChoice={{}} previews={{}} agentLabels={{}}
+    reviewRequests={requests} onToggle={() => {}} onToggleActivity={() => {}} />));
+  await settle();
+  const request = card();
+  assert(request.getBoundingClientRect().height <= 130 && !request.innerText.includes(prompt), 'Generated review must start as a compact summary');
+  toggle().click(); await settle();
+  const sent = request.querySelector<HTMLDetailsElement>('.agt-review-request__prompt');
+  assert(sent !== null && !sent.open && !request.innerText.includes(prompt), 'Expanding the review must keep machine instructions folded');
+  assert(request.innerText.includes(requests[0].body), 'Review scope must be readable before opening the machine prompt');
+  sent.querySelector('summary')?.click(); await settle();
+  assert(sent.open && sent.querySelector('.agt-review-request__body')?.textContent === prompt, 'Exact delivered instructions must remain inspectable');
+  assert(document.documentElement.scrollWidth <= innerWidth && request.scrollWidth <= request.clientWidth + 1, 'Expanded review prompt must fit narrow conversations');
+  return { width: innerWidth, snapshot };
 }

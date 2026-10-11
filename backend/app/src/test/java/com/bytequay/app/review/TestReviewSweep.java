@@ -21,6 +21,7 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.ReviewTool;
 import com.bytequay.agent.spi.RunningTurn;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.memory.MemoryDelivery;
@@ -31,6 +32,7 @@ import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewCandidate;
 import com.bytequay.core.review.ReviewPerspectiveAssessment.Perspective;
 import com.bytequay.core.review.ReviewRun;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
@@ -72,6 +74,16 @@ class TestReviewSweep
     private final MemoryDelivery memories = mock(MemoryDelivery.class);
     private final AtomicInteger settled = new AtomicInteger();
 
+    private static String read(ReviewTool tool, String kind)
+    {
+        try {
+            return new ObjectMapper().readTree(tool.call().apply("{\"kind\":\"" + kind + "\"}")).path("text").asText();
+        }
+        catch (Exception failure) {
+            throw new AssertionError(failure);
+        }
+    }
+
     @Test
     void theFactsNameTestsThatArriveAfterTheirCode()
     {
@@ -88,14 +100,15 @@ class TestReviewSweep
         });
         when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenReturn(detail("Add the loader", ""));
         List<String> prompts = new ArrayList<>();
-        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, started) -> {
-            prompts.add(prompt);
+        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> {
+            assertThat(prompt).contains("review_get_context").hasSizeLessThan(600);
+            prompts.add(read(context, "scope") + read(context, "pr") + read(context, "facts") + read(context, "assignment"));
             return Optional.of(ANSWER);
         });
 
         sweep.start(review(Optional.empty()), run(), task(), settled::incrementAndGet);
 
-        assertThat(prompts.getFirst()).contains("- commit bbbbbbbbbbb adds TestLoader.java, the test of Loader.java, which commit ccccccccccc added");
+        assertThat(prompts.getFirst()).contains("commit bbbbbbbbbbb adds TestLoader.java, the test of Loader.java, which commit ccccccccccc added");
     }
 
     @Test
@@ -112,8 +125,9 @@ class TestReviewSweep
         });
         when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenReturn(detail("Add the loader", "## Release notes\n( ) Not needed\n(x) Please propose a note\n"));
         List<String> prompts = new ArrayList<>();
-        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, started) -> {
-            prompts.add(prompt);
+        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> {
+            assertThat(prompt).contains("review_get_context").hasSizeLessThan(600);
+            prompts.add(read(context, "scope") + read(context, "pr") + read(context, "facts") + read(context, "assignment"));
             return Optional.of(ANSWER);
         });
 
@@ -121,9 +135,9 @@ class TestReviewSweep
 
         assertThat(settled).hasValue(1);
         assertThat(prompts).hasSize(1);
-        assertThat(prompts.getFirst()).contains("Pull request owner/repo#7 at head " + HEAD, "git diff " + BASE + " " + HEAD, "- src/App.java",
-                "Add the loader\n\n## Release notes", "- commit bbbbbbbbbbb \"Add the loader\": subject 14 characters, body 3 words",
-                "- description section \"Release notes\": marked \"Please propose a note\"", ReviewLead.SHAPE);
+        assertThat(prompts.getFirst()).contains("Repository: owner/repo\nFrozen head: " + HEAD, "git diff " + BASE + " " + HEAD, "src/App.java",
+                "Add the loader\n\n## Release notes", "commit bbbbbbbbbbb \"Add the loader\": subject 14 characters, body 3 words",
+                "description section \"Release notes\": marked \"Please propose a note\"", ReviewLead.SHAPE);
         assertThat(sweep.pending("review", "run")).isFalse();
         assertThat(sweep.take("review", "other-run")).isEmpty();
         assertThat(sweep.take("review", "run")).containsExactly(
@@ -136,15 +150,15 @@ class TestReviewSweep
     {
         when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
         AtomicReference<String> prompt = new AtomicReference<>();
-        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, request, started) -> {
-            prompt.set(request);
+        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, request, context, started) -> {
+            prompt.set(read(context, "scope") + read(context, "pr"));
             return Optional.of("{\"leads\":[]}");
         });
 
         sweep.start(review(Optional.of(new AgentReview.Replay("replay", 7, false, NOW))), run(), task(), settled::incrementAndGet);
 
         verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
-        assertThat(prompt.get()).contains("A past change in owner/repo at head " + HEAD).doesNotContain("## Description", "## Facts ByteQuay measured", "## Repository rules");
+        assertThat(prompt.get()).contains("Repository: owner/repo\nFrozen head: " + HEAD).doesNotContain("## Description", "## Facts ByteQuay measured", "## Repository rules");
         assertThat(sweep.take("review", "run")).isEmpty();
     }
 
@@ -153,11 +167,11 @@ class TestReviewSweep
     {
         when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
         when(pullRequests.getPullRequestDetail("owner/repo", 7)).thenThrow(new IllegalStateException("offline"));
-        ReviewSweep failing = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, started) -> {
+        ReviewSweep failing = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> {
             throw new IllegalStateException("The model did not answer in time");
         });
-        ReviewSweep unreadable = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, started) -> Optional.of("No leads, sorry."));
-        ReviewSweep silent = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, started) -> Optional.empty());
+        ReviewSweep unreadable = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> Optional.of("No leads, sorry."));
+        ReviewSweep silent = new ReviewSweep(git, pullRequests, memories, Runnable::run, (task, prompt, context, started) -> Optional.empty());
 
         for (ReviewSweep sweep : ImmutableList.of(failing, unreadable, silent)) {
             sweep.start(review(Optional.empty()), run(), task(), settled::incrementAndGet);
@@ -173,7 +187,7 @@ class TestReviewSweep
         when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
         List<Runnable> queued = new ArrayList<>();
         RunningTurn turn = mock(RunningTurn.class);
-        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, queued::add, (task, prompt, started) -> {
+        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, queued::add, (task, prompt, context, started) -> {
             started.accept(turn);
             return Optional.empty();
         });
@@ -192,6 +206,38 @@ class TestReviewSweep
         verify(turn).cancel();
         assertThat(sweep.pending("review", "run")).isFalse();
         assertThat(settled).hasValue(1);
+    }
+
+    @Test
+    void capturedContextIsRevokedAfterCancellationReplacementOrCompletion()
+    {
+        when(git.runLocalBoundedStdout(eq(CHECKOUT), any(Duration.class), anyInt(), anyList())).thenReturn(new GitCommandRunner.Result(128, "", false));
+        List<Runnable> queued = new ArrayList<>();
+        List<ReviewTool> captured = new ArrayList<>();
+        AtomicReference<ReviewSweep> current = new AtomicReference<>();
+        ReviewSweep sweep = new ReviewSweep(git, pullRequests, memories, queued::add, (task, prompt, context, started) -> {
+            captured.add(context);
+            assertThat(read(context, "scope")).contains(HEAD);
+            if (captured.size() == 1) {
+                current.get().cancel("review");
+            }
+            else if (captured.size() == 2) {
+                current.get().start(review(Optional.empty()), run(), task(), () -> {});
+            }
+            else {
+                return Optional.empty();
+            }
+            assertThat(context.call().apply("{\"kind\":\"scope\"}")).contains("stopped or been replaced");
+            return Optional.empty();
+        });
+        current.set(sweep);
+        sweep.start(review(Optional.empty()), run(), task(), () -> {});
+        queued.getFirst().run();
+        sweep.start(review(Optional.empty()), run(), task(), () -> {});
+        queued.get(1).run();
+        queued.get(2).run();
+        assertThat(captured).hasSize(3).allSatisfy(context ->
+                assertThat(context.call().apply("{\"kind\":\"scope\"}")).contains("stopped or been replaced"));
     }
 
     @Test

@@ -120,6 +120,28 @@ class TestClaudeCliDriver
     }
 
     @Test
+    void independentReviewReceivesOnlyItsReadContextTool()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        ClaudeCliDriver driver = driver(supervisor);
+        AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
+        AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
+                plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
+                Optional.empty(), "Read the independent assignment.", Optional.empty(),
+                Optional.of(new ReviewTool("review_get_context", "Read captured context", ImmutableMap.of("type", "object"), query -> "saved context", true)));
+        try (AgentSession session = driver.open(discussion, event -> {})) {
+            assertThat(await(session.start(command("explain this"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            ProcessSpec spec = supervisor.turns().getLast().spec();
+            assertThat(spec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
+            assertThat(spec.argv()).anyMatch(argument -> argument.contains("mcp__bytequay__review_get_context"));
+            assertThat(spec.argv()).anyMatch(argument -> argument.contains("Read the independent assignment."));
+            assertThat(spec.argv()).noneMatch(argument -> argument.contains("Edit") || argument.contains("Write"));
+        }
+        driver.close();
+    }
+
+    @Test
     void terminalClaudeReviewResolvesARealSupervisorObservationGapAndResumes()
             throws Exception
     {

@@ -90,3 +90,18 @@ it('folds generated summary prompts into compact request cards with complete exp
   });
   expect(results).toEqual([{ width: 760, compact: true }, { width: 760, compact: true }, { width: 320, compact: true }, { width: 320, compact: true }]);
 }, 30_000);
+
+it('keeps current and historical review prompts behind a separate disclosure', async () => {
+  const results = await fixture.run<{ width: number; snapshot: boolean }[]>({
+    body: `
+      const results = [];
+      for (const width of [760, 320]) {
+        window.setContentSize(width, 900);
+        for (const snapshot of [false, true]) {
+          results.push(await window.webContents.executeJavaScript('ReviewRequestTests.generatedReview(' + snapshot + ')'));
+        }
+      }
+    `,
+  });
+  expect(results).toEqual([760, 320].flatMap(width => [false, true].map(snapshot => ({ width, snapshot }))));
+}, 30_000);

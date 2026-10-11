@@ -155,6 +155,15 @@ it labels missing, incomplete and possibly stale data. Each read rechecks the op
 task and workspace association. CI tools reuse that PR identity even when the local
 branch has a different name, without granting rerun or publication permissions.
 
+Private review requests name the frozen scope and retrieve pass guidance through
+`review_get_context`. Saved development intent and replay descriptions are paged
+reference data. The independent review pass receives its own read-only instance
+of that tool, limited to captured assignment, scope, description, facts and rules.
+It cannot read the main review's hypotheses or write findings or evidence. Its
+access ends when the pass completes, stops or is replaced; closing the provider
+session also revokes its token. Replay cutoff restrictions still apply. Generated
+review cards show a short summary and disclose the exact sent prompt separately.
+
 ## Trust and external services
 
 Local-first means local application state and execution; it does not mean offline

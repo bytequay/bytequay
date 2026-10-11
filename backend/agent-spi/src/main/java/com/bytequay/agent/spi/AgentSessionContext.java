@@ -33,7 +33,8 @@ public record AgentSessionContext(
         SessionAccess access,
         Optional<CodeQueryBridge> codeQueries,
         String managedInstructions,
-        Optional<DiscussionContextBridge> discussionContext)
+        Optional<DiscussionContextBridge> discussionContext,
+        Optional<ReviewTool> reviewContext)
 {
     public AgentSessionContext(
             String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
@@ -42,6 +43,15 @@ public record AgentSessionContext(
     {
         this(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, sessionReference, approvals, model, effort,
                 access, codeQueries, managedInstructions, Optional.empty());
+    }
+
+    public AgentSessionContext(
+            String taskId, Path worktree, Path runtimeDirectory, Path providerDirectory, AgentPermissionPolicy permissionPolicy,
+            Optional<AgentSessionRef> sessionReference, AgentApprovalHandler approvals, Optional<String> model, Optional<String> effort,
+            SessionAccess access, Optional<CodeQueryBridge> codeQueries, String managedInstructions, Optional<DiscussionContextBridge> discussionContext)
+    {
+        this(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, sessionReference, approvals, model, effort,
+                access, codeQueries, managedInstructions, discussionContext, Optional.empty());
     }
 
     public AgentSessionContext
@@ -58,6 +68,9 @@ public record AgentSessionContext(
         requireNonNull(access, "access is null");
         requireNonNull(codeQueries, "codeQueries is null");
         requireNonNull(managedInstructions, "managedInstructions is null");
+        requireNonNull(reviewContext, "reviewContext is null");
+        checkArgument(reviewContext.isEmpty() || access == SessionAccess.READ_ONLY, "Review context requires a read-only session");
+        reviewContext.ifPresent(tool -> checkArgument(tool.name().equals("review_get_context") && tool.childCallable(), "Only review context reads are allowed"));
         requireNonNull(discussionContext, "discussionContext is null");
         checkArgument(discussionContext.isEmpty() || access == SessionAccess.READ_ONLY, "Discussion context requires a read-only session");
         checkArgument(model.isPresent() || effort.isEmpty(), "effort requires a model");

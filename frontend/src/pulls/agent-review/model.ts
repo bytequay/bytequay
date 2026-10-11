@@ -480,8 +480,9 @@ export function reviewRequests(review: AgentReviewDto): ReviewRequest[] {
     const scope = run ? `${run.commits.length} ${incremental ? 'new ' : ''}${run.commits.length === 1 ? 'commit' : 'commits'} across `
       + `${run.changedFiles} ${run.changedFiles === 1 ? 'file' : 'files'}` : 'the pull request';
     return {
-      action: explaining ? 'Refresh explanation' : followUp ? 'Follow-up review' : incremental ? 'Review new commits' : 'Review pull request',
-      topic: `${review.repo}#${review.number}`,
+      action: explaining ? 'Refresh explanation' : followUp ? 'Follow-up review' : incremental ? 'Review new commits' : review.number === null ? 'Review changes' : 'Review pull request',
+      generated: true,
+      topic: review.number !== null ? `${review.repo}#${review.number}` : `${review.repo} · ${review.replay ? 'Past change' : 'Local changes'}`,
       body: explaining ? `Regenerate the change intention and commit summaries for ${scope}.` : followUp ? 'Continue the investigation, validate suspected issues, and complete the review report.' : `Review ${scope}.`,
       detail: run ? `Private · ${explaining ? 'Explanation' : 'Review'} ${run.ordinal} · Head ${shortSha(run.headSha)}` : 'Private review',
       turnId,

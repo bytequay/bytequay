@@ -1556,16 +1556,52 @@ describe('agent task detail', () => {
       : { ...event, payload: { ...event.payload, state: 'STARTED', exitCode: null, output: null } });
     const running = body({ task: task('t-1', 'OPEN', 'x'), events: live, connection: 'open' });
 
-    expect(running).toContain('<span>Ran command</span>');
+    expect(running).toContain('<span>Running npm test</span>');
     expect(running).not.toContain('agt-act__body');
     expect(running).not.toContain('<details class="agt-out"');
-    // The provider's own label for the command names the line instead of "Ran command".
+    // The provider's description takes precedence over the shell command.
     const named = live.map((event): AgentEventEnvelope => event.type !== 'command' ? event
       : { ...event, payload: { ...event.payload, description: 'Run the focused tests' } });
     expect(body({ task: task('t-1', 'OPEN', 'x'), events: named, connection: 'open' })).toContain('<span>Run the focused tests</span>');
     // With nothing running the same line is the sentence its members add up to.
     expect(body({ task: task('t-1', 'OPEN', 'x'), events: between, connection: 'open' }))
       .toContain('<span>Ran 1 command, edited 1 file, and used 1 tool</span>');
+  });
+
+  it('keeps command and background-task descriptions visible through generic Bash heartbeats', () => {
+    const start = events.slice(0, 2);
+    const command = events.find((event) => event.type === 'command');
+    if (command?.type !== 'command') throw new Error('Missing command fixture');
+    const observation = (name: string, summary: string, id: string): AgentEventEnvelope => ({
+      ...command, eventId: id, type: 'tool', source: { ...command.source, providerItemId: id },
+      payload: { name, state: 'PROGRESS', summary, durationMs: null, description: null },
+    });
+    const running: AgentEventEnvelope = { ...command, payload: { ...command.payload, state: 'STARTED', exitCode: null,
+      output: null, description: 'Run the focused tests' } };
+    const background = observation('Task', 'Run the tests with production changes reverted', 'background');
+    const heartbeats = [30, 60, 90].map(seconds => observation('Bash', `Running for ${seconds}.0 seconds`, `heartbeat-${seconds}`));
+    const state = { task: task('t-1', 'OPEN', 'x'), turn: turn('RUNNING', { id: start[0].turnId ?? 'turn-1' }), connection: 'open' as const };
+    const scenarios: [AgentEventEnvelope[], string][] = [
+      [[running, ...heartbeats], 'Run the focused tests'],
+      [[command, background, ...heartbeats], 'Run the tests with production changes reverted'],
+      [[command, ...heartbeats], 'Running command'],
+      [[...heartbeats], 'Running command'],
+      [[running, ...heartbeats, observation('WebSearch', 'test documentation', 'search')], 'WebSearch'],
+    ];
+    for (const [activity, label] of scenarios) {
+      const shown = { ...state, events: [...start, ...activity] };
+      const markup = body(shown);
+      const fold = markup.match(/<button type="button" class="agt-act__fold"[^]*?<\/button>/)?.[0];
+      const live = markup.match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
+      expect(fold).toContain(`<span>${label}</span>`);
+      expect(fold).toContain(`title="${label}"`);
+      expect(live).toContain(`>${label}</span>`);
+      expect(markup).not.toContain('agt-act__body');
+      const block = projectTranscript(shown.events)[0].blocks.find(block => block.kind === 'activity');
+      if (block === undefined) throw new Error('Missing activity block');
+      const expanded = body(shown, { [block.id]: true });
+      expect(expanded).toContain('Running for 90.0 seconds');
+    }
   });
 
   it('expands a read from its supplied name and keeps skill loading as a plain row', () => {
@@ -1643,7 +1679,7 @@ describe('agent task detail', () => {
     }));
     const markup = body({ task: task('t-1', 'OPEN', 'x'), events: reading, connection: 'open' });
     // An action the provider left unnamed says what it did, never "Read .".
-    expect(markup).toContain('<span>Read file</span>');
+    expect(markup).toContain('<span>Reading file</span>');
     expect(markup).not.toContain('Read .');
     // Its output is there to open, not opened for the reader, and the line carries no clock.
     expect(markup).not.toContain('<details class="agt-out" open="">');

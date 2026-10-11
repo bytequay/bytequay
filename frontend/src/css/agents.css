@@ -1742,6 +1742,13 @@
   padding-left: 22px;
 }
 
+.agt-act__fold > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agt-act__row {
   display: flex;
   align-items: center;

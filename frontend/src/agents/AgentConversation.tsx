@@ -126,18 +126,31 @@ function memberState(member: ActivityMember): 'running' | 'ok' | 'failed' | 'unk
   return member.kind === 'command' && member.exitCode !== null && member.exitCode !== 0 ? 'failed' : 'ok';
 }
 
-function currentActivityLabel(turn: TranscriptTurn | undefined): string {
-  const running = turn?.blocks.flatMap((block) => block.kind === 'activity' ? block.members : [])
-    .filter((member) => memberState(member) === 'running') ?? [];
-  const member = running.at(-1);
-  if (member?.kind === 'command') {
+function currentActivity(members: ActivityMember[]): ActivityMember | undefined {
+  const running = members.filter((member) => memberState(member) === 'running');
+  // An uncorrelated Claude heartbeat has no command details; it must not hide named work.
+  return running.findLast((member) => member.kind !== 'tool' || member.name !== 'Bash' || member.description?.trim()) ?? running.at(-1);
+}
+
+function runningActivityLabel(member: ActivityMember): string {
+  if (member.kind !== 'file' && member.description?.trim()) return member.description;
+  if (member.kind === 'command') {
     const action = member.actions.find((action) => action.kind !== 'OTHER');
     if (action?.kind === 'READ') return `Reading ${action.name ?? action.path ?? 'file'}`;
     if (action?.kind === 'SEARCH') return `Searching ${action.query ?? action.name ?? 'files'}`;
     if (action?.kind === 'LIST_FILES') return `Listing ${action.name ?? action.path ?? 'files'}`;
-    return member.description ?? (member.command === '' ? 'Running command' : `Running ${member.command}`);
+    return member.command.trim() === '' ? 'Running command' : `Running ${member.command}`;
   }
-  if (member?.kind === 'tool') return member.description ?? toolLabel(member.name);
+  if (member.kind === 'tool') {
+    if (member.name === 'Bash') return 'Running command';
+    if (member.name === 'Task' && member.summary.trim() !== '' && member.summary !== member.name) return member.summary;
+  }
+  return memberLabel(member);
+}
+
+function currentActivityLabel(turn: TranscriptTurn | undefined): string {
+  const member = currentActivity(turn?.blocks.flatMap((block) => block.kind === 'activity' ? block.members : []) ?? []);
+  if (member !== undefined) return runningActivityLabel(member);
   if (turn?.answer && !turn.answer.complete) return 'Writing response';
   return 'Thinking';
 }
@@ -377,7 +390,8 @@ function ActivityView({ block, expanded, onToggle }: {
   expanded: boolean;
   onToggle: () => void;
 }): React.JSX.Element {
-  const current = block.members.filter((member) => memberState(member) === 'running').at(-1);
+  const current = currentActivity(block.members);
+  const label = current === undefined ? activitySummary(block.members) : runningActivityLabel(current);
   // What the agent remembered stays in sight while the group is folded, so Undo is one click away.
   const remembered = block.members.flatMap((member) => {
     const memory = member.kind === 'tool' ? rememberedMemory(member) : null;
@@ -385,9 +399,9 @@ function ActivityView({ block, expanded, onToggle }: {
   });
   return (
     <div className={`agt-act${current === undefined ? '' : ' is-running'}`}>
-      <button type="button" className="agt-act__fold" aria-expanded={expanded} onClick={onToggle}>
+      <button type="button" className="agt-act__fold" aria-expanded={expanded} onClick={onToggle} title={label}>
         <Chevron open={expanded} />
-        <span>{current === undefined ? activitySummary(block.members) : memberLabel(current)}</span>
+        <span>{label}</span>
       </button>
       {expanded && <div className="agt-act__body"><MemberRows members={block.members} /></div>}
       {!expanded && remembered.length > 0 && <div className="agt-act__body">{remembered.map(item => <RememberedRow key={item.key} memory={item.memory} />)}</div>}
@@ -395,7 +409,7 @@ function ActivityView({ block, expanded, onToggle }: {
   );
 }
 
-/** The one line a running member is named by, in the group's fold. */
+/** A compact activity label for the review log. */
 export function memberLabel(member: ActivityMember): string {
   if (member.kind === 'command') return commandLabel(member);
   if (member.kind === 'tool') return member.description ?? toolLabel(member.name);

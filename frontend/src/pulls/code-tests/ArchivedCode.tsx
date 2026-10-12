@@ -95,9 +95,11 @@ export default function ArchivedCode({ host, onExit, comments, active, bridge, o
     {error && <div className="ct-banner is-error" role="alert">{error}</div>}
     <div className="ct-work">
       <nav className="ct-files" aria-label="Files" style={{ width: column.width }}>
-        <div className="ct-files__head ct-scope" role="group" aria-label="File scope">
-          <button aria-pressed={!changed} onClick={() => setChanged(false)}>All files</button>
-          <button aria-pressed={changed} onClick={() => setChanged(true)}>Changed files</button>
+        <div className="ct-files__head">
+          <div className="ct-scope" role="group" aria-label="File scope">
+            <button aria-pressed={!changed} onClick={() => setChanged(false)}>All files</button>
+            <button aria-pressed={changed} onClick={() => setChanged(true)}>Changed files</button>
+          </div>
         </div>
         <div className="ct-files__list">
           {!files && !error && <p role="status">Loading files…</p>}

@@ -350,6 +350,11 @@ export async function runReviewWorkspace(local = false): Promise<string> {
     codeTab.click(); await settle();
     assert(codeSources.length > 0 && codeSources.every(source => source.kind === 'review' && source.reviewId === review.id),
       'A reviewer workspace must keep its exact review worktree even when a matching development task exists');
+    const files = pane.querySelector<HTMLElement>('[aria-label="Files"]');
+    const fileList = files?.querySelector<HTMLElement>('.ct-files__list');
+    assert(files !== null && fileList !== undefined && fileList !== null
+      && fileList.getBoundingClientRect().top - files.getBoundingClientRect().top < 50,
+    'Ended reviews must keep file filters compact and start the file list at the top of Code & Tests');
     assert(pane.querySelector('[aria-label="Review of development changes"]') === null,
       'A reviewer workspace must not mount the development Summary or replace its conversation stream');
     conversation.querySelector<HTMLButtonElement>('[aria-label="Back to tasks"]')?.click();

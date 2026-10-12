@@ -66,6 +66,14 @@ it('opens Changes in local and linked review workspaces while keeping Summary in
   expect(results).toHaveLength(3);
 }, 30_000);
 
+it('follows the review on Changes when a review opens over the task list', async () => {
+  const result = await fixture.run<string>({
+    width: 1250, height: 850,
+    body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runOverlayChangesStream()');",
+  });
+  expect(result).toContain('follows its review on Changes');
+}, 30_000);
+
 it('looks up exact PR numbers and shows newly discovered PRs without repeating list reads', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('PullScreenTests.runListSearch()');",

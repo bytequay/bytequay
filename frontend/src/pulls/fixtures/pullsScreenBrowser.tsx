@@ -443,6 +443,68 @@ export async function runOpenReviewWorkspaceStream(): Promise<string> {
   }
 }
 
+export async function runOverlayChangesStream(): Promise<string> {
+  const asked = reviewFixture({ id: 'asked-review' });
+  // A question asked from a finding on Changes leaves the review running until its answer arrives.
+  let review: AgentReviewDto = { ...asked, activeTurn: { id: 'turn-ask', state: 'RUNNING', startedAt: '2026-09-06T16:03:00Z', cancellationRequestedAt: null },
+    task: { ...asked.task, mutationClaim: 'TURN' } };
+  const detail = reviewDetail(review);
+  const streams: { listener: (message: AgentStreamMessage) => void; live: boolean }[] = [];
+  const bridge = {
+    getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      following: 0, bio: null, location: null, company: null, email: null }),
+    getAgentReview: async () => review,
+    subscribeAgentReview: async (_id, _after, listener) => {
+      for (const stream of streams) stream.live = false;
+      const stream = { listener, live: true };
+      streams.push(stream);
+      return () => { stream.live = false; };
+    },
+    findPullRequestTask: async () => null,
+    fetchAttentionPrs: async () => [],
+    setPrAttentionHandled: async () => {},
+    fetchMergeMode: async () => ({ mergeQueue: false }),
+    fetchPullRequestDetailByRef: async () => detail,
+    refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
+    fetchPrDiffFiles: async () => [file('reviewed.txt')],
+    fetchPrDiffCommits: async () => commits,
+    listLocalReviewComments: async () => [],
+    listReviewDiscussions: async () => [],
+    recordRecentTouch: async () => {},
+  } satisfies Pick<Bridge, 'getUserProfile' | 'getAgentReview' | 'subscribeAgentReview' | 'findPullRequestTask' | 'fetchAttentionPrs'
+    | 'setPrAttentionHandled' | 'fetchMergeMode' | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'fetchPrDiffFiles'
+    | 'fetchPrDiffCommits' | 'listLocalReviewComments' | 'listReviewDiscussions' | 'recordRecentTouch'>;
+  const originalBridge = window.bridge;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  host.style.width = '1200px';
+  host.style.height = '800px';
+  document.body.append(host);
+  const root = createRoot(host);
+  const busy = () => host.querySelector('.pull-detail__review-chip .agr-spinner') !== null;
+  const live = () => streams.filter(stream => stream.live);
+  try {
+    flushSync(() => root.render(<PullsScreen initialPr={{ repo: review.repo, number: review.number ?? 0 }} initialReviewId={review.id}
+      repositoryScope={{ workspaceId: review.workspaceId, repository: review.repo }} onClose={() => {}} />));
+    for (let attempt = 0; attempt < 30 && !(busy() && host.querySelector('.pull-diff-file') !== null && live().length === 1); attempt++) await settle();
+    assert(busy() && host.querySelector('.pull-diff-file') !== null, 'A review opened from the task list must start on Changes and show its running reviewer');
+    assert(live().length === 1, `Changes must follow the review it draws findings from, found ${live().length} live streams`);
+    review = { ...asked, version: asked.version + 1 };
+    for (const stream of live()) stream.listener({ subscriptionId: 'review-stream', taskId: review.task.id, kind: 'changed', sequence: 1, turnId: 'turn-ask' });
+    for (let attempt = 0; attempt < 40 && busy(); attempt++) await new Promise(resolve => setTimeout(resolve, 25));
+    assert(!busy(), 'An answer that arrives while Changes is shown must reach it without a tab switch');
+    [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Summary')?.click();
+    for (let attempt = 0; attempt < 30 && streams.length < 2; attempt++) await settle();
+    assert(streams.length === 2 && live().length === 1, `Summary must take the one review stream over from Changes, opened ${streams.length}, live ${live().length}`);
+    return 'Review overlay follows its review on Changes';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}
+
 export async function runActionSheetDismissal(): Promise<string> {
   const detail = { ...reviewDetail(reviewFixture()), draft: false, viewerCanWrite: true };
   const pr = remotePullRequest(detail, 'bob');

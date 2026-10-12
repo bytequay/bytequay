@@ -80,9 +80,12 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     expect(markup).not.toContain('aria-label="Remove image failure.png"');
   });
 
-  it('names every creation step and marks the reported one as the current step', () => {
+  it('folds initialization by default and keeps the current step in the summary', () => {
     const markup = render({ busy: true, startup: 'WORKTREE' });
 
+    expect(markup).toContain('<details class="agt-act agt-starting"><summary class="agt-act__fold">');
+    expect(markup).toContain('Starting task… Creating the task branch and worktree</span></summary>');
+    expect(markup).not.toMatch(/<details[^>]*open/);
     expect([...markup.matchAll(/agt-starting-step is-(\w+)/g)].map((match) => match[1]))
       .toEqual(['done', 'done', 'done', 'current', 'pending', 'pending']);
     expect(markup).toContain('Checking that Codex is installed and signed in');

@@ -41,6 +41,7 @@ import type { TaskDiscussionDto } from './discussions/contracts';
 import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQuestion, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
 import { IssueRequestCard } from './IssueAttachment';
+import { WorkItemPrompt } from './WorkItemPrompt';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
 import { agentDisplayName,activitySummary,formatDuration,planChip,rememberedMemory,turnElapsedMs,turnLabel,type ActivityBlock,type ActivityMember,type ApprovalBlock,type CommandAction,type CommandMember,type PlanStep,type ToolMember,type TranscriptTurn,type TurnBlock } from './transcript';
 
@@ -699,7 +700,7 @@ function TurnFooter({ turn, durable, models }: {
   );
 }
 
-export function TurnView({ turn, repository, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
+export function TurnView({ turn, repository, workspaceId, first, open, now, models, durableTurns, activityChoice, previews, agentLabels, onToggle, onToggleActivity, onDecide, onOpenAgent, generatedRequest = false, generatedBranch = null, turnRequest, localReview, discussions, reviewRequests, issueSource, jiraSource, onOpenReview, onOpenDiscussion, onSelectPassage, discussionBusy = false, focusedDiscussion, onHoverDiscussion, latest = false, children }: {
   localReview?: LocalReviewThreads;
   discussions?: TaskDiscussionDto[];
   onOpenDiscussion?: (discussionId: string) => void;
@@ -719,6 +720,7 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
   generatedBranch?: string | null;
   turn: TranscriptTurn;
   repository?: string | null;
+  workspaceId?: string | null;
   first: boolean;
   open: boolean;
   now: number;
@@ -817,25 +819,30 @@ export function TurnView({ turn, repository, first, open, now, models, durableTu
                 </div>}
               </ReviewRequestCard>
             ) : (
-              <div className="agt-user__bubble">
-                {generatedRequest && index === 0 && user.delivery === 'TURN' && (
-                  <div className="agt-user__attribution">ByteQuay · Review request</div>
-                )}
-                {user.attachments.length > 0 && (
-                  <div className="agt-user__files">
-                    {user.attachments.map((attachment) => (
-                      <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />
-                    ))}
-                  </div>
-                )}
-                <div>{linkIssueNumbers(user.text, repository)}</div>
-                {user.delivery !== 'TURN' && (
-                  <div className="agt-muted agt-small agt-user__delivery">
-                    <Glyph icon={user.delivery === 'STEER' ? CornerDownRight : ListPlus} />
-                    <span>{user.delivery === 'STEER' ? 'Steered into the running turn' : 'Queued'}</span>
-                  </div>
-                )}
-              </div>
+              <WorkItemPrompt workspaceId={first && turn.ordinal === 1 && index === 0 && user.delivery === 'TURN' && !generatedRequest ? workspaceId : undefined}
+                taskId={durable?.taskId} prompt={user.text} attachments={user.attachments.length > 0 && <div className="agt-user__files">
+                  {user.attachments.map(attachment => <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />)}
+                </div>}>
+                <div className="agt-user__bubble">
+                  {generatedRequest && index === 0 && user.delivery === 'TURN' && (
+                    <div className="agt-user__attribution">ByteQuay · Review request</div>
+                  )}
+                  {user.attachments.length > 0 && (
+                    <div className="agt-user__files">
+                      {user.attachments.map((attachment) => (
+                        <AttachmentTile key={attachment.id} attachment={attachment} preview={previews[attachment.id]} />
+                      ))}
+                    </div>
+                  )}
+                  <div>{linkIssueNumbers(user.text, repository)}</div>
+                  {user.delivery !== 'TURN' && (
+                    <div className="agt-muted agt-small agt-user__delivery">
+                      <Glyph icon={user.delivery === 'STEER' ? CornerDownRight : ListPlus} />
+                      <span>{user.delivery === 'STEER' ? 'Steered into the running turn' : 'Queued'}</span>
+                    </div>
+                  )}
+                </div>
+              </WorkItemPrompt>
             )}
           </div>}
         </React.Fragment>
@@ -1206,7 +1213,7 @@ export function AgentConversation({
             // A request reserves a viewport only until its reply starts, so sending lifts it to the top.
             // From the first block on the turn is its own height, so output stays just above the composer.
             const reserve = latest && turn.blocks.length === 0 && turn.answer === null;
-            return <TurnView key={id} turn={turn} repository={repository} first={index === 0} open={open} now={now}
+            return <TurnView key={id} turn={turn} repository={repository} workspaceId={workspaceId} first={index === 0} open={open} now={now}
               models={models} durableTurns={durableTurns} activityChoice={activityChoice}
               previews={previews} agentLabels={agentLabels} onToggle={() => onToggleTurn(id, !open)}
               onToggleActivity={onToggleActivity} onDecide={onDecide} onOpenAgent={onOpenAgent}

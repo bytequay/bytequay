@@ -16,12 +16,13 @@ import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import AgentTasksView, { type TaskLaunch } from '../../agents/AgentTasksView';
 import { AgentTaskBody } from '../../agents/AgentTaskScreen';
-import { createPreviewBridge, previewTask, TASK_BODY_NOOPS } from '../../agents/fixtures/previewBridge';
+import { agentTurn, createPreviewBridge, previewTask, TASK_BODY_NOOPS } from '../../agents/fixtures/previewBridge';
 import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { parseAgentEventSequence } from '../../agents/events';
 import eventFixture from '../../agents/fixtures/agent-events-v2.json';
 import { initialAgentTaskState } from '../../agents/model';
 import { getCached, setCached } from '../../dataCache';
+import { ZOOM_REFERENCE, type ZoomedReference } from '../../githubReference';
 import { runAttentionActions } from '../../home/fixtures/attentionBrowser';
 import type { AgentTaskDto, AgentTurnDto, Bridge, CreateAgentTaskRequest, RepositoryIssueSnapshotDto, WorkspaceDto, WorkspaceIssueDetailDto } from '../../types';
 import type { UnifiedWorkItem } from '../../workitems/contracts';
@@ -440,8 +441,19 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
       kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, links: [], history: [], createdAt: f.issue.createdAt,
       updatedAt: f.issue.updatedAt, priority: 'NORMAL', rank: 0, blockedBy: [], epicId: 'ISSUE:github.com:7001', epicRank: 0 },
   };
+  const epic: UnifiedWorkItem = { id: 'ISSUE:github.com:7001', source: 'GITHUB', title: 'Master reader memory accounting', description: '', status: 'Open',
+    closed: false, updatedAt: f.issue.updatedAt, work: null,
+    reference: { kind: 'ISSUE', key: 'upstream/app#7', label: '#7', title: 'Master reader memory accounting', addedAt: f.issue.createdAt } };
+  let finishCreation = (): void => {};
+  const creating = new Promise<void>(resolve => { finishCreation = resolve; });
   // The workspace's pages read more than a composer does; a read this scenario does not name fails, as an unreachable source would.
-  window.bridge = new Proxy({ ...f.bridge, listUnifiedWorkItems: async () => [item] } as unknown as Bridge, {
+  window.bridge = new Proxy({ ...f.bridge, listUnifiedWorkItems: async () => [item, epic], createAgentTask: async (request: CreateAgentTaskRequest) => {
+    const task = await f.bridge.createAgentTask(request);
+    await creating;
+    item.work?.links.push({ kind: 'TASK', key: task.id, label: 'Task', title: task.title, state: 'WORKING', status: 'Running', blocked: false,
+      url: null, activity: null, addedAt: task.createdAt });
+    return task;
+  } } as unknown as Bridge, {
     get: (target, name: string) => Reflect.get(target, name) ?? (name.startsWith('on') ? () => () => {} : async (): Promise<never> => { throw new Error(`${name} is not in this fixture`); }),
   });
   const host = document.createElement('div'); document.body.append(host);
@@ -453,6 +465,9 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
     initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={null} onSelectAgentTask={() => {}} onSelectPullRequest={() => {}}
     onSelectIssue={() => {}} />{tab === 'home' && <LocalWorkItems workspace={WORKSPACE} zoomedItemId={item.id} />}</>));
   const composer = (): HTMLTextAreaElement | null => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
+  const opened: ZoomedReference[] = [];
+  const onZoom = (event: Event): void => { opened.push((event as CustomEvent<ZoomedReference>).detail); };
+  window.addEventListener(ZOOM_REFERENCE, onZoom);
   try {
     show('home'); await settle();
     button(host, 'Start development').click();
@@ -463,15 +478,66 @@ async function localDevelopmentThroughWorkspace(): Promise<void> {
     assert(f.created.length === 1 && f.created[0].workItemId === item.id && f.created[0].message.includes(item.title)
       && f.created[0].message.includes('read_issue_context') && f.created[0].message.includes('parent Epic'),
       `Start development binds the work and requests its parent context without a composer step: ${JSON.stringify(f.created)} ${failures.join(' | ')}`);
+    const card = host.querySelector<HTMLElement>('.agt-work-request');
+    assert(card !== null && card.innerText.includes(item.title) && card.innerText.includes(epic.title) && !card.innerText.includes('read_issue_context'),
+      'Startup shows the work title and parent Epic while keeping the generated instructions folded');
+    const startup = host.querySelector<HTMLDetailsElement>('.agt-starting');
+    assert(startup !== null && !startup.open && startup.querySelectorAll('.agt-starting-step').length === 5, 'Initialization starts folded with all steps retained');
+    startup.querySelector('summary')?.click(); await settle();
+    assert(startup.open && startup.querySelector<HTMLElement>('.agt-starting-step')?.checkVisibility(), 'Expanding initialization reveals its steps');
+    startup.querySelector('summary')?.click();
+    card.querySelector<HTMLAnchorElement>('.agt-work-request__epic a')?.click();
+    const openedEpic = opened.at(-1);
+    assert(openedEpic?.kind === 'issue' && openedEpic.number === 7 && openedEpic.repo === 'upstream/app', 'The parent link opens its Epic');
+    finishCreation(); await settle(); await settle();
     assert(window.location.hash === workspaceAgentTaskRoute(f.workspaceId, f.created[0].taskId), `Start development lands on the task's conversation: ${window.location.hash}`);
 
     // A start that asks for review, as a Goal's prepared request does, waits in the composer.
     startEpicWork({ workspaceId: f.workspaceId, itemId: 'work-2', draft: 'A prepared request' });
     await settle(); await settle();
     assert(Number(f.created.length) === 1 && composer()?.value === 'A prepared request', `A start without send waits for the user: ${JSON.stringify(f.created)}`);
+
+    const task = previewTask(f.workspaceId, f.created[0].taskId);
+    const opening = parseAgentEventSequence(eventFixture.events)[0];
+    assert(opening.type === 'user_message' && opening.turnId !== null, 'Fixture starts with a user turn');
+    const turn = agentTurn('COMPLETED', { id: opening.turnId, taskId: task.id, endedAt: task.updatedAt });
+    const firstMessage = { ...opening, taskId: task.id, payload: { ...opening.payload, text: f.created[0].message } };
+    const followup = { ...firstMessage, eventId: 'followup', sequence: opening.sequence + 1, turnId: 'followup-turn', payload: { ...opening.payload, text: 'Explain the result' } };
+    flushSync(() => root.render(<AgentTaskBody state={{ ...initialAgentTaskState(), task, connection: 'open', events: [firstMessage, followup],
+      turns: { [turn.id]: turn, 'followup-turn': { ...turn, id: 'followup-turn' } } }} models={[]} {...TASK_BODY_NOOPS} />));
+    await settle(); await settle();
+    assert(host.querySelectorAll('.agt-work-request').length === 1 && host.querySelector('.agt-work-request')?.textContent?.includes(epic.title),
+      'Replayed first turn retains its work card and parent link');
+    assert(host.querySelector('.agt-user__bubble')?.textContent?.includes('Explain the result'), 'Follow-up messages remain ordinary messages');
+    const request = host.querySelector<HTMLDetailsElement>('.agt-work-request details');
+    request?.querySelector('summary')?.click();
+    assert(request?.open && request.innerText.includes('read_issue_context') && host.querySelector('.agt-work-request')?.textContent?.includes('flow.png'),
+      'The exact submitted prompt can be expanded and image attachments remain available');
+    host.querySelector<HTMLAnchorElement>('.agt-work-request__title')?.click();
+    const openedWork = opened.at(-1);
+    assert(openedWork?.kind === 'work' && openedWork.itemId === item.id, 'The title opens its local work item');
+
+    const jiraEpic: UnifiedWorkItem = { ...epic, source: 'JIRA', reference: { kind: 'JIRA', key: 'connection:cloud:1007', label: 'ENG-7',
+      title: epic.title, addedAt: f.issue.createdAt } };
+    window.bridge.listUnifiedWorkItems = async () => [item, jiraEpic];
+    const replay = (key: string) => flushSync(() => root.render(<AgentTaskBody key={key} state={{ ...initialAgentTaskState(), task, connection: 'open',
+      events: [firstMessage], turns: { [turn.id]: turn } }} models={[]} {...TASK_BODY_NOOPS} />));
+    replay('jira'); await settle(); await settle();
+    host.querySelector<HTMLAnchorElement>('.agt-work-request__epic a')?.click();
+    const openedJira = opened.at(-1);
+    assert(openedJira?.kind === 'jira' && openedJira.connectionId === 'connection' && openedJira.cloudId === 'cloud' && openedJira.issueId === '1007',
+      'A Jira parent opens its own ticket');
+    window.bridge.listUnifiedWorkItems = async () => [{ ...item, work: item.work === null ? null : { ...item.work, epicId: null } }];
+    replay('standalone'); await settle(); await settle();
+    assert(host.querySelector('.agt-work-request') !== null && host.querySelector('.agt-work-request__epic') === null,
+      'Standalone work keeps its card without an invented parent');
+    window.bridge.listUnifiedWorkItems = async () => { throw new Error('Work items unavailable'); };
+    replay('unavailable'); await settle(); await settle();
+    assert(host.querySelector('.agt-work-request') === null && host.querySelector('.agt-user__bubble')?.textContent?.includes('read_issue_context'),
+      'An unavailable work relationship leaves the original message readable');
     assert(failures.length === 0, `The workspace rendered without errors: ${failures.join(' | ')}`);
   }
-  finally { flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
+  finally { finishCreation(); window.removeEventListener(ZOOM_REFERENCE, onZoom); flushSync(() => root.unmount()); host.remove(); window.location.hash = ''; }
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {

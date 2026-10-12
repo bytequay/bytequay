@@ -18,6 +18,7 @@ import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
+import { Chevron } from '../Chevron';
 import RepoAvatar from '../RepoAvatar';
 import { INTERACTIVE_LANE_ID, developmentDefaults, displayModelName, isDeepSeekKeyLane, laneDefaults, laneLabel, providerAvailable } from '../settings/model';
 import { settingsRoute } from '../settings/routes';
@@ -30,6 +31,7 @@ import { workspaceAgentTaskRoute } from '../workspaces/model';
 import { LinkedWorkList, useLinkedWorkspaceWork } from './LinkedWorkspaceWork';
 import { BackportChainList, useBackportChains } from './BackportChains';
 import { IssueAttachment } from './IssueAttachment';
+import { WorkItemPrompt } from './WorkItemPrompt';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission } from './developmentAutomation';
 import { ModelPicker } from './ModelPicker';
@@ -579,7 +581,7 @@ export function startupSteps(
 }
 
 /** The first message is visible while the existing create-and-start request is in flight. */
-export function StartingAgentTask({ draft, images, laneId, providers, models, selection, startup = null, headerAction }: {
+export function StartingAgentTask({ draft, images, laneId, providers, models, selection, startup = null, headerAction, workspaceId, workItemId }: {
   draft: string;
   images: DraftImage[];
   laneId: string;
@@ -588,9 +590,16 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
   selection: TaskModelSelection | null;
   startup?: AgentTaskStartupPhase | null;
   headerAction?: React.ReactNode;
+  workspaceId?: string;
+  workItemId?: string;
 }): React.JSX.Element {
   const provider = providers.find((candidate) => candidate.id === laneId)?.label ?? laneLabel(laneId);
   const model = models.find((candidate) => candidate.id === selection?.model);
+  const steps = startupSteps(startup, provider, images.length > 0);
+  const current = steps.find(step => step.state === 'current');
+  const attachments = images.length > 0 && <div className="agt-user__files">
+    {images.map(image => <ImageAttachment key={image.id} url={image.url} name={image.name} />)}
+  </div>;
   return (
     <div className="agt-screen">
       <div className="agt-screen-head">
@@ -605,29 +614,29 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
       <div className="agt-transcript" aria-label="Starting task conversation">
         <div>
           <div className="agt-user">
-            <div className="agt-user__bubble">
-              {images.length > 0 && (
-                <div className="agt-user__files">
-                  {images.map((image) => <ImageAttachment key={image.id} url={image.url} name={image.name} />)}
-                </div>
-              )}
-              <div>{draft.trim()}</div>
-            </div>
+            <WorkItemPrompt workspaceId={workspaceId} itemId={workItemId} prompt={draft.trim()} attachments={attachments}>
+              <div className="agt-user__bubble">
+                {attachments}
+                <div>{draft.trim()}</div>
+              </div>
+            </WorkItemPrompt>
           </div>
-          <div className="agt-starting-status" role="status">
-            <LoaderCircle className="agt-spin" aria-hidden="true" />
-            <span>Starting task…</span>
-          </div>
-          <ol className="agt-starting-steps" aria-label="Task startup steps">
-            {startupSteps(startup, provider, images.length > 0).map((step) => (
-              <li key={step.label} className={`agt-starting-step is-${step.state}`}>
-                <span className={`agt-icon${step.state === 'current' ? ' is-running' : step.state === 'done' ? ' is-ok' : ''}`} aria-hidden="true">
-                  {step.state === 'current' ? <LoaderCircle className="agt-spin" /> : step.state === 'done' ? <Check /> : <Circle />}
-                </span>
-                <span>{step.label}</span>
-              </li>
-            ))}
-          </ol>
+          <details className="agt-act agt-starting">
+            <summary className="agt-act__fold">
+              <Chevron />
+              <span role="status">Starting task…{current && ` ${current.label}`}</span>
+            </summary>
+            <ol className="agt-act__body agt-starting-steps" aria-label="Task startup steps">
+              {steps.map((step) => (
+                <li key={step.label} className={`agt-starting-step is-${step.state}`}>
+                  <span className={`agt-icon${step.state === 'current' ? ' is-running' : step.state === 'done' ? ' is-ok' : ''}`} aria-hidden="true">
+                    {step.state === 'current' ? <LoaderCircle className="agt-spin" /> : step.state === 'done' ? <Check /> : <Circle />}
+                  </span>
+                  <span>{step.label}</span>
+                </li>
+              ))}
+            </ol>
+          </details>
         </div>
       </div>
       <div className="agt-bottom">
@@ -773,6 +782,7 @@ export default function AgentTasksView({
   return (
     <AgentTaskList
       workspaceId={workspaceId}
+      workItemId={workItemId}
       headerAction={headerAction}
       repository={repository}
       {...creation.composer}
@@ -1044,12 +1054,13 @@ function inType(item: TaskListItem, type: TypeTab): boolean {
 }
 
 export function AgentTaskList({
-  workspaceId, tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
+  workspaceId, workItemId, tasks, items = [], activity = {}, loading, error, laneId, providers, models, selection, draft, blocker, headerAction, repository,
   onDraftChange, onSelectProvider, onSelectModel, onCreate, onOpenTask, onOpenItem, onOpenReviewWorkspace, onNewItem, inGoal, onOpenSettings, onArchive, onDelete,
   images = [], busy = false, startup = null, attaching = false, onAttach, onPasteImages, onRemoveImage, automation, issueAttachment,
   now = Date.now(), initialTab = 'active', initialType = 'all', changes = {},
 }: {
   workspaceId?: string;
+  workItemId?: string;
   tasks: AgentTaskDto[];
   /** The workspace's reviews, cherry-picks and CI fixes, listed beside its agent tasks. */
   items?: TaskListItem[];
@@ -1121,7 +1132,7 @@ export function AgentTaskList({
     return () => window.removeEventListener('keydown', onKey);
   }, [selecting]);
 
-  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction }} />;
+  if (busy && !attaching) return <StartingAgentTask {...{ draft, images, laneId, providers, models, selection, startup, headerAction, workspaceId, workItemId }} />;
 
   const active = tab === 'active';
   const chainShelf = backports.chains.filter(view => view.archived === !active);

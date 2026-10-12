@@ -48,6 +48,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.toReadableExce
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -569,6 +570,7 @@ public class GitHubAccountClient
             }
             return items.stream()
                     .filter(e -> e.createdAt() != null)
+                    .sorted(comparing(GitHubEventItem::createdAt).reversed())
                     .limit(limit)
                     .map(GitHubAccountClient::toRecentEvent)
                     .collect(toImmutableList());

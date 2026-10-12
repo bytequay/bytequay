@@ -84,9 +84,17 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
   useLayoutEffect(() => {
     const node = root.current;
     if (!node) return;
-    const measure = () => bridge.resize(Math.ceil(node.getBoundingClientRect().height), compact);
+    const measure = () => {
+      const padding = getComputedStyle(node);
+      // Transparent parts of the native view still intercept drags on the Goal pill underneath.
+      const width = compact && launcher.current
+        ? launcher.current.getBoundingClientRect().width + parseFloat(padding.paddingLeft) + parseFloat(padding.paddingRight) : 420;
+      bridge.resize(Math.ceil(node.getBoundingClientRect().height), Math.ceil(width));
+    };
     const observer = new ResizeObserver(measure);
-    observer.observe(node); measure();
+    observer.observe(node);
+    if (launcher.current) observer.observe(launcher.current);
+    measure();
     return () => observer.disconnect();
   }, [bridge, compact, state.notices.length]);
   const dismiss = (notice: AppNotice, closedByUser = false) => {

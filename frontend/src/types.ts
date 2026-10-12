@@ -13,6 +13,7 @@
  */
 
 import type { WorkItemBridge } from './workitems/contracts';
+import type { AppNoticeBounds } from './notices/contracts';
 import type { GoogleBridge } from './google/contracts';
 import type { JiraBridge, JiraSourceRequest, JiraTaskSource } from './jira/contracts';
 import type { TeamActivityQuery, TeamActivitySnapshot, TeamCircleInput, TeamCreateInput, TeamDirectory, TeamMemberInput } from './teams/types';
@@ -1398,6 +1399,7 @@ export type RecentDraftRequest = {
 };
 
 export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
+  onAppNoticeBounds: (callback: (bounds: AppNoticeBounds) => void) => () => void;
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null }) => void) => () => void;
   setNoticeSource: (key: string, source: { taskId: string; turnId: string | null } | null) => Promise<void>;
   savePat: (pat: string) => Promise<boolean>;

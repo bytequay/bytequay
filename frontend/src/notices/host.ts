@@ -23,13 +23,18 @@ export class NoticeHost {
   private timer: ReturnType<typeof setInterval> | undefined;
   private reading: Promise<void> | null = null;
   private height = 0;
-  private compact = false;
+  private width = 420;
   private sources = new Map<string, { taskId: string; turnId: string | null }>();
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
     private readonly openTask: (notice: AppNotice) => Promise<void>) {}
 
   register(): void {
+    ipcMain.on('notices:measure', event => {
+      const window = this.window();
+      if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown notice owner');
+      this.layout();
+    });
     const child = (event: IpcMainInvokeEvent | IpcMainEvent): void => {
       if (!this.view || event.sender !== this.view.webContents || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown notice surface');
     };
@@ -48,10 +53,11 @@ export class NoticeHost {
       await this.openTask(notice);
       this.store.dismiss(id); this.publish();
     });
-    ipcMain.on('notices:resize', (event, height: unknown, compact: unknown) => {
+    ipcMain.on('notices:resize', (event, height: unknown, width: unknown) => {
       child(event);
-      if (typeof height !== 'number' || !Number.isFinite(height) || height < 0 || typeof compact !== 'boolean') return;
-      this.height = Math.ceil(height); this.compact = compact; this.layout();
+      if (typeof height !== 'number' || !Number.isFinite(height) || height < 0
+        || typeof width !== 'number' || !Number.isFinite(width) || width <= 0) return;
+      this.height = Math.ceil(height); this.width = Math.ceil(width); this.layout();
     });
     ipcMain.handle('notices:source', (event, key: unknown, source: unknown) => {
       const window = this.window();
@@ -147,18 +153,20 @@ export class NoticeHost {
     const window = this.window();
     if (!window || window.isDestroyed() || !this.view || this.view.webContents.isDestroyed()) return;
     const { width, height } = window.getContentBounds();
-    const w = Math.min(width, this.compact ? 280 : 420);
+    const w = Math.min(width, 420, this.width);
     const h = Math.min(Math.max(0, height - 56), this.height);
     // Bootstrap a one-pixel viewport so Chromium can measure before the first card resize.
     const viewportHeight = Math.max(1, h);
     this.view.setBounds({ x: width - w, y: height - viewportHeight, width: w, height: viewportHeight });
     this.view.setVisible(h > 0);
+    const zoom = window.webContents.getZoomFactor();
+    window.webContents.send('notices:bounds', h > 0 ? { x: (width - w) / zoom, y: (height - h) / zoom, width: w / zoom, height: h / zoom } : null);
     this.raise();
   }
 
   releaseWindow(): void {
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
-    this.view = null; this.height = 0; this.sources.clear();
+    this.view = null; this.height = 0; this.width = 420; this.sources.clear();
   }
 
   stop(): void { clearInterval(this.timer); this.timer = undefined; this.releaseWindow(); }

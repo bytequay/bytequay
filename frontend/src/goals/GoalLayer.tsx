@@ -18,6 +18,7 @@ import { Card, Pill } from '../cards/Card';
 import { zoomReference } from '../githubReference';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import type { SpecCheckRequest } from '../repository-context/specChecks';
+import type { AppNoticeBounds } from '../notices/contracts';
 import { LayerCovered } from '../Zoom';
 import type { GoalItemDto, GoalRecommendationDto } from './contracts';
 import { GoalPanel, GoalRing, type GoalPanelView } from './GoalPanel';
@@ -88,7 +89,7 @@ export function openGoalItem(item: GoalItemDto, workspaceId: string, onOpenTask:
   zoomReference(item.kind === 'PULL_REQUEST' ? { kind: 'pull', repo, number, workspaceId } : { kind: 'issue', repo, number, workspaceId });
 }
 
-type Drag = { x: number; y: number; from: PillPosition; moved: boolean };
+type Drag = { pointerId: number; x: number; y: number; from: PillPosition; moved: boolean };
 
 /**
  * The workspace's pinned goal around one of its pages: a pill the user can drag anywhere, which
@@ -115,7 +116,9 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   const [visited, setVisited] = useState(false);
   const [saved, setSaved] = useState<PillPosition | null>(() => loadPosition(page));
   const [position, setPosition] = useState<PillPosition>({ right: 24, bottom: 24 });
-  const [drag, setDrag] = useState<Drag | null>(null);
+  const [noticeBounds, setNoticeBounds] = useState<AppNoticeBounds>(null);
+  const drag = useRef<Drag | null>(null);
+  const [dragging, setDragging] = useState(false);
   const [view, setView] = useState<GoalPanelView>('guide');
   // The lesson open in the Goal window, if any.
   const [lesson, setLesson] = useState<string | null>(null);
@@ -124,9 +127,44 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
   const dragged = useRef(false);
   // The last spot a drag reached, which a release can report before the move that set it renders.
   const dropped = useRef<PillPosition | null>(null);
-  const dragging = drag !== null;
+
+  const finishDrag = useCallback((clientX?: number): void => {
+    const active = drag.current;
+    if (active === null) return;
+    const spot = dropped.current;
+    const element = pageRef.current;
+    const pill = pillRef.current;
+    drag.current = null;
+    dropped.current = null;
+    setDragging(false);
+    if (active.moved && spot !== null && element !== null && pill !== null) {
+      // Ignore the click following a drop, but allow the next deliberate click even if this release produces none.
+      dragged.current = true;
+      window.setTimeout(() => { dragged.current = false; }, 0);
+      const side = clientX === undefined ? null : foldSide(clientX, element.getBoundingClientRect());
+      const kept: PillPosition = side === null ? spot
+        : { right: side === 'left' ? element.clientWidth - pill.offsetWidth - PILL_MARGIN : PILL_MARGIN, bottom: spot.bottom, fold: side };
+      saveLocal(pillKey(page), JSON.stringify(kept));
+      setSaved(kept);
+      setPosition(kept);
+    }
+    if (pill?.hasPointerCapture(active.pointerId)) pill.releasePointerCapture(active.pointerId);
+  }, [page]);
 
   useEffect(() => {
+    const blur = (): void => finishDrag();
+    window.addEventListener('blur', blur);
+    return () => window.removeEventListener('blur', blur);
+  }, [finishDrag]);
+
+  useEffect(() => window.bridge?.onAppNoticeBounds?.(setNoticeBounds), []);
+
+  useEffect(() => {
+    const active = drag.current;
+    drag.current = null;
+    dropped.current = null;
+    setDragging(false);
+    if (active !== null && pillRef.current?.hasPointerCapture(active.pointerId)) pillRef.current.releasePointerCapture(active.pointerId);
     setSaved(loadPosition(page));
     setOpened(false);
     setVisited(false);
@@ -145,14 +183,16 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
       const bounds = element.getBoundingClientRect();
       const edges = composer?.getBoundingClientRect() ?? null;
       setPosition(placePill(saved, { width: pill.offsetWidth, height: pill.offsetHeight }, { width: bounds.width, height: bounds.height },
-        edges === null ? null : { left: edges.left - bounds.left, top: edges.top - bounds.top, right: edges.right - bounds.left, bottom: edges.bottom - bounds.top }));
+        edges === null ? null : { left: edges.left - bounds.left, top: edges.top - bounds.top, right: edges.right - bounds.left, bottom: edges.bottom - bounds.top },
+        noticeBounds === null ? null : { left: noticeBounds.x - bounds.left, top: noticeBounds.y - bounds.top,
+          right: noticeBounds.x + noticeBounds.width - bounds.left, bottom: noticeBounds.y + noticeBounds.height - bounds.top }));
     };
     place();
     const observer = new ResizeObserver(place);
     observer.observe(element);
     if (composer !== null) observer.observe(composer);
     return () => observer.disconnect();
-  }, [dragging, page, saved, goals.pinned?.id]);
+  }, [dragging, page, saved, goals.pinned?.id, noticeBounds]);
 
   const open = useCallback(() => { setVisited(true); setOpened(true); }, []);
   const close = useCallback(() => setOpened(false), []);
@@ -228,53 +268,42 @@ export function GoalLayer({ page, workspaceId, repository, goals, needsYou, onOp
         <button
           ref={pillRef}
           type="button"
-          className={`goal-pill${drag?.moved ? ' is-dragging' : ''}${folded ? ` is-folded is-${position.fold}` : ''}`}
+          className={`goal-pill${dragging ? ' is-dragging' : ''}${folded ? ` is-folded is-${position.fold}` : ''}`}
           style={folded ? { bottom: position.bottom } : { right: position.right, bottom: position.bottom }}
           title={[...runs, folded ? 'Drag out to unfold · click to open · ⌥G' : 'Drag to pin anywhere, or into a side to fold · click to open · ⌥G'].join('\n')}
           aria-label={goal === null ? 'Open goals' : [`Open goal: ${goal.title}`, ...runs].join(' · ')}
           aria-expanded={opened}
           aria-haspopup="dialog"
           onPointerDown={(event) => {
-            if (event.button !== 0) return;
+            if (event.button !== 0 || drag.current !== null) return;
             dragged.current = false;
             event.currentTarget.setPointerCapture(event.pointerId);
-            setDrag({ x: event.clientX, y: event.clientY, from: position, moved: false });
+            drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, from: position, moved: false };
+            setDragging(true);
           }}
           onPointerMove={(event) => {
+            const active = drag.current;
             const element = pageRef.current;
-            if (drag === null || element === null) return;
-            const dx = event.clientX - drag.x;
-            const dy = event.clientY - drag.y;
-            if (!drag.moved && Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
+            if (active === null || event.pointerId !== active.pointerId || element === null) return;
+            // A native view can swallow pointerup. Hover must never continue a drag when the button is already released.
+            if ((event.buttons & 1) === 0) { finishDrag(); return; }
+            const dx = event.clientX - active.x;
+            const dy = event.clientY - active.y;
+            if (!active.moved && Math.abs(dx) + Math.abs(dy) < DRAG_THRESHOLD) return;
             const pill = event.currentTarget;
             const clamp = (value: number, max: number) => Math.round(Math.max(PILL_MARGIN, Math.min(max, value)));
-            if (!drag.moved) setDrag({ ...drag, moved: true });
+            active.moved = true;
             dropped.current = {
-              right: clamp(drag.from.right - dx, element.clientWidth - pill.offsetWidth - PILL_MARGIN),
-              bottom: clamp(drag.from.bottom - dy, element.clientHeight - pill.offsetHeight - PILL_MARGIN),
+              right: clamp(active.from.right - dx, element.clientWidth - pill.offsetWidth - PILL_MARGIN),
+              bottom: clamp(active.from.bottom - dy, element.clientHeight - pill.offsetHeight - PILL_MARGIN),
             };
             setPosition(dropped.current);
           }}
           onPointerUp={(event) => {
-            const spot = dropped.current;
-            const element = pageRef.current;
-            dropped.current = null;
-            if (drag?.moved && spot !== null && element !== null) {
-              // The click that follows a drop is not an open. A drop against a side leaves the pointer off the pill, where no click follows,
-              // so the guard lasts only until the events of this release are done.
-              dragged.current = true;
-              window.setTimeout(() => { dragged.current = false; }, 0);
-              // Dropped against a side of the page, the pill folds into it there, and unfolds at that side when dragged out.
-              const side = foldSide(event.clientX, element.getBoundingClientRect());
-              const kept: PillPosition = side === null ? spot
-                : { right: side === 'left' ? element.clientWidth - event.currentTarget.offsetWidth - PILL_MARGIN : PILL_MARGIN, bottom: spot.bottom, fold: side };
-              saveLocal(pillKey(page), JSON.stringify(kept));
-              setSaved(kept);
-              setPosition(kept);
-            }
-            setDrag(null);
+            if (event.pointerId === drag.current?.pointerId) finishDrag(event.clientX);
           }}
-          onPointerCancel={() => setDrag(null)}
+          onPointerCancel={(event) => { if (event.pointerId === drag.current?.pointerId) finishDrag(); }}
+          onLostPointerCapture={(event) => { if (event.pointerId === drag.current?.pointerId) finishDrag(); }}
           onClick={() => {
             if (dragged.current) {
               dragged.current = false;

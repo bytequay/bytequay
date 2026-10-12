@@ -197,6 +197,18 @@ describe('goal model', () => {
     expect(foldSide(700, page)).toBeNull();
   });
 
+  it('keeps saved and folded goal tabs above the native notification surface', () => {
+    const pill = { width: 280, height: 36 };
+    const page = { width: 880, height: 952 };
+    const notices = { left: 460, top: 650, right: 880, bottom: 952 };
+    expect(placePill(null, pill, page, null, notices)).toEqual({ right: 24, bottom: 312 });
+    expect(placePill({ right: 24, bottom: 24 }, pill, page, null, notices)).toEqual({ right: 24, bottom: 312 });
+    expect(placePill({ right: 24, bottom: 24, fold: 'right' }, pill, page, null, notices)).toEqual({ right: 24, bottom: 312, fold: 'right' });
+    expect(placePill({ right: 24, bottom: 24, fold: 'left' }, pill, page, null, notices)).toEqual({ right: 24, bottom: 24, fold: 'left' });
+    expect(placePill({ right: 24, bottom: 400 }, pill, page, null, notices)).toEqual({ right: 24, bottom: 400 });
+    expect(placePill({ right: 24, bottom: 24 }, pill, page, null, null)).toEqual({ right: 24, bottom: 24 });
+  });
+
   it('reads a goal the backend sends and refuses a malformed one', () => {
     expect(parseGoal(JSON.parse(JSON.stringify(GOAL)))).toEqual(GOAL);
     expect(() => parseGoal({ ...GOAL, items: [{ ...GOAL.items[0], state: 'FINISHED' }] })).toThrow('Malformed work item state');

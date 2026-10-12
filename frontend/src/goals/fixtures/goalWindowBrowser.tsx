@@ -18,6 +18,7 @@ import { GoalLayer } from '../GoalLayer';
 import { LayerCovered } from '../../Zoom';
 import type { Goals } from '../useGoals';
 import type { GoalDto } from '../contracts';
+import type { AppNoticeBounds } from '../../notices/contracts';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 import '../../css/window-drag.css';
@@ -84,6 +85,9 @@ async function open(): Promise<HTMLElement> {
 }
 
 export async function run(): Promise<boolean> {
+  const previousBridge = window.bridge;
+  let noticeBounds: (bounds: AppNoticeBounds) => void = () => {};
+  window.bridge = { ...previousBridge, onAppNoticeBounds: listener => { noticeBounds = listener; return () => {}; } };
   const host = document.createElement('div');
   host.style.cssText = 'position:absolute;inset:0';
   document.body.append(host);
@@ -97,6 +101,46 @@ export async function run(): Promise<boolean> {
   try {
     render(); await settle();
     assert(document.querySelector('.goal-window') === null, 'Wide Home starts with the Goal pill');
+    // A native overlay may swallow the release before React receives it. Losing capture still ends the drag.
+    const dragPill = element('.goal-pill');
+    const start = dragPill.getBoundingClientRect();
+    await mouse('mouseMove', start.left + 12, start.top + 18);
+    await mouse('mouseDown', start.left + 12, start.top + 18, true);
+    await mouse('mouseMove', start.left - 88, start.top - 62, true);
+    const released = dragPill.getBoundingClientRect();
+    window.addEventListener('pointerup', event => event.stopImmediatePropagation(), { capture: true, once: true });
+    await mouse('mouseUp', released.left + 12, released.top + 18);
+    assert(!dragPill.classList.contains('is-dragging'), 'Losing pointer capture ends a drag even when the release is missed');
+    await mouse('mouseMove', released.left + 32, released.top + 28);
+    assert(Math.abs(dragPill.getBoundingClientRect().left - released.left) < 2
+      && Math.abs(dragPill.getBoundingClientRect().top - released.top) < 2, 'The released pill stays put instead of following hover');
+    assert(document.querySelector('.goal-window') === null, 'Recovering a missed release does not open the goal');
+    for (const ending of ['hover', 'blur', 'cancel']) {
+      const before = dragPill.getBoundingClientRect();
+      let pointerId = 0;
+      dragPill.addEventListener('pointerdown', event => { pointerId = event.pointerId; }, { once: true });
+      await mouse('mouseMove', before.left + 12, before.top + 18);
+      await mouse('mouseDown', before.left + 12, before.top + 18, true);
+      await mouse('mouseMove', before.left - 18, before.top - 2, true);
+      const dropped = dragPill.getBoundingClientRect();
+      if (ending === 'hover') await mouse('mouseMove', dropped.left + 32, dropped.top + 28);
+      else {
+        if (ending === 'blur') window.dispatchEvent(new Event('blur'));
+        else dragPill.dispatchEvent(new PointerEvent('pointercancel', { pointerId, bubbles: true }));
+        await settle();
+      }
+      assert(!dragPill.classList.contains('is-dragging'), `${ending} ends the active drag`);
+      await mouse('mouseMove', dropped.left + 42, dropped.top + 28, ending !== 'hover');
+      assert(Math.abs(dragPill.getBoundingClientRect().left - dropped.left) < 2
+        && Math.abs(dragPill.getBoundingClientRect().top - dropped.top) < 2, `${ending} keeps the last dragged position`);
+      await mouse('mouseUp', 2, 2);
+    }
+    const clickable = dragPill.getBoundingClientRect();
+    await mouse('mouseMove', clickable.left + 12, clickable.top + 18);
+    await mouse('mouseDown', clickable.left + 12, clickable.top + 18, true);
+    await mouse('mouseUp', clickable.left + 12, clickable.top + 18);
+    assert(!element('.goal-window').hidden, 'A deliberate click still opens the goal after interrupted drags');
+    button('Close the goal').click(); await settle();
     const pageWidth = element('main').getBoundingClientRect().width;
     let pane = await open();
     assert(document.activeElement === element('.goal-composer textarea'), 'A goal without a conversation opens ready for typing');
@@ -255,7 +299,17 @@ export async function run(): Promise<boolean> {
     await drag({ x: folded.left + folded.width / 2, y: folded.top + folded.height / 2 }, 240, 0);
     assert(!element('.goal-pill').classList.contains('is-folded') && document.querySelector('.goal-pill__title') !== null
       && document.querySelector('.goal-cards') !== null, 'Dragged out of the side, the pill unfolds and its card floats again');
+    render('notice-overlap'); await settle();
+    noticeBounds({ x: 480, y: 440, width: 420, height: 260 }); await settle();
+    const clear = element('.goal-pill').getBoundingClientRect();
+    assert(clear.bottom <= 430, 'Native notifications lift the goal tab out of their hit area');
+    await drag({ x: clear.left + 12, y: clear.top + clear.height / 2 }, -200, -80);
+    const movedPill = element('.goal-pill').getBoundingClientRect();
+    assert(Math.abs(movedPill.left - clear.left + 200) < 2 && Math.abs(movedPill.top - clear.top + 80) < 2,
+      'The exposed goal tab remains draggable while a notification is present');
+    noticeBounds(null); await settle();
+    assert(Math.abs(element('.goal-pill').getBoundingClientRect().top - movedPill.top) < 2, 'Clearing notices keeps the user\'s new position');
     return true;
   }
-  finally { flushSync(() => root.unmount()); host.remove(); }
+  finally { flushSync(() => root.unmount()); host.remove(); window.bridge = previousBridge; }
 }

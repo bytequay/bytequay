@@ -15,6 +15,7 @@ import type { IdeDesktopBridge, IdeEvent, IdeRequest } from './ide/contracts';
 import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
 import type { AgentStreamMessage, Bridge, FindResult, InAppBrowserState, PullRequestDto } from './types';
+import type { AppNoticeBounds } from './notices/contracts';
 
 ipcRenderer.on('github:account-changed', () => window.dispatchEvent(new Event('bytequay:github-account-changed')));
 
@@ -46,6 +47,12 @@ function streamSubscriber(prefix: 'agent' | 'review'): Bridge['subscribeAgentTas
 }
 
 const bridge: Bridge = {
+  onAppNoticeBounds: callback => {
+    const receive = (_event: unknown, bounds: AppNoticeBounds) => callback(bounds);
+    ipcRenderer.on('notices:bounds', receive);
+    ipcRenderer.send('notices:measure');
+    return () => { ipcRenderer.removeListener('notices:bounds', receive); };
+  },
   onAppNoticeOpen: callback => {
     const receive = (_event: unknown, target: { taskId: string; workspaceId: string; turnId: string | null }) => callback(target);
     ipcRenderer.on('notices:open-task', receive);

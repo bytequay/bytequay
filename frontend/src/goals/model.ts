@@ -240,23 +240,31 @@ export function foldSide(x: number, page: { left: number; right: number }): Pill
 
 /**
  * Where the pill sits: the saved spot, or just above the composer's right edge, kept inside the page
- * and never over the composer. Composer edges are relative to the page.
+ * and clear of the composer and native notices. Both rectangles are relative to the page.
  */
-export function placePill(saved: PillPosition | null, pill: Box, page: Box, composer: Edges | null): PillPosition {
+export function placePill(saved: PillPosition | null, pill: Box, page: Box, composer: Edges | null, notices: Edges | null = null): PillPosition {
   const above = composer === null ? null : page.height - composer.top + PILL_GAP;
   const start = saved ?? (composer === null ? { right: 24, bottom: 24 } : { right: page.width - composer.right, bottom: above ?? 24 });
   const clamp = (value: number, max: number) => Math.round(Math.max(PILL_MARGIN, Math.min(Math.max(PILL_MARGIN, max), value)));
-  const placed = {
+  const placed: PillPosition = {
     right: clamp(start.right, page.width - pill.width - PILL_MARGIN),
     bottom: clamp(start.bottom, page.height - pill.height - PILL_MARGIN),
   };
   // A folded tab sits on its side of the page, clear of a composer in the middle.
-  if (saved?.fold !== undefined) return { ...placed, fold: saved.fold };
-  if (composer === null || above === null) return placed;
-  const left = page.width - placed.right - pill.width;
-  const top = page.height - placed.bottom - pill.height;
-  const overlaps = left < composer.right && left + pill.width > composer.left && top < composer.bottom && top + pill.height > composer.top;
-  return overlaps ? { right: placed.right, bottom: clamp(above, page.height - pill.height - PILL_MARGIN) } : placed;
+  if (saved?.fold !== undefined) placed.fold = saved.fold;
+  const overlaps = (edges: Edges): boolean => {
+    const left = placed.fold === 'left' ? 0 : page.width - (placed.fold === 'right' ? 0 : placed.right) - pill.width;
+    const top = page.height - placed.bottom - pill.height;
+    return left < edges.right && left + pill.width > edges.left && top < edges.bottom && top + pill.height > edges.top;
+  };
+  if (placed.fold === undefined && composer !== null && above !== null && overlaps(composer)) {
+    placed.bottom = clamp(above, page.height - pill.height - PILL_MARGIN);
+  }
+  // Native notice views intercept input even in their transparent padding.
+  if (notices !== null && overlaps(notices)) {
+    placed.bottom = clamp(page.height - notices.top + PILL_GAP, page.height - pill.height - PILL_MARGIN);
+  }
+  return placed;
 }
 
 /** Starting points for "What do you want to achieve?", written from the workspace's repository without asking a model. */

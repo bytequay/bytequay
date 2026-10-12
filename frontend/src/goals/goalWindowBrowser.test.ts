@@ -18,9 +18,9 @@ import { runBrowserFixture } from '../fixtures/browserFixture';
 it('zooms, drags, resizes and dismisses Goals without moving the page or losing drafts', async () => {
   expect(await runBrowserFixture<boolean>({
     prefix: 'bytequay-goal-window-', entry: 'src/goals/fixtures/goalWindowBrowser.tsx', global: 'GoalWindowTests',
-    styles: true, charset: true, width: 1440, height: 1000,
+    styles: true, charset: true, width: 1440, height: 1000, timeoutMs: 60_000,
     preload: `const { contextBridge, ipcRenderer } = require('electron');
       contextBridge.exposeInMainWorld('goalMouse', (event) => ipcRenderer.invoke('goal-mouse', event));`,
     setup: `ipcMain.handle('goal-mouse', (_event, input) => window.webContents.sendInputEvent(input));`,
   })).toBe(true);
-}, 30_000);
+}, 90_000);

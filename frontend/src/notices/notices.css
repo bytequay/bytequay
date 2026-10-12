@@ -22,7 +22,7 @@ body { font: 13px/1.5 var(--font); color: var(--text-1); overflow: hidden; }
 .app-notices button:disabled { opacity: .45; cursor: default; }
 .app-notice__close, .app-notices__header button, .app-notices__pages button { display: grid; place-items: center; min-width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; }
 .app-notices__footer { display: flex; align-items: center; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
-.app-notices__launcher { display: flex; align-items: center; gap: 6px; padding: 7px 11px; font-size: 12px !important; border: 1px solid var(--border-strong); border-radius: 18px; background: var(--bg-elevated); box-shadow: 0 2px 8px light-dark(rgb(0 0 0 / 8%), rgb(0 0 0 / 25%)); }
+.app-notices__launcher { display: flex; flex-shrink: 0; align-items: center; gap: 6px; padding: 7px 11px; font-size: 12px !important; white-space: nowrap; border: 1px solid var(--border-strong); border-radius: 18px; background: var(--bg-elevated); box-shadow: 0 2px 8px light-dark(rgb(0 0 0 / 8%), rgb(0 0 0 / 25%)); }
 .app-notices .app-notices__launcher.has-notices { --notice-fill: light-dark(var(--notice-color), color-mix(in srgb, var(--notice-color) 60%, #000)); background: color-mix(in srgb, var(--notice-fill) var(--notice-tint), var(--bg-elevated)); border-color: color-mix(in srgb, var(--notice-color) var(--notice-tint), var(--border-strong)); }
 .app-notices .app-notices__launcher.has-notices:hover { background: color-mix(in srgb, var(--notice-fill) calc(var(--notice-tint) + 6%), var(--bg-elevated)); }
 .app-notices__empty { margin: 0; padding: 12px; color: var(--text-3); background: var(--bg-elevated); border-radius: 8px; }

@@ -25,7 +25,7 @@ export async function run() {
   let state: NoticeSnapshot = { notices: [], popupIds: [], active: true, maxHeight: 600 };
   let listener: (value: NoticeSnapshot) => void = () => {};
   let rejectDismiss = false;
-  const opened: string[] = []; const dismissed: string[] = []; const sizes: { height: number; compact: boolean }[] = [];
+  const opened: string[] = []; const dismissed: string[] = []; const sizes: { height: number; width: number }[] = [];
   const bridge: NoticeBridge = {
     read: async () => state, subscribe: callback => { listener = callback; return () => {}; },
     dismiss: async id => {
@@ -33,7 +33,7 @@ export async function run() {
       dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
     },
     open: async id => { opened.push(id); await bridge.dismiss(id); },
-    resize: (height, compact) => sizes.push({ height, compact }),
+    resize: (height, width) => sizes.push({ height, width }),
   };
   const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
@@ -85,9 +85,9 @@ export async function run() {
     questionAction.click(); await wait(); assert(opened[0] === 'q', 'Card opens its own source');
     const rect = host.querySelector<HTMLElement>('.app-notices')?.getBoundingClientRect();
     assert(rect && rect.width <= window.innerWidth && rect.height <= 600, 'Cards fit their native surface');
-    assert(sizes.some(size => size.height > 100 && !size.compact), 'Native host receives measured card height and full width');
+    assert(sizes.some(size => size.height > 100 && size.width === 420), 'Native host receives measured card height and full width');
     state = { ...state, notices: [make('q', 'QUESTION')], popupIds: [] }; listener(state); await wait();
-    assert(host.querySelectorAll('.app-notice').length === 1 && sizes.at(-1)?.compact === false, 'One pending card stays visible after popups are dismissed');
+    assert(host.querySelectorAll('.app-notice').length === 1 && sizes.at(-1)?.width === 420, 'One pending card stays visible after popups are dismissed');
     const lastClose = host.querySelector<HTMLButtonElement>('.app-notice__close'); assert(lastClose, 'The final visible card has a close button');
     rejectDismiss = true; lastClose.click(); await wait();
     assert(host.querySelector('.app-notice') && host.querySelector('[role="alert"]'), 'Failed dismissals keep the card visible');
@@ -95,7 +95,7 @@ export async function run() {
     assert(!host.querySelector('.app-notice') && !host.querySelector('[role="alert"]') && launcher.textContent?.includes('1 needs you'),
       'Closing the last card keeps its counter and clears any previous error');
     listener({ ...state }); await wait();
-    assert(!host.querySelector('.app-notice') && sizes.at(-1)?.compact, 'Closed cards stay closed across refreshes and release the native hit area');
+    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.width ?? 420) < 280, 'Closed cards stay closed across refreshes and release the native hit area');
     launcher.click(); await wait();
     assert(host.querySelector('.is-question'), 'The counter reopens a closed card');
     host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
@@ -111,7 +111,8 @@ export async function run() {
     assert(!host.querySelector('.app-notice') && launcher.textContent?.includes('1 recent'), 'The final completion can be closed without losing its recent count');
     state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
     const compact = sizes.at(-1);
-    assert(!host.querySelector('.app-notice') && compact && compact.height > 0 && compact.compact, 'Empty notices shrink the native hit area to the launcher');
+    assert(!host.querySelector('.app-notice') && compact && compact.height > 0 && compact.width < 280
+      && Math.abs(compact.width - launcher.getBoundingClientRect().width - 40) < 1, 'Empty notices shrink the native hit area to the launcher');
     const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
     const context = canvas.getContext('2d'); assert(context, 'Color sampling unavailable');
     const color = (css: string) => { context.fillStyle = css; context.fillRect(0, 0, 1, 1); return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3); };

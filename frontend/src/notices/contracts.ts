@@ -18,12 +18,13 @@ export type AppNotice = {
   title: string; message: string; repository: string; laneId: string; occurredAt: string;
 };
 export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; active: boolean; maxHeight: number };
+export type AppNoticeBounds = { x: number; y: number; width: number; height: number } | null;
 export type NoticeBridge = {
   read: () => Promise<NoticeSnapshot>;
   subscribe: (listener: (state: NoticeSnapshot) => void) => () => void;
   dismiss: (id: string) => Promise<void>;
   open: (id: string) => Promise<void>;
-  resize: (height: number, compact: boolean) => void;
+  resize: (height: number, width: number) => void;
 };
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {

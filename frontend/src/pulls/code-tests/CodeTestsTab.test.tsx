@@ -61,10 +61,10 @@ describe('CodeTestsTab', () => {
     expect(html).not.toContain('>Start review</button>');
   });
 
-  it('opens the modular IDE for an active review', () => {
+  it('checks for a ready IDE for an active review', () => {
     const html = renderToStaticMarkup(<CodeTestsTab detail={detail} workspaceId="workspace-1" review={reviewFixture()}
       onReviewChange={() => {}} active ownReviewStream bridge={bridge()} />);
-    expect(html).toContain('Starting code tools');
+    expect(html).toContain('Checking code tools');
     expect(html).toContain('ct-ide-surface');
     expect(html).not.toContain('ct-code');
   });
@@ -125,7 +125,7 @@ describe('CodeTestsTab', () => {
     const task = { ...parseAgentTask(contracts.task), interactive: true };
     const html = renderToStaticMarkup(<CodeTestsTab detail={detail} workspaceId="workspace-1" review={reviewFixture()} task={task}
       onReviewChange={() => {}} active ownReviewStream bridge={bridge()} />);
-    expect(html).toContain('Starting code tools');
+    expect(html).toContain('Checking code tools');
     expect(html).not.toContain('Start review');
     expect(html).not.toContain('Discard');
     expect(html).not.toContain('Back to reviews');

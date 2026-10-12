@@ -99,6 +99,19 @@ class TestIdeRuntimeService
     }
 
     @Test
+    void findsReadyRuntimeWithoutStartingOrRestartingProcesses()
+    {
+        assertThat(runtime.existing(worktree)).isEmpty();
+        verify(supervisor, never()).prepare(any());
+        IdeConnection connection = runtime.open(worktree);
+        assertThat(runtime.existing(worktree)).containsSame(connection);
+        exit.completeExceptionally(new IllegalStateException("server exited"));
+        assertThat(runtime.existing(worktree)).isEmpty();
+        verify(supervisor).prepare(any());
+        verify(process, never()).stopAndVerify();
+    }
+
+    @Test
     void reusesOneRuntimeWithPrivateCredentialsAndSeparateWritableProfile()
             throws IOException
     {

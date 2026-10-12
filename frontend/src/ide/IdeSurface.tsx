@@ -15,6 +15,7 @@ import { findingInResults } from '../pulls/agent-review/model';
 import { prepareAgentInput } from '../agents/preparedInput';
 import { useEffect, useRef, useState } from 'react';
 import LogoLoading from '../LogoLoading';
+import IdeCostNotice from './IdeCostNotice';
 import { useFindingActions } from '../pulls/agent-review/useFindingActions';
 import { PLACEHOLDER_REVIEW } from '../pulls/PullChanges';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
@@ -32,6 +33,7 @@ export type IdeSurfaceProps = {
   comments?: CodeCommentsOptions;
   onReviewChange: (review: AgentReviewDto) => void;
   onUnsavedChange?: (count: number) => void;
+  startRequested?: boolean;
 };
 
 function contextOf(props: IdeSurfaceProps, findings: ReturnType<typeof useFindingActions>): IdeContext {
@@ -113,6 +115,8 @@ export default function IdeSurface(props: IdeSurfaceProps) {
   const [id, setId] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [startRequested, setStartRequested] = useState(props.startRequested ?? false);
+  const [needsStart, setNeedsStart] = useState(false);
 
   useEffect(() => {
     const stopRequest = window.ide.onRequest(request => {
@@ -124,7 +128,7 @@ export default function IdeSurface(props: IdeSurfaceProps) {
     const stopEvent = window.ide.onEvent(event => {
       if (event.id !== idRef.current) return;
       current.current.onUnsavedChange?.(event.dirty);
-      if (event.closed) { idRef.current = null; setId(null); }
+      if (event.closed) { idRef.current = null; setId(null); setStartRequested(false); setNeedsStart(true); }
       if (event.error) setError(event.error);
     });
     return () => {
@@ -137,14 +141,17 @@ export default function IdeSurface(props: IdeSurfaceProps) {
   useEffect(() => {
     if (!props.active || id !== null || error !== null) return;
     let live = true;
-    void window.ide.open(current.current.host).then(opened => {
+    const opening = startRequested ? window.ide.open(current.current.host) : window.ide.resume(current.current.host);
+    void opening.then(opened => {
+      if (opened === null) { if (live) setNeedsStart(true); return; }
       if (!live) { void window.ide.present(opened, null); return; }
       idRef.current = opened;
       setId(opened);
+      setNeedsStart(false);
       void window.ide.update(opened, contextOf(current.current, findingActionsRef.current));
     }).catch(failure => { if (live) setError(String(failure)); });
     return () => { live = false; };
-  }, [attempt, props.active, id, error]);
+  }, [attempt, props.active, id, error, startRequested]);
 
   useEffect(() => {
     if (id) void window.ide.update(id, contextOf(props, findingActions)).catch(failure => setError(String(failure)));
@@ -171,12 +178,20 @@ export default function IdeSurface(props: IdeSurfaceProps) {
   }, [id, props.active, error]);
 
   return <div className="ct-ide-surface" ref={element} style={{ flex: 1, minHeight: 0, position: 'relative' }}>
-    {error ? <div className="ct-empty" role="alert">{error}<button type="button" onClick={() => {
+    {error ? <div className="ct-empty agr-empty"><div role="alert">{error}</div><IdeCostNotice /><button type="button" className="agr-action is-primary" onClick={() => {
       const currentId = idRef.current;
-      void (currentId ? window.ide.close(currentId) : Promise.resolve()).then(() => { idRef.current = null; setId(null); setError(null); setAttempt(value => value + 1); }).catch(failure => setError(String(failure)));
-    }}>Reconnect editor</button></div> : id === null && <div className="ct-tools-loading" role="status">
+      void (currentId ? window.ide.close(currentId) : Promise.resolve()).then(() => {
+        idRef.current = null; setId(null); setError(null); setStartRequested(true); setNeedsStart(false); setAttempt(value => value + 1);
+      }).catch(failure => setError(String(failure)));
+    }}>Reconnect editor</button></div> : needsStart ? <div className="ct-empty agr-empty">
+      <div className="agr-empty__title">Start the IDE for this working copy?</div>
+      <IdeCostNotice />
+      <div className="agr-empty__actions"><button type="button" className="agr-action is-primary" onClick={() => {
+        setStartRequested(true); setNeedsStart(false);
+      }}>Start IDE</button></div>
+    </div> : id === null && <div className="ct-tools-loading" role="status">
       <span aria-hidden="true"><LogoLoading size={56} /></span>
-      <span>Starting code tools…</span>
+      <span>{startRequested ? 'Starting code tools…' : 'Checking code tools…'}</span>
     </div>}
   </div>;
 }

@@ -99,6 +99,19 @@ public class IdeRuntimeService
         this.clock = requireNonNull(clock, "clock is null");
     }
 
+    /** Finds a ready server without starting or restarting any processes. */
+    public synchronized Optional<IdeConnection> existing(TaskWorktree worktree)
+    {
+        Live live = sessions.get(worktree.taskId().toString());
+        if (closing || live == null || live.process.isEmpty() || live.process.orElseThrow().exit().toCompletableFuture().isDone()
+                || !live.connection.isDone() || live.connection.isCompletedExceptionally()) {
+            return Optional.empty();
+        }
+        checkState(live.root.equals(worktree.canonicalWorktree()), "The IDE workspace identity changed");
+        live.lastSeen = clock.instant();
+        return Optional.of(live.connection.join());
+    }
+
     public synchronized IdeConnection open(TaskWorktree worktree)
     {
         return WorkspaceOperationLocks.withLock(worktree.workspaceId(), () -> {

@@ -23,6 +23,12 @@ beforeAll(async () => {
 }, 30_000);
 afterAll(() => fixture?.dispose());
 
+it.each([false, true])('confirms IDE startup for an existing worktree (task: %s)', async taskHost => {
+  const result = await fixture.run<string>({
+    body: `const results = await window.webContents.executeJavaScript('WorktreeSyncTests.runStartup(${taskHost})');` });
+  expect(result).toContain('Startup requires confirmation');
+}, 30_000);
+
 it('creates an exploration worktree on demand and opens it without starting a review', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('WorktreeSyncTests.runExploration()');" });

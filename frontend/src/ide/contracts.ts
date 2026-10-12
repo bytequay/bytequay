@@ -54,6 +54,7 @@ export type IdeBounds = { x: number; y: number; width: number; height: number };
 
 /** Only the ByteQuay renderer can own or position an IDE view. */
 export type IdeDesktopBridge = {
+  resume: (host: CodeHostRef) => Promise<string | null>;
   open: (host: CodeHostRef) => Promise<string>;
   present: (id: string, bounds: IdeBounds | null) => Promise<void>;
   update: (id: string, context: IdeContext) => Promise<void>;

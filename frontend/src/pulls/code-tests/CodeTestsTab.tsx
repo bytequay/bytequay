@@ -17,6 +17,7 @@ import { remoteErrorMessage } from '../PullOverview';
 import type { AgentReviewDto } from '../agent-review/contracts';
 import { latestRun } from '../agent-review/model';
 import IdeWorkingCopy from '../../ide/IdeWorkingCopy';
+import IdeCostNotice from '../../ide/IdeCostNotice';
 import ArchivedCode from './ArchivedCode';
 import type { CodeCommentsOptions } from './useCodeComments';
 import { shortSha } from './codeModel';
@@ -72,6 +73,7 @@ export default function CodeTestsTab({
   bridge?: CodeTestsBridge;
 }) {
   const [endedReview, setEndedReview] = useState<AgentReviewDto | null>(null);
+  const [startReviewId, setStartReviewId] = useState<string | null>(null);
   const shown = review ?? endedReview;
 
   if (task !== null && workspaceId !== undefined) {
@@ -91,7 +93,9 @@ export default function CodeTestsTab({
   }
   if (shown === null && detail === null) return <div className="ct-empty" role="status">This task has no available working copy.</div>;
   if (shown === null && detail !== null) {
-    return <NoReview detail={detail} workspaceId={workspaceId} bridge={bridge} onReviewChange={onReviewChange} onOpenEnded={setEndedReview} />;
+    return <NoReview detail={detail} workspaceId={workspaceId} bridge={bridge} onReviewChange={prepared => {
+      setStartReviewId(prepared.id); onReviewChange(prepared);
+    }} onOpenEnded={setEndedReview} />;
   }
   if (shown === null) return null;
   const ReviewCopy = shown.state === 'OPEN' ? IdeWorkingCopy : ArchivedCode;
@@ -99,6 +103,7 @@ export default function CodeTestsTab({
     <ReviewCopy
       key={`review:${shown.id}`}
       host={{ kind: 'review', review: shown }}
+      startRequested={shown.id === startReviewId}
       onReviewChange={review === null ? setEndedReview : onReviewChange}
       onExit={review === null ? () => setEndedReview(null) : undefined}
       onUnsavedChange={onUnsavedChange}
@@ -158,7 +163,7 @@ function NoReview({ detail, workspaceId, bridge, onReviewChange, onOpenEnded }: 
         Create a local worktree from this pull request&apos;s branch to browse files, edit code, and run tests.
         ByteQuay checks out the latest PR commit. You can start an agent review later using this working copy.
       </p>
-      <p>Opening the editor starts a local code server in the background, which uses additional memory.</p>
+      <IdeCostNotice />
       <div className="agr-empty__actions">
         <button type="button" className="agr-action is-primary" disabled={starting} onClick={start}>
           {starting ? 'Creating worktree…' : 'Create worktree to explore'}

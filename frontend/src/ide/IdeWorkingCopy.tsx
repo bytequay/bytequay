@@ -20,9 +20,10 @@ import type { AgentReviewDto } from '../pulls/agent-review/contracts';
 import type { AgentTaskDto } from '../types';
 import { pollVisible } from './pollVisible';
 
-export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, comments, active, ownReviewStream, bridge }: {
+export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, comments, active, ownReviewStream, bridge, startRequested = false }: {
   host: CodeTestsHost; onReviewChange: (review: AgentReviewDto) => void; onExit?: () => void;
   onUnsavedChange?: (count: number) => void; comments?: CodeCommentsOptions; active: boolean; ownReviewStream: boolean; bridge: CodeTestsBridge;
+  startRequested?: boolean;
 }) {
   const [hostRef] = useState<CodeHostRef>(() => host.kind === 'review' ? { kind: 'review', reviewId: host.review.id }
     : { kind: 'task', taskId: host.task.id, workspaceId: host.workspaceId });
@@ -70,6 +71,6 @@ export default function IdeWorkingCopy({ host, onReviewChange, onUnsavedChange, 
   return <div className="ct">
     {loadError && <div className="ct-banner is-error" role="alert">{loadError}<button onClick={() => { setLoadError(null); setReload(value => value + 1); }}>Retry</button></div>}
     <IdeSurface host={hostRef} active={active} review={review} task={task} comments={comments} onReviewChange={onReviewChange}
-      onUnsavedChange={onUnsavedChange} />
+      onUnsavedChange={onUnsavedChange} startRequested={startRequested} />
   </div>;
 }

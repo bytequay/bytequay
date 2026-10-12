@@ -597,6 +597,7 @@ const bridge: Bridge = {
 contextBridge.exposeInMainWorld('bridge', bridge);
 
 const ide: IdeDesktopBridge = {
+  resume: host => ipcRenderer.invoke('ide:resume', host),
   open: host => ipcRenderer.invoke('ide:open', host),
   present: (id, bounds) => ipcRenderer.invoke('ide:present', id, bounds),
   update: (id, context) => ipcRenderer.invoke('ide:update', id, context),

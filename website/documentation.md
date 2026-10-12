@@ -191,8 +191,14 @@ starts a review of the PR and opens that conversation.
 
 For a PR in a watched repository, open **WorkBench → Code & Tests** and choose
 **Create worktree to explore**. ByteQuay checks out the PR branch's latest commit
-into a managed local worktree and opens the editor. The local code server runs
-in the background and uses additional memory.
+into a managed local worktree and opens the editor. For an existing working copy,
+choose **Start IDE** if its code server is not running. Visiting the tab reuses a
+ready server; it does not start a new one without confirmation.
+
+The confirmation explains the local cost: the code server and language tools use
+additional memory and CPU, indexing takes time, and worktrees and index caches
+use disk space. Usage depends on the repository and languages. Opening the IDE
+does not start an AI agent or use model tokens.
 
 Open a changed file to see gutter markers: green for added lines, blue for
 updated lines, and red at deletion points. Markers compare saved contents with

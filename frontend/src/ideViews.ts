@@ -126,6 +126,18 @@ export class IdeViews {
       try { query.finish(parseCodeQueryReply(value)); }
       catch { query.finish(queryFailure('UNAVAILABLE', 'The language service returned an invalid result')); }
     });
+    ipcMain.handle('ide:resume', async (event, value: unknown) => {
+      parent(event);
+      const host = parseCodeHost(value);
+      const route = host.kind === 'review' ? `/reviews/${encodeURIComponent(host.reviewId)}`
+        : `/tasks/${encodeURIComponent(host.workspaceId)}/${encodeURIComponent(host.taskId)}`;
+      const response = await runtimeRequest(route, 'GET');
+      if (response == null) return null;
+      const connection = connectionFrom(response);
+      const existing = [...this.editors.values()].find(editor => editor.connection.taskId === connection.taskId);
+      if (existing && (existing.closing || existing.contents.isDestroyed() || existing.connection.sessionId !== connection.sessionId)) return null;
+      return this.create(host, connection);
+    });
     ipcMain.handle('ide:open', (event, host: unknown) => { parent(event); return this.open(parseCodeHost(host)); });
     ipcMain.handle('ide:present', (event, id: string, bounds: unknown) => {
       parent(event);
@@ -272,9 +284,6 @@ export class IdeViews {
 
   open(host: CodeHostRef): Promise<string> {
     const key = codeHostKey(host);
-    const existing = [...this.editors.values()].find(item => codeHostKey(item.host) === key);
-    if (existing && !existing.closing && !existing.contents.isDestroyed()) return Promise.resolve(existing.id);
-    if (existing) return this.close(existing.id).then(() => this.open(host));
     const pending = this.opening.get(key);
     if (pending) return pending;
     const opening = this.create(host).finally(() => this.opening.delete(key));
@@ -290,7 +299,7 @@ export class IdeViews {
     if (existing) {
       if (existing.closing || existing.connection.sessionId !== connection.sessionId || existing.contents.isDestroyed()) {
         await this.close(existing.id);
-        return this.create(host, connection);
+        return this.create(host, suppliedConnection);
       }
       if (codeHostKey(existing.host) !== codeHostKey(host) && existing.context) throw new Error('This working copy is already open in another review; close that editor first');
       existing.host = host;

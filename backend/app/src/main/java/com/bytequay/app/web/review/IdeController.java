@@ -119,6 +119,18 @@ public class IdeController
 
     record QueryReply(String taskId, Optional<String> sessionId, CodeQueryResult result) {}
 
+    @GetMapping("/reviews/{reviewId}")
+    public Optional<IdeConnection> existingReview(@PathVariable String reviewId)
+    {
+        return runtime.existing(code.ideWorktree(reviewId));
+    }
+
+    @GetMapping("/tasks/{workspaceId}/{taskId}")
+    public Optional<IdeConnection> existingTask(@PathVariable String workspaceId, @PathVariable String taskId)
+    {
+        return runtime.existing(code.ideWorktree(new TaskCodeHost(workspaceId, taskId)));
+    }
+
     @PostMapping("/reviews/{reviewId}")
     public IdeConnection openReview(@PathVariable String reviewId)
     {

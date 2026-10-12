@@ -87,6 +87,44 @@ beforeEach(() => {
 });
 afterEach(() => { views.dispose(); vi.useRealTimers(); vi.unstubAllGlobals(); });
 
+it('checks for a ready server without starting one, and resumes a ready task or review', async () => {
+  fetchMock.mockResolvedValueOnce(new Response('null'));
+  expect(await invoke('ide:resume', parent(), host)).toBeNull();
+  expect(desktop.views).toHaveLength(0);
+  expect(fetchMock).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/ide/tasks/workspace/task', expect.objectContaining({ method: 'GET' }));
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(connection)));
+  const id = await invoke('ide:resume', parent(), host);
+  fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(connection)));
+  expect(await invoke('ide:resume', parent(), { kind: 'review', reviewId: 'review' })).toBe(id);
+  expect(desktop.views).toHaveLength(1);
+  expect(fetchMock).toHaveBeenLastCalledWith('http://127.0.0.1:9527/agent/ide/reviews/review', expect.objectContaining({ method: 'GET' }));
+  expect(fetchMock.mock.calls.every(([, request]) => request.method === 'GET')).toBe(true);
+  await expect(invoke('ide:resume', child(), host)).rejects.toThrow('Unknown IDE owner');
+});
+
+it('does not restart a destroyed editor while checking for a ready server', async () => {
+  await invoke('ide:open', parent(), host);
+  desktop.views[0].contents.destroyed = true;
+  fetchMock.mockClear().mockResolvedValueOnce(new Response(JSON.stringify(connection)));
+  expect(await invoke('ide:resume', parent(), host)).toBeNull();
+  expect(fetchMock).toHaveBeenCalledTimes(1);
+  expect(desktop.views).toHaveLength(1);
+});
+
+it('requires confirmation to restart a stopped server even while its old view remains', async () => {
+  const first = await invoke('ide:open', parent(), host);
+  fetchMock.mockClear().mockResolvedValueOnce(new Response('null'));
+  expect(await invoke('ide:resume', parent(), host)).toBeNull();
+  expect(desktop.views[0].contents.close).not.toHaveBeenCalled();
+  expect(fetchMock.mock.calls.every(([, request]) => request.method === 'GET')).toBe(true);
+  const restarted = { ...connection, sessionId: 'restarted' };
+  fetchMock.mockImplementation(async (_url: string, request: RequestInit) => new Response(request.method === 'POST' ? JSON.stringify(restarted) : ''));
+  expect(await invoke('ide:open', parent(), host)).not.toBe(first);
+  expect(desktop.views[0].contents.close).toHaveBeenCalled();
+  expect(invoke('ide:bootstrap', { sender: desktop.views[1].contents, senderFrame: desktop.views[1].contents.mainFrame }))
+    .toMatchObject({ connection: restarted });
+});
+
 it('deduplicates worktree opens and keeps native credentials out of renderer URLs', async () => {
   const [first, second] = await Promise.all([invoke('ide:open', parent(), host), invoke('ide:open', parent(), host)]);
   expect(first).toBe(second); expect(desktop.views).toHaveLength(1);

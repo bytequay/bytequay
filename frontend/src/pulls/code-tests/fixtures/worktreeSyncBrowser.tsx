@@ -18,9 +18,83 @@ import { createRoot } from 'react-dom/client';
 import CodeTestsTab, { type CodeTestsBridge } from '../CodeTestsTab';
 import type { AgentReviewDto } from '../../agent-review/contracts';
 import type { PullRequestDetailDto } from '../../../types';
+import type { IdeEvent } from '../../../ide/contracts';
 import { reviewFixture } from '../../agent-review/fixtures/review';
 import { assert, settle } from '../../../fixtures/harness';
+import { parseAgentTask } from '../../../agents/contracts';
+import contracts from '../../../agents/fixtures/agent-contracts-v1.json';
 import '../../../css/base.css';
+
+export async function runStartup(taskHost: boolean): Promise<string> {
+  const review = reviewFixture();
+  const task = { ...parseAgentTask(contracts.task), interactive: true };
+  let show: (active: boolean) => void = () => {};
+  let event: (event: IdeEvent) => void = () => {};
+  let checks = 0;
+  let starts = 0;
+  let available = false;
+  let finish: (id: string) => void = () => {};
+  let fail: (error: Error) => void = () => {};
+  const oldIde = window.ide;
+  window.ide = {
+    resume: async () => { checks++; return available ? 'editor' : null; },
+    open: async host => {
+      assert(taskHost ? host.kind === 'task' && host.taskId === task.id : host.kind === 'review' && host.reviewId === review.id,
+        'Confirmation must start only the selected working copy');
+      starts++; return new Promise((resolve, reject) => { finish = resolve; fail = reject; });
+    },
+    present: async () => {}, update: async () => {}, reply: () => {}, close: async () => {},
+    onRequest: () => () => {}, onEvent: listener => { event = listener; return () => {}; },
+  };
+  const unused = async (): Promise<never> => { throw new Error('Unexpected bridge call'); };
+  const bridge: CodeTestsBridge = {
+    listCodeFiles: unused, readCodeFile: unused, listCodeRuns: unused, stopCodeRun: unused, readCodeRunOutput: unused,
+    openCodeTerminal: unused, writeReviewTerminal: unused, resizeReviewTerminal: unused, onReviewTerminalEvent: () => () => {},
+    listAgentReviews: unused, getAgentReview: unused, subscribeAgentReview: unused, getAgentTask: async () => task,
+    prepareReviewWorktree: unused,
+  };
+  const host = document.createElement('div'); host.style.cssText = 'height:820px;width:1050px'; document.body.append(host);
+  const root = createRoot(host);
+  function Harness() {
+    const [active, setActive] = useState(false); show = setActive;
+    return <CodeTestsTab workspaceId="workspace-1" review={taskHost ? null : review} task={taskHost ? task : null}
+      onReviewChange={() => {}} active={active} ownReviewStream={false} bridge={bridge} />;
+  }
+  const click = (label: string) => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === label);
+    assert(button !== undefined, `Missing ${label} button`); button.click();
+  };
+  try {
+    flushSync(() => root.render(<Harness />)); await settle();
+    assert(checks === 0 && starts === 0, 'A hidden tab must not connect or start tools');
+    flushSync(() => show(true)); await settle();
+    assert(Number(checks) === 1 && starts === 0 && host.textContent?.includes('Start IDE'), 'Opening a tab with no server must await confirmation');
+    for (const cost of ['memory and CPU', 'indexing takes time', 'disk space', 'does not start an AI agent or use model tokens']) {
+      assert(host.textContent?.includes(cost), `Disclose ${cost} before starting`);
+    }
+    flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
+    assert(starts === 0, 'Switching tabs must not authorize startup');
+    click('Start IDE'); await settle();
+    assert(Number(starts) === 1 && host.textContent?.includes('Starting code tools'), 'The confirm button must start tools once');
+    fail(new Error('Server failed')); await settle();
+    assert(host.querySelector('[role="alert"]')?.textContent?.includes('Server failed'), 'Failed starts must expose the error');
+    click('Reconnect editor'); await settle();
+    finish('editor'); await settle();
+    flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
+    assert(Number(starts) === 2 && !host.textContent?.includes('Start IDE'), 'Tab switches must retain a successfully started editor');
+    event({ id: 'editor', dirty: 0, busy: false, closed: true }); await settle();
+    assert(Number(starts) === 2 && host.textContent?.includes('Start IDE'), 'An expired editor must require fresh confirmation');
+    available = true;
+    flushSync(() => show(false)); await settle(); flushSync(() => show(true)); await settle();
+    assert(Number(starts) === 2 && !host.textContent?.includes('Start IDE'), 'Returning to the tab must reuse a server that became ready elsewhere');
+    const previousChecks = checks;
+    flushSync(() => root.render(null));
+    flushSync(() => root.render(<Harness />));
+    flushSync(() => show(true)); await settle();
+    assert(Number(starts) === 2 && checks === previousChecks + 1 && !host.textContent?.includes('Start IDE'), 'A ready editor must resume without confirmation or startup');
+    return 'Startup requires confirmation, discloses costs, retries failures, and reuses ready editors';
+  } finally { flushSync(() => root.unmount()); host.remove(); window.ide = oldIde; }
+}
 
 export async function runExploration(): Promise<string> {
   const prepared = reviewFixture({ runs: [], activeTurn: null, followUpPaused: true });
@@ -30,6 +104,7 @@ export async function runExploration(): Promise<string> {
   let finish: (review: AgentReviewDto) => void = () => {};
   const oldIde = window.ide;
   window.ide = {
+    resume: async () => null,
     open: async host => {
       assert(host.kind === 'review' && host.reviewId === prepared.id, 'Explore must open the prepared checkout');
       opened++; return 'explorer';

@@ -12,16 +12,16 @@
  * limitations under the License.
  */
 import { useId, useState, useEffect } from 'react';
-import { Pencil, Trash2 } from 'lucide-react';
+import { ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import type { WorkspaceDto, WorkspaceRelationshipDto } from '../types';
 import { Badge, Segmented, SelectPill, SettingsCard } from '../settings/primitives';
 import RepoAvatar from '../RepoAvatar';
-import { workspaceHasReadableCode, workspaceRoute } from './model';
+import { relatedWorkspaceRoute, workspaceHasReadableCode, type WorkspaceTab } from './model';
 import '../css/related-workspaces.css';
 
 const changed = 'bytequay:relationships-changed';
 
-function useRelationships(workspaceId: string) {
+export function useRelationships(workspaceId: string) {
   const [data, setData] = useState<{ links: WorkspaceRelationshipDto[]; workspaces: WorkspaceDto[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
@@ -42,17 +42,22 @@ function useRelationships(workspaceId: string) {
   return { data, error };
 }
 
-function unavailableReason(link: WorkspaceRelationshipDto, workspace?: WorkspaceDto) {
+export function unavailableReason(link: WorkspaceRelationshipDto, workspace?: WorkspaceDto) {
   return link.unavailableReason ?? (!workspace ? 'Workspace unavailable' : !workspaceHasReadableCode(workspace) ? 'Workspace code is not ready' : null);
 }
 
-function ViewLinks({ workspaceId, unavailable }: { workspaceId: string; unavailable: string | null }) {
+function ViewLinks({ workspaceId, relatedWorkspaceId, unavailable, activeTab }: {
+  workspaceId: string; relatedWorkspaceId: string; unavailable: string | null; activeTab?: WorkspaceTab;
+}) {
   return <span className="related-links">{(['commits', 'context'] as const).map(view => unavailable
     ? <span key={view} role="link" aria-disabled="true" title={unavailable}>{view === 'commits' ? 'Commits' : 'Memory'}</span>
-    : <a key={view} href={workspaceRoute(workspaceId, view)}>{view === 'commits' ? 'Commits' : 'Memory'}</a>)}</span>;
+    : <a key={view} href={relatedWorkspaceRoute(workspaceId, relatedWorkspaceId, view)} aria-current={activeTab === view ? 'page' : undefined}>
+      {view === 'commits' ? 'Commits' : 'Memory'}</a>)}</span>;
 }
 
-export function RelatedWorkspaceNavigation({ workspaceId }: { workspaceId: string }) {
+export function RelatedWorkspaceNavigation({ workspaceId, activeWorkspaceId, activeTab }: {
+  workspaceId: string; activeWorkspaceId?: string | null; activeTab?: WorkspaceTab;
+}) {
   const { data, error } = useRelationships(workspaceId);
   if (error !== null) return <div className="related-nav" role="status">Related workspaces unavailable</div>;
   if (!data?.links.length) return null;
@@ -61,14 +66,16 @@ export function RelatedWorkspaceNavigation({ workspaceId }: { workspaceId: strin
     {data.links.map(link => {
       const workspace = data.workspaces.find(item => item.id === link.workspaceId);
       const unavailable = unavailableReason(link, workspace);
-      return <div className={`related-nav-row${unavailable ? ' is-unavailable' : ''}`} key={link.workspaceId}>
-        <div className="related-nav-title" title={unavailable ?? link.guidance}>
+      return <details className={`related-nav-row${unavailable ? ' is-unavailable' : ''}`} key={link.workspaceId}>
+        <summary className="related-nav-title" title={unavailable ?? link.guidance}>
+          <ChevronRight className="related-chevron" size={12} aria-hidden="true" />
           {workspace && <RepoAvatar owner={workspace.monitoredOwner} repo={workspace.monitoredRepo} size={16} radius={4} />}
           <span className="related-name">{workspace?.name ?? link.workspaceId}</span>
           <span className="related-kind">{unavailable ? 'Unavailable' : link.kind === 'FORK' ? 'Fork' : 'Dependency'}</span>
-        </div>
-        <ViewLinks workspaceId={link.workspaceId} unavailable={unavailable} />
-      </div>;
+        </summary>
+        <ViewLinks workspaceId={workspaceId} relatedWorkspaceId={link.workspaceId} unavailable={unavailable}
+          activeTab={activeWorkspaceId === link.workspaceId ? activeTab : undefined} />
+      </details>;
     })}
   </nav>;
 }
@@ -121,7 +128,7 @@ export function RelatedWorkspaceSettings({ workspace }: { workspace: WorkspaceDt
             {link.guidance && <div className="related-guidance">{link.guidance}</div>}
             {unavailable && <div className="related-unavailable">{unavailable}. New work there won’t start.</div>}
           </div>
-          <div className="related-row-actions"><ViewLinks workspaceId={link.workspaceId} unavailable={unavailable} />
+          <div className="related-row-actions"><ViewLinks workspaceId={workspace.id} relatedWorkspaceId={link.workspaceId} unavailable={unavailable} />
             <span className="related-edit-actions">
               <button type="button" aria-label={`Edit ${name}`} title="Edit" disabled={busy}
                 onClick={() => { setEditing(link); setExisting(true); setError(null); }}><Pencil size={13} /></button>

@@ -14,10 +14,12 @@
 import { createRoot } from 'react-dom/client';
 import { flushSync } from 'react-dom';
 import { RelatedWorkspaceNavigation, RelatedWorkspaceSettings } from '../RelatedWorkspaces';
-import type { WorkspaceDto, WorkspaceRelationshipDto } from '../../types';
+import App from '../../App';
+import { createPreviewBridge } from '../../agents/fixtures/previewBridge';
+import { relatedWorkspaceRoute, workspaceRoute } from '../model';
+import type { Bridge, WorkspaceDto, WorkspaceRelationshipDto } from '../../types';
 import { assert, changeInput, settle } from '../../fixtures/harness';
-import '../../css/base.css';
-import '../../css/home.css';
+import '../../index.css';
 import '../../css/settings-window.css';
 
 const workspace = (id: string, repositoryId: number, name: string): WorkspaceDto => ({
@@ -56,7 +58,7 @@ export function mount() {
     close: () => { flushSync(() => root.unmount()); host.remove(); } };
 }
 
-export async function run() {
+async function settingsScenario() {
   const view = mount();
   const button = (label: string) => {
     const found = [...view.host.querySelectorAll('button')].find(item => item.textContent?.trim() === label || item.getAttribute('aria-label') === label);
@@ -86,8 +88,14 @@ export async function run() {
     view.reject(false);
     await click('Add');
     assert(view.host.querySelector('textarea') === null, 'Successful save closes form');
-    assert(view.host.querySelectorAll('a[href="#/workspaces/iceberg/commits"]').length === 2, 'Settings and sidebar link to destination commits');
+    assert(view.host.querySelectorAll('a[href="#/workspaces/trino/related/iceberg/commits"]').length === 2, 'Settings and sidebar keep the current workspace');
     assert(view.host.querySelectorAll('a').length === 4, 'Memory and commits links on both surfaces');
+    const row = view.host.querySelector<HTMLDetailsElement>('.related-nav-row');
+    assert(row !== null && !row.open, 'Related repository starts collapsed');
+    row.querySelector('summary')?.click(); await settle();
+    assert(row.open, 'Clicking the repository expands its links');
+    row.querySelector('summary')?.click(); await settle();
+    assert(!row.open, 'Clicking again folds its links');
     await click('Edit Apache Iceberg');
     await click('Fork');
     const backport = view.host.querySelector<HTMLInputElement>('input[type="checkbox"]');
@@ -106,4 +114,112 @@ export async function run() {
     await click('Remove missing');
     return [{ name: 'settings, server errors, navigation, edit and removal' }];
   } finally { view.close(); }
+}
+
+async function navigationScenario() {
+  const reads: string[] = [];
+  let links: WorkspaceRelationshipDto[] = [{ workspaceId: iceberg.id, kind: 'FORK', guidance: '', backportByDefault: false }];
+  const bridge = {
+    ...createPreviewBridge(trino.id),
+    hasPat: async () => true,
+    getInAppBrowserState: async () => ({ tabs: [], activeTabId: null }),
+    onInAppBrowserState: () => () => {},
+    getFullScreen: async () => false,
+    onFullScreenChange: () => () => {},
+    setPrAttentionHandled: async () => {},
+    onPrAttentionUpdated: () => () => {},
+    onPrNotificationOpen: () => () => {},
+    onFindResult: () => () => {},
+    stopFindInPage: async () => {},
+    listJiraConnections: async () => [],
+    listJiraAttention: async () => [],
+    fetchAttentionPrs: async () => [],
+    onPullRequestsSynced: () => () => {},
+    getUserProfile: async () => { throw new Error('No profile in this fixture'); },
+    fetchPrs: async () => ({ pullRequests: [], page: 0, pageSize: 50, totalPullRequests: 0, openPullRequests: 0, hasMore: false }),
+    fetchRecentChanges: async () => [],
+    listGoals: async () => [],
+    listWorkItems: async () => [],
+    listWorkspaces: async () => [trino, iceberg],
+    listRetiredWorkspaces: async () => [],
+    listCherryPickExecutions: async () => [],
+    getWorkspace: async (id: string) => { reads.push(`workspace:${id}`); return id === trino.id ? trino : iceberg; },
+    getWorkspaceRelationships: async () => links,
+    getMemoryPage: async (id: string) => {
+      reads.push(`memory:${id}`);
+      return { memories: [], guidelines: [], head: id, switches: { reviews: true, development: true }, harvest: { cursor: null, last: null } };
+    },
+    getRepositoryContextSpecChecks: async () => [],
+    getRepositoryContextBuild: async () => ({ buildRequestSequence: 0, canStart: true, build: null }),
+    listReviewReplays: async () => [],
+    getWorkspaceSettings: async () => ({ agents: [], remotes: [], commitsTarget: { remote: 'origin', branch: 'main', overridden: false } }),
+    gitOverview: async () => ({ currentBranch: 'main', branches: ['main'], remotes: [] }),
+    gitRemoteBranches: async () => ['main'],
+    gitStatus: async () => ({ branch: 'main', files: [] }),
+    gitDiff: async () => [],
+    gitLog: async (id: string) => {
+      reads.push(`commits:${id}`);
+      return { commits: [{ sha: 'a'.repeat(40), title: `${id} commit`, body: '', author: 'Alex', committer: 'Alex',
+        authoredAt: '2026-01-01T00:00:00Z', committedAt: '2026-01-01T00:00:00Z' }], refresh: { workspaceId: id, state: 'IDLE' as const } };
+    },
+  } satisfies Partial<Bridge>;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: bridge });
+  window.localStorage.clear();
+  window.location.hash = workspaceRoute(trino.id, 'context');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  flushSync(() => root.render(<App />));
+  const until = async (condition: () => boolean, message: string) => {
+    for (let index = 0; index < 45 && !condition(); index++) await settle();
+    assert(condition(), `${message}: ${host.textContent}`);
+  };
+  const ownTab = (label: string) => host.querySelector<HTMLButtonElement>(`[aria-label="Workspace navigation"] [aria-label="${label}"]`);
+  const relatedLink = (tab: 'commits' | 'context') => host.querySelector<HTMLAnchorElement>(`a[href="${relatedWorkspaceRoute(trino.id, iceberg.id, tab)}"]`);
+  const selected = (tab: 'commits' | 'context') => relatedLink(tab)?.getAttribute('aria-current') === 'page';
+  const staysHere = () => {
+    assert(host.querySelector('.app-sidebar__ws-name')?.textContent === trino.name, 'Current workspace stays selected');
+    assert(!reads.includes(`workspace:${iceberg.id}`), 'App never switches to the related workspace');
+  };
+  try {
+    await until(() => host.querySelector('.related-nav-row') !== null && host.querySelector('.mem-head')?.textContent === trino.id, 'Current workspace loaded');
+    const row = host.querySelector<HTMLDetailsElement>('.related-nav-row');
+    assert(row !== null && !row.open, 'Related repository starts folded in the app');
+    row.querySelector('summary')?.click(); await settle();
+    relatedLink('commits')?.click();
+    await until(() => selected('commits') && host.querySelector('.related-view')?.textContent?.includes('iceberg commit') === true, 'Related commits loaded');
+    staysHere();
+    assert(ownTab('Commits')?.getAttribute('aria-current') === null, 'Current repository commits are not highlighted');
+    assert(reads.includes('commits:iceberg'), 'Commits read the related repository');
+    const bounds = host.querySelector('.related-view')?.getBoundingClientRect();
+    assert(bounds !== undefined && bounds.height > 300 && bounds.bottom <= window.innerHeight, 'Related content fits the main panel');
+
+    relatedLink('context')?.click();
+    await until(() => selected('context') && host.querySelector('.related-view .mem-head')?.textContent === iceberg.id, 'Related memory loaded');
+    staysHere();
+    assert(ownTab('Memory')?.getAttribute('aria-current') === null, 'Current repository memory is not highlighted');
+    window.history.back();
+    await until(() => selected('commits'), 'Back restores related commits');
+    window.history.forward();
+    await until(() => selected('context'), 'Forward restores related memory');
+    staysHere();
+
+    ownTab('Memory')?.click();
+    await until(() => window.location.hash === workspaceRoute(trino.id, 'context') && host.querySelector('.mem-head')?.textContent === trino.id, 'Own memory tab returns to the current repository');
+    assert(host.querySelector('.related-view') === null, 'Related panel closes on own tab');
+    relatedLink('commits')?.click();
+    await until(() => selected('commits'), 'Related commits reopen');
+    ownTab('Commits')?.click();
+    await until(() => window.location.hash === workspaceRoute(trino.id, 'commits') && host.textContent?.includes('trino commit') === true, 'Own commits tab returns to current repository data');
+
+    links = [];
+    window.location.hash = relatedWorkspaceRoute(trino.id, iceberg.id, 'context');
+    await until(() => host.textContent?.includes('Related workspace unavailable') === true, 'Removed relationship cannot show stale related content');
+    staysHere();
+    return [{ name: 'related views preserve workspace, content ownership and navigation history' }];
+  } finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+export async function run() {
+  return [...await settingsScenario(), ...await navigationScenario()];
 }

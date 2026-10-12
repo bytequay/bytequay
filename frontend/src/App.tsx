@@ -92,6 +92,7 @@ export default function App() {
   const [settingsWorkspaces, setSettingsWorkspaces] = useState<WorkspaceDto[]>([]);
   const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
+  const [relatedWorkspaceId, setRelatedWorkspaceId] = useState<string | null>(null);
   const [jiraConnected, setJiraConnected] = useState(false);
   const { status: googleStatus } = useGoogle();
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
@@ -239,6 +240,7 @@ export default function App() {
       setSettingsSection(settingsLocation?.section ?? null);
       setSettingsWorkspaceId(settingsLocation?.workspaceId ?? null);
       const workspaceLocation = workspaceLocationFromRoute(window.location.hash);
+      setRelatedWorkspaceId(workspaceLocation?.relatedWorkspaceId ?? null);
       if (!workspaceLocation) {
         request++;
         updateWorkspace(null);
@@ -440,7 +442,7 @@ export default function App() {
   const taskPageOpen = workspaceTab === 'tasks'
     && (initialAgentTaskId !== null || initialAgentReviewId !== null || sourceIssueNumber !== null);
   const selectWorkspaceTab = (next: WorkspaceTab) => {
-    if (next === workspaceTab && !taskPageOpen) return;
+    if (next === workspaceTab && !taskPageOpen && relatedWorkspaceId === null) return;
     setWorkspaceTab(next);
     setInitialWorkspacePrNumber(null);
     setInitialIssueNumber(null);
@@ -502,6 +504,7 @@ export default function App() {
           }}
           workspace={inWorkspace ? workspace : null}
           workspaceTab={workspaceTab}
+          relatedWorkspaceId={relatedWorkspaceId}
           onWorkspaceTab={selectWorkspaceTab}
         />
         <main className="app-content">
@@ -533,6 +536,7 @@ export default function App() {
               key={workspace.id}
               workspace={workspace}
               tab={workspaceTab}
+              relatedWorkspaceId={relatedWorkspaceId}
               onSelectTab={selectWorkspaceTab}
               onWorkspaceChanged={updateWorkspace}
               initialPullRequestNumber={initialWorkspacePrNumber}

@@ -14,10 +14,11 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture, type ScenarioResult } from '../fixtures/browserFixture';
 
-it('edits direct workspace relationships and navigates their existing views', async () => {
+it('edits workspace relationships and opens their folded navigation within the current workspace', async () => {
   const results = await runBrowserFixture<ScenarioResult[]>({ prefix: 'bytequay-related-',
     entry: 'src/workspaces/fixtures/relatedWorkspacesBrowser.tsx', global: 'RelatedWorkspacesTests', styles: true, charset: true,
-    width: 1100, height: 850 });
-  expect(results).toHaveLength(1);
+    width: 1100, height: 850,
+    setup: "window.webContents.on('console-message', event => { if (event.level === 'error') console.error(event.message); });" });
+  expect(results).toHaveLength(2);
   expect(results.filter(result => result.error)).toEqual([]);
-}, 30_000);
+}, 120_000);

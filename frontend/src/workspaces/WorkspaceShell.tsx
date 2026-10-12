@@ -39,6 +39,7 @@ import { useZoom, ZoomActions, ZoomScrim } from '../Zoom';
 import EpicDrawer from './EpicDrawer';
 import { EPIC_START, epicIdentity, lendEpicWorkspace, takeEpicStart, useConcludedEpics } from './epics';
 import WorkspaceIssuesScreen from './WorkspaceIssuesScreen';
+import { RelatedWorkspaceView } from './RelatedWorkspaceView';
 import WorkItemsScreen from '../workitems/WorkItemsScreen';
 import { useWorkspaceAttention } from './workspaceAttention';
 import type { WorkspaceDto } from '../types';
@@ -53,9 +54,10 @@ import {
 } from './model';
 import '../css/workspaces.css';
 
-export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
+export default function WorkspaceShell({ workspace, tab, relatedWorkspaceId = null, onSelectTab, onWorkspaceChanged, initialPullRequestNumber, initialIssueNumber, sourceIssueNumber = null, initialAgentTaskId, initialAgentReviewId = null, initialCherryPickId = null, browserOpen = false, onSelectAgentTask, onSelectPullRequest, onSelectIssue }: {
   workspace: WorkspaceDto;
   tab: WorkspaceTab;
+  relatedWorkspaceId?: string | null;
   onSelectTab: (tab: WorkspaceTab) => void;
   onWorkspaceChanged: (workspace: WorkspaceDto) => void;
   initialPullRequestNumber: number | null;
@@ -258,7 +260,9 @@ export default function WorkspaceShell({ workspace, tab, onSelectTab, onWorkspac
         window.location.hash = workspaceRoute(workspace.id, 'context');
       }}
     >
-      {tab === 'commits' && !workspaceHasReadableCode(workspace)
+      {relatedWorkspaceId !== null && (tab === 'commits' || tab === 'context')
+        ? <RelatedWorkspaceView key={relatedWorkspaceId} workspaceId={workspace.id} relatedWorkspaceId={relatedWorkspaceId} tab={tab} />
+        : tab === 'commits' && !workspaceHasReadableCode(workspace)
         ? <WorkspaceUnavailable message="Repository code must be ready before this tab can open." />
         : renderPage()}
     </GoalLayer>

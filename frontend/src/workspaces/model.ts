@@ -82,6 +82,10 @@ export function workspaceRoute(workspaceId: string, tab: WorkspaceTab = 'home'):
   return tab === 'home' ? base : `${base}/${tab}`;
 }
 
+export function relatedWorkspaceRoute(workspaceId: string, relatedWorkspaceId: string, tab: 'commits' | 'context'): string {
+  return `${workspaceRoute(workspaceId)}/related/${encodeURIComponent(relatedWorkspaceId)}/${tab}`;
+}
+
 export function workspaceIssueRoute(workspaceId: string, issueNumber: number): string {
   return `${workspaceRoute(workspaceId, 'issues')}/${issueNumber}`;
 }
@@ -112,7 +116,15 @@ export function workspaceLocationFromRoute(hash: string): {
   reviewId?: string;
   cherryPickId?: string;
   sourceIssueNumber?: number;
+  relatedWorkspaceId?: string;
 } | null {
+  const related = /^#\/workspaces\/([^/?]+)\/related\/([^/?]+)\/(commits|context)$/.exec(hash);
+  if (related !== null) {
+    try {
+      return { workspaceId: decodeURIComponent(related[1]), relatedWorkspaceId: decodeURIComponent(related[2]),
+        tab: related[3] as 'commits' | 'context', pullRequestNumber: null, issueNumber: null, agentTaskId: null };
+    } catch { return null; }
+  }
   const match = /^#\/workspaces\/([^/?]+)(?:\/(home|tasks|prs|issues|jira|commits|context)(?:\/(?:agent\/([^/?]+)|(\d+)|review\/([^/?]+)|issue\/(\d+)|cherry\/([^/?]+)))?)?(?:\?[^#]*)?$/
     .exec(hash);
   if (!match) return null;

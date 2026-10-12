@@ -619,6 +619,10 @@ run another Git simulation.
 
 ### Backport through related workspaces
 
+Related repositories in the sidebar start collapsed. Expand a repository to open
+its **Commits** or **Memory** in the main panel while staying in the current
+workspace. The panel identifies the related repository whose content is shown.
+
 1. Watch the involved repositories. In each destination’s repository settings, open
    **Related workspaces → + Add related workspace**.
 2. Select the source workspace, choose **Fork**, and enable **Use as default backport

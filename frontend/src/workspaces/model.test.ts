@@ -27,10 +27,22 @@ import {
   workspaceCherryPickRoute,
   workspaceReviewTaskRoute,
   workspaceRoute,
+  relatedWorkspaceRoute,
   workspaceSyncState,
 } from './model';
 
 describe('workspace model', () => {
+  it('keeps related commits and memory in the current workspace route', () => {
+    for (const tab of ['commits', 'context'] as const) {
+      const route = relatedWorkspaceRoute('current/repo', 'related/repo', tab);
+      expect(route).toBe(`#/workspaces/current%2Frepo/related/related%2Frepo/${tab}`);
+      expect(workspaceLocationFromRoute(route)).toEqual({ workspaceId: 'current/repo', relatedWorkspaceId: 'related/repo',
+        tab, pullRequestNumber: null, issueNumber: null, agentTaskId: null });
+    }
+    expect(workspaceLocationFromRoute('#/workspaces/w/related/%/commits')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/%/related/r/context')).toBeNull();
+    expect(workspaceLocationFromRoute('#/workspaces/w/related/r/tasks')).toBeNull();
+  });
   it('opens a saved chain hop in its destination cherry-pick view', () => {
     const route = workspaceCherryPickRoute('fork/workspace', 'execution-1');
     expect(workspaceLocationFromRoute(route)).toEqual({ workspaceId: 'fork/workspace', tab: 'tasks',

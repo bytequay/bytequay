@@ -109,6 +109,7 @@ export default function AppSidebar({
   onForward,
   workspace,
   workspaceTab,
+  relatedWorkspaceId = null,
   onWorkspaceTab,
   jiraConnected = false,
   googleConnected = false,
@@ -124,6 +125,7 @@ export default function AppSidebar({
   onForward: () => void;
   workspace: WorkspaceDto | null;
   workspaceTab: WorkspaceTab;
+  relatedWorkspaceId?: string | null;
   onWorkspaceTab: (tab: WorkspaceTab) => void;
   jiraConnected?: boolean;
   googleConnected?: boolean;
@@ -196,7 +198,7 @@ export default function AppSidebar({
       key: tab,
       label,
       icon,
-      active: workspaceTab === tab || tab === 'issues' && workspaceTab === 'jira',
+      active: relatedWorkspaceId === null && (workspaceTab === tab || tab === 'issues' && workspaceTab === 'jira'),
       disabled: reason !== null,
       title: reason ?? label,
       badge: tab === 'context' && memoryNeeds > 0 ? { count: memoryNeeds, label: `${memoryNeeds} need you` }
@@ -336,7 +338,7 @@ export default function AppSidebar({
           <nav className="app-sidebar__nav" aria-label="Workspace navigation">
             {WORKSPACE_TABS.filter(item => item.tab !== 'jira' || jiraConnected).map(workspaceItem)}
           </nav>
-          <RelatedWorkspaceNavigation key={workspace.id} workspaceId={workspace.id} />
+          <RelatedWorkspaceNavigation key={workspace.id} workspaceId={workspace.id} activeWorkspaceId={relatedWorkspaceId} activeTab={workspaceTab} />
         </>
       )}
       {pinnedItems.length > 0 && <section className="app-sidebar__pinned" aria-label="Pinned">

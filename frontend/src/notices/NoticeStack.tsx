@@ -52,7 +52,7 @@ function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen
 }
 
 export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?: NoticeBridge }) {
-  const [state, setState] = useState<NoticeSnapshot>({ notices: [], popupIds: [], active: false, maxHeight: 600 });
+  const [state, setState] = useState<NoticeSnapshot>({ notices: [], popupIds: [], viewedIds: [], active: false, maxHeight: 600 });
   const [expanded, setExpanded] = useState(false);
   const [folded, setFolded] = useState(false);
   const [closed, setClosed] = useState<Set<string>>(() => new Set());
@@ -79,7 +79,7 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     return () => { active = false; stop(); };
   }, [bridge]);
   const waiting = state.notices.filter(needsAction).length;
-  const available = state.notices.filter(notice => !closed.has(notice.id));
+  const available = state.notices.filter(notice => !closed.has(notice.id) && (expanded || !state.viewedIds.includes(notice.id)));
   const pages = Math.max(1, available.length);
   const currentPage = Math.min(page, pages - 1);
   const popups = available.filter(notice => state.popupIds.includes(notice.id));

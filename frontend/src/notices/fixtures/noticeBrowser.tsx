@@ -14,16 +14,19 @@
 import { createRoot } from 'react-dom/client';
 import NoticeStack from '../NoticeStack';
 import { observeNoticeOcclusion } from '../occlusion';
+import { useNoticeSource } from '../useNoticeSource';
+import { LayerCovered } from '../../Zoom';
 import type { AppNotice, NoticeBridge, NoticeSnapshot } from '../contracts';
 import '../../css/base.css';
 import '../notices.css';
 
 const wait = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 function assert(value: unknown, message: string): asserts value { if (!value) throw new Error(message); }
+function TaskSource({ taskId }: { taskId: string | null }): null { useNoticeSource(taskId); return null; }
 export async function run() {
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host);
-  let state: NoticeSnapshot = { notices: [], popupIds: [], active: true, maxHeight: 600 };
+  let state: NoticeSnapshot = { notices: [], popupIds: [], viewedIds: [], active: true, maxHeight: 600 };
   let listener: (value: NoticeSnapshot) => void = () => {};
   let rejectDismiss = false;
   let rejectOpen = false;
@@ -145,6 +148,17 @@ export async function run() {
     launcher.click(); await wait();
     state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
     assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Resolving the last notice hides the expanded list and its counter');
+    state = { ...state, notices: [make('viewed', 'TURN_FINISHED')], viewedIds: ['viewed'] }; listener(state); await wait();
+    const viewedLauncher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(viewedLauncher, 'Viewed notices remain in the counter');
+    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.width ?? 340) < 280, 'The visible task never falls back to a persistent card');
+    viewedLauncher.click(); await wait();
+    assert(host.querySelector('.is-turn_finished'), 'Viewed notices can be explicitly reopened from the counter');
+    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
+    listener({ ...state }); await wait();
+    assert(!host.querySelector('.app-notice'), 'Viewed notices stay quiet after closing the list and refreshing');
+    state = { ...state, notices: [...state.notices, make('unviewed', 'QUESTION')], popupIds: ['unviewed'] }; listener(state); await wait();
+    assert(host.querySelectorAll('.app-notice').length === 1 && host.querySelector('.is-question'), 'Other tasks still notify while the viewed task stays quiet');
+    state = { ...state, notices: [], popupIds: [], viewedIds: [] }; listener(state); await wait();
     const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
     const context = canvas.getContext('2d'); assert(context, 'Color sampling unavailable');
     const color = (css: string) => { context.fillStyle = css; context.fillRect(0, 0, 1, 1); return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3); };
@@ -217,6 +231,22 @@ export async function run() {
     dialog.close(); await wait();
     assert(occlusion.at(-1) === false, 'Closing the final dialog restores notices');
     dialog.remove(); stopOcclusion();
+    const originalBridge = window.bridge;
+    const sources = new Map<string, string>();
+    window.bridge = { ...originalBridge, setNoticeSource: async (key, taskId) => { if (taskId === null) sources.delete(key); else sources.set(key, taskId); } };
+    const sourceHost = document.createElement('div'); host.append(sourceHost);
+    const sourceRoot = createRoot(sourceHost);
+    const renderSource = async (taskId: string | null, covered = false) => {
+      sourceRoot.render(<LayerCovered.Provider value={covered}><TaskSource taskId={taskId} /></LayerCovered.Provider>); await wait();
+    };
+    try {
+      await renderSource('task'); assert([...sources.values()].join() === 'task', 'The visible task registers independently of turn or scroll position');
+      await renderSource('task', true); assert(sources.size === 0, 'A covered task unregisters its notice source');
+      await renderSource('other'); assert([...sources.values()].join() === 'other', 'Switching tasks registers only the visible task');
+      await renderSource(null); assert(sources.size === 0, 'Leaving the task removes its source');
+      await renderSource('task'); sourceRoot.render(null); await wait();
+      assert(sources.size === 0, 'Unmounting the task removes its source');
+    } finally { sourceRoot.unmount(); sourceHost.remove(); window.bridge = originalBridge; }
     return { passed: true, dismissed, opened };
   } finally {
     root.unmount(); host.remove(); document.documentElement.style.colorScheme = ''; window.setTimeout = originalTimeout; window.clearTimeout = originalClear; Date.now = originalNow;

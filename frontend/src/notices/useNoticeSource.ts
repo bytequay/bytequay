@@ -14,13 +14,13 @@
 import { useContext, useEffect, useId } from 'react';
 import { LayerCovered } from '../Zoom';
 
-/** A covered task or an older transcript page is not evidence that the user saw the new result. */
-export function useNoticeSource(taskId: string | null, turnId: string | null, following: boolean): void {
+/** Working anywhere in a visible task keeps its notices quiet, including older messages and the editor. */
+export function useNoticeSource(taskId: string | null): void {
   const covered = useContext(LayerCovered);
   const key = useId();
   useEffect(() => {
-    if (taskId === null || covered || !following || !window.bridge?.setNoticeSource) return;
-    void window.bridge.setNoticeSource(key, { taskId, turnId }).catch(() => {});
+    if (taskId === null || covered || !window.bridge?.setNoticeSource) return;
+    void window.bridge.setNoticeSource(key, taskId).catch(() => {});
     return () => { void window.bridge.setNoticeSource(key, null).catch(() => {}); };
-  }, [key, taskId, turnId, covered, following]);
+  }, [key, taskId, covered]);
 }

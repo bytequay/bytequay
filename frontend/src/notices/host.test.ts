@@ -39,7 +39,7 @@ function setup() {
       const index = children.indexOf(child); if (index >= 0) children.splice(index, 1);
       children.push(child);
     }) },
-    isDestroyed: () => false, isVisible: () => true, isMinimized: () => false, isFocused: () => true,
+    isDestroyed: () => false, isVisible: (): boolean => true, isMinimized: (): boolean => false, isFocused: (): boolean => true,
     getContentBounds: () => ({ x: 0, y: 0, width: 1000, height: 620 }),
   });
   const read = vi.fn(async (): Promise<unknown> => []);
@@ -120,14 +120,58 @@ it('suppresses a visible source, preserves failed reads, and dismisses without h
   const event = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   const snapshot = () => desktop.handlers.get('notices:read')?.(event) as NoticeSnapshot;
   expect(snapshot().popupIds).toEqual([notice.id]);
-  desktop.handlers.get('notices:source')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, 'screen', { taskId: notice.taskId, turnId: notice.turnId });
+  desktop.handlers.get('notices:source')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, 'screen', notice.taskId);
   expect(snapshot().popupIds).toEqual([]);
+  expect(snapshot().viewedIds).toEqual([notice.id]);
   expect(snapshot().notices).toEqual([notice]);
   read.mockRejectedValueOnce(new Error('Backend unavailable'));
   await host.refresh(); expect(snapshot().notices).toEqual([notice]);
   await desktop.handlers.get('notices:open')?.(event, notice.id);
   expect(open).toHaveBeenCalledWith(notice);
   expect(snapshot().notices).toEqual([notice]);
+  host.stop();
+});
+
+it.each(['TURN_FINISHED', 'APPROVAL'] as const)('keeps %s notices quiet for the open task across turns and navigation', async kind => {
+  const { host, read, open, window } = setup();
+  await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object; send: ReturnType<typeof vi.fn> } };
+  const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  const snapshot = () => desktop.handlers.get('notices:read')?.(child) as NoticeSnapshot;
+  const current = { ...notice, kind, occurredAt: new Date().toISOString() };
+  const other = { ...current, id: 'other', taskId: 'other-task' };
+  desktop.handlers.get('notices:source')?.(owner, 'screen', current.taskId);
+  read.mockResolvedValue([current, other]); await host.refresh();
+  expect(snapshot()).toMatchObject({ popupIds: [other.id], viewedIds: [current.id] });
+  expect(view.webContents.send).toHaveBeenLastCalledWith('notices:changed', snapshot());
+  const next = { ...current, id: 'next', turnId: 'next-turn' };
+  read.mockResolvedValue([next, other]); await host.refresh();
+  expect(snapshot()).toMatchObject({ popupIds: [other.id], viewedIds: [next.id] });
+  desktop.handlers.get('notices:source')?.(owner, 'screen', null);
+  await host.refresh();
+  expect(snapshot()).toMatchObject({ popupIds: [other.id], viewedIds: [next.id] });
+  const unseen = { ...next, id: 'unseen', turnId: 'unseen-turn' };
+  read.mockResolvedValue([unseen]); await host.refresh();
+  expect(snapshot().popupIds).toContain(unseen.id);
+  expect(snapshot().viewedIds).toEqual([]);
+  expect(open).not.toHaveBeenCalled();
+  host.stop();
+});
+
+it.each(['unfocused', 'hidden', 'minimized', 'obscured', 'covered'] as const)('preserves notifications when the task is %s', async visibility => {
+  const { host, read, window } = setup();
+  await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object } };
+  const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  const snapshot = () => desktop.handlers.get('notices:read')?.({ sender: view.webContents, senderFrame: view.webContents.mainFrame }) as NoticeSnapshot;
+  if (visibility === 'unfocused') vi.spyOn(window, 'isFocused').mockReturnValue(false);
+  if (visibility === 'hidden') vi.spyOn(window, 'isVisible').mockReturnValue(false);
+  if (visibility === 'minimized') vi.spyOn(window, 'isMinimized').mockReturnValue(true);
+  if (visibility === 'obscured') desktop.handlers.get('notices:obscured')?.(owner, true);
+  desktop.handlers.get('notices:source')?.(owner, 'screen', visibility === 'covered' ? null : notice.taskId);
+  read.mockResolvedValue([notice]); await host.refresh();
+  expect(snapshot()).toMatchObject({ popupIds: [notice.id], viewedIds: [] });
   host.stop();
 });
 

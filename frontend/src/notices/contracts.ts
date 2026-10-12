@@ -18,7 +18,7 @@ export type AppNotice = {
   id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null;
   title: string; message: string; repository: string; laneId: string; occurredAt: string;
 };
-export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; active: boolean; maxHeight: number };
+export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; viewedIds: string[]; active: boolean; maxHeight: number };
 export type AppNoticeBounds = { x: number; y: number; width: number; height: number } | null;
 export type NoticeBridge = {
   read: () => Promise<NoticeSnapshot>;

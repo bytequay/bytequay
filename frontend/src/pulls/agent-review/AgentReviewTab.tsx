@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { usePreparedAgentInput } from '../../agents/preparedInput';
+import { useNoticeSource } from '../../notices/useNoticeSource';
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { CircleAlert, File, GitCommitHorizontal, PanelsTopLeft } from 'lucide-react';
@@ -123,6 +124,7 @@ export default function AgentReviewTab({
   localReview?: LocalReviewThreads;
   onSelectCommit?: (sha: string, snapshot?: { headSha: string; baseSha: string }) => void;
 }) {
+  useNoticeSource(mode === 'conversation' ? review?.task.id ?? null : null);
   const [starting, setStarting] = useState(false);
   const [watchRepositoryId, setWatchRepositoryId] = useState<number | null>(null);
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);

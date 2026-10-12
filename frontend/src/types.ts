@@ -1407,7 +1407,7 @@ export type RecentDraftRequest = {
 export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   onAppNoticeBounds: (callback: (bounds: AppNoticeBounds) => void) => () => void;
   onAppNoticeOpen: (callback: (target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => void) => () => void;
-  setNoticeSource: (key: string, source: { taskId: string; turnId: string | null } | null) => Promise<void>;
+  setNoticeSource: (key: string, taskId: string | null) => Promise<void>;
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
   fetchPrs: (workspaceId: string | undefined, page: number, pageSize: number) => Promise<PullRequestPageDto>;

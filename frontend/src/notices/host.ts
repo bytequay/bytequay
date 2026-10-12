@@ -26,7 +26,7 @@ export class NoticeHost {
   private width = NOTICE_WIDTH;
   private folded = false;
   private obscured = false;
-  private sources = new Map<string, { taskId: string; turnId: string | null }>();
+  private sources = new Map<string, string>();
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
     private readonly openNotice: (notice: AppNotice) => Promise<void>) {}
@@ -73,11 +73,8 @@ export class NoticeHost {
       if (typeof key !== 'string' || key.length > 200) throw new Error('Invalid notice source');
       if (source === null) this.sources.delete(key);
       else {
-        if (typeof source !== 'object') throw new Error('Invalid notice source');
-        const value = source as Record<string, unknown>;
-        if (typeof value.taskId !== 'string' || value.taskId.length > 200
-          || (value.turnId !== null && (typeof value.turnId !== 'string' || value.turnId.length > 200))) throw new Error('Invalid notice source');
-        this.sources.set(key, { taskId: value.taskId, turnId: value.turnId as string | null });
+        if (typeof source !== 'string' || !source.trim() || source.length > 200) throw new Error('Invalid notice source');
+        this.sources.set(key, source);
       }
       this.publish();
     });
@@ -120,14 +117,14 @@ export class NoticeHost {
   private publish(): void {
     const window = this.window();
     if (!window || window.isDestroyed()) return;
-    const state = this.snapshot();
+    let state = this.snapshot();
     if (state.active) {
       for (const notice of state.notices) {
-        if ([...this.sources.values()].some(source => source.taskId === notice.taskId && (notice.turnId === null || source.turnId === notice.turnId))) {
-          this.store.dismiss(notice.id);
+        if ([...this.sources.values()].includes(notice.taskId)) {
+          this.store.markViewed(notice.id);
         }
       }
-      state.popupIds = this.snapshot().popupIds;
+      state = this.snapshot();
     }
     if (this.view === null) this.create(window);
     this.view?.webContents.send('notices:changed', state);

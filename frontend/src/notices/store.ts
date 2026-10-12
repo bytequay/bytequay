@@ -21,6 +21,7 @@ export class NoticeStore {
   private readonly seen = new Set<string>();
   private readonly notices = new Map<string, AppNotice>();
   private readonly popups = new Set<string>();
+  private readonly viewed = new Set<string>();
   private readonly settling = new Map<string, { since: number; popup: boolean }>();
 
   update(incoming: AppNotice[], now = Date.now()): void {
@@ -52,13 +53,17 @@ export class NoticeStore {
     this.initialized = true;
     const recent = [...this.notices.values()].filter(notice => !needsAction(notice)).sort(newest);
     for (const notice of recent.slice(50)) { this.notices.delete(notice.id); this.popups.delete(notice.id); }
+    for (const id of this.viewed) if (!this.notices.has(id)) this.viewed.delete(id);
   }
 
   dismiss(id: string): void { this.popups.delete(id); }
 
+  markViewed(id: string): void { this.viewed.add(id); this.dismiss(id); }
+
   snapshot(active: boolean, maxHeight = 600): NoticeSnapshot {
     const notices = [...this.notices.values()].sort((a, b) => Number(needsAction(b)) - Number(needsAction(a)) || newest(a, b));
-    return { notices, popupIds: notices.filter(notice => this.popups.has(notice.id)).map(notice => notice.id), active, maxHeight };
+    return { notices, popupIds: notices.filter(notice => this.popups.has(notice.id)).map(notice => notice.id),
+      viewedIds: notices.filter(notice => this.viewed.has(notice.id)).map(notice => notice.id), active, maxHeight };
   }
 
   private remember(id: string): void {

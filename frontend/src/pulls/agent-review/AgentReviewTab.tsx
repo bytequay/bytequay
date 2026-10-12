@@ -63,7 +63,7 @@ export type ReviewNavigationTarget = {
   token: number;
 };
 
-type PendingAction = 'resume' | 'refresh' | 'other';
+type PendingAction = 'resume' | 'update' | 'refresh' | 'other';
 
 /** A placeholder for the hook's contract while no review exists; its actions are never reachable. */
 const EMPTY_REVIEW = {
@@ -129,6 +129,7 @@ export default function AgentReviewTab({
   const busy = pendingAction !== null;
   const resuming = pendingAction === 'resume';
   const [error, setError] = useState<string | null>(null);
+  const [updateNotice, setUpdateNotice] = useState<{ reviewId: string; runId: string; reused: boolean } | null>(null);
   const [recoveryConfirmation, setRecoveryConfirmation] = useState<{ reviewId: string; impact: AgentRuntimeStopImpactDto } | null>(null);
   const recoveryPending = useRef(false);
   const recoveryRequest = useRef(0);
@@ -234,6 +235,7 @@ export default function AgentReviewTab({
     projectionRevision.current++;
     setPendingAction(pending);
     setError(null);
+    setUpdateNotice(null);
     try {
       await action();
     }
@@ -535,6 +537,20 @@ export default function AgentReviewTab({
 
   if (review === null) return null;
 
+  const update = () => run_(async () => {
+    const updated = await window.bridge.updateAgentReview(review.id);
+    if (currentReviewId.current !== review.id) return;
+    onReviewChange(updated);
+    recordReviewAttentionAction(review, 'prompt');
+    const result = latestRun(updated);
+    const resultStatus = reviewStatus(updated).status;
+    if (result !== null && (resultStatus === 'ready' || resultStatus === 'nofindings')
+      && updated.task.mutationClaim === null && updated.queuedInputIds.length === 0
+      && ((result.id === currentRun?.id && currentRun.state === 'ACCEPTED') || result.turnIds.length === 0)) {
+      setUpdateNotice({ reviewId: updated.id, runId: result.id, reused: result.id !== currentRun?.id });
+    }
+  }, 'update');
+
   const message = (delivery: 'TURN' | 'STEER' | 'QUEUE') => run_(async () => {
     const text = composer.trim();
     if (text === '') return;
@@ -600,9 +616,9 @@ export default function AgentReviewTab({
           </button>
         )}
         {!running && review.state === 'OPEN' && (
-          <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason}
-            onClick={() => { void run_(async () => { onReviewChange(await window.bridge.updateAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }); }}>
-            {review.runs.length === 0 ? 'Start review' : 'Update review'}</button>
+          <button type="button" className="agr-action" disabled={busy || recovery || localRun} title={localRunReason} aria-busy={pendingAction === 'update'}
+            onClick={() => { void update(); }}>
+            {pendingAction === 'update' ? 'Checking…' : review.runs.length === 0 ? 'Start review' : 'Update review'}</button>
         )}
         {!running && review.state === 'OPEN' && (
           <button type="button" className="agr-action is-quiet" disabled={busy || recovery || localRun}
@@ -620,6 +636,14 @@ export default function AgentReviewTab({
       </section>}
 
       {error !== null && <div className="agr-error" role="alert">{error}</div>}
+      {updateNotice?.reviewId === review.id && updateNotice.runId === currentRun?.id && (status?.status === 'ready' || status?.status === 'nofindings') && (
+        <div className="agr-banner is-neutral" role="status">
+          <span className="agr-banner__chip">{updateNotice.reused ? 'Previous review reused' : 'Nothing new to review'}</span>
+          <div className="agr-banner__text">{updateNotice.reused
+            ? 'The code and commit messages are unchanged. The previous review still applies.'
+            : 'The current changes are already covered by this review.'}</div>
+        </div>
+      )}
       {findingActions.error !== null && <div className="agr-error" role="alert">{findingActions.error}</div>}
       {recovery && (
         <div className="agr-banner is-danger" role="status">
@@ -662,8 +686,8 @@ export default function AgentReviewTab({
                 {worktreeNotice?.message ?? <>The source has new commits since this review ({shortSha(currentRun?.headSha ?? '')} → {shortSha(review.observedHeadSha ?? '')}).
                   {' '}Finding comments stay attached to their reviewed commit.</>}
               </div>
-              <button type="button" className="agr-action is-primary" disabled={busy || running || recovery || localRun} title={localRunReason}
-                onClick={() => { void run_(async () => { onReviewChange(await window.bridge.updateAgentReview(review.id)); recordReviewAttentionAction(review, 'prompt'); }); }}>Update review</button>
+              <button type="button" className="agr-action is-primary" disabled={busy || running || recovery || localRun} title={localRunReason} aria-busy={pendingAction === 'update'}
+                onClick={() => { void update(); }}>{pendingAction === 'update' ? 'Checking…' : 'Update review'}</button>
             </div>
           )}
           {status?.status === 'stopped' && (

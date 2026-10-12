@@ -1315,7 +1315,7 @@ export async function runPreparePrivateThreads(mode: 'ready' | 'failure' | 'mode
       return [{ id: 1, repository, fullName: repo, description: null, visibility: 'public', fork: false,
         defaultBranch: 'main', upstream: null, existingWorkspaceId: null }];
     },
-    previewWatch: async () => ({ selectedRepositoryId: 1, selectedRepository: repository, visibility: 'public', topology: 'DIRECT' as const,
+    previewWatch: async () => ({ selectedRepositoryId: 1, selectedRepository: repository, visibility: 'public', topology: 'DIRECT' as const, recommendedTopology: 'DIRECT' as const, forkModeAvailable: false,
       upstreamRepositoryId: null, upstreamRepository: null, monitoredRepositoryId: 1, monitoredRepository: repository,
       defaultBranch: 'main', developmentBase: 'origin/main', pushRemote: 'origin', pushRepository: repository,
       pushWritable: true, forkRequired: false, pullRequestBase: repository, fingerprint: 'routing', existingWorkspaceId: null }),

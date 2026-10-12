@@ -16,7 +16,7 @@ import { createRoot } from 'react-dom/client';
 import { useState } from 'react';
 import AddRepoModal from '../AddRepoModal';
 import AgentReviewTab from '../pulls/agent-review/AgentReviewTab';
-import type { PullRequestDetailDto, RepositorySearchResultDto, WatchRepositoryCommand, WatchRepositoryPreviewDto, WorkspaceDto } from '../types';
+import type { PullRequestDetailDto, RepositorySearchResultDto, WatchRepositoryCommand, WatchRepositoryPreviewDto, WatchRepositoryTopology, WorkspaceDto } from '../types';
 import { assert, settle } from './harness';
 import '../css/base.css';
 import '../css/modals.css';
@@ -29,6 +29,7 @@ const result: RepositorySearchResultDto = {
 };
 const preview: WatchRepositoryPreviewDto = {
   selectedRepositoryId: 1, selectedRepository: repository, visibility: 'public', topology: 'DIRECT',
+  recommendedTopology: 'DIRECT', forkModeAvailable: false,
   upstreamRepositoryId: null, upstreamRepository: null, monitoredRepositoryId: 1, monitoredRepository: repository,
   defaultBranch: 'main', developmentBase: 'origin/main', pushRemote: 'origin', pushRepository: repository,
   pushWritable: true, forkRequired: false, pullRequestBase: repository, fingerprint: 'routing', existingWorkspaceId: null,
@@ -151,6 +152,83 @@ export async function run(): Promise<string[]> {
     assert(Number(watched) === 1 && host.textContent?.includes('Start review') && host.querySelector('.modal') === null,
       'Watching must refresh the review context and close confirmation');
     return ['background clicks preserve progress', 'explicit cancellation discards a late preview', 'watch from review confirms and refreshes'];
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+
+export async function runStrategies(): Promise<string[]> {
+  const upstream = { owner: 'company', repo: 'private-project' };
+  const direct: WatchRepositoryPreviewDto = { ...preview, selectedRepository: upstream, monitoredRepository: upstream,
+    pushRepository: upstream, pullRequestBase: upstream, visibility: 'private', forkModeAvailable: true,
+    pushWritable: false, fingerprint: 'direct-routing' };
+  const fork: WatchRepositoryPreviewDto = { ...direct, topology: 'FORK', pushRepository: { owner: 'octocat', repo: 'private-project' },
+    upstreamRepository: upstream, upstreamRepositoryId: 1, developmentBase: 'upstream/main', forkRequired: true, fingerprint: 'fork-routing' };
+  const pending: ReturnType<typeof Promise.withResolvers<WatchRepositoryPreviewDto>>[] = [];
+  const commands: WatchRepositoryCommand[] = [];
+  const requests: (WatchRepositoryTopology | undefined)[] = [];
+  let failWatch = true;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    previewWatch: async (_id: number, topology?: WatchRepositoryTopology) => {
+      requests.push(topology);
+      if (topology !== 'FORK') return direct;
+      const request = Promise.withResolvers<WatchRepositoryPreviewDto>();
+      pending.push(request);
+      return request.promise;
+    },
+    watchRepository: async (command: WatchRepositoryCommand) => {
+      commands.push(command);
+      if (failWatch) throw new Error('Forking is disabled');
+      return workspace;
+    },
+  } satisfies Partial<Window['bridge']> });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const click = async (selector: string) => {
+    const element = host.querySelector<HTMLElement>(selector);
+    assert(element !== null, `Missing ${selector}`);
+    element.click();
+    await settle();
+  };
+  const confirm = () => host.querySelector<HTMLButtonElement>('.modal-preview__confirm');
+  try {
+    flushSync(() => root.render(<AddRepoModal initialRepositoryId={1} onAdded={() => {}} onOpenWorkspace={() => {}} onClose={() => {}} />));
+    await settle();
+    assert(host.querySelector<HTMLInputElement>('input[value="DIRECT"]')?.checked, 'A private repository must display the recommended direct workflow');
+    assert(host.textContent?.includes('do not have write access') && host.textContent.includes('still clone and follow'), 'Direct mode must explain missing write access');
+    assert(!confirm()?.disabled && commands.length === 0, 'Read-only repositories can be followed after confirmation');
+
+    await click('input[value="FORK"]');
+    assert(confirm()?.disabled && host.querySelector('.modal-routing') === null, 'Stale routing cannot be confirmed while switching');
+    await click('input[value="DIRECT"]');
+    pending[0].resolve(fork);
+    await settle();
+    assert(host.querySelector<HTMLInputElement>('input[value="DIRECT"]')?.checked && host.textContent?.includes('origin/main'), 'Late fork responses must not replace direct mode');
+
+    await click('input[value="FORK"]');
+    pending[1].reject(new Error('Preview unavailable'));
+    await settle();
+    assert(host.textContent?.includes('Preview unavailable') && confirm()?.disabled, 'A failed mode preview must not allow confirming the old routing');
+    await click('input[value="DIRECT"]');
+    assert(!confirm()?.disabled && !host.textContent?.includes('Preview unavailable'), 'Switching back must recover from a preview failure');
+
+    await click('input[value="FORK"]');
+    pending[2].resolve(fork);
+    await settle();
+    assert(confirm()?.textContent === 'Create fork and watch' && commands.length === 0, 'Choosing fork mode must not create a fork');
+    await click('.modal-preview__confirm');
+    assert(commands[0].topology === 'FORK' && commands[0].previewFingerprint === 'fork-routing' && commands[0].allowForkCreation,
+      'Fork creation must use explicit consent for the chosen routing');
+    assert(requests.at(-1) === 'FORK', 'Watch failures must refresh the chosen workflow rather than the recommendation');
+    pending[3].resolve(fork);
+    await settle();
+    await click('input[value="DIRECT"]');
+    failWatch = false;
+    await click('.modal-preview__confirm');
+    assert(commands[1].topology === 'DIRECT' && commands[1].previewFingerprint === 'direct-routing' && !commands[1].allowForkCreation,
+      'Direct clone must never consent to creating a fork');
+    return ['workflow switching ignores stale previews', 'workflow errors recover without changing consent'];
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
 }

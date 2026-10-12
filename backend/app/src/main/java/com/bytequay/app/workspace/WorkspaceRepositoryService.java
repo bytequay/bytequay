@@ -14,6 +14,7 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.domain.Workspace.Topology;
 
 import java.util.List;
 import java.util.Optional;
@@ -31,22 +32,22 @@ public interface WorkspaceRepositoryService
     List<RepositorySearchResult> searchRepositories(String query, int limit);
 
     /**
-     * Resolves upstream monitoring and personal-fork publishing that the user confirms before watching.
+     * Resolves the chosen direct-clone or personal-fork routing that the user confirms before watching.
      *
      * @param selectedRepositoryId stable GitHub repository identifier
+     * @param topology chosen routing mode, or empty to use the recommendation
      * @return current routing, permission state, and confirmation fingerprint
      * @throws WorkspaceException when the repository is unavailable or has unsafe routing
      */
-    WatchRepositoryPreview previewWatch(long selectedRepositoryId);
+    WatchRepositoryPreview previewWatch(long selectedRepositoryId, Optional<Topology> topology);
 
     /**
      * Creates a durable workspace after re-reading the selected repository by stable GitHub ID.
      *
-     * <p>The resolved push repository's stable GitHub ID is idempotent: watching upstream or the
-     * personal fork returns the same workspace. Missing forks require explicit creation consent. A changed routing fingerprint is rejected so stale preview
-     * data cannot be persisted.</p>
+     * <p>The resolved push repository's stable GitHub ID is idempotent. In fork mode, selecting the upstream or personal fork returns the same workspace.
+     * Missing forks require explicit creation consent. A changed routing fingerprint is rejected so stale preview data cannot be persisted.</p>
      *
-     * @param command confirmed repository ID, preview fingerprint, and optional display name
+     * @param command confirmed repository ID, workflow, preview fingerprint, optional display name, and fork consent
      * @return the persisted workspace in its current code and metadata states
      * @throws WorkspaceException when the repository changed after preview
      */

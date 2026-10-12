@@ -188,7 +188,7 @@ const bridge: Bridge = {
   removePrFromMergeQueue: (repo, number) => ipcRenderer.invoke('prs:merge-queue:remove', repo, number),
 
   searchRepositories: (query, limit) => ipcRenderer.invoke('workspaces:search', query, limit),
-  previewWatch: selectedRepositoryId => ipcRenderer.invoke('workspaces:preview', selectedRepositoryId),
+  previewWatch: (selectedRepositoryId, topology) => ipcRenderer.invoke('workspaces:preview', selectedRepositoryId, topology),
   watchRepository: command => ipcRenderer.invoke('workspaces:watch', command),
   listWorkspaces: () => ipcRenderer.invoke('workspaces:list'),
   listRetiredWorkspaces: () => ipcRenderer.invoke('workspaces:list-retired'),

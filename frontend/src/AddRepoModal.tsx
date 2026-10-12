@@ -19,6 +19,7 @@ import type {
   RepositorySearchResultDto,
   WatchRepositoryCommand,
   WatchRepositoryPreviewDto,
+  WatchRepositoryTopology,
   WorkspaceDto,
 } from './types';
 
@@ -57,11 +58,14 @@ function summaryFor(preview: WatchRepositoryPreviewDto): string {
     return `ByteQuay will reuse your existing personal fork ${push} for work branches`
       + ` and follow ${upstream} for commits, issues and pull requests.`;
   }
-  return `Code, issues, pull requests and work branches use your repository ${upstream}.`;
+  return `ByteQuay will clone ${upstream} directly, follow its commits, issues and pull requests, and publish work branches to this repository.`;
 }
 
-export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, onOpenWorkspace }: {
+export function WatchRepositoryConfirmation({ preview, topology, ready, adding, onTopologyChange, onBack, onWatch, onOpenWorkspace }: {
   preview: WatchRepositoryPreviewDto;
+  topology: WatchRepositoryTopology;
+  ready: boolean;
+  onTopologyChange: (topology: WatchRepositoryTopology) => void;
   adding: boolean;
   onBack: () => void;
   onWatch: (command: WatchRepositoryCommand) => void;
@@ -79,7 +83,7 @@ export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, 
           <div className="modal-preview__name-row">
             <span className="modal-preview__name">{fullName(preview.monitoredRepository)}</span>
             <span className={`modal-chip${preview.topology === 'FORK' ? ' is-fork' : ' is-direct'}`}>
-              {preview.topology === 'FORK' ? '⑂ personal fork workflow' : 'your repository'}
+              {preview.topology === 'FORK' ? '⑂ personal fork workflow' : 'direct clone'}
             </span>
           </div>
           <div className="modal-preview__sub">
@@ -88,14 +92,35 @@ export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, 
         </div>
       </div>
 
-      {!preview.pushWritable && !preview.forkRequired && (
+      <fieldset className="modal-strategy" disabled={adding}>
+        <legend>Repository workflow</legend>
+        {(['DIRECT', 'FORK'] as const).filter(mode => mode === 'DIRECT' || preview.forkModeAvailable).map(mode => (
+          <label className="modal-strategy__option" key={mode}>
+            <input type="radio" name="repository-workflow" value={mode} checked={topology === mode}
+              onChange={() => onTopologyChange(mode)} />
+            <span>
+              <strong>{mode === 'DIRECT' ? 'Direct clone' : 'Personal fork'}</strong>
+              {preview.recommendedTopology === mode && <span className="modal-chip">Recommended</span>}
+              <small>{mode === 'DIRECT' ? 'Follow and publish to the selected repository.' : 'Publish work branches to your personal fork.'}</small>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      {ready && preview.topology === 'DIRECT' && (
+        <p className={preview.pushWritable ? 'modal-preview__permission' : 'modal-preview__warning'}>
+          Direct clone requires write permission to {fullName(preview.pushRepository)} to push development branches and publish changes.
+          {!preview.pushWritable && ' Your current GitHub credentials do not have write access. You can still clone and follow this repository.'}
+        </p>
+      )}
+      {ready && preview.topology === 'FORK' && !preview.pushWritable && !preview.forkRequired && (
         <div className="modal-preview__warning" role="status">
           You can’t push to {fullName(preview.pushRepository)}. Check your GitHub permissions
           before publishing work branches.
         </div>
       )}
 
-      <div className="modal-routing">
+      {ready && <div className="modal-routing">
         <div className="modal-routing__head">HOW THIS REPOSITORY WILL WORK</div>
         <div className="modal-routing__grid">
           {routingRows(preview).map(row => (
@@ -106,14 +131,14 @@ export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, 
           ))}
         </div>
         <p className="modal-routing__summary">{summaryFor(preview)}</p>
-      </div>
+      </div>}
 
       <div className="modal-preview__actions">
         <button type="button" disabled={adding} onClick={onBack}>Back</button>
         <button
           className="modal-preview__confirm"
           type="button"
-          disabled={adding}
+          disabled={adding || !ready}
           onClick={() => {
             if (preview.existingWorkspaceId !== null) {
               onOpenWorkspace(preview.existingWorkspaceId);
@@ -121,6 +146,7 @@ export function WatchRepositoryConfirmation({ preview, adding, onBack, onWatch, 
             }
             onWatch({
               selectedRepositoryId: preview.selectedRepositoryId,
+              topology: preview.topology,
               previewFingerprint: preview.fingerprint,
               allowForkCreation: preview.forkRequired,
             });
@@ -146,6 +172,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [selectedRepositoryId, setSelectedRepositoryId] = useState<number | null>(initialRepositoryId ?? null);
+  const [topology, setTopology] = useState<WatchRepositoryTopology>();
   const [preview, setPreview] = useState<WatchRepositoryPreviewDto | null>(null);
   const [previewLoading, setPreviewLoading] = useState(initialRepositoryId !== undefined);
   const [adding, setAdding] = useState(false);
@@ -179,18 +206,19 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
     if (selectedRepositoryId === null) return;
     let cancelled = false;
     setPreviewLoading(true);
-    window.bridge.previewWatch(selectedRepositoryId)
+    window.bridge.previewWatch(selectedRepositoryId, topology)
       .then(result => { if (!cancelled) setPreview(result); })
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); })
       .finally(() => { if (!cancelled) setPreviewLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedRepositoryId]);
+  }, [selectedRepositoryId, topology]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || adding) return;
       if (selectedRepositoryId !== null) {
         setSelectedRepositoryId(null);
+        setTopology(undefined);
         setPreview(null);
         setError(null);
       } else {
@@ -203,6 +231,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
 
   const pick = (repo: RepositorySearchResultDto) => {
     setSelectedRepositoryId(repo.id);
+    setTopology(undefined);
     setPreviewLoading(true);
     setPreview(null);
     setError(null);
@@ -220,7 +249,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       try {
-        setPreview(await window.bridge.previewWatch(command.selectedRepositoryId));
+        setPreview(await window.bridge.previewWatch(command.selectedRepositoryId, command.topology));
       }
       catch { /* Keep the original confirmation error visible. */ }
     }
@@ -231,6 +260,7 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
 
   const back = () => {
     setSelectedRepositoryId(null);
+    setTopology(undefined);
     setPreview(null);
     setError(null);
     window.setTimeout(() => inputRef.current?.focus());
@@ -320,6 +350,13 @@ export default function AddRepoModal({ initialRepositoryId, onAdded, onOpenWorks
             {preview && (
               <WatchRepositoryConfirmation
                 preview={preview}
+                topology={topology ?? preview.topology}
+                ready={!previewLoading && (topology === undefined || topology === preview.topology)}
+                onTopologyChange={mode => {
+                  setTopology(mode);
+                  setPreviewLoading(true);
+                  setError(null);
+                }}
                 adding={adding}
                 onBack={back}
                 onWatch={command => { void add(command); }}

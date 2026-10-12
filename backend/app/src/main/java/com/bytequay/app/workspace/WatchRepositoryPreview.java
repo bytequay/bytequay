@@ -26,6 +26,8 @@ public record WatchRepositoryPreview(
         RepoRef selectedRepository,
         String visibility,
         Topology topology,
+        Topology recommendedTopology,
+        boolean forkModeAvailable,
         Optional<Long> upstreamRepositoryId,
         Optional<RepoRef> upstreamRepository,
         long monitoredRepositoryId,
@@ -45,6 +47,7 @@ public record WatchRepositoryPreview(
         requireNonNull(selectedRepository, "selectedRepository is null");
         requireNonNull(visibility, "visibility is null");
         requireNonNull(topology, "topology is null");
+        requireNonNull(recommendedTopology, "recommendedTopology is null");
         requireNonNull(upstreamRepositoryId, "upstreamRepositoryId is null");
         requireNonNull(upstreamRepository, "upstreamRepository is null");
         requireNonNull(monitoredRepository, "monitoredRepository is null");

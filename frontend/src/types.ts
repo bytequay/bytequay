@@ -303,11 +303,15 @@ export type RepositorySearchResultDto = {
   existingWorkspaceId: string | null;
 };
 
+export type WatchRepositoryTopology = 'DIRECT' | 'FORK';
+
 export type WatchRepositoryPreviewDto = {
   selectedRepositoryId: number;
   selectedRepository: RepoRefDto;
   visibility: string;
-  topology: 'DIRECT' | 'FORK';
+  topology: WatchRepositoryTopology;
+  recommendedTopology: WatchRepositoryTopology;
+  forkModeAvailable: boolean;
   upstreamRepositoryId: number | null;
   upstreamRepository: RepoRefDto | null;
   monitoredRepositoryId: number;
@@ -325,6 +329,7 @@ export type WatchRepositoryPreviewDto = {
 
 export type WatchRepositoryCommand = {
   selectedRepositoryId: number;
+  topology: WatchRepositoryTopology;
   previewFingerprint: string;
   allowForkCreation: boolean;
   name?: string;
@@ -1482,7 +1487,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   removePrFromMergeQueue: (repo: string, number: number) => Promise<void>;
 
   searchRepositories: (query: string, limit: number) => Promise<RepositorySearchResultDto[]>;
-  previewWatch: (selectedRepositoryId: number) => Promise<WatchRepositoryPreviewDto>;
+  previewWatch: (selectedRepositoryId: number, topology?: WatchRepositoryTopology) => Promise<WatchRepositoryPreviewDto>;
   watchRepository: (command: WatchRepositoryCommand) => Promise<WorkspaceDto>;
   listWorkspaces: () => Promise<WorkspaceDto[]>;
   getBackportChains: (workspaceId: string) => Promise<BackportChainViewDto[]>;

@@ -121,12 +121,18 @@ Updates to merged or closed PRs, including the merge or closure itself, appear i
 
 1. Choose **Home → + Watch** or **Workspaces → New workspace**, then select a
    repository.
-2. Review **Followed for updates**, **New branches start from**, **Work branches push
-   to**, and **Pull requests open against**. These may point to different repositories
-   when you work through a fork.
-3. Choose **Watch repository**, or **Create fork and watch** if the setup calls for a
-   new personal fork.
-4. Open the workspace. Use its sidebar to switch between **Tasks**, **Pull requests**,
+2. Choose **Direct clone** or **Personal fork** in the confirmation dialog. Private
+   and internal repositories, and repositories you own, recommend direct clone.
+   Public repositories owned by someone else recommend a personal fork.
+3. Direct clone follows the selected repository's commits, issues and pull requests,
+   and pushes work branches there. You need write permission to publish development
+   changes; without it, you can still clone and follow the repository. Personal fork
+   follows the upstream repository and publishes work branches to your own fork.
+4. Review **Followed for updates**, **New branches start from**, **Work branches push
+   to**, and **Pull requests open against**, then choose **Watch repository** or
+   **Create fork and watch**. Changing the workflow does not create a fork until you
+   confirm.
+5. Open the workspace. Use its sidebar to switch between **Tasks**, **Pull requests**,
    **Work items**, **Commits**, and **Memory**. Commits becomes available after
    the repository has cloned.
 

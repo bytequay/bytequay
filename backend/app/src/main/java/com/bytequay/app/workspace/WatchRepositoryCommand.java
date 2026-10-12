@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.core.domain.Workspace.Topology;
+
 import java.util.Optional;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -21,6 +23,7 @@ import static java.util.Objects.requireNonNull;
 /** Stable repository identity and routing fingerprint explicitly confirmed by the user. */
 public record WatchRepositoryCommand(
         long selectedRepositoryId,
+        Topology topology,
         String previewFingerprint,
         Optional<String> name,
         boolean allowForkCreation)
@@ -28,6 +31,7 @@ public record WatchRepositoryCommand(
     public WatchRepositoryCommand
     {
         checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
+        requireNonNull(topology, "topology is null");
         requireNonNull(previewFingerprint, "previewFingerprint is null");
         checkArgument(!previewFingerprint.isBlank(), "previewFingerprint is blank");
         requireNonNull(name, "name is null");

@@ -40,6 +40,7 @@ import com.bytequay.core.domain.PullRequestPage;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryMetadataSnapshot;
+import com.bytequay.core.domain.Workspace.Topology;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -117,6 +118,7 @@ public class WorkspaceController
     {
         return WorkspaceSummary.of(workspaces.watch(new WatchRepositoryCommand(
                 request.selectedRepositoryId(),
+                request.topology(),
                 request.previewFingerprint(),
                 Optional.ofNullable(request.name()),
                 request.allowForkCreation())));
@@ -125,7 +127,7 @@ public class WorkspaceController
     @PostMapping("/watch-preview")
     public WatchRepositoryPreview previewWatch(@RequestBody WatchPreviewRequest request)
     {
-        return workspaces.previewWatch(request.selectedRepositoryId());
+        return workspaces.previewWatch(request.selectedRepositoryId(), Optional.ofNullable(request.topology()));
     }
 
     @GetMapping
@@ -404,9 +406,9 @@ public class WorkspaceController
 
     public record DeleteWorkspaceRequest(boolean confirmed, String repositoryName) {}
 
-    public record WatchRequest(long selectedRepositoryId, String previewFingerprint, String name, boolean allowForkCreation) {}
+    public record WatchRequest(long selectedRepositoryId, Topology topology, String previewFingerprint, String name, boolean allowForkCreation) {}
 
-    public record WatchPreviewRequest(long selectedRepositoryId) {}
+    public record WatchPreviewRequest(long selectedRepositoryId, Topology topology) {}
 
     public record IssueCommentRequest(String body) {}
 

@@ -103,6 +103,7 @@ import type {
   StartAgentTurnRequest,
   SteerAgentTurnRequest,
   WatchRepositoryCommand,
+  WatchRepositoryTopology,
 } from './types';
 import {
   backendBase,
@@ -1829,8 +1830,8 @@ function registerIpc(): void {
     url.searchParams.set('limit', String(limit));
     return backendJson(url);
   });
-  ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number) =>
-    backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId })));
+  ipcMain.handle('workspaces:preview', (_event, selectedRepositoryId: number, topology?: WatchRepositoryTopology) =>
+    backendJson(`${backendBase()}/api/workspaces/watch-preview`, jsonInit('POST', { selectedRepositoryId, topology })));
   ipcMain.handle('workspaces:watch', (_event, command: WatchRepositoryCommand) =>
     backendJson(`${backendBase()}/api/workspaces`, jsonInit('POST', command)));
   const geminiSetup = new GeminiSetup(os.homedir());

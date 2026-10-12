@@ -128,11 +128,11 @@ public class DefaultWorkspaceRepositoryService
     }
 
     @Override
-    public WatchRepositoryPreview previewWatch(long selectedRepositoryId)
+    public WatchRepositoryPreview previewWatch(long selectedRepositoryId, Optional<Topology> topology)
     {
         checkArgument(selectedRepositoryId > 0, "selectedRepositoryId must be positive");
         var credential = credentials.resolveGitHubCredential();
-        return toPreview(resolveWatch(selectedRepositoryId, credential.token(), credential.profile().login()));
+        return toPreview(resolveWatch(selectedRepositoryId, topology, credential.token(), credential.profile().login()));
     }
 
     @Override
@@ -141,7 +141,7 @@ public class DefaultWorkspaceRepositoryService
     {
         requireNonNull(command, "command is null");
         var credential = credentials.resolveGitHubCredential();
-        WatchRouting routing = resolveWatch(command.selectedRepositoryId(), credential.token(), credential.profile().login());
+        WatchRouting routing = resolveWatch(command.selectedRepositoryId(), Optional.of(command.topology()), credential.token(), credential.profile().login());
         Optional<Workspace> existing = routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()));
         if (existing.filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).isPresent()) {
             Workspace workspace = existing.orElseThrow();
@@ -349,7 +349,7 @@ public class DefaultWorkspaceRepositoryService
         String id = UUID.randomUUID().toString();
         Instant now = clock.instant();
         RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
-        Topology topology = selected.fork() ? Topology.FORK : Topology.DIRECT;
+        Topology topology = upstream.isPresent() ? Topology.FORK : Topology.DIRECT;
         Workspace proposed = new Workspace(
                 id,
                 name.orElseGet(() -> upstream.map(UserRepo::fullName).orElse(selected.fullName())),
@@ -413,11 +413,19 @@ public class DefaultWorkspaceRepositoryService
                 existingWorkspaceId);
     }
 
-    private WatchRouting resolveWatch(long selectedRepositoryId, String token, String login)
+    private WatchRouting resolveWatch(long selectedRepositoryId, Optional<Topology> requestedTopology, String token, String login)
     {
         UserRepo selected = requireRepository(token, selectedRepositoryId);
-        if (!selected.fork() && selected.owner().equalsIgnoreCase(login)) {
-            return new WatchRouting(selected, selected, Optional.of(selected), login);
+        boolean owned = selected.owner().equalsIgnoreCase(login);
+        boolean forkModeAvailable = (selected.fork() || !owned)
+                && selected.upstream().filter(value -> value.owner().equalsIgnoreCase(login)).isEmpty();
+        Topology recommended = "public".equals(selected.visibility()) && !owned && forkModeAvailable ? Topology.FORK : Topology.DIRECT;
+        Topology topology = requestedTopology.orElse(recommended);
+        if (topology == Topology.DIRECT) {
+            return new WatchRouting(selected, selected, Optional.of(selected), login, topology, recommended, forkModeAvailable);
+        }
+        if (!forkModeAvailable) {
+            throw WorkspaceException.invalidRepository("Use direct clone for your own repository.");
         }
         UserRepo monitored = selected.fork()
                 ? requireRepository(token, selected.upstream().filter(DefaultWorkspaceRepositoryService::validUpstream)
@@ -427,13 +435,13 @@ public class DefaultWorkspaceRepositoryService
             throw WorkspaceException.invalidRepository("GitHub did not return the original upstream repository. Retry the preview.");
         }
         if (monitored.owner().equalsIgnoreCase(login)) {
-            return new WatchRouting(selected, monitored, Optional.of(monitored), login);
+            throw WorkspaceException.invalidRepository("Use direct clone for a fork of your own repository.");
         }
         Optional<UserRepo> pushRepository = selected.fork() && selected.owner().equalsIgnoreCase(login)
                 ? Optional.of(selected)
                 : gitHub.findOwnedFork(token, monitored, login);
         pushRepository.ifPresent(DefaultWorkspaceRepositoryService::validate);
-        return new WatchRouting(selected, monitored, pushRepository, login);
+        return new WatchRouting(selected, monitored, pushRepository, login, topology, recommended, true);
     }
 
     private UserRepo requireRepository(String token, long repositoryId)
@@ -458,7 +466,9 @@ public class DefaultWorkspaceRepositoryService
                 selected.id(),
                 repositoryRef(selected),
                 monitored.visibility(),
-                routing.fork() ? Topology.FORK : Topology.DIRECT,
+                routing.topology(),
+                routing.recommendedTopology(),
+                routing.forkModeAvailable(),
                 routing.upstream().map(UserRepo::id),
                 routing.upstream().map(DefaultWorkspaceRepositoryService::repositoryRef),
                 monitored.id(),
@@ -470,7 +480,7 @@ public class DefaultWorkspaceRepositoryService
                 pushRef,
                 routing.pushRepository().isEmpty(),
                 monitoredRef,
-                fingerprint(routing.login() + "\0" + fingerprint(selected) + "\0" + fingerprint(monitored) + "\0"
+                fingerprint(routing.topology() + "\0" + routing.login() + "\0" + fingerprint(selected) + "\0" + fingerprint(monitored) + "\0"
                         + routing.pushRepository().map(DefaultWorkspaceRepositoryService::fingerprint).orElse("create-fork")),
                 routing.pushRepository().flatMap(value -> store.findBySelectedRepositoryId(value.id()))
                         .filter(value -> store.isWatched(value.id()) && matchesWatch(value, routing)).map(Workspace::id));
@@ -486,11 +496,18 @@ public class DefaultWorkspaceRepositoryService
         return RepoRef.of(repository.owner(), repository.name());
     }
 
-    private record WatchRouting(UserRepo selectedRepository, UserRepo monitoredRepository, Optional<UserRepo> pushRepository, String login)
+    private record WatchRouting(
+            UserRepo selectedRepository,
+            UserRepo monitoredRepository,
+            Optional<UserRepo> pushRepository,
+            String login,
+            Topology topology,
+            Topology recommendedTopology,
+            boolean forkModeAvailable)
     {
         boolean fork()
         {
-            return !monitoredRepository.owner().equalsIgnoreCase(login);
+            return topology == Topology.FORK;
         }
 
         Optional<UserRepo> upstream()

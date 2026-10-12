@@ -25,6 +25,8 @@ const preview: WatchRepositoryPreviewDto = {
   selectedRepository: upstream,
   visibility: 'public',
   topology: 'FORK',
+  recommendedTopology: 'FORK',
+  forkModeAvailable: true,
   upstreamRepositoryId: 1,
   upstreamRepository: upstream,
   monitoredRepositoryId: 1,
@@ -44,8 +46,10 @@ function confirmation(overrides: Partial<WatchRepositoryPreviewDto> = {}, adding
   const onWatch = vi.fn();
   const onBack = vi.fn();
   const onOpenWorkspace = vi.fn();
-  const view = WatchRepositoryConfirmation({ preview: { ...preview, ...overrides }, adding, onWatch, onBack, onOpenWorkspace });
-  const actions = view.props.children[3] as ReactElement<{ children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>[] }>;
+  const value = { ...preview, ...overrides };
+  const view = WatchRepositoryConfirmation({ preview: value, topology: value.topology, ready: true, adding,
+    onTopologyChange: vi.fn(), onWatch, onBack, onOpenWorkspace });
+  const actions = view.props.children[5] as ReactElement<{ children: ReactElement<ButtonHTMLAttributes<HTMLButtonElement>>[] }>;
   return {
     onWatch,
     onBack,
@@ -89,6 +93,7 @@ describe('watch repository fork consent', () => {
     expect(onWatch).toHaveBeenCalledOnce();
     expect(onWatch).toHaveBeenCalledWith({
       selectedRepositoryId: 1,
+      topology: 'FORK',
       previewFingerprint: 'confirmed-routing',
       allowForkCreation: true,
     });
@@ -113,6 +118,7 @@ describe('watch repository fork consent', () => {
     expect(onWatch).toHaveBeenCalledOnce();
     expect(onWatch).toHaveBeenCalledWith({
       selectedRepositoryId: selected.selectedRepositoryId,
+      topology: 'FORK',
       previewFingerprint: 'confirmed-routing',
       allowForkCreation: false,
     });
@@ -122,6 +128,8 @@ describe('watch repository fork consent', () => {
     const { html, onWatch, confirm } = confirmation({
       selectedRepository: fork,
       topology: 'DIRECT',
+      recommendedTopology: 'DIRECT',
+      forkModeAvailable: false,
       upstreamRepositoryId: null,
       upstreamRepository: null,
       monitoredRepository: fork,
@@ -131,10 +139,11 @@ describe('watch repository fork consent', () => {
       pullRequestBase: fork,
     });
 
-    expect(html).toContain('Code, issues, pull requests and work branches use your repository octocat/trino.');
-    expect(html).not.toContain('personal fork');
+    expect(html).toContain('ByteQuay will clone octocat/trino directly, follow its commits, issues and pull requests, and publish work branches to this repository.');
+    expect(html).not.toContain('Personal fork');
+    expect(html).toContain('Direct clone requires write permission');
     confirm.props.onClick?.({} as MouseEvent<HTMLButtonElement>);
-    expect(onWatch).toHaveBeenCalledWith(expect.objectContaining({ allowForkCreation: false }));
+    expect(onWatch).toHaveBeenCalledWith(expect.objectContaining({ topology: 'DIRECT', allowForkCreation: false }));
   });
 
   it('opens the existing workspace shared by upstream and fork without another watch command', () => {
@@ -167,6 +176,8 @@ it('preserves watch progress on background clicks and keeps explicit cancellatio
     global: 'WatchRepositoryTests',
     styles: true,
     charset: true,
+    body: "const results = await window.webContents.executeJavaScript('(async () => [...await WatchRepositoryTests.run(), ...await WatchRepositoryTests.runStrategies()])()');",
   });
-  expect(results).toEqual(['background clicks preserve progress', 'explicit cancellation discards a late preview', 'watch from review confirms and refreshes']);
+  expect(results).toEqual(['background clicks preserve progress', 'explicit cancellation discards a late preview', 'watch from review confirms and refreshes',
+    'workflow switching ignores stale previews', 'workflow errors recover without changing consent']);
 }, 30_000);

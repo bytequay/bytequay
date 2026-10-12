@@ -23,9 +23,9 @@ import static java.util.Objects.requireNonNull;
 /**
  * Durable identity and routing for one watched GitHub repository.
  *
- * <p>A workspace always clones the selected repository as {@code origin}. The watch flow selects the personal fork for foreign repositories. An optional
- * GitHub repository supplies the read-only {@code upstream}; that repository is also monitored for
- * pull requests, issues, and reference metadata. Watching a fork or foreign repository establishes its canonical upstream link.</p>
+ * <p>A workspace clones its push repository as {@code origin}. Direct mode monitors that repository itself.
+ * Personal-fork mode clones the user's fork and monitors the canonical repository through the read-only {@code upstream}
+ * for pull requests, issues, and reference metadata.</p>
  */
 public record Workspace(
         String id,
@@ -140,7 +140,7 @@ public record Workspace(
         return new Workspace(
                 id, name, selectedRepositoryId, nextSelectedRepository, nextUpstreamRepositoryId,
                 nextUpstreamRepository, nextMonitoredRepositoryId,
-                nextMonitoredRepository, topology, nextDefaultBranch, nextOriginCloneUrl,
+                nextMonitoredRepository, nextUpstreamRepositoryId.isPresent() ? Topology.FORK : Topology.DIRECT, nextDefaultBranch, nextOriginCloneUrl,
                 nextUpstreamDefaultBranch, nextUpstreamCloneUrl, localRepositoryPath,
                 lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
     }

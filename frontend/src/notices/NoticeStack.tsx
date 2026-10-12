@@ -97,17 +97,18 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     measure();
     return () => observer.disconnect();
   }, [bridge, compact, state.notices.length]);
+  const closeCard = (notice: AppNotice) => setClosed(ids => new Set([...ids].filter(id => state.notices.some(item => item.id === id)).concat(notice.id)));
   const dismiss = (notice: AppNotice, closedByUser = false) => {
     setError(null);
     void bridge.dismiss(notice.id).then(() => {
       if (!closedByUser) return;
-      setClosed(ids => new Set([...ids].filter(id => state.notices.some(item => item.id === id)).concat(notice.id)));
+      closeCard(notice);
       if (available.length === 1) { setExpanded(false); launcher.current?.focus(); }
     }).catch(() => setError('Unable to dismiss this notice.'));
   };
   const open = (notice: AppNotice) => {
     setError(null);
-    void bridge.open(notice.id).then(() => { setExpanded(false); }).catch(() => setError('Unable to open the task. Try again.'));
+    void bridge.open(notice.id).then(() => { closeCard(notice); setExpanded(false); }).catch(() => setError('Unable to open the task. Try again.'));
   };
   return <div ref={root} className="app-notices" style={{ '--notice-max-height': `${state.maxHeight}px`,
     '--notice-color': waiting > 0 ? 'var(--fg-warning)' : 'var(--accent)',

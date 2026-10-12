@@ -25,6 +25,7 @@ export async function run() {
   let state: NoticeSnapshot = { notices: [], popupIds: [], active: true, maxHeight: 600 };
   let listener: (value: NoticeSnapshot) => void = () => {};
   let rejectDismiss = false;
+  let rejectOpen = false;
   const opened: string[] = []; const dismissed: string[] = []; const sizes: { height: number; width: number }[] = [];
   const bridge: NoticeBridge = {
     read: async () => state, subscribe: callback => { listener = callback; return () => {}; },
@@ -32,7 +33,7 @@ export async function run() {
       if (rejectDismiss) throw new Error('Dismiss failed');
       dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
     },
-    open: async id => { opened.push(id); await bridge.dismiss(id); },
+    open: async id => { if (rejectOpen) throw new Error('Open failed'); opened.push(id); await bridge.dismiss(id); },
     resize: (height, width) => sizes.push({ height, width }),
   };
   const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
@@ -82,11 +83,18 @@ export async function run() {
     assert(state.notices.some(item => item.id === 'q'), 'Dismissing must preserve the pending question');
     launcher.click(); await wait();
     const questionAction = host.querySelector<HTMLButtonElement>('.is-question .app-notice__actions button'); assert(questionAction, 'Question must remain reachable');
-    questionAction.click(); await wait(); assert(opened[0] === 'q', 'Card opens its own source');
+    rejectOpen = true; questionAction.click(); await wait();
+    assert(host.querySelector('.is-question') && host.querySelector('[role="alert"]'), 'Failed navigation keeps the card available to retry');
+    rejectOpen = false; questionAction.click(); await wait(); assert(opened[0] === 'q', 'Card opens its own source');
+    assert(!host.querySelector('.is-question') && host.querySelector('.is-approval') && !host.querySelector('[role="alert"]'),
+      'Opening a task closes only its card and clears the navigation error');
     const rect = host.querySelector<HTMLElement>('.app-notices')?.getBoundingClientRect();
     assert(rect && rect.width <= window.innerWidth && rect.height <= 600, 'Cards fit their native surface');
     assert(sizes.some(size => size.height > 100 && size.width === 420), 'Native host receives measured card height and full width');
     state = { ...state, notices: [make('q', 'QUESTION')], popupIds: [] }; listener(state); await wait();
+    assert(!host.querySelector('.app-notice') && launcher.textContent?.includes('1 needs you'), 'An opened card stays closed after refresh and remains in the counter');
+    launcher.click(); await wait();
+    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
     assert(host.querySelectorAll('.app-notice').length === 1 && sizes.at(-1)?.width === 420, 'One pending card stays visible after popups are dismissed');
     const lastClose = host.querySelector<HTMLButtonElement>('.app-notice__close'); assert(lastClose, 'The final visible card has a close button');
     rejectDismiss = true; lastClose.click(); await wait();
@@ -109,6 +117,10 @@ export async function run() {
     assert(host.querySelector('.is-turn_finished'), 'Recent completions remain visible even without popup IDs');
     host.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
     assert(!host.querySelector('.app-notice') && launcher.textContent?.includes('1 recent'), 'The final completion can be closed without losing its recent count');
+    launcher.click(); await wait();
+    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
+    host.querySelector<HTMLButtonElement>('.is-turn_finished .app-notice__actions button')?.click(); await wait();
+    assert(opened.includes('last') && !host.querySelector('.app-notice'), 'Opening the final completion closes its card');
     state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
     const compact = sizes.at(-1);
     assert(!host.querySelector('.app-notice') && compact && compact.height > 0 && compact.width < 280

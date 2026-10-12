@@ -1425,9 +1425,8 @@ export function PullDetailHeader({
   const pendingCommentCount = pendingComments.length + pendingDraftCount(review?.draft ?? null);
   const reviewChip = review === null ? null : reviewStatus(review);
   const developerTaskId = review?.sourceTaskId ?? null;
-  // An agent shows once there is another one to switch to; a task or review alone on its own screen needs no switch.
   const showDeveloper = onNavigate !== undefined && review !== null && (agent === 'developer' || developerTaskId !== null);
-  const showReviewer = onNavigate !== undefined && review !== null && (agent !== 'reviewer' || developerTaskId !== null);
+  const showReviewer = onNavigate !== undefined && review !== null;
   // The development task's own screen already shows its state, so only a link to it reads the task.
   const developer = useTaskCardState(review?.workspaceId ?? null, showDeveloper && agent !== 'developer' ? developerTaskId : null);
   const switchAgent = (route: string): void => {

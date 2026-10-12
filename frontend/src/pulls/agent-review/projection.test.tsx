@@ -135,8 +135,8 @@ describe('the pane tab row', () => {
     expect(agents(fromTask)).toEqual(['Developer', 'Reviewer']);
     expect(agents(fromTask, { onNavigate: () => {}, agent: 'developer' })).toEqual(['Developer*', 'Reviewer']);
     expect(agents(fromTask, { onNavigate: () => {}, agent: 'reviewer' })).toEqual(['Developer', 'Reviewer*']);
-    // One agent alone needs no switch on its own screen; elsewhere it is still a way to it.
-    expect(agents(reviewFixture(), { onNavigate: () => {}, agent: 'reviewer' })).toEqual([]);
+    expect(agents(reviewFixture(), { onNavigate: () => {}, agent: 'reviewer' })).toEqual(['Reviewer*']);
+    expect(agents(reviewFixture({ number: null }), { onNavigate: () => {}, agent: 'reviewer', pr: null, detail: null })).toEqual(['Reviewer*']);
     expect(agents(null, { onNavigate: () => {}, agent: 'developer' })).toEqual([]);
     expect(agents(reviewFixture())).toEqual(['Reviewer']);
     expect(agents(fromTask, {})).toEqual([]);

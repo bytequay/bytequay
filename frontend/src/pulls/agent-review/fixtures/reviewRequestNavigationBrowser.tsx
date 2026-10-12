@@ -132,6 +132,11 @@ export async function run(): Promise<string[]> {
     const pane = host.querySelector<HTMLElement>('.pull-detail');
     assert(conversation !== null && pane !== null && conversation.parentElement === pane.parentElement,
       'Review requests and destinations must render in the actual sibling conversation and PR panes');
+    const reviewer = button(pane, 'Reviewer');
+    assert(reviewer.getAttribute('aria-current') === 'true', 'A standalone review must keep Reviewer visible as the current conversation');
+    reviewer.click(); await settle();
+    assert(host.querySelector('.agr-workspace-conversation') === conversation,
+      'Clicking the current Reviewer must keep its conversation open');
     assert(conversation.querySelectorAll('.agt-review-request').length === 8, 'Replay must compact the generated request, six discussions and local question');
     assert(!conversation.innerText.includes('review_get_context') && !conversation.innerText.includes('review_reply')
       && !conversation.innerText.includes('Selected card:'), 'Generated review instructions must remain folded and saved questions must omit copied context');

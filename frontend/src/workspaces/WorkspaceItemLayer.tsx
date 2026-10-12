@@ -32,12 +32,12 @@ export default function WorkspaceItemLayer({ target, onClose }: { target: Target
       .catch(cause => { if (active) setError(cause instanceof Error ? cause.message : String(cause)); });
     return () => { active = false; };
   }, [target.workspaceId]);
-  const actions = <ZoomActions {...zoom} label={target.kind === 'work' ? 'work item' : 'task'} className="pull-detail__icon-action" />;
+  const actions = <ZoomActions {...zoom} label={target.kind === 'work' ? 'work item' : 'task'} className={target.kind === 'task' ? 'agt-headbtn' : 'pull-detail__icon-action'} />;
   return <>
     {!zoom.full && <ZoomScrim onClose={zoom.close} />}
     <section className={zoom.cardClass} role="dialog" aria-modal="true" aria-label={target.kind === 'work' ? 'Local work item' : 'Task'}>
       {workspace === null ? <>
-        <header className="pull-detail__header"><div className="pull-detail__toolbar">{actions}</div></header>
+        <header className="pull-detail__header"><div className="pull-detail__toolbar"><div className="pull-detail__header-actions">{actions}</div></div></header>
         <div className="pull-detail__body" role={error === null ? 'status' : 'alert'}>{error ?? 'Loading…'}</div>
       </> : target.kind === 'work'
         ? <LocalWorkItems workspace={workspace} zoomedItemId={target.itemId} headerAction={actions} />

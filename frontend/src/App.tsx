@@ -63,6 +63,7 @@ import {
   workspaceAgentTaskRoute,
   workspaceLocationFromRoute,
   workspacePullRequestRoute,
+  workspaceReviewTaskRoute,
   workspaceRoute,
   type WorkspaceTab,
 } from './workspaces/model';
@@ -194,8 +195,15 @@ export default function App() {
   }, []);
 
   useEffect(() => window.bridge.onAppNoticeOpen?.(target => {
-    zoomReference({ kind: 'task', taskId: target.taskId, workspaceId: target.workspaceId });
-  }), []);
+    if (target.reviewId === null) {
+      zoomReference({ kind: 'task', taskId: target.taskId, workspaceId: target.workspaceId });
+      return;
+    }
+    backToApp();
+    setLayers([]);
+    setPaletteOpen(false);
+    navigateTo(workspaceReviewTaskRoute(target.workspaceId, target.reviewId), 'push');
+  }), [backToApp, navigateTo]);
 
   useEffect(() => {
     if (status !== 'ready') return;

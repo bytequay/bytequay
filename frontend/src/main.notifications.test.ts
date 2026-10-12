@@ -18,6 +18,7 @@ import path from 'node:path';
 import type { EventEmitter } from 'node:events';
 import type { PullRequestDto } from './types';
 import type { AppNotice } from './notices/contracts';
+import { reviewFixture } from './pulls/agent-review/fixtures/review';
 
 vi.mock('./notices/host', () => ({ NoticeHost: class {
     constructor(_window: unknown, read: () => Promise<unknown>, open: (notice: AppNotice) => Promise<void>) { desktop.readNotices = read; desktop.openNotice = open; }
@@ -114,7 +115,7 @@ async function start(): Promise<void> {
 }
 
 it('reads only task notices and opens the matching task', async () => {
-  const task: AppNotice = { id: 'question', kind: 'QUESTION', taskId: 'task', workspaceId: 'workspace', turnId: 'turn',
+  const task: AppNotice = { id: 'question', kind: 'QUESTION', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null,
     repository: 'owner/repo', laneId: 'codex', title: 'A question', message: 'Please answer', occurredAt: '2026-10-12T00:00:00Z' };
   const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/agent/notices') ? [task] : [])));
   vi.stubGlobal('fetch', fetcher);
@@ -125,8 +126,29 @@ it('reads only task notices and opens the matching task', async () => {
   expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/notices', expect.objectContaining({ headers: expect.any(Object) }));
   await desktop.openNotice(task);
   expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/tasks/task?workspaceId=workspace', expect.objectContaining({ headers: expect.any(Object) }));
-  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: 'turn' });
+  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null });
   expect(desktop.openExternal).not.toHaveBeenCalled();
+});
+
+it('opens completed reviews through their review route and checks their task and workspace', async () => {
+  const review = reviewFixture();
+  const notice: AppNotice = { id: 'review-finished', kind: 'TURN_FINISHED', taskId: review.task.id, workspaceId: review.workspaceId,
+    turnId: 'turn', reviewId: review.id, repository: review.repo, laneId: 'codex', title: 'Review finished', message: 'Ready', occurredAt: '2026-10-12T00:00:00Z' };
+  const fetcher = vi.fn(async () => new Response(JSON.stringify(review)));
+  vi.stubGlobal('fetch', fetcher);
+  await start();
+  fetcher.mockClear(); desktop.send.mockClear();
+  await desktop.openNotice(notice);
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher).toHaveBeenCalledWith(`http://127.0.0.1:9527/api/agent-review/${review.id}`, expect.objectContaining({ headers: expect.any(Object) }));
+  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: review.task.id, workspaceId: review.workspaceId, turnId: 'turn', reviewId: review.id });
+  expect(desktop.openExternal).not.toHaveBeenCalled();
+  desktop.send.mockClear();
+  for (const mismatch of [{ id: 'other' }, { workspaceId: 'other' }, { task: { ...review.task, id: 'other' } }]) {
+    fetcher.mockResolvedValueOnce(new Response(JSON.stringify({ ...review, ...mismatch })));
+    await expect(desktop.openNotice(notice)).rejects.toThrow('no longer matches');
+  }
+  expect(desktop.send).not.toHaveBeenCalled();
 });
 
 it.each(['failed event', 'show throws', 'constructor throws'])('pauses native delivery after %s while attention updates keep polling', async mode => {

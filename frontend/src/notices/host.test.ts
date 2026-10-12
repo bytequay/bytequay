@@ -30,7 +30,7 @@ vi.mock('electron', async () => {
     },
   };
 });
-const notice: AppNotice = { id: 'approval:one', kind: 'APPROVAL', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', title: 'Build',
+const notice: AppNotice = { id: 'approval:one', kind: 'APPROVAL', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null, title: 'Build',
   message: 'Permission needed', repository: 'owner/repo', laneId: 'codex', occurredAt: '2026-09-27T10:00:00Z' };
 function setup() {
   const children: unknown[] = [];

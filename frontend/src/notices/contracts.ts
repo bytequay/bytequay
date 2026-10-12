@@ -15,7 +15,7 @@ export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE',
 export const NOTICE_WIDTH = 340;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 export type AppNotice = {
-  id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null;
+  id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null;
   title: string; message: string; repository: string; laneId: string; occurredAt: string;
 };
 export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; active: boolean; maxHeight: number };
@@ -44,8 +44,10 @@ export function parseNotices(value: unknown): AppNotice[] {
     if (!NOTICE_KINDS.includes(item.kind as NoticeKind) || !Number.isFinite(Date.parse(item.occurredAt as string))
       || ids.has(item.id as string)) throw new Error('Invalid notice identity');
     ids.add(item.id as string);
-    if (item.turnId !== null && (typeof item.turnId !== 'string' || !item.turnId || item.turnId.length > 200)) throw new Error('Invalid notice identity');
-    return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId,
+    for (const key of ['turnId', 'reviewId']) {
+      if (item[key] !== null && (typeof item[key] !== 'string' || !(item[key] as string).trim() || (item[key] as string).length > 200)) throw new Error('Invalid notice identity');
+    }
+    return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId, reviewId: item.reviewId,
       title: item.title, message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt } as AppNotice;
   });
 }

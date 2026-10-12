@@ -13,6 +13,8 @@
  */
 import { needsAction, type AppNotice, type NoticeSnapshot } from './contracts';
 
+const RECENT_COMPLETION_MS = 24 * 60 * 60 * 1000;
+
 /** Session-only delivery state. Resolving a notice never changes its task or Home attention. */
 export class NoticeStore {
   private initialized = false;
@@ -24,15 +26,14 @@ export class NoticeStore {
   update(incoming: AppNotice[], now = Date.now()): void {
     const current = new Set(incoming.map(notice => notice.id));
     for (const [id, notice] of this.notices) {
-      if ((!current.has(id) && needsAction(notice)) || (!needsAction(notice) && now - Date.parse(notice.occurredAt) > 3_600_000)) {
+      if ((!current.has(id) && needsAction(notice)) || (!needsAction(notice) && now - Date.parse(notice.occurredAt) > RECENT_COMPLETION_MS)) {
         this.notices.delete(id); this.popups.delete(id);
       }
     }
     for (const id of this.settling.keys()) if (!current.has(id)) this.settling.delete(id);
     for (const notice of incoming) {
       const known = this.seen.has(notice.id);
-      if (!needsAction(notice) && now - Date.parse(notice.occurredAt) > 3_600_000) { this.remember(notice.id); continue; }
-      if (!known && !needsAction(notice) && !this.initialized) { this.remember(notice.id); continue; }
+      if (!needsAction(notice) && now - Date.parse(notice.occurredAt) > RECENT_COMPLETION_MS) { this.remember(notice.id); continue; }
       // Let ordinary turn finalization release its worktree before calling it blocked.
       if (notice.kind === 'RECOVERY' && !known) {
         const pending = this.settling.get(notice.id);

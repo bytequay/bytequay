@@ -55,7 +55,7 @@ const bridge: Bridge = {
     return () => { ipcRenderer.removeListener('notices:bounds', receive); };
   },
   onAppNoticeOpen: callback => {
-    const receive = (_event: unknown, target: { taskId: string; workspaceId: string; turnId: string | null }) => callback(target);
+    const receive = (_event: unknown, target: { taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null }) => callback(target);
     ipcRenderer.on('notices:open-task', receive);
     return () => { ipcRenderer.removeListener('notices:open-task', receive); };
   },

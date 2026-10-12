@@ -281,9 +281,13 @@ function imageMediaType(filePath: string): string {
 const appNotices = new NoticeHost(() => mainWindow,
   () => backendJson(`${backendBase()}/agent/notices`, { headers: agentHeaders() }),
   async notice => {
-    await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(notice.taskId)}?workspaceId=${encodeURIComponent(notice.workspaceId)}`, { headers: agentHeaders() });
+    if (notice.reviewId !== null) {
+      const review = parseAgentReview(await backendJson(`${backendBase()}/api/agent-review/${encodeURIComponent(notice.reviewId)}`, { headers: agentHeaders() }));
+      if (review.id !== notice.reviewId || review.workspaceId !== notice.workspaceId || review.task.id !== notice.taskId) throw new Error('This review no longer matches the notice.');
+    }
+    else await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(notice.taskId)}?workspaceId=${encodeURIComponent(notice.workspaceId)}`, { headers: agentHeaders() });
     browserTabs.hide();
-    mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId });
+    mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId, reviewId: notice.reviewId });
     mainWindow?.webContents.focus();
   });
 const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender), () => appNotices.raise());

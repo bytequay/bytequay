@@ -23,6 +23,7 @@ public record AppNotice(
         String taskId,
         String workspaceId,
         Optional<String> turnId,
+        Optional<String> reviewId,
         String title,
         String message,
         String repository,

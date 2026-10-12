@@ -37,7 +37,7 @@ export async function run() {
     open: async id => { if (rejectOpen) throw new Error('Open failed'); opened.push(id); await bridge.dismiss(id); },
     resize: (height, width, folded) => sizes.push({ height, width, folded }),
   };
-  const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
+  const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn', reviewId: null,
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
     message: kind === 'QUESTION' ? 'Should interrupted tasks resume automatically?' : 'The latest response is ready to read.',
     laneId: 'codex', repository: 'bytequay/bytequay', occurredAt: new Date().toISOString() });

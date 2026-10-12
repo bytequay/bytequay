@@ -17,14 +17,14 @@ import { NoticeStore } from './store';
 
 const now = Date.parse('2026-09-27T10:00:00Z');
 const notice = (id: string, kind: AppNotice['kind'] = 'TURN_FINISHED', taskId = 'task'): AppNotice => ({
-  id, kind, taskId, workspaceId: 'workspace', turnId: 'turn', title: 'Fix recovery', message: 'Ready', repository: 'owner/repo', laneId: 'codex', occurredAt: new Date(now).toISOString(),
+  id, kind, taskId, workspaceId: 'workspace', turnId: 'turn', reviewId: null, title: 'Fix recovery', message: 'Ready', repository: 'owner/repo', laneId: 'codex', occurredAt: new Date(now).toISOString(),
 });
 
-it('baselines startup, retains unresolved requests, and never replays dismissed popups', () => {
+it('retains recent completions at startup without replaying popups', () => {
   const store = new NoticeStore();
   const old = notice('old'); const question = notice('question', 'QUESTION', 'other');
   store.update([old, question], now);
-  expect(store.snapshot(true)).toMatchObject({ notices: [question], popupIds: [] });
+  expect(store.snapshot(true)).toMatchObject({ notices: [question, old], popupIds: [] });
   const fresh = notice('new'); store.update([fresh, question], now);
   expect(store.snapshot(true).popupIds).toEqual(['new']);
   store.dismiss('new'); store.update([fresh, question], now);
@@ -34,6 +34,18 @@ it('baselines startup, retains unresolved requests, and never replays dismissed 
   store.update([fresh, question], now);
   expect(store.snapshot(true).popupIds).toEqual([]);
   expect(store.snapshot(true).notices).toContainEqual(question);
+});
+
+it('shows development and review completions on the first successful refresh and expires old results', () => {
+  const store = new NoticeStore();
+  const development = { ...notice('development'), occurredAt: new Date(now - 4 * 3_600_000).toISOString() };
+  const review = { ...notice('review', 'TURN_FINISHED', 'review-task'), reviewId: 'review' };
+  const expired = { ...notice('expired', 'TURN_FINISHED', 'old-task'), occurredAt: new Date(now - 86_400_001).toISOString() };
+  store.update(parseNotices([development, review, expired]), now);
+  expect(store.snapshot(true)).toMatchObject({ notices: [review, development], popupIds: [] });
+  store.update([development, review, expired], now + 5000);
+  expect(store.snapshot(true).notices).toEqual([review, development]);
+  expect(store.snapshot(true).popupIds).toEqual([]);
 });
 
 it('replaces a completion with its question and prioritizes requests', () => {
@@ -67,9 +79,9 @@ it('bounds recent completions, retains actionable requests, and keeps background
   expect(store.snapshot(false).notices).toHaveLength(51);
   expect(store.snapshot(false).active).toBe(false);
   expect(store.snapshot(true).popupIds).toContain('approval');
-  store.update([waiting], now + 3_600_001);
+  store.update([waiting], now + 86_400_001);
   expect(store.snapshot(true).notices).toEqual([waiting]);
-  store.update([waiting, notice('unseen-old-completion')], now + 3_600_001);
+  store.update([waiting, notice('unseen-old-completion')], now + 86_400_001);
   expect(store.snapshot(true).notices).toEqual([waiting]);
 });
 
@@ -78,4 +90,5 @@ it('rejects malformed data at the desktop boundary', () => {
   for (const value of [{}, [notice('one'), notice('one')], [{ ...notice('one'), kind: 'RAW_ERROR' }], [{ ...notice('one'), kind: 'MAIL' }], [{ ...notice('one'), occurredAt: 'unknown' }]]) {
     expect(() => parseNotices(value)).toThrow();
   }
+  for (const reviewId of [undefined, '', ' ', 1, 'r'.repeat(201)]) expect(() => parseNotices([{ ...notice('one'), reviewId }])).toThrow();
 });

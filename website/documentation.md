@@ -362,9 +362,11 @@ If sign-in expires, sign in again and refresh login status. Where offered, inspe
 **Retry last message…** before resending. A **Delivery uncertain** message needs
 inspection; it is not automatically resent.
 
-App notices stack in the bottom-right corner when another task finishes a turn,
+App notices stack in the bottom-right corner when a development or review task finishes a turn,
 asks a question, requests approval, fails, or has queued messages paused. Choose
-the card’s button to open that task and close the card. Up to two cards overlap,
+the card’s button to open that task or review conversation and close the card.
+Completions stay available for 24 hours, including when ByteQuay restarts.
+Up to two cards overlap,
 with the next card peeking out behind the current one. Cards use compact, two-line
 titles and previews; hover over clipped text to read it. **Notices** or **Needs you**
 opens navigation through the remaining items, one at a time. At least

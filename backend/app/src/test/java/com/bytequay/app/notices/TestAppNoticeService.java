@@ -41,6 +41,8 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -49,6 +51,8 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.OptionalLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -63,7 +67,8 @@ class TestAppNoticeService
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentApprovalStore approvals = mock(AgentApprovalStore.class);
     private final QueuedInputStore queues = mock(QueuedInputStore.class);
-    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, new ObjectMapper());
+    private final AgentReviewStore reviews = mock(AgentReviewStore.class);
+    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, new ObjectMapper());
     private final AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
@@ -75,8 +80,9 @@ class TestAppNoticeService
         assertThat(service.current()).singleElement().satisfies(notice -> {
             assertThat(notice.kind()).isEqualTo(AppNotice.Kind.TURN_FINISHED);
             assertThat(notice.turnId()).contains(turn.id().toString());
+            assertThat(notice.reviewId()).isEmpty();
         });
-        show(task.withDevelopmentContinuation(true, NOW), turn);
+        show(task.withDevelopmentContinuation(true, NOW), turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
         assertThat(service.current()).isEmpty();
         show(task, turn.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("Sign in required"), NOW.plusSeconds(10)));
         paused(QueuedAgentInput.State.PAUSED);
@@ -159,11 +165,37 @@ class TestAppNoticeService
         assertThat(service.current()).isEmpty();
     }
 
+    @Test
+    void includesReviewTasksAndRoutesTheirCompletionAndRequestsToTheReview()
+    {
+        AgentTask reviewer = AgentTask.created(TaskId.random(), task.workspaceId(), false, "Review owner/repo#42", task.laneId(),
+                task.repository(), task.worktree(), task.defaults(), NOW);
+        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(42), OptionalLong.empty(), reviewer.id().toString(),
+                Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), reviewer.id(), "review-input", SETTINGS, NOW)
+                .markDeliveryStarted(NOW).running(new ProviderTurnRef("review-turn"), Optional.empty());
+        show(reviewer, turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.TURN_FINISHED);
+            assertThat(notice.taskId()).isEqualTo(reviewer.id().toString());
+            assertThat(notice.reviewId()).contains(review.id());
+        });
+        show(reviewer, turn);
+        approval(turn, ImmutableList.of("AskUserQuestion"), "");
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.QUESTION);
+            assertThat(notice.reviewId()).contains(review.id());
+        });
+        when(reviews.listOpenReviews()).thenReturn(ImmutableList.of());
+        assertThat(service.current()).isEmpty();
+    }
+
     private void show(AgentTask current, AgentTurn... history)
     {
         when(tasks.listRecent(200)).thenReturn(ImmutableList.of(current));
         when(tasks.listLive()).thenReturn(ImmutableList.of(current));
-        when(turns.list(task.id())).thenReturn(ImmutableList.copyOf(history));
+        when(turns.list(current.id())).thenReturn(ImmutableList.copyOf(history));
     }
 
     private AgentTurn turn()
@@ -181,7 +213,7 @@ class TestAppNoticeService
     {
         var request = new ProviderApprovalRequest(ProviderApprovalRequest.Kind.TOOL, "Permission needed", detail, scope,
                 ImmutableList.of(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY), ProviderAgentEventSource.root(), NOW);
-        when(approvals.listPending()).thenReturn(ImmutableList.of(AgentApproval.pending(new ApprovalRequest(ApprovalId.random(), task.id(), turn.id(), request, NOW))));
+        when(approvals.listPending()).thenReturn(ImmutableList.of(AgentApproval.pending(new ApprovalRequest(ApprovalId.random(), turn.taskId(), turn.id(), request, NOW))));
     }
 
     private void paused(QueuedAgentInput.State state)

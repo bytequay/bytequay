@@ -27,6 +27,8 @@ import com.bytequay.agent.core.store.AgentApprovalStore;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
+import com.bytequay.core.review.AgentReview;
+import com.bytequay.core.review.AgentReviewStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -39,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
@@ -50,14 +53,16 @@ public class AppNoticeService
     private final AgentTurnStore turns;
     private final AgentApprovalStore approvals;
     private final QueuedInputStore queues;
+    private final AgentReviewStore reviews;
     private final ObjectMapper mapper;
 
-    public AppNoticeService(AgentTaskStore tasks, AgentTurnStore turns, AgentApprovalStore approvals, QueuedInputStore queues, ObjectMapper mapper)
+    public AppNoticeService(AgentTaskStore tasks, AgentTurnStore turns, AgentApprovalStore approvals, QueuedInputStore queues, AgentReviewStore reviews, ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.approvals = requireNonNull(approvals, "approvals is null");
         this.queues = requireNonNull(queues, "queues is null");
+        this.reviews = requireNonNull(reviews, "reviews is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -67,10 +72,14 @@ public class AppNoticeService
         // Unresolved requests must survive even when newer completed tasks fill the recent page.
         tasks.listRecent(200).forEach(task -> candidates.put(task.id(), task));
         tasks.listLive().forEach(task -> candidates.put(task.id(), task));
+        Map<String, AgentReview> reviewTasks = reviews.listOpenReviews().stream().collect(toImmutableMap(AgentReview::taskId, review -> review));
         var pending = Multimaps.index(approvals.listPending().stream().map(AgentApproval::request).iterator(), ApprovalRequest::taskId);
         ImmutableList.Builder<AppNotice> notices = ImmutableList.builder();
         for (AgentTask task : candidates.values()) {
-            if (!task.interactive() || task.archivedAt().isPresent()) {
+            Optional<String> reviewId = Optional.ofNullable(reviewTasks.get(task.id().toString()))
+                    .filter(review -> task.workspaceId().filter(review.workspaceId()::equals).isPresent())
+                    .map(AgentReview::id);
+            if ((!task.interactive() && reviewId.isEmpty()) || task.archivedAt().isPresent()) {
                 continue;
             }
             List<AgentTurn> history = turns.list(task.id());
@@ -78,27 +87,28 @@ public class AppNoticeService
             Optional<ApprovalRequest> approval = pending.get(task.id()).stream()
                     .filter(request -> latest.filter(turn -> turn.state().active() && turn.id().equals(request.turnId())).isPresent())
                     .min(comparing(ApprovalRequest::requestedAt));
-            select(task, history, latest, approval).ifPresent(notices::add);
+            select(task, history, latest, approval, reviewId).ifPresent(notices::add);
         }
         return notices.build();
     }
 
-    private Optional<AppNotice> select(AgentTask task, List<AgentTurn> history, Optional<AgentTurn> latest, Optional<ApprovalRequest> approval)
+    private Optional<AppNotice> select(AgentTask task, List<AgentTurn> history, Optional<AgentTurn> latest, Optional<ApprovalRequest> approval, Optional<String> reviewId)
     {
         if (task.state() == TaskState.FAILED) {
-            return Optional.of(notice(task, latest, "failed:" + task.id(), AppNotice.Kind.FAILURE, task.terminalReason().orElse("Task failed"), task.terminalAt().orElseThrow()));
+            return Optional.of(notice(task, reviewId, latest, "failed:" + task.id(), AppNotice.Kind.FAILURE,
+                    task.terminalReason().orElse("Task failed"), task.terminalAt().orElseThrow()));
         }
         if (task.state() == TaskState.OPEN && approval.isPresent()) {
             ApprovalRequest request = approval.orElseThrow();
             boolean question = request.providerRequest().requestedPermissions().contains("AskUserQuestion");
-            return Optional.of(notice(task, latest, "approval:" + request.id(), question ? AppNotice.Kind.QUESTION : AppNotice.Kind.APPROVAL,
+            return Optional.of(notice(task, reviewId, latest, "approval:" + request.id(), question ? AppNotice.Kind.QUESTION : AppNotice.Kind.APPROVAL,
                     question ? question(request.providerRequest().detail()) : request.providerRequest().title(), request.requestedAt()));
         }
         Optional<WorktreeMutationClaim> recovery = task.worktreeMutationClaim().filter(claim -> claim.kind() == WorktreeMutationClaim.Kind.RECOVERY
                 || claim.kind() == WorktreeMutationClaim.Kind.TURN && latest.filter(turn -> turn.state().active()).isEmpty());
         if (recovery.isPresent()) {
             WorktreeMutationClaim claim = recovery.orElseThrow();
-            return Optional.of(notice(task, latest, "recovery:" + task.id() + ":" + claim.ownerId(), AppNotice.Kind.RECOVERY,
+            return Optional.of(notice(task, reviewId, latest, "recovery:" + task.id() + ":" + claim.ownerId(), AppNotice.Kind.RECOVERY,
                     "ByteQuay could not verify that the agent stopped. New work is blocked; your files are kept.",
                     latest.flatMap(AgentTurn::endedAt).orElse(claim.acquiredAt())));
         }
@@ -112,7 +122,7 @@ public class AppNoticeService
         if (task.state() == TaskState.OPEN && latest.filter(turn -> turn.state() == TurnState.COMPLETED).isPresent()
                 && report.filter(turn -> turn.state() == TurnState.COMPLETED).flatMap(AgentTurn::developmentResult).filter(result -> !result.readyForDelivery()).isPresent()) {
             AgentTurn asked = report.orElseThrow();
-            return Optional.of(notice(task, Optional.of(asked), "question:" + asked.id(), AppNotice.Kind.QUESTION,
+            return Optional.of(notice(task, reviewId, Optional.of(asked), "question:" + asked.id(), AppNotice.Kind.QUESTION,
                     asked.developmentResult().orElseThrow().message().orElse("The agent is waiting for your answer."), asked.endedAt().orElse(asked.createdAt())));
         }
         List<QueuedAgentInput> queue = task.state() == TaskState.OPEN ? queues.listQueued(task.id()).stream()
@@ -125,20 +135,21 @@ public class AppNoticeService
             if (paused.isPresent()) {
                 message += " Queued messages are paused.";
             }
-            return Optional.of(notice(task, latest, "failed:" + failed.id(), AppNotice.Kind.FAILURE, message, failed.endedAt().orElseThrow()));
+            return Optional.of(notice(task, reviewId, latest, "failed:" + failed.id(), AppNotice.Kind.FAILURE, message, failed.endedAt().orElseThrow()));
         }
         if (paused.isPresent()) {
             QueuedAgentInput input = paused.orElseThrow();
             String message = input.state() == QueuedAgentInput.State.UNCERTAIN ? "Delivery is uncertain. Review the queue before sending anything again."
                     : input.pauseReason().orElse("Queued messages are waiting for you to resume them.");
-            return Optional.of(notice(task, latest, "queue:" + input.id() + ":" + input.updatedAt(), AppNotice.Kind.QUEUE_PAUSED, message, input.updatedAt()));
+            return Optional.of(notice(task, reviewId, latest, "queue:" + input.id() + ":" + input.updatedAt(), AppNotice.Kind.QUEUE_PAUSED, message, input.updatedAt()));
         }
         // A successful turn that is handing off to the next queued message does not need a completion popup.
         if (!queue.isEmpty()) {
             return Optional.empty();
         }
         return latest.filter(turn -> turn.state() == TurnState.COMPLETED)
-                .map(turn -> notice(task, latest, "finished:" + turn.id(), AppNotice.Kind.TURN_FINISHED, "The latest response is ready to read.", turn.endedAt().orElseThrow()));
+                .map(turn -> notice(task, reviewId, latest, "finished:" + turn.id(), AppNotice.Kind.TURN_FINISHED,
+                        "The latest response is ready to read.", turn.endedAt().orElseThrow()));
     }
 
     private String question(String detail)
@@ -155,9 +166,9 @@ public class AppNoticeService
         return "The agent has a question for you.";
     }
 
-    private static AppNotice notice(AgentTask task, Optional<AgentTurn> turn, String id, AppNotice.Kind kind, String message, Instant occurredAt)
+    private static AppNotice notice(AgentTask task, Optional<String> reviewId, Optional<AgentTurn> turn, String id, AppNotice.Kind kind, String message, Instant occurredAt)
     {
-        return new AppNotice(id, kind, task.id().toString(), task.workspaceId().orElseThrow(), turn.map(value -> value.id().toString()),
+        return new AppNotice(id, kind, task.id().toString(), task.workspaceId().orElseThrow(), turn.map(value -> value.id().toString()), reviewId,
                 clip(task.title(), 160), clip(message, 280), task.repository().toString(), task.laneId().value(), occurredAt);
     }
 

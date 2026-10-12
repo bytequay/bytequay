@@ -1558,46 +1558,34 @@
   vertical-align: bottom;
 }
 
-.agt-turtle {
+.agt-critter {
   flex: none;
   width: 42px;
   height: 28px;
-  color: light-dark(#638568, #92b895);
 }
 
-.agt-turtle__eye {
-  fill: light-dark(#f7faf4, #202b22);
+.agt-critter svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* A leap or a wingbeat rises above the slot. */
+  overflow: visible;
 }
 
-.agt-turtle__shell {
-  fill: none;
-  stroke: light-dark(#f7faf4, #202b22);
-  stroke-width: 1.2px;
-  stroke-linejoin: round;
-  opacity: .65;
+.agt-critter__ground {
+  stroke: var(--line-default);
+  stroke-width: 1px;
+  stroke-linecap: round;
 }
 
-.agt-turtle.is-walking .agt-turtle__foot {
-  animation: agt-turtle-step 3.2s linear infinite;
+/* Each ground line sets its own duration and dash period inline. */
+.agt-critter.is-moving .agt-critter__ground {
+  animation: agt-critter-ground linear infinite;
 }
 
-.agt-turtle.is-walking .agt-turtle__foot.is-offset {
-  animation-delay: -1.6s;
-}
-
-.agt-turtle.is-walking .agt-turtle__body {
-  animation: agt-turtle-bob 1.6s ease-in-out infinite;
-}
-
-@keyframes agt-turtle-step {
-  0%, 100% { transform: rotate(-24deg); }
-  55% { transform: rotate(22deg); }
-  75% { transform: translateY(-2px) rotate(-4deg); }
-}
-
-@keyframes agt-turtle-bob {
-  0%, 100% { transform: translateY(0); }
-  50% { transform: translateY(-.5px); }
+@keyframes agt-critter-ground {
+  from { stroke-dashoffset: 0; }
+  to { stroke-dashoffset: var(--critter-run); }
 }
 
 .agt-text,
@@ -3835,8 +3823,7 @@ button:is(.agt-type-chip, .agt-type-tile) {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .agt-turtle.is-walking .agt-turtle__foot,
-  .agt-turtle.is-walking .agt-turtle__body {
+  .agt-critter.is-moving .agt-critter__ground {
     animation: none;
   }
 

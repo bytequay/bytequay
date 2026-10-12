@@ -19,6 +19,7 @@ import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
+import { Critter,randomCritter,type CritterKind } from './Critter';
 import '../css/agents.css';
 import { displayModelName } from '../settings/model';
 import LocalReviewThreadCard from '../pulls/local-review/LocalReviewThreadCard';
@@ -166,30 +167,9 @@ function toolDetail(text: string): string {
   }
 }
 
-function LiveActivity({ label, animated }: { label: string | null; animated: boolean }): React.JSX.Element {
+function LiveActivity({ label, animated, critter }: { label: string | null; animated: boolean; critter: CritterKind }): React.JSX.Element {
   return <div className="agt-live" role="status" aria-live="polite" aria-label={label ?? 'Agent working'}>
-    <svg className={`agt-turtle${animated ? ' is-walking' : ''}`} viewBox="0 0 48 32" aria-hidden="true">
-      <g fill="currentColor">
-        <g transform="translate(16 21)" opacity=".55">
-          <path className="agt-turtle__foot" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
-        </g>
-        <g transform="translate(30 21)" opacity=".55">
-          <path className="agt-turtle__foot is-offset" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
-        </g>
-        <g className="agt-turtle__body">
-          <path d="m9 19-6 1 6 4zm22 0 5-5c1-3 8-3 9 1 2 5-2 8-6 7l-6 3z" />
-          <circle cx="41" cy="16" r="1" className="agt-turtle__eye" />
-          <path d="M8 23c0-10 5-16 13-16s14 6 14 16c-7 3-20 3-27 0Z" />
-          <path className="agt-turtle__shell" d="m18 8-3 8 5 6 8-2 2-8m-15 4-6 2m11 4-1 3m9-5 6 2m-19-6 9-3 6-1m-6 1 4 7" />
-        </g>
-        <g transform="translate(12 22)">
-          <path className="agt-turtle__foot is-offset" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
-        </g>
-        <g transform="translate(28 22)">
-          <path className="agt-turtle__foot" d="M-2 0h4v4h2c2 0 2 3 0 3h-5Z" />
-        </g>
-      </g>
-    </svg>
+    <Critter kind={critter} moving={animated} />
     {label !== null && <span className="agt-live__label">{label}</span>}
   </div>;
 }
@@ -1176,6 +1156,8 @@ export function AgentConversation({
 }): React.JSX.Element {
   const pending = scroll.after === null ? pendingMessage : null;
   const liveTurn = turns.find(turn => turn.turnId === activeTurnId);
+  // Picked per log, not per live line: the line remounts as it moves between turns.
+  const [critter] = useState(randomCritter);
   const liveLabel = connection !== 'open' || gap ? 'Reconnecting…'
     : pending !== null ? 'Sending…'
     : waiting ? 'Waiting for approval'
@@ -1184,7 +1166,7 @@ export function AgentConversation({
           : liveTurn?.endedAt != null ? 'Finishing…' : null;
   // Reading earlier in the live page must not hide what the agent is doing; only an older page can.
   const liveActivity = (running || pending !== null) && scroll.after === null
-    && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} />;
+    && <LiveActivity label={liveLabel} animated={!waiting && connection === 'open' && !gap} critter={critter} />;
   const tailRef = useRef<HTMLDivElement>(null);
   const transcriptRef = scroll.transcriptProps.ref;
   useLayoutEffect(() => {

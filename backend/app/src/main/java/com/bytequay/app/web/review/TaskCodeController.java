@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.file.Path;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -90,7 +91,8 @@ public class TaskCodeController
     @PostMapping("/terminal")
     public ReviewCodeHttpModels.TerminalResponse terminal(@PathVariable String taskId, @RequestParam String workspaceId)
     {
-        return new ReviewCodeHttpModels.TerminalResponse(code.terminalDirectory(new TaskCodeHost(workspaceId, taskId)).toString());
+        var launch = code.terminal(new TaskCodeHost(workspaceId, taskId));
+        return new ReviewCodeHttpModels.TerminalResponse(launch.workingDirectory().toString(), launch.claudeConfigDirectory().map(Path::toString));
     }
 
     @GetMapping("/runs")

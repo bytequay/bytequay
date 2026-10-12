@@ -21,6 +21,7 @@ import com.bytequay.app.review.ReviewCodeService.CodeFile;
 import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
+import com.bytequay.app.review.ReviewCodeService.TerminalLaunch;
 import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.review.TaskCodeHost;
 import com.bytequay.app.web.GlobalExceptionHandler;
@@ -77,7 +78,7 @@ class TestTaskCodeController
         when(code.save(HOST, "src/main/java/Code.java", "class Code {}\n", "loaded")).thenReturn(new CodeFile(
                 "src/main/java/Code.java", Optional.of("class Code {}\n"), Optional.of("saved"), Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of()));
         when(code.save(HOST, "src/main/java/Code.java", "draft\n", "stale")).thenThrow(new ReviewFileConflictException("disk", Optional.of("class Code { int x; }\n")));
-        when(code.terminalDirectory(HOST)).thenReturn(Path.of("/managed/worktrees/task-1"));
+        when(code.terminal(HOST)).thenReturn(new TerminalLaunch(Path.of("/managed/worktrees/task-1"), Optional.of(Path.of("/profiles/work"))));
 
         mvc.perform(withWorkspace(get(BASE + "/files")))
                 .andExpect(status().isOk())
@@ -100,7 +101,7 @@ class TestTaskCodeController
                         """, JsonCompareMode.STRICT));
         mvc.perform(withWorkspace(post(BASE + "/terminal")))
                 .andExpect(status().isOk())
-                .andExpect(content().json("{\"workingDirectory\": \"/managed/worktrees/task-1\"}", JsonCompareMode.STRICT));
+                .andExpect(content().json("{\"workingDirectory\": \"/managed/worktrees/task-1\", \"claudeConfigDirectory\": \"/profiles/work\"}", JsonCompareMode.STRICT));
     }
 
     @Test

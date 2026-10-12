@@ -20,5 +20,5 @@ it('renders saved models during refresh and discovers new choices in Chromium', 
     styles: true, charset: true, width: 1000, height: 900,
   });
   expect(result.filter(value => value.error)).toEqual([]);
-  expect(result).toHaveLength(6);
+  expect(result).toHaveLength(7);
 }, 30_000);

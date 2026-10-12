@@ -72,6 +72,7 @@ import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
 import com.bytequay.agent.spi.AgentAttachment;
 import com.bytequay.agent.spi.AgentDeliveryUncertainException;
+import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
@@ -138,6 +139,9 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestDefaultAgentTurnService
 {
@@ -158,6 +162,7 @@ class TestDefaultAgentTurnService
     private AgentTask task;
     private DefaultAgentTaskService taskService;
     private DefaultAgentTurnService service;
+    private Optional<AgentDriverRegistry> scopedRegistry = Optional.empty();
     private AgentRuntimeRegistry runtimeRegistry;
     private FixedWorktreeService worktrees;
     private final AtomicReference<String> managedInstructions = new AtomicReference<>("");
@@ -2429,6 +2434,23 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void aRestrictedAccountCannotResumeAnExistingTaskInAnotherRepository()
+    {
+        service.start(command("first", "key-1"));
+        driver.complete("done");
+        AgentDriverRegistry registry = mock(AgentDriverRegistry.class);
+        when(registry.require(driver.id())).thenReturn(driver);
+        doThrow(new AgentUnavailableException("Account belongs to another repository"))
+                .when(registry).checkWorkspaceAccess(driver.id(), task.workspaceId());
+        scopedRegistry = Optional.of(registry);
+        service = service(driver, runtimeRegistry, events, approvals, CLOCK);
+        assertThatThrownBy(() -> service.start(command("second", "key-2")))
+                .isInstanceOf(AgentUnavailableException.class).hasMessageContaining("another repository");
+        assertThat(driver.commands()).hasSize(1);
+        assertThat(stores.list(task.id())).hasSize(1);
+    }
+
+    @Test
     void rejectsUnavailableProviderBeforePersistingTurnOrUserMessage()
     {
         driver.unavailable();
@@ -3694,7 +3716,7 @@ class TestDefaultAgentTurnService
                 stores,
                 logs,
                 resources,
-                new StaticAgentDriverRegistry(ImmutableList.of(configuredDriver)),
+                scopedRegistry.orElseGet(() -> new StaticAgentDriverRegistry(ImmutableList.of(configuredDriver))),
                 configuredEvents,
                 metrics,
                 configuredApprovals,

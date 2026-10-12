@@ -40,6 +40,7 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
+import com.bytequay.agent.spi.AgentDriverRegistry;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
@@ -60,6 +61,8 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.mock;
 
 class TestDefaultAgentTaskService
 {
@@ -90,6 +93,19 @@ class TestDefaultAgentTaskService
                 resources,
                 new StaticAgentDriverRegistry(ImmutableList.of(driver)),
                 Clock.fixed(NOW, ZoneOffset.UTC));
+    }
+
+    @Test
+    void rejectsAnAccountOutsideItsWorkspaceBeforeProvisioningAnyTask()
+    {
+        AgentDriverRegistry registry = mock(AgentDriverRegistry.class);
+        doThrow(new AgentUnavailableException("Account belongs to another repository"))
+                .when(registry).checkWorkspaceAccess(driver.id(), Optional.of(WORKSPACE_ID));
+        DefaultAgentTaskService scoped = new DefaultAgentTaskService(stores, managedWorktrees, resources, registry, Clock.fixed(NOW, ZoneOffset.UTC));
+        assertThatThrownBy(() -> scoped.createInteractive(interactiveCommand(TaskId.random()))).isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> scoped.create(command())).isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> scoped.prepare(command())).isInstanceOf(AgentUnavailableException.class);
+        assertThat(managedWorktrees.provisioned).isEmpty();
     }
 
     @Test

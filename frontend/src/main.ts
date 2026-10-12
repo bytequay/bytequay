@@ -81,7 +81,7 @@ import {
 } from './pulls/agent-review/contracts';
 import { parseWorktreeChanges, codeHostKey, parseCodeHost, parseLocalRun, parseLocalRunOutput, parseLocalRuns, parseReviewCodeFile, parseReviewCodeFiles } from './pulls/code-tests/contracts';
 import { AgentSubscriptions } from './agents/subscriptions';
-import { CodeTerminals, terminalEnvironment } from './terminals';
+import { CodeTerminals, parseTerminalLaunch, terminalEnvironment } from './terminals';
 import { clipboardImagePng, MAX_ATTACHMENT_BYTES } from './agents/clipboardImage';
 import type {
   AgentApprovalDecision,
@@ -530,10 +530,10 @@ const reviewSubscriptions = new AgentSubscriptions(
 
 // An interactive login shell rebuilds the user's own PATH, which a Finder-launched app does not inherit.
 // `-lc` keeps that PATH for a one-shot command, and the shell exits when the command does.
-const codeTerminals = new CodeTerminals((cwd, cols, rows, command) => spawnPty(
+const codeTerminals = new CodeTerminals((launch, cols, rows, command) => spawnPty(
   os.userInfo().shell ?? '/bin/zsh',
   command === undefined ? ['-l'] : ['-lc', command],
-  { name: 'xterm-256color', cwd, cols, rows, env: terminalEnvironment(process.env) },
+  { name: 'xterm-256color', cwd: launch.workingDirectory, cols, rows, env: terminalEnvironment(process.env, launch.claudeConfigDirectory) },
 ));
 
 const agentSubscriptions = new AgentSubscriptions((taskId, after, signal) => fetch(
@@ -1048,18 +1048,14 @@ function registerIpc(): void {
     const host = ideViews.terminalHost(event);
     if (!Number.isInteger(cols) || !Number.isInteger(rows) || cols < 1 || rows < 1 || cols > 1000 || rows > 1000) throw new Error('Invalid terminal size');
     return codeTerminals.open(event.sender, codeHostKey(host), cols, rows, async () => {
-      const body = await backendJson<{ workingDirectory?: unknown }>(codeUrl(host, '/terminal'), { method: 'POST', headers: agentHeaders() });
-      if (typeof body.workingDirectory !== 'string') throw new Error('Malformed terminal response');
-      return body.workingDirectory;
+      return parseTerminalLaunch(await backendJson(codeUrl(host, '/terminal'), { method: 'POST', headers: agentHeaders() }));
     });
   });
   ipcMain.handle('terminal:open', (event, host: unknown, cols: number, rows: number) =>
     codeTerminals.open(event.sender, codeHostKey(parseCodeHost(host)), cols, rows, async () => {
-      const body = await backendJson<{ workingDirectory?: unknown }>(codeUrl(host, '/terminal'), {
+      return parseTerminalLaunch(await backendJson(codeUrl(host, '/terminal'), {
         method: 'POST', headers: agentHeaders(),
-      });
-      if (typeof body.workingDirectory !== 'string') throw new Error('Malformed terminal response');
-      return body.workingDirectory;
+      }));
     }));
   // The command is read from provider readiness, never from the renderer: this runs in a login shell,
   // and it carries the provider-home variable that keeps the sign-in out of the user's own home.
@@ -1070,7 +1066,7 @@ function registerIpc(): void {
     }).then(parseAgentProviderStatuses);
     const command = statuses.find(status => status.laneId === laneId)?.signInCommand;
     if (typeof command !== 'string' || command.trim() === '') throw new Error(`${laneId} reports no sign-in command`);
-    return codeTerminals.open(event.sender, `provider:${laneId}`, cols, rows, async () => os.homedir(), command);
+    return codeTerminals.open(event.sender, `provider:${laneId}`, cols, rows, async () => ({ workingDirectory: os.homedir(), claudeConfigDirectory: null }), command);
   });
   ipcMain.on('terminal:write', (event, terminalId: string, data: string) => codeTerminals.write(event.sender, terminalId, data));
   ipcMain.on('terminal:resize', (event, terminalId: string, cols: number, rows: number) => codeTerminals.resize(event.sender, terminalId, cols, rows));
@@ -1354,8 +1350,8 @@ function registerIpc(): void {
   ipcMain.handle('settings:models', (_event, workspaceId?: string) =>
     backendJson(`${backendBase()}/api/settings/models${workspaceId === undefined ? '' : `?workspaceId=${encodeURIComponent(workspaceId)}`}`)
       .then(parseModelSettings));
-  ipcMain.handle('settings:models:refresh', (_event, force = false) =>
-    backendJson(`${backendBase()}/api/settings/models/refresh?force=${force === true}`, { method: 'POST' })
+  ipcMain.handle('settings:models:refresh', (_event, force = false, workspaceId?: string) =>
+    backendJson(`${backendBase()}/api/settings/models/refresh?force=${force === true}${workspaceId === undefined ? '' : `&workspaceId=${encodeURIComponent(workspaceId)}`}`, { method: 'POST' })
       .then(parseModelSettings));
   ipcMain.handle('settings:models:agent:set', (
     _event,
@@ -1373,10 +1369,18 @@ function registerIpc(): void {
   ipcMain.handle('settings:api-keys:add', (_event, provider: string, alias: string, key: string) =>
     backendJson(`${backendBase()}/api/settings/api-keys`, jsonInit('POST', { provider, alias, key }))
       .then(parseModelSettings));
-  ipcMain.handle('settings:claude-accounts:add', (_event, label: unknown, email: unknown) => {
+  ipcMain.handle('settings:claude-accounts:add', (_event, label: unknown, email: unknown, workspaceId?: string) => {
     if (typeof label !== 'string' || label.trim() === '' || label.length > 80) throw new Error('Invalid Claude account name');
     if (typeof email !== 'string' || email.trim() === '' || email.length > 254) throw new Error('Invalid Claude account email');
-    return backendJson(`${backendBase()}/api/settings/claude-accounts`, jsonInit('POST', { label, email })).then(parseModelSettings);
+    return backendJson(`${backendBase()}/api/settings/claude-accounts`, jsonInit('POST', { label, email, workspaceId })).then(parseModelSettings);
+  });
+  ipcMain.handle('settings:claude-accounts:restrict', (_event, laneId: unknown, workspaceId: unknown) => {
+    if (typeof laneId !== 'string' || !/^claude-account-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(laneId)) {
+      throw new Error('Invalid Claude account');
+    }
+    if (typeof workspaceId !== 'string' || workspaceId.trim() === '') throw new Error('Invalid workspace');
+    return backendJson(`${backendBase()}/api/settings/claude-accounts/${laneId.slice('claude-account-'.length)}/workspace`,
+      jsonInit('PUT', { workspaceId })).then(parseModelSettings);
   });
   ipcMain.handle('settings:claude-accounts:remove', (_event, laneId: unknown) => {
     if (typeof laneId !== 'string' || !/^claude-account-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(laneId)) {

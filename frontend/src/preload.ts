@@ -369,9 +369,10 @@ const bridge: Bridge = {
   getUsageAccounts: () => ipcRenderer.invoke('usage:accounts'),
   getProviderUsage: accountId => ipcRenderer.invoke('usage:read', accountId),
   getModelSettings: workspaceId => ipcRenderer.invoke('settings:models', workspaceId),
-  addClaudeAccount: (label, email) => ipcRenderer.invoke('settings:claude-accounts:add', label, email),
+  addClaudeAccount: (label, email, workspaceId) => ipcRenderer.invoke('settings:claude-accounts:add', label, email, workspaceId),
+  restrictClaudeAccount: (laneId, workspaceId) => ipcRenderer.invoke('settings:claude-accounts:restrict', laneId, workspaceId),
   removeClaudeAccount: laneId => ipcRenderer.invoke('settings:claude-accounts:remove', laneId),
-  refreshModelSettings: (force = false) => ipcRenderer.invoke('settings:models:refresh', force),
+  refreshModelSettings: (force = false, workspaceId) => ipcRenderer.invoke('settings:models:refresh', force, workspaceId),
   setAgentModel: (type, configId, model, effort) =>
     ipcRenderer.invoke('settings:models:agent:set', type, configId, model, effort),
   clearAgentModel: type => ipcRenderer.invoke('settings:models:agent:clear', type),

@@ -60,11 +60,11 @@ const SETTINGS: ModelSettingsDto = {
 };
 
 describe('model choice', () => {
-  it('keeps DeepSeek keys out of Development and Review defaults without a duplicate disabled choice', () => {
+  it('offers executable API-key aliases as defaults without a duplicate disabled choice', () => {
     const options = modelOptions(SETTINGS);
 
     expect(options.map(option => option.value))
-      .toEqual(['codex::sol', 'codex::mini', 'codex::flat']);
+      .toEqual(['codex::sol', 'codex::mini', 'codex::flat', 'deepseek-key-123::deepseek-flash']);
     expect(options.some(option => option.disabled)).toBe(false);
     expect(modelOptions({ ...SETTINGS, apiKeys: [{ ...SETTINGS.apiKeys[0], id: 'key:other', provider: 'OpenAI', alias: 'other' }] }).at(-1)?.disabledReason)
       .toBe(API_KEY_REASON);

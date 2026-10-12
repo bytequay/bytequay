@@ -22,7 +22,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** A named CLI login. Credentials remain owned by Claude Code. */
-public record ClaudeAccount(String id, String label, Optional<String> email)
+public record ClaudeAccount(String id, String label, Optional<String> email, Optional<String> workspaceId)
 {
     public ClaudeAccount
     {
@@ -33,6 +33,12 @@ public record ClaudeAccount(String id, String label, Optional<String> email)
         email = requireNonNull(email, "email is null").map(String::trim);
         email.ifPresent(value -> checkArgument(value.length() <= 254 && value.matches("[^\\s@]+@[^\\s@]+") && value.chars().noneMatch(Character::isISOControl),
                 "Enter a valid Claude account email"));
+        requireNonNull(workspaceId, "workspaceId is null").ifPresent(value -> checkArgument(!value.isBlank(), "workspaceId is blank"));
+    }
+
+    public boolean availableIn(Optional<String> workspace)
+    {
+        return workspaceId.isEmpty() || workspaceId.equals(workspace);
     }
 
     public AgentLaneId laneId()

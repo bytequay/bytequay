@@ -85,14 +85,25 @@ account**, enter a display name such as Work or Personal and the account's
 email, then choose **Add and sign in**. Claude pre-fills that email in its
 browser login. ByteQuay checks that the authenticated email matches before
 marking the account ready; the account row shows the email reported by Claude.
-Named-account setup and removal are available in repository settings, not the
-global provider list or global model choices.
+Accounts added in repository settings belong only to that repository and are
+selected for both Development and Review immediately. Other repositories cannot
+see or run them. Accounts added under global **Models → Claude accounts** are
+available to every repository and can be selected as global defaults.
+
+For an account previously saved globally, open the intended repository's
+**Model overrides** and choose **Use only here** on the account. This preserves
+its sign-in and selects it for both task types while preventing later turns in
+other repositories from using it.
 
 Each account uses its own ByteQuay profile and macOS Keychain entry, selected
 automatically during both sign-in and execution. No password or OAuth token is
 stored by ByteQuay. No manual profile path or shell configuration is needed.
 Profiles stay in ByteQuay's application data directory, outside repositories
 and their worktrees, so Git cannot accidentally commit or clean them.
+
+Code & Tests terminals for Claude tasks start with that task's account profile,
+including terminals opened from the editor. Reopen an existing shell to pick up
+this setting; changing repository defaults does not switch an existing task's account.
 
 Readiness checks run with network access disabled: Claude's short status command
 can otherwise start token rotation and exit before saving its replacement.
@@ -101,11 +112,12 @@ expiry indicates a pending refresh, including when usage is returned from cache.
 ByteQuay inspects the CLI-owned credential entry for this shutdown check but
 does not persist tokens, refresh them itself, or write the credential store.
 
-Override Development and Review as needed and choose a model under the intended
-Claude account. Account names are shown with the selection. New tasks use that choice; existing tasks keep the
+Choose Development and Review directly from their account/model selectors. Account names are shown with the selection. New tasks use that choice; existing tasks keep the
 account they started with, including later turns and resumed sessions. Accounts
 can run concurrently across repositories. The default Claude profile remains
-available for existing tasks and settings.
+available for existing tasks and settings. DeepSeek API-key aliases can also be
+selected as model defaults; saved key providers without an execution driver
+remain disabled in the selector.
 
 The login profile does not change the task's working directory or the user's
 `HOME`. Tasks still run in their own worktrees and use the usual build caches,

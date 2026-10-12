@@ -36,9 +36,11 @@ import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ProviderAgentEvent.ActivityState;
+import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -160,7 +162,8 @@ class TestLocalRunService
         when(tasks.get(worktree.taskId())).thenReturn(developmentTask(Optional.empty()));
         code = new ReviewCodeService(reviewStore, reviews, worktrees, mock(WorkspaceRepositoryService.class), runner,
                 new ReviewExperiments(runner, worktrees), tasks, turns, mock(PullRequestTaskStore.class), mock(PullRequestStore.class),
-                new WorktreeDiffReader(runner), mock(PullRequestService.class));
+                new WorktreeDiffReader(runner), mock(PullRequestService.class), new AgentProperties(directory.resolve("runtime"), Duration.ofHours(1), "test-session",
+                        "codex", "0.159.3", directory.resolve("codex-home"), "claude", directory.resolve("claude-home")), mock(ClaudeAccounts.class));
         service = new LocalRunService(reviewStore, reviews, runs, worktrees, code, executions, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 

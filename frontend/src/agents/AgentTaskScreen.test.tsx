@@ -16,7 +16,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { AgentTaskList, creationBlocker, taskCreationCatalog } from './AgentTasksView';
+import { AgentTaskList, creationBlocker } from './AgentTasksView';
 import { cherryPickItem, ciFixItem, reviewItem } from './taskList';
 import { CI_RUN } from './fixtures/ciAutofix';
 import { runningReviewFixture } from '../pulls/agent-review/fixtures/review';
@@ -446,15 +446,6 @@ describe('agent task list', () => {
     expect(blocked).not.toContain('DeepSeek rejected this API key');
     expect(blocked).not.toContain('codex login');
     expect(creationBlocker({ ...catalog, providers: [] }, laneId, null)).toContain('DeepSeek key removed');
-  });
-
-  it('offers DeepSeek to manual tasks but keeps issue-sourced starts on CLI lanes', () => {
-    const codex = readyCatalog(MODELS).providers[0];
-    const deepSeek = { ...codex, id: 'deepseek-key-123', label: 'DeepSeek · personal' };
-    const catalog = { ...readyCatalog(MODELS), providers: [codex, deepSeek] };
-
-    expect(taskCreationCatalog(catalog, null).providers.map(provider => provider.id)).toEqual(['codex', deepSeek.id]);
-    expect(taskCreationCatalog(catalog, 42).providers.map(provider => provider.id)).toEqual(['codex']);
   });
 
   it('shows loading, empty and error states rather than an unexplained blank list', () => {

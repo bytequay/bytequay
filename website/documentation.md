@@ -306,8 +306,8 @@ and pace needs known period boundaries. Unavailable limits are not shown as zero
 
 You only need the provider you want to use: Codex, Claude, or a supported saved
 API key. A Claude account is not required for Codex or API-key tasks. New-task
-composers choose a ready provider when the configured default is unavailable;
-you can change that choice before sending. Drafting and **Backport** remain
+composers keep the configured account when it is unavailable and ask you to
+finish setup or explicitly choose another provider. Drafting and **Backport** remain
 available while you set up a provider.
 
 1. Install the Codex or Claude CLI on your Mac, then open **Settings → Agents →
@@ -316,6 +316,17 @@ available while you set up a provider.
    **Check** and wait for **Ready**.
 3. Choose the **Development** model and a **Review** model, or **Same as Development**.
    Repository settings → **Model overrides** lets one repository use different choices.
+   Each selector names the account or API-key alias alongside its models.
+
+An account added under a repository's **Claude accounts** is selected for both
+Development and Review there. It is hidden from other repositories and cannot
+run their tasks. Accounts added in global **Models → Claude accounts** are
+available to every repository. To restrict an existing global account, open the
+intended repository and choose **Use only here**; its saved sign-in is retained.
+New tasks follow these defaults. Existing tasks retain their original account,
+but cannot start another turn if that account becomes restricted to a different
+repository. DeepSeek aliases can be selected as defaults; unsupported API-key
+providers remain disabled.
 
 ### Start a task
 
@@ -341,6 +352,8 @@ available while you set up a provider.
 - Inspect **WorkBench → Changes** and **Summary** before accepting the result. **Code &
   Tests** provides file browsing, an available targeted test runner, and a terminal; the
   built-in runner currently supports the Maven-wrapper profile.
+  For Claude tasks, a newly opened terminal uses the task's Claude account.
+  Existing terminal shells keep their environment until you exit and reopen them.
 - When idle with its queue handled, choose **Mark it complete** (the checkmark) to
   finish the task. **Archive** moves it out of the active list; **Delete** separately
   removes its history and generated local work.

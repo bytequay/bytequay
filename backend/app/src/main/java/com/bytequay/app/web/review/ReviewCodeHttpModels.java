@@ -150,6 +150,6 @@ final class ReviewCodeHttpModels
     /** The renderer recognizes a stale save by {@code currentHash}; the content is null when the file cannot be shown. */
     record SaveConflictResponse(String currentHash, Optional<String> currentContent) {}
 
-    /** For Electron main only, which never forwards the path to a renderer. */
-    record TerminalResponse(String workingDirectory) {}
+    /** For Electron main only, which never forwards these paths to a renderer. */
+    record TerminalResponse(String workingDirectory, Optional<String> claudeConfigDirectory) {}
 }

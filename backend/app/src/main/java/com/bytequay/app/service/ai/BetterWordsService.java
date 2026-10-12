@@ -155,7 +155,9 @@ public class BetterWordsService
             return id;
         });
         // The user's own writing runs on the development default, which a workspace may override.
-        return modelSettings.agentModel(AgentModelType.DEVELOPMENT, validWorkspaceId);
+        AgentModelSetting model = modelSettings.agentModel(AgentModelType.DEVELOPMENT, validWorkspaceId);
+        modelSettings.validateWorkspaceAccess(model.configId(), validWorkspaceId);
+        return model;
     }
 
     /** Who posts a drafted reply: the pull request's author, or a reviewer answering someone else's comment on it. */

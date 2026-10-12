@@ -14,6 +14,7 @@
 import { useState } from 'react';
 import { LogIn, Plus, RefreshCw } from 'lucide-react';
 import type { AgentModelSettingDto, AgentModelType, ModelSettingsDto } from '../types';
+import ClaudeAccountsCard from './ClaudeAccountsCard';
 import { isClaudeAccount, isDeepSeekKeyLane, providerStatusLabel } from './model';
 import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, dotTone, type PillOption } from './primitives';
 
@@ -21,17 +22,13 @@ import { AddAction, Dialog, SelectPill, SettingsCard, SettingsRow, StatusDot, do
 export const INHERIT_VALUE = '__inherit__';
 
 /** Saved OpenAI keys are kept, but nothing runs on them yet. */
-export const API_KEY_REASON = 'Only DeepSeek keys can run attended agent tasks right now.';
+export const API_KEY_REASON = 'This API-key provider does not support agent tasks yet.';
 
 export type ModelChoice = { configId: string; model: string; effort: string | null };
 
-/**
- * Development and Review defaults use CLI lanes. DeepSeek keys are chosen in the
- * task composer; the other saved keys remain disabled here.
- */
 export function modelOptions(settings: ModelSettingsDto): PillOption[] {
   const options: PillOption[] = [];
-  for (const provider of settings.providers.filter(candidate => !isDeepSeekKeyLane(candidate.id))) {
+  for (const provider of settings.providers) {
     for (const model of provider.models) {
       options.push({
         value: `${provider.id}::${model.id}`,
@@ -120,7 +117,7 @@ export function AgentModelControls({ agent, settings, inheritLabel, onChoose, on
         wide
         ariaLabel={`${typeLabel(agent.type)} model`}
         value={inheriting ? INHERIT_VALUE : optionValue(agent.configId, agent.model)}
-        label={inheriting ? (inheritLabel ?? '') : isClaudeAccount(agent.configId) ? `${agent.modelLabel} · ${agent.label}` : agent.modelLabel}
+        label={inheriting ? (inheritLabel ?? '') : (isClaudeAccount(agent.configId) || isDeepSeekKeyLane(agent.configId)) ? `${agent.modelLabel} · ${agent.label}` : agent.modelLabel}
         options={pillOptions}
         footer={onAddKey === undefined ? undefined : (
           <button type="button" className="setw-card-foot-link setw-menu-item" onClick={onAddKey}>
@@ -168,7 +165,7 @@ export function AgentModelRow({ agent, subtitle, ...controls }: {
   );
 }
 
-export default function ModelsPage({ settings, checkedAt, checking, error, onCheck, onSignIn, onChoose, onInherit, onAddKey, onRemoveKey }: {
+export default function ModelsPage({ settings, checkedAt, checking, error, onCheck, onSignIn, onChoose, onInherit, onAddKey, onRemoveKey, onAddClaudeAccount, onRemoveClaudeAccount }: {
   settings: ModelSettingsDto;
   checkedAt: string | null;
   checking: boolean;
@@ -180,9 +177,11 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
   onInherit: (type: AgentModelType) => void;
   onAddKey: (provider: string, alias: string, key: string) => void;
   onRemoveKey: (alias: string) => void;
+  onAddClaudeAccount?: (label: string, email: string) => Promise<void>;
+  onRemoveClaudeAccount?: (laneId: string) => Promise<void>;
 }) {
   const [addingKey, setAddingKey] = useState(false);
-  const globalSettings = { ...settings, providers: settings.providers.filter(provider => !isClaudeAccount(provider.id)) };
+  const globalSettings = { ...settings, providers: settings.providers.filter(provider => provider.workspaceId == null) };
   const development = settings.agents.find(agent => agent.type === 'DEVELOPMENT');
   const review = settings.agents.find(agent => agent.type === 'REVIEW');
 
@@ -224,7 +223,7 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
             <button type="button" className="setw-btn" disabled={checking} onClick={onCheck}>Check</button>
           </SettingsRow>
         )}
-        {globalSettings.providers.filter(provider => !isDeepSeekKeyLane(provider.id)).map(provider => {
+        {globalSettings.providers.filter(provider => !isDeepSeekKeyLane(provider.id) && !isClaudeAccount(provider.id)).map(provider => {
           const status = providerStatusLabel(provider.readiness, checking, provider.id);
           return (
             <SettingsRow
@@ -283,7 +282,8 @@ export default function ModelsPage({ settings, checkedAt, checking, error, onChe
       <div className="setw-footnote">
         Models and providers refresh automatically{checkedAt === null ? '' : ` · checked ${checkedAt}`}. Check fetches the latest available models.
       </div>
-      <div className="setw-footnote">Claude uses the default account here. To sign in with another account for a repository, open its Model overrides.</div>
+      <ClaudeAccountsCard providers={globalSettings.providers.filter(provider => isClaudeAccount(provider.id))} checking={checking}
+        onCheck={onCheck} onSignIn={onSignIn} onAdd={onAddClaudeAccount} onRemove={onRemoveClaudeAccount} />
 
       {addingKey && (
         <AddKeyDialog
@@ -343,7 +343,7 @@ function AddKeyDialog({ keyProviders, onAdd, onCancel }: {
       />
       <div className="setw-dialog-hint">
         {provider === 'DeepSeek'
-          ? 'Stored encrypted on this Mac · choose this key for an attended task'
+          ? 'Stored encrypted on this Mac · choose this key in model defaults or a task'
           : 'Stored encrypted on this Mac · not used by any feature yet'}
       </div>
     </Dialog>

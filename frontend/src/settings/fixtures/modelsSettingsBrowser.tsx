@@ -35,7 +35,7 @@ const claude = {
   models: [{ id: 'opus', name: 'Opus', description: '', efforts: ['High'], defaultEffort: 'High' }],
   selectedModel: 'opus', selectedEffort: 'High', diagnostic: 'Signed in as default@example.com',
 };
-const account = { ...claude, id: 'claude-account-123', label: 'Claude · Work', diagnostic: '', readiness: 'AUTHENTICATION_REQUIRED' as const };
+const account = { ...claude, id: 'claude-account-123', label: 'Claude · Work', workspaceId: 'repo-a', diagnostic: '', readiness: 'AUTHENTICATION_REQUIRED' as const };
 const withAccount: ModelSettingsDto = { ...saved, providers: [...saved.providers, claude, account] };
 const latest: ModelSettingsDto = {
   ...saved,
@@ -65,12 +65,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(view.host.textContent?.includes('Provider temporarily unavailable') === true, 'Refresh errors stay visible');
       assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('GPT-6 Sol') === true, 'Failure retains the saved choice');
     },
-    async 'global providers expose only the default Claude account and its models'(view: View) {
+    async 'global providers hide repository accounts and their models'(view: View) {
       await settle(); view.finish({ ...withAccount, providers: withAccount.providers.map(provider => provider.id === 'claude'
         ? { ...provider, readiness: 'AUTHENTICATION_REQUIRED', diagnostic: '' } : provider) }); await settle();
       assert(view.host.textContent?.includes('Claude Code CLI · Default account') === true, 'Default Claude stays in the global providers card');
       assert(!view.host.textContent?.includes('Claude · Work'), 'Named accounts stay out of global provider rows');
-      assert(!view.host.textContent?.includes('Add Claude account'), 'Account setup is offered in repository settings');
+      assert(view.host.textContent?.includes('Add Claude account'), 'Global account setup is also available');
       const signIn = [...view.host.querySelectorAll('button')].find(button => button.textContent?.trim() === 'Sign in');
       assert(signIn !== undefined, 'The default account can authenticate'); signIn.click(); await settle();
       assert(view.signIns[0] === 'claude', 'Global sign-in uses only the default profile');
@@ -105,7 +105,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(email, 'work@example.com');
       email.dispatchEvent(new Event('input', { bubbles: true })); await settle();
       signIn.click(); await settle();
-      assert(view.added[0]?.join('/') === 'Work/work@example.com', 'The display name and login email are sent separately');
+      assert(view.added[0]?.join('/') === 'Work/work@example.com/repo-a', 'The display name and login email are sent separately');
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Claude · Work'), 'Adding selects Development automatically');
+      assert(view.host.querySelector('[aria-label="Review model"]')?.textContent?.includes('Claude · Work'), 'Adding selects Review automatically');
       assert(view.signIns[0] === account.id, 'Repository login opens the new profile, never the default profile');
       view.completeSignIn(); await settle();
       view.host.querySelector<HTMLButtonElement>('.bq-signin-dialog__button')?.click(); await settle();
@@ -118,6 +120,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(choice !== undefined, 'The account can be selected for this repository'); choice.click(); await settle();
       assert(view.workspaceChoices[0]?.join('/') === `repo-a/${account.id}`, 'Only the current repository’s model is changed');
       view.render('ws-agents', 'repo-b'); await settle();
+      assert(!view.host.textContent?.includes('Claude · Work'), 'Another repository never displays the scoped account');
       assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('GPT-6 Sol') === true, 'The second repository keeps its previous model');
       view.render('ws-agents', 'repo-a'); await settle();
       assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Claude · Work') === true, 'The first repository keeps its account when revisited');
@@ -131,6 +134,23 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(view.host.querySelector('h1')?.textContent === 'Browser', 'Navigation remains responsive');
       assert(!view.host.textContent?.includes('Old page refresh failed'), 'Old request does not affect the new page');
     },
+    async 'an existing global account can be restricted to the current repository'(view: View) {
+      const globalAccount: ModelSettingsDto = { ...withAccount, providers: withAccount.providers.map((provider): ModelSettingsDto['providers'][number] => ({ ...provider, workspaceId: null })) };
+      await settle(); view.finish(globalAccount); await settle();
+      assert(view.host.textContent?.includes('Claude · Work'), 'A global named account is visible in global settings');
+      view.render('ws-agents', 'repo-b'); await settle(); view.finish(globalAccount); await settle();
+      const button = [...view.host.querySelectorAll('button')].find(value => value.textContent?.trim() === 'Use only here');
+      assert(button !== undefined, 'A shared account can be made repository-only'); button.click(); await settle();
+      const confirm = [...view.host.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(value => value.textContent?.trim() === 'Use only here');
+      assert(confirm !== undefined, 'Restriction has a concrete confirmation'); confirm.click(); await settle();
+      assert(view.host.querySelector('[aria-label="Development model"]')?.textContent?.includes('Claude · Work'), 'Restriction selects Development');
+      assert(view.host.querySelector('[aria-label="Review model"]')?.textContent?.includes('Claude · Work'), 'Restriction selects Review');
+      view.render('ws-agents', 'repo-a'); await settle();
+      assert(!view.host.textContent?.includes('Claude · Work'), 'The restricted account disappears from other repositories');
+      view.render('models'); await settle();
+      assert(!view.host.textContent?.includes('Claude · Work'), 'The account is no longer globally selectable');
+      assert(view.signIns.length === 0, 'Restriction preserves the existing login');
+    },
     async 'removing a named account explains its scope and handles failure without losing the row'(view: View) {
       await settle(); view.finish(withAccount); await settle();
       view.render('ws-agents', 'repo-a'); await settle(); view.finish(withAccount); await settle();
@@ -142,7 +162,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(defaultRow !== undefined && !defaultRow.textContent?.includes('Remove'), 'The built-in provider is not removable');
       click('Remove'); await settle();
       assert(view.removed.length === 0, 'Removal requires confirmation');
-      assert(view.host.querySelector('[role="dialog"]')?.textContent?.includes('every repository') === true, 'Global effect is explained');
+      assert(view.host.querySelector('[role="dialog"]')?.textContent?.includes('this repository') === true, 'Repository scope is explained');
       click('Cancel'); await settle();
       assert(view.removed.length === 0, 'Cancel keeps the account');
       click('Remove'); await settle();
@@ -166,12 +186,17 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     const workspaceChoices: string[][] = [];
     let terminalEvent: Parameters<Bridge['onReviewTerminalEvent']>[0] = () => {};
     const workspaceSettings = new Map<string, WorkspaceSettingsDto>();
+    let catalog = saved;
+    const scoped = (id?: string): ModelSettingsDto => ({ ...catalog,
+      agents: id === undefined ? catalog.agents : workspaceSettings.get(id)?.agents ?? catalog.agents,
+      providers: catalog.providers.filter(provider => provider.workspaceId == null || provider.workspaceId === id),
+    });
     let finish: (value: ModelSettingsDto) => void = () => { throw new Error('No pending refresh'); };
     let fail: (error: Error) => void = () => { throw new Error('No pending refresh'); };
     const bridge: Partial<Bridge> = {
       getAppVersion: async () => ({ version: '0.4.0' }),
       getAppPreferences: async () => ({ theme: 'SYSTEM' as const, taskRetentionDays: 7, recentRetentionDays: 14, prWarmCount: 30 }),
-      getModelSettings: async () => saved,
+      getModelSettings: async id => scoped(id),
       getWorkspaceSettings: async id => workspaceSettings.get(id) ?? { agents: saved.agents, remotes: [], commitsTarget: null },
       setWorkspaceAgentModel: async (id, type, configId, model, effort) => {
         workspaceChoices.push([id, configId]);
@@ -183,17 +208,32 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       onReviewTerminalEvent: listener => { terminalEvent = listener; return () => {}; },
       writeReviewTerminal: () => {},
       resizeReviewTerminal: () => {},
-      addClaudeAccount: async (label, email) => { added.push([label, email]); return withAccount; },
+      addClaudeAccount: async (label, email, workspaceId) => {
+        added.push([label, email, workspaceId ?? 'global']);
+        catalog = { ...withAccount, providers: withAccount.providers.map(provider => provider.id === account.id ? { ...provider, workspaceId } : provider) };
+        if (workspaceId !== undefined) workspaceSettings.set(workspaceId, { agents: ['DEVELOPMENT', 'REVIEW'].map(type => ({
+          type: type as 'DEVELOPMENT' | 'REVIEW', explicit: true, configId: account.id, model: 'opus', effort: 'High', label: account.label, modelLabel: 'Opus',
+        })), remotes: [], commitsTarget: null });
+        return scoped(workspaceId);
+      },
+      restrictClaudeAccount: async (laneId, workspaceId) => {
+        catalog = { ...catalog, providers: catalog.providers.map(provider => provider.id === laneId ? { ...provider, workspaceId } : provider) };
+        workspaceSettings.set(workspaceId, { agents: ['DEVELOPMENT', 'REVIEW'].map(type => ({
+          type: type as 'DEVELOPMENT' | 'REVIEW', explicit: true, configId: laneId, model: 'opus', effort: 'High', label: account.label, modelLabel: 'Opus',
+        })), remotes: [], commitsTarget: null });
+        return scoped(workspaceId);
+      },
       removeClaudeAccount: async laneId => {
         removed.push(laneId);
         if (removed.length === 1) throw new Error('Removal failed; try again');
-        return { ...saved, providers: [...saved.providers, claude] };
+        catalog = { ...saved, providers: [...saved.providers, claude] };
+        return scoped();
       },
       setAgentModel: async (type, configId, model, effort) => {
         chosen.push(configId);
         return { ...withAccount, agents: [{ type, explicit: true, configId, model, effort, label: withAccount.providers.find(provider => provider.id === configId)?.label ?? configId, modelLabel: 'Opus' }] };
       },
-      refreshModelSettings: (force = false) => { forces.push(force); return new Promise<ModelSettingsDto>((resolve, reject) => { finish = resolve; fail = reject; }); },
+      refreshModelSettings: (force = false, id) => { forces.push(force); return new Promise<ModelSettingsDto>((resolve, reject) => { finish = value => { catalog = value; resolve(scoped(id)); }; fail = reject; }); },
     };
     window.bridge = bridge as Bridge;
     const render = (section: SettingsSection, id?: string) => {

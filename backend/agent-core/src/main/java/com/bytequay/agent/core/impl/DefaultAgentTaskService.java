@@ -85,6 +85,7 @@ public final class DefaultAgentTaskService
     {
         requireNonNull(command, "command is null");
         requireNonNull(persistTask, "persistTask is null");
+        driverRegistry.checkWorkspaceAccess(command.laneId(), Optional.of(command.workspaceId()));
         requireReady(command.laneId(), command.defaults().permissionPolicy());
         if (taskStore.find(command.taskId()).isPresent()) {
             throw new AgentConflictException("Task already exists: " + command.taskId());
@@ -112,6 +113,7 @@ public final class DefaultAgentTaskService
     public AgentTask create(CreateAgentTaskCommand command)
     {
         requireNonNull(command, "command is null");
+        driverRegistry.checkWorkspaceAccess(command.laneId(), Optional.of(command.workspaceId()));
         requireReady(command.laneId(), command.defaults().permissionPolicy());
         return prepare(command);
     }
@@ -120,6 +122,7 @@ public final class DefaultAgentTaskService
     public AgentTask prepare(CreateAgentTaskCommand command)
     {
         requireNonNull(command, "command is null");
+        driverRegistry.checkWorkspaceAccess(command.laneId(), Optional.of(command.workspaceId()));
         driverRegistry.require(command.laneId());
         if (taskStore.find(command.taskId()).isPresent()) {
             throw new AgentConflictException("Task already exists: " + command.taskId());

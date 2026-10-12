@@ -42,10 +42,10 @@ export default function TaskOverview({
     .catch((failure: unknown) => setNotice(failure instanceof Error ? failure.message : String(failure))), [live, workspaceId]);
   useEffect(() => { void refresh(); }, [refresh]);
   useEffect(() => {
-    void live().getModelSettings()
+    void live().getModelSettings(workspaceId)
       .then((catalog) => setProviders(catalog.providers))
       .catch(() => {});
-  }, [live]);
+  }, [live, workspaceId]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => { if (event.key === 'Escape') onDismiss(); };
     window.addEventListener('keydown', onKey);

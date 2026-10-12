@@ -16,7 +16,7 @@ import { relativeTime } from '../relativeTime';
 import {
   displayModelName,
   effortLabel,
-  isDeepSeekKeyLane,
+  developmentDefaults,
   laneDefaults,
   laneLabel,
   laneModels,
@@ -84,15 +84,11 @@ export default function FlowView({
     window.bridge.getModelSettings(workspaceId)
       .then(settings => {
         if (!active) return;
-        const cliProviders = settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id));
-        const preferred = cliProviders.find(provider => providerAvailable(provider.readiness))
-          ?? cliProviders[0];
-        const lane = preferred?.id ?? '';
-        const defaults = laneDefaults(cliProviders, lane);
-        setProviders(cliProviders);
-        setLaneId(lane);
+        const defaults = developmentDefaults(settings);
+        setProviders(settings.providers);
+        setLaneId(defaults.laneId);
         setModel(defaults.model);
-        setEffort(defaults.effort);
+        setEffort(defaults.effort ?? '');
       })
       .catch(failure => {
         if (active) setError(failure instanceof Error ? failure.message : String(failure));

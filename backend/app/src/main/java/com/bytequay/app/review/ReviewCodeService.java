@@ -19,10 +19,13 @@ import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -97,6 +100,8 @@ public class ReviewCodeService
     private final PullRequestStore pullRequestRows;
     private final WorktreeDiffReader localDiff;
     private final PullRequestService pullRequests;
+    private final AgentProperties agentProperties;
+    private final ClaudeAccounts claudeAccounts;
 
     public ReviewCodeService(
             AgentReviewStore store,
@@ -110,7 +115,9 @@ public class ReviewCodeService
             PullRequestTaskStore assignments,
             PullRequestStore pullRequestRows,
             WorktreeDiffReader localDiff,
-            PullRequestService pullRequests)
+            PullRequestService pullRequests,
+            AgentProperties agentProperties,
+            ClaudeAccounts claudeAccounts)
     {
         this.store = requireNonNull(store, "store is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
@@ -124,6 +131,8 @@ public class ReviewCodeService
         this.pullRequestRows = requireNonNull(pullRequestRows, "pullRequestRows is null");
         this.localDiff = requireNonNull(localDiff, "localDiff is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.agentProperties = requireNonNull(agentProperties, "agentProperties is null");
+        this.claudeAccounts = requireNonNull(claudeAccounts, "claudeAccounts is null");
     }
 
     public CodeFiles files(String reviewId)
@@ -624,24 +633,41 @@ public class ReviewCodeService
     }
 
     /** The canonical working copy a terminal shell starts in, while the review is open and its working copy exists. */
-    public Path terminalDirectory(String reviewId)
+    public TerminalLaunch terminal(String reviewId)
     {
         AgentReview review = store.findReview(reviewId).orElseThrow(() -> new ReviewNotFoundException("Review not found: " + reviewId));
         if (review.state() != AgentReview.State.OPEN) {
             throw new ReviewConflictException("The review has ended");
         }
-        return checkout(reviews.task(reviewId)).orElseThrow(() -> new ReviewConflictException("The working copy is gone"));
+        AgentTask task = reviews.task(reviewId);
+        return terminal(task, checkout(task).orElseThrow(() -> new ReviewConflictException("The working copy is gone")));
     }
 
     /** The canonical working copy a terminal shell starts in, while the task is open and owns the pull request. */
-    public Path terminalDirectory(TaskCodeHost host)
+    public TerminalLaunch terminal(TaskCodeHost host)
     {
         AgentTask task = mutableTask(host);
         if (task.state() != TaskState.OPEN) {
             throw new ReviewConflictException("The task has ended");
         }
-        return worktrees.ownedCheckout(task.taskWorktree().orElseThrow());
+        return terminal(task, worktrees.ownedCheckout(task.taskWorktree().orElseThrow()));
     }
+
+    private TerminalLaunch terminal(AgentTask task, Path checkout)
+    {
+        claudeAccounts.checkWorkspaceAccess(task.laneId().value(), task.workspaceId());
+        Optional<Path> claudeHome = Optional.empty();
+        if (task.laneId().usesClaude()) {
+            Path home = agentProperties.claudeHome();
+            if (!task.laneId().equals(AgentLaneId.CLAUDE_CLI)) {
+                home = home.resolve("accounts").resolve(claudeAccounts.find(task.laneId().value()).orElseThrow().id());
+            }
+            claudeHome = Optional.of(home.toAbsolutePath().normalize());
+        }
+        return new TerminalLaunch(checkout, claudeHome);
+    }
+
+    public record TerminalLaunch(Path workingDirectory, Optional<Path> claudeConfigDirectory) {}
 
     private static Optional<DiffFile> prFile(Source source, String path)
     {

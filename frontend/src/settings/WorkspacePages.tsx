@@ -180,7 +180,7 @@ export function WorkspaceRepositoryPage({ workspace, settings, error, onAddRemot
 }
 
 export function WorkspaceAgentsPage({
-  workspace, settings, models, checking, checkedAt, error, onChoose, onUseGlobal, onCheck, onSignIn, onAddClaudeAccount, onRemoveClaudeAccount,
+  workspace, settings, models, checking, checkedAt, error, onChoose, onUseGlobal, onCheck, onSignIn, onAddClaudeAccount, onRemoveClaudeAccount, onRestrictClaudeAccount,
 }: {
   workspace: WorkspaceDto;
   settings: WorkspaceSettingsDto | null;
@@ -195,6 +195,7 @@ export function WorkspaceAgentsPage({
   onSignIn?: (providerId: string) => void;
   onAddClaudeAccount?: (label: string, email: string) => Promise<void>;
   onRemoveClaudeAccount?: (laneId: string) => Promise<void>;
+  onRestrictClaudeAccount?: (laneId: string) => Promise<void>;
 }) {
   return (
     <div className="setw-page">
@@ -206,37 +207,18 @@ export function WorkspaceAgentsPage({
       <SettingsCard>
         {settings === null || models === null
           ? <div className="setw-row-empty">Loading models…</div>
-          : settings.agents.map(agent => (agent.explicit ? (
-            <SettingsRow key={agent.type} title={typeLabel(agent.type)} subtitle={`Overridden for this workspace · ${agent.label}`}>
-              <AgentModelControls
-                agent={agent}
-                settings={models}
-                onChoose={choice => onChoose(agent.type, choice)}
-              />
-              <button type="button" className="setw-link" onClick={() => onUseGlobal(agent.type)}>Use global</button>
+          : settings.agents.map(agent => (
+            <SettingsRow key={agent.type} title={typeLabel(agent.type)}
+              subtitle={`${agent.explicit ? 'For this repository' : 'Global default'} · ${agent.label}`}>
+              <AgentModelControls agent={agent} settings={models} onChoose={choice => onChoose(agent.type, choice)} />
+              {agent.explicit
+                ? <button type="button" className="setw-link" onClick={() => onUseGlobal(agent.type)}>Use global</button>
+                : <Badge>global default</Badge>}
             </SettingsRow>
-          ) : (
-            <SettingsRow
-              key={agent.type}
-              title={typeLabel(agent.type)}
-              subtitle={`${agent.label} · ${agent.modelLabel}${agent.effort ? ` · ${agent.effort}` : ''}`}
-            >
-              <Badge>global default</Badge>
-              <button
-                type="button"
-                className="setw-btn"
-                onClick={() => onChoose(agent.type, {
-                  configId: agent.configId,
-                  model: agent.model,
-                  effort: agent.effort ?? null,
-                })}
-              >
-                Override…
-              </button>
-            </SettingsRow>
-          )))}
+          ))}
       </SettingsCard>
 
+      <div className="setw-footnote">Choose an account or API-key alias and model for new work in this repository. Existing tasks keep their original account.</div>
       <div className="setw-section"><span className="setw-section-title">Providers</span></div>
       <SettingsCard footer={
         <div className="setw-foot-row">
@@ -247,12 +229,12 @@ export function WorkspaceAgentsPage({
           </button>
         </div>
       }>
-        {(models?.providers ?? []).filter(provider => !isDeepSeekKeyLane(provider.id) && !isClaudeLane(provider.id)).map(provider => {
+        {(models?.providers ?? []).filter(provider => !isClaudeLane(provider.id)).map(provider => {
           const status = providerStatusLabel(provider.readiness, checking, provider.id);
           return (
             <SettingsRow
               key={provider.id}
-              title={`${provider.label} CLI`}
+              title={isDeepSeekKeyLane(provider.id) ? provider.label : `${provider.label} CLI`}
               subtitle={
                 <span className="setw-status">
                   <StatusDot tone={dotTone(status.tone)} />
@@ -260,7 +242,7 @@ export function WorkspaceAgentsPage({
                 </span>
               }
             >
-              {onSignIn !== undefined && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
+              {onSignIn !== undefined && !isDeepSeekKeyLane(provider.id) && provider.readiness === 'AUTHENTICATION_REQUIRED' && (
                 <button type="button" className="setw-btn" disabled={checking} onClick={() => onSignIn(provider.id)}>
                   <LogIn size={12} strokeWidth={2.2} color="#6e6e73" />
                   <span>Sign in</span>
@@ -271,7 +253,7 @@ export function WorkspaceAgentsPage({
         })}
       </SettingsCard>
       <ClaudeAccountsCard providers={models?.providers ?? []} checking={checking} onCheck={onCheck}
-        onSignIn={onSignIn} onAdd={onAddClaudeAccount} onRemove={onRemoveClaudeAccount} />
+        onSignIn={onSignIn} onAdd={onAddClaudeAccount} onRemove={onRemoveClaudeAccount} repository onRestrict={onRestrictClaudeAccount} />
     </div>
   );
 }

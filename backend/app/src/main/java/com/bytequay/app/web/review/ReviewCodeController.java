@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.nio.file.Path;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -79,7 +80,8 @@ public class ReviewCodeController
     @PostMapping("/terminal")
     public ReviewCodeHttpModels.TerminalResponse terminal(@PathVariable String reviewId)
     {
-        return new ReviewCodeHttpModels.TerminalResponse(code.terminalDirectory(reviewId).toString());
+        var launch = code.terminal(reviewId);
+        return new ReviewCodeHttpModels.TerminalResponse(launch.workingDirectory().toString(), launch.claudeConfigDirectory().map(Path::toString));
     }
 
     @GetMapping("/runs")

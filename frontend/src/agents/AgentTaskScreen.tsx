@@ -1703,7 +1703,7 @@ export default function AgentTaskScreen({
     let active = true;
     void (async () => {
       const [catalog, effective] = await Promise.all([
-        live().getModelSettings(),
+        live().getModelSettings(workspaceId),
         live().getEffectiveTurnSettings(taskId, workspaceId),
       ]);
       if (!active) return;
@@ -1953,12 +1953,12 @@ export default function AgentTaskScreen({
     ));
     setProviderStatusTurnId(null);
     if (isDeepSeekKeyLane(unavailable.laneId)) {
-      void live().getModelSettings().then(catalog => {
+      void live().getModelSettings(workspaceId).then(catalog => {
         if (mountedRef.current) setKeyRemoved(!catalog.providers.some(provider => provider.id === unavailable.laneId));
       }).catch(() => {});
     }
     return true;
-  }, [live]);
+  }, [live, workspaceId]);
 
   const selectModel = useCallback((model: string, effort: string | null, serviceTier: string | null) => run(async () => {
     const task = state.task;

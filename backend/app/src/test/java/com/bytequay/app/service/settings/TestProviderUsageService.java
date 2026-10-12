@@ -43,7 +43,7 @@ class TestProviderUsageService
     {
         AgentDriverRegistry registry = mock(AgentDriverRegistry.class);
         ClaudeAccounts accounts = mock(ClaudeAccounts.class);
-        ClaudeAccount work = new ClaudeAccount("11111111-1111-4111-8111-111111111111", "Work", Optional.empty());
+        ClaudeAccount work = new ClaudeAccount("11111111-1111-4111-8111-111111111111", "Work", Optional.empty(), Optional.empty());
         when(accounts.list()).thenReturn(ImmutableList.of(work));
         AgentDriver codex = mock(AgentDriver.class);
         AgentDriver claude = mock(AgentDriver.class);

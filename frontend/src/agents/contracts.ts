@@ -557,6 +557,7 @@ function modelOption(value: unknown, path: string): ModelOptionDto {
 function modelProvider(value: unknown, path: string): ModelProviderDto {
   const source = object(value, path);
   return {
+    workspaceId: optionalText(source.workspaceId, `${path}.workspaceId`),
     id: text(source.id, `${path}.id`),
     label: text(source.label, `${path}.label`),
     readiness: enumText(source.readiness, PROVIDER_READINESS, `${path}.readiness`),

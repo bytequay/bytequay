@@ -1484,6 +1484,7 @@ public final class DefaultAgentTurnService
 
     private AgentTask requireReady(AgentTask task, Optional<String> model)
     {
+        driverRegistry.checkWorkspaceAccess(task.laneId(), task.workspaceId());
         var driver = driverRegistry.require(task.laneId());
         AgentProviderStatus status = driver.probe(model);
         if (!status.available()) {
@@ -1844,6 +1845,7 @@ public final class DefaultAgentTurnService
             runtimeRegistry.closeSession(task.id());
         }
 
+        driverRegistry.checkWorkspaceAccess(task.laneId(), task.workspaceId());
         AgentDriver driver = driverRegistry.require(task.laneId());
         TaskResources resources = resourceService.require(task.id());
         AgentSession opened = requireNonNull(driver.open(

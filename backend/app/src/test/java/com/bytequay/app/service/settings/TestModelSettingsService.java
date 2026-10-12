@@ -43,6 +43,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -94,6 +95,7 @@ class TestModelSettingsService
         service = new ModelSettingsService(
                 drivers,
                 apiKeys,
+                new ClaudeAccounts(settingsStore, new ObjectMapper()),
                 settingsStore,
                 new ObjectMapper(),
                 clock);
@@ -102,11 +104,37 @@ class TestModelSettingsService
     }
 
     @Test
+    void addingARepositoryAccountSelectsBothTaskTypesAndHidesItElsewhere()
+    {
+        AgentDriver named = mock(AgentDriver.class);
+        when(named.label()).thenReturn("Claude · Work");
+        when(drivers.require(any())).thenReturn(named);
+        service.setAgentModel(AgentModelType.DEVELOPMENT, "claude", "opus", Optional.of("Max"));
+        ClaudeAccount account = service.addClaudeAccount("Work", "work@example.com", Optional.of("cork"));
+        service.refreshMissingCatalogs(ImmutableList.of(new AgentProviderStatus(account.laneId(), Readiness.AUTHENTICATION_REQUIRED,
+                Optional.empty(), "Sign in", AgentCapabilities.none())));
+        assertThat(service.get(Optional.of("cork")).agents()).allSatisfy(agent -> {
+            assertThat(agent.configId()).isEqualTo(account.laneId().value());
+            assertThat(agent.effort()).contains("Max");
+        });
+        assertThat(service.get(Optional.of("cork")).providers()).extracting(ModelSettingsService.Provider::id).containsExactly(account.laneId().value());
+        assertThat(service.get(Optional.of("other")).providers()).isEmpty();
+        assertThat(service.get().providers()).isEmpty();
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("other")).configId()).isEqualTo("claude");
+        assertThatThrownBy(() -> service.setWorkspaceOverride("other", AgentModelType.DEVELOPMENT, account.laneId().value(), "opus", Optional.empty()))
+                .isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> service.setAgentModel(AgentModelType.DEVELOPMENT, account.laneId().value(), "opus", Optional.empty()))
+                .isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> service.setGoalModel("goal", "other", account.laneId().value(), "opus", Optional.empty()))
+                .isInstanceOf(AgentUnavailableException.class);
+    }
+
+    @Test
     void workspacesSelectDifferentClaudeAccountsAndKeepTheSameModelCatalog()
     {
         ClaudeAccounts accounts = new ClaudeAccounts(settingsStore, new ObjectMapper());
-        ClaudeAccount work = accounts.add("Work", "work@example.com");
-        ClaudeAccount personal = accounts.add("Personal", "personal@example.com");
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.empty());
+        ClaudeAccount personal = accounts.add("Personal", "personal@example.com", Optional.empty());
         for (ClaudeAccount account : accounts.list()) {
             AgentDriver driver = mock(AgentDriver.class);
             when(driver.label()).thenReturn("Claude · " + account.label());
@@ -118,19 +146,20 @@ class TestModelSettingsService
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-b")).configId()).isEqualTo(personal.laneId().value());
         service.setWorkspaceOverride("repo-a", AgentModelType.REVIEW, work.laneId().value(), "sonnet", Optional.of("Medium"));
         assertThat(service.agentModel(AgentModelType.REVIEW, Optional.of("repo-a")).label()).isEqualTo("Claude · Work");
-        ModelSettingsService restarted = new ModelSettingsService(drivers, apiKeys, settingsStore, new ObjectMapper(), clock);
+        ModelSettingsService restarted = new ModelSettingsService(
+                drivers, apiKeys, new ClaudeAccounts(settingsStore, new ObjectMapper()), settingsStore, new ObjectMapper(), clock);
         assertThat(restarted.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-a")).configId()).isEqualTo(work.laneId().value());
         service.clearWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT);
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-b")).configId()).isEqualTo(personal.laneId().value());
         assertThatThrownBy(() -> service.setWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT, "claude-account-missing", "opus", Optional.empty()))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(AgentUnavailableException.class);
     }
 
     @Test
     void removingANamedAccountLeavesSavedChoicesUnavailableInsteadOfChangingAccounts()
     {
         ClaudeAccounts accounts = new ClaudeAccounts(settingsStore, new ObjectMapper());
-        ClaudeAccount work = accounts.add("Work", "work@example.com");
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.empty());
         AgentDriver driver = mock(AgentDriver.class);
         when(driver.label()).thenReturn("Claude · Work");
         when(drivers.require(work.laneId())).thenReturn(driver);
@@ -145,13 +174,13 @@ class TestModelSettingsService
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo(work.laneId().value());
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("repo-a")).label()).isEqualTo("Claude account unavailable");
         assertThatThrownBy(() -> service.setWorkspaceOverride("repo-b", AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.empty()))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(AgentUnavailableException.class);
     }
 
     @Test
     void signingInANamedClaudeAccountDoesNotChangeUnrelatedRepositoryDefaults()
     {
-        ClaudeAccount work = new ClaudeAccounts(settingsStore, new ObjectMapper()).add("Work", "work@example.com");
+        ClaudeAccount work = new ClaudeAccounts(settingsStore, new ObjectMapper()).add("Work", "work@example.com", Optional.empty());
         AgentDriver driver = mock(AgentDriver.class);
         when(driver.label()).thenReturn("Claude · Work");
         when(drivers.require(work.laneId())).thenReturn(driver);
@@ -248,7 +277,7 @@ class TestModelSettingsService
     }
 
     @Test
-    void aDeepSeekKeyHasACuratedTaskCatalogButCannotBeAnAgentDefault()
+    void aDeepSeekKeyCanBeARepositoryDefaultWithItsAliasAndStableLane()
     {
         service.addApiKey("DeepSeek", "personal-deepseek", "sk-4fabcdefghijklmnope2a1");
         ModelSettings settings = service.get();
@@ -271,10 +300,11 @@ class TestModelSettingsService
         service.validateSelection(lane.value(), "deepseek-v4-pro", Optional.of("high"), Optional.empty());
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo("claude");
 
-        assertThatThrownBy(() -> service.setAgentModel(
-                AgentModelType.DEVELOPMENT, lane.value(), "deepseek-flash", Optional.empty()))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("CLI provider");
+        service.setWorkspaceOverride("ws-1", AgentModelType.DEVELOPMENT, lane.value(), "deepseek-flash", Optional.of("high"));
+        service.setWorkspaceOverride("ws-1", AgentModelType.REVIEW, lane.value(), "deepseek-v4-pro", Optional.of("high"));
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1")).label()).isEqualTo("DeepSeek · personal-deepseek");
+        assertThat(service.agentModel(AgentModelType.REVIEW, Optional.of("ws-1")).configId()).isEqualTo(lane.value());
+        assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-2")).configId()).isEqualTo("claude");
         assertThatThrownBy(() -> service.setWorkspaceOverride(
                 "ws-1", AgentModelType.REVIEW, "key:personal-deepseek", "deepseek-flash", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
@@ -391,6 +421,7 @@ class TestModelSettingsService
         ModelSettingsService fresh = new ModelSettingsService(
                 drivers,
                 new InMemoryModelApiKeyStore(),
+                new ClaudeAccounts(settingsStore, new ObjectMapper()),
                 new InMemoryAppSettingsStore(),
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
@@ -490,6 +521,7 @@ class TestModelSettingsService
         ModelSettingsService fresh = new ModelSettingsService(
                 drivers,
                 new InMemoryModelApiKeyStore(),
+                new ClaudeAccounts(settingsStore, new ObjectMapper()),
                 new InMemoryAppSettingsStore(),
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
@@ -531,6 +563,7 @@ class TestModelSettingsService
         ModelSettingsService upgraded = new ModelSettingsService(
                 drivers,
                 new InMemoryModelApiKeyStore(),
+                new ClaudeAccounts(settingsStore, new ObjectMapper()),
                 store,
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));
@@ -548,6 +581,7 @@ class TestModelSettingsService
         ModelSettingsService unseeded = new ModelSettingsService(
                 drivers,
                 new InMemoryModelApiKeyStore(),
+                new ClaudeAccounts(settingsStore, new ObjectMapper()),
                 new InMemoryAppSettingsStore(),
                 new ObjectMapper(),
                 Clock.fixed(Instant.parse("2026-08-23T10:00:00Z"), ZoneOffset.UTC));

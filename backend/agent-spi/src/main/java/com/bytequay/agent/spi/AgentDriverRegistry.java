@@ -14,6 +14,7 @@
 package com.bytequay.agent.spi;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Resolves configured provider drivers by their stable lane identifiers.
@@ -31,6 +32,9 @@ public interface AgentDriverRegistry
      * @throws AgentUnavailableException when the lane is unknown or disabled
      */
     AgentDriver require(AgentLaneId laneId);
+
+    /** Rejects credentials owned by a different workspace before accepting or resuming work. */
+    default void checkWorkspaceAccess(AgentLaneId laneId, Optional<String> workspaceId) {}
 
     /**
      * Probes every configured lane without failing the complete result when one

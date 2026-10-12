@@ -159,6 +159,7 @@ public class EpicBreakdowns
     public void start(String workspaceId, String epicId, Source source)
     {
         AgentModelSetting model = models.agentModel(AgentModelType.DEVELOPMENT, Optional.of(workspaceId));
+        models.validateWorkspaceAccess(model.configId(), Optional.of(workspaceId));
         WorkflowAgentTasks.requireReady(drivers, new AgentLaneId(model.configId()), AgentPermissionPolicy.AUTO, Optional.of(model.model()));
         if (!running.add(epicId)) {
             return;

@@ -200,11 +200,13 @@ export function useTaskAttention(
   const key = JSON.stringify(workspaces);
   useEffect(() => {
     let active = true;
-    void bridge().getModelSettings().then((settings) => {
-      if (active) setLaneNames(new Map(settings.providers.map((provider) => [provider.id, provider.label] as const)));
-    }).catch(() => { /* Cards name the lane alone without the catalog. */ });
+    const listed = JSON.parse(key) as TaskAttentionWorkspace[];
+    void Promise.allSettled(listed.map(workspace => bridge().getModelSettings(workspace.id))).then(results => {
+      if (active) setLaneNames(new Map(results.flatMap(result => result.status === 'fulfilled'
+        ? result.value.providers.map(provider => [provider.id, provider.label] as const) : [])));
+    });
     return () => { active = false; };
-  }, [bridge]);
+  }, [bridge, key]);
   useEffect(() => {
     const listed = JSON.parse(key) as TaskAttentionWorkspace[];
     if (listed.length === 0) {

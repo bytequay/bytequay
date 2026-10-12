@@ -40,11 +40,29 @@ import static org.mockito.Mockito.withSettings;
 class TestClaudeAccountDriverRegistry
 {
     @Test
+    void rejectsRepositoryAccountsOutsideTheirWorkspaceIncludingAfterRestriction()
+    {
+        ClaudeAccounts accounts = new ClaudeAccounts(new InMemoryAppSettingsStore(), new ObjectMapper());
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.of("cork"));
+        ClaudeAccount global = accounts.add("Personal", "personal@example.com", Optional.empty());
+        try (ClaudeAccountDriverRegistry registry = new ClaudeAccountDriverRegistry(mock(AgentDriverRegistry.class), accounts, true,
+                ignored -> mock(ClaudeCliDriver.class, withSettings().mockMaker(MockMakers.INLINE)))) {
+            registry.checkWorkspaceAccess(work.laneId(), Optional.of("cork"));
+            registry.checkWorkspaceAccess(global.laneId(), Optional.of("other"));
+            assertThatThrownBy(() -> registry.checkWorkspaceAccess(work.laneId(), Optional.of("other"))).isInstanceOf(AgentUnavailableException.class);
+            assertThatThrownBy(() -> registry.checkWorkspaceAccess(work.laneId(), Optional.empty())).isInstanceOf(AgentUnavailableException.class);
+            registry.require(global.laneId());
+            accounts.restrictToWorkspace(global.laneId().value(), "cork");
+            assertThatThrownBy(() -> registry.checkWorkspaceAccess(global.laneId(), Optional.of("other"))).isInstanceOf(AgentUnavailableException.class);
+        }
+    }
+
+    @Test
     void isolatesAccountReadinessAndReusesOnlyTheSelectedAccountsDriver()
     {
         ClaudeAccounts accounts = new ClaudeAccounts(new InMemoryAppSettingsStore(), new ObjectMapper());
-        ClaudeAccount work = accounts.add("Work", "work@example.com");
-        ClaudeAccount personal = accounts.add("Personal", "personal@example.com");
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.empty());
+        ClaudeAccount personal = accounts.add("Personal", "personal@example.com", Optional.empty());
         ClaudeCliDriver workDriver = mock(ClaudeCliDriver.class, withSettings().mockMaker(MockMakers.INLINE));
         ClaudeCliDriver personalDriver = mock(ClaudeCliDriver.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workDriver.probe()).thenReturn(new AgentProviderStatus(work.laneId(), AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,

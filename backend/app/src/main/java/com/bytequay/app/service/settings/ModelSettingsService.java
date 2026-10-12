@@ -30,6 +30,7 @@ import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -103,6 +104,7 @@ public class ModelSettingsService
 
     private final AgentDriverRegistry drivers;
     private final ModelApiKeyStore apiKeys;
+    private final ClaudeAccounts claudeAccounts;
     private final AppSettingsStore settings;
     private final ObjectMapper mapper;
     private final Clock clock;
@@ -112,12 +114,14 @@ public class ModelSettingsService
     public ModelSettingsService(
             AgentDriverRegistry drivers,
             ModelApiKeyStore apiKeys,
+            ClaudeAccounts claudeAccounts,
             AppSettingsStore settings,
             ObjectMapper mapper,
             Clock clock)
     {
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.apiKeys = requireNonNull(apiKeys, "apiKeys is null");
+        this.claudeAccounts = requireNonNull(claudeAccounts, "claudeAccounts is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -229,6 +233,8 @@ public class ModelSettingsService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         List<Provider> providers = providerStatuses.stream()
+                .filter(status -> !status.laneId().value().startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX)
+                        || claudeAccounts.find(status.laneId().value()).filter(account -> account.availableIn(workspaceId)).isPresent())
                 .filter(status -> (!status.laneId().value().startsWith(DEEPSEEK_LANE_PREFIX)
                         && !status.laneId().value().startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX))
                         || cliCatalog(status.laneId().value()).isPresent())
@@ -244,6 +250,11 @@ public class ModelSettingsService
                 .map(type -> agentModel(type, workspaceId))
                 .collect(toImmutableList());
         return new ModelSettings(agents, providers, keys, keyProviders, checkedAt);
+    }
+
+    public void validateWorkspaceAccess(String configId, Optional<String> workspaceId)
+    {
+        claudeAccounts.checkWorkspaceAccess(configId, workspaceId);
     }
 
     /** Validates a provider model selection without changing saved settings. */
@@ -288,7 +299,7 @@ public class ModelSettingsService
     public AgentModelSetting agentModel(AgentModelType type, Optional<String> workspaceId)
     {
         requireNonNull(type, "type is null");
-        return requireNonNull(workspaceId, "workspaceId is null")
+        AgentModelSetting selected = requireNonNull(workspaceId, "workspaceId is null")
                 .flatMap(id -> readAgentModel(workspaceKey(id, type)))
                 .map(stored -> resolve(type, true, stored))
                 .orElseGet(() -> {
@@ -296,11 +307,16 @@ public class ModelSettingsService
                     return new AgentModelSetting(
                             type, workspaceId.isEmpty() && global.explicit(), global.configId(), global.label(), global.model(), global.modelLabel(), global.effort());
                 });
+        if (!claudeAccounts.availableIn(selected.configId(), workspaceId)) {
+            return new AgentModelSetting(type, selected.explicit(), selected.configId(), "Claude account unavailable", selected.model(), selected.modelLabel(), selected.effort());
+        }
+        return selected;
     }
 
     public AgentModelSetting setAgentModel(AgentModelType type, String configId, String model, Optional<String> effort)
     {
         requireNonNull(type, "type is null");
+        validateWorkspaceAccess(configId, Optional.empty());
         requireAgentSelection(configId, model, effort);
         writeJson(AGENT_MODEL_PREFIX + type.name(), new StoredOverride(configId, model, effort.orElse(null)));
         return agentModel(type);
@@ -346,9 +362,36 @@ public class ModelSettingsService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(type, "type is null");
+        validateWorkspaceAccess(configId, Optional.of(workspaceId));
         requireAgentSelection(configId, model, effort);
         writeJson(workspaceKey(workspaceId, type), new StoredOverride(configId, model, effort.orElse(null)));
         return agentModel(type, Optional.of(workspaceId));
+    }
+
+    @Transactional
+    public ClaudeAccount addClaudeAccount(String label, String email, Optional<String> workspaceId)
+    {
+        ClaudeAccount account = claudeAccounts.add(label, email, workspaceId);
+        workspaceId.ifPresent(id -> useClaudeAccount(id, account.laneId().value()));
+        return account;
+    }
+
+    @Transactional
+    public void restrictClaudeAccount(String laneId, String workspaceId)
+    {
+        claudeAccounts.restrictToWorkspace(laneId, workspaceId);
+        useClaudeAccount(workspaceId, laneId);
+    }
+
+    private void useClaudeAccount(String workspaceId, String laneId)
+    {
+        Catalog catalog = requireCatalog(laneId);
+        for (AgentModelType type : AgentModelType.values()) {
+            AgentModelSetting current = agentModel(type, Optional.of(workspaceId));
+            ModelOption model = catalog.model(current.model()).orElseGet(() -> catalog.model(catalog.defaultModelId()).orElseThrow());
+            Optional<String> effort = current.effort().filter(model.efforts()::contains).or(() -> Optional.ofNullable(model.defaultEffort()));
+            setWorkspaceOverride(workspaceId, type, laneId, model.id(), effort);
+        }
     }
 
     public AgentModelSetting clearWorkspaceOverride(String workspaceId, AgentModelType type)
@@ -361,8 +404,12 @@ public class ModelSettingsService
     public AgentModelSetting goalModel(String goalId, String workspaceId)
     {
         requireNonNull(goalId, "goalId is null");
-        return readAgentModel(GOAL_MODEL_PREFIX + goalId).map(stored -> resolve(AgentModelType.DEVELOPMENT, true, stored)).orElseGet(() -> {
+        return readAgentModel(GOAL_MODEL_PREFIX + goalId).map(stored -> {
+            validateWorkspaceAccess(stored.configId(), Optional.of(workspaceId));
+            return resolve(AgentModelType.DEVELOPMENT, true, stored);
+        }).orElseGet(() -> {
             AgentModelSetting workspace = agentModel(AgentModelType.DEVELOPMENT, Optional.of(workspaceId));
+            validateWorkspaceAccess(workspace.configId(), Optional.of(workspaceId));
             return new AgentModelSetting(workspace.type(), false, workspace.configId(), workspace.label(), workspace.model(), workspace.modelLabel(),
                     workspace.effort());
         });
@@ -371,6 +418,7 @@ public class ModelSettingsService
     public AgentModelSetting setGoalModel(String goalId, String workspaceId, String configId, String model, Optional<String> effort)
     {
         requireNonNull(goalId, "goalId is null");
+        validateWorkspaceAccess(configId, Optional.of(workspaceId));
         requireAgentSelection(configId, model, effort);
         writeJson(GOAL_MODEL_PREFIX + goalId, new StoredOverride(configId, model, effort.orElse(null)));
         return goalModel(goalId, workspaceId);
@@ -424,8 +472,7 @@ public class ModelSettingsService
      *
      * <p>Falls back to the seeded Claude catalog when nothing is available, so
      * an install with no signed-in provider still answers with a model rather
-     * than a blank row. Saved-key lanes are selected only for manual tasks,
-     * not for automatic Development or Review work. Named Claude accounts need
+     * than a blank row. Saved-key lanes and named Claude accounts need
      * an explicit choice: signing one in must not redirect unrelated repositories.
      */
     private String defaultLaneId()
@@ -460,14 +507,14 @@ public class ModelSettingsService
     }
 
     /**
-     * Automatic Development and Review work stays on the existing CLI lanes.
+     * Saved keys without an execution driver cannot run agent work.
      */
     private void requireAgentSelection(String configId, String model, Optional<String> effort)
     {
         requireSelection(configId, model, effort);
-        if (configId.startsWith(API_KEY_ID_PREFIX) || configId.startsWith(DEEPSEEK_LANE_PREFIX)) {
+        if (configId.startsWith(API_KEY_ID_PREFIX)) {
             throw new IllegalArgumentException(
-                    "Choose a CLI provider for automatic Development and Review tasks.");
+                    "Choose a provider with an agent execution driver.");
         }
     }
 
@@ -480,6 +527,7 @@ public class ModelSettingsService
         return new Provider(
                 id,
                 catalog.label(),
+                claudeAccounts.find(id).flatMap(ClaudeAccount::workspaceId),
                 status.readiness(),
                 status.version(),
                 status.diagnostic(),
@@ -623,6 +671,7 @@ public class ModelSettingsService
     public record Provider(
             String id,
             String label,
+            Optional<String> workspaceId,
             AgentProviderStatus.Readiness readiness,
             Optional<String> version,
             String diagnostic,

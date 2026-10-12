@@ -27,6 +27,8 @@ import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentUnavailableException;
+import com.bytequay.app.agent.AgentProperties;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.ReviewExperiments;
 import com.bytequay.app.review.ReviewCodeService.ChangeScope;
@@ -37,6 +39,8 @@ import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewCodeService.LineChange;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.settings.ClaudeAccount;
+import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.workspace.ManagedWorktreeService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -133,6 +137,8 @@ class TestReviewCodeService
     private final PullRequestTaskStore assignments = mock(PullRequestTaskStore.class);
     private final PullRequestStore pullRequestRows = mock(PullRequestStore.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
+    private AgentProperties agentProperties;
+    private final ClaudeAccounts claudeAccounts = mock(ClaudeAccounts.class);
     private Path repository;
     private Path checkout;
     private TaskWorktree worktree;
@@ -144,6 +150,8 @@ class TestReviewCodeService
     void setUp()
             throws IOException
     {
+        agentProperties = new AgentProperties(directory.resolve("runtime"), Duration.ofHours(1), "test-session", "codex", "0.159.3",
+                directory.resolve("codex-home"), "claude", directory.resolve("claude-home"));
         WorkspacePaths paths = new WorkspacePaths(directory.resolve("managed").toString());
         repository = paths.repository(WORKSPACE_ID);
         Files.createDirectories(repository);
@@ -181,7 +189,7 @@ class TestReviewCodeService
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(
                 WORKSPACE_ID, repository, 1, REPOSITORY, OptionalLong.empty(), REPOSITORY, "origin", "origin", "main", ImmutableList.of()));
         service = new ReviewCodeService(store, reviews, worktrees, workspaces, runner, new ReviewExperiments(runner, worktrees), tasks, turns,
-                assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests);
+                assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests, agentProperties, claudeAccounts);
         when(reviews.mutateWorkingCopy(eq(REVIEW_ID), any())).thenAnswer(invocation -> {
             Function<AgentTask, ?> mutation = invocation.getArgument(1);
             return mutation.apply(reviews.task(REVIEW_ID));
@@ -413,7 +421,7 @@ class TestReviewCodeService
             }
         };
         ReviewCodeService racing = new ReviewCodeService(store, reviews, worktrees, workspaces, runner,
-                new ReviewExperiments(runner, worktrees), tasks, turns, assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests);
+                new ReviewExperiments(runner, worktrees), tasks, turns, assignments, pullRequestRows, new WorktreeDiffReader(runner), pullRequests, agentProperties, claudeAccounts);
 
         assertThatThrownBy(() -> racing.files(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
         assertThatThrownBy(() -> racing.file(REVIEW_ID, TEST_PATH)).isInstanceOf(ReviewConflictException.class).hasMessageContaining("changed while it was being read");
@@ -678,7 +686,7 @@ class TestReviewCodeService
         when(store.listRuns(REVIEW_ID)).thenReturn(ImmutableList.of());
         git(repository, "update-ref", "refs/remotes/origin/main", head);
         assertThat(service.ideWorktree(REVIEW_ID)).isEqualTo(worktree);
-        assertThat(service.terminalDirectory(REVIEW_ID)).isEqualTo(checkout);
+        assertThat(service.terminal(REVIEW_ID).workingDirectory()).isEqualTo(checkout);
         assertThat(service.files(REVIEW_ID).revision()).isEqualTo(head);
         CodeFile loaded = service.file(REVIEW_ID, TEST_PATH);
         assertThat(loaded.content()).contains("test source\n");
@@ -793,15 +801,15 @@ class TestReviewCodeService
     @Test
     void terminalStartsInTheWorkingCopyOfAnOpenReviewOnly()
     {
-        assertThat(service.terminalDirectory(REVIEW_ID)).isEqualTo(checkout);
+        assertThat(service.terminal(REVIEW_ID).workingDirectory()).isEqualTo(checkout);
 
         AgentTask completed = openTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(reviews.task(REVIEW_ID)).thenReturn(completed.withWorktreeRemovedAt(NOW.plusSeconds(60)));
-        assertThatThrownBy(() -> service.terminalDirectory(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("The working copy is gone");
+        assertThatThrownBy(() -> service.terminal(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("The working copy is gone");
 
         when(store.findReview(REVIEW_ID)).thenReturn(Optional.of(review(AgentReview.State.CLOSED)));
-        assertThatThrownBy(() -> service.terminalDirectory(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("The review has ended");
-        assertThatThrownBy(() -> service.terminalDirectory("missing")).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.terminal(REVIEW_ID)).isInstanceOf(ReviewConflictException.class).hasMessage("The review has ended");
+        assertThatThrownBy(() -> service.terminal("missing")).isInstanceOf(ReviewNotFoundException.class);
     }
 
     @Test
@@ -877,25 +885,48 @@ class TestReviewCodeService
     }
 
     @Test
+    void terminalsUseTheOwningTasksClaudeProfileAndRejectAnUnavailableAccount()
+    {
+        assertThat(service.terminal(REVIEW_ID).claudeConfigDirectory()).isEmpty();
+        assertThat(service.terminal(taskHost()).claudeConfigDirectory()).isEmpty();
+        Path claudeHome = directory.resolve("claude-home");
+        ClaudeAccount account = new ClaudeAccount("11111111-1111-4111-8111-111111111111", "Work", Optional.of("work@example.com"), Optional.of(WORKSPACE_ID));
+        when(claudeAccounts.find(account.laneId().value())).thenReturn(Optional.of(account));
+        for (AgentLaneId lane : ImmutableList.of(AgentLaneId.CLAUDE_CLI, account.laneId())) {
+            when(reviews.task(REVIEW_ID)).thenReturn(AgentTask.created(worktree.taskId(), false, Optional.empty(), "Review", TitleSource.USER, lane, worktree,
+                    AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW));
+            when(tasks.get(worktree.taskId())).thenReturn(AgentTask.created(worktree.taskId(), true, Optional.empty(), "Develop", TitleSource.USER, lane, worktree,
+                    AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW));
+            Path expected = lane.equals(AgentLaneId.CLAUDE_CLI) ? claudeHome : claudeHome.resolve("accounts").resolve(account.id());
+            assertThat(service.terminal(REVIEW_ID).claudeConfigDirectory()).contains(expected);
+            assertThat(service.terminal(taskHost()).claudeConfigDirectory()).contains(expected);
+        }
+        doThrow(new AgentUnavailableException("Claude account unavailable in this repository"))
+                .when(claudeAccounts).checkWorkspaceAccess(account.laneId().value(), Optional.of(WORKSPACE_ID));
+        assertThatThrownBy(() -> service.terminal(REVIEW_ID)).isInstanceOf(AgentUnavailableException.class);
+        assertThatThrownBy(() -> service.terminal(taskHost())).isInstanceOf(AgentUnavailableException.class);
+    }
+
+    @Test
     void aDevelopmentTaskIsReadOnlyOnceEndedAndRefusedWithoutItsWorkspaceOrWorktree()
     {
-        assertThat(service.terminalDirectory(taskHost())).isEqualTo(checkout);
+        assertThat(service.terminal(taskHost()).workingDirectory()).isEqualTo(checkout);
 
         AgentTask completed = developmentTask().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(),
                 ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(tasks.get(worktree.taskId())).thenReturn(completed);
         assertThat(service.file(taskHost(), MAIN_PATH).readOnlyReason()).contains("This task has ended — read-only");
-        assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task has ended");
+        assertThatThrownBy(() -> service.terminal(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task has ended");
 
         when(tasks.get(worktree.taskId())).thenReturn(completed.withWorktreeRemovedAt(NOW));
         assertThatThrownBy(() -> service.files(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task's worktree was removed");
-        assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task's worktree was removed");
+        assertThatThrownBy(() -> service.terminal(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessage("The task's worktree was removed");
 
         when(tasks.get(worktree.taskId())).thenReturn(developmentTask());
         TaskCodeHost otherWorkspace = new TaskCodeHost("other", worktree.taskId().toString());
         assertThatThrownBy(() -> service.files(otherWorkspace)).isInstanceOf(ReviewNotFoundException.class).hasMessageContaining("does not belong to this workspace");
         assertThatThrownBy(() -> service.file(otherWorkspace, MAIN_PATH)).isInstanceOf(ReviewNotFoundException.class);
-        assertThatThrownBy(() -> service.terminalDirectory(otherWorkspace)).isInstanceOf(ReviewNotFoundException.class);
+        assertThatThrownBy(() -> service.terminal(otherWorkspace)).isInstanceOf(ReviewNotFoundException.class);
         assertThatThrownBy(() -> service.save(otherWorkspace, MAIN_PATH, "edited\n", "hash")).isInstanceOf(ReviewNotFoundException.class);
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
@@ -1070,7 +1101,7 @@ class TestReviewCodeService
         assertThat(service.file(taskHost(), MAIN_PATH).editable()).isFalse();
         assertThatThrownBy(() -> service.save(taskHost(), MAIN_PATH, "change", "hash"))
                 .isInstanceOf(ReviewConflictException.class).hasMessageContaining("read-only");
-        assertThatThrownBy(() -> service.terminalDirectory(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessageContaining("read-only");
+        assertThatThrownBy(() -> service.terminal(taskHost())).isInstanceOf(ReviewConflictException.class).hasMessageContaining("read-only");
         verify(turns, never()).synchronizeWorktree(any(), anyLong(), any());
     }
 

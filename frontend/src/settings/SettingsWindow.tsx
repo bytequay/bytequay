@@ -62,6 +62,10 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
   const [preferences, setPreferences] = useState<AppPreferencesDto | null>(null);
   const [version, setVersion] = useState('');
   const [clearing, setClearing] = useState(false);
+  const modelWorkspaceId = section === 'ws-agents' ? workspace?.id : undefined;
+  const modelScopeRef = useRef(modelWorkspaceId);
+  modelScopeRef.current = modelWorkspaceId;
+  const [modelsScope, setModelsScope] = useState<string | undefined>(undefined);
   const [models, setModels] = useState<ModelSettingsDto | null>(null);
   const [checking, setChecking] = useState(false);
   const checkedAt = models?.checkedAt ? clockTime(new Date(models.checkedAt)) : null;
@@ -98,18 +102,19 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
     const receive = (value: ModelSettingsDto) => {
       if (request !== modelRequest.current) return;
       setModels(value);
+      setModelsScope(modelWorkspaceId);
     };
     setError(null);
     setChecking(true);
     // Paint saved choices before waiting for CLI startup, authentication, or model discovery.
-    return window.bridge.getModelSettings()
+    return window.bridge.getModelSettings(modelWorkspaceId)
       .then(receive)
       .catch(failure => { if (request === modelRequest.current) report(failure); })
-      .then(() => window.bridge.refreshModelSettings(force))
+      .then(() => window.bridge.refreshModelSettings(force, modelWorkspaceId))
       .then(receive)
       .catch(failure => { if (request === modelRequest.current) report(failure); })
       .finally(() => { if (request === modelRequest.current) setChecking(false); });
-  }, [report]);
+  }, [report, modelWorkspaceId]);
 
   useEffect(() => {
     if (section !== 'skills') return;
@@ -198,15 +203,38 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
 
   const addClaudeAccount = async (label: string, email: string) => {
     setError(null);
-    const updated = await window.bridge.addClaudeAccount(label, email);
+    const scope = modelWorkspaceId;
+    const updated = await window.bridge.addClaudeAccount(label, email, scope);
+    if (modelScopeRef.current !== scope) return;
+    modelRequest.current += 1;
+    setChecking(false);
     setModels(updated);
+    setModelsScope(scope);
+    refreshWorkspaceSettings();
     const account = updated.providers.find(provider => provider.label === `Claude · ${label}`);
     if (account !== undefined) setSigningIn({ laneId: account.id, providerName: account.label });
   };
 
   const removeClaudeAccount = async (laneId: string) => {
     setError(null);
-    setModels(await window.bridge.removeClaudeAccount(laneId));
+    const scope = modelWorkspaceId;
+    await window.bridge.removeClaudeAccount(laneId);
+    const updated = await window.bridge.getModelSettings(scope);
+    if (modelScopeRef.current !== scope) return;
+    modelRequest.current += 1;
+    setChecking(false);
+    setModels(updated);
+    refreshWorkspaceSettings();
+  };
+
+  const restrictClaudeAccount = async (laneId: string) => {
+    if (modelWorkspaceId === undefined) return;
+    const scope = modelWorkspaceId;
+    const updated = await window.bridge.restrictClaudeAccount(laneId, scope);
+    if (modelScopeRef.current !== scope) return;
+    modelRequest.current += 1;
+    setChecking(false);
+    setModels(updated);
     refreshWorkspaceSettings();
   };
 
@@ -268,7 +296,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
             <AppearancePage preferences={preferences} error={error} onChange={savePreferences} />
           )}
           {section === 'browser' && <BrowserPage />}
-          {section === 'models' && models === null && (
+          {section === 'models' && (models === null || modelsScope !== modelWorkspaceId) && (
             <div className="setw-page">
               <h1>Models</h1>
               {error !== null && <div className="setw-error" role="alert">{error}</div>}
@@ -276,9 +304,11 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               {error !== null && <button type="button" className="setw-btn" onClick={() => loadModels(true)}>Try again</button>}
             </div>
           )}
-          {section === 'models' && models !== null && (
+          {section === 'models' && models !== null && modelsScope === modelWorkspaceId && (
             <ModelsPage
               settings={models}
+              onAddClaudeAccount={addClaudeAccount}
+              onRemoveClaudeAccount={removeClaudeAccount}
               checking={checking}
               checkedAt={checkedAt}
               error={error}
@@ -302,7 +332,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               }}
             />
           )}
-          {section === 'workflow' && <WorkflowPage value={automation} providers={models?.providers ?? []} busy={automationBusy} error={error}
+          {section === 'workflow' && <WorkflowPage value={automation} providers={modelsScope === modelWorkspaceId ? models?.providers ?? [] : []} busy={automationBusy} error={error}
             onChange={next => {
               setAutomationBusy(true);
               setError(null);
@@ -386,7 +416,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               key={workspace.id}
               workspace={workspace}
               settings={wsSettings}
-              models={models}
+              models={modelsScope === modelWorkspaceId ? models : null}
               checking={checking}
               checkedAt={checkedAt}
               error={error}
@@ -401,6 +431,7 @@ export default function SettingsWindow({ section, workspace, onWorkspacesChanged
               })}
               onAddClaudeAccount={addClaudeAccount}
               onRemoveClaudeAccount={removeClaudeAccount}
+              onRestrictClaudeAccount={restrictClaudeAccount}
             />
           )}
           {section === 'ws-token' && workspace !== null && (

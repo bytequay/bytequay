@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { CodeTerminals, terminalEnvironment, type TerminalProcess } from './terminals';
+import { CodeTerminals, parseTerminalLaunch, terminalEnvironment, type TerminalLaunch, type TerminalProcess } from './terminals';
 
 class FakeProcess implements TerminalProcess {
   data: (value: string) => void = () => {};
@@ -40,13 +40,15 @@ class FakeSender {
 function setup() {
   const processes: FakeProcess[] = [];
   const commands: Array<string | undefined> = [];
-  const terminals = new CodeTerminals((_cwd, _cols, _rows, command) => {
+  const launches: TerminalLaunch[] = [];
+  const terminals = new CodeTerminals((launch, _cols, _rows, command) => {
     const process = new FakeProcess();
     processes.push(process);
     commands.push(command);
+    launches.push(launch);
     return process;
   });
-  return { terminals, processes, commands, cwd: () => Promise.resolve('/tmp/review') };
+  return { terminals, processes, commands, launches, cwd: () => Promise.resolve({ workingDirectory: '/tmp/review', claudeConfigDirectory: null }) };
 }
 
 describe('code terminals', () => {
@@ -132,5 +134,29 @@ describe('code terminals', () => {
   it('drops the app variables and defaults the locale', () => {
     expect(terminalEnvironment({ PATH: '/bin', BYTEQUAY_SESSION: 'secret', TERM: 'dumb' })).toEqual({ PATH: '/bin', TERM: 'xterm-256color', LANG: 'en_US.UTF-8' });
     expect(terminalEnvironment({ LANG: 'de_DE.UTF-8' }).LANG).toBe('de_DE.UTF-8');
+  });
+
+  it('keeps each host profile through terminal creation and removes inherited Claude credentials', async () => {
+    const { terminals, launches } = setup();
+    const sender = new FakeSender();
+    for (const name of ['work', 'personal']) {
+      const launch = parseTerminalLaunch({ workingDirectory: `/tmp/${name}`, claudeConfigDirectory: `/profiles/${name}` });
+      await terminals.open(sender, `review:${name}`, 80, 24, async () => launch);
+    }
+    expect(launches.map(launch => launch.claudeConfigDirectory)).toEqual(['/profiles/work', '/profiles/personal']);
+    const env = terminalEnvironment({
+      PATH: '/bin', CLAUDE_CONFIG_DIR: '/profiles/global', ANTHROPIC_API_KEY: 'other-key', ANTHROPIC_AUTH_TOKEN: 'other-token',
+      ANTHROPIC_BASE_URL: 'https://other.invalid', CLAUDE_CODE_OAUTH_TOKEN: 'other-login', BYTEQUAY_SESSION: 'desktop-secret',
+    }, launches[0].claudeConfigDirectory);
+    expect(env).toEqual({ PATH: '/bin', CLAUDE_CONFIG_DIR: '/profiles/work', TERM: 'xterm-256color', LANG: 'en_US.UTF-8' });
+    expect(terminalEnvironment({ ANTHROPIC_API_KEY: 'user-key' }).ANTHROPIC_API_KEY).toBe('user-key');
+  });
+
+  it('requires an explicit backend profile choice and absolute paths', () => {
+    expect(parseTerminalLaunch({ workingDirectory: '/tmp/task', claudeConfigDirectory: null }).claudeConfigDirectory).toBeNull();
+    for (const value of [null, {}, { workingDirectory: '/tmp/task' }, { workingDirectory: '../task', claudeConfigDirectory: null },
+      { workingDirectory: '/tmp/task', claudeConfigDirectory: '../profile' }]) {
+      expect(() => parseTerminalLaunch(value)).toThrow('Malformed terminal response');
+    }
   });
 });

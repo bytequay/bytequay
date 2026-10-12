@@ -21,9 +21,12 @@ import com.bytequay.app.service.settings.AppTheme;
 import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.QuietHours;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockMakers;
 import org.springframework.http.MediaType;
 import org.springframework.http.converter.json.Jackson2ObjectMapperBuilder;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -36,6 +39,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.withSettings;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -49,7 +53,8 @@ class TestSettingsController
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);
     private final ClaudeAccounts claudeAccounts = mock(ClaudeAccounts.class);
-    private final SettingsController controller = new SettingsController(models, settings, claudeAccounts);
+    private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
+    private final SettingsController controller = new SettingsController(models, settings, claudeAccounts, workspaces);
 
     /** Boot's own serialization settings, so the test asserts the wire format the renderer parses. */
     private static ObjectMapper appMapper()
@@ -83,9 +88,24 @@ class TestSettingsController
     {
         mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON).content("{\"label\":\"Work\",\"email\":\"work@example.com\"}"))
                 .andExpect(status().isOk());
-        verify(claudeAccounts).add("Work", "work@example.com");
+        verify(models).addClaudeAccount("Work", "work@example.com", Optional.empty());
         verify(models).refreshCatalogs();
-        verify(models).get();
+        verify(models).get(Optional.empty());
+    }
+
+    @Test
+    void accountCreationAndRestrictionBindToTheRequestedWorkspace()
+            throws Exception
+    {
+        when(workspaces.findById("cork")).thenReturn(Optional.of(mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE))));
+        mvc().perform(post("/api/settings/claude-accounts").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"label\":\"Work\",\"email\":\"work@example.com\",\"workspaceId\":\"cork\"}"))
+                .andExpect(status().isOk());
+        verify(models).addClaudeAccount("Work", "work@example.com", Optional.of("cork"));
+        mvc().perform(put("/api/settings/claude-accounts/account-id/workspace").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"workspaceId\":\"cork\"}"))
+                .andExpect(status().isOk());
+        verify(models).restrictClaudeAccount("claude-account-account-id", "cork");
     }
 
     @Test

@@ -715,6 +715,7 @@ public class DefaultTaskDiscussionService
     /** One question in a disposable read-only session on the task's worktree; approvals are denied and events discarded. */
     private Answered converse(AgentTask task, Optional<String> model, Optional<DiscussionSession> resume, String prompt, DiscussionContextBridge context, Duration limit)
     {
+        drivers.checkWorkspaceAccess(task.laneId(), task.workspaceId());
         OneShotSession.Answer answer = OneShotSession.run(resources, drivers.require(task.laneId()), (scratchId, scratch) -> new AgentSessionContext(
                         task.id().toString(), task.taskWorktree().orElseThrow().canonicalWorktree(), scratch.runtimeDirectory(), scratch.providerDirectory(),
                         AgentPermissionPolicy.AUTO, resume.map(reference -> new AgentSessionRef(task.laneId(), reference.contractVersion(), reference.providerValue())),

@@ -65,6 +65,12 @@ final class ClaudeAccountDriverRegistry
     }
 
     @Override
+    public void checkWorkspaceAccess(AgentLaneId laneId, Optional<String> workspaceId)
+    {
+        accounts.checkWorkspaceAccess(laneId.value(), workspaceId);
+    }
+
+    @Override
     public List<AgentProviderStatus> statuses()
     {
         ImmutableList.Builder<AgentProviderStatus> result = ImmutableList.builder();

@@ -67,6 +67,12 @@ final class DeepSeekAgentDriverRegistry
     }
 
     @Override
+    public void checkWorkspaceAccess(AgentLaneId laneId, Optional<String> workspaceId)
+    {
+        cliDrivers.checkWorkspaceAccess(laneId, workspaceId);
+    }
+
+    @Override
     public List<AgentProviderStatus> statuses()
     {
         ImmutableList.Builder<AgentProviderStatus> result = ImmutableList.builder();

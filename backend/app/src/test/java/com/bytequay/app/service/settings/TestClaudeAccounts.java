@@ -25,16 +25,50 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestClaudeAccounts
 {
     @Test
+    void anUnscopedSavedLoginCanBeRestrictedWithoutReplacingItsIdentity()
+    {
+        InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
+        String id = "11111111-1111-4111-8111-111111111111";
+        store.put("model.claudeAccounts", "[{\"id\":\"" + id + "\",\"label\":\"Work\",\"email\":\"work@example.com\"}]");
+        ClaudeAccounts accounts = new ClaudeAccounts(store, new ObjectMapper());
+        ClaudeAccount account = accounts.list().getFirst();
+        assertThat(account.workspaceId()).isEmpty();
+        accounts.restrictToWorkspace(account.laneId().value(), "cork");
+        ClaudeAccount restricted = accounts.list().getFirst();
+        assertThat(restricted.id()).isEqualTo(id);
+        assertThat(restricted.email()).isEqualTo(account.email());
+        assertThat(restricted.workspaceId()).contains("cork");
+    }
+
+    @Test
+    void repositoryOwnershipSurvivesRestartAndGlobalProfilesRemainShared()
+    {
+        InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
+        ClaudeAccounts accounts = new ClaudeAccounts(store, new ObjectMapper());
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.of("cork"));
+        ClaudeAccount global = accounts.add("Personal", "personal@example.com", Optional.empty());
+        ClaudeAccounts restarted = new ClaudeAccounts(store, new ObjectMapper());
+        assertThat(restarted.availableIn(work.laneId().value(), Optional.of("cork"))).isTrue();
+        assertThat(restarted.availableIn(work.laneId().value(), Optional.of("other"))).isFalse();
+        assertThat(restarted.availableIn(work.laneId().value(), Optional.empty())).isFalse();
+        assertThat(restarted.availableIn(global.laneId().value(), Optional.of("other"))).isTrue();
+        restarted.restrictToWorkspace(global.laneId().value(), "cork");
+        assertThat(restarted.find(global.laneId().value()).orElseThrow().id()).isEqualTo(global.id());
+        assertThat(restarted.availableIn(global.laneId().value(), Optional.of("other"))).isFalse();
+        assertThatThrownBy(() -> restarted.restrictToWorkspace(work.laneId().value(), "other")).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     void removalPersistsAndReAddingTheNameNeverReusesTheOldLogin()
     {
         InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
         ClaudeAccounts accounts = new ClaudeAccounts(store, new ObjectMapper());
-        ClaudeAccount work = accounts.add("Work", "work@example.com");
-        ClaudeAccount personal = accounts.add("Personal", "personal@example.com");
+        ClaudeAccount work = accounts.add("Work", "work@example.com", Optional.empty());
+        ClaudeAccount personal = accounts.add("Personal", "personal@example.com", Optional.empty());
         accounts.remove(work.id());
         accounts.remove(work.id());
         assertThat(new ClaudeAccounts(store, new ObjectMapper()).list()).containsExactly(personal);
-        assertThat(accounts.add("Work", "work@example.com").id()).isNotEqualTo(work.id());
+        assertThat(accounts.add("Work", "work@example.com", Optional.empty()).id()).isNotEqualTo(work.id());
         assertThatThrownBy(() -> accounts.remove("claude")).isInstanceOf(IllegalArgumentException.class);
         assertThat(accounts.list()).hasSize(2);
     }
@@ -44,23 +78,23 @@ class TestClaudeAccounts
     {
         InMemoryAppSettingsStore store = new InMemoryAppSettingsStore();
         ClaudeAccounts accounts = new ClaudeAccounts(store, new ObjectMapper());
-        ClaudeAccount work = accounts.add(" Work ", " work@example.com ");
-        ClaudeAccount personal = accounts.add("me@example.com", "personal@example.com");
+        ClaudeAccount work = accounts.add(" Work ", " work@example.com ", Optional.empty());
+        ClaudeAccount personal = accounts.add("me@example.com", "personal@example.com", Optional.empty());
         assertThat(work.label()).isEqualTo("Work");
         assertThat(work.email()).contains("work@example.com");
         assertThat(work.laneId()).isNotEqualTo(personal.laneId());
         assertThat(new ClaudeAccounts(store, new ObjectMapper()).list()).containsExactly(work, personal);
-        assertThatThrownBy(() -> accounts.add("work", "work@example.com")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> accounts.add(" ", "work@example.com")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> accounts.add("line\nbreak", "work@example.com")).isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> accounts.add("x".repeat(81), "work@example.com")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> accounts.add("work", "work@example.com", Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> accounts.add(" ", "work@example.com", Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> accounts.add("line\nbreak", "work@example.com", Optional.empty())).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> accounts.add("x".repeat(81), "work@example.com", Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         for (String email : new String[] {"", "wrong", "one@@example.com", "a b@example.com", "a\nb@example.com", "x".repeat(243) + "@example.com"}) {
-            assertThatThrownBy(() -> accounts.add("Invalid email", email)).isInstanceOf(IllegalArgumentException.class);
+            assertThatThrownBy(() -> accounts.add("Invalid email", email, Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         }
-        assertThatThrownBy(() -> new ClaudeAccount("../../other-home", "Invalid", Optional.of("work@example.com"))).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new ClaudeAccount("../../other-home", "Invalid", Optional.of("work@example.com"), Optional.empty())).isInstanceOf(IllegalArgumentException.class);
         assertThat(accounts.list()).containsExactly(work, personal);
         store.put("model.claudeAccounts", "broken");
-        assertThatThrownBy(() -> accounts.add("New", "work@example.com")).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> accounts.add("New", "work@example.com", Optional.empty())).isInstanceOf(IllegalStateException.class);
         assertThat(store.get("model.claudeAccounts")).contains("broken");
     }
 }

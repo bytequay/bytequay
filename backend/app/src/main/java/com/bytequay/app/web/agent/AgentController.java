@@ -255,8 +255,6 @@ public class AgentController
             InteractiveAgentHttpContract.CreateTaskRequest request,
             List<StoreAgentAttachmentCommand> uploads)
     {
-        checkArgument(!request.laneId().startsWith("deepseek-key-") || request.issueSource().isEmpty() && request.jiraSource().isEmpty(),
-                "DeepSeek tasks cannot start from an issue");
         if (request.issueSource().isEmpty()) {
             issueDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
         }

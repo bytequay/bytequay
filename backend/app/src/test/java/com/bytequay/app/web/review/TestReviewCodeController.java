@@ -21,6 +21,7 @@ import com.bytequay.app.review.ReviewCodeService.CodeFileEntry;
 import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewCodeService.CodeSource;
 import com.bytequay.app.review.ReviewCodeService.LineChange;
+import com.bytequay.app.review.ReviewCodeService.TerminalLaunch;
 import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.web.GlobalExceptionHandler;
 import com.bytequay.core.review.LocalRun;
@@ -179,13 +180,13 @@ class TestReviewCodeController
     void terminalAnswersTheWorkingDirectoryOfAnOpenReview()
             throws Exception
     {
-        when(code.terminalDirectory("review-1")).thenReturn(Path.of("/managed/worktrees/task-1"));
-        when(code.terminalDirectory("ended")).thenThrow(new ReviewConflictException("The review has ended"));
+        when(code.terminal("review-1")).thenReturn(new TerminalLaunch(Path.of("/managed/worktrees/task-1"), Optional.of(Path.of("/profiles/work"))));
+        when(code.terminal("ended")).thenThrow(new ReviewConflictException("The review has ended"));
 
         mvc.perform(post("/api/agent-review/review-1/code/terminal"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"workingDirectory": "/managed/worktrees/task-1"}
+                        {"workingDirectory": "/managed/worktrees/task-1", "claudeConfigDirectory": "/profiles/work"}
                         """, JsonCompareMode.STRICT));
         mvc.perform(post("/api/agent-review/ended/code/terminal"))
                 .andExpect(status().isConflict())

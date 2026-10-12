@@ -177,13 +177,6 @@ export function creationBlocker(
   return null;
 }
 
-/** Issue starts cannot use the attended-only DeepSeek lane. */
-export function taskCreationCatalog(settings: ModelSettingsDto, sourceIssueNumber: number | null): ModelSettingsDto {
-  return sourceIssueNumber === null
-    ? settings
-    : { ...settings, providers: settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id)) };
-}
-
 /**
  * Everything creating a task needs: the list, the catalog, the chosen model, the draft, why
  * creation is blocked, and the create call itself — shared by the Tasks page and the Home hero.
@@ -211,7 +204,6 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
 }) {
   // Home and the Tasks page remount on every tab switch; the last list paints the first frame, and
   // the mount still re-reads it.
-  const sourceBound = sourceIssueNumber !== null || sourceJira !== null;
   const seed = `agent-tasks:${workspaceId}`;
   const [tasks, setTasks] = useState<AgentTaskDto[]>(() => getCached<AgentTaskDto[]>(seed) ?? []);
   const [loading, setLoading] = useState(() => getCached(seed) === undefined);
@@ -256,32 +248,31 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
    * Explicit launches retain their lane until the user changes it.
    */
   const applyCatalog = useCallback((settings: ModelSettingsDto, preferredLaneId = initialLaunch?.laneId) => {
-    const available = taskCreationCatalog(settings, sourceBound ? 0 : null);
-    setCatalog(available);
+    setCatalog(settings);
     // An explicitly supplied launch keeps its provider and model, including while it needs setup.
     if (initialLaunch !== undefined && preferredLaneId === initialLaunch.laneId
-      && available.providers.some((candidate) => candidate.id === initialLaunch.laneId)) {
+      && settings.providers.some((candidate) => candidate.id === initialLaunch.laneId)) {
       setLaneId(initialLaunch.laneId);
       setSelection({ model: initialLaunch.model, effort: initialLaunch.effort });
       return;
     }
     if (preferredLaneId !== undefined) {
-      const named = available.providers.find((candidate) => candidate.id === preferredLaneId);
+      const named = settings.providers.find((candidate) => candidate.id === preferredLaneId);
       if (named !== undefined && named.selectedModel !== '') {
         setLaneId(named.id);
         setSelection({ model: named.selectedModel, effort: named.selectedEffort === '' ? null : named.selectedEffort });
         return;
       }
-      if (!sourceBound && isDeepSeekKeyLane(preferredLaneId) && named === undefined) {
+      if (named === undefined) {
         setLaneId(preferredLaneId);
         setSelection(null);
         return;
       }
     }
-    const defaults = developmentDefaults(available);
+    const defaults = developmentDefaults(settings);
     setLaneId(defaults.laneId);
     setSelection(defaults.model === '' ? null : { model: defaults.model, effort: defaults.effort });
-  }, [initialLaunch, sourceBound]);
+  }, [initialLaunch]);
 
   useEffect(() => {
     let active = true;
@@ -470,7 +461,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
         setError(`${laneLabel(unavailable.laneId)} could not start. Choose another provider or check its settings.`);
         // Refresh readiness without replacing a provider the user selects while the read is pending.
         void bridge().getModelSettings(workspaceId)
-          .then(settings => setCatalog(taskCreationCatalog(settings, sourceBound ? 0 : null)))
+          .then(setCatalog)
           .catch(() => {});
         return;
       }
@@ -493,7 +484,7 @@ export function useAgentTaskCreation({ workspaceId, initialLaunch, bridge, onOpe
       busyRef.current = false;
       setOperation(null);
     }
-  }, [blocker, bridge, clearImages, draft, images, issue, sourceJira, sourceBound, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
+  }, [blocker, bridge, clearImages, draft, images, issue, sourceJira, laneId, localOnly, onOpenCreatedTask, onOpenTask, replaces, selection, submissions, taskAutomation,
     workItemId, workspaceId]);
 
   // A decided start reaches the composer that opens for it, or one already open on the same work; saying it was taken keeps a composer

@@ -292,18 +292,20 @@ class TestPullRequestTaskService
     }
 
     @Test
-    void refusesDeepSeekAssignmentBeforeReadinessOrProvisioning()
+    void assignsUsingTheRepositoryApiKeyDefault()
     {
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("workspace")))
                 .thenReturn(new AgentModelSetting(AgentModelType.DEVELOPMENT, false, DEEPSEEK_LANE.value(), "DeepSeek", "deepseek-flash", "DeepSeek Flash", Optional.empty()));
 
-        assertThatThrownBy(() -> service.assign("workspace", "upstream/repo", 7)).hasMessageContaining("DeepSeek key tasks cannot be assigned");
-
-        verifyNoInteractions(drivers, repositories, refresh, git, tasks);
+        when(drivers.require(DEEPSEEK_LANE)).thenReturn(driver);
+        when(driver.probe(Optional.of("deepseek-flash"))).thenReturn(new AgentProviderStatus(DEEPSEEK_LANE, AgentProviderStatus.Readiness.READY,
+                Optional.of("test"), "ready", AgentCapabilities.none()));
+        assertThat(service.assign("workspace", "upstream/repo", 7).laneId()).isEqualTo(DEEPSEEK_LANE);
+        verify(models).validateSelection(DEEPSEEK_LANE.value(), "deepseek-flash", Optional.empty(), Optional.empty());
     }
 
     @Test
-    void refusesExistingDeepSeekTaskMatchedToPullRequest()
+    void reusesTheOriginalKeyForAnExistingPullRequestTask()
     {
         TaskId id = TaskId.random();
         AgentTask task = AgentTask.created(id, true, "DeepSeek task", TitleSource.USER, DEEPSEEK_LANE,
@@ -314,9 +316,9 @@ class TestPullRequestTaskService
         when(assignments.find("workspace", "upstream/repo", 7))
                 .thenReturn(Optional.of(new PullRequestTask(id.toString(), "workspace", "upstream/repo", 7, "context")));
 
-        assertThatThrownBy(() -> service.assign("workspace", "upstream/repo", 7)).hasMessageContaining("DeepSeek key tasks cannot be assigned");
-
-        verifyNoInteractions(models, drivers, repositories, refresh, git);
+        assertThat(service.assign("workspace", "upstream/repo", 7)).isSameAs(task);
+        verify(drivers).checkWorkspaceAccess(DEEPSEEK_LANE, Optional.of("workspace"));
+        verifyNoInteractions(models, repositories, refresh, git);
     }
 
     @Test

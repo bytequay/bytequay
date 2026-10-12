@@ -1201,6 +1201,7 @@ export type ModelOptionDto = {
 
 export type ModelProviderDto = {
   id: string;
+  workspaceId?: string | null;
   label: string;
   readiness: AgentProviderReadiness;
   version?: string | null;
@@ -1708,7 +1709,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   getUsageAccounts: () => Promise<UsageAccountDto[]>;
   getProviderUsage: (accountId: string) => Promise<ProviderUsageDto>;
   getModelSettings: (workspaceId?: string) => Promise<ModelSettingsDto>;
-  refreshModelSettings: (force?: boolean) => Promise<ModelSettingsDto>;
+  refreshModelSettings: (force?: boolean, workspaceId?: string) => Promise<ModelSettingsDto>;
   setAgentModel: (
     type: AgentModelType,
     configId: string,
@@ -1717,7 +1718,8 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   ) => Promise<ModelSettingsDto>;
   clearAgentModel: (type: AgentModelType) => Promise<ModelSettingsDto>;
   addModelApiKey: (provider: string, alias: string, key: string) => Promise<ModelSettingsDto>;
-  addClaudeAccount: (label: string, email: string) => Promise<ModelSettingsDto>;
+  addClaudeAccount: (label: string, email: string, workspaceId?: string) => Promise<ModelSettingsDto>;
+  restrictClaudeAccount: (laneId: string, workspaceId: string) => Promise<ModelSettingsDto>;
   removeClaudeAccount: (laneId: string) => Promise<ModelSettingsDto>;
   removeModelApiKey: (alias: string) => Promise<ModelSettingsDto>;
   getAgentSkills: () => Promise<AgentSkillDto[]>;

@@ -184,7 +184,15 @@ scope. Repository content, model output, and a private discussion cannot grant
 that authority. Preview and execution must remain bound to the accepted target;
 uncertain remote outcomes are reconciled instead of blindly repeated.
 
-Provider login profiles live outside repositories. Stored application credentials
+Provider login profiles live outside repositories. Named Claude profiles have
+either global or repository ownership. Model catalogs filter repository-owned
+profiles by workspace, and the provider registry checks that ownership before
+task creation and every resumed turn. Restricting an existing global profile
+preserves its login identity while denying later work in other repositories.
+Code & Tests terminal launches resolve the owning task's Claude profile in the backend
+and pass its path only to Electron main. The shell inherits that profile rather than
+the desktop's Claude login or API credentials. Existing shells retain their environment.
+Stored application credentials
 are not agent prompt context or ambient task secrets. Native sandboxing,
 application authorization, and same-user filesystem access are distinct
 boundaries; a worktree alone is not a security sandbox.

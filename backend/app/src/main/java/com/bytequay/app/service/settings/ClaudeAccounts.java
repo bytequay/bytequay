@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.settings;
 
+import com.bytequay.agent.spi.AgentLaneId;
+import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.core.store.AppSettingsStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -56,13 +58,40 @@ public class ClaudeAccounts
         }).orElse(ImmutableList.of());
     }
 
-    public synchronized ClaudeAccount add(String label, String email)
+    public synchronized ClaudeAccount add(String label, String email, Optional<String> workspaceId)
     {
-        ClaudeAccount account = new ClaudeAccount(UUID.randomUUID().toString(), label, Optional.of(requireNonNull(email, "email is null")));
+        ClaudeAccount account = new ClaudeAccount(UUID.randomUUID().toString(), label, Optional.of(requireNonNull(email, "email is null")), workspaceId);
         List<ClaudeAccount> existing = list();
         checkArgument(existing.stream().noneMatch(value -> value.label().equalsIgnoreCase(account.label())), "A Claude account with that name already exists");
         save(ImmutableList.<ClaudeAccount>builder().addAll(existing).add(account).build());
         return account;
+    }
+
+    public Optional<ClaudeAccount> find(String laneId)
+    {
+        return list().stream().filter(account -> account.laneId().value().equals(laneId)).findFirst();
+    }
+
+    public boolean availableIn(String laneId, Optional<String> workspaceId)
+    {
+        return !laneId.startsWith(AgentLaneId.CLAUDE_ACCOUNT_PREFIX)
+                || find(laneId).filter(account -> account.availableIn(workspaceId)).isPresent();
+    }
+
+    public void checkWorkspaceAccess(String laneId, Optional<String> workspaceId)
+    {
+        if (!availableIn(laneId, workspaceId)) {
+            throw new AgentUnavailableException("Claude account unavailable in this repository");
+        }
+    }
+
+    /** Restrict an existing global profile without changing its login identity. */
+    public synchronized void restrictToWorkspace(String laneId, String workspaceId)
+    {
+        ClaudeAccount account = find(laneId).orElseThrow(() -> new IllegalArgumentException("Unknown Claude account"));
+        checkArgument(account.workspaceId().isEmpty(), "This account already belongs to a repository");
+        ClaudeAccount scoped = new ClaudeAccount(account.id(), account.label(), account.email(), Optional.of(workspaceId));
+        save(list().stream().map(value -> value.id().equals(account.id()) ? scoped : value).collect(toImmutableList()));
     }
 
     /** Removes the saved choice, retaining CLI-owned login files and sessions already in flight. */

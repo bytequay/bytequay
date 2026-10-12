@@ -20,6 +20,7 @@ import com.bytequay.app.service.settings.ClaudeAccounts;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.service.settings.ModelSettingsService.ModelSettings;
 import com.bytequay.app.service.settings.QuietHours;
+import com.bytequay.core.store.WorkspaceStore;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -33,6 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.Optional;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -42,15 +44,18 @@ public class SettingsController
     private final ModelSettingsService models;
     private final AppSettingsService settings;
     private final ClaudeAccounts claudeAccounts;
+    private final WorkspaceStore workspaces;
 
     public SettingsController(
             ModelSettingsService models,
             AppSettingsService settings,
-            ClaudeAccounts claudeAccounts)
+            ClaudeAccounts claudeAccounts,
+            WorkspaceStore workspaces)
     {
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");
         this.claudeAccounts = requireNonNull(claudeAccounts, "claudeAccounts is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
     }
 
     /**
@@ -65,10 +70,10 @@ public class SettingsController
     }
 
     @PostMapping("/models/refresh")
-    public ModelSettings refreshModels(@RequestParam(defaultValue = "false") boolean force)
+    public ModelSettings refreshModels(@RequestParam(defaultValue = "false") boolean force, @RequestParam(required = false) String workspaceId)
     {
         models.refreshCatalogs(force);
-        return models.get();
+        return models.get(Optional.ofNullable(workspaceId));
     }
 
     @PutMapping("/models/agents/{type}")
@@ -98,9 +103,25 @@ public class SettingsController
     {
         requireNotBlank(request.label(), "account name must not be blank");
         requireNotBlank(request.email(), "account email must not be blank");
-        claudeAccounts.add(request.label(), request.email());
+        Optional<String> workspaceId = Optional.ofNullable(request.workspaceId());
+        workspaceId.ifPresent(this::requireWorkspace);
+        models.addClaudeAccount(request.label(), request.email(), workspaceId);
         models.refreshCatalogs();
-        return models.get();
+        return models.get(workspaceId);
+    }
+
+    @PutMapping("/claude-accounts/{id}/workspace")
+    public ModelSettings restrictClaudeAccount(@PathVariable String id, @RequestBody AccountWorkspaceRequest request)
+    {
+        requireWorkspace(request.workspaceId());
+        models.restrictClaudeAccount("claude-account-" + id, request.workspaceId());
+        return models.get(Optional.of(request.workspaceId()));
+    }
+
+    private void requireWorkspace(String workspaceId)
+    {
+        requireNotBlank(workspaceId, "workspaceId must not be blank");
+        checkArgument(workspaces.findById(workspaceId).isPresent(), "Unknown workspace");
     }
 
     @DeleteMapping("/api-keys/{alias}")
@@ -157,5 +178,7 @@ public class SettingsController
 
     public record ApiKeyRequest(String provider, String alias, String key) {}
 
-    public record ClaudeAccountRequest(String label, String email) {}
+    public record ClaudeAccountRequest(String label, String email, String workspaceId) {}
+
+    public record AccountWorkspaceRequest(String workspaceId) {}
 }

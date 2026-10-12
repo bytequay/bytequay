@@ -195,13 +195,13 @@ export default function AgentReviewTab({
   useEffect(() => {
     if (laneId === null || mode !== 'conversation') return;
     let live = true;
-    void window.bridge.getModelSettings()
+    void window.bridge.getModelSettings(workspaceId)
       .then(catalog => {
         if (live) setModels(catalog.providers.find(provider => provider.id === laneId)?.models ?? []);
       })
       .catch(() => {});
     return () => { live = false; };
-  }, [laneId, mode]);
+  }, [laneId, mode, workspaceId]);
 
   const dispatchConversation = useCallback((action: AgentTaskAction) => {
     setConversation(current => agentTaskReducer(current, action));

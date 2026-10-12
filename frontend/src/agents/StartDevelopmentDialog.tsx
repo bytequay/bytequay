@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { ConfirmDialog } from '../ConfirmDialog';
-import { developmentDefaults, displayModelName, effortLabel, isDeepSeekKeyLane, laneDefaults, laneLabel, laneModels, modelEffort, providerAvailable, providerStatusLabel } from '../settings/model';
+import { developmentDefaults, displayModelName, effortLabel, laneDefaults, laneLabel, laneModels, modelEffort, providerAvailable, providerStatusLabel } from '../settings/model';
 import type { TaskLaunch } from './AgentTasksView';
 import type { ModelProviderDto } from '../types';
 
@@ -33,7 +33,7 @@ export default function StartDevelopmentDialog({ workspaceId, issueNumber, onCon
     void window.bridge.getModelSettings(workspaceId)
       .then(settings => {
         if (!active) return;
-        const providers = settings.providers.filter(provider => !isDeepSeekKeyLane(provider.id));
+        const providers = settings.providers;
         const defaults = developmentDefaults({ ...settings, providers });
         setProviders(providers);
         setLaneId(defaults.laneId);

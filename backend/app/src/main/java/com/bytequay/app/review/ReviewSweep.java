@@ -275,6 +275,7 @@ public class ReviewSweep
         // Approvals are denied and events discarded, as for any disposable read-only session. The provider's default
         // effort is used: this is a wide read, and the deep one has the task's own effort.
         return (task, prompt, context, started) -> {
+            drivers.checkWorkspaceAccess(task.laneId(), task.workspaceId());
             AgentTurnResult result = OneShotSession.run(resources, drivers.require(task.laneId()), (scratchId, scratch) -> new AgentSessionContext(
                             task.id().toString(), task.taskWorktree().orElseThrow().canonicalWorktree(), scratch.runtimeDirectory(), scratch.providerDirectory(),
                             AgentPermissionPolicy.AUTO, Optional.empty(), (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),

@@ -186,6 +186,7 @@ public final class InteractiveAgentTaskCreator
             Optional<String> startCommit)
     {
         checkNotBlank(workspaceId, "workspaceId");
+        drivers.checkWorkspaceAccess(laneId, Optional.of(workspaceId));
         checkNotBlank(message, "message");
         requireNonNull(laneId, "laneId is null");
         requireNonNull(defaults, "defaults is null");

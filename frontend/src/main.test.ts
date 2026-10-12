@@ -31,7 +31,10 @@ const desktop = vi.hoisted(() => ({
   clipboardRead: vi.fn(),
   clipboardWriteText: vi.fn(),
   createImage: vi.fn(),
+  spawnPty: vi.fn(),
 }));
+
+vi.mock('node-pty', () => ({ spawn: desktop.spawnPty }));
 
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => desktop.accountNotifications.map(send => ({ isDestroyed: () => false, webContents: { isDestroyed: () => false, send } })) },
@@ -58,10 +61,31 @@ afterEach(() => {
   desktop.clipboardRead.mockReset();
   desktop.clipboardWriteText.mockReset();
   desktop.createImage.mockReset();
+  desktop.spawnPty.mockReset();
   vi.clearAllTimers();
   vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
+});
+
+it.each([
+  { kind: 'review', reviewId: 'work-review' },
+  { kind: 'task', taskId: 'work-task', workspaceId: 'work-repo' },
+])('starts a $kind terminal with the backend-selected Claude profile', async host => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const fetch = vi.fn(async () => new Response(JSON.stringify({ workingDirectory: '/managed/cork', claudeConfigDirectory: '/profiles/work' })));
+  vi.stubGlobal('fetch', fetch);
+  desktop.spawnPty.mockReturnValue({ onData: vi.fn(), onExit: vi.fn(), kill: vi.fn(), resize: vi.fn(), write: vi.fn() });
+  const sender = { isDestroyed: () => false, on: vi.fn(), once: vi.fn(), send: vi.fn() };
+
+  const result = await desktop.handlers.get('terminal:open')?.({ sender }, host, 100, 30);
+
+  expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/code/terminal'), expect.objectContaining({ headers: { 'X-ByteQuay-Session': 'test-session' } }));
+  expect(desktop.spawnPty).toHaveBeenCalledWith(expect.any(String), ['-l'], expect.objectContaining({
+    cwd: '/managed/cork', cols: 100, rows: 30, env: expect.objectContaining({ CLAUDE_CONFIG_DIR: '/profiles/work' }),
+  }));
+  expect(result).toEqual({ terminalId: expect.any(String), scrollback: '' });
 });
 
 it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {

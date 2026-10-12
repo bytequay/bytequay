@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import { CalendarDays, Mail } from 'lucide-react';
+import { CalendarDays, Mail, UserPlus } from 'lucide-react';
 import { useGoogle } from '../google/useGoogle';
 import { Badge, SettingsCard, SettingsRow, Toggle } from './primitives';
 import GeminiSetupCard from './GeminiSetupCard';
@@ -32,6 +32,7 @@ export default function GooglePage() {
         </SettingsRow>
         <SettingsRow title={data?.email || data?.name || 'Google account'} subtitle={data ? undefined : 'Choose your account and approve access in your browser.'}>
           <button type="button" className="setw-btn-primary" disabled={busy || !status.installed} onClick={() => { void act(window.bridge.connectGoogle); }}>{data ? 'Reconnect' : 'Sign in with Google'}</button>
+          {data && <button type="button" className="setw-btn" disabled={busy || !status.installed} onClick={() => { void act(window.bridge.addGoogleAccount); }}><UserPlus size={14} aria-hidden="true" />Add account</button>}
         </SettingsRow>
       </SettingsCard>
       {status.operation && <p role="status">{status.operation}… {status.operation.includes('sign-in') && 'Complete sign-in in your browser. It may take a few minutes.'} <button type="button" className="setw-link" onClick={() => { void act(window.bridge.cancelGoogleOperation); }}>Cancel</button></p>}

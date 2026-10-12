@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { recordAttentionAction } from '../../home/useAttentionVisit';
 import type { Bridge } from '../../types';
 import type { DiffAgentComment } from '../PullChanges';
-import { remoteErrorMessage } from '../PullOverview';
+import { remoteErrorMessage, useViewer } from '../PullOverview';
 import type { CreateDevelopmentLearningCommentRequest, LocalReviewQuery } from './contracts';
 import type { LocalReviewThreadDto, LocalReviewThreads } from './types';
 
@@ -35,6 +35,7 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
 } {
   const key = JSON.stringify(query);
   const [snapshot, setSnapshot] = useState<{ key: string; threads: LocalReviewThreadDto[] }>({ key, threads: [] });
+  const viewer = useViewer(query !== null && snapshot.key === key && snapshot.threads.length > 0);
   const [error, setError] = useState<string | null>(null);
   const latest = useRef({ key, query, options, threads: snapshot.key === key ? snapshot.threads : [] });
   latest.current = { key, query, options, threads: snapshot.key === key ? snapshot.threads : [] };
@@ -164,6 +165,6 @@ export function useLocalReviewThreads(query: LocalReviewQuery | null, options: {
     }), scope);
     await dispatched();
   }, [accept, dispatched, find, live, refresh]);
-  return { threads: snapshot.key === key ? snapshot.threads : [], onReply, onResolve, onRetry,
+  return { threads: snapshot.key === key ? snapshot.threads : [], viewer, onReply, onResolve, onRetry,
     disabledReason: options.disabledReason, learningDisabledReason: options.learningDisabledReason, error, refresh, create, createLearning };
 }

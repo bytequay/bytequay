@@ -14,6 +14,7 @@
 import { useRef, useState } from 'react';
 import { useReviewDraft } from '../ReviewDrafts';
 import Avatar from '../../Avatar';
+import UserAvatar from '../../UserAvatar';
 import CopyLinkButton from '../../CopyLinkButton';
 import BetterWordsButton from '../BetterWordsButton';
 import MarkdownBody from '../MarkdownBody';
@@ -21,10 +22,10 @@ import MarkdownEditor from '../MarkdownEditor';
 import { commentIndexTarget } from '../ReviewCommentIndex';
 import LocalCard, { LocalCardMessage, SummaryCardTitle } from './LocalCard';
 import { localReviewConversation } from './conversation';
-import type { LocalReviewThreadActions, LocalReviewThreadDto } from './types';
+import type { LocalReviewThreadActions, LocalReviewThreadDto, LocalReviewThreads } from './types';
 
-export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRetry, disabledReason: codeDisabledReason, learningDisabledReason,
-  showCode = true, outdated = false }: LocalReviewThreadActions & {
+export default function LocalReviewThreadCard({ thread, viewer, onReply, onResolve, onRetry, disabledReason: codeDisabledReason, learningDisabledReason,
+  showCode = true, outdated = false }: LocalReviewThreadActions & Pick<LocalReviewThreads, 'viewer'> & {
   thread: LocalReviewThreadDto;
   showCode?: boolean;
   outdated?: boolean;
@@ -101,7 +102,9 @@ export default function LocalReviewThreadCard({ thread, onReply, onResolve, onRe
       author={message.author === 'USER' ? 'You' : 'Agent'}
       attributes={commentIndexTarget(message.author === 'USER' ? 'human' : 'agent',
         `${message.author === 'USER' ? 'You' : 'Agent'} · ${learning?.title ?? `${thread.path}:${range}`} · ${thread.resolved ? 'Resolved' : 'Open'} · ${outdated ? 'Outdated' : ''}`, message.body)}
-      avatar={<Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />}
+      avatar={message.author === 'USER' && viewer?.login
+        ? <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} />
+        : <Avatar login={message.author === 'USER' ? 'You' : 'Agent'} size={22} allowGitHubFallback={false} />}
       menu={message.author === 'USER' && message.deliveryState !== null && message.deliveryState !== 'COMPLETED'
         && <span className="pr-local-review__delivery">{message.deliveryState === 'UNSENT' ? 'Not sent'
           : message.deliveryState.toLowerCase().replaceAll('_', ' ')}</span>}>

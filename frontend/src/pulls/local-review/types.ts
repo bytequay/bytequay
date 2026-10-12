@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 
+import type { UserProfileDto } from '../../types';
+
 export type LocalReviewMessageDto = {
   id: string;
   author: 'USER' | 'AGENT';
@@ -57,4 +59,5 @@ export type LocalReviewThreadActions = {
 
 export type LocalReviewThreads = LocalReviewThreadActions & {
   threads: LocalReviewThreadDto[];
+  viewer?: UserProfileDto | null;
 };

@@ -711,6 +711,10 @@ async function copyConversations(): Promise<void> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
+  const originalBridge = window.bridge;
+  Object.defineProperty(window, 'bridge', { configurable: true, value: {
+    ...originalBridge, getUserProfile: async () => { throw new Error('Profile unavailable'); },
+  } });
   const cases: Array<[string, () => Promise<void>]> = [
     ['GitHub, local and pending comments share card layout and folding', sharedCardLayout],
     ['Local discussion reply, resolution and remount', replyAndResolve],
@@ -724,9 +728,12 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Copy retains full private conversations and reports clipboard failures', copyConversations],
   ];
   const results: { name: string; error?: string }[] = [];
-  for (const [name, scenario] of cases) {
-    try { await scenario(); results.push({ name }); }
-    catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+  try {
+    for (const [name, scenario] of cases) {
+      try { await scenario(); results.push({ name }); }
+      catch (error) { results.push({ name, error: error instanceof Error ? error.message : String(error) }); }
+    }
   }
+  finally { Object.defineProperty(window, 'bridge', { configurable: true, value: originalBridge }); }
   return results;
 }

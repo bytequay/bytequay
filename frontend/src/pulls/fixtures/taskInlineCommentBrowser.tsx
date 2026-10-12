@@ -42,6 +42,7 @@ const detail: PullRequestDetailDto = {
 };
 
 const INTERNAL_PROMPT = 'INTERNAL_LOCAL_REVIEW_CONTEXT_NOT_A_USER_MESSAGE';
+const viewerAvatar = `data:image/svg+xml,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22"><circle cx="11" cy="11" r="11" fill="blue"/></svg>')}`;
 
 async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promise<void> {
   const bridge = createPreviewBridge('workspace-1');
@@ -172,7 +173,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
   const prBridge = {
     findAgentReview: async () => null,
     findTaskAgentReview: async () => null,
-    getUserProfile: async () => ({ login: viewer, name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+    getUserProfile: async () => ({ login: viewer, name: null, avatarUrl: viewerAvatar, htmlUrl: '', publicRepos: 0, followers: 0,
       following: 0, bio: null, location: null, company: null, email: null }),
     fetchPullRequestDetailByRef: async () => detail,
     refreshPullRequestDetailByRef: async () => ({ full: true as const, detail, status: null }),
@@ -283,6 +284,13 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
     assert(transcriptCard.textContent?.includes(request.body) === true
       && transcriptCard.querySelector('.pr-local-review__snapshot')?.textContent?.includes(request.code) === true,
     'Task transcript card must show the human comment and its reference code');
+    const assertViewerAvatar = (card: Element) => {
+      const avatar = card.querySelector<HTMLImageElement>('.user-avatar-trigger img.avatar');
+      assert(avatar?.getAttribute('src') === viewerAvatar && avatar.alt === viewer && avatar.complete && avatar.naturalWidth > 0,
+        'Saved local comments must use the signed-in profile and shared user avatar in every surface');
+    };
+    assertViewerAvatar(localCard);
+    assertViewerAvatar(transcriptCard);
     assert(!host.innerText.includes(INTERNAL_PROMPT), 'Internal instructions must stay hidden until their disclosure is opened, including in the queue preview');
     if (mode === 'unsent') {
       assert(localCard.textContent?.includes('Not sent') === true && localCard.textContent?.includes('Agent unavailable; retry this saved comment') === true,
@@ -312,6 +320,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       const timelineCard = host.querySelector<HTMLElement>('.pr-timeline [data-local-review-thread]');
       assert(timelineCard?.textContent?.includes('Resolved') === true && timelineCard.textContent?.includes('The implementation is simpler now.') === true,
         'The PR timeline must show the same resolved user/agent discussion');
+      assertViewerAvatar(timelineCard);
       for (let attempt = 0; attempt < 20 && ![...host.querySelectorAll('.agt-review-request__open')].some(candidate => candidate.textContent?.includes('Reply to review')); attempt++) await settle();
       const replyRequest = [...host.querySelectorAll<HTMLButtonElement>('.agt-review-request__open')]
         .find(candidate => candidate.textContent?.includes('Reply to review'));
@@ -320,6 +329,7 @@ async function scenario(mode: 'idle' | 'queued' | 'unsent' | 'published'): Promi
       const learningCard = host.querySelector<HTMLDetailsElement>(`.agt-panel [data-local-review-thread="${request.id}"]`);
       assert(host.querySelector('.agt-panel[aria-label="Summary"]') !== null && learningCard?.open === true,
         'Clicking a reply must select Summary and expand its exact resolved discussion');
+      assertViewerAvatar(learningCard);
       assert(learningCard.contains(document.activeElement), 'The matching panel discussion must receive focus instead of its transcript copy');
       learningCard.open = false;
       replyRequest.click(); await settle();

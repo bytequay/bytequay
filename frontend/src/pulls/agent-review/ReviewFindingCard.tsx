@@ -63,7 +63,7 @@ export default function ReviewFindingCard({
   projection,
   actions,
   busy = false,
-  defaultOpen = true,
+  defaultOpen,
 }: {
   review: AgentReviewDto;
   finding: ReviewFindingDto;

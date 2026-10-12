@@ -669,6 +669,7 @@ async function copyConversations(): Promise<void> {
   } } });
   const review = reviewFixture();
   review.messages = review.messages.map(message => ({ ...message, findingId: review.findings[0].id }));
+  review.findings[0] = { ...review.findings[0], state: 'RESOLVED' };
   const thread = { ...initialThread(), resolved: true };
   const noMutation = async () => { throw new Error('Copy must not send, resolve or publish'); };
   const clickCopy = () => {
@@ -679,7 +680,7 @@ async function copyConversations(): Promise<void> {
   try {
     for (const projection of ['review', 'changes'] as const) {
       flushSync(() => root.render(<ReviewFindingCard review={review} finding={review.findings[0]} projection={projection}
-        viewerLogin="me" viewerAvatarUrl={null} defaultOpen={false} busy actions={{ onAsk: noMutation, onResolve: noMutation,
+        viewerLogin="me" viewerAvatarUrl={null} busy actions={{ onAsk: noMutation, onResolve: noMutation,
           onReopen: noMutation, onAddToReview: noMutation, onPostNow: noMutation, onEditDraft: noMutation, onRemoveFromReview: noMutation }} />));
       clickCopy(); await settle();
       assert(copied === findingConversation(review, review.findings[0]) && copied.includes(review.messages[1].body),

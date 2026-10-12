@@ -97,7 +97,7 @@ public class GoogleInboxNotices
                     String subject = text(mail, "subject");
                     String sender = text(mail, "from");
                     String snippet = text(mail, "snippet");
-                    found.add(new GoogleMailNotice(id, account.profile(), messageId, text(mail, "threadId"), account.email(),
+                    found.add(new GoogleMailNotice(id, account.profile(), messageId, account.email(),
                             clip(sender.isBlank() ? "Unknown sender" : sender, 160), clip(subject.isBlank() ? "(No subject)" : subject, 160),
                             clip(snippet.isBlank() ? "An unread email is waiting in your inbox." : snippet, 280), occurredAt));
                 }

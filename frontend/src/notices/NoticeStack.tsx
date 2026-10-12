@@ -16,7 +16,7 @@ import { Bell, Check, ChevronLeft, ChevronRight, CircleAlert, Mail, MessageCircl
 import { NOTICE_LABELS, needsAction, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
 
 const ICONS = { TURN_FINISHED: Check, QUESTION: MessageCircleQuestion, APPROVAL: ShieldCheck, FAILURE: CircleAlert, RECOVERY: CircleAlert, QUEUE_PAUSED: Pause, MAIL: Mail };
-const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue', MAIL: 'Open Gmail' };
+const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue', MAIL: 'View email' };
 
 function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen }: {
   notice: AppNotice; active: boolean; popup: boolean; preview: boolean; onDismiss: () => void; onClose: () => void; onOpen: () => void;

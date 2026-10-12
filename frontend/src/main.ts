@@ -24,7 +24,7 @@ import { NoticeHost } from './notices/host';
 import { parseNotices } from './notices/contracts';
 import { GeminiSetup } from './google/geminiSetup';
 import { GeminiChat } from './google/geminiChat';
-import { gmailLink, type GoogleStatus } from './google/contracts';
+import type { GoogleStatus } from './google/contracts';
 import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -283,7 +283,10 @@ const appNotices = new NoticeHost(() => mainWindow,
   async () => (await Promise.all(['/agent/notices', '/api/google/notices'].map(route => backendJson(`${backendBase()}${route}`, { headers: agentHeaders() })))).flatMap(parseNotices),
   async notice => {
     if (notice.kind === 'MAIL') {
-      await shell.openExternal(gmailLink({ id: notice.messageId, threadId: notice.threadId }, notice.email));
+      const target = { profile: notice.profile, messageId: notice.messageId };
+      await backendJson(`${backendBase()}/api/google/mail/open`, jsonInit('POST', target, agentHeaders()));
+      browserTabs.hide();
+      mainWindow?.webContents.send('google:open-mail', target);
       return;
     }
     await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(notice.taskId)}?workspaceId=${encodeURIComponent(notice.workspaceId)}`, { headers: agentHeaders() });

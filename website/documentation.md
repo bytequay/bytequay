@@ -366,8 +366,9 @@ grant permission, or resume a queue.
 
 Connected Google accounts also show **New email** cards for unread inbox mail
 from the last day. ByteQuay checks about once a minute and keeps up to 25 per
-account. **Open Gmail** opens the matching message in your browser and closes
-the card. Read or archived mail clears on the next successful check; repeated
+account. **View email** opens the matching account and message inside ByteQuay
+and closes the card, including messages outside the cached mail page.
+Read or archived mail clears on the next successful check; repeated
 checks do not show the same popup again. Your current mail search stays unchanged.
 
 **Task is blocked** means ByteQuay could not verify that the agent stopped and

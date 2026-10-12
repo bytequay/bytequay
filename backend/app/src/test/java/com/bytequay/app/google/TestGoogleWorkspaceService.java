@@ -312,6 +312,67 @@ class TestGoogleWorkspaceService
         assertThat(google.status().error()).get().asString().contains("Check Sent mail and Drafts");
     }
 
+    @Test
+    void opensNoticeFromAnotherAccountWithoutReplacingItsMailPage()
+            throws Exception
+    {
+        google.refreshMail("in:inbox", "");
+        awaitDone();
+        String first = google.status().profile();
+        GoogleSnapshot page = google.snapshot().orElseThrow();
+        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/two\",\"emailAddresses\":[{\"value\":\"two@example.com\"}]}"));
+        google.connect(true);
+        awaitDone();
+        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/one\"}"));
+        when(session.call(eq("gmail_get"), anyMap())).thenReturn(json("{\"id\":\"outside\",\"threadId\":\"thread\",\"subject\":\"Notice\",\"body\":\"Full message\"}"));
+        assertThat(google.openMail(first, "outside").operation()).isEqualTo("Opening email");
+        awaitDone();
+        GoogleSnapshot opened = google.snapshot().orElseThrow();
+        assertThat(google.status().profile()).isEqualTo(first);
+        assertThat(opened.email()).isEqualTo("one@example.com");
+        assertThat(opened.mail()).isEqualTo(page.mail());
+        assertThat(opened.query()).isEqualTo(page.query());
+        assertThat(opened.nextPageToken()).isEqualTo(page.nextPageToken());
+        assertThat(opened.openedMail()).get().extracting(GoogleSnapshot.Mail::body).isEqualTo("Full message");
+        google.agentAccess(true);
+        google.openMail(first, "outside");
+        awaitDone();
+        assertThat(google.snapshot().orElseThrow().agentAccess()).isTrue();
+        when(session.call(eq("gmail_createDraft"), anyMap())).thenReturn(json("{\"id\":\"draft\"}"));
+        when(session.call(eq("gmail_sendDraft"), anyMap())).thenReturn(json("{\"id\":\"sent\"}"));
+        google.send(first, "to@example.com", "Re: Notice", "Reply", "outside");
+        awaitDone();
+        assertThat(google.status().error()).isEmpty();
+        verify(session).call("gmail_createDraft", ImmutableMap.of("to", ImmutableList.of("to@example.com"), "subject", "Re: Notice",
+                "body", "Reply", "isHtml", false, "threadId", "thread"));
+        google.archive(first, "outside");
+        awaitDone();
+        assertThat(google.status().error()).isEmpty();
+        verify(session).call("gmail_modify", ImmutableMap.of("messageId", "outside", "removeLabelIds", ImmutableList.of("INBOX")));
+        assertThat(google.snapshot().orElseThrow().openedMail()).isEmpty();
+        assertThat(google.snapshot().orElseThrow().mail()).isEqualTo(page.mail());
+    }
+
+    @Test
+    void refusesWrongAccountAndMessageWhenOpeningANotice()
+            throws Exception
+    {
+        String selected = google.status().profile();
+        assertThatThrownBy(() -> google.openMail("unknown", "m1")).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> google.openMail(selected, "")).isInstanceOf(IllegalArgumentException.class);
+        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/wrong\"}"));
+        google.openMail(selected, "m1");
+        awaitDone();
+        verify(session, never()).call(eq("gmail_get"), anyMap());
+        assertThat(google.snapshot().orElseThrow().openedMail()).isEmpty();
+        assertThat(google.status().error()).get().asString().contains("another Google account");
+        when(session.call(eq("people_getMe"), anyMap())).thenReturn(json("{\"resourceName\":\"people/one\"}"));
+        google.openMail(selected, "missing");
+        awaitDone();
+        assertThat(google.snapshot().orElseThrow().openedMail()).isEmpty();
+        assertThat(google.status().error()).get().asString().contains("different message");
+    }
+
     private void awaitDone()
             throws InterruptedException
     {

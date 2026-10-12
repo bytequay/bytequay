@@ -86,6 +86,12 @@ public class GoogleWorkspaceController
         return google.refreshCalendar(request.calendarId(), request.timeMin(), request.timeMax());
     }
 
+    @PostMapping("/mail/open")
+    public GoogleSnapshot.Status openMail(@RequestBody OpenMailRequest request)
+    {
+        return google.openMail(request.profile(), request.messageId());
+    }
+
     @PutMapping("/agent-access")
     public GoogleSnapshot.Status agentAccess(@RequestBody AgentAccess request)
     {
@@ -129,6 +135,8 @@ public class GoogleWorkspaceController
     public record SendRequest(String profile, String to, String subject, String body, String replyId) {}
 
     public record MailRequest(String query, String pageToken) {}
+
+    public record OpenMailRequest(String profile, String messageId) {}
 
     public record CalendarRequest(String calendarId, String timeMin, String timeMax) {}
 

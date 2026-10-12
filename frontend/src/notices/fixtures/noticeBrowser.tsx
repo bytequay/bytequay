@@ -178,12 +178,12 @@ export async function run() {
       state = { ...state, notices: Array.from({ length: 50 }, (_, i) => make(`done-${i}`, 'TURN_FINISHED')) }; listener(state); await wait();
       assert(getComputedStyle(counter).backgroundColor !== amber, `${theme}: recent completions use a different tint from pending requests`);
     }
-    state = { ...state, notices: [{ id: 'mail:account:message', kind: 'MAIL', profile: 'account', messageId: 'message', threadId: 'thread',
+    state = { ...state, notices: [{ id: 'mail:account:message', kind: 'MAIL', profile: 'account', messageId: 'message',
       sender: 'Alex', email: 'me@example.com', title: 'Meeting notes', message: 'Please take a look.', occurredAt: new Date().toISOString() }], popupIds: ['mail:account:message'] };
     listener(state); await wait();
     const mail = host.querySelector('.is-mail'); assert(mail?.textContent?.includes('Alex · me@example.com'), 'Mail card identifies its sender and account');
     assert(mail.textContent?.includes('New email') && mail.textContent.includes('Meeting notes'), 'Mail card shows its subject');
-    const openMail = mail.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openMail?.textContent === 'Open Gmail', 'Mail has its own navigation action');
+    const openMail = mail.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openMail?.textContent === 'View email', 'Mail has its own navigation action');
     openMail.click(); await wait();
     assert(opened.includes('mail:account:message') && !host.querySelector('.is-mail'), 'Opening mail closes its card');
     const occlusion: boolean[] = [];

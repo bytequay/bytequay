@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import { Archive, ArrowUpRight, CalendarDays, ChevronDown, ChevronRight, ChevronUp, CircleDot, ExternalLink, GitMerge, GitPullRequest, Inbox, LoaderCircle, MailOpen, PenLine, RefreshCw, Reply,
   Search, ShieldCheck, Sparkles, Check } from 'lucide-react';
-import { githubLink, gmailLink, type GoogleMail as Mail, type GoogleSnapshot, type GoogleStatus } from './contracts';
+import { githubLink, gmailLink, type GoogleMail as Mail, type GoogleSnapshot, type GoogleStatus, type GoogleMailTarget } from './contracts';
 import { githubNotification, mailGroups, mailParagraphs, mailSender, mailSource, mailSubject, mailTime, mergedNotice, type MailBlock, type MailSource } from './mailView';
 import GoogleMailComposer from './GoogleMailComposer';
 import { relativeTime } from '../relativeTime';
@@ -59,19 +59,21 @@ function Block({ block, repository, open }: { block: MailBlock; repository: stri
   })}</p>;
 }
 
-export default function GoogleMail({ status, data, busy, hidden, compose, onCompose, act, open, onAsk }: {
+export default function GoogleMail({ status, data, busy, hidden, compose, onCompose, act, open, onAsk, notice }: {
   status: GoogleStatus; data: GoogleSnapshot; busy: boolean; hidden: boolean; compose: MailDraft | null; onCompose: (draft: MailDraft | null) => void;
   act: (action: () => Promise<GoogleStatus>) => Promise<void>; open: (url: string) => void; onAsk: (mail: Mail) => void;
+  notice?: GoogleMailTarget;
 }) {
   const [query, setQuery] = useState(data.query || 'in:inbox');
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(notice?.messageId ?? null);
   const [details, setDetails] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   useEffect(() => { if (data.query) setQuery(data.query); }, [data.query]);
+  useEffect(() => { if (notice) { setSelected(notice.messageId); setDetails(false); } }, [notice]);
   useEffect(() => {
     if (archiving && !status.operation) {
-      if (!status.error) setToast('Archived');
+      if (!status.error) { setSelected(null); setToast('Archived'); }
       setArchiving(false);
     }
   }, [archiving, status.operation, status.error]);
@@ -82,7 +84,8 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
   }, [toast]);
 
   const composing = compose !== null && compose.reply === null;
-  const message = composing ? undefined : data.mail.find(item => item.id === selected) ?? data.mail[0];
+  const message = composing ? undefined : data.openedMail?.id === selected ? data.openedMail
+    : data.mail.find(item => item.id === selected) ?? (selected === notice?.messageId ? undefined : data.mail[0]);
   const replying = message !== undefined && compose?.reply?.id === message.id;
   const canReply = message !== undefined && compose === null && !busy;
   useEffect(() => {
@@ -98,9 +101,9 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
     return () => window.removeEventListener('keydown', onKey);
   }, [hidden, canReply, message, onCompose]);
 
-  const search = (next: string) => { setQuery(next); void act(() => window.bridge.refreshGoogleMail(next, '')); };
+  const search = (next: string, pageToken = '') => { setSelected(null); setQuery(next); void act(() => window.bridge.refreshGoogleMail(next, pageToken)); };
   const select = (id: string) => { setSelected(id); setDetails(false); if (compose?.reply) onCompose(null); };
-  const position = message ? data.mail.indexOf(message) : -1;
+  const position = message ? data.mail.findIndex(item => item.id === message.id) : -1;
   const sender = message ? mailSender(message.from) : null;
   const source = sender ? mailSource(sender.email) : null;
   const github = message && source === 'github' ? githubNotification(message) : null;
@@ -146,10 +149,10 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
             })}</section>)}
         </div>
         <footer className="google-mail__foot"><span>25 per page · Gemini can search beyond it</span>
-          {data.nextPageToken && <button type="button" className="setw-btn" disabled={busy || query !== data.query} onClick={() => { void act(() => window.bridge.refreshGoogleMail(data.query, data.nextPageToken)); }}>Next page<ChevronRight size={13} aria-hidden="true" /></button>}</footer>
+          {data.nextPageToken && <button type="button" className="setw-btn" disabled={busy || query !== data.query} onClick={() => search(data.query, data.nextPageToken)}>Next page<ChevronRight size={13} aria-hidden="true" /></button>}</footer>
       </div>
       <article className="google-reader">
-        {composing ? composer(null) : !message || !sender || !subject ? <div className="google-reader__none"><MailOpen size={22} aria-hidden="true" />Select a message to read it.</div> : <>
+        {composing ? composer(null) : !message || !sender || !subject ? <div className="google-reader__none"><MailOpen size={22} aria-hidden="true" />{busy ? 'Opening email…' : 'Select a message to read it.'}</div> : <>
           <div className="google-reader__bar">
             <button type="button" className="setw-btn" disabled={!canReply} onClick={() => onCompose({ reply: message })}><Reply size={14} aria-hidden="true" />Reply</button>
             <button type="button" className="setw-btn" disabled={busy} onClick={() => { void act(async () => { const next = await window.bridge.archiveGoogleMail(status.profile, message.id); setArchiving(true); return next; }); }}><Archive size={14} aria-hidden="true" />Archive</button>
@@ -157,7 +160,7 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
             <span className="google-spacer" />
             <button type="button" className="google-quiet-btn" onClick={() => open(gmailLink(message, data.email))}>Open Gmail<ExternalLink size={13} aria-hidden="true" /></button>
             <button type="button" className="google-icon-btn" aria-label="Newer" title="Newer" disabled={position <= 0} onClick={() => select(data.mail[position - 1].id)}><ChevronUp size={15} /></button>
-            <button type="button" className="google-icon-btn" aria-label="Older" title="Older" disabled={position >= data.mail.length - 1} onClick={() => select(data.mail[position + 1].id)}><ChevronDown size={15} /></button>
+            <button type="button" className="google-icon-btn" aria-label="Older" title="Older" disabled={position < 0 || position >= data.mail.length - 1} onClick={() => select(data.mail[position + 1].id)}><ChevronDown size={15} /></button>
           </div>
           <div className="google-reader__body">
             <Labels mail={message} source={source} />

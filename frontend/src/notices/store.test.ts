@@ -81,7 +81,7 @@ it('rejects malformed data at the desktop boundary', () => {
 });
 
 it('keeps mail distinct by message and account, suppresses duplicates, and clears read mail', () => {
-  const mail: MailNotice = { id: 'mail:account:one', kind: 'MAIL', profile: 'account', messageId: 'one', threadId: 'thread',
+  const mail: MailNotice = { id: 'mail:account:one', kind: 'MAIL', profile: 'account', messageId: 'one',
     title: 'Hello', message: 'A new message', sender: 'Alex', email: 'me@example.com', occurredAt: new Date(now).toISOString() };
   const other = { ...mail, id: 'mail:other:one', profile: 'other', email: 'other@example.com' };
   const next = { ...mail, id: 'mail:account:two', messageId: 'two' };
@@ -94,7 +94,7 @@ it('keeps mail distinct by message and account, suppresses duplicates, and clear
   expect(store.snapshot(true).popupIds).not.toContain(mail.id);
   store.update([next, task], now + 10000);
   expect(store.snapshot(true).notices).toHaveLength(2);
-  for (const invalid of [{ ...mail, profile: '' }, { ...mail, messageId: null }, { ...mail, threadId: {} }]) {
+  for (const invalid of [{ ...mail, profile: '' }, { ...mail, messageId: null }, { ...mail, messageId: 'm'.repeat(201) }]) {
     expect(() => parseNotices([invalid])).toThrow();
   }
 });

@@ -18,7 +18,7 @@ export type TaskNotice = {
   title: string; message: string; repository: string; laneId: string; occurredAt: string;
 };
 export type MailNotice = {
-  id: string; kind: 'MAIL'; profile: string; messageId: string; threadId: string;
+  id: string; kind: 'MAIL'; profile: string; messageId: string;
   title: string; message: string; sender: string; email: string; occurredAt: string;
 };
 export type AppNotice = TaskNotice | MailNotice;
@@ -50,9 +50,9 @@ export function parseNotices(value: unknown): AppNotice[] {
       || ids.has(item.id as string)) throw new Error('Invalid notice identity');
     ids.add(item.id as string);
     if (item.kind === 'MAIL') {
-      if (typeof item.threadId !== 'string' || item.threadId.length > 200 || (item.messageId as string).length > 200
+      if ((item.messageId as string).length > 200
         || (item.profile as string).length > 200) throw new Error('Invalid mail identity');
-      return { id: item.id, kind: 'MAIL', profile: item.profile, messageId: item.messageId, threadId: item.threadId,
+      return { id: item.id, kind: 'MAIL', profile: item.profile, messageId: item.messageId,
         title: item.title, message: item.message, sender: item.sender, email: item.email, occurredAt: item.occurredAt } as MailNotice;
     }
     if (item.turnId !== null && (typeof item.turnId !== 'string' || !item.turnId || item.turnId.length > 200)) throw new Error('Invalid notice identity');

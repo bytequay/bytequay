@@ -39,9 +39,12 @@ Electron polls these local snapshots and
 keeps deduplication and recent notices in memory for the session. A separate
 sandboxed `WebContentsView` displays the bottom-right cards above browser and
 editor views. Its restricted bridge can read, dismiss, resize, and navigate to
-a validated task or open the matching account and message in Gmail; it cannot
+a validated task or open the matching account and message in ByteQuay's mail reader; it cannot
 approve or execute task actions or send mail. Recovery notices
 wait for ordinary shutdown cleanup to settle before announcing a block.
+An explicitly opened email is kept separately from the account's cached search
+page, so reading a notice preserves the search and pagination. Reply and archive
+actions validate against either that message or the cached page.
 
 ## Backend organization
 

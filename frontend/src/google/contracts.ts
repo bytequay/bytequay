@@ -20,14 +20,16 @@ export type GoogleEvent = {
 };
 export type GoogleSnapshot = {
   accountId: string; email: string; name: string; agentAccess: boolean;
-  mail: GoogleMail[]; query: string; nextPageToken: string; mailSavedAt: string;
+  mail: GoogleMail[]; openedMail: GoogleMail | null; query: string; nextPageToken: string; mailSavedAt: string;
   calendars: { id: string; summary: string }[]; events: GoogleEvent[];
   calendarId: string; timeMin: string; timeMax: string; calendarSavedAt: string;
 };
 export type GoogleAccount = { profile: string; accountId: string; email: string; name: string };
 export type GoogleStatus = { accounts: GoogleAccount[]; profile: string; installed: boolean; operation: string; error: string | null; snapshot: GoogleSnapshot | null };
+export type GoogleMailTarget = { profile: string; messageId: string };
 export type GeminiSetupStatus = { configured: boolean; installed: boolean };
 export type GoogleBridge = {
+  onGoogleMailOpen: (callback: (target: GoogleMailTarget) => void) => () => void;
   getGeminiSetupStatus: () => Promise<GeminiSetupStatus>;
   saveGeminiSetupKey: (key: string) => Promise<GeminiSetupStatus>;
   removeGeminiSetupKey: () => Promise<GeminiSetupStatus>;
@@ -72,7 +74,7 @@ export const googleLink = (raw: string) => trustedLink(raw, ['calendar.google.co
 /** Mail bodies are untrusted, so a link taken from one opens only when it is GitHub's own. */
 export const githubLink = (raw: string) => trustedLink(raw, ['github.com']);
 
-export function gmailLink(mail: Pick<GoogleMail, 'id' | 'threadId'>, email: string): string {
+export function gmailLink(mail: GoogleMail, email: string): string {
   return `https://mail.google.com/mail/?authuser=${encodeURIComponent(email)}#all/${encodeURIComponent(mail.threadId || mail.id)}`;
 }
 

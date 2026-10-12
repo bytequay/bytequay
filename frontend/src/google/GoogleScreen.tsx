@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import { CalendarDays, ChevronDown, Mail, Settings, UserPlus } from 'lucide-react';
-import { eventTime, type GoogleEvent, type GoogleMail as GoogleMessage } from './contracts';
+import { eventTime, type GoogleEvent, type GoogleMail as GoogleMessage, type GoogleMailTarget } from './contracts';
 import { useGoogle } from './useGoogle';
 import { settingsRoute } from '../settings/routes';
 import GoogleChat, { type ChatContext } from './GoogleChat';
@@ -23,7 +23,7 @@ import '../css/pulls.css';
 import '../css/agents.css';
 import './google.css';
 
-export default function GoogleScreen() {
+export default function GoogleScreen({ mailNotice }: { mailNotice?: GoogleMailTarget }) {
   const { status, error, busy, act, reload } = useGoogle();
   const [tab, setTab] = useState<'mail' | 'calendar'>('mail');
   const [compose, setCompose] = useState<MailDraft | null>(null);
@@ -31,6 +31,7 @@ export default function GoogleScreen() {
   const [linkError, setLinkError] = useState<string | null>(null);
   const data = status?.snapshot;
   useEffect(() => { setCompose(null); setContext(null); }, [status?.profile]);
+  useEffect(() => { if (mailNotice) { setTab('mail'); setCompose(null); } }, [mailNotice]);
   const open = (url: string) => { setLinkError(null); void window.bridge.openExternal(url).catch(cause => setLinkError(cause instanceof Error ? cause.message : 'Unable to open Google.')); };
   const unread = data?.mail.filter(item => item.unread).length ?? 0;
   const askMail = (mail: GoogleMessage) => setContext({ kind: 'mail', label: mail.subject || '(No subject)',
@@ -51,7 +52,8 @@ export default function GoogleScreen() {
         <nav className="google-screen__tabs" aria-label="Google apps">
           <button type="button" aria-pressed={tab === 'mail'} onClick={() => setTab('mail')}><Mail size={16} aria-hidden="true" />Gmail{unread > 0 && <span aria-label={`${unread} unread`}>{unread}</span>}</button>
           <button type="button" aria-pressed={tab === 'calendar'} onClick={() => setTab('calendar')}><CalendarDays size={16} aria-hidden="true" />Calendar</button></nav>
-        <GoogleMail key={`mail:${status.profile}`} status={status} data={data} busy={busy} hidden={tab !== 'mail'} compose={compose} onCompose={setCompose} act={act} open={open} onAsk={askMail} />
+        <GoogleMail key={`mail:${status.profile}`} status={status} data={data} busy={busy} hidden={tab !== 'mail'} compose={compose} onCompose={setCompose} act={act} open={open} onAsk={askMail}
+          notice={mailNotice?.profile === status.profile ? mailNotice : undefined} />
         <GoogleCalendar key={`calendar:${status.profile}`} status={status} data={data} busy={busy} hidden={tab !== 'calendar'} act={act} open={open} onAsk={askEvent} />
       </div><GoogleChat key={status.profile} profile={status.profile} email={data.email} context={context} onContext={setContext} /></div>}
   </section>;

@@ -17,7 +17,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
-public record GoogleMailNotice(String id, String profile, String messageId, String threadId, String email, String sender, String title, String message, Instant occurredAt)
+public record GoogleMailNotice(String id, String profile, String messageId, String email, String sender, String title, String message, Instant occurredAt)
 {
     @JsonProperty
     public String kind()

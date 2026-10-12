@@ -1,10 +1,13 @@
 html, body, #root { margin: 0; width: 100%; background: transparent; }
 body { font: 13px/1.5 var(--font); color: var(--text-1); overflow: hidden; }
-.app-notices { padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 10px; max-height: var(--notice-max-height); }
-.app-notices:has(.app-notices__footer):not(:has(.app-notice)):not(:has(.app-notices__header)) { padding-top: 8px; }
-.app-notices__cards { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
+.app-notices { padding: 8px 0 0; display: flex; flex-direction: column; gap: 10px; max-height: var(--notice-max-height); }
+.app-notices:has(.app-notices__footer):not(:has(.app-notice)):not(:has(.app-notices__header)) { padding-top: 0; }
+.app-notices__cards { display: grid; overflow-y: auto; min-height: 0; scrollbar-width: thin; }
 .app-notices__cards:empty { display: none; }
-.app-notice { flex: none; padding: 15px 16px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 4px 12px light-dark(rgb(25 40 30 / 10%), rgb(0 0 0 / 30%)); animation: notice-enter 140ms ease-out; }
+.app-notice { grid-area: 1 / 1; position: relative; z-index: 1; padding: 15px 16px; background: var(--bg-elevated); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: 0 4px 12px light-dark(rgb(25 40 30 / 10%), rgb(0 0 0 / 30%)); animation: notice-enter 140ms ease-out; }
+.app-notices__cards:has(.is-preview) > .app-notice:first-child { margin-top: 18px; }
+.app-notice.is-preview { z-index: 0; margin: 0 8px 18px; overflow: hidden; height: 44px; opacity: .7; }
+.app-notice.is-preview > * { visibility: hidden; }
 .app-notice__head { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 600; margin-bottom: 8px; }
 .app-notice__icon { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; color: var(--fg-warning); background: var(--bg-warning); flex-shrink: 0; }
 .app-notice.is-turn_finished .app-notice__icon { color: var(--fg-success); background: var(--bg-success); }

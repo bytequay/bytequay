@@ -24,12 +24,19 @@ export class NoticeHost {
   private reading: Promise<void> | null = null;
   private height = 0;
   private width = 420;
+  private obscured = false;
   private sources = new Map<string, { taskId: string; turnId: string | null }>();
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
     private readonly openNotice: (notice: AppNotice) => Promise<void>) {}
 
   register(): void {
+    ipcMain.on('notices:obscured', (event, obscured: unknown) => {
+      const window = this.window();
+      if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown notice owner');
+      if (typeof obscured !== 'boolean') return;
+      this.obscured = obscured; this.publish();
+    });
     ipcMain.on('notices:measure', event => {
       const window = this.window();
       if (!window || event.sender !== window.webContents || event.senderFrame !== window.webContents.mainFrame) throw new Error('Unknown notice owner');
@@ -90,7 +97,7 @@ export class NoticeHost {
     window.on('show', () => { this.publish(); void this.refresh(); });
     window.on('minimize', () => this.publish());
     window.on('restore', () => this.publish());
-    window.webContents.on('did-start-loading', () => { this.sources.clear(); this.publish(); });
+    window.webContents.on('did-start-loading', () => { this.sources.clear(); this.obscured = false; this.publish(); });
     this.publish();
   }
 
@@ -104,8 +111,9 @@ export class NoticeHost {
 
   private snapshot(): NoticeSnapshot {
     const window = this.window();
-    return this.store.snapshot(Boolean(window && !window.isDestroyed() && window.isVisible() && !window.isMinimized() && window.isFocused()),
-      window && !window.isDestroyed() ? Math.max(180, window.getContentBounds().height - 56) : 600);
+    const zoom = this.view?.webContents.getZoomFactor() ?? 1;
+    return this.store.snapshot(Boolean(!this.obscured && window && !window.isDestroyed() && window.isVisible() && !window.isMinimized() && window.isFocused()),
+      window && !window.isDestroyed() ? Math.max(180, (window.getContentBounds().height - 64) / zoom) : 600);
   }
 
   private publish(): void {
@@ -153,20 +161,23 @@ export class NoticeHost {
     const window = this.window();
     if (!window || window.isDestroyed() || !this.view || this.view.webContents.isDestroyed()) return;
     const { width, height } = window.getContentBounds();
-    const w = Math.min(width, 420, this.width);
-    const h = this.snapshot().notices.length ? Math.min(Math.max(0, height - 56), this.height) : 0;
+    // Renderer measurements are CSS pixels; native bounds are DIPs, including when the app is zoomed.
+    const noticeZoom = this.view.webContents.getZoomFactor();
+    const w = Math.min(Math.max(1, width - 16), Math.ceil(Math.min(420, this.width) * noticeZoom));
+    const h = this.snapshot().notices.length ? Math.min(Math.max(0, height - 64), Math.ceil(this.height * noticeZoom)) : 0;
     // Bootstrap a one-pixel viewport so Chromium can measure before the first card resize.
     const viewportHeight = Math.max(1, h);
-    this.view.setBounds({ x: width - w, y: height - viewportHeight, width: w, height: viewportHeight });
-    this.view.setVisible(h > 0);
+    this.view.setBounds({ x: width - w - 8, y: height - viewportHeight - 8, width: w, height: viewportHeight });
+    this.view.setVisible(h > 0 && !this.obscured);
     const zoom = window.webContents.getZoomFactor();
-    window.webContents.send('notices:bounds', h > 0 ? { x: (width - w) / zoom, y: (height - h) / zoom, width: w / zoom, height: h / zoom } : null);
+    window.webContents.send('notices:bounds', h > 0 && !this.obscured
+      ? { x: (width - w - 8) / zoom, y: (height - h - 8) / zoom, width: w / zoom, height: h / zoom } : null);
     this.raise();
   }
 
   releaseWindow(): void {
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
-    this.view = null; this.height = 0; this.width = 420; this.sources.clear();
+    this.view = null; this.height = 0; this.width = 420; this.obscured = false; this.sources.clear();
   }
 
   stop(): void { clearInterval(this.timer); this.timer = undefined; this.releaseWindow(); }

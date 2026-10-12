@@ -16,6 +16,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 import { createAgentStreamReceiver } from './agents/sse';
 import type { AgentStreamMessage, Bridge, FindResult, InAppBrowserState, PullRequestDto } from './types';
 import type { AppNoticeBounds } from './notices/contracts';
+import { observeNoticeOcclusion } from './notices/occlusion';
 
 ipcRenderer.on('github:account-changed', () => window.dispatchEvent(new Event('bytequay:github-account-changed')));
 
@@ -602,6 +603,10 @@ const bridge: Bridge = {
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);
+
+window.addEventListener('DOMContentLoaded', () => {
+  observeNoticeOcclusion(obscured => ipcRenderer.send('notices:obscured', obscured));
+});
 
 const ide: IdeDesktopBridge = {
   resume: host => ipcRenderer.invoke('ide:resume', host),

@@ -13,6 +13,7 @@
  */
 import { createRoot } from 'react-dom/client';
 import NoticeStack from '../NoticeStack';
+import { observeNoticeOcclusion } from '../occlusion';
 import type { TaskNotice, NoticeBridge, NoticeSnapshot } from '../contracts';
 import '../../css/base.css';
 import '../notices.css';
@@ -56,11 +57,26 @@ export async function run() {
   try {
     root.render(<NoticeStack bridge={bridge} />); await wait();
     assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Empty state hides the notice counter and releases its native hit area');
-    state = { ...state, notices: [make('q', 'QUESTION'), make('done', 'TURN_FINISHED'), make('approval', 'APPROVAL'), make('other', 'QUEUE_PAUSED')], popupIds: ['q', 'done', 'approval', 'other'] };
+    state = { ...state, notices: [make('done', 'TURN_FINISHED'), make('q', 'QUESTION'), make('approval', 'APPROVAL'), make('other', 'QUEUE_PAUSED')], popupIds: ['q', 'done', 'approval', 'other'] };
     listener(state); await wait();
     const launcher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(launcher, 'New notices restore the counter');
-    assert(host.querySelectorAll('.app-notice').length === 3, 'At most three popups are visible');
+    assert(host.querySelectorAll('.app-notice').length === 2, 'At most two popups are visible');
+    const front = host.querySelector<HTMLElement>('.app-notice:not(.is-preview)');
+    const preview = host.querySelector<HTMLElement>('.app-notice.is-preview');
+    assert(front && preview && preview.inert, 'The covered preview has no hidden keyboard targets');
+    const frontRect = front.getBoundingClientRect(); const previewRect = preview.getBoundingClientRect();
+    assert(frontRect.top > previewRect.top && frontRect.top < previewRect.bottom && previewRect.left > frontRect.left,
+      'The second card peeks out behind the front card');
+    assert(document.elementFromPoint(frontRect.left + frontRect.width / 2, frontRect.top + 5)?.closest('.app-notice') === front,
+      'The front card receives clicks in the overlap');
+    const stack = host.querySelector<HTMLElement>('.app-notices'); assert(stack, 'Stack missing');
+    assert(Math.abs(stack.getBoundingClientRect().bottom - launcher.getBoundingClientRect().bottom) < 1,
+      'The native surface ends at the counter without a transparent strip below it');
     assert(timers.size === 1 && [...timers.values()][0].delay === 8000, 'Only completion has an eight-second timer');
+    const originalOrder = state.notices;
+    state = { ...state, notices: [originalOrder[1], originalOrder[0], ...originalOrder.slice(2)] }; listener(state); await wait();
+    assert(Number(timers.size) === 0, 'A covered completion does not expire before it can be read');
+    state = { ...state, notices: originalOrder }; listener(state); await wait();
     const done = host.querySelector<HTMLElement>('.is-turn_finished'); assert(done, 'Completion card missing');
     clock += 3000;
     done.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); await wait();
@@ -82,7 +98,12 @@ export async function run() {
     questionClose.click(); await wait();
     assert(state.notices.some(item => item.id === 'q'), 'Dismissing must preserve the pending question');
     launcher.click(); await wait();
+    const next = host.querySelector<HTMLButtonElement>('[aria-label="Next notices"]'); assert(next, 'Remaining notices have navigation');
+    assert(host.querySelectorAll('.app-notice').length === 2 && host.querySelector('.app-notices__pages')?.textContent?.includes('1 / 4'),
+      'Expanded notices still show at most two cards and advance one notice at a time');
+    next.click(); await wait();
     const questionAction = host.querySelector<HTMLButtonElement>('.is-question .app-notice__actions button'); assert(questionAction, 'Question must remain reachable');
+    assert(!questionAction.closest('.is-preview'), 'Paging brings the second card forward for interaction');
     rejectOpen = true; questionAction.click(); await wait();
     assert(host.querySelector('.is-question') && host.querySelector('[role="alert"]'), 'Failed navigation keeps the card available to retry');
     rejectOpen = false; questionAction.click(); await wait(); assert(opened[0] === 'q', 'Card opens its own source');
@@ -150,7 +171,7 @@ export async function run() {
         assert((Math.max(foregroundLight, backgroundLight) + .05) / (Math.min(foregroundLight, backgroundLight) + .05) >= 4.5,
           `${theme}: counter text stays readable at ${count} notices`);
         previousDistance = distance;
-        assert(host.querySelectorAll('.app-notice').length === 1, `${theme}: pending notices always show a card`);
+        assert(host.querySelectorAll('.app-notice').length === Math.min(2, count), `${theme}: pending notices show up to two stacked cards`);
       }
       const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(counter, 'Pending notices have a counter');
       const amber = getComputedStyle(counter).backgroundColor;
@@ -165,6 +186,21 @@ export async function run() {
     const openMail = mail.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openMail?.textContent === 'Open Gmail', 'Mail has its own navigation action');
     openMail.click(); await wait();
     assert(opened.includes('mail:account:message') && !host.querySelector('.is-mail'), 'Opening mail closes its card');
+    const occlusion: boolean[] = [];
+    const stopOcclusion = observeNoticeOcclusion(value => occlusion.push(value));
+    const modal = document.createElement('section'); modal.setAttribute('aria-modal', 'true'); modal.textContent = 'Submit review';
+    document.body.append(modal); await wait();
+    assert(occlusion.join() === 'false,true', 'Opening a review modal hides native notices');
+    modal.append(document.createElement('button')); await wait();
+    assert(occlusion.length === 2, 'Modal content changes do not repeatedly publish visibility');
+    modal.style.display = 'none'; await wait();
+    assert(occlusion.at(-1) === false, 'Hidden modals release notices');
+    modal.remove();
+    const dialog = document.createElement('dialog'); document.body.append(dialog); dialog.showModal(); await wait();
+    assert(occlusion.at(-1) === true, 'Native HTML dialogs also hide notices');
+    dialog.close(); await wait();
+    assert(occlusion.at(-1) === false, 'Closing the final dialog restores notices');
+    dialog.remove(); stopOcclusion();
     return { passed: true, dismissed, opened };
   } finally {
     root.unmount(); host.remove(); document.documentElement.style.colorScheme = ''; window.setTimeout = originalTimeout; window.clearTimeout = originalClear; Date.now = originalNow;

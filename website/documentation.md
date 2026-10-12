@@ -351,15 +351,17 @@ inspection; it is not automatically resent.
 
 App notices stack in the bottom-right corner when another task finishes a turn,
 asks a question, requests approval, fails, or has queued messages paused. Choose
-the card’s button to open that task and close the card. Up to three cards appear
-at once; **Notices** or **Needs you** keeps the remaining items accessible. At least
+the card’s button to open that task and close the card. Up to two cards overlap,
+with the next card peeking out behind the current one. **Notices** or **Needs you**
+opens navigation through the remaining items, one at a time. At least
 one card stays visible until you open its task or close it with **×**. Closed cards
 stay in the counter and can be reopened from there; new notices still pop up.
-Extra completion cards disappear after eight seconds of viewing, with the timer
+Extra completion cards disappear after eight seconds of viewing in front, with the timer
 paused while you hover, focus a card, or switch away
 from ByteQuay. The counter is amber when something needs your attention and blue
 for recent completions; more notices give it a stronger tint. When there are no
-notifications, the cards and counter disappear. Closing a popup does not answer a question,
+notifications, the cards and counter disappear. Notices temporarily hide while a
+modal dialog is open so its controls remain accessible. Closing a popup does not answer a question,
 grant permission, or resume a queue.
 
 Connected Google accounts also show **New email** cards for unread inbox mail

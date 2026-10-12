@@ -18,8 +18,8 @@ import { NOTICE_LABELS, needsAction, type AppNotice, type NoticeBridge, type Not
 const ICONS = { TURN_FINISHED: Check, QUESTION: MessageCircleQuestion, APPROVAL: ShieldCheck, FAILURE: CircleAlert, RECOVERY: CircleAlert, QUEUE_PAUSED: Pause, MAIL: Mail };
 const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue', MAIL: 'Open Gmail' };
 
-function NoticeCard({ notice, active, popup, onDismiss, onClose, onOpen }: {
-  notice: AppNotice; active: boolean; popup: boolean; onDismiss: () => void; onClose: () => void; onOpen: () => void;
+function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen }: {
+  notice: AppNotice; active: boolean; popup: boolean; preview: boolean; onDismiss: () => void; onClose: () => void; onOpen: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -35,7 +35,8 @@ function NoticeCard({ notice, active, popup, onDismiss, onClose, onOpen }: {
   }, [actionable, popup, active, hovered, focused]);
   const Icon = ICONS[notice.kind];
   const provider = notice.kind === 'MAIL' ? notice.sender : notice.laneId.startsWith('claude') ? 'Claude' : notice.laneId.startsWith('codex') ? 'Codex' : notice.laneId;
-  return <article className={`app-notice is-${notice.kind.toLowerCase()}`} aria-label={`${NOTICE_LABELS[notice.kind]}: ${notice.title}`}
+  return <article className={`app-notice is-${notice.kind.toLowerCase()}${preview ? ' is-preview' : ''}`} inert={preview} aria-hidden={preview || undefined}
+    aria-label={`${NOTICE_LABELS[notice.kind]}: ${notice.title}`}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
     <div className="app-notice__head"><span className="app-notice__icon"><Icon size={16} aria-hidden="true" /></span>
@@ -76,11 +77,11 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
   }, [bridge]);
   const waiting = state.notices.filter(needsAction).length;
   const available = state.notices.filter(notice => !closed.has(notice.id));
-  const pages = Math.max(1, Math.ceil(available.length / 3));
+  const pages = Math.max(1, available.length);
   const currentPage = Math.min(page, pages - 1);
   const popups = available.filter(notice => state.popupIds.includes(notice.id));
-  const cards = expanded ? available.slice(currentPage * 3, currentPage * 3 + 3)
-    : popups.length ? popups.slice(0, 3) : available.slice(0, 1);
+  const cards = expanded ? available.slice(currentPage, currentPage + 2)
+    : popups.length ? popups.slice(0, 2) : available.slice(0, 2);
   const compact = cards.length === 0 && !expanded && error === null;
   useLayoutEffect(() => {
     const node = root.current;
@@ -117,7 +118,8 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     '--notice-tint': `${Math.min(48, 12 + state.notices.length * 4)}%` } as CSSProperties}>
     <span className="app-notices__sr" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
     {expanded && <div className="app-notices__header"><span>App notices</span><button type="button" aria-label="Close notices" onClick={() => { setExpanded(false); launcher.current?.focus(); }}><X size={16} /></button></div>}
-    <section className="app-notices__cards" aria-label="App notices">{cards.map(notice => <NoticeCard key={notice.id} notice={notice} active={state.active} popup={!expanded && cards.length > 1 && state.popupIds.includes(notice.id)}
+    <section className="app-notices__cards" aria-label="App notices">{cards.map((notice, index) => <NoticeCard key={notice.id} notice={notice} active={state.active} preview={index > 0}
+      popup={!expanded && index === 0 && cards.length > 1 && state.popupIds.includes(notice.id)}
       onDismiss={() => dismiss(notice)} onClose={() => dismiss(notice, true)} onOpen={() => open(notice)} />)}</section>
     {error && <div className="app-notices__error" role="alert">{error}</div>}
     <div className="app-notices__footer">

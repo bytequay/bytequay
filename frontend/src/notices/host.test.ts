@@ -24,7 +24,7 @@ vi.mock('electron', async () => {
     ipcMain: { handle: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn), on: (key: string, fn: (...args: unknown[]) => unknown) => desktop.handlers.set(key, fn) },
     WebContentsView: class {
       webContents = Object.assign(new EventEmitter(), { mainFrame: {}, send: vi.fn(), close: vi.fn(), isDestroyed: () => false,
-        setWindowOpenHandler: vi.fn(), loadURL: vi.fn(async () => {}) });
+        setWindowOpenHandler: vi.fn(), loadURL: vi.fn(async () => {}), getZoomFactor: vi.fn(() => 1) });
       setBounds = vi.fn(); setVisible = vi.fn(); setBackgroundColor = vi.fn();
       constructor() { desktop.views.push(this); }
     },
@@ -56,18 +56,18 @@ it('authenticates IPC, layers only the card rectangle, and rechecks requests bef
   await host.refresh(); read.mockResolvedValue([notice]); await host.refresh();
   const view = desktop.views[0] as { webContents: { mainFrame: object }; setBounds: ReturnType<typeof vi.fn>; setVisible: ReturnType<typeof vi.fn> };
   const event = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
-  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 580, y: 619, width: 420, height: 1 });
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 572, y: 611, width: 420, height: 1 });
   expect(view.setVisible).toHaveBeenLastCalledWith(false);
   expect(() => desktop.handlers.get('notices:read')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame })).toThrow('Unknown notice surface');
   expect(() => desktop.handlers.get('notices:read')?.({ sender: view.webContents, senderFrame: {} })).toThrow('Unknown notice surface');
   desktop.handlers.get('notices:resize')?.(event, 260, 420);
-  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 580, y: 360, width: 420, height: 260 });
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 572, y: 352, width: 420, height: 260 });
   expect(window.contentView.addChildView).toHaveBeenLastCalledWith(view);
   expect(window.contentView.addChildView).toHaveBeenCalledTimes(1);
   window.contentView.children.push({}); host.raise();
   expect(window.contentView.children.at(-1)).toBe(view);
   desktop.handlers.get('notices:resize')?.(event, 5000, 5000);
-  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 580, y: 56, width: 420, height: 564 });
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 572, y: 56, width: 420, height: 556 });
   read.mockResolvedValue([]);
   await desktop.handlers.get('notices:open')?.(event, notice.id);
   expect(open).not.toHaveBeenCalled();
@@ -81,7 +81,7 @@ it('authenticates IPC, layers only the card rectangle, and rechecks requests bef
   expect(view.setVisible).toHaveBeenLastCalledWith(false);
   desktop.handlers.get('notices:resize')?.(event, 260, 420);
   expect(view.setVisible).toHaveBeenLastCalledWith(true);
-  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 580, y: 360, width: 420, height: 260 });
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 572, y: 352, width: 420, height: 260 });
   host.stop();
 });
 
@@ -91,18 +91,18 @@ it('shrinks the native hit area to the launcher and restores it for cards', asyn
   const view = desktop.views[0] as { webContents: { mainFrame: object }; setBounds: ReturnType<typeof vi.fn> };
   const event = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
   desktop.handlers.get('notices:resize')?.(event, 62, 168.5);
-  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 831, y: 558, width: 169, height: 62 });
-  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', { x: 831, y: 558, width: 169, height: 62 });
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 823, y: 550, width: 169, height: 62 });
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', { x: 823, y: 550, width: 169, height: 62 });
   expect(() => desktop.handlers.get('notices:measure')?.(event)).toThrow('Unknown notice owner');
   desktop.handlers.get('notices:measure')?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame });
-  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', { x: 831, y: 558, width: 169, height: 62 });
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', { x: 823, y: 550, width: 169, height: 62 });
   window.emit('resize');
-  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 831, y: 558, width: 169, height: 62 });
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 823, y: 550, width: 169, height: 62 });
   const calls = view.setBounds.mock.calls.length;
   for (const invalid of [0, -1, NaN, Infinity, true, '169']) desktop.handlers.get('notices:resize')?.(event, 62, invalid);
   expect(view.setBounds).toHaveBeenCalledTimes(calls);
   desktop.handlers.get('notices:resize')?.(event, 260, 420);
-  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 580, y: 360, width: 420, height: 260 });
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 572, y: 352, width: 420, height: 260 });
   host.stop();
 });
 
@@ -121,5 +121,43 @@ it('suppresses a visible source, preserves failed reads, and dismisses without h
   await desktop.handlers.get('notices:open')?.(event, notice.id);
   expect(open).toHaveBeenCalledWith(notice);
   expect(snapshot().notices).toEqual([notice]);
+  host.stop();
+});
+
+it('fits the native hit area to zoomed notices and keeps the counter eight pixels from the corner', async () => {
+  const { host, read, window } = setup();
+  read.mockResolvedValue([notice]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object; getZoomFactor: ReturnType<typeof vi.fn> }; setBounds: ReturnType<typeof vi.fn> };
+  const event = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  for (const zoom of [0.8, 1.25]) {
+    view.webContents.getZoomFactor.mockReturnValue(zoom);
+    desktop.handlers.get('notices:resize')?.(event, 260, 420);
+    expect(view.setBounds).toHaveBeenLastCalledWith({ x: 992 - 420 * zoom, y: 612 - 260 * zoom, width: 420 * zoom, height: 260 * zoom });
+    expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', { x: 992 - 420 * zoom, y: 612 - 260 * zoom, width: 420 * zoom, height: 260 * zoom });
+    expect((desktop.handlers.get('notices:read')?.(event) as NoticeSnapshot).maxHeight).toBe(556 / zoom);
+  }
+  host.stop();
+});
+
+it('releases native input while a modal is open and restores pending notices afterward', async () => {
+  const { host, read, window } = setup();
+  read.mockResolvedValue([notice]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object }; setVisible: ReturnType<typeof vi.fn> };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  const owner = { sender: window.webContents, senderFrame: window.webContents.mainFrame };
+  desktop.handlers.get('notices:resize')?.(child, 260, 420);
+  expect(() => desktop.handlers.get('notices:obscured')?.(child, true)).toThrow('Unknown notice owner');
+  desktop.handlers.get('notices:obscured')?.(owner, true);
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', null);
+  expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ active: false, notices: [notice] });
+  desktop.handlers.get('notices:resize')?.(child, 300, 420);
+  await host.refresh();
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  desktop.handlers.get('notices:obscured')?.(owner, 'false');
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  desktop.handlers.get('notices:obscured')?.(owner, false);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ active: true, notices: [notice] });
   host.stop();
 });

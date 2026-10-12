@@ -154,7 +154,7 @@ export class NoticeHost {
     if (!window || window.isDestroyed() || !this.view || this.view.webContents.isDestroyed()) return;
     const { width, height } = window.getContentBounds();
     const w = Math.min(width, 420, this.width);
-    const h = Math.min(Math.max(0, height - 56), this.height);
+    const h = this.snapshot().notices.length ? Math.min(Math.max(0, height - 56), this.height) : 0;
     // Bootstrap a one-pixel viewport so Chromium can measure before the first card resize.
     const viewportHeight = Math.max(1, h);
     this.view.setBounds({ x: width - w, y: height - viewportHeight, width: w, height: viewportHeight });

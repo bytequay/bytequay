@@ -352,8 +352,8 @@ stay in the counter and can be reopened from there; new notices still pop up.
 Extra completion cards disappear after eight seconds of viewing, with the timer
 paused while you hover, focus a card, or switch away
 from ByteQuay. The counter is amber when something needs your attention and blue
-for recent completions; more notices give it a stronger tint. When empty, it
-returns to the theme background. Closing a popup does not answer a question,
+for recent completions; more notices give it a stronger tint. When there are no
+notifications, the cards and counter disappear. Closing a popup does not answer a question,
 grant permission, or resume a queue.
 
 **Task is blocked** means ByteQuay could not verify that the agent stopped and

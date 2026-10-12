@@ -55,10 +55,10 @@ export async function run() {
   Date.now = () => clock;
   try {
     root.render(<NoticeStack bridge={bridge} />); await wait();
-    const launcher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(launcher, 'Empty notice launcher missing');
-    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.height ?? 0) > 0, 'Empty state keeps only the neutral launcher visible');
+    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Empty state hides the notice counter and releases its native hit area');
     state = { ...state, notices: [make('q', 'QUESTION'), make('done', 'TURN_FINISHED'), make('approval', 'APPROVAL'), make('other', 'QUEUE_PAUSED')], popupIds: ['q', 'done', 'approval', 'other'] };
     listener(state); await wait();
+    const launcher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(launcher, 'New notices restore the counter');
     assert(host.querySelectorAll('.app-notice').length === 3, 'At most three popups are visible');
     assert(timers.size === 1 && [...timers.values()][0].delay === 8000, 'Only completion has an eight-second timer');
     const done = host.querySelector<HTMLElement>('.is-turn_finished'); assert(done, 'Completion card missing');
@@ -121,10 +121,9 @@ export async function run() {
     host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
     host.querySelector<HTMLButtonElement>('.is-turn_finished .app-notice__actions button')?.click(); await wait();
     assert(opened.includes('last') && !host.querySelector('.app-notice'), 'Opening the final completion closes its card');
+    launcher.click(); await wait();
     state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
-    const compact = sizes.at(-1);
-    assert(!host.querySelector('.app-notice') && compact && compact.height > 0 && compact.width < 280
-      && Math.abs(compact.width - launcher.getBoundingClientRect().width - 40) < 1, 'Empty notices shrink the native hit area to the launcher');
+    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Resolving the last notice hides the expanded list and its counter');
     const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
     const context = canvas.getContext('2d'); assert(context, 'Color sampling unavailable');
     const color = (css: string) => { context.fillStyle = css; context.fillRect(0, 0, 1, 1); return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3); };
@@ -137,19 +136,26 @@ export async function run() {
       const neutral = color(getComputedStyle(surface).backgroundColor);
       for (const count of [0, 1, 3, 9, 50]) {
         state = { ...state, notices: Array.from({ length: count }, (_, i) => make(`question-${i}`, 'QUESTION')), popupIds: [] }; listener(state); await wait();
-        const style = getComputedStyle(launcher); const background = color(style.backgroundColor);
+        const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher');
+        if (count === 0) {
+          assert(!counter && sizes.at(-1)?.height === 0, `${theme}: empty notices hide the counter`);
+          continue;
+        }
+        assert(counter && counter.getAttribute('aria-expanded') === 'false' && (sizes.at(-1)?.height ?? 0) > 0, `${theme}: new notices restore the collapsed counter`);
+        const style = getComputedStyle(counter); const background = color(style.backgroundColor);
         const distance = background.reduce((sum, value, i) => sum + Math.abs(value - neutral[i]), 0);
-        assert(count === 0 ? distance === 0 : distance > previousDistance || count === 50 && distance === previousDistance,
-          `${theme}: the launcher tint grows with the notice count and resets when empty`);
+        assert(distance > previousDistance || count === 50 && distance === previousDistance,
+          `${theme}: the launcher tint grows with the notice count`);
         const foregroundLight = luminance(color(style.color)); const backgroundLight = luminance(background);
         assert((Math.max(foregroundLight, backgroundLight) + .05) / (Math.min(foregroundLight, backgroundLight) + .05) >= 4.5,
           `${theme}: counter text stays readable at ${count} notices`);
         previousDistance = distance;
-        assert(host.querySelectorAll('.app-notice').length === (count ? 1 : 0), `${theme}: pending notices always show a card`);
+        assert(host.querySelectorAll('.app-notice').length === 1, `${theme}: pending notices always show a card`);
       }
-      const amber = getComputedStyle(launcher).backgroundColor;
+      const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(counter, 'Pending notices have a counter');
+      const amber = getComputedStyle(counter).backgroundColor;
       state = { ...state, notices: Array.from({ length: 50 }, (_, i) => make(`done-${i}`, 'TURN_FINISHED')) }; listener(state); await wait();
-      assert(getComputedStyle(launcher).backgroundColor !== amber, `${theme}: recent completions use a different tint from pending requests`);
+      assert(getComputedStyle(counter).backgroundColor !== amber, `${theme}: recent completions use a different tint from pending requests`);
     }
     return { passed: true, dismissed, opened };
   } finally {

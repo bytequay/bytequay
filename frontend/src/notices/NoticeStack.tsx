@@ -68,6 +68,7 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
       if (next.active && added.length) setAnnouncement(added.map(item => `${NOTICE_LABELS[item.kind]}: ${item.title}`).join('. '));
       prior = new Set(next.popupIds);
       setState(next);
+      if (next.notices.length === 0) { setExpanded(false); setError(null); }
     };
     const stop = bridge.subscribe(next => { received = true; update(next); });
     void bridge.read().then(next => { if (!received) update(next); }).catch(() => {});
@@ -83,7 +84,7 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
   const compact = cards.length === 0 && !expanded && error === null;
   useLayoutEffect(() => {
     const node = root.current;
-    if (!node) return;
+    if (!node) { bridge.resize(0, 420); return; }
     const measure = () => {
       const padding = getComputedStyle(node);
       // Transparent parts of the native view still intercept drags on the Goal pill underneath.
@@ -110,19 +111,19 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     setError(null);
     void bridge.open(notice.id).then(() => { closeCard(notice); setExpanded(false); }).catch(() => setError('Unable to open the task. Try again.'));
   };
+  if (state.notices.length === 0) return null;
   return <div ref={root} className="app-notices" style={{ '--notice-max-height': `${state.maxHeight}px`,
     '--notice-color': waiting > 0 ? 'var(--fg-warning)' : 'var(--accent)',
-    '--notice-tint': `${state.notices.length ? Math.min(48, 12 + state.notices.length * 4) : 0}%` } as CSSProperties}>
+    '--notice-tint': `${Math.min(48, 12 + state.notices.length * 4)}%` } as CSSProperties}>
     <span className="app-notices__sr" role="status" aria-live="polite" aria-atomic="true">{announcement}</span>
     {expanded && <div className="app-notices__header"><span>App notices</span><button type="button" aria-label="Close notices" onClick={() => { setExpanded(false); launcher.current?.focus(); }}><X size={16} /></button></div>}
     <section className="app-notices__cards" aria-label="App notices">{cards.map(notice => <NoticeCard key={notice.id} notice={notice} active={state.active} popup={!expanded && cards.length > 1 && state.popupIds.includes(notice.id)}
       onDismiss={() => dismiss(notice)} onClose={() => dismiss(notice, true)} onOpen={() => open(notice)} />)}</section>
-    {expanded && !state.notices.length && <p className="app-notices__empty">No notifications</p>}
     {error && <div className="app-notices__error" role="alert">{error}</div>}
     <div className="app-notices__footer">
       {expanded && pages > 1 && <div className="app-notices__pages"><button type="button" aria-label="Previous notices" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}><ChevronLeft size={16} /></button>
         <span>{currentPage + 1} / {pages}</span><button type="button" aria-label="Next notices" disabled={currentPage + 1 === pages} onClick={() => setPage(currentPage + 1)}><ChevronRight size={16} /></button></div>}
-      <button ref={launcher} type="button" className={`app-notices__launcher${state.notices.length ? ' has-notices' : ''}`} aria-expanded={expanded} onClick={() => { if (!expanded) setClosed(new Set()); setExpanded(!expanded); setPage(0); setError(null); }}>
+      <button ref={launcher} type="button" className="app-notices__launcher has-notices" aria-expanded={expanded} onClick={() => { if (!expanded) setClosed(new Set()); setExpanded(!expanded); setPage(0); setError(null); }}>
         <Bell size={14} aria-hidden="true" />{waiting > 0 ? `${waiting} need${waiting === 1 ? 's' : ''} you` : 'Notices'}
         {state.notices.length > waiting && <span>· {state.notices.length - waiting} recent</span>}
       </button>

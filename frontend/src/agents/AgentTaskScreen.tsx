@@ -44,6 +44,7 @@ import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
 import WorktreeChanges from '../pulls/code-tests/WorktreeChanges';
 import type { CodeHostRef } from '../pulls/code-tests/contracts';
 import type { TaskReviewOptions } from '../pulls/agent-review/TaskReviewSummary';
+import { mergeReviewFindings } from '../pulls/agent-review/model';
 import {
 laneLabel,
 isDeepSeekKeyLane,
@@ -610,6 +611,7 @@ function SidePanel({
   const reviewContainer = useRef<HTMLDivElement>(null);
   useReviewCardFocus(reviewContainer, reviewFocus, tab === 'review');
   const [review, setReview] = useState<AgentReviewDto | null>(null);
+  const updateReview = useCallback((value: AgentReviewDto) => setReview(current => mergeReviewFindings(current, value)), []);
   const [reviewLoading, setReviewLoading] = useState(true);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [reviewReload, setReviewReload] = useState(0);
@@ -705,7 +707,7 @@ function SidePanel({
       onChangesToolbar={setChangesToolbar}
       onSummaryToolbar={setSummaryToolbar}
       review={review}
-      onReviewChange={setReview}
+      onReviewChange={updateReview}
       agentTab={agentTab}
       onNavigate={route => { window.location.hash = route; }}
       agent="developer"
@@ -774,13 +776,13 @@ function SidePanel({
         <button type="button" className="agt-action" onClick={() => setReviewReload(value => value + 1)}>Retry</button>
       </div>
       : review !== null && <AgentReviewTab toolbarTarget={summaryToolbar} detail={detail ?? undefined} workspaceId={workspaceId} viewer={null}
-        review={review} onReviewChange={setReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} ownStream={tab === 'review'}
+        review={review} onReviewChange={updateReview} onSelectCommit={(sha, snapshot) => selectCommit('review', sha, snapshot)} focusFindingId={focusFindingId} ownStream={tab === 'review'}
         onOpenWorkspace={() => { window.location.hash = workspaceReviewTaskRoute(review.workspaceId, review.id); }}
         onNavigateToChanges={navigateToChanges} />}
   </ReviewCommentIndex> : null;
   const changesBody = pullRequest === null && changesVisited ? <div className="pull-detail__changes" hidden={tab !== 'changes'}>
     {changesHost !== null ? <WorktreeChanges key={changesHost.kind === 'review' ? changesHost.reviewId : changesHost.taskId} selection={commitSelection}
-        reviewNavigation={reviewNavigation} review={review} onReviewChange={setReview}
+        reviewNavigation={reviewNavigation} review={review} onReviewChange={updateReview}
         onOpenInReview={findingId => { setFocusFindingId(findingId); onSelectTab('review'); }}
         host={changesHost} active={tab === 'changes'} toolbarTarget={changesToolbar} />
     : <div className="agt-panel__empty">The task&apos;s worktree is unavailable.</div>}

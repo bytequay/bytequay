@@ -11,26 +11,43 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
 import type { Bridge, PullRequestDetailDto } from '../../../types';
 import { DiffViewer } from '../../PullChanges';
 import AgentReviewTab from '../AgentReviewTab';
 import type { AgentReviewDto } from '../contracts';
-import { reviewFixture } from './review';
+import { mergeReviewFindings } from '../model';
+import { reviewFixture, runningReviewFixture } from './review';
 import { assert, settle } from '../../../fixtures/harness';
 
 
 export async function resolveFinding(projection: 'review' | 'changes'): Promise<void> {
-  const finding = { ...reviewFixture().findings[0], path: 'src/Example.java', startLine: 2, endLine: 2, range: 'R2', excerpt: ['new code'] };
+  const finding = { ...reviewFixture().findings[0], path: 'src/Example.java', startLine: 2, endLine: 2, range: 'R2', excerpt: ['new code'], outdated: projection === 'review' };
   let saved = reviewFixture({ findings: [finding], messages: [] });
+  if (projection === 'review') {
+    const running = runningReviewFixture();
+    saved = { ...saved, task: running.task, activeTurn: running.activeTurn,
+      draft: { repo: saved.repo, number: 30304, body: '', event: 'COMMENT', version: 1, updatedAt: finding.updatedAt,
+        items: [{ id: 'published-item', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
+          commitId: finding.validatedHeadSha, path: finding.path, side: 'RIGHT', line: 2, startLine: null,
+          body: finding.body, included: true, published: true,
+          publication: { state: 'PUBLISHED', remoteReviewId: 1, remoteCommentId: 2, url: null, at: finding.updatedAt } }] } };
+  }
+  let listener: Parameters<Bridge['subscribeAgentReview']>[2] = () => {};
+  let delayRead = false;
+  let finishRead: (() => void) | null = null;
   const requests: Parameters<Bridge['resolveAgentReviewFinding']>[] = [];
   const completions: Array<(failure?: Error) => void> = [];
   const originalBridge = window.bridge;
   const bridge = {
-    getAgentReview: async () => saved,
-    subscribeAgentReview: async () => () => {},
+    getAgentReview: async () => {
+      const snapshot = saved;
+      if (delayRead) await new Promise<void>(resolve => { finishRead = resolve; });
+      return snapshot;
+    },
+    subscribeAgentReview: async (_id, _after, callback) => { listener = callback; return () => {}; },
     resolveAgentReviewFinding: (...args) => {
       requests.push(args);
       return new Promise<AgentReviewDto>((resolve, reject) => completions.push(failure => {
@@ -54,12 +71,13 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
   };
   function Surface() {
     const [review, setReview] = useState(saved);
+    const updateReview = useCallback((value: AgentReviewDto) => setReview(current => mergeReviewFindings(current, value)), []);
     return projection === 'review'
       ? <AgentReviewTab detail={detail} workspaceId={review.workspaceId} viewer={null} review={review}
-        onReviewChange={setReview} onNavigateToChanges={() => {}} focusFindingId={null} />
+        onReviewChange={updateReview} onNavigateToChanges={() => {}} focusFindingId={null} />
       : <DiffViewer files={[{ filename: finding.path, status: 'modified', additions: 1, deletions: 1,
         patch: '@@ -1,2 +1,2 @@\n context\n-old code\n+new code' }]}
-      agentReview={{ review, viewer: null, navigation: null, onReviewChange: setReview, onOpenInReview: () => {} }} />;
+      agentReview={{ review, viewer: null, navigation: null, onReviewChange: updateReview, onOpenInReview: () => {} }} />;
   }
   const host = document.createElement('div');
   document.body.append(host);
@@ -89,6 +107,19 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     input().dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
   };
+  const startRefresh = async () => {
+    if (projection !== 'review') return;
+    delayRead = true;
+    listener({ kind: 'changed', taskId: saved.task.id, subscriptionId: 'review-stream', sequence: 1, turnId: null });
+    await settle();
+    assert(finishRead !== null, 'The background refresh must be pending before the finding changes');
+  };
+  const finishRefresh = async () => {
+    delayRead = false;
+    finishRead?.();
+    finishRead = null;
+    await settle();
+  };
   try {
     flushSync(() => root.render(<Surface />));
     button('Resolve').click(); await settle();
@@ -114,17 +145,25 @@ export async function resolveFinding(projection: 'review' | 'changes'): Promise<
     button('Resolve locally').click(); await settle();
     assert(Number(requests.length) === 2 && JSON.stringify(requests[1]) === JSON.stringify(requests[0]),
       'Only an explicit retry may resend the retained resolution');
+    await startRefresh();
     completions[1](); await settle();
     assert(card().querySelector('textarea') === null && card().textContent?.includes('Resolved locally by you') === true
       && card().textContent?.includes('This case is already covered.') === true, 'Accepted resolution must show the saved reason and close the input');
     assert(!host.textContent?.includes('The review changed; try again.'), 'Successful retry must clear its previous error');
+    await finishRefresh();
+    assert(card().textContent?.includes('Resolved locally by you') === true,
+      'A delayed background refresh must not undo the saved resolution');
+    await startRefresh();
     button('Reopen').click(); await settle();
+    await finishRefresh();
+    assert(!card().textContent?.includes('Resolved locally by you'), 'A delayed refresh must not undo reopening either');
     button('Resolve').click(); await settle();
     assert(input().value === '' && !button('Resolve locally').disabled, 'A reopened finding must allow resolution with no reason');
     button('Resolve locally').click(); await settle();
     assert(requests[2]?.[3] === '', 'Empty optional reason must reach the local resolution API');
-    completions[2](); await settle();
-    assert(card().textContent?.includes('Resolved locally by you') === true, 'Blank-reason resolution must complete');
+    await startRefresh();
+    completions[2](); await finishRefresh();
+    assert(card().textContent?.includes('Resolved locally by you') === true, 'Resolution and an older refresh in the same batch must retain the resolution');
     button('Reopen').click(); await settle();
     button('Resolve').click(); await settle();
     assert(card().querySelector('.agr-remember')?.textContent === 'Remember for src/Example.java' && !remember().checked,

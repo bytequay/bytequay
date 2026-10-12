@@ -60,6 +60,16 @@ export function latestRun(review: AgentReviewDto): ReviewRunDto | null {
   return review.runs.findLast(run => !isExplanationRun(run)) ?? null;
 }
 
+/** Delayed reads must not undo Resolve/Reopen; finding versions advance independently of the review. */
+export function mergeReviewFindings(current: AgentReviewDto | null, updated: AgentReviewDto): AgentReviewDto {
+  if (current === null || current.id !== updated.id) return updated;
+  const findings = new Map(current.findings.map(finding => [finding.id, finding]));
+  return { ...updated, findings: updated.findings.map(finding => {
+    const latest = findings.get(finding.id);
+    return latest !== undefined && latest.version > finding.version ? latest : finding;
+  }) };
+}
+
 export function isExplanationRun(run: ReviewRunDto): boolean {
   return run.steps[0]?.kind === 'EXPLAIN';
 }

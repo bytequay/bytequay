@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import PullsScreen, { carriedPanelTab, PullDetailHeader, type HeaderTab } from '../pulls/PullsScreen';
 import AgentReviewTab, { type ReviewNavigationTarget } from '../pulls/agent-review/AgentReviewTab';
 import CodeTestsTab from '../pulls/code-tests/CodeTestsTab';
@@ -20,6 +20,7 @@ import TaskPaneDivider, { useTaskPane } from './TaskPaneDivider';
 import { ConfirmDialog } from '../ConfirmDialog';
 import type { ReviewCardFocus } from './ReviewRequestCard';
 import type { AgentReviewDto } from '../pulls/agent-review/contracts';
+import { mergeReviewFindings } from '../pulls/agent-review/model';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import PinButton from '../home/PinButton';
 import '../css/review-tasks.css';
@@ -32,6 +33,7 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
   browserOpen: boolean;
 }): React.JSX.Element {
   const [review, setReview] = useState<AgentReviewDto | null>(null);
+  const updateReview = useCallback((value: AgentReviewDto) => setReview(current => mergeReviewFindings(current, value)), []);
   const [error, setError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
@@ -39,10 +41,10 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
     setError(null);
     void window.bridge.getAgentReview(reviewId).then(value => {
       if (value.id !== reviewId || value.workspaceId !== workspaceId) throw new Error('This review does not belong to the selected workspace task.');
-      if (active) setReview(value);
+      if (active) updateReview(value);
     }).catch(failure => { if (active) setError(remoteErrorMessage(failure)); });
     return () => { active = false; };
-  }, [reviewId, workspaceId, retry]);
+  }, [reviewId, workspaceId, retry, updateReview]);
 
   if (review === null) return <section className="agt-screen" aria-label="Review task">
     <header className="agt-screen-head">
@@ -61,7 +63,7 @@ export default function ReviewTaskScreen({ workspaceId, reviewId, onBack, header
     reference: 'Review',
     target: { kind: 'review', workspaceId, reviewId: review.id },
   }} />{headerAction}</>;
-  if (review.number === null) return <LocalReviewWorkspace key={review.id} review={review} onReviewChange={setReview} onBack={onBack} headerAction={reviewActions} />;
+  if (review.number === null) return <LocalReviewWorkspace key={review.id} review={review} onReviewChange={updateReview} onBack={onBack} headerAction={reviewActions} />;
   return <PullsScreen initialPr={{ repo: review.repo, number: review.number }} initialReviewId={review.id}
     repositoryScope={{ workspaceId, repository: review.repo }} browserOpen={browserOpen}
     reviewWorkspace={{ onBack, headerAction: reviewActions }} />;

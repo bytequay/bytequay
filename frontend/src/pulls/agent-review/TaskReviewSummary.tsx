@@ -21,7 +21,7 @@ import { remoteErrorMessage } from '../PullOverview';
 import type { WorktreeChangesDto } from '../code-tests/contracts';
 import AgentReviewTab, { type ReviewNavigationTarget } from './AgentReviewTab';
 import type { AgentReviewDto } from './contracts';
-import { latestRun, openFindings, reviewRecoveryRequired, reviewRunning, reviewStatus } from './model';
+import { latestRun, mergeReviewFindings, openFindings, reviewRecoveryRequired, reviewRunning, reviewStatus } from './model';
 import { TimelineEvent } from './SummaryTimeline';
 
 /** What a development task's Summary needs to offer the task's own reviewer. */
@@ -49,7 +49,7 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
   const [retry, setRetry] = useState(0);
   const [source, setSource] = useState<WorktreeChangesDto | null>(null);
   const changeReview = useCallback((value: AgentReviewDto) => {
-    setReview(value);
+    setReview(current => mergeReviewFindings(current, value));
     onReviewChange?.(value);
   }, [onReviewChange]);
   useEffect(() => {
@@ -58,7 +58,7 @@ export function useTaskReview(task: AgentTaskDto, options: TaskReviewOptions | u
     setLoading(true);
     setError(null);
     void Promise.resolve().then(() => window.bridge.findTaskAgentReview(workspaceId, task.id))
-      .then(value => { if (live) { setReview(value); if (value !== null) onReviewChange?.(value); } })
+      .then(value => { if (live) { setReview(current => value === null ? null : mergeReviewFindings(current, value)); if (value !== null) onReviewChange?.(value); } })
       .catch(cause => { if (live) setError(remoteErrorMessage(cause)); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };

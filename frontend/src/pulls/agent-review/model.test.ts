@@ -23,6 +23,7 @@ import {
   findingPill,
   findingPublication,
   latestRun,
+  mergeReviewFindings,
   messagesFor,
   newCommits,
   openFindings,
@@ -47,6 +48,20 @@ import type { AgentReviewDto, ReviewDraftDto, ReviewFindingDto, ReviewInvestigat
 function withFindings(...findings: ReviewFindingDto[]): AgentReviewDto {
   return reviewFixture({ findings });
 }
+
+it('keeps newer finding state when review reads arrive out of order', () => {
+  const open = reviewFixture();
+  const resolved = { ...open, findings: [{ ...open.findings[0], state: 'RESOLVED' as const, stateReason: 'Fixed', version: 1 }, ...open.findings.slice(1)] };
+  const refreshed = mergeReviewFindings(resolved, { ...open, pendingApprovals: 1 });
+  expect(refreshed.findings).toEqual(resolved.findings);
+  expect(refreshed.pendingApprovals).toBe(1);
+  const reopened = { ...resolved, findings: [{ ...open.findings[0], version: 2 }, ...open.findings.slice(1)] };
+  expect(mergeReviewFindings(resolved, reopened).findings).toEqual(reopened.findings);
+  expect(mergeReviewFindings(reopened, resolved).findings).toEqual(reopened.findings);
+  expect(mergeReviewFindings(null, open)).toBe(open);
+  const other = { ...open, id: 'another-review' };
+  expect(mergeReviewFindings(resolved, other)).toBe(other);
+});
 
 function draft(items: ReviewDraftDto['items']): ReviewDraftDto {
   return { repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', items, version: 1, updatedAt: '2026-09-06T16:30:00Z' };

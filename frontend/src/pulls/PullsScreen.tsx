@@ -27,7 +27,7 @@ import DetailSkeleton from './DetailSkeleton';
 import PullRequestTaskActions from './PullRequestTaskActions';
 import type { ReviewCardFocus } from '../agents/ReviewRequestCard';
 import type { AgentReviewDto, ReviewDraftItemDto, ReviewEvent } from './agent-review/contracts';
-import { draftCommentCommit, pendingDraftCount, reviewStatus } from './agent-review/model';
+import { draftCommentCommit, mergeReviewFindings, pendingDraftCount, reviewStatus } from './agent-review/model';
 import { useLocalReviewThreads } from './local-review/useLocalReviewThreads';
 import type { LocalReviewThreads } from './local-review/types';
 import PullChanges, { pullReviewThreads, updatePendingReviewComment, type CommitRange, type DiffAgentComment } from './PullChanges';
@@ -888,7 +888,7 @@ export default function PullsScreen({
       && current.workspaceId === updated.workspaceId
       && updated.repo.toLowerCase() === selectedPrRepo?.toLowerCase()
       && (updated.number === selectedPrNumber || (codeTask !== null && updated.sourceTaskId === codeTask.id))
-      ? { ...current, review: updated }
+      ? { ...current, review: mergeReviewFindings(current.review, updated) }
       : current);
   }, [reviewKey, selectedPrRepo, selectedPrNumber, codeTask]);
 

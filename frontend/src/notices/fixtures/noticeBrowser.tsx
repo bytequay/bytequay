@@ -24,12 +24,16 @@ export async function run() {
   const root = createRoot(host);
   let state: NoticeSnapshot = { notices: [], popupIds: [], active: true, maxHeight: 600 };
   let listener: (value: NoticeSnapshot) => void = () => {};
-  const opened: string[] = []; const dismissed: string[] = []; const sizes: number[] = [];
+  let rejectDismiss = false;
+  const opened: string[] = []; const dismissed: string[] = []; const sizes: { height: number; compact: boolean }[] = [];
   const bridge: NoticeBridge = {
     read: async () => state, subscribe: callback => { listener = callback; return () => {}; },
-    dismiss: async id => { dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state); },
+    dismiss: async id => {
+      if (rejectDismiss) throw new Error('Dismiss failed');
+      dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
+    },
     open: async id => { opened.push(id); await bridge.dismiss(id); },
-    resize: height => sizes.push(height),
+    resize: (height, compact) => sizes.push({ height, compact }),
   };
   const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
@@ -50,6 +54,8 @@ export async function run() {
   Date.now = () => clock;
   try {
     root.render(<NoticeStack bridge={bridge} />); await wait();
+    const launcher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(launcher, 'Empty notice launcher missing');
+    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.height ?? 0) > 0, 'Empty state keeps only the neutral launcher visible');
     state = { ...state, notices: [make('q', 'QUESTION'), make('done', 'TURN_FINISHED'), make('approval', 'APPROVAL'), make('other', 'QUEUE_PAUSED')], popupIds: ['q', 'done', 'approval', 'other'] };
     listener(state); await wait();
     assert(host.querySelectorAll('.app-notice').length === 3, 'At most three popups are visible');
@@ -74,17 +80,66 @@ export async function run() {
     const questionClose = host.querySelector<HTMLButtonElement>('.is-question .app-notice__close'); assert(questionClose, 'Dismiss question missing');
     questionClose.click(); await wait();
     assert(state.notices.some(item => item.id === 'q'), 'Dismissing must preserve the pending question');
-    const launcher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(launcher, 'Notice launcher missing');
     launcher.click(); await wait();
     const questionAction = host.querySelector<HTMLButtonElement>('.is-question .app-notice__actions button'); assert(questionAction, 'Question must remain reachable');
     questionAction.click(); await wait(); assert(opened[0] === 'q', 'Card opens its own source');
     const rect = host.querySelector<HTMLElement>('.app-notices')?.getBoundingClientRect();
     assert(rect && rect.width <= window.innerWidth && rect.height <= 600, 'Cards fit their native surface');
-    assert(sizes.some(height => height > 100), 'Native host receives measured card height');
+    assert(sizes.some(size => size.height > 100 && !size.compact), 'Native host receives measured card height and full width');
+    state = { ...state, notices: [make('q', 'QUESTION')], popupIds: [] }; listener(state); await wait();
+    assert(host.querySelectorAll('.app-notice').length === 1 && sizes.at(-1)?.compact === false, 'One pending card stays visible after popups are dismissed');
+    const lastClose = host.querySelector<HTMLButtonElement>('.app-notice__close'); assert(lastClose, 'The final visible card has a close button');
+    rejectDismiss = true; lastClose.click(); await wait();
+    assert(host.querySelector('.app-notice') && host.querySelector('[role="alert"]'), 'Failed dismissals keep the card visible');
+    rejectDismiss = false; lastClose.click(); await wait();
+    assert(!host.querySelector('.app-notice') && !host.querySelector('[role="alert"]') && launcher.textContent?.includes('1 needs you'),
+      'Closing the last card keeps its counter and clears any previous error');
+    listener({ ...state }); await wait();
+    assert(!host.querySelector('.app-notice') && sizes.at(-1)?.compact, 'Closed cards stay closed across refreshes and release the native hit area');
+    launcher.click(); await wait();
+    assert(host.querySelector('.is-question'), 'The counter reopens a closed card');
+    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
+    assert(host.querySelectorAll('.app-notice').length === 1, 'Closing the expanded list still leaves one card');
+    launcher.click(); await wait();
+    host.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
+    assert(!host.querySelector('.app-notice') && launcher.getAttribute('aria-expanded') === 'false', 'Cards can also be closed from the expanded list');
+    state = { ...state, notices: [make('last', 'TURN_FINISHED')], popupIds: ['last'] }; listener(state); await wait();
+    assert(host.querySelector('.is-turn_finished') && Number(timers.size) === 0, 'New notices appear after older cards were closed and the final completion does not expire');
+    state = { ...state, popupIds: [] }; listener(state); await wait();
+    assert(host.querySelector('.is-turn_finished'), 'Recent completions remain visible even without popup IDs');
+    host.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
+    assert(!host.querySelector('.app-notice') && launcher.textContent?.includes('1 recent'), 'The final completion can be closed without losing its recent count');
     state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
-    assert(sizes.at(-1) === 0, 'Resolved notices release the native hit area');
+    const compact = sizes.at(-1);
+    assert(!host.querySelector('.app-notice') && compact && compact.height > 0 && compact.compact, 'Empty notices shrink the native hit area to the launcher');
+    const canvas = document.createElement('canvas'); canvas.width = 1; canvas.height = 1;
+    const context = canvas.getContext('2d'); assert(context, 'Color sampling unavailable');
+    const color = (css: string) => { context.fillStyle = css; context.fillRect(0, 0, 1, 1); return [...context.getImageData(0, 0, 1, 1).data].slice(0, 3); };
+    const luminance = (rgb: number[]) => rgb.map(channel => channel / 255).map(channel => channel <= .04045 ? channel / 12.92 : ((channel + .055) / 1.055) ** 2.4)
+      .reduce((sum, channel, i) => sum + channel * [.2126, .7152, .0722][i], 0);
+    const surface = document.createElement('span'); surface.style.backgroundColor = 'var(--bg-elevated)'; host.append(surface);
+    for (const theme of ['light', 'dark']) {
+      document.documentElement.style.colorScheme = theme;
+      let previousDistance = 0;
+      const neutral = color(getComputedStyle(surface).backgroundColor);
+      for (const count of [0, 1, 3, 9, 50]) {
+        state = { ...state, notices: Array.from({ length: count }, (_, i) => make(`question-${i}`, 'QUESTION')), popupIds: [] }; listener(state); await wait();
+        const style = getComputedStyle(launcher); const background = color(style.backgroundColor);
+        const distance = background.reduce((sum, value, i) => sum + Math.abs(value - neutral[i]), 0);
+        assert(count === 0 ? distance === 0 : distance > previousDistance || count === 50 && distance === previousDistance,
+          `${theme}: the launcher tint grows with the notice count and resets when empty`);
+        const foregroundLight = luminance(color(style.color)); const backgroundLight = luminance(background);
+        assert((Math.max(foregroundLight, backgroundLight) + .05) / (Math.min(foregroundLight, backgroundLight) + .05) >= 4.5,
+          `${theme}: counter text stays readable at ${count} notices`);
+        previousDistance = distance;
+        assert(host.querySelectorAll('.app-notice').length === (count ? 1 : 0), `${theme}: pending notices always show a card`);
+      }
+      const amber = getComputedStyle(launcher).backgroundColor;
+      state = { ...state, notices: Array.from({ length: 50 }, (_, i) => make(`done-${i}`, 'TURN_FINISHED')) }; listener(state); await wait();
+      assert(getComputedStyle(launcher).backgroundColor !== amber, `${theme}: recent completions use a different tint from pending requests`);
+    }
     return { passed: true, dismissed, opened };
   } finally {
-    root.unmount(); host.remove(); window.setTimeout = originalTimeout; window.clearTimeout = originalClear; Date.now = originalNow;
+    root.unmount(); host.remove(); document.documentElement.style.colorScheme = ''; window.setTimeout = originalTimeout; window.clearTimeout = originalClear; Date.now = originalNow;
   }
 }

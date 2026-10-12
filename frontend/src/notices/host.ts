@@ -114,7 +114,7 @@ export class NoticeHost {
       }
       state.popupIds = this.snapshot().popupIds;
     }
-    if (state.notices.length > 0 && this.view === null) this.create(window);
+    if (this.view === null) this.create(window);
     this.view?.webContents.send('notices:changed', state);
     this.layout();
   }
@@ -152,7 +152,7 @@ export class NoticeHost {
     // Bootstrap a one-pixel viewport so Chromium can measure before the first card resize.
     const viewportHeight = Math.max(1, h);
     this.view.setBounds({ x: width - w, y: height - viewportHeight, width: w, height: viewportHeight });
-    this.view.setVisible(h > 0 && this.snapshot().notices.length > 0);
+    this.view.setVisible(h > 0);
     this.raise();
   }
 

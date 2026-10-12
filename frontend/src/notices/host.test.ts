@@ -71,7 +71,9 @@ it('authenticates IPC, layers only the card rectangle, and rechecks requests bef
   read.mockResolvedValue([]);
   await desktop.handlers.get('notices:open')?.(event, notice.id);
   expect(open).not.toHaveBeenCalled();
-  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  desktop.handlers.get('notices:resize')?.(event, 62, true);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  expect(view.setBounds).toHaveBeenLastCalledWith({ x: 720, y: 558, width: 280, height: 62 });
   host.stop();
 });
 

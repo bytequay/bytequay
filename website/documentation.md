@@ -346,9 +346,13 @@ inspection; it is not automatically resent.
 App notices stack in the bottom-right corner when another task finishes a turn,
 asks a question, requests approval, fails, or has queued messages paused. Choose
 the card’s button to open that task. Up to three cards appear at once; **Notices**
-or **Needs you** keeps the remaining items accessible. Completion cards disappear
-after eight seconds of viewing, with the timer paused while you hover, focus a
-card, or switch away from ByteQuay. Closing a popup does not answer a question,
+or **Needs you** keeps the remaining items accessible. At least one card stays
+visible until you close it with **×**. Closed cards stay in the counter and can be
+reopened from there; new notices still pop up. Extra completion cards disappear after eight seconds
+of viewing, with the timer paused while you hover, focus a card, or switch away
+from ByteQuay. The counter is amber when something needs your attention and blue
+for recent completions; more notices give it a stronger tint. When empty, it
+returns to the theme background. Closing a popup does not answer a question,
 grant permission, or resume a queue.
 
 **Task is blocked** means ByteQuay could not verify that the agent stopped and

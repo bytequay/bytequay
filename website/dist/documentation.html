@@ -58,7 +58,7 @@
             <a href="#goals">Goals</a>
             <a href="#epics">Epics</a>
             <a href="#memory-and-specs">Memory &amp; specs</a>
-            <a href="#issues-and-jira">Issues &amp; Jira</a>
+            <a href="#issues-and-jira">Work items</a>
             <a href="#commits-and-backports">Commits &amp; backports</a>
             <a href="#circles">Circles</a>
             <a href="#help">Help</a>
@@ -774,10 +774,19 @@
             </p>
           </section>
           <section id="issues-and-jira">
-            <h2>Start from an issue or Jira ticket</h2>
+            <h2>Work items: local, GitHub, and Jira</h2>
             <p>
               Use existing issue or ticket context as the starting point for
               development, so the task stays connected to the requested change.
+            </p>
+            <h3>Local work</h3>
+            <p>
+              Open <strong>Work items → Local</strong>, add the context and
+              acceptance criteria, then choose <strong>Start development</strong>.
+              The workspace's configured Development agent starts and its task opens
+              directly, without an extra Send step. The agent reads the saved work-item
+              context and, when present, its parent Epic's link, description, and related
+              work. Missing or stale parent context is identified in that read.
             </p>
             <h3>GitHub issues</h3>
             <p>

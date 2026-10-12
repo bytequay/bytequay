@@ -211,7 +211,10 @@ class TestIssueContextBridgeResolverImpl
         assertThat(bridge.instruction()).contains(IssueContextBridge.WORK_INSTRUCTION, IssueContextBridge.EPIC_INSTRUCTION);
         JsonNode context = mapper.readTree(bridge.read().get());
         assertThat(context.path("source").asText()).contains("no remote request");
+        assertThat(context.at("/workItem/id").asText()).isEqualTo(current.id());
+        assertThat(context.at("/workItem/acceptanceCriteria").asText()).isEqualTo(current.acceptanceCriteria());
         assertThat(context.at("/epic/reference").asText()).isEqualTo("#9");
+        assertThat(context.at("/epic/url").asText()).isEqualTo("https://github.com/upstream/repo/issues/9");
         assertThat(context.at("/epic/title").asText()).isEqualTo("Metadata cache");
         assertThat(context.at("/epic/description").asText()).isEqualTo("Epic description");
         assertThat(context.at("/epic/children/0/reference").asText()).isEqualTo("#10");

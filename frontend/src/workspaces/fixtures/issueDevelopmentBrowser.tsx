@@ -24,6 +24,8 @@ import { initialAgentTaskState } from '../../agents/model';
 import { getCached, setCached } from '../../dataCache';
 import { runAttentionActions } from '../../home/fixtures/attentionBrowser';
 import type { AgentTaskDto, AgentTurnDto, Bridge, CreateAgentTaskRequest, RepositoryIssueSnapshotDto, WorkspaceDto, WorkspaceIssueDetailDto } from '../../types';
+import type { UnifiedWorkItem } from '../../workitems/contracts';
+import { LocalWorkItems } from '../../workitems/WorkItemsScreen';
 import { startEpicWork } from '../epics';
 import WorkspaceIssuesScreen from '../WorkspaceIssuesScreen';
 import WorkspaceShell from '../WorkspaceShell';
@@ -429,10 +431,17 @@ const WORKSPACE: WorkspaceDto = {
   monitoredRepositoryId: 40, monitoredOwner: 'upstream', monitoredRepo: 'app', topology: 'FORK', lastCodeSyncAt: null, lastMetadataSyncAt: null, displayOrder: 0,
 };
 
-async function epicRunThroughWorkspace(): Promise<void> {
+async function localDevelopmentThroughWorkspace(): Promise<void> {
   const f = fixture();
+  const item: UnifiedWorkItem = {
+    id: 'work-1', source: 'LOCAL', title: 'Profile the reader', description: 'Keep equivalent memory accounting', status: 'PLANNED', closed: false,
+    updatedAt: f.issue.updatedAt, reference: null,
+    work: { id: 'work-1', workspaceId: f.workspaceId, goalId: null, title: 'Profile the reader', acceptanceCriteria: 'Keep equivalent memory accounting',
+      kind: 'DEVELOP', completionRule: 'MERGED_DELIVERY', state: 'PLANNED', revision: 0, links: [], history: [], createdAt: f.issue.createdAt,
+      updatedAt: f.issue.updatedAt, priority: 'NORMAL', rank: 0, blockedBy: [], epicId: 'ISSUE:github.com:7001', epicRank: 0 },
+  };
   // The workspace's pages read more than a composer does; a read this scenario does not name fails, as an unreachable source would.
-  window.bridge = new Proxy(f.bridge as unknown as Bridge, {
+  window.bridge = new Proxy({ ...f.bridge, listUnifiedWorkItems: async () => [item] } as unknown as Bridge, {
     get: (target, name: string) => Reflect.get(target, name) ?? (name.startsWith('on') ? () => () => {} : async (): Promise<never> => { throw new Error(`${name} is not in this fixture`); }),
   });
   const host = document.createElement('div'); document.body.append(host);
@@ -440,20 +449,21 @@ async function epicRunThroughWorkspace(): Promise<void> {
   const root = createRoot(host, { onUncaughtError: error => { failures.push(String(error)); } });
   window.location.hash = '';
   // The router follows the hash; here each page is rendered as it would.
-  const show = (tab: WorkspaceTab): void => flushSync(() => root.render(<WorkspaceShell workspace={WORKSPACE} tab={tab} onSelectTab={() => {}} onWorkspaceChanged={() => {}}
+  const show = (tab: WorkspaceTab): void => flushSync(() => root.render(<><WorkspaceShell workspace={WORKSPACE} tab={tab} onSelectTab={() => {}} onWorkspaceChanged={() => {}}
     initialPullRequestNumber={null} initialIssueNumber={null} initialAgentTaskId={null} onSelectAgentTask={() => {}} onSelectPullRequest={() => {}}
-    onSelectIssue={() => {}} />));
+    onSelectIssue={() => {}} />{tab === 'home' && <LocalWorkItems workspace={WORKSPACE} zoomedItemId={item.id} />}</>));
   const composer = (): HTMLTextAreaElement | null => host.querySelector<HTMLTextAreaElement>('textarea[aria-label="Describe a task"]');
   try {
     show('home'); await settle();
-    startEpicWork({ workspaceId: f.workspaceId, itemId: 'work-1', draft: 'Profile the reader', send: true });
-    assert(window.location.hash === workspaceRoute(f.workspaceId, 'tasks'), `An Epic's Run opens its workspace's tasks: ${window.location.hash}`);
+    button(host, 'Start development').click();
+    assert(window.location.hash === workspaceRoute(f.workspaceId, 'tasks'), `Local development opens its workspace's tasks: ${window.location.hash}`);
     show('tasks');
     assert(host.textContent?.includes('Starting task…') === true && composer() === null, `The tasks page opens on the task starting: ${failures.join(' | ')}`);
     await settle(); await settle();
-    assert(f.created.length === 1 && f.created[0].workItemId === 'work-1' && f.created[0].message === 'Profile the reader',
-      `Run starts the work's task without a composer step: ${JSON.stringify(f.created)} ${failures.join(' | ')}`);
-    assert(window.location.hash === workspaceAgentTaskRoute(f.workspaceId, f.created[0].taskId), `Run lands on the task's conversation: ${window.location.hash}`);
+    assert(f.created.length === 1 && f.created[0].workItemId === item.id && f.created[0].message.includes(item.title)
+      && f.created[0].message.includes('read_issue_context') && f.created[0].message.includes('parent Epic'),
+      `Start development binds the work and requests its parent context without a composer step: ${JSON.stringify(f.created)} ${failures.join(' | ')}`);
+    assert(window.location.hash === workspaceAgentTaskRoute(f.workspaceId, f.created[0].taskId), `Start development lands on the task's conversation: ${window.location.hash}`);
 
     // A start that asks for review, as a Goal's prepared request does, waits in the composer.
     startEpicWork({ workspaceId: f.workspaceId, itemId: 'work-2', draft: 'A prepared request' });
@@ -469,7 +479,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     ['Another attempt opens the composer over an ended task and names it', anotherAttempt],
     ['Work without a source opens the composer with its title and names the work', workAttempt],
     ['A decided start sends itself once, with its source, and is left to the user when blocked', decidedStart],
-    ['An Epic’s Run starts its work’s task through the workspace and lands on it', epicRunThroughWorkspace],
+    ['Local Start development opens its task directly with work-item and parent context', localDevelopmentThroughWorkspace],
     ['Issue Epic actions, composer, replay and linked workspace navigation', issueToTask],
     ['Source refresh preserves instructions and blocks Epics without launching', refreshAndCancel],
     ['A Goal’s prepared instruction opens the issue composer without launching', preparedInstruction],

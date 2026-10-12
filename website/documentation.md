@@ -512,8 +512,12 @@ GitHub keeps its issue list and detail pane; Jira keeps its board, filters, and 
 views. **Local** lists the work kept on your Mac under **Open**, **Done**, and **Closed**,
 with search and filters for Epic, kind, and where the work is visible. **New** saves
 only on your Mac. Add the context and acceptance criteria, then choose
-**Start development** to open a task with that context retained. A work item's page
-shows its context, its tasks and pull requests, its Epic, and its history. In an Epic’s
+**Start development** to start the workspace's configured Development agent and open
+its task directly, without reviewing or sending a generated prompt. The agent reads
+the saved work-item context and, when present, its parent Epic's link, description,
+and related work. Missing or stale parent context is identified in that read.
+A work item's page shows its context, its tasks and pull requests, its Epic, and its
+history. In an Epic’s
 **Work** view, click a Local card to zoom into its details. Linked tasks appear with
 their titles and statuses; click one to open its task page over the Epic. Close the
 zoom card or press Escape to return to the view underneath.

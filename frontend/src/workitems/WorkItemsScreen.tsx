@@ -177,7 +177,8 @@ export function LocalWorkItems({ workspace, zoomedItemId, headerAction }: { work
   const creating = selected === 'new';
   const begin = (value: LocalItem) => {
     if (value.source !== 'LOCAL') openReference(workspace, value.reference, true);
-    else startEpicWork({ workspaceId: workspace.id, itemId: value.work.id, draft: `Develop this work item: ${value.work.title}\n\nRead its full context using work_items READ before starting.` });
+    else startEpicWork({ workspaceId: workspace.id, itemId: value.work.id, send: true,
+      draft: `Develop this work item: ${value.work.title}\n\nCall read_issue_context before starting to read this item's full context and its parent Epic, if any. Deliver only this work item.` });
   };
   const viewTask = (value: LocalItem) => { const task = taskOf(value.work); if (task) zoomReference({ kind: 'task', workspaceId: workspace.id, taskId: task.key }); };
   return <div className="pulls-page issues-page work-items">

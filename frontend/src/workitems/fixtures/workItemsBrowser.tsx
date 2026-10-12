@@ -128,6 +128,7 @@ export async function run() {
   button('Start development').click();
   window.removeEventListener(EPIC_START, capture);
   assert(JSON.stringify(start).includes('"itemId":"seed"'), 'Development is bound to the retained work item instead of a copied title');
+  assert(JSON.stringify(start).includes('"send":true'), 'Start development starts the agent without asking the user to send a generated prompt');
   window.location.hash = workItemRoute(workspace.id, 'seed'); await settle();
   button('Close locally').click(); await settle(); await settle();
   assert(states() === 'Open 1Done 0Closed 1' && rows().length === 1, `Closed work leaves Open for its own tab: ${states()}`);

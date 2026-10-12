@@ -123,7 +123,7 @@ export class NoticeHost {
     const state = this.snapshot();
     if (state.active) {
       for (const notice of state.notices) {
-        if (notice.kind !== 'MAIL' && [...this.sources.values()].some(source => source.taskId === notice.taskId && (notice.turnId === null || source.turnId === notice.turnId))) {
+        if ([...this.sources.values()].some(source => source.taskId === notice.taskId && (notice.turnId === null || source.turnId === notice.turnId))) {
           this.store.dismiss(notice.id);
         }
       }

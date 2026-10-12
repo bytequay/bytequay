@@ -11,18 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE', 'RECOVERY', 'QUEUE_PAUSED', 'MAIL'] as const;
+export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE', 'RECOVERY', 'QUEUE_PAUSED'] as const;
 export const NOTICE_WIDTH = 340;
 export type NoticeKind = typeof NOTICE_KINDS[number];
-export type TaskNotice = {
-  id: string; kind: Exclude<NoticeKind, 'MAIL'>; taskId: string; workspaceId: string; turnId: string | null;
+export type AppNotice = {
+  id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null;
   title: string; message: string; repository: string; laneId: string; occurredAt: string;
 };
-export type MailNotice = {
-  id: string; kind: 'MAIL'; profile: string; messageId: string;
-  title: string; message: string; sender: string; email: string; occurredAt: string;
-};
-export type AppNotice = TaskNotice | MailNotice;
 export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; active: boolean; maxHeight: number };
 export type AppNoticeBounds = { x: number; y: number; width: number; height: number } | null;
 export type NoticeBridge = {
@@ -35,7 +30,7 @@ export type NoticeBridge = {
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {
   TURN_FINISHED: 'Turn finished', QUESTION: 'Question for you', APPROVAL: 'Approval needed',
-  FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused', MAIL: 'New email',
+  FAILURE: 'Turn failed', RECOVERY: 'Task is blocked', QUEUE_PAUSED: 'Queued messages paused',
 };
 export function parseNotices(value: unknown): AppNotice[] {
   if (!Array.isArray(value)) throw new Error('Invalid notices');
@@ -43,19 +38,12 @@ export function parseNotices(value: unknown): AppNotice[] {
   return value.map(raw => {
     if (raw === null || typeof raw !== 'object') throw new Error('Invalid notice');
     const item = raw as Record<string, unknown>;
-    const sourceFields = item.kind === 'MAIL' ? ['profile', 'messageId', 'sender', 'email'] : ['taskId', 'workspaceId', 'repository', 'laneId'];
-    for (const key of ['id', 'kind', 'title', 'message', 'occurredAt', ...sourceFields]) {
+    for (const key of ['id', 'kind', 'title', 'message', 'occurredAt', 'taskId', 'workspaceId', 'repository', 'laneId']) {
       if (typeof item[key] !== 'string' || !(item[key] as string).trim() || (item[key] as string).length > 1000) throw new Error('Invalid notice field');
     }
     if (!NOTICE_KINDS.includes(item.kind as NoticeKind) || !Number.isFinite(Date.parse(item.occurredAt as string))
       || ids.has(item.id as string)) throw new Error('Invalid notice identity');
     ids.add(item.id as string);
-    if (item.kind === 'MAIL') {
-      if ((item.messageId as string).length > 200
-        || (item.profile as string).length > 200) throw new Error('Invalid mail identity');
-      return { id: item.id, kind: 'MAIL', profile: item.profile, messageId: item.messageId,
-        title: item.title, message: item.message, sender: item.sender, email: item.email, occurredAt: item.occurredAt } as MailNotice;
-    }
     if (item.turnId !== null && (typeof item.turnId !== 'string' || !item.turnId || item.turnId.length > 200)) throw new Error('Invalid notice identity');
     return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId,
       title: item.title, message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt } as AppNotice;

@@ -60,11 +60,6 @@ const bridge: Bridge = {
     return () => { ipcRenderer.removeListener('notices:open-task', receive); };
   },
   setNoticeSource: (key, source) => ipcRenderer.invoke('notices:source', key, source),
-  onGoogleMailOpen: callback => {
-    const receive = (_event: unknown, target: { profile: string; messageId: string }) => callback(target);
-    ipcRenderer.on('google:open-mail', receive);
-    return () => { ipcRenderer.removeListener('google:open-mail', receive); };
-  },
   getGeminiSetupStatus: () => ipcRenderer.invoke('gemini:status'),
   saveGeminiSetupKey: key => ipcRenderer.invoke('gemini:save', key),
   removeGeminiSetupKey: () => ipcRenderer.invoke('gemini:remove'),

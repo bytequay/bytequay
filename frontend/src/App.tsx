@@ -17,7 +17,6 @@ import BrowserRail from './BrowserRail';
 import FindBar from './FindBar';
 import GoogleScreen from './google/GoogleScreen';
 import { useGoogle } from './google/useGoogle';
-import { GOOGLE_CHANGED, type GoogleMailTarget } from './google/contracts';
 import JiraScreen, { JiraTicketLayer } from './jira/JiraScreen';
 import { JIRA_CHANGED, anyJiraConnected, type JiraConnection } from './jira/contracts';
 import HomePage from './home/HomePage';
@@ -95,7 +94,6 @@ export default function App() {
   const [workspaceTab, setWorkspaceTab] = useState<WorkspaceTab>('home');
   const [jiraConnected, setJiraConnected] = useState(false);
   const { status: googleStatus } = useGoogle();
-  const [mailNotice, setMailNotice] = useState<GoogleMailTarget | undefined>();
   const [initialPr, setInitialPr] = useState<{ repo: string; number: number } | undefined>();
   const [initialWorkspacePrNumber, setInitialWorkspacePrNumber] = useState<number | null>(null);
   const [initialIssueNumber, setInitialIssueNumber] = useState<number | null>(null);
@@ -197,15 +195,6 @@ export default function App() {
   useEffect(() => window.bridge.onAppNoticeOpen?.(target => {
     zoomReference({ kind: 'task', taskId: target.taskId, workspaceId: target.workspaceId });
   }), []);
-
-  useEffect(() => window.bridge.onGoogleMailOpen?.(target => {
-    backToApp();
-    setLayers([]);
-    setPaletteOpen(false);
-    setMailNotice(target);
-    navigateTo('#/google', 'push');
-    window.dispatchEvent(new Event(GOOGLE_CHANGED));
-  }), [backToApp, navigateTo]);
 
   useEffect(() => {
     if (status !== 'ready') return;
@@ -525,7 +514,7 @@ export default function App() {
           )}
           <RecentPage active={page === 'recent'} onOpenRow={openRecentRow} />
           {page === 'jira' && <JiraScreen />}
-          {page === 'google' && <GoogleScreen mailNotice={mailNotice} />}
+          {page === 'google' && <GoogleScreen />}
           {page === 'teams' && <TeamsPage />}
           {page === 'pulls' && (
             <PullsScreen

@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { ArrowLeft, ArrowRight, Bell, Check, ChevronLeft, ChevronRight, CircleAlert, Mail, MessageCircleQuestion, Pause, ShieldCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Bell, Check, ChevronLeft, ChevronRight, CircleAlert, MessageCircleQuestion, Pause, ShieldCheck, X } from 'lucide-react';
 import { NOTICE_LABELS, NOTICE_WIDTH, needsAction, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
 
-const ICONS = { TURN_FINISHED: Check, QUESTION: MessageCircleQuestion, APPROVAL: ShieldCheck, FAILURE: CircleAlert, RECOVERY: CircleAlert, QUEUE_PAUSED: Pause, MAIL: Mail };
-const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue', MAIL: 'View email' };
+const ICONS = { TURN_FINISHED: Check, QUESTION: MessageCircleQuestion, APPROVAL: ShieldCheck, FAILURE: CircleAlert, RECOVERY: CircleAlert, QUEUE_PAUSED: Pause };
+const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue' };
 
 function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen }: {
   notice: AppNotice; active: boolean; popup: boolean; preview: boolean; onDismiss: () => void; onClose: () => void; onOpen: () => void;
@@ -34,8 +34,8 @@ function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen
     return () => { window.clearTimeout(timer); remaining.current = Math.max(0, remaining.current - (Date.now() - start)); };
   }, [actionable, popup, active, hovered, focused]);
   const Icon = ICONS[notice.kind];
-  const provider = notice.kind === 'MAIL' ? notice.sender : notice.laneId.startsWith('claude') ? 'Claude' : notice.laneId.startsWith('codex') ? 'Codex' : notice.laneId;
-  const source = `${provider} · ${notice.kind === 'MAIL' ? notice.email : notice.repository}`;
+  const provider = notice.laneId.startsWith('claude') ? 'Claude' : notice.laneId.startsWith('codex') ? 'Codex' : notice.laneId;
+  const source = `${provider} · ${notice.repository}`;
   return <article className={`app-notice is-${notice.kind.toLowerCase()}${preview ? ' is-preview' : ''}`} inert={preview} aria-hidden={preview || undefined}
     aria-label={`${NOTICE_LABELS[notice.kind]}: ${notice.title}`}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}

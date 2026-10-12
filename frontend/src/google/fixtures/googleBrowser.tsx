@@ -39,7 +39,7 @@ export async function mountPreview(settings = false) {
   chat = { messages: [], busy: false, activity: '', error: null, approval: null };
   status = { profile, accounts: [{ profile, accountId: 'people/one', email: 'alex@example.com', name: 'Alex Chen' }], installed: true, operation: '', error: null, snapshot: {
     accountId: 'people/one', name: 'Alex Chen', email: 'alex@example.com', agentAccess: false,
-    query: 'in:inbox', nextPageToken: 'next', mailSavedAt: '2026-10-09T02:00:00Z', openedMail: null,
+    query: 'in:inbox', nextPageToken: 'next', mailSavedAt: '2026-10-09T02:00:00Z',
     mail: [
       { id: 'mail-one', threadId: 'thread-one', subject: 'Design review for next week', from: 'Maya <maya@example.com>', to: 'alex@example.com', date: 'Fri, 9 Oct 2026 09:15:00 +0800', snippet: 'Could we review the calendar integration on Monday?', body: 'Hi Alex,\n\nCould we review the calendar integration on Monday?\n\nThe agenda should show our saved events even when we’re offline. Please bring your notes on sign-in and permissions.\n\nThanks,\nMaya', unread: true },
       { id: 'mail-two', threadId: 'thread-two', subject: 'Release checklist', from: 'Sam <sam@example.com>', to: 'alex@example.com', date: 'Thu, 8 Oct 2026 16:20:00 +0800', snippet: 'The latest build is ready for review.', body: '<script>window.googleInjected = true</script><img src="https://example.test/tracker.png">Review notes', unread: false },
@@ -99,43 +99,6 @@ function ConnectionNavigation() {
 export async function run() {
   const results: { name: string; error?: string }[] = [];
   const scenarios: Record<string, () => Promise<void>> = {
-    async 'opens notice mail outside the cached page and reopens it from Calendar'() {
-      await mountPreview();
-      assert(status.snapshot !== null && root !== null, 'Google mail is loaded');
-      const message = { ...status.snapshot.mail[0], id: 'outside', subject: 'Email opened from a notice', body: 'The full message is here.' };
-      button('Calendar').click(); await settle();
-      status.operation = 'Opening email';
-      const target = { profile, messageId: message.id };
-      root.render(<GoogleScreen mailNotice={target} />);
-      window.dispatchEvent(new Event(GOOGLE_CHANGED)); await settle(); await settle();
-      assert(document.querySelector('.google-reader__none')?.textContent?.includes('Opening email'), 'An uncached target waits instead of showing a different message');
-      status.operation = ''; status.snapshot.openedMail = message;
-      window.dispatchEvent(new Event(GOOGLE_CHANGED)); await settle(); await settle();
-      assert(document.querySelector('.google-reader h2')?.textContent === message.subject, 'The requested message opens in the reader');
-      assert(document.querySelector('.google-reader')?.textContent?.includes(message.body), 'The full message is visible');
-      assert((document.querySelector('[aria-label="Search Gmail"]') as HTMLInputElement).value === 'in:inbox', 'Opening mail preserves the search');
-      assert(document.querySelectorAll('.google-mail__item').length === 3 && status.snapshot.nextPageToken === 'next', 'Opening mail preserves the cached page');
-      assert(opened.length === 0, 'No browser is opened');
-      (document.querySelector('.google-mail__item') as HTMLButtonElement).click(); await settle();
-      button('Calendar').click(); await settle();
-      root.render(<GoogleScreen mailNotice={{ ...target }} />); await settle(); await settle();
-      assert(document.querySelector('.google-reader h2')?.textContent === message.subject && document.querySelector('.google-pane')?.getAttribute('hidden') === null,
-        'Clicking the same notice again returns to its message and the mail tab');
-      assert(button('Newer').disabled && button('Older').disabled, 'Off-page mail has no position in the cached list');
-      window.bridge.refreshGoogleMail = async () => { if (status.snapshot) status.snapshot.openedMail = null; return structuredClone(status); };
-      button('Next page').click(); await settle(); await settle();
-      assert(document.querySelector('.google-reader h2')?.textContent === status.snapshot.mail[0].subject, 'Paging returns to the cached list');
-      status.snapshot.openedMail = message;
-      root.render(<GoogleScreen mailNotice={{ ...target }} />);
-      window.dispatchEvent(new Event(GOOGLE_CHANGED)); await settle(); await settle();
-      window.bridge.archiveGoogleMail = async (selected, id) => {
-        assert(selected === profile && id === message.id, 'Archive targets the opened notice message');
-        if (status.snapshot) status.snapshot.openedMail = null;
-        return structuredClone(status);
-      };
-      button('Archive').click(); await settle(); await settle();
-      assert(document.querySelector('.google-reader h2')?.textContent === status.snapshot.mail[0].subject, 'Archiving returns to the cached list');
-    },
     async 'sets up Gemini access without changing Google app consent'() {
       await mountPreview(true);
       button('Create API key…').click(); await settle();

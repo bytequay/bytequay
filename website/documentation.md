@@ -369,13 +369,6 @@ notifications, the cards and counter disappear. Notices temporarily hide while a
 modal dialog is open so its controls remain accessible. Closing a popup does not answer a question,
 grant permission, or resume a queue.
 
-Connected Google accounts also show **New email** cards for unread inbox mail
-from the last day. ByteQuay checks about once a minute and keeps up to 25 per
-account. **View email** opens the matching account and message inside ByteQuay
-and closes the card, including messages outside the cached mail page.
-Read or archived mail clears on the next successful check; repeated
-checks do not show the same popup again. Your current mail search stays unchanged.
-
 **Task is blocked** means ByteQuay could not verify that the agent stopped and
 keeps its working copy locked. Automatic startup cleanup runs first; a notice
 appears only if the block remains. Inspect the task before stopping its runtime
@@ -570,8 +563,7 @@ with the email-address selector. Each account has its own cached items and
 Gemini conversation. Existing shared terminal logins need a separate sign-in
 for this account-isolated setup.
 
-The Gmail and Calendar pages load when you refresh them; new-email notices check
-recent unread inbox mail automatically. Mail pages contain up to
+The Gmail and Calendar pages load when you refresh them. Mail pages contain up to
 25 messages with **Next page** for more; **Inbox**, **Unread**, and **GitHub**
 run those searches. GitHub notifications show who acted, the quoted change,
 and **View on GitHub**. Calendar offers **Day** and **Week** grids; **Today**

@@ -166,46 +166,24 @@ public class GoogleWorkspaceService
                 checkState(messages.isArray() && messages.size() <= 25, "Unexpected Gmail search result.");
                 ImmutableList.Builder<GoogleSnapshot.Mail> mail = ImmutableList.builder();
                 for (JsonNode message : messages) {
-                    mail.add(readMail(session, required(message, "id")));
+                    String id = required(message, "id");
+                    JsonNode detail = session.call("gmail_get", ImmutableMap.of("messageId", id, "format", "full"));
+                    checkState(id.equals(required(detail, "id")), "Gmail returned a different message.");
+                    boolean unread = false;
+                    for (JsonNode label : detail.path("labelIds")) {
+                        unread |= label.asText().equals("UNREAD");
+                    }
+                    mail.add(new GoogleSnapshot.Mail(id, text(detail, "threadId"), text(detail, "subject"), text(detail, "from"), text(detail, "to"),
+                            text(detail, "date"), text(detail, "snippet"), text(detail, "body"), unread));
                 }
                 synchronized (this) {
                     GoogleSnapshot current = connected();
-                    save(new GoogleSnapshot(current.accountId(), current.email(), current.name(), current.agentAccess(), mail.build(), Optional.empty(), query,
+                    save(new GoogleSnapshot(current.accountId(), current.email(), current.name(), current.agentAccess(), mail.build(), query,
                             text(results, "nextPageToken"), Instant.now().toString(), current.calendars(), current.events(), current.calendarId(),
                             current.timeMin(), current.timeMax(), current.calendarSavedAt()));
                 }
             }
         });
-    }
-
-    public synchronized GoogleSnapshot.Status openMail(String selected, String messageId)
-    {
-        checkArgument(messageId != null && !messageId.isBlank() && messageId.length() <= 200, "Choose a valid message.");
-        if (!profile.equals(selected)) {
-            select(selected);
-        }
-        GoogleSnapshot before = connected();
-        return start("Opening email", () -> {
-            try (var session = connector.open(selected, false)) {
-                verifyAccount(session, before);
-                GoogleSnapshot.Mail message = readMail(session, messageId);
-                synchronized (this) {
-                    save(connected().withOpenedMail(message));
-                }
-            }
-        });
-    }
-
-    private static GoogleSnapshot.Mail readMail(WorkspaceConnector.Session session, String messageId)
-    {
-        JsonNode detail = session.call("gmail_get", ImmutableMap.of("messageId", messageId, "format", "full"));
-        checkState(messageId.equals(required(detail, "id")), "Gmail returned a different message.");
-        boolean unread = false;
-        for (JsonNode label : detail.path("labelIds")) {
-            unread |= label.asText().equals("UNREAD");
-        }
-        return new GoogleSnapshot.Mail(messageId, text(detail, "threadId"), text(detail, "subject"), text(detail, "from"), text(detail, "to"),
-                text(detail, "date"), text(detail, "snippet"), text(detail, "body"), unread);
     }
 
     public synchronized GoogleSnapshot.Status refreshCalendar(String calendarId, String timeMin, String timeMax)
@@ -240,7 +218,7 @@ public class GoogleWorkspaceService
                         : OffsetDateTime.parse(event.start()).toInstant())).collect(ImmutableList.toImmutableList());
                 synchronized (this) {
                     GoogleSnapshot current = connected();
-                    save(new GoogleSnapshot(current.accountId(), current.email(), current.name(), current.agentAccess(), current.mail(), current.openedMail(), current.query(),
+                    save(new GoogleSnapshot(current.accountId(), current.email(), current.name(), current.agentAccess(), current.mail(), current.query(),
                             current.nextPageToken(), current.mailSavedAt(), choices.build(), sorted, calendarId, timeMin, timeMax, Instant.now().toString()));
                 }
             }
@@ -336,7 +314,7 @@ public class GoogleWorkspaceService
     {
         checkArgument(profile.equals(selected), "Select the account again before archiving.");
         GoogleSnapshot before = connected();
-        checkArgument(before.findMail(messageId).isPresent(), "Refresh and select a message first.");
+        checkArgument(before.mail().stream().anyMatch(mail -> mail.id().equals(messageId)), "Refresh and select a message first.");
         return start("Archiving message", () -> {
             try (var session = connector.open(selected, false)) {
                 verifyAccount(session, before);
@@ -344,8 +322,7 @@ public class GoogleWorkspaceService
                 synchronized (this) {
                     GoogleSnapshot current = connected();
                     save(new GoogleSnapshot(current.accountId(), current.email(), current.name(), current.agentAccess(),
-                            current.mail().stream().filter(mail -> !mail.id().equals(messageId)).collect(ImmutableList.toImmutableList()),
-                            current.openedMail().filter(mail -> !mail.id().equals(messageId)), current.query(),
+                            current.mail().stream().filter(mail -> !mail.id().equals(messageId)).collect(ImmutableList.toImmutableList()), current.query(),
                             current.nextPageToken(), current.mailSavedAt(), current.calendars(), current.events(), current.calendarId(),
                             current.timeMin(), current.timeMax(), current.calendarSavedAt()));
                 }
@@ -363,7 +340,7 @@ public class GoogleWorkspaceService
         checkArgument(body != null && !body.isBlank() && body.length() <= 100000, "Enter a message of up to 100,000 characters.");
         checkArgument(replyId != null, "Invalid reply.");
         GoogleSnapshot before = connected();
-        Optional<GoogleSnapshot.Mail> reply = before.findMail(replyId);
+        Optional<GoogleSnapshot.Mail> reply = before.mail().stream().filter(mail -> mail.id().equals(replyId)).findFirst();
         checkArgument(replyId.isEmpty() || reply.isPresent(), "Refresh and select the message to reply to.");
         return start("Sending message", () -> {
             try (var session = connector.open(selected, false)) {

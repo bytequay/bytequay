@@ -14,7 +14,7 @@
 import { createRoot } from 'react-dom/client';
 import NoticeStack from '../NoticeStack';
 import { observeNoticeOcclusion } from '../occlusion';
-import type { TaskNotice, NoticeBridge, NoticeSnapshot } from '../contracts';
+import type { AppNotice, NoticeBridge, NoticeSnapshot } from '../contracts';
 import '../../css/base.css';
 import '../notices.css';
 
@@ -37,7 +37,7 @@ export async function run() {
     open: async id => { if (rejectOpen) throw new Error('Open failed'); opened.push(id); await bridge.dismiss(id); },
     resize: (height, width, folded) => sizes.push({ height, width, folded }),
   };
-  const make = (id: string, kind: TaskNotice['kind']): TaskNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
+  const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
     message: kind === 'QUESTION' ? 'Should interrupted tasks resume automatically?' : 'The latest response is ready to read.',
     laneId: 'codex', repository: 'bytequay/bytequay', occurredAt: new Date().toISOString() });
@@ -195,15 +195,13 @@ export async function run() {
     assert(!host.querySelector('.app-notices__header') && !host.querySelector('.app-notices__pages'), 'Expanded navigation also folds completely');
     state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
     assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'An empty folded stack disappears');
-    state = { ...state, notices: [{ id: 'mail:account:message', kind: 'MAIL', profile: 'account', messageId: 'message',
-      sender: 'Alex', email: 'me@example.com', title: 'Meeting notes', message: 'Please take a look.', occurredAt: new Date().toISOString() }], popupIds: ['mail:account:message'] };
+    state = { ...state, notices: [make('fresh-question', 'QUESTION')], popupIds: ['fresh-question'] };
     listener(state); await wait();
     assert(!host.querySelector('.app-notices__edge') && !sizes.at(-1)?.folded, 'A fresh batch appears normally after the folded stack empties');
-    const mail = host.querySelector('.is-mail'); assert(mail?.textContent?.includes('Alex · me@example.com'), 'Mail card identifies its sender and account');
-    assert(mail.textContent?.includes('New email') && mail.textContent.includes('Meeting notes'), 'Mail card shows its subject');
-    const openMail = mail.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openMail?.textContent === 'View email', 'Mail has its own navigation action');
-    openMail.click(); await wait();
-    assert(opened.includes('mail:account:message') && !host.querySelector('.is-mail'), 'Opening mail closes its card');
+    const question = host.querySelector('.is-question'); assert(question, 'The new task card appears');
+    const openQuestion = question.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openQuestion?.textContent === 'View question', 'Questions navigate to their task');
+    openQuestion.click(); await wait();
+    assert(opened.includes('fresh-question') && !host.querySelector('.is-question'), 'Opening the task closes its card');
     const occlusion: boolean[] = [];
     const stopOcclusion = observeNoticeOcclusion(value => occlusion.push(value));
     const modal = document.createElement('section'); modal.setAttribute('aria-modal', 'true'); modal.textContent = 'Submit review';

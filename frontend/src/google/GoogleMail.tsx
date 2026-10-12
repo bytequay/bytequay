@@ -14,7 +14,7 @@
 import { useEffect, useState } from 'react';
 import { Archive, ArrowUpRight, CalendarDays, ChevronDown, ChevronRight, ChevronUp, CircleDot, ExternalLink, GitMerge, GitPullRequest, Inbox, LoaderCircle, MailOpen, PenLine, RefreshCw, Reply,
   Search, ShieldCheck, Sparkles, Check } from 'lucide-react';
-import { githubLink, gmailLink, type GoogleMail as Mail, type GoogleSnapshot, type GoogleStatus, type GoogleMailTarget } from './contracts';
+import { githubLink, gmailLink, type GoogleMail as Mail, type GoogleSnapshot, type GoogleStatus } from './contracts';
 import { githubNotification, mailGroups, mailParagraphs, mailSender, mailSource, mailSubject, mailTime, mergedNotice, type MailBlock, type MailSource } from './mailView';
 import GoogleMailComposer from './GoogleMailComposer';
 import { relativeTime } from '../relativeTime';
@@ -59,18 +59,16 @@ function Block({ block, repository, open }: { block: MailBlock; repository: stri
   })}</p>;
 }
 
-export default function GoogleMail({ status, data, busy, hidden, compose, onCompose, act, open, onAsk, notice }: {
+export default function GoogleMail({ status, data, busy, hidden, compose, onCompose, act, open, onAsk }: {
   status: GoogleStatus; data: GoogleSnapshot; busy: boolean; hidden: boolean; compose: MailDraft | null; onCompose: (draft: MailDraft | null) => void;
   act: (action: () => Promise<GoogleStatus>) => Promise<void>; open: (url: string) => void; onAsk: (mail: Mail) => void;
-  notice?: GoogleMailTarget;
 }) {
   const [query, setQuery] = useState(data.query || 'in:inbox');
-  const [selected, setSelected] = useState<string | null>(notice?.messageId ?? null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [details, setDetails] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   useEffect(() => { if (data.query) setQuery(data.query); }, [data.query]);
-  useEffect(() => { if (notice) { setSelected(notice.messageId); setDetails(false); } }, [notice]);
   useEffect(() => {
     if (archiving && !status.operation) {
       if (!status.error) { setSelected(null); setToast('Archived'); }
@@ -84,8 +82,7 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
   }, [toast]);
 
   const composing = compose !== null && compose.reply === null;
-  const message = composing ? undefined : data.openedMail?.id === selected ? data.openedMail
-    : data.mail.find(item => item.id === selected) ?? (selected === notice?.messageId ? undefined : data.mail[0]);
+  const message = composing ? undefined : data.mail.find(item => item.id === selected) ?? data.mail[0];
   const replying = message !== undefined && compose?.reply?.id === message.id;
   const canReply = message !== undefined && compose === null && !busy;
   useEffect(() => {
@@ -152,7 +149,7 @@ export default function GoogleMail({ status, data, busy, hidden, compose, onComp
           {data.nextPageToken && <button type="button" className="setw-btn" disabled={busy || query !== data.query} onClick={() => search(data.query, data.nextPageToken)}>Next page<ChevronRight size={13} aria-hidden="true" /></button>}</footer>
       </div>
       <article className="google-reader">
-        {composing ? composer(null) : !message || !sender || !subject ? <div className="google-reader__none"><MailOpen size={22} aria-hidden="true" />{busy ? 'Opening email…' : 'Select a message to read it.'}</div> : <>
+        {composing ? composer(null) : !message || !sender || !subject ? <div className="google-reader__none"><MailOpen size={22} aria-hidden="true" />Select a message to read it.</div> : <>
           <div className="google-reader__bar">
             <button type="button" className="setw-btn" disabled={!canReply} onClick={() => onCompose({ reply: message })}><Reply size={14} aria-hidden="true" />Reply</button>
             <button type="button" className="setw-btn" disabled={busy} onClick={() => { void act(async () => { const next = await window.bridge.archiveGoogleMail(status.profile, message.id); setArchiving(true); return next; }); }}><Archive size={14} aria-hidden="true" />Archive</button>

@@ -23,7 +23,7 @@ import static java.util.Objects.requireNonNull;
 /** The bounded in-memory selection the user loaded, not a complete mailbox or calendar mirror. */
 public record GoogleSnapshot(
         String accountId, String email, String name, boolean agentAccess,
-        List<Mail> mail, Optional<Mail> openedMail, String query, String nextPageToken, String mailSavedAt,
+        List<Mail> mail, String query, String nextPageToken, String mailSavedAt,
         List<Calendar> calendars, List<Event> events, String calendarId, String timeMin, String timeMax, String calendarSavedAt)
 {
     public GoogleSnapshot
@@ -32,7 +32,6 @@ public record GoogleSnapshot(
         requireNonNull(email, "email is null");
         requireNonNull(name, "name is null");
         mail = ImmutableList.copyOf(mail);
-        requireNonNull(openedMail, "openedMail is null");
         requireNonNull(query, "query is null");
         requireNonNull(nextPageToken, "nextPageToken is null");
         requireNonNull(mailSavedAt, "mailSavedAt is null");
@@ -46,26 +45,14 @@ public record GoogleSnapshot(
 
     public static GoogleSnapshot empty(String accountId, String email, String name)
     {
-        return new GoogleSnapshot(accountId, email, name, false, ImmutableList.of(), Optional.empty(), "in:inbox", "", "",
+        return new GoogleSnapshot(accountId, email, name, false, ImmutableList.of(), "in:inbox", "", "",
                 ImmutableList.of(), ImmutableList.of(), "primary", "", "", "");
     }
 
     public GoogleSnapshot withAgentAccess(boolean allowed)
     {
-        return new GoogleSnapshot(accountId, email, name, allowed, mail, openedMail, query, nextPageToken, mailSavedAt,
+        return new GoogleSnapshot(accountId, email, name, allowed, mail, query, nextPageToken, mailSavedAt,
                 calendars, events, calendarId, timeMin, timeMax, calendarSavedAt);
-    }
-
-    public GoogleSnapshot withOpenedMail(Mail message)
-    {
-        return new GoogleSnapshot(accountId, email, name, agentAccess, mail, Optional.of(message), query, nextPageToken, mailSavedAt,
-                calendars, events, calendarId, timeMin, timeMax, calendarSavedAt);
-    }
-
-    public Optional<Mail> findMail(String messageId)
-    {
-        return openedMail.filter(message -> message.id().equals(messageId))
-                .or(() -> mail.stream().filter(message -> message.id().equals(messageId)).findFirst());
     }
 
     public record Mail(String id, String threadId, String subject, String from, String to, String date, String snippet, String body, boolean unread) {}

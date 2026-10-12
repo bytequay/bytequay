@@ -20,16 +20,14 @@ export type GoogleEvent = {
 };
 export type GoogleSnapshot = {
   accountId: string; email: string; name: string; agentAccess: boolean;
-  mail: GoogleMail[]; openedMail: GoogleMail | null; query: string; nextPageToken: string; mailSavedAt: string;
+  mail: GoogleMail[]; query: string; nextPageToken: string; mailSavedAt: string;
   calendars: { id: string; summary: string }[]; events: GoogleEvent[];
   calendarId: string; timeMin: string; timeMax: string; calendarSavedAt: string;
 };
 export type GoogleAccount = { profile: string; accountId: string; email: string; name: string };
 export type GoogleStatus = { accounts: GoogleAccount[]; profile: string; installed: boolean; operation: string; error: string | null; snapshot: GoogleSnapshot | null };
-export type GoogleMailTarget = { profile: string; messageId: string };
 export type GeminiSetupStatus = { configured: boolean; installed: boolean };
 export type GoogleBridge = {
-  onGoogleMailOpen: (callback: (target: GoogleMailTarget) => void) => () => void;
   getGeminiSetupStatus: () => Promise<GeminiSetupStatus>;
   saveGeminiSetupKey: (key: string) => Promise<GeminiSetupStatus>;
   removeGeminiSetupKey: () => Promise<GeminiSetupStatus>;

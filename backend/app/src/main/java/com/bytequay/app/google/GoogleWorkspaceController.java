@@ -30,18 +30,10 @@ import static java.util.Objects.requireNonNull;
 public class GoogleWorkspaceController
 {
     private final GoogleWorkspaceService google;
-    private final GoogleInboxNotices notices;
 
-    public GoogleWorkspaceController(GoogleWorkspaceService google, GoogleInboxNotices notices)
+    public GoogleWorkspaceController(GoogleWorkspaceService google)
     {
         this.google = requireNonNull(google, "google is null");
-        this.notices = requireNonNull(notices, "notices is null");
-    }
-
-    @GetMapping("/notices")
-    public List<GoogleMailNotice> notices()
-    {
-        return notices.current();
     }
 
     @GetMapping
@@ -84,12 +76,6 @@ public class GoogleWorkspaceController
     public GoogleSnapshot.Status calendar(@RequestBody CalendarRequest request)
     {
         return google.refreshCalendar(request.calendarId(), request.timeMin(), request.timeMax());
-    }
-
-    @PostMapping("/mail/open")
-    public GoogleSnapshot.Status openMail(@RequestBody OpenMailRequest request)
-    {
-        return google.openMail(request.profile(), request.messageId());
     }
 
     @PutMapping("/agent-access")
@@ -135,8 +121,6 @@ public class GoogleWorkspaceController
     public record SendRequest(String profile, String to, String subject, String body, String replyId) {}
 
     public record MailRequest(String query, String pageToken) {}
-
-    public record OpenMailRequest(String profile, String messageId) {}
 
     public record CalendarRequest(String calendarId, String timeMin, String timeMax) {}
 

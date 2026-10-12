@@ -46,7 +46,7 @@ vi.mock('electron', async () => {
       getAppPath: () => process.cwd(), getPath: () => desktop.userData, getVersion: () => 'test', setAboutPanelOptions: vi.fn(),
     },
     BrowserWindow: class extends EventEmitter {
-      webContents = Object.assign(new EventEmitter(), { send: desktop.send, setWindowOpenHandler: vi.fn(), isDestroyed: () => false });
+      webContents = Object.assign(new EventEmitter(), { send: desktop.send, setWindowOpenHandler: vi.fn(), focus: vi.fn(), isDestroyed: () => false });
       setWindowButtonVisibility = vi.fn();
       isDestroyed = () => false;
       loadURL = vi.fn();
@@ -113,22 +113,20 @@ async function start(): Promise<void> {
   await vi.advanceTimersByTimeAsync(0);
 }
 
-it('combines inbox and task notices and opens the matching message inside ByteQuay', async () => {
-  const mail: AppNotice = { id: 'mail:one:message', kind: 'MAIL', profile: 'one', messageId: 'message',
-    email: 'one+work@example.com', sender: 'Alex', title: 'Hello', message: 'Please read', occurredAt: '2026-10-12T00:00:00Z' };
-  const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/api/google/notices') ? [mail] : [])));
+it('reads only task notices and opens the matching task', async () => {
+  const task: AppNotice = { id: 'question', kind: 'QUESTION', taskId: 'task', workspaceId: 'workspace', turnId: 'turn',
+    repository: 'owner/repo', laneId: 'codex', title: 'A question', message: 'Please answer', occurredAt: '2026-10-12T00:00:00Z' };
+  const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/agent/notices') ? [task] : [])));
   vi.stubGlobal('fetch', fetcher);
   await start();
-  expect(await desktop.readNotices()).toEqual([mail]);
+  fetcher.mockClear();
+  expect(await desktop.readNotices()).toEqual([task]);
+  expect(fetcher).toHaveBeenCalledTimes(1);
   expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/notices', expect.objectContaining({ headers: expect.any(Object) }));
-  expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/api/google/notices', expect.objectContaining({ headers: expect.any(Object) }));
-  await desktop.openNotice(mail);
-  expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/api/google/mail/open', expect.objectContaining({
-    method: 'POST', body: JSON.stringify({ profile: 'one', messageId: 'message' }), headers: expect.any(Object),
-  }));
-  expect(desktop.send).toHaveBeenCalledWith('google:open-mail', { profile: 'one', messageId: 'message' });
+  await desktop.openNotice(task);
+  expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/tasks/task?workspaceId=workspace', expect.objectContaining({ headers: expect.any(Object) }));
+  expect(desktop.send).toHaveBeenCalledWith('notices:open-task', { taskId: 'task', workspaceId: 'workspace', turnId: 'turn' });
   expect(desktop.openExternal).not.toHaveBeenCalled();
-  expect(desktop.send).not.toHaveBeenCalledWith('notices:open-task', expect.anything());
 });
 
 it.each(['failed event', 'show throws', 'constructor throws'])('pauses native delivery after %s while attention updates keep polling', async mode => {

@@ -30,21 +30,12 @@ Electron `WebContentsView`; external web sessions stay separate from the
 application's privileged bridge and backend credentials.
 
 App notices project existing task, turn, approval, and queue state through the
-authenticated `/agent/notices` endpoint and recent unread Gmail through
-`/api/google/notices`. A separate backend inbox watch checks connected accounts
-about once a minute, verifies each account, and keeps up to 25 unread inbox
-messages from the last day per account in memory without changing the user's
-mail search or agent consent. Failed reads preserve the previous cards.
-Electron polls these local snapshots and
+authenticated `/agent/notices` endpoint. Electron polls this local snapshot and
 keeps deduplication and recent notices in memory for the session. A separate
 sandboxed `WebContentsView` displays the bottom-right cards above browser and
 editor views. Its restricted bridge can read, dismiss, resize, and navigate to
-a validated task or open the matching account and message in ByteQuay's mail reader; it cannot
-approve or execute task actions or send mail. Recovery notices
+a validated task; it cannot approve or execute task actions. Recovery notices
 wait for ordinary shutdown cleanup to settle before announcing a block.
-An explicitly opened email is kept separately from the account's cached search
-page, so reading a notice preserves the search and pagination. Reply and archive
-actions validate against either that message or the cached page.
 
 ## Backend organization
 

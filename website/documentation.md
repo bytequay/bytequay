@@ -352,10 +352,15 @@ inspection; it is not automatically resent.
 App notices stack in the bottom-right corner when another task finishes a turn,
 asks a question, requests approval, fails, or has queued messages paused. Choose
 the card’s button to open that task and close the card. Up to two cards overlap,
-with the next card peeking out behind the current one. **Notices** or **Needs you**
+with the next card peeking out behind the current one. Cards use compact, two-line
+titles and previews; hover over clipped text to read it. **Notices** or **Needs you**
 opens navigation through the remaining items, one at a time. At least
 one card stays visible until you open its task or close it with **×**. Closed cards
 stay in the counter and can be reopened from there; new notices still pop up.
+Choose **→** beside the counter to fold the stack into a narrow tab on the right
+edge while you type. The tab keeps the count, including new arrivals, without
+reopening the cards. Choose **←** to show them again. Folding clears when all
+notices are gone or ByteQuay restarts.
 Extra completion cards disappear after eight seconds of viewing in front, with the timer
 paused while you hover, focus a card, or switch away
 from ByteQuay. The counter is amber when something needs your attention and blue

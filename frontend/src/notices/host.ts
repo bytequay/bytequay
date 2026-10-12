@@ -13,7 +13,7 @@
  */
 import { ipcMain, WebContentsView, type BrowserWindow, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import path from 'node:path';
-import { parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
+import { NOTICE_WIDTH, parseNotices, type AppNotice, type NoticeSnapshot } from './contracts';
 import { NoticeStore } from './store';
 
 /** One trusted app surface above native browser/editor views; its bridge cannot execute task actions. */
@@ -23,7 +23,8 @@ export class NoticeHost {
   private timer: ReturnType<typeof setInterval> | undefined;
   private reading: Promise<void> | null = null;
   private height = 0;
-  private width = 420;
+  private width = NOTICE_WIDTH;
+  private folded = false;
   private obscured = false;
   private sources = new Map<string, { taskId: string; turnId: string | null }>();
 
@@ -60,11 +61,11 @@ export class NoticeHost {
       await this.openNotice(notice);
       this.store.dismiss(id); this.publish();
     });
-    ipcMain.on('notices:resize', (event, height: unknown, width: unknown) => {
+    ipcMain.on('notices:resize', (event, height: unknown, width: unknown, folded: unknown) => {
       child(event);
       if (typeof height !== 'number' || !Number.isFinite(height) || height < 0
-        || typeof width !== 'number' || !Number.isFinite(width) || width <= 0) return;
-      this.height = Math.ceil(height); this.width = Math.ceil(width); this.layout();
+        || typeof width !== 'number' || !Number.isFinite(width) || width <= 0 || typeof folded !== 'boolean') return;
+      this.height = Math.ceil(height); this.width = Math.ceil(width); this.folded = folded; this.layout();
     });
     ipcMain.handle('notices:source', (event, key: unknown, source: unknown) => {
       const window = this.window();
@@ -163,21 +164,22 @@ export class NoticeHost {
     const { width, height } = window.getContentBounds();
     // Renderer measurements are CSS pixels; native bounds are DIPs, including when the app is zoomed.
     const noticeZoom = this.view.webContents.getZoomFactor();
-    const w = Math.min(Math.max(1, width - 16), Math.ceil(Math.min(420, this.width) * noticeZoom));
+    const w = Math.min(Math.max(1, width - 16), Math.ceil(Math.min(NOTICE_WIDTH, this.width) * noticeZoom));
     const h = this.snapshot().notices.length ? Math.min(Math.max(0, height - 64), Math.ceil(this.height * noticeZoom)) : 0;
     // Bootstrap a one-pixel viewport so Chromium can measure before the first card resize.
     const viewportHeight = Math.max(1, h);
-    this.view.setBounds({ x: width - w - 8, y: height - viewportHeight - 8, width: w, height: viewportHeight });
+    const right = this.folded ? 0 : 8;
+    this.view.setBounds({ x: width - w - right, y: height - viewportHeight - 8, width: w, height: viewportHeight });
     this.view.setVisible(h > 0 && !this.obscured);
     const zoom = window.webContents.getZoomFactor();
     window.webContents.send('notices:bounds', h > 0 && !this.obscured
-      ? { x: (width - w - 8) / zoom, y: (height - h - 8) / zoom, width: w / zoom, height: h / zoom } : null);
+      ? { x: (width - w - right) / zoom, y: (height - h - 8) / zoom, width: w / zoom, height: h / zoom } : null);
     this.raise();
   }
 
   releaseWindow(): void {
     if (this.view && !this.view.webContents.isDestroyed()) this.view.webContents.close();
-    this.view = null; this.height = 0; this.width = 420; this.obscured = false; this.sources.clear();
+    this.view = null; this.height = 0; this.width = NOTICE_WIDTH; this.folded = false; this.obscured = false; this.sources.clear();
   }
 
   stop(): void { clearInterval(this.timer); this.timer = undefined; this.releaseWindow(); }

@@ -14,8 +14,8 @@
 import { expect, it } from 'vitest';
 import { runBrowserFixture } from '../fixtures/browserFixture';
 
-it('keeps notices visible until closed and preserves reopening, timers, and counter contrast in both themes', async () => {
+it('keeps notices visible, folds them out of the way, and preserves reopening, timers, and counter contrast in both themes', async () => {
   const result = await runBrowserFixture<{ passed: boolean }>({ prefix: 'bytequay-notices-', entry: 'src/notices/fixtures/noticeBrowser.tsx',
-    global: 'NoticeTests', styles: true, width: 420, height: 620 });
+    global: 'NoticeTests', styles: true, width: 340, height: 620 });
   expect(result.passed).toBe(true);
 }, 30_000);

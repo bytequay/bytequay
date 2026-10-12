@@ -23,6 +23,6 @@ const bridge: NoticeBridge = {
   },
   dismiss: id => ipcRenderer.invoke('notices:dismiss', id),
   open: id => ipcRenderer.invoke('notices:open', id),
-  resize: (height, width) => ipcRenderer.send('notices:resize', height, width),
+  resize: (height, width, folded) => ipcRenderer.send('notices:resize', height, width, folded),
 };
 contextBridge.exposeInMainWorld('noticeBridge', bridge);

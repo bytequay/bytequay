@@ -27,7 +27,7 @@ export async function run() {
   let listener: (value: NoticeSnapshot) => void = () => {};
   let rejectDismiss = false;
   let rejectOpen = false;
-  const opened: string[] = []; const dismissed: string[] = []; const sizes: { height: number; width: number }[] = [];
+  const opened: string[] = []; const dismissed: string[] = []; const sizes: { height: number; width: number; folded: boolean }[] = [];
   const bridge: NoticeBridge = {
     read: async () => state, subscribe: callback => { listener = callback; return () => {}; },
     dismiss: async id => {
@@ -35,7 +35,7 @@ export async function run() {
       dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
     },
     open: async id => { if (rejectOpen) throw new Error('Open failed'); opened.push(id); await bridge.dismiss(id); },
-    resize: (height, width) => sizes.push({ height, width }),
+    resize: (height, width, folded) => sizes.push({ height, width, folded }),
   };
   const make = (id: string, kind: TaskNotice['kind']): TaskNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
@@ -111,12 +111,12 @@ export async function run() {
       'Opening a task closes only its card and clears the navigation error');
     const rect = host.querySelector<HTMLElement>('.app-notices')?.getBoundingClientRect();
     assert(rect && rect.width <= window.innerWidth && rect.height <= 600, 'Cards fit their native surface');
-    assert(sizes.some(size => size.height > 100 && size.width === 420), 'Native host receives measured card height and full width');
+    assert(sizes.some(size => size.height > 100 && size.width === 340), 'Native host receives measured card height and full width');
     state = { ...state, notices: [make('q', 'QUESTION')], popupIds: [] }; listener(state); await wait();
     assert(!host.querySelector('.app-notice') && launcher.textContent?.includes('1 needs you'), 'An opened card stays closed after refresh and remains in the counter');
     launcher.click(); await wait();
     host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
-    assert(host.querySelectorAll('.app-notice').length === 1 && sizes.at(-1)?.width === 420, 'One pending card stays visible after popups are dismissed');
+    assert(host.querySelectorAll('.app-notice').length === 1 && sizes.at(-1)?.width === 340, 'One pending card stays visible after popups are dismissed');
     const lastClose = host.querySelector<HTMLButtonElement>('.app-notice__close'); assert(lastClose, 'The final visible card has a close button');
     rejectDismiss = true; lastClose.click(); await wait();
     assert(host.querySelector('.app-notice') && host.querySelector('[role="alert"]'), 'Failed dismissals keep the card visible');
@@ -124,7 +124,7 @@ export async function run() {
     assert(!host.querySelector('.app-notice') && !host.querySelector('[role="alert"]') && launcher.textContent?.includes('1 needs you'),
       'Closing the last card keeps its counter and clears any previous error');
     listener({ ...state }); await wait();
-    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.width ?? 420) < 280, 'Closed cards stay closed across refreshes and release the native hit area');
+    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.width ?? 340) < 280, 'Closed cards stay closed across refreshes and release the native hit area');
     launcher.click(); await wait();
     assert(host.querySelector('.is-question'), 'The counter reopens a closed card');
     host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
@@ -178,9 +178,27 @@ export async function run() {
       state = { ...state, notices: Array.from({ length: 50 }, (_, i) => make(`done-${i}`, 'TURN_FINISHED')) }; listener(state); await wait();
       assert(getComputedStyle(counter).backgroundColor !== amber, `${theme}: recent completions use a different tint from pending requests`);
     }
+    const dismissalsBeforeFold = dismissed.length;
+    const fold = host.querySelector<HTMLButtonElement>('[aria-label="Fold notifications"]'); assert(fold, 'The stack has a fold arrow');
+    fold.click(); await wait();
+    const edge = host.querySelector<HTMLButtonElement>('.app-notices__edge'); assert(edge, 'Folded notices keep an edge tab');
+    assert(!host.querySelector('.app-notice') && edge.textContent === '50' && Number(timers.size) === 0, 'Folding hides all cards without expiring them');
+    const foldedSize = sizes.at(-1);
+    assert(foldedSize?.folded && foldedSize.width <= 40 && foldedSize.height <= 80, 'Folding releases the native input area except for the narrow tab');
+    assert(edge.getAttribute('aria-label') === 'Show 50 notifications' && document.activeElement === edge, 'Keyboard focus moves to the named reopen control');
+    state = { ...state, notices: [make('new-while-folded', 'QUESTION'), ...state.notices], popupIds: ['new-while-folded'] }; listener(state); await wait();
+    assert(!host.querySelector('.app-notice') && Number(edge.textContent) === 51, 'New arrivals update the count without covering the input again');
+    assert(dismissed.length === dismissalsBeforeFold, 'Folding does not dismiss notifications');
+    edge.click(); await wait();
+    assert(host.querySelector('.is-question:not(.is-preview)') && sizes.at(-1)?.width === 340 && !sizes.at(-1)?.folded, 'The edge tab restores the cards and navigation');
+    host.querySelector<HTMLButtonElement>('[aria-label="Fold notifications"]')?.click(); await wait();
+    assert(!host.querySelector('.app-notices__header') && !host.querySelector('.app-notices__pages'), 'Expanded navigation also folds completely');
+    state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
+    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'An empty folded stack disappears');
     state = { ...state, notices: [{ id: 'mail:account:message', kind: 'MAIL', profile: 'account', messageId: 'message',
       sender: 'Alex', email: 'me@example.com', title: 'Meeting notes', message: 'Please take a look.', occurredAt: new Date().toISOString() }], popupIds: ['mail:account:message'] };
     listener(state); await wait();
+    assert(!host.querySelector('.app-notices__edge') && !sizes.at(-1)?.folded, 'A fresh batch appears normally after the folded stack empties');
     const mail = host.querySelector('.is-mail'); assert(mail?.textContent?.includes('Alex · me@example.com'), 'Mail card identifies its sender and account');
     assert(mail.textContent?.includes('New email') && mail.textContent.includes('Meeting notes'), 'Mail card shows its subject');
     const openMail = mail.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openMail?.textContent === 'View email', 'Mail has its own navigation action');

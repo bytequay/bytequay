@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 export const NOTICE_KINDS = ['TURN_FINISHED', 'QUESTION', 'APPROVAL', 'FAILURE', 'RECOVERY', 'QUEUE_PAUSED', 'MAIL'] as const;
+export const NOTICE_WIDTH = 340;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 export type TaskNotice = {
   id: string; kind: Exclude<NoticeKind, 'MAIL'>; taskId: string; workspaceId: string; turnId: string | null;
@@ -29,7 +30,7 @@ export type NoticeBridge = {
   subscribe: (listener: (state: NoticeSnapshot) => void) => () => void;
   dismiss: (id: string) => Promise<void>;
   open: (id: string) => Promise<void>;
-  resize: (height: number, width: number) => void;
+  resize: (height: number, width: number, folded: boolean) => void;
 };
 export const needsAction = (notice: AppNotice): boolean => notice.kind !== 'TURN_FINISHED';
 export const NOTICE_LABELS: Record<NoticeKind, string> = {

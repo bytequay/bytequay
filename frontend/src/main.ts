@@ -21,9 +21,10 @@ import os from 'node:os';
 import { spawn as spawnPty } from 'node-pty';
 import { IdeViews } from './ideViews';
 import { NoticeHost } from './notices/host';
+import { parseNotices } from './notices/contracts';
 import { GeminiSetup } from './google/geminiSetup';
 import { GeminiChat } from './google/geminiChat';
-import type { GoogleStatus } from './google/contracts';
+import { gmailLink, type GoogleStatus } from './google/contracts';
 import { BrowserTabs, registerBrowserTabIpc } from './browserTabs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -278,8 +279,12 @@ function imageMediaType(filePath: string): string {
   return 'image/jpeg';
 }
 const appNotices = new NoticeHost(() => mainWindow,
-  () => backendJson(`${backendBase()}/agent/notices`, { headers: agentHeaders() }),
+  async () => (await Promise.all(['/agent/notices', '/api/google/notices'].map(route => backendJson(`${backendBase()}${route}`, { headers: agentHeaders() })))).flatMap(parseNotices),
   async notice => {
+    if (notice.kind === 'MAIL') {
+      await shell.openExternal(gmailLink({ id: notice.messageId, threadId: notice.threadId }, notice.email));
+      return;
+    }
     await backendJson(`${backendBase()}/agent/tasks/${encodeURIComponent(notice.taskId)}?workspaceId=${encodeURIComponent(notice.workspaceId)}`, { headers: agentHeaders() });
     browserTabs.hide();
     mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId });

@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from 'react';
-import { Bell, Check, ChevronLeft, ChevronRight, CircleAlert, MessageCircleQuestion, Pause, ShieldCheck, X } from 'lucide-react';
+import { Bell, Check, ChevronLeft, ChevronRight, CircleAlert, Mail, MessageCircleQuestion, Pause, ShieldCheck, X } from 'lucide-react';
 import { NOTICE_LABELS, needsAction, type AppNotice, type NoticeBridge, type NoticeSnapshot } from './contracts';
 
-const ICONS = { TURN_FINISHED: Check, QUESTION: MessageCircleQuestion, APPROVAL: ShieldCheck, FAILURE: CircleAlert, RECOVERY: CircleAlert, QUEUE_PAUSED: Pause };
-const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue' };
+const ICONS = { TURN_FINISHED: Check, QUESTION: MessageCircleQuestion, APPROVAL: ShieldCheck, FAILURE: CircleAlert, RECOVERY: CircleAlert, QUEUE_PAUSED: Pause, MAIL: Mail };
+const ACTIONS = { TURN_FINISHED: 'View response', QUESTION: 'View question', APPROVAL: 'Review request', FAILURE: 'View task', RECOVERY: 'Inspect task', QUEUE_PAUSED: 'View queue', MAIL: 'Open Gmail' };
 
 function NoticeCard({ notice, active, popup, onDismiss, onClose, onOpen }: {
   notice: AppNotice; active: boolean; popup: boolean; onDismiss: () => void; onClose: () => void; onOpen: () => void;
@@ -34,7 +34,7 @@ function NoticeCard({ notice, active, popup, onDismiss, onClose, onOpen }: {
     return () => { window.clearTimeout(timer); remaining.current = Math.max(0, remaining.current - (Date.now() - start)); };
   }, [actionable, popup, active, hovered, focused]);
   const Icon = ICONS[notice.kind];
-  const provider = notice.laneId.startsWith('claude') ? 'Claude' : notice.laneId.startsWith('codex') ? 'Codex' : notice.laneId;
+  const provider = notice.kind === 'MAIL' ? notice.sender : notice.laneId.startsWith('claude') ? 'Claude' : notice.laneId.startsWith('codex') ? 'Codex' : notice.laneId;
   return <article className={`app-notice is-${notice.kind.toLowerCase()}`} aria-label={`${NOTICE_LABELS[notice.kind]}: ${notice.title}`}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
@@ -43,7 +43,7 @@ function NoticeCard({ notice, active, popup, onDismiss, onClose, onOpen }: {
       <button type="button" className="app-notice__close" aria-label={`Close ${NOTICE_LABELS[notice.kind].toLowerCase()} notification`} onClick={onClose}><X size={14} /></button>
     </div>
     <h2>{notice.title}</h2><p>{notice.message}</p>
-    <div className="app-notice__meta">{provider} · {notice.repository}</div>
+    <div className="app-notice__meta">{provider} · {notice.kind === 'MAIL' ? notice.email : notice.repository}</div>
     <div className="app-notice__actions"><button type="button" onClick={onOpen}>{ACTIONS[notice.kind]}</button>
       {needsAction(notice) && <span>Needs your attention</span>}</div>
   </article>;
@@ -109,7 +109,7 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
   };
   const open = (notice: AppNotice) => {
     setError(null);
-    void bridge.open(notice.id).then(() => { closeCard(notice); setExpanded(false); }).catch(() => setError('Unable to open the task. Try again.'));
+    void bridge.open(notice.id).then(() => { closeCard(notice); setExpanded(false); }).catch(() => setError('Unable to open this notice. Try again.'));
   };
   if (state.notices.length === 0) return null;
   return <div ref={root} className="app-notices" style={{ '--notice-max-height': `${state.maxHeight}px`,

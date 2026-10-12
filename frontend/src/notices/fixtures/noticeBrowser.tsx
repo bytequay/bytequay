@@ -13,7 +13,7 @@
  */
 import { createRoot } from 'react-dom/client';
 import NoticeStack from '../NoticeStack';
-import type { AppNotice, NoticeBridge, NoticeSnapshot } from '../contracts';
+import type { TaskNotice, NoticeBridge, NoticeSnapshot } from '../contracts';
 import '../../css/base.css';
 import '../notices.css';
 
@@ -36,7 +36,7 @@ export async function run() {
     open: async id => { if (rejectOpen) throw new Error('Open failed'); opened.push(id); await bridge.dismiss(id); },
     resize: (height, width) => sizes.push({ height, width }),
   };
-  const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
+  const make = (id: string, kind: TaskNotice['kind']): TaskNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn',
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
     message: kind === 'QUESTION' ? 'Should interrupted tasks resume automatically?' : 'The latest response is ready to read.',
     laneId: 'codex', repository: 'bytequay/bytequay', occurredAt: new Date().toISOString() });
@@ -157,6 +157,14 @@ export async function run() {
       state = { ...state, notices: Array.from({ length: 50 }, (_, i) => make(`done-${i}`, 'TURN_FINISHED')) }; listener(state); await wait();
       assert(getComputedStyle(counter).backgroundColor !== amber, `${theme}: recent completions use a different tint from pending requests`);
     }
+    state = { ...state, notices: [{ id: 'mail:account:message', kind: 'MAIL', profile: 'account', messageId: 'message', threadId: 'thread',
+      sender: 'Alex', email: 'me@example.com', title: 'Meeting notes', message: 'Please take a look.', occurredAt: new Date().toISOString() }], popupIds: ['mail:account:message'] };
+    listener(state); await wait();
+    const mail = host.querySelector('.is-mail'); assert(mail?.textContent?.includes('Alex · me@example.com'), 'Mail card identifies its sender and account');
+    assert(mail.textContent?.includes('New email') && mail.textContent.includes('Meeting notes'), 'Mail card shows its subject');
+    const openMail = mail.querySelector<HTMLButtonElement>('.app-notice__actions button'); assert(openMail?.textContent === 'Open Gmail', 'Mail has its own navigation action');
+    openMail.click(); await wait();
+    assert(opened.includes('mail:account:message') && !host.querySelector('.is-mail'), 'Opening mail closes its card');
     return { passed: true, dismissed, opened };
   } finally {
     root.unmount(); host.remove(); document.documentElement.style.colorScheme = ''; window.setTimeout = originalTimeout; window.clearTimeout = originalClear; Date.now = originalNow;

@@ -41,7 +41,7 @@ export class NoticeStore {
       }
       if (!known || needsAction(notice) || this.notices.has(notice.id)) {
         for (const [id, prior] of this.notices) {
-          if (id !== notice.id && prior.taskId === notice.taskId) { this.notices.delete(id); this.popups.delete(id); }
+          if (id !== notice.id && notice.kind !== 'MAIL' && prior.kind !== 'MAIL' && prior.taskId === notice.taskId) { this.notices.delete(id); this.popups.delete(id); }
         }
         this.notices.set(notice.id, notice);
         if (!known && this.initialized && (this.settling.get(notice.id)?.popup ?? true)) this.popups.add(notice.id);

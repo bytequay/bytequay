@@ -27,7 +27,7 @@ export class NoticeHost {
   private sources = new Map<string, { taskId: string; turnId: string | null }>();
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
-    private readonly openTask: (notice: AppNotice) => Promise<void>) {}
+    private readonly openNotice: (notice: AppNotice) => Promise<void>) {}
 
   register(): void {
     ipcMain.on('notices:measure', event => {
@@ -50,7 +50,7 @@ export class NoticeHost {
       await this.refresh();
       const notice = this.snapshot().notices.find(item => item.id === id);
       if (!notice) return;
-      await this.openTask(notice);
+      await this.openNotice(notice);
       this.store.dismiss(id); this.publish();
     });
     ipcMain.on('notices:resize', (event, height: unknown, width: unknown) => {
@@ -114,7 +114,7 @@ export class NoticeHost {
     const state = this.snapshot();
     if (state.active) {
       for (const notice of state.notices) {
-        if ([...this.sources.values()].some(source => source.taskId === notice.taskId && (notice.turnId === null || source.turnId === notice.turnId))) {
+        if (notice.kind !== 'MAIL' && [...this.sources.values()].some(source => source.taskId === notice.taskId && (notice.turnId === null || source.turnId === notice.turnId))) {
           this.store.dismiss(notice.id);
         }
       }

@@ -12,11 +12,11 @@
  * limitations under the License.
  */
 import { expect, it } from 'vitest';
-import { parseNotices, type AppNotice } from './contracts';
+import { parseNotices, type MailNotice, type TaskNotice } from './contracts';
 import { NoticeStore } from './store';
 
 const now = Date.parse('2026-09-27T10:00:00Z');
-const notice = (id: string, kind: AppNotice['kind'] = 'TURN_FINISHED', taskId = 'task'): AppNotice => ({
+const notice = (id: string, kind: TaskNotice['kind'] = 'TURN_FINISHED', taskId = 'task'): TaskNotice => ({
   id, kind, taskId, workspaceId: 'workspace', turnId: 'turn', title: 'Fix recovery', message: 'Ready', repository: 'owner/repo', laneId: 'codex', occurredAt: new Date(now).toISOString(),
 });
 
@@ -77,5 +77,24 @@ it('rejects malformed data at the desktop boundary', () => {
   expect(parseNotices([notice('one')])).toEqual([notice('one')]);
   for (const value of [{}, [notice('one'), notice('one')], [{ ...notice('one'), kind: 'RAW_ERROR' }], [{ ...notice('one'), occurredAt: 'unknown' }]]) {
     expect(() => parseNotices(value)).toThrow();
+  }
+});
+
+it('keeps mail distinct by message and account, suppresses duplicates, and clears read mail', () => {
+  const mail: MailNotice = { id: 'mail:account:one', kind: 'MAIL', profile: 'account', messageId: 'one', threadId: 'thread',
+    title: 'Hello', message: 'A new message', sender: 'Alex', email: 'me@example.com', occurredAt: new Date(now).toISOString() };
+  const other = { ...mail, id: 'mail:other:one', profile: 'other', email: 'other@example.com' };
+  const next = { ...mail, id: 'mail:account:two', messageId: 'two' };
+  const task = notice('question', 'QUESTION');
+  const store = new NoticeStore(); store.update([], now);
+  store.update(parseNotices([mail, other, next, task]), now);
+  expect(store.snapshot(true).notices).toHaveLength(4);
+  expect(store.snapshot(true).popupIds).toHaveLength(4);
+  store.dismiss(mail.id); store.update([mail, other, next, task], now + 5000);
+  expect(store.snapshot(true).popupIds).not.toContain(mail.id);
+  store.update([next, task], now + 10000);
+  expect(store.snapshot(true).notices).toHaveLength(2);
+  for (const invalid of [{ ...mail, profile: '' }, { ...mail, messageId: null }, { ...mail, threadId: {} }]) {
+    expect(() => parseNotices([invalid])).toThrow();
   }
 });

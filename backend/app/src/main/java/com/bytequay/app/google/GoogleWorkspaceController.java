@@ -30,10 +30,18 @@ import static java.util.Objects.requireNonNull;
 public class GoogleWorkspaceController
 {
     private final GoogleWorkspaceService google;
+    private final GoogleInboxNotices notices;
 
-    public GoogleWorkspaceController(GoogleWorkspaceService google)
+    public GoogleWorkspaceController(GoogleWorkspaceService google, GoogleInboxNotices notices)
     {
         this.google = requireNonNull(google, "google is null");
+        this.notices = requireNonNull(notices, "notices is null");
+    }
+
+    @GetMapping("/notices")
+    public List<GoogleMailNotice> notices()
+    {
+        return notices.current();
     }
 
     @GetMapping

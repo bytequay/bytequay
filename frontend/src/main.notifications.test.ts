@@ -17,8 +17,10 @@ import os from 'node:os';
 import path from 'node:path';
 import type { EventEmitter } from 'node:events';
 import type { PullRequestDto } from './types';
+import type { AppNotice } from './notices/contracts';
 
 vi.mock('./notices/host', () => ({ NoticeHost: class {
+    constructor(_window: unknown, read: () => Promise<unknown>, open: (notice: AppNotice) => Promise<void>) { desktop.readNotices = read; desktop.openNotice = open; }
     register = vi.fn(); attach = vi.fn(); start = vi.fn(); stop = vi.fn(); releaseWindow = vi.fn(); raise = vi.fn();
 } }));
 
@@ -29,11 +31,15 @@ const desktop = vi.hoisted(() => ({
   show: vi.fn(),
   send: vi.fn(),
   userData: '',
+  readNotices: async (): Promise<unknown> => [],
+  openNotice: async (_notice: AppNotice): Promise<void> => {},
+  openExternal: vi.fn(async () => {}),
 }));
 
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return {
+    shell: { openExternal: desktop.openExternal },
     app: {
       setName: vi.fn(), commandLine: { appendSwitch: vi.fn() }, requestSingleInstanceLock: () => true,
       on: (event: string, listener: () => Promise<void>) => desktop.listeners.set(event, listener),
@@ -85,6 +91,7 @@ beforeEach(() => {
   desktop.constructNotification.mockReset();
   desktop.show.mockReset();
   desktop.send.mockClear();
+  desktop.openExternal.mockClear();
   desktop.userData = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-notifications-test-'));
   vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://127.0.0.1:5173');
   vi.stubGlobal('fetch', vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/prs/attention') ? prs : {}))));
@@ -105,6 +112,20 @@ async function start(): Promise<void> {
   await desktop.listeners.get('ready')?.();
   await vi.advanceTimersByTimeAsync(0);
 }
+
+it('combines inbox and task notices and opens the matching Gmail account safely', async () => {
+  const mail: AppNotice = { id: 'mail:one:message', kind: 'MAIL', profile: 'one', messageId: 'message', threadId: 'thread/with?parts',
+    email: 'one+work@example.com', sender: 'Alex', title: 'Hello', message: 'Please read', occurredAt: '2026-10-12T00:00:00Z' };
+  const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/api/google/notices') ? [mail] : [])));
+  vi.stubGlobal('fetch', fetcher);
+  await import('./main');
+  expect(await desktop.readNotices()).toEqual([mail]);
+  expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/agent/notices', expect.objectContaining({ headers: expect.any(Object) }));
+  expect(fetcher).toHaveBeenCalledWith('http://127.0.0.1:9527/api/google/notices', expect.objectContaining({ headers: expect.any(Object) }));
+  await desktop.openNotice(mail);
+  expect(desktop.openExternal).toHaveBeenCalledWith('https://mail.google.com/mail/?authuser=one%2Bwork%40example.com#all/thread%2Fwith%3Fparts');
+  expect(desktop.send).not.toHaveBeenCalledWith('notices:open-task', expect.anything());
+});
 
 it.each(['failed event', 'show throws', 'constructor throws'])('pauses native delivery after %s while attention updates keep polling', async mode => {
   if (mode === 'show throws') desktop.show.mockImplementation(() => { throw new Error(failure); });

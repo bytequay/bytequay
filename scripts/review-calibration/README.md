@@ -195,7 +195,10 @@ uv run activity.py --save
 `review-scores.json` holds what the score tables print. `turns.json` is the
 turn table: one row for every turn, with its task id, its start, how it ended,
 the seconds of each part of its time, the programs it ran and what the model
-reacted to. Both hold names, counts and times and nothing else: no command
+reacted to. A row also lists every single command of 30 seconds or more by its
+program, every wait for the user with its kind, how it ended and how long it
+took, and how often the provider gave a rate limit notice or tried a call
+again. Both files hold names, counts and times and nothing else: no command
 arguments, no paths and no message text.
 
 For the turn table `activity.py` also reads ByteQuay's own database,
@@ -231,12 +234,17 @@ uv run dashboard.py FOLDER --port 8600
 `http://127.0.0.1:8517`. It reads the folder and nothing else: not the task
 logs and not the application's data. Pick the days in the side bar; days are
 in the reader's own time zone, while `--since` counts in UTC. A model and
-effort can be picked there too. The Overview tab has the totals, a ring of the
+effort and a repository can be picked there too, and every tab follows. The Overview tab has the totals, a ring of the
 three states, a ring of how the turns ended and the turn time of each day. The
 Time tab has every part of the time as rings, bars for what the agent waited
-for, shell time by program, model time by what just finished, and the tasks
-that took the most time. Both are about turns that have a log, and their
-numbers are those of the terminal tables on the same turns.
+for, shell time by program, model time by what just finished, the tasks
+that took the most time, and the turn time of each repository. The Slow spots
+tab has the long single commands by program with the longest ones listed,
+how the waits for the user ended and how long an answer took, and the rate
+limit notices and retries of each day. The logs say how often a notice or a
+retry came, not how long it held a turn up. These three tabs are about turns
+that have a log, and the numbers of the first two are those of the terminal
+tables on the same turns.
 
 The Models tab is about turns the database knows. It lists every model and
 effort with its turns, typical turn, typical tokens and tool calls, and how

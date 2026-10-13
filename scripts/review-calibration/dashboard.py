@@ -22,6 +22,11 @@ SHOW = {"width": "stretch", "config": {"displayModeBar": False}}
 TILE = 170
 
 
+def draw(name, figure):
+    """Draw a chart under a name of its own. Two charts can hold the same numbers, and the page must still tell them apart."""
+    st.plotly_chart(figure, key=name, **SHOW)
+
+
 def when(moment):
     """A saved time in the reader's own time zone."""
     return datetime.fromisoformat(moment).astimezone().strftime("%Y-%m-%d %H:%M")
@@ -39,6 +44,10 @@ def chosen(made, table):
         wanted = st.multiselect("Model and effort", names, placeholder="All") if names else []
         if wanted:
             shown = charts.only(shown, shown["turns"]["setting"].isin(wanted))
+        repositories = sorted(set(made["turns"]["repository"].dropna()))
+        wanted = st.multiselect("Repository", repositories, placeholder="All") if repositories else []
+        if wanted:
+            shown = charts.only(shown, shown["turns"]["repository"].isin(wanted))
         turns = shown["turns"]
         st.caption(f"{len(turns):,} of {len(made['turns']):,} turns. Days are in your own time zone.")
         # Two sources stand behind a turn, and not every turn is in both.
@@ -63,12 +72,12 @@ def overview(shown, table, mode):
     left, right = st.columns(2)
     with left:
         st.subheader("Where the time went")
-        st.plotly_chart(charts.states_donut(parts, mode), **SHOW)
+        draw("states_donut", charts.states_donut(parts, mode))
     with right:
         st.subheader("How the turns ended")
-        st.plotly_chart(charts.endings_donut(turns, mode), **SHOW)
+        draw("endings_donut", charts.endings_donut(turns, mode))
     st.subheader("Turn time per day")
-    st.plotly_chart(charts.days_figure(turns, parts, mode), **SHOW)
+    draw("days_figure", charts.days_figure(turns, parts, mode))
     for note in activity.notes(turns["parallel"].sum(), int(turns["mostAtOnce"].max()), int(turns["unfinished"].sum()),
                                table["leftOut"]["skippedLines"], table["leftOut"]["unreadLogs"]):
         st.caption(note)
@@ -78,24 +87,57 @@ def time(shown, mode):
     turns, parts, programs, after = shown["turns"], shown["parts"], shown["programs"], shown["after"]
     colors, waiting = charts.COLORS[mode], charts.STATES[1]
     st.subheader("Every part of the time")
-    st.plotly_chart(charts.sunburst(parts, mode), **SHOW)
+    draw("sunburst", charts.sunburst(parts, mode))
     waited = charts.part_rows(parts, waiting)
     if waited:
         st.subheader(f"{waiting}: what was running")
-        st.plotly_chart(charts.bars_figure(waited, turns["seconds"].sum(), colors["tool"]), **SHOW)
+        draw("waited", charts.bars_figure(waited, turns["seconds"].sum(), colors["tool"]))
     ranked = charts.program_rows(programs)
     if ranked:
         st.subheader("Shell time by program, summed over runs")
-        st.plotly_chart(charts.bars_figure(ranked, programs["seconds"].sum(), colors["tool"], "runs"), **SHOW)
+        draw("programs", charts.bars_figure(ranked, programs["seconds"].sum(), colors["tool"], "runs"))
         every = charts.program_rows(programs, top=len(programs))
         with st.expander(f"All {len(every):,} programs"):
             st.dataframe([{"program": name, "minutes": round(length / 60, 1), "runs": runs} for name, length, runs in every], hide_index=True)
     reacted = charts.model_rows(after)
     if reacted:
         st.subheader("Model time by what just finished")
-        st.plotly_chart(charts.bars_figure(reacted, after["seconds"].sum(), colors["model"], "times"), **SHOW)
+        draw("reacted", charts.bars_figure(reacted, after["seconds"].sum(), colors["model"], "times"))
     st.subheader("The tasks that took the most time")
-    st.plotly_chart(charts.tasks_figure(turns, parts, mode), **SHOW)
+    draw("tasks_figure", charts.tasks_figure(turns, parts, mode))
+    if turns["repository"].notna().any():
+        st.subheader("Turn time by repository")
+        draw("repositories_figure", charts.repositories_figure(turns, parts, mode))
+
+
+def slow_spots(shown, mode):
+    turns, runs, waits, notices = shown["turns"], shown["runs"], shown["waits"], shown["notices"]
+    st.subheader("Long single commands")
+    if runs.empty:
+        st.caption(f"No single command ran for {activity.LONG_RUN} seconds or more.")
+    else:
+        st.caption(f"{activity.count(len(runs), 'single command')} ran for {activity.LONG_RUN} seconds or more: {runs['seconds'].sum() / 60:,.1f} minutes in all.")
+        draw("long_runs", charts.bars_figure(charts.long_rows(runs), runs["seconds"].sum(), charts.COLORS[mode]["tool"], "runs"))
+        st.dataframe(charts.longest_runs(runs, turns), hide_index=True)
+    st.subheader("Waiting for you")
+    if waits.empty:
+        st.caption("The agent never had to wait for your answer.")
+    else:
+        expired = int((waits["outcome"] == "expired").sum())
+        st.caption(f"The agent asked {activity.count(len(waits), 'time')} and waited {waits['seconds'].sum() / 60:,.1f} minutes in all. A typical answer took "
+                   f"{waits['seconds'].median():,.0f} seconds." + (f" {activity.count(expired, 'wait')} ran out with no answer, which ends the turn." if expired else ""))
+        left, right = st.columns(2)
+        with left:
+            draw("waits_donut", charts.waits_donut(waits, mode))
+        with right:
+            draw("waits_figure", charts.waits_figure(waits, mode))
+    st.subheader("Rate limits and retries")
+    if notices.empty:
+        st.caption("No rate limit notice and no retry.")
+    else:
+        counted = notices.groupby("what")["times"].sum()
+        st.caption("The logs say how often these came, not how long they held a turn up. " + ", ".join(f"{what}: {int(times):,}" for what, times in counted.items()) + ".")
+        draw("notices_figure", charts.notices_figure(notices, turns, mode))
 
 
 def models(shown, table, mode):
@@ -113,16 +155,16 @@ def models(shown, table, mode):
     if not charts.settings(turns):
         return
     st.subheader("Typical turn, by model and effort")
-    st.plotly_chart(charts.heat_figure(turns, mode), **SHOW)
+    draw("heat_figure", charts.heat_figure(turns, mode))
     st.subheader("How long a turn took")
     st.caption("A box holds the middle half of the turns. The line in it is the typical turn, and each dot is a turn far from the rest.")
-    st.plotly_chart(charts.lengths_figure(turns, mode), **SHOW)
+    draw("lengths_figure", charts.lengths_figure(turns, mode))
     if charts.settings(turns, logged=True):
         st.subheader("How each split its time")
         st.caption("Only turns that also have a log.")
-        st.plotly_chart(charts.split_figure(turns, shown["parts"], mode), **SHOW)
+        draw("split_figure", charts.split_figure(turns, shown["parts"], mode))
     st.subheader("How the turns ended")
-    st.plotly_chart(charts.outcomes_figure(turns, mode), **SHOW)
+    draw("outcomes_figure", charts.outcomes_figure(turns, mode))
 
 
 def cost(shown, table, folder, mode):
@@ -154,24 +196,32 @@ def cost(shown, table, folder, mode):
     left, right = st.columns(2)
     with left:
         st.subheader("Tokens by kind")
-        st.plotly_chart(charts.tokens_donut(turns, mode), **SHOW)
+        draw("tokens_donut", charts.tokens_donut(turns, mode))
     with right:
         st.subheader("Tokens by model and effort")
-        st.plotly_chart(charts.tokens_settings_figure(turns, mode), **SHOW)
+        draw("tokens_settings_figure", charts.tokens_settings_figure(turns, mode))
     st.subheader("Tokens per day")
-    st.plotly_chart(charts.tokens_days_figure(turns, mode), **SHOW)
+    draw("tokens_days_figure", charts.tokens_days_figure(turns, mode))
     st.subheader("The tasks that used the most tokens")
-    st.plotly_chart(charts.tokens_tasks_figure(turns, mode), **SHOW)
+    draw("tokens_tasks_figure", charts.tokens_tasks_figure(turns, mode))
     st.subheader("Cost in dollars")
     st.caption("Recorded cost is the Claude command line's own figure at API prices. On a subscription it is not what you paid.")
     st.dataframe(charts.cost_table(costed), hide_index=True)
     if (costed["how"] != "unknown").any():
-        st.plotly_chart(charts.dollars_days_figure(costed, mode), **SHOW)
+        draw("dollars_days_figure", charts.dollars_days_figure(costed, mode))
     missing = charts.unpriced(costed)
     if missing:
         st.caption(f"No cost is known for {', '.join(missing)}. To estimate it, save this as `prices.json` in `{folder}` with your own prices, in dollars for a million tokens:")
         wanted = {model: dict(zip(charts.PRICES, amounts)) for model, amounts in prices.items()} | {model: dict.fromkeys(charts.PRICES, 0) for model in missing}
         st.code(json.dumps({"version": 1, "dollarsPerMillionTokens": wanted}, indent=2), language="json")
+
+
+def timed(tab, logged, *more):
+    """Draw a tab that is about time, or say that no turn of this choice has a log to split."""
+    if len(logged["turns"]):
+        tab(logged, *more)
+    else:
+        st.info("No turn of this choice has a log.")
 
 
 def page(folder):
@@ -199,16 +249,18 @@ def page(folder):
         st.info("No turn matches this choice.")
         return
     mode = "dark" if st.context.theme.type == "dark" else "light"
-    # The first two tabs are about time, which only a log can split. The other two are about what ByteQuay recorded.
+    # The first three tabs are about time, which only a log can split. The other two are about what ByteQuay recorded.
     logged = charts.only(shown, shown["turns"]["logged"])
-    first, second, third, fourth = st.tabs(["Overview", "Time", "Models", "Cost"])
+    first, second, third, fourth, fifth = st.tabs(["Overview", "Time", "Slow spots", "Models", "Cost"])
     with first:
-        overview(logged, table, mode) if len(logged["turns"]) else st.info("No turn of this choice has a log.")
+        timed(overview, logged, table, mode)
     with second:
-        time(logged, mode) if len(logged["turns"]) else st.info("No turn of this choice has a log.")
+        timed(time, logged, mode)
     with third:
-        models(shown, table, mode)
+        timed(slow_spots, logged, mode)
     with fourth:
+        models(shown, table, mode)
+    with fifth:
         cost(shown, table, folder, mode)
 
 

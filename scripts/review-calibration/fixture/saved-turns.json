@@ -61,7 +61,21 @@
       },
       "parallel": 60.0,
       "mostAtOnce": 2,
-      "unfinished": 0
+      "unfinished": 0,
+      "longRuns": [
+        {
+          "program": "maven",
+          "seconds": 120.0
+        }
+      ],
+      "approvals": [
+        {
+          "kind": "other",
+          "outcome": "allowed",
+          "seconds": 60.0
+        }
+      ],
+      "notices": {}
     },
     {
       "task": "aaaa-1111",
@@ -101,7 +115,19 @@
       },
       "parallel": 0.0,
       "mostAtOnce": 0,
-      "unfinished": 0
+      "unfinished": 0,
+      "longRuns": [
+        {
+          "program": "npm",
+          "seconds": 120.0
+        }
+      ],
+      "approvals": [],
+      "notices": {
+        "rate limit: allowed warning": 2,
+        "rate limit: rejected": 1,
+        "retry": 1
+      }
     },
     {
       "task": "bbbb-2222",
@@ -138,7 +164,15 @@
       },
       "parallel": 20.0,
       "mostAtOnce": 2,
-      "unfinished": 0
+      "unfinished": 0,
+      "longRuns": [
+        {
+          "program": "git",
+          "seconds": 40.0
+        }
+      ],
+      "approvals": [],
+      "notices": {}
     },
     {
       "task": "cccc-3333",
@@ -161,7 +195,10 @@
       "after": {},
       "parallel": 0.0,
       "mostAtOnce": 0,
-      "unfinished": 0
+      "unfinished": 0,
+      "longRuns": [],
+      "approvals": [],
+      "notices": {}
     }
   ]
 }

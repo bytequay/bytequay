@@ -13,6 +13,11 @@ TOP_PROGRAMS = 5  # programs named in the chart; the rest are added up, as in th
 TOP_TASKS = 10
 MIN_TURNS = 5  # a model and effort with fewer turns is listed in the table and left out of the charts
 TOP_SETTINGS = 8
+TOP_RUNS = 15
+# How a wait for the user ended. An answer is the usual case and stays quiet; a wait that ran out ended the turn.
+ANSWERS = {"allowed": "usual", "denied": "serious", "cancelled": "warning", "expired": "critical"}
+WAITS = (("under 30 s", 30), ("30 s to 1 min", 60), ("1 to 2 min", 120), ("2 to 5 min", 300), ("5 min or more", float("inf")))
+NOTICES = {"rate limit: allowed warning": "warning", "rate limit: rejected": "critical", "retry": "other"}
 # The three kinds of tokens a turn is billed for, and the color each wears in the token charts. Fresh input is what was
 # not read from the cache. Cached input is most of the tokens and the cheapest, so it stays quiet and the eye goes to the other two.
 TOKEN_KINDS = {"fresh input": "model", "cached input": "usual", "output": "tool"}
@@ -53,7 +58,11 @@ def frames(table, zone=None):
                                 columns=["turn", "program", "seconds", "runs"])
     after = pandas.DataFrame([(number, before, float(made["seconds"]), int(made["times"])) for number, row in enumerate(rows) for before, made in row["after"].items()],
                              columns=["turn", "before", "seconds", "times"])
-    return {"turns": turns, "parts": parts, "programs": programs, "after": after}
+    runs = pandas.DataFrame([(number, run["program"], float(run["seconds"])) for number, row in enumerate(rows) for run in row["longRuns"]], columns=["turn", "program", "seconds"])
+    waits = pandas.DataFrame([(number, wait["kind"], wait["outcome"], float(wait["seconds"])) for number, row in enumerate(rows) for wait in row["approvals"]],
+                             columns=["turn", "kind", "outcome", "seconds"])
+    notices = pandas.DataFrame([(number, what, int(times)) for number, row in enumerate(rows) for what, times in row["notices"].items()], columns=["turn", "what", "times"])
+    return {"turns": turns, "parts": parts, "programs": programs, "after": after, "runs": runs, "waits": waits, "notices": notices}
 
 
 def only(made, keep):
@@ -409,3 +418,72 @@ def dollars_days_figure(costed, mode="light"):
     figure.update_xaxes(fixedrange=True, showgrid=False, tickformat="%b %d")
     figure.update_yaxes(fixedrange=True, title_text="dollars", gridcolor=COLORS[mode]["grid"], zeroline=False)
     return tidy(figure, 280, legend=True)
+
+
+def long_rows(runs, top=TOP_PROGRAMS):
+    """Time in long single commands as (program, seconds, runs): the longest few programs by name, then every other one added up."""
+    return program_rows(runs.assign(runs=1), top)
+
+
+def longest_runs(runs, turns, top=TOP_RUNS):
+    """The longest single commands, each with its program, its minutes, the start of its task's id and its day."""
+    longest = runs.sort_values(["seconds", "program", "turn"], ascending=[False, True, True]).head(top)
+    return [{"program": run.program, "minutes": round(run.seconds / 60, 1), "task": turns.loc[run.turn, "task"][:13], "day": turns.loc[run.turn, "day"].isoformat()}
+            for run in longest.itertuples()]
+
+
+def answers(waits):
+    """How the waits ended: the known endings in a fixed order, then any other by name."""
+    found = set(waits["outcome"])
+    return [name for name in ANSWERS if name in found] + sorted(found - set(ANSWERS))
+
+
+def waits_donut(waits, mode="light"):
+    """How the waits for the user ended, with their number in the middle."""
+    counted, names = waits["outcome"].value_counts(), answers(waits)
+    figure = go.Figure(go.Pie(labels=[f"{name}  {int(counted[name]):,}" for name in names], values=[int(counted[name]) for name in names], hole=0.6, sort=False,
+                              direction="clockwise", textposition="inside", insidetextorientation="horizontal", texttemplate="%{value}", customdata=names,
+                              marker={"colors": [COLORS[mode][ANSWERS.get(name, "other")] for name in names], "line": {"color": COLORS[mode]["surface"], "width": 2}},
+                              hovertemplate="%{customdata}<br>%{value} waits · %{percent:.1%}<extra></extra>"))
+    figure.add_annotation(text=f"{len(waits):,} asked", showarrow=False, font={"size": 20})
+    return tidy(figure, 300, legend=True)
+
+
+def waits_figure(waits, mode="light"):
+    """How long the user took to answer: the number of waits in each band of time."""
+    counted, least = [], 0
+    for _, below in WAITS:
+        counted.append(int(((waits["seconds"] >= least) & (waits["seconds"] < below)).sum()))
+        least = below
+    figure = go.Figure(go.Bar(x=[name for name, _ in WAITS], y=counted, text=[f"{amount:,}" if amount else "" for amount in counted], textposition="outside", cliponaxis=False,
+                              marker={"color": COLORS[mode]["you"]}, hovertemplate="%{x}<br>%{y} waits<extra></extra>"))
+    figure.update_xaxes(fixedrange=True, showgrid=False)
+    figure.update_yaxes(fixedrange=True, visible=False, range=[0, max(counted) * 1.25 if counted and max(counted) else 1])
+    return tidy(figure, 300)
+
+
+def notices_figure(notices, turns, mode="light"):
+    """Rate limit notices and retries for each day, by what the provider said."""
+    daily = notices.merge(turns[["day"]], left_on="turn", right_index=True).groupby(["day", "what"])["times"].sum().unstack(fill_value=0)
+    figure = go.Figure()
+    for what in [name for name in NOTICES if name in daily.columns] + sorted(set(daily.columns) - set(NOTICES)):
+        figure.add_bar(x=list(daily.index), y=[int(amount) for amount in daily[what]], name=what,
+                       marker={"color": COLORS[mode][NOTICES.get(what, "serious")], "line": {"color": COLORS[mode]["surface"], "width": 1}},
+                       hovertemplate="%{x|%b %d}<br>" + what + ": %{y}<extra></extra>")
+    figure.update_xaxes(fixedrange=True, showgrid=False, tickformat="%b %d")
+    figure.update_yaxes(fixedrange=True, title_text="times", gridcolor=COLORS[mode]["grid"], zeroline=False)
+    return tidy(figure, 280, legend=True)
+
+
+def repositories_figure(turns, parts, mode="light"):
+    """Hours of turn time for each repository, cut into the three states. A turn the database does not know has no repository."""
+    named_turns = turns.assign(repository=turns["repository"].fillna("not recorded"))
+    seconds = parts.merge(named_turns[["repository"]], left_on="turn", right_index=True).groupby(["repository", "state"])["seconds"].sum().unstack(fill_value=0.0)
+    seconds = seconds.reindex(columns=STATES, fill_value=0.0)
+    most = seconds.loc[seconds.sum(axis=1).sort_values(ascending=False, kind="stable").index]
+    figure = go.Figure()
+    for state in STATES:
+        figure.add_bar(orientation="h", y=list(most.index), x=list(most[state] / 3600), name=state,
+                       marker={"color": COLORS[mode][KINDS[state]], "line": {"color": COLORS[mode]["surface"], "width": 1}},
+                       hovertemplate="%{y}<br>" + state + ": %{x:.1f} hours<extra></extra>")
+    return bar_list(figure, 34 * len(most) + 40, legend=True)

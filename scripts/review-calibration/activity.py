@@ -19,6 +19,8 @@ import saved
 ENDED = ("COMPLETED", "FAILED")
 TURN_ENDED = ("TURN_COMPLETED", "INTERRUPTED", "TASK_FAILED")
 WRITING_GAP = 3  # seconds; pieces of visible model text this close together are one run of writing
+LONG_RUN = 30  # seconds; a single command this long is kept by itself for the list of long runs
+RATE_LIMIT = re.compile(r"rate limit: (\w+)")
 SILENT = "model silent"
 
 YOU, BUILDS, SHELL, READING, BYTEQUAY, SUBAGENTS, COMPACTION, OTHER_TOOLS, WRITING = (
@@ -119,7 +121,7 @@ def items(events):
         elif kind == "approval_resolved":
             started = running.pop(("approval", payload["approvalId"]), None)
             if started:
-                finished.append(replace(started, end=when))
+                finished.append(replace(started, end=when, detail={**started.detail, "outcome": payload.get("outcome")}))
         elif kind == "assistant_message" and payload["phase"] == "PARTIAL":
             current = writing.get(turn)
             if current and when - current.end <= WRITING_GAP:
@@ -261,6 +263,9 @@ class Turn:
     most_at_once: int = 0
     unfinished: int = 0
     stretches: list = field(default_factory=list)
+    long_runs: list = field(default_factory=list)  # (program, seconds) for every single command of LONG_RUN seconds or more
+    approvals: list = field(default_factory=list)  # (kind, outcome, seconds the turn waited for the user)
+    notices: Counter = field(default_factory=Counter)  # rate limit notices by their status, and retries
 
 
 @dataclass
@@ -298,6 +303,20 @@ def endings(events):
     return closed
 
 
+def notices(events):
+    """For each turn, how often the provider said it was near or over a rate limit, by the status it gave, and how often a call was tried again."""
+    counted = defaultdict(Counter)
+    for event in events:
+        if event["type"] == "lifecycle":
+            phase, message = event["payload"]["phase"], str(event["payload"].get("message", ""))
+            if phase == "RATE_LIMITED":
+                status = RATE_LIMIT.search(message)
+                counted[event.get("turnId")]["rate limit: " + (status.group(1).replace("_", " ") if status else "other")] += 1
+            elif phase == "RETRYING":
+                counted[event.get("turnId")]["retry"] += 1
+    return counted
+
+
 def measure(logs, since=None):
     """Add up the given task logs, one turn at a time. Turns that started before `since` are left out."""
     total, tools = Totals(), set(STATES[1][1])
@@ -310,8 +329,8 @@ def measure(logs, since=None):
             continue
         total.tasks += 1
         total.skipped += skipped
-        closed = endings(events)
-        turns = {turn: Turn(log.parent.name, turn, begin, end, closed.get(turn, "")) for turn, (begin, end) in windows.items()}
+        closed, noticed = endings(events), notices(events)
+        turns = {turn: Turn(log.parent.name, turn, begin, end, closed.get(turn, ""), notices=noticed[turn]) for turn, (begin, end) in windows.items()}
         for item in unfinished:
             if item.turn in turns:
                 turns[item.turn].unfinished += 1
@@ -333,11 +352,18 @@ def measure(logs, since=None):
                 one.parallel += length
                 one.most_at_once = max(one.most_at_once, at_once)
         for item in finished:
-            if item.kind == "command" and item.turn in turns:
-                one = turns[item.turn]
+            if item.turn not in turns:
+                continue
+            one = turns[item.turn]
+            inside = max(0.0, min(item.end, one.end) - max(item.start, one.start))
+            if item.kind == "command":
                 name = program(command_text(item.detail))
-                one.program_seconds[name] += max(0.0, min(item.end, one.end) - max(item.start, one.start))
+                one.program_seconds[name] += inside
                 one.program_runs[name] += 1
+                if inside >= LONG_RUN:
+                    one.long_runs.append((name, inside))
+            elif item.kind == "approval":
+                one.approvals.append((str(item.detail.get("approvalKind") or "OTHER").lower(), str(item.detail.get("outcome") or "unknown").lower(), inside))
         total.each.extend(turns.values())
     for one in total.each:
         total.turns += 1
@@ -458,13 +484,17 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
                      "groups": {group: round(length, 3) for group, length in one.groups.items()},
                      "programs": {name: {"seconds": round(length, 3), "runs": one.program_runs[name]} for name, length in one.program_seconds.items()},
                      "after": {before: {"seconds": round(length, 3), "times": one.after_times[before]} for before, length in one.after.items()},
-                     "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished})
+                     "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished,
+                     "longRuns": [{"program": name, "seconds": round(length, 3)} for name, length in sorted(one.long_runs, key=lambda run: (-run[1], run[0]))],
+                     "approvals": [{"kind": kind, "outcome": outcome, "seconds": round(length, 3)} for kind, outcome, length in one.approvals],
+                     "notices": dict(sorted(one.notices.items()))})
     logged = {(one.task, one.turn) for one in total.each}
     for (owner, turn), facts in sorted(known.items(), key=lambda made: (made[1]["start"], made[0])):
         # The same filters as for the logs, so a saved table never mixes two selections.
         if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
             rows.append({"task": owner, "start": stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
-                         **{name: facts[name] for name in FACTS}, "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0})
+                         **{name: facts[name] for name in FACTS}, "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
+                         "longRuns": [], "approvals": [], "notices": {}})
     database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
     return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,
             "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread}, "turns": rows}

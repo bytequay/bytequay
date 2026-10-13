@@ -136,7 +136,8 @@ class TestFigures(unittest.TestCase):
         self.assertEqual(list(charts.tasks_figure(made()["turns"], made()["parts"], top=1).data[0].y), ["aaaa-1111"])
 
     def test_both_modes_have_every_color_a_chart_asks_for(self):
-        wanted = {*charts.KINDS.values(), *charts.ENDINGS.values(), *charts.TOKEN_KINDS.values(), "other", "surface", "grid", "scale", "ink", "lighter"}
+        wanted = {*charts.KINDS.values(), *charts.ENDINGS.values(), *charts.TOKEN_KINDS.values(), *charts.ANSWERS.values(), *charts.NOTICES.values(), "other", "surface",
+                  "grid", "scale", "ink", "lighter"}
         for mode, colors in charts.COLORS.items():
             self.assertLessEqual(wanted, set(colors), mode)
             for figure in (charts.states_donut, charts.sunburst):
@@ -199,6 +200,57 @@ class TestModels(unittest.TestCase):
         self.assertEqual(list(figure.data[0].y), ["gpt-6-astra · max  (2 turns)", "gpt-6-astra · medium  (2 turns)", "opus · high  (2 turns)"])
         self.assertEqual([list(bar.x) for bar in figure.data], [[50, 0, 50], [0, 50, 0], [50, 50, 50]])
         self.assertEqual([list(bar.text) for bar in figure.data], [["1", "", "1"], ["", "1", ""], ["1", "1", "1"]])
+
+
+class TestSlowSpots(unittest.TestCase):
+    def test_long_commands_waits_and_notices_follow_the_turn_table_and_every_filter(self):
+        frames = made()
+        self.assertEqual(frames["runs"].values.tolist(), [[0, "maven", 120], [1, "npm", 120], [2, "git", 40]])
+        self.assertEqual(frames["waits"].values.tolist(), [[0, "other", "allowed", 60]])
+        self.assertEqual(frames["notices"].values.tolist(), [[1, "rate limit: allowed warning", 2], [1, "rate limit: rejected", 1], [1, "retry", 1]])
+        second_day = charts.within(frames, date(2026, 1, 2), date(2026, 1, 2))
+        self.assertEqual((second_day["runs"]["program"].tolist(), len(second_day["waits"]), len(second_day["notices"])), (["npm", "git"], 0, 3))
+
+    def test_long_commands_are_added_up_by_program_and_listed_longest_first_with_task_and_day(self):
+        frames = made()
+        self.assertEqual(charts.long_rows(frames["runs"]), [("maven", 120, 1), ("npm", 120, 1), ("git", 40, 1)])
+        twice = pandas.concat([frames["runs"], frames["runs"]], ignore_index=True)
+        self.assertEqual(charts.long_rows(twice, top=1), [("maven", 240, 2), ("every other program", 320, 4)])
+        self.assertEqual(charts.longest_runs(frames["runs"], frames["turns"]),
+                         [{"program": "maven", "minutes": 2, "task": "aaaa-1111", "day": "2026-01-01"}, {"program": "npm", "minutes": 2, "task": "aaaa-1111", "day": "2026-01-02"},
+                          {"program": "git", "minutes": 0.7, "task": "bbbb-2222", "day": "2026-01-02"}])
+        self.assertEqual([run["program"] for run in charts.longest_runs(frames["runs"], frames["turns"], top=1)], ["maven"])
+
+    def test_wait_ring_counts_how_waits_ended_in_a_fixed_order_and_keeps_the_name_of_an_ending_it_does_not_know(self):
+        waits = pandas.DataFrame([(0, "command", outcome, 10.0) for outcome in ("expired", "allowed", "paused", "allowed", "cancelled", "denied")], columns=["turn", "kind", "outcome", "seconds"])
+        figure = charts.waits_donut(waits, "dark")
+        ring = figure.data[0]
+        self.assertEqual((list(ring.labels), list(ring.values)), (["allowed  2", "denied  1", "cancelled  1", "expired  1", "paused  1"], [2, 1, 1, 1, 1]))
+        self.assertEqual((list(ring.marker.colors), figure.layout.annotations[0].text),
+                         ([charts.COLORS["dark"][kind] for kind in ("usual", "serious", "warning", "critical", "other")], "6 asked"))
+
+    def test_wait_bars_put_each_wait_in_one_band_of_time(self):
+        waits = pandas.DataFrame([(0, "command", "allowed", float(length)) for length in (0, 29.9, 30, 59, 60, 119, 120, 299, 300, 4000)], columns=["turn", "kind", "outcome", "seconds"])
+        bars = charts.waits_figure(waits).data[0]
+        self.assertEqual((list(bars.x), list(bars.y)), (["under 30 s", "30 s to 1 min", "1 to 2 min", "2 to 5 min", "5 min or more"], [2, 2, 2, 2, 2]))
+        self.assertEqual(list(charts.waits_figure(made()["waits"]).data[0].y), [0, 0, 1, 0, 0])  # one wait of exactly a minute
+
+    def test_notice_bars_count_each_kind_of_notice_for_each_day(self):
+        frames = made()
+        figure = charts.notices_figure(frames["notices"], frames["turns"])
+        self.assertEqual([(bar.name, list(bar.x), list(bar.y)) for bar in figure.data],
+                         [("rate limit: allowed warning", [date(2026, 1, 2)], [2]), ("rate limit: rejected", [date(2026, 1, 2)], [1]), ("retry", [date(2026, 1, 2)], [1])])
+        more = pandas.concat([frames["notices"], pandas.DataFrame([(0, "rate limit: other", 4), (0, "retry", 2)], columns=["turn", "what", "times"])], ignore_index=True)
+        figure = charts.notices_figure(more, frames["turns"])
+        self.assertEqual([(bar.name, list(bar.y)) for bar in figure.data],
+                         [("rate limit: allowed warning", [0, 2]), ("rate limit: rejected", [0, 1]), ("retry", [2, 1]), ("rate limit: other", [4, 0])])
+
+    def test_repository_bars_cut_each_repositorys_hours_into_the_three_states(self):
+        frames = made()
+        figure = charts.repositories_figure(frames["turns"], frames["parts"])
+        # The task the database does not know has no repository and is named as such, never dropped.
+        self.assertEqual((list(figure.data[0].y), [bar.name for bar in figure.data]), (["trinodb/trino", "not recorded"], charts.STATES))
+        self.assertEqual([[round(hours * 3600) for hours in bar.x] for bar in figure.data], [[540, 60], [300, 60], [60, 0]])
 
 
 PRICES = {"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": 2, "cachedInput": 0.2, "output": 10}, "opus": {"input": 15, "cachedInput": 1.5, "output": 75},

@@ -352,7 +352,10 @@ class TestTurns(Logs):
         """Two tasks over two days: a full turn, a turn that was interrupted, and a turn that is still running. Two of them ran two tools at once."""
         day = 86400
         first = self.log("aaaa-1111", TEN_MINUTES, [event(day, "lifecycle", "t2", phase="TURN_STARTED"), event(day + 300, "lifecycle", "t2", phase="INTERRUPTED")],
-                         command(day + 20, day + 140, "cd /Users/someone/secret-project && npm test -- --token=hunter2", item="n1", turn="t2"))
+                         command(day + 20, day + 140, "cd /Users/someone/secret-project && npm test -- --token=hunter2", item="n1", turn="t2"),
+                         [event(day + second, "lifecycle", "t2", phase=phase, message=message) for second, phase, message in (
+                             (150, "RATE_LIMITED", "Claude rate limit: allowed_warning"), (155, "RATE_LIMITED", "Claude rate limit: allowed_warning"),
+                             (160, "RATE_LIMITED", "Claude rate limit: rejected"), (170, "RETRYING", "Claude API retry 2 for someone@example.invalid"))])
         second = self.log("bbbb-2222", [event(day + 3600, "lifecycle", phase="TURN_STARTED")], command(day + 3600, day + 3640, "git gc", item="g1"),
                           tool(day + 3610, day + 3630, "Read", item="r1"), tool(day + 3700, day + 3720, "Read", item="r2"))
         return activity.measure([first, second])
@@ -402,6 +405,11 @@ class TestTurns(Logs):
         self.assertEqual(first["programs"], {"maven": {"seconds": 120, "runs": 1}})
         self.assertEqual(first["after"]["after you answered"], {"seconds": 330, "times": 1})
         self.assertEqual((first["parallel"], first["mostAtOnce"], first["unfinished"]), (60, 2, 0))
+        self.assertEqual((first["longRuns"], first["approvals"], first["notices"]),
+                         ([{"program": "maven", "seconds": 120}], [{"kind": "other", "outcome": "allowed", "seconds": 60}], {}))
+        self.assertEqual((made["turns"][1]["longRuns"], made["turns"][1]["approvals"], made["turns"][1]["notices"]),
+                         ([{"program": "npm", "seconds": 120}], [], {"rate limit: allowed warning": 2, "rate limit: rejected": 1, "retry": 1}))
+        self.assertEqual((made["turns"][3]["longRuns"], made["turns"][3]["approvals"], made["turns"][3]["notices"]), ([], [], {}))  # no log, so none of these are known
         for row in made["turns"][:3]:  # the turns with a log
             self.assertEqual(sum(row["groups"].values()), row["seconds"])
             self.assertEqual(sum(after["seconds"] for after in row["after"].values()), sum(row["groups"].get(group, 0) for group in activity.STATES[0][1]))
@@ -433,9 +441,42 @@ class TestTurns(Logs):
         self.assertEqual([row["outcome"] for row in made["turns"]], ["completed", "interrupted", "no end mark"])  # as the logs say it
         self.assertEqual(activity.turn_table(total, WHEN)["database"], {"problem": "the database was not read"})
 
+    def test_single_commands_of_half_a_minute_or_more_are_kept_longest_first_and_cut_to_their_turn(self):
+        log = self.log("aaaa-1111", turn(0, 300), command(10, 39, "git fetch", item="a"), command(40, 70, "./mvnw test", item="b"), command(80, 200, "./mvnw verify", item="c"),
+                       command(250, 400, "npm test", item="d"))
+        (one,) = activity.measure([log]).each
+        # 29 seconds is not long; the run that outlived its turn counts for the 50 seconds inside it.
+        self.assertEqual(one.long_runs, [("maven", 30), ("maven", 120), ("npm", 50)])
+        (row,) = activity.turn_table(activity.measure([log]), WHEN)["turns"]
+        self.assertEqual(row["longRuns"], [{"program": "maven", "seconds": 120}, {"program": "npm", "seconds": 50}, {"program": "maven", "seconds": 30}])
+        self.assertEqual(activity.LONG_RUN, 30)
+
+    def test_each_wait_for_the_user_keeps_its_kind_its_outcome_and_how_long_it_took(self):
+        asked = lambda second, name, kind: event(second, "approval_requested", approvalId=name, approvalKind=kind, title="rm -rf", detail="rm -rf /Users/someone/secret-project")
+        answered = lambda second, name, outcome: event(second, "approval_resolved", approvalId=name, outcome=outcome)
+        log = self.log("aaaa-1111", turn(0, 600), [asked(10, "p1", "COMMAND"), answered(40, "p1", "ALLOWED"), asked(100, "p2", "FILE_CHANGE"), answered(400, "p2", "EXPIRED"),
+                                                   asked(500, "p3", None), answered(520, "p3", None), asked(580, "p4", "COMMAND"),
+                                                   asked(590, "p5", "COMMAND"), answered(650, "p5", "ALLOWED")])
+        (one,) = activity.measure([log]).each
+        # The last wait was answered 50 seconds after the turn had ended; only its 10 seconds inside the turn count.
+        self.assertEqual(one.approvals, [("command", "allowed", 30), ("file_change", "expired", 300), ("other", "unknown", 20), ("command", "allowed", 10)])
+        self.assertEqual((one.unfinished, one.groups[activity.YOU]), (1, 360))  # the wait nobody answered before the log ended is left out, as for a command
+        saved_text = json.dumps(activity.turn_table(activity.measure([log]), WHEN))
+        for secret in ["rm -rf", "secret-project", "someone", "/Users"]:
+            self.assertNotIn(secret, saved_text)
+
+    def test_rate_limit_notices_and_retries_are_counted_in_the_turn_they_came_in(self):
+        said = lambda second, name, phase, message: event(second, "lifecycle", name, phase=phase, message=message)
+        log = self.log("aaaa-1111", turn(0, 100), turn(200, 300, "t2"),
+                       [said(10, "t1", "RATE_LIMITED", "Claude rate limit: allowed_warning"), said(20, "t1", "RATE_LIMITED", "Claude rate limit: allowed_warning"),
+                        said(30, "t1", "RETRYING", "Claude API retry 1"), said(210, "t2", "RATE_LIMITED", "Claude rate limit: rejected"),
+                        said(220, "t2", "RATE_LIMITED", "a notice in words the lab does not know"), said(230, "t2", "WORKTREE_UPDATED", "rate limit: not a notice")])
+        first, second = activity.measure([log]).each
+        self.assertEqual((dict(first.notices), dict(second.notices)), ({"rate limit: allowed warning": 2, "retry": 1}, {"rate limit: rejected": 1, "rate limit: other": 1}))
+
     def test_turn_table_names_programs_and_never_their_arguments(self):
         saved_text = json.dumps(activity.turn_table(self.two_days(), WHEN))
-        for secret in ["hunter2", "secret-project", "someone", "token", "/Users", "gc"]:
+        for secret in ["hunter2", "secret-project", "someone", "token", "/Users", "gc", "example.invalid"]:
             with self.subTest(secret=secret):
                 self.assertNotIn(secret, saved_text)
         self.assertIn('"npm"', saved_text)

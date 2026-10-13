@@ -55,7 +55,9 @@ public class SqliteEpicStore
     @Transactional
     public void save(Epic epic)
     {
-        epics.save(new EpicEntity(epic));
+        EpicEntity entity = epics.findById(epic.id()).orElseGet(() -> new EpicEntity(epic));
+        entity.update(epic);
+        epics.save(entity);
     }
 
     @Override

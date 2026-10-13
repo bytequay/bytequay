@@ -55,9 +55,14 @@ public class TeamActivityEntity
         TeamActivityEntity entity = new TeamActivityEntity();
         entity.id = key(accountId, event.id());
         entity.accountId = accountId;
-        entity.occurredAt = event.occurredAt();
-        entity.fact = event;
+        entity.update(event);
         return entity;
+    }
+
+    public void update(TeamActivityEvent event)
+    {
+        occurredAt = event.occurredAt();
+        fact = event;
     }
 
     public TeamActivityEvent toDomain()

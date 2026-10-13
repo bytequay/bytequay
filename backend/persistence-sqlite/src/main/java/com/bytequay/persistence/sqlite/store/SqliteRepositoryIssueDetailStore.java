@@ -49,7 +49,7 @@ public class SqliteRepositoryIssueDetailStore
     public void save(RepositoryIssueDetail detail)
     {
         requireNonNull(detail, "detail is null");
-        RepositoryIssueDetailEntity entity = new RepositoryIssueDetailEntity();
+        RepositoryIssueDetailEntity entity = repository.findById(snapshotId(detail.repositoryId(), detail.issueNumber())).orElseGet(RepositoryIssueDetailEntity::new);
         entity.setId(snapshotId(detail.repositoryId(), detail.issueNumber()));
         entity.setRepositoryId(detail.repositoryId());
         entity.setIssueNumber(detail.issueNumber());

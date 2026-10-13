@@ -13,8 +13,6 @@
  */
 package com.bytequay.persistence.sqlite.store;
 
-import com.bytequay.agent.core.AgentConflictException;
-import com.bytequay.agent.core.AgentStorageException;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnNotFoundException;
 import com.bytequay.agent.core.TaskId;
@@ -22,8 +20,6 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.persistence.sqlite.entity.AgentTurnEntity;
 import com.bytequay.persistence.sqlite.repository.AgentTurnJpaRepository;
-import org.springframework.dao.DataAccessException;
-import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,7 +27,6 @@ import java.util.List;
 import java.util.Optional;
 
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
-import static com.bytequay.persistence.sqlite.store.SqliteStoreExceptions.mapConstraint;
 import static com.bytequay.persistence.sqlite.store.StoreWrites.AGENT;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -86,26 +81,10 @@ public class SqliteAgentTurnStore
     public AgentTurn update(AgentTurn turn)
     {
         requireNonNull(turn, "turn is null");
-        AgentTurnEntity entity = repository.findById(turn.id().toString())
-                .orElseThrow(() -> new AgentTurnNotFoundException(turn.id()));
-        if (entity.getVersion() != turn.version()) {
-            throw new AgentConflictException("Turn version changed: " + turn.id());
-        }
-        entity.updateFrom(turn);
-        try {
-            repository.saveAndFlush(entity);
-            return entity.toDomain();
-        }
-        catch (OptimisticLockingFailureException e) {
-            throw new AgentConflictException("Turn update conflicts with durable state: " + turn.id(), e);
-        }
-        catch (DataAccessException e) {
-            RuntimeException mapped = mapConstraint("Turn update conflicts with durable state: " + turn.id(), e);
-            if (mapped instanceof AgentConflictException) {
-                throw mapped;
-            }
-            throw new AgentStorageException("Cannot update turn " + turn.id(), e);
-        }
+        return StoreWrites.update(
+                repository, turn.id().toString(), "Turn", turn.version(), AgentTurnEntity::getVersion, entity -> entity.updateFrom(turn),
+                () -> new AgentTurnNotFoundException(turn.id()), AGENT)
+                .toDomain();
     }
 
     @Override

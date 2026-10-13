@@ -42,9 +42,10 @@ public class SqliteTeamActivityStore
     public void save(long accountId, List<TeamActivityEvent> observations)
     {
         for (TeamActivityEvent observation : observations) {
-            TeamActivityEvent merged = events.findById(TeamActivityEntity.key(accountId, observation.id()))
-                    .map(TeamActivityEntity::toDomain).map(existing -> existing.merge(observation)).orElse(observation);
-            events.save(TeamActivityEntity.of(accountId, merged));
+            TeamActivityEntity entity = events.findById(TeamActivityEntity.key(accountId, observation.id()))
+                    .orElseGet(() -> TeamActivityEntity.of(accountId, observation));
+            entity.update(entity.toDomain().merge(observation));
+            events.save(entity);
         }
     }
 

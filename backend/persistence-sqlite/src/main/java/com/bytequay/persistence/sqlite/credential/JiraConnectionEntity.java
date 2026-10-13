@@ -39,6 +39,11 @@ class JiraConnectionEntity
     JiraConnectionEntity(String id, String brokerUrl, String ciphertext, String stateJson)
     {
         this.id = id;
+        update(brokerUrl, ciphertext, stateJson);
+    }
+
+    void update(String brokerUrl, String ciphertext, String stateJson)
+    {
         this.brokerUrl = brokerUrl;
         this.ciphertext = ciphertext;
         this.stateJson = stateJson;

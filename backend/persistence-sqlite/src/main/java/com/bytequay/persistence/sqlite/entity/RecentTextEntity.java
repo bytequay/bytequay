@@ -80,16 +80,21 @@ public class RecentTextEntity
     {
         RecentTextEntity entity = new RecentTextEntity();
         entity.id = text.id();
-        entity.itemType = text.type().name();
-        entity.itemKey = text.itemKey();
-        entity.kind = text.kind().name();
-        entity.body = text.body();
-        entity.writtenAt = text.writtenAt();
-        entity.itemNumber = text.number();
-        entity.repo = text.repo();
-        entity.title = text.title();
-        entity.htmlUrl = text.htmlUrl();
+        entity.update(text);
         return entity;
+    }
+
+    public void update(RecentText text)
+    {
+        itemType = text.type().name();
+        itemKey = text.itemKey();
+        kind = text.kind().name();
+        body = text.body();
+        writtenAt = text.writtenAt();
+        itemNumber = text.number();
+        repo = text.repo();
+        title = text.title();
+        htmlUrl = text.htmlUrl();
     }
 
     public RecentText toDomain()

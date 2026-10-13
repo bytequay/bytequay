@@ -21,6 +21,7 @@ import com.bytequay.core.domain.StoredPrDiff;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -42,6 +43,9 @@ class TestSqlitePrDiffStore
 
     @Autowired
     private SqlitePrDiffStore store;
+
+    @Autowired
+    private EntityManager entities;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -95,5 +99,32 @@ class TestSqlitePrDiffStore
         store.deleteByPrIds(ImmutableSet.of(prId));
         assertThat(store.find(prId, null, null)).isEmpty();
         assertThat(store.find(prId, "a".repeat(40), "b".repeat(40))).isEmpty();
+    }
+
+    @Test
+    void refreshingDefaultSnapshotKeepsItsIdAndDoesNotChangeOtherSnapshots()
+    {
+        StoredPrDiff original = new StoredPrDiff(ImmutableList.of(new DiffFile("old.txt", "added", 1, 0, "+old")), ImmutableList.of());
+        StoredPrDiff updated = new StoredPrDiff(ImmutableList.of(new DiffFile("new.txt", "added", 1, 0, "+new")), ImmutableList.of());
+        store.save(42, null, null, original);
+        store.save(42, "base", "head", original);
+        store.save(43, null, null, original);
+        entities.flush();
+        entities.clear();
+
+        store.save(42, null, null, updated);
+        entities.flush();
+        entities.clear();
+        assertThat(store.find(42, null, null)).contains(updated);
+        assertThat(store.find(42, "base", "head").orElseThrow().files()).isEqualTo(original.files());
+        assertThat(store.find(43, null, null)).contains(original);
+        assertThat(entities.createQuery("SELECT count(d) FROM PrDiffEntity d", Long.class).getSingleResult()).isEqualTo(3);
+
+        store.deleteByPrIds(ImmutableSet.of(42L));
+        entities.flush();
+        entities.clear();
+        assertThat(store.find(42, null, null)).isEmpty();
+        assertThat(store.find(42, "base", "head")).isEmpty();
+        assertThat(store.find(43, null, null)).contains(original);
     }
 }

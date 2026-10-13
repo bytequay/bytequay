@@ -41,6 +41,11 @@ class WorkspaceCredentialEntity
     WorkspaceCredentialEntity(String workspaceId, String ciphertext, String login)
     {
         this.workspaceId = workspaceId;
+        update(ciphertext, login);
+    }
+
+    void update(String ciphertext, String login)
+    {
         this.ciphertext = ciphertext;
         this.login = login;
     }

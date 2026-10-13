@@ -79,7 +79,7 @@ public class SqlitePrDiffStore
     {
         requireNonNull(diff, "diff is null");
         requireNonNull(etags, "etags is null");
-        PrDiffEntity entity = new PrDiffEntity();
+        PrDiffEntity entity = repository.findById(snapshotId(prId, baseSha, headSha)).orElseGet(PrDiffEntity::new);
         entity.setId(snapshotId(prId, baseSha, headSha));
         entity.setPrId(prId);
         entity.setBaseSha(diff.baseSha().orElse(baseSha));

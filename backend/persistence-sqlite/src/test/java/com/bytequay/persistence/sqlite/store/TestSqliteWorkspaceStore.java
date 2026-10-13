@@ -130,6 +130,31 @@ class TestSqliteWorkspaceStore
     }
 
     @Test
+    void createRejectsAnIdOwnedByAnotherRepository()
+    {
+        Workspace original = store.createOrGet(direct("same-id", 100, 0));
+
+        assertThatThrownBy(() -> store.createOrGet(direct("same-id", 200, 1)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Workspace already exists");
+
+        entities.flush();
+        entities.clear();
+        assertThat(store.findById(original.id())).contains(original);
+        assertThat(store.findBySelectedRepositoryId(200)).isEmpty();
+        assertThat(repository.count()).isEqualTo(1);
+    }
+
+    @Test
+    void saveDoesNotCreateAMissingWorkspace()
+    {
+        assertThatThrownBy(() -> store.save(direct("missing", 100, 0)))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Workspace not found");
+        assertThat(repository.count()).isZero();
+    }
+
+    @Test
     void unwatchRetainsIdentityAndRoutingUntilExplicitlyWatchedAgain()
     {
         Workspace direct = store.createOrGet(direct("direct", 100, 0));

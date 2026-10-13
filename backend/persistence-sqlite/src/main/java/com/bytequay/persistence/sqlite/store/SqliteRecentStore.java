@@ -74,10 +74,13 @@ public class SqliteRecentStore
 
     /** The id is stable per source, so re-saving a draft replaces it. */
     @Override
+    @Transactional
     public void saveText(RecentText text)
     {
         requireNonNull(text, "text is null");
-        texts.save(RecentTextEntity.of(text));
+        RecentTextEntity entity = texts.findById(text.id()).orElseGet(() -> RecentTextEntity.of(text));
+        entity.update(text);
+        texts.save(entity);
     }
 
     @Override

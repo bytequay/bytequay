@@ -88,7 +88,11 @@ class TestSqliteWorkspaceCredentialStores
                 .doesNotContain("secretvalue");
 
         workspaceCredentials.save("ws-1", "github_pat_rotated", "jack-work-2");
+        workspaceCredentialRows.flush();
+        entityManager.clear();
         assertThat(workspaceCredentials.getSecret("ws-1")).contains("github_pat_rotated");
+        assertThat(workspaceCredentials.getLogin("ws-1")).contains("jack-work-2");
+        assertThat(workspaceCredentialRows.count()).isEqualTo(1);
 
         workspaceCredentials.delete("ws-1");
         assertThat(workspaceCredentials.getSecret("ws-1")).isEmpty();
@@ -107,6 +111,12 @@ class TestSqliteWorkspaceCredentialStores
         assertThat(row.getCiphertext()).doesNotContain("jira-personal-secret");
         assertThat(row.getStateJson()).doesNotContain("jira-personal-secret");
         assertThat(connection.toString()).doesNotContain("jira-personal-secret");
+        JiraConnectionStore.Connection updated = new JiraConnectionStore.Connection(connection.id(), connection.authUrl(), "rotated-secret", "{\"connected\":true}");
+        jiraConnections.save(updated);
+        jiraConnectionRows.flush();
+        entityManager.clear();
+        assertThat(jiraConnections.find(connection.id())).contains(updated);
+        assertThat(jiraConnectionRows.count()).isEqualTo(1);
         jiraConnections.delete(connection.id());
         assertThat(jiraConnections.find(connection.id())).isEmpty();
     }

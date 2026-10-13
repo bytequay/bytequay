@@ -15,6 +15,7 @@ package com.bytequay.persistence.sqlite.store;
 
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -37,6 +38,9 @@ class TestSqliteSettingsStores
 
     @Autowired
     private SqliteAppSettingsStore settings;
+
+    @Autowired
+    private EntityManager entities;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -100,12 +104,21 @@ class TestSqliteSettingsStores
     void appSettingsRoundTrip()
     {
         settings.put("github.quietHours", "{\"enabled\":true}");
+        settings.put("other", "keep");
+        entities.flush();
+        entities.clear();
 
         assertThat(settings.get("github.quietHours")).contains("{\"enabled\":true}");
         settings.put("github.quietHours", "{\"enabled\":false}");
+        entities.flush();
+        entities.clear();
         assertThat(settings.get("github.quietHours")).contains("{\"enabled\":false}");
+        assertThat(entities.createQuery("SELECT count(s) FROM AppSettingEntity s", Long.class).getSingleResult()).isEqualTo(2);
 
         settings.delete("github.quietHours");
+        entities.flush();
+        entities.clear();
         assertThat(settings.get("github.quietHours")).isEmpty();
+        assertThat(settings.get("other")).contains("keep");
     }
 }

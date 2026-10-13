@@ -23,6 +23,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -97,6 +98,7 @@ public class SqliteWorkspaceStore
     }
 
     @Override
+    @Transactional
     public Workspace createOrGet(Workspace workspace)
     {
         requireNonNull(workspace, "workspace is null");
@@ -104,6 +106,7 @@ public class SqliteWorkspaceStore
         if (existing.isPresent()) {
             return existing.orElseThrow();
         }
+        checkArgument(!repository.existsById(workspace.id()), "Workspace already exists: %s", workspace.id());
         return repository.saveAndFlush(WorkspaceEntity.fromDomain(workspace)).toDomain();
     }
 

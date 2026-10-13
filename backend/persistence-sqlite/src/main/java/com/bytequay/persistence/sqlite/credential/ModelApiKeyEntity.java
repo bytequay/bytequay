@@ -13,6 +13,7 @@
  */
 package com.bytequay.persistence.sqlite.credential;
 
+import com.bytequay.persistence.sqlite.entity.AssignedIdEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
@@ -26,6 +27,7 @@ import java.time.Instant;
 @Table(name = "model_api_keys")
 @Getter(AccessLevel.PACKAGE)
 class ModelApiKeyEntity
+        extends AssignedIdEntity<String>
 {
     @Id
     private String alias;
@@ -62,5 +64,11 @@ class ModelApiKeyEntity
     void setKeyId(String keyId)
     {
         this.keyId = keyId;
+    }
+
+    @Override
+    public String getId()
+    {
+        return alias;
     }
 }

@@ -16,6 +16,7 @@ package com.bytequay.persistence.sqlite.store;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.google.common.collect.ImmutableList;
+import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -38,6 +39,9 @@ class TestSqliteRepositoryIssueDetailStore
 
     @Autowired
     private SqliteRepositoryIssueDetailStore store;
+
+    @Autowired
+    private EntityManager entities;
 
     @DynamicPropertySource
     static void configureDatabase(DynamicPropertyRegistry registry)
@@ -71,5 +75,13 @@ class TestSqliteRepositoryIssueDetailStore
         assertThat(store.find(100, 42)).contains(first);
         assertThat(store.find(200, 42)).contains(second);
         assertThat(store.find(100, 43)).isEmpty();
+
+        RepositoryIssueDetail updated = new RepositoryIssueDetail(100, 42, ImmutableList.of(), null, ImmutableList.of("Bug"), Optional.empty());
+        store.save(updated);
+        entities.flush();
+        entities.clear();
+        assertThat(store.find(100, 42)).contains(updated);
+        assertThat(store.find(200, 42)).contains(second);
+        assertThat(entities.createQuery("SELECT count(d) FROM RepositoryIssueDetailEntity d", Long.class).getSingleResult()).isEqualTo(2);
     }
 }

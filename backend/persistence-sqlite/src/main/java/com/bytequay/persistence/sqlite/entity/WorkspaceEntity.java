@@ -33,9 +33,10 @@ import java.util.Optional;
 @Table(name = "watched_repo_workspaces")
 @DynamicUpdate
 public class WorkspaceEntity
+        extends AssignedIdEntity<String>
 {
     @Id
-    @Getter
+    @Getter(onMethod_ = @Override)
     private String id;
 
     @Column(nullable = false)
@@ -108,13 +109,13 @@ public class WorkspaceEntity
     public static WorkspaceEntity fromDomain(Workspace workspace)
     {
         WorkspaceEntity entity = new WorkspaceEntity();
+        entity.id = workspace.id();
         entity.updateFrom(workspace);
         return entity;
     }
 
     public void updateFrom(Workspace workspace)
     {
-        id = workspace.id();
         name = workspace.name();
         selectedRepositoryId = workspace.selectedRepositoryId();
         selectedOwner = workspace.selectedRepository().owner();

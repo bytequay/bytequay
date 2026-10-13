@@ -54,7 +54,11 @@ public class SqliteJiraConnectionStore
     @Transactional
     public void save(Connection connection)
     {
-        rows.save(new JiraConnectionEntity(connection.id(), connection.authUrl(), cipher.encrypt(connection.credential()), connection.stateJson()));
+        String ciphertext = cipher.encrypt(connection.credential());
+        JiraConnectionEntity entity = rows.findById(connection.id())
+                .orElseGet(() -> new JiraConnectionEntity(connection.id(), connection.authUrl(), ciphertext, connection.stateJson()));
+        entity.update(connection.authUrl(), ciphertext, connection.stateJson());
+        rows.save(entity);
     }
 
     @Override

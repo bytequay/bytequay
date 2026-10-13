@@ -47,7 +47,9 @@ public class SqliteAppSettingsStore
     public void put(String key, String value)
     {
         requireNonNull(value, "value is null");
-        repository.save(new AppSettingEntity(requireKey(key), value));
+        AppSettingEntity entity = repository.findById(requireKey(key)).orElseGet(() -> new AppSettingEntity(key, value));
+        entity.setValue(value);
+        repository.save(entity);
     }
 
     @Override

@@ -20,13 +20,15 @@ import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
 
-/** One row per Epic. Each save builds a fresh entity, so saving merges: it reads the row, then inserts or updates it. */
 @Entity
 @Table(name = "epic")
 public class EpicEntity
+        extends AssignedIdEntity<String>
 {
     @Id
+    @Getter(onMethod_ = @Override)
     private String id;
 
     @Column(name = "workspace_id", nullable = false)
@@ -41,6 +43,11 @@ public class EpicEntity
     public EpicEntity(Epic epic)
     {
         id = epic.id();
+        update(epic);
+    }
+
+    public void update(Epic epic)
+    {
         workspaceId = epic.workspaceId();
         value = epic;
     }

@@ -43,8 +43,11 @@ import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewStep;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -189,6 +192,45 @@ class TestAppNoticeService
         });
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of());
         assertThat(service.current()).isEmpty();
+    }
+
+    @Test
+    void waitsForTheReviewRunToSettleBetweenAutomaticTurns()
+    {
+        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(42), OptionalLong.empty(), task.id().toString(),
+                Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
+        AgentTurn investigation = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
+        ReviewRun run = new ReviewRun("run", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(investigation.id().toString()), ReviewRun.State.RUNNING,
+                Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(ReviewStep.initial()), false,
+                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(run));
+        show(task, investigation);
+        assertThat(service.current()).isEmpty();
+
+        run = run.withStep(ReviewStep.initial().next(ReviewStep.Kind.VALIDATE), NOW.plusSeconds(11));
+        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(run));
+        assertThat(service.current()).isEmpty();
+        AgentTurn validation = turnAt(NOW.plusSeconds(12));
+        show(task, investigation, validation);
+        approval(validation, ImmutableList.of("AskUserQuestion"), "");
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.QUESTION);
+        approval(validation, ImmutableList.of("mvn verify"), "Run the tests");
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.APPROVAL);
+        when(approvals.listPending()).thenReturn(ImmutableList.of());
+        show(task, investigation, validation.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("Sign in required"), NOW.plusSeconds(20)));
+        assertThat(service.current()).singleElement().extracting(AppNotice::kind).isEqualTo(AppNotice.Kind.FAILURE);
+
+        show(task, investigation, validation.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(20)));
+        assertThat(service.current()).isEmpty();
+        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(run.withTurn(validation.id().toString(), NOW.plusSeconds(12))
+                .ended(ReviewRun.State.ACCEPTED, Optional.empty(), NOW.plusSeconds(21))));
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.kind()).isEqualTo(AppNotice.Kind.TURN_FINISHED);
+            assertThat(notice.turnId()).contains(validation.id().toString());
+            assertThat(notice.reviewId()).contains(review.id());
+        });
     }
 
     private void show(AgentTask current, AgentTurn... history)

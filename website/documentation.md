@@ -376,6 +376,8 @@ inspection; it is not automatically resent.
 App notices stack in the bottom-right corner when a development or review task finishes a turn,
 asks a question, requests approval, fails, or has queued messages paused. Choose
 the card’s button to open that task or review conversation and close the card.
+Reviews wait until the full review run settles before showing a completion notice;
+automatic follow-up steps stay quiet. Questions, approvals, and failures still notify you.
 While you’re viewing a task or review in the active ByteQuay window, its notices
 stay quiet, including while you scroll older messages or work in its editor.
 They remain available in the counter without popping up when you leave the task.

@@ -29,6 +29,7 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewRun;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -143,8 +144,8 @@ public class AppNoticeService
                     : input.pauseReason().orElse("Queued messages are waiting for you to resume them.");
             return Optional.of(notice(task, reviewId, latest, "queue:" + input.id() + ":" + input.updatedAt(), AppNotice.Kind.QUEUE_PAUSED, message, input.updatedAt()));
         }
-        // A successful turn that is handing off to the next queued message does not need a completion popup.
-        if (!queue.isEmpty()) {
+        // A completed turn can still hand off to a queued message or another review step.
+        if (!queue.isEmpty() || reviewId.map(id -> reviews.listRuns(id).stream().anyMatch(ReviewRun::active)).orElse(false)) {
             return Optional.empty();
         }
         return latest.filter(turn -> turn.state() == TurnState.COMPLETED)

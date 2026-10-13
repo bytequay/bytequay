@@ -379,13 +379,15 @@ the card’s button to open that task or review conversation and close the card.
 While you’re viewing a task or review in the active ByteQuay window, its notices
 stay quiet, including while you scroll older messages or work in its editor.
 They remain available in the counter without popping up when you leave the task.
-Completions stay available for 24 hours, including when ByteQuay restarts.
+Undismissed completions stay available for 24 hours, including when ByteQuay restarts.
 Up to two cards overlap,
 with the next card peeking out behind the current one. Cards use compact, two-line
 titles and previews; hover over clipped text to read it. **Notices** or **Needs you**
 opens navigation through the remaining items, one at a time. At least
 one card stays visible until you open its task or close it with **×**. Closed cards
-stay in the counter and can be reopened from there; new notices still pop up.
+are removed from the counter and stay dismissed after restarting ByteQuay;
+new notices still pop up. Opening a task or letting an extra popup time out keeps
+its notice available in the counter.
 Choose **→** beside the counter to fold the stack into a narrow tab on the right
 edge while you type. The tab keeps the count, including new arrivals, without
 reopening the cards. Choose **←** to show them again. Folding clears when all

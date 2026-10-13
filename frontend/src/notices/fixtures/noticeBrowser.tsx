@@ -37,6 +37,12 @@ export async function run() {
       if (rejectDismiss) throw new Error('Dismiss failed');
       dismissed.push(id); state = { ...state, popupIds: state.popupIds.filter(key => key !== id) }; listener(state);
     },
+    remove: async id => {
+      if (rejectDismiss) throw new Error('Dismiss failed');
+      dismissed.push(id);
+      state = { ...state, notices: state.notices.filter(notice => notice.id !== id),
+        popupIds: state.popupIds.filter(key => key !== id), viewedIds: state.viewedIds.filter(key => key !== id) }; listener(state);
+    },
     open: async id => { if (rejectOpen) throw new Error('Open failed'); opened.push(id); await bridge.dismiss(id); },
     resize: (height, width, folded) => sizes.push({ height, width, folded }),
   };
@@ -97,9 +103,7 @@ export async function run() {
     action.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); await wait();
     [...timers.values()][0].callback(); await wait();
     assert(dismissed.includes('done') && host.querySelector('.is-turn_finished') === null, 'Completion expires');
-    const questionClose = host.querySelector<HTMLButtonElement>('.is-question .app-notice__close'); assert(questionClose, 'Dismiss question missing');
-    questionClose.click(); await wait();
-    assert(state.notices.some(item => item.id === 'q'), 'Dismissing must preserve the pending question');
+    assert(launcher.textContent?.includes('1 recent'), 'Timed-out completions stay in recent history');
     launcher.click(); await wait();
     const next = host.querySelector<HTMLButtonElement>('[aria-label="Next notices"]'); assert(next, 'Remaining notices have navigation');
     assert(host.querySelectorAll('.app-notice').length === 2 && host.querySelector('.app-notices__pages')?.textContent?.includes('1 / 4'),
@@ -124,30 +128,29 @@ export async function run() {
     rejectDismiss = true; lastClose.click(); await wait();
     assert(host.querySelector('.app-notice') && host.querySelector('[role="alert"]'), 'Failed dismissals keep the card visible');
     rejectDismiss = false; lastClose.click(); await wait();
-    assert(!host.querySelector('.app-notice') && !host.querySelector('[role="alert"]') && launcher.textContent?.includes('1 needs you'),
-      'Closing the last card keeps its counter and clears any previous error');
+    assert(!host.querySelector('.app-notices') && !host.querySelector('[role="alert"]') && sizes.at(-1)?.height === 0,
+      'Closing the last card removes its counter, clears any previous error, and releases the native hit area');
     listener({ ...state }); await wait();
-    assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.width ?? 340) < 280, 'Closed cards stay closed across refreshes and release the native hit area');
-    launcher.click(); await wait();
-    assert(host.querySelector('.is-question'), 'The counter reopens a closed card');
-    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
-    assert(host.querySelectorAll('.app-notice').length === 1, 'Closing the expanded list still leaves one card');
-    launcher.click(); await wait();
-    host.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
-    assert(!host.querySelector('.app-notice') && launcher.getAttribute('aria-expanded') === 'false', 'Cards can also be closed from the expanded list');
+    assert(!host.querySelector('.app-notices'), 'Removed cards stay absent across refreshes');
     state = { ...state, notices: [make('last', 'TURN_FINISHED')], popupIds: ['last'] }; listener(state); await wait();
     assert(host.querySelector('.is-turn_finished') && Number(timers.size) === 0, 'New notices appear after older cards were closed and the final completion does not expire');
     state = { ...state, popupIds: [] }; listener(state); await wait();
     assert(host.querySelector('.is-turn_finished'), 'Recent completions remain visible even without popup IDs');
-    host.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
-    assert(!host.querySelector('.app-notice') && launcher.textContent?.includes('1 recent'), 'The final completion can be closed without losing its recent count');
-    launcher.click(); await wait();
-    host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
     host.querySelector<HTMLButtonElement>('.is-turn_finished .app-notice__actions button')?.click(); await wait();
     assert(opened.includes('last') && !host.querySelector('.app-notice'), 'Opening the final completion closes its card');
-    launcher.click(); await wait();
-    state = { ...state, notices: [], popupIds: [] }; listener(state); await wait();
-    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Resolving the last notice hides the expanded list and its counter');
+    host.querySelector<HTMLButtonElement>('.app-notices__launcher')?.click(); await wait();
+    host.querySelector<HTMLButtonElement>('.app-notice__close')?.click(); await wait();
+    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'Removing the last completion hides the expanded list and its counter');
+    state = { ...state, notices: Array.from({ length: 10 }, (_, i) => make(`recent-${i}`, 'TURN_FINISHED')), popupIds: [] }; listener(state); await wait();
+    for (let remaining = 10; remaining > 0; remaining--) {
+      const counter = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(counter, 'Recent notices have a counter');
+      assert(counter.textContent?.includes(`${remaining} recent`), 'Each closed completion reduces the recent count');
+      counter.click(); await wait();
+      assert(host.querySelector('.app-notices__pages')?.textContent?.includes(`1 / ${remaining}`) || remaining === 1, 'Reopening shows only remaining notices');
+      host.querySelector<HTMLButtonElement>('.app-notice:not(.is-preview) .app-notice__close')?.click(); await wait();
+      host.querySelector<HTMLButtonElement>('[aria-label="Close notices"]')?.click(); await wait();
+    }
+    assert(!host.querySelector('.app-notices') && sizes.at(-1)?.height === 0, 'All ten recent notices can be cleared');
     state = { ...state, notices: [make('viewed', 'TURN_FINISHED')], viewedIds: ['viewed'] }; listener(state); await wait();
     const viewedLauncher = host.querySelector<HTMLButtonElement>('.app-notices__launcher'); assert(viewedLauncher, 'Viewed notices remain in the counter');
     assert(!host.querySelector('.app-notice') && (sizes.at(-1)?.width ?? 340) < 280, 'The visible task never falls back to a persistent card');

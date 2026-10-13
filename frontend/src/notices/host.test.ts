@@ -13,6 +13,9 @@
  */
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { EventEmitter } from 'node:events';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import type { BrowserWindow } from 'electron';
 import { NoticeHost } from './host';
 import type { AppNotice, NoticeSnapshot } from './contracts';
@@ -32,6 +35,7 @@ vi.mock('electron', async () => {
 });
 const notice: AppNotice = { id: 'approval:one', kind: 'APPROVAL', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null, title: 'Build',
   message: 'Permission needed', repository: 'owner/repo', laneId: 'codex', occurredAt: '2026-09-27T10:00:00Z' };
+let directory: string;
 function setup() {
   const children: unknown[] = [];
   const window = Object.assign(new EventEmitter(), {
@@ -44,12 +48,15 @@ function setup() {
   });
   const read = vi.fn(async (): Promise<unknown> => []);
   const open = vi.fn(async () => {});
-  const host = new NoticeHost(() => window as unknown as BrowserWindow, read, open);
+  const host = new NoticeHost(() => window as unknown as BrowserWindow, read, open, () => path.join(directory, 'dismissed-notices.json'));
   host.register(); host.attach(window as unknown as BrowserWindow);
   return { host, read, open, window };
 }
-beforeEach(() => { desktop.handlers.clear(); desktop.views.length = 0; vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173'); });
-afterEach(() => { vi.unstubAllGlobals(); });
+beforeEach(() => {
+  directory = fs.mkdtempSync(path.join(os.tmpdir(), 'bytequay-notice-host-'));
+  desktop.handlers.clear(); desktop.views.length = 0; vi.stubGlobal('MAIN_WINDOW_VITE_DEV_SERVER_URL', 'http://localhost:5173');
+});
+afterEach(() => { vi.unstubAllGlobals(); fs.rmSync(directory, { recursive: true, force: true }); });
 
 it('authenticates IPC, layers only the card rectangle, and rechecks requests before navigation', async () => {
   const { host, read, open, window } = setup();
@@ -111,6 +118,33 @@ it('shrinks the native hit area to the launcher and restores it for cards', asyn
   desktop.handlers.get('notices:resize')?.(event, 260, 340, false);
   expect(view.setBounds).toHaveBeenLastCalledWith({ x: 652, y: 352, width: 340, height: 260 });
   host.stop();
+});
+
+it.each(['TURN_FINISHED', 'APPROVAL'] as const)('removes %s notices without restoring them on refresh or handling their task', async kind => {
+  const { host, read, open, window } = setup();
+  const current = { ...notice, kind, occurredAt: new Date().toISOString() };
+  await host.refresh(); read.mockResolvedValue([current]); await host.refresh();
+  const view = desktop.views[0] as { webContents: { mainFrame: object; send: ReturnType<typeof vi.fn> }; setVisible: ReturnType<typeof vi.fn> };
+  const child = { sender: view.webContents, senderFrame: view.webContents.mainFrame };
+  const remove = desktop.handlers.get('notices:remove');
+  expect(() => remove?.({ sender: window.webContents, senderFrame: window.webContents.mainFrame }, current.id)).toThrow('Unknown notice surface');
+  expect(() => remove?.({ sender: view.webContents, senderFrame: {} }, current.id)).toThrow('Unknown notice surface');
+  expect(() => remove?.(child, null)).toThrow('Invalid notice');
+  desktop.handlers.get('notices:resize')?.(child, 260, 340, false);
+  expect(view.setVisible).toHaveBeenLastCalledWith(true);
+  await remove?.(child, current.id);
+  expect(view.webContents.send).toHaveBeenLastCalledWith('notices:changed', expect.objectContaining({ notices: [], popupIds: [], viewedIds: [] }));
+  expect(view.setVisible).toHaveBeenLastCalledWith(false);
+  expect(window.webContents.send).toHaveBeenLastCalledWith('notices:bounds', null);
+  await host.refresh();
+  expect(desktop.handlers.get('notices:read')?.(child)).toMatchObject({ notices: [], popupIds: [], viewedIds: [] });
+  expect(open).not.toHaveBeenCalled();
+  host.stop();
+  const restarted = setup();
+  restarted.read.mockResolvedValue([current]); await restarted.host.refresh();
+  const newView = desktop.views.at(-1) as { webContents: { mainFrame: object } };
+  expect(desktop.handlers.get('notices:read')?.({ sender: newView.webContents, senderFrame: newView.webContents.mainFrame })).toMatchObject({ notices: [], popupIds: [] });
+  restarted.host.stop();
 });
 
 it('suppresses a visible source, preserves failed reads, and dismisses without handling the task', async () => {

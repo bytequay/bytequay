@@ -24,6 +24,7 @@ export type NoticeBridge = {
   read: () => Promise<NoticeSnapshot>;
   subscribe: (listener: (state: NoticeSnapshot) => void) => () => void;
   dismiss: (id: string) => Promise<void>;
+  remove: (id: string) => Promise<void>;
   open: (id: string) => Promise<void>;
   resize: (height: number, width: number, folded: boolean) => void;
 };

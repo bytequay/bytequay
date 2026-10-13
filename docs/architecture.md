@@ -31,8 +31,10 @@ application's privileged bridge and backend credentials.
 
 App notices project existing task, turn, approval, and queue state through the
 authenticated `/agent/notices` endpoint. Electron polls this local snapshot and
-keeps deduplication and recent notices in memory for the session. A separate
-sandboxed `WebContentsView` displays the bottom-right cards above browser and
+keeps delivery deduplication and recent notices in memory for the session.
+Explicitly dismissed notice IDs are atomically saved in Electron's local app data
+before removing the card and restored before the first notice snapshot is applied.
+A separate sandboxed `WebContentsView` displays the bottom-right cards above browser and
 editor views. Its restricted bridge can read, dismiss, resize, and navigate to
 a validated task; it cannot approve or execute task actions. Recovery notices
 wait for ordinary shutdown cleanup to settle before announcing a block.

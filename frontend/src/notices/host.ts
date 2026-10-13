@@ -18,7 +18,7 @@ import { NoticeStore } from './store';
 
 /** One trusted app surface above native browser/editor views; its bridge cannot execute task actions. */
 export class NoticeHost {
-  private readonly store = new NoticeStore();
+  private readonly store: NoticeStore;
   private view: WebContentsView | null = null;
   private timer: ReturnType<typeof setInterval> | undefined;
   private reading: Promise<void> | null = null;
@@ -29,7 +29,9 @@ export class NoticeHost {
   private sources = new Map<string, string>();
 
   constructor(private readonly window: () => BrowserWindow | null, private readonly read: () => Promise<unknown>,
-    private readonly openNotice: (notice: AppNotice) => Promise<void>) {}
+    private readonly openNotice: (notice: AppNotice) => Promise<void>, storagePath: () => string) {
+    this.store = new NoticeStore(storagePath);
+  }
 
   register(): void {
     ipcMain.on('notices:obscured', (event, obscured: unknown) => {
@@ -51,6 +53,11 @@ export class NoticeHost {
       child(event);
       if (typeof id !== 'string') throw new Error('Invalid notice');
       this.store.dismiss(id); this.publish();
+    });
+    ipcMain.handle('notices:remove', (event, id: unknown) => {
+      child(event);
+      if (typeof id !== 'string') throw new Error('Invalid notice');
+      this.store.remove(id); this.publish();
     });
     ipcMain.handle('notices:open', async (event, id: unknown) => {
       child(event);

@@ -105,9 +105,8 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
   const closeCard = (notice: AppNotice) => setClosed(ids => new Set([...ids].filter(id => state.notices.some(item => item.id === id)).concat(notice.id)));
   const dismiss = (notice: AppNotice, closedByUser = false) => {
     setError(null);
-    void bridge.dismiss(notice.id).then(() => {
+    void (closedByUser ? bridge.remove(notice.id) : bridge.dismiss(notice.id)).then(() => {
       if (!closedByUser) return;
-      closeCard(notice);
       if (available.length === 1) { setExpanded(false); launcher.current?.focus(); }
     }).catch(() => setError('Unable to dismiss this notice.'));
   };

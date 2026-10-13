@@ -290,7 +290,7 @@ const appNotices = new NoticeHost(() => mainWindow,
     browserTabs.hide();
     mainWindow?.webContents.send('notices:open-task', { taskId: notice.taskId, workspaceId: notice.workspaceId, turnId: notice.turnId, reviewId: notice.reviewId });
     mainWindow?.webContents.focus();
-  });
+  }, () => path.join(app.getPath('userData'), 'dismissed-notices.json'));
 const ideViews = new IdeViews(() => mainWindow, sender => codeTerminals.has(sender), () => appNotices.raise());
 const browserTabs = new BrowserTabs(() => mainWindow, () => path.join(app.getPath('userData'), 'browser-tabs.json'), () => appNotices.raise());
 let pendingWindow: Promise<void> | null = null;

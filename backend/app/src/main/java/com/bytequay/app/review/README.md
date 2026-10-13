@@ -735,7 +735,9 @@ It records source hashes, CLI version, provider/model settings, transcript and
 failure status. Its synthetic CSV fixture tests execution feasibility, not review
 quality. The wrapper replaces reporting tools and disables delegation, so it does
 not measure the production checkpoint/validation/selection workflow. It never
-resets a live review database.
+resets a live review database. Its scorer builds a case from a public pull
+request's reviewer comments and has a model judge match each comment to the
+run's hypotheses; a person still checks the judge against hand labels.
 
 A controlled production comparison still needs an independently frozen corpus and
 blind adjudication. No holdout quality or cost gate below has been achieved. Use

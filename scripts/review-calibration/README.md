@@ -67,6 +67,68 @@ turn event and a schema-valid response, even when the CLI exits zero. Then inspe
 each hypothesis. Check both manifests agree on all source and context hashes.
 Do not publish model hypotheses as validated findings.
 
+## Scoring
+
+`case.py`, `judge.py` and `report.py` score runs against a human reviewer's
+inline comments. They need Python 3.12 or later and the one dependency in
+`pyproject.toml`; run them with [uv](https://docs.astral.sh/uv/) from this
+directory. The judge calls DeepSeek and reads its key only from
+`DEEPSEEK_API_KEY`.
+
+A case is one public pull request: the reviewer who opened the most threads, or
+the one named; the commit their first comment was written on; that comment's
+time as the cut-off; and their thread-opening inline comments on that commit as
+the answer key. The description is the version from before the cut-off, read
+from GitHub's edit history, and is omitted when that version is gone. A case
+never falls back to a later commit, because the comments would point at other
+code. `case.py list` prints recently merged pull requests that fit, so cases
+are chosen by a rule. Private repositories are refused: the judge sends comment
+text and leads to a model provider. A case holds other people's comment text,
+so `--output` must be outside this repository; record chosen cases here only as
+pointers (repository, number, commit, comment ids).
+
+```sh
+uv run case.py list --repo OWNER/NAME --since YYYY-MM-DD
+uv run case.py build --repo OWNER/NAME --pr NUMBER --clone /path/to/source \
+  --output /tmp/lab/cases/NAME-NUMBER
+```
+
+`build` prints the fork point and the reviewed commit. Pass them to `run.py` as
+`--base` and `--head`, with the case's `context.md` as `--context`. Write each
+run to `ROOT/SETTING/RUN`, with one `SETTING` directory per rules file or other
+arm, then judge it and print the table:
+
+```sh
+uv run judge.py run --case /tmp/lab/cases/NAME-NUMBER/case.json --run ROOT/SETTING/RUN
+uv run report.py ROOT
+```
+
+The judge makes one call per reviewer comment and answers FOUND, PARTLY or
+MISSED with the leads that match. Leads are shuffled by `--seed` and numbered,
+so the judge sees neither their order nor their setting. An answer that is
+empty, cut off or the wrong shape is asked again once and then recorded as a
+judge error, never as MISSED. Only completed runs are judged. `report.py` lists
+failed, timed-out and unjudged runs apart and leaves them out of every total,
+and it names a setting whose runs used different rules files or models. Leads
+that match no comment are counted as extra leads and are not judged: the
+reviewer may have missed a real problem.
+
+Check the judge before trusting a table. The answer key as leads must be all
+FOUND, another case's leads must be all MISSED, and two judgements of one run
+show how many verdicts flip, since the judge has no seed:
+
+```sh
+uv run judge.py run --case CASE --oracle --output /tmp/lab/checks/known-good
+uv run judge.py run --case CASE --leads OTHER_RUN/response.json --output /tmp/lab/checks/known-bad
+uv run judge.py run --case CASE --run RUN --output /tmp/lab/checks/again
+uv run judge.py agree --judgement RUN/judgement.json --labels /tmp/lab/checks/again/judgement.json
+uv run judge.py agree --judgement RUN/judgement.json --labels LABELS.json
+```
+
+`LABELS.json` maps a comment id to the verdict a person gave it. Set the
+agreement to reach before reading the judge's answers, and after changing the
+judge prompt measure it again on calls nobody has read.
+
 ## Synthetic smoke fixture
 
 `fixture/` is a deliberately small example for checking the harness and reading
@@ -77,12 +139,16 @@ reported as holdout recall or precision.
 
 Create a disposable Git repository from the two trees, commit `fixture/base/`
 then `fixture/head/`, record both SHAs, and supply `fixture/context.md` to the
-commands above. Keep the fixture README and this explanation outside the exported
-input. No test or runtime mutation is needed for discovery. Verify the exporter
-without a provider call using:
+commands above. Keep the fixture README, `fixture/case.json` and this
+explanation outside the exported input. No test or runtime mutation is needed
+for discovery. `fixture/case.json` is a hand-written answer key with one
+comment about the closed file; judging the fixture run against it and printing
+the table should give one FOUND row. `fixture/unrelated-leads.json` holds two
+leads about other code, to pass as `--leads` for the all-MISSED check. Verify
+the tools without a provider call using:
 
 ```sh
-python3 -m unittest discover -s scripts/review-calibration -p 'test_*.py'
+uv run python -m unittest discover -p 'test_*.py'
 ```
 
 ## Production comparison and adjudication

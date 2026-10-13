@@ -15,6 +15,7 @@ package com.bytequay.agent.cli.claude;
 
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.ProviderAgentEvent;
+import com.bytequay.agent.spi.ProviderUsageSample;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
@@ -31,6 +32,7 @@ import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -103,6 +105,7 @@ class TestClaudeEventMapper
                     assertThat(usage.sample().cachedInputTokens()).isEqualTo(16015);
                     assertThat(usage.sample().outputTokens()).isEqualTo(23);
                     assertThat(usage.sample().cost()).contains(new BigDecimal("0.343245"));
+                    assertThat(usage.sample().semantics()).isEqualTo(ProviderUsageSample.Semantics.FINAL_WITH_SESSION_COST);
                 });
 
         List<ProviderAgentEvent> failed = map("""
@@ -114,6 +117,19 @@ class TestClaudeEventMapper
                 """);
         assertThat(failed).anySatisfy(event -> assertThat(event)
                 .isInstanceOfSatisfying(ProviderAgentEvent.Error.class, error -> assertThat(error.message()).isEqualTo("provider failed")));
+    }
+
+    @Test
+    void reportsTheCostAsItsOwnOnAReleaseThatBeginsEveryProcessAtZero()
+    {
+        ClaudeEventMapper older = new ClaudeEventMapper(SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty(), false);
+        List<ProviderAgentEvent> result = older.map(ClaudeProtocol.decode(objectMapper, """
+                {"type":"result","is_error":false,"duration_ms":20,"duration_api_ms":10,"num_turns":1,"session_id":"session-1","total_cost_usd":0.42,
+                "usage":{"input_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":5,"output_tokens":7},"subtype":"success","result":"done","uuid":"result-1"}
+                """));
+        assertThat(result).filteredOn(ProviderAgentEvent.Usage.class::isInstance).singleElement()
+                .isInstanceOfSatisfying(ProviderAgentEvent.Usage.class, usage -> assertThat(usage.sample()).isEqualTo(new ProviderUsageSample(
+                        Optional.of("result-1"), ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION, 10, 5, 7, Optional.of(new BigDecimal("0.42")))));
     }
 
     @Test

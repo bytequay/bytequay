@@ -50,6 +50,7 @@ import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
+import com.bytequay.agent.spi.ProviderUsageSample;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.agent.spi.ReviewTool;
@@ -1529,6 +1530,26 @@ class TestClaudeCliDriver
                 assertThat(nativeTools).doesNotContain("Task", "Skill", "Workflow", "SendMessage");
                 assertThat(ImmutableList.copyOf(nativeTools).contains("Agent")).isEqualTo(verified);
             }
+        }
+    }
+
+    @Test
+    void readsTheCostAsTheSessionsTotalOnlyFromAReleaseThatCarriesItAcrossAResume()
+            throws Exception
+    {
+        for (String version : ImmutableList.of("2.1.276", "2.1.277")) {
+            ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+            supervisor.versionOutput = version + " (Claude Code)";
+            List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
+            try (ClaudeCliDriver driver = driver(supervisor)) {
+                driver.probe();
+                try (AgentSession session = driver.open(context(Optional.empty()), events::add)) {
+                    await(session.start(command("first")));
+                }
+            }
+            assertThat(events).filteredOn(ProviderAgentEvent.Usage.class::isInstance).singleElement()
+                    .extracting(event -> ((ProviderAgentEvent.Usage) event).sample().semantics())
+                    .isEqualTo(version.equals("2.1.277") ? ProviderUsageSample.Semantics.FINAL_WITH_SESSION_COST : ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION);
         }
     }
 

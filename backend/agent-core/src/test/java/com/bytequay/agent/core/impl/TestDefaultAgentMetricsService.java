@@ -154,6 +154,50 @@ class TestDefaultAgentMetricsService
     }
 
     @Test
+    void givesEachTurnWhatTheSessionsCostGrewBy()
+    {
+        AgentTurn first = turn("first", sessionCost("result-1", 17_539_675, 17_206_181, 121_018, "14.9625905"));
+        service = new DefaultAgentMetricsService(stores, stores, logStore, clock);
+        AgentTurn second = turn("second", sessionCost("result-2", 24_883_521, 24_722_478, 69_752, "30.6774495"));
+        // Every result of one process carries the total on, so the latest one counts, while each result's tokens are its own.
+        AgentTurn third = turn("third", sessionCost("result-3", 2_005_549, 1_994_258, 8_748, "32.0061485"), sessionCost("result-4", 1_000, 900, 10, "32.5061485"));
+
+        assertThat(first.metrics()).isEqualTo(metrics(17_539_675, 17_206_181, 121_018, "14.9625905"));
+        assertThat(second.metrics()).isEqualTo(metrics(24_883_521, 24_722_478, 69_752, "15.714859"));
+        assertThat(third.metrics()).isEqualTo(metrics(2_006_549, 1_995_158, 8_758, "1.828699"));
+        assertThat(service.taskTotals(task.id())).isEqualTo(metrics(44_429_745, 43_923_817, 199_528, "32.5061485"));
+    }
+
+    @Test
+    void givesWhatAnUnreportedTurnSpentToTheNextTurnThatReports()
+    {
+        turn("first", sessionCost("result-1", 100, 90, 10, "14.9625905"));
+        AgentTurn stopped = turn("stopped");
+        AgentTurn next = turn("next", sessionCost("result-2", 200, 180, 20, "30.6774495"));
+
+        assertThat(stopped.metrics().cost()).isEmpty();
+        assertThat(next.metrics()).isEqualTo(metrics(200, 180, 20, "15.714859"));
+        // The provider did not report every turn, so what the task cost in all is not said.
+        assertThat(service.taskTotals(task.id()).cost()).isEmpty();
+    }
+
+    @Test
+    void readsASessionCostThatDidNotMoveAsNoCostAndALowerOneAsUnknown()
+    {
+        // 24.4694136 is what SQLite hands back for a reported 24.469413599999996.
+        turn("first", sessionCost("result-1", 100, 90, 10, "24.4694136"));
+        AgentTurn unmoved = turn("unmoved", sessionCost("result-2", 0, 0, 0, "24.469413599999996"));
+        AgentTurn restarted = turn("restarted", sessionCost("result-3", 300, 270, 30, "6.2092988"));
+        AgentTurn caughtUp = turn("caught-up", sessionCost("result-4", 400, 360, 40, "30.4694136"));
+        AgentTurn unpriced = turn("unpriced", new ProviderUsageSample(Optional.of("result-5"), ProviderUsageSample.Semantics.FINAL_WITH_SESSION_COST, 5, 4, 1, Optional.empty()));
+
+        assertThat(unmoved.metrics()).isEqualTo(metrics(0, 0, 0, "0"));
+        assertThat(restarted.metrics()).isEqualTo(new AgentMetrics(300, 270, 30, Optional.empty(), Duration.ZERO));
+        assertThat(caughtUp.metrics()).isEqualTo(metrics(400, 360, 40, "6"));
+        assertThat(unpriced.metrics().cost()).isEmpty();
+    }
+
+    @Test
     void finalizesElapsedTimeAndPersistsTaskTotals()
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW)
@@ -207,6 +251,23 @@ class TestDefaultAgentMetricsService
     private static ProviderUsageSample cumulative(String eventId, long inputTokens, long cachedInputTokens, long outputTokens, String cost)
     {
         return sample(eventId, ProviderUsageSample.Semantics.CUMULATIVE, inputTokens, cachedInputTokens, outputTokens, cost);
+    }
+
+    private static ProviderUsageSample sessionCost(String eventId, long inputTokens, long cachedInputTokens, long outputTokens, String cost)
+    {
+        return sample(eventId, ProviderUsageSample.Semantics.FINAL_WITH_SESSION_COST, inputTokens, cachedInputTokens, outputTokens, cost);
+    }
+
+    /** A turn of the task that reported these samples and then ended. */
+    private AgentTurn turn(String key, ProviderUsageSample... samples)
+    {
+        AgentTurn started = AgentTurn.accepted(TurnId.random(), task.id(), key, turnSettings(), NOW).markDeliveryStarted(NOW).running(new ProviderTurnRef(key), Optional.empty());
+        stores.insert(started);
+        for (ProviderUsageSample sample : samples) {
+            service.record(task.id(), started.id(), sample);
+        }
+        AgentTurn reported = stores.require(started.id());
+        return stores.update(reported.finish(TurnState.COMPLETED, reported.metrics(), Optional.empty(), NOW.plusSeconds(1)));
     }
 
     private static ProviderUsageSample invocationUsage(String eventId, long inputTokens, long cachedInputTokens, long outputTokens)

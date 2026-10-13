@@ -108,6 +108,8 @@ public final class ClaudeCliDriver
     private static final Version SUBAGENT_TEXT_VERSION = Version.parse("2.1.219");
     // The release whose PreToolUse hook input was verified to mark a child's tool call with agent_id, which the review child gate reads.
     private static final Version REVIEW_CHILD_VERSION = Version.parse("2.1.278");
+    // From this release a headless resume carries total_cost_usd on from the total the session's transcript saved. Earlier ones began every process at zero.
+    private static final Version SESSION_COST_VERSION = Version.parse("2.1.277");
     // Verified command_lifecycle receipts bind streaming input and completion to each submitted UUID.
     private static final Version STEERING_VERSION = Version.parse("2.1.295");
     private static final Duration INPUT_TIMEOUT = Duration.ofSeconds(30);
@@ -184,6 +186,7 @@ public final class ClaudeCliDriver
     private volatile boolean forwardSubagentText = true;
     private volatile boolean steering;
     private volatile boolean reviewChildAgents;
+    private volatile boolean sessionCost = true;
     private volatile boolean closed;
 
     /**
@@ -365,6 +368,7 @@ public final class ClaudeCliDriver
             // A review child is visible only through forwarded text, and gated only on a release with the verified hook input.
             reviewChildAgents = forwardSubagentText && version.compareTo(REVIEW_CHILD_VERSION) >= 0;
             steering = version.compareTo(STEERING_VERSION) >= 0 && help.stdout().contains("--input-format");
+            sessionCost = version.compareTo(SESSION_COST_VERSION) >= 0;
             ProviderCli.Result defaults = run(executable, "auto-mode", "defaults");
             if (defaults.timedOut()) {
                 return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.of(version.toString()), "Claude auto-mode defaults timed out");
@@ -889,7 +893,7 @@ public final class ClaudeCliDriver
         {
             this.session = requireNonNull(session, "session is null");
             this.mapper = new ClaudeEventMapper(session.redactor, session.registration.development()
-                    .filter(bridge -> bridge.turnId().equals(command.turnId())));
+                    .filter(bridge -> bridge.turnId().equals(command.turnId())), sessionCost);
             this.reference = new ProviderTurnRef(command.turnId());
             streamingInput = steering && !session.context.restricted();
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());

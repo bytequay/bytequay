@@ -298,7 +298,8 @@ public sealed interface AgentEventPayload
         CUMULATIVE,
         CUMULATIVE_FOR_INVOCATION,
         DELTA,
-        FINAL_FOR_INVOCATION
+        FINAL_FOR_INVOCATION,
+        FINAL_WITH_SESSION_COST
     }
 
     enum LifecyclePhase

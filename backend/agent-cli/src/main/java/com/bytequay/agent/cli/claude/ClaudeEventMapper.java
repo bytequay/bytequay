@@ -46,6 +46,7 @@ final class ClaudeEventMapper
 
     private final SecretRedactor redactor;
     private final Optional<DevelopmentResultBridge> development;
+    private final boolean sessionCost;
     private final Map<String, ToolCall> tools = new HashMap<>();
     private final Set<String> activeTools = new HashSet<>();
     private final Set<String> activeHooks = new HashSet<>();
@@ -63,13 +64,17 @@ final class ClaudeEventMapper
 
     ClaudeEventMapper(SecretRedactor redactor)
     {
-        this(redactor, Optional.empty());
+        this(redactor, Optional.empty(), true);
     }
 
-    ClaudeEventMapper(SecretRedactor redactor, Optional<DevelopmentResultBridge> development)
+    /**
+     * @param sessionCost whether this release's result carries the cost of the whole session, earlier invocations included, or of its own process alone
+     */
+    ClaudeEventMapper(SecretRedactor redactor, Optional<DevelopmentResultBridge> development, boolean sessionCost)
     {
         this.redactor = requireNonNull(redactor, "redactor is null");
         this.development = requireNonNull(development, "development is null");
+        this.sessionCost = sessionCost;
     }
 
     List<ProviderAgentEvent> map(ClaudeProtocol.Message message)
@@ -354,9 +359,10 @@ final class ClaudeEventMapper
                                             .orElseGet(() -> "claude-message-" + UUID.randomUUID())))))));
         }
         ClaudeProtocol.Usage usage = result.usage();
+        // The usage is this result's own, while total_cost_usd runs on: across the results of one process and, where the release saves it, across a resume.
         events.add(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                 result.uuid(),
-                ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
+                sessionCost ? ProviderUsageSample.Semantics.FINAL_WITH_SESSION_COST : ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
                 Math.addExact(usage.inputTokens(), Math.addExact(usage.cacheCreationInputTokens(), usage.cacheReadInputTokens())),
                 usage.cacheReadInputTokens(),
                 usage.outputTokens(),

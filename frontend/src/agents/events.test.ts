@@ -71,6 +71,8 @@ describe('agent event contract', () => {
     const [parsed] = parseAgentEventSequence([usage]);
     expect(parsed.type).toBe('usage');
     expect(parsed.payload).toEqual(usage.payload);
+    const sessionCost = { ...usage.payload, semantics: 'FINAL_WITH_SESSION_COST' };
+    expect(parseAgentEventSequence([{ ...usage, payload: sessionCost }])[0].payload).toEqual(sessionCost);
     expect(() => parseAgentEventSequence([{ ...usage, payload: { ...usage.payload, semantics: 'UNKNOWN_SCOPE' } }]))
       .toThrow('usage.semantics');
   });

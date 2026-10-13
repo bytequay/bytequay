@@ -53,6 +53,8 @@ public final class DefaultAgentMetricsService
     private static final Set<String> EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS", "code_query", "bytequay/code_query", "mcp__bytequay__code_query");
     private static final Set<CommandActionKind> EXPLORE_ACTIONS =
             ImmutableSet.of(CommandActionKind.READ, CommandActionKind.LIST_FILES, CommandActionKind.SEARCH);
+    // A cost arrives as a JSON double and SQLite keeps fifteen digits of it, so a session total that did not move can come back a hair below what the turns hold.
+    private static final BigDecimal COST_NOISE = new BigDecimal("0.000001");
 
     private final AgentTaskStore taskStore;
     private final AgentTurnStore turnStore;
@@ -81,7 +83,8 @@ public final class DefaultAgentMetricsService
         AgentMetrics updated = switch (sample.semantics()) {
             case CUMULATIVE -> cumulativeMetrics(baselineTotals(taskId, turnId), turn.metrics(), sample);
             case CUMULATIVE_FOR_INVOCATION -> cumulativeMetrics(AgentMetrics.empty(), turn.metrics(), sample);
-            case DELTA, FINAL_FOR_INVOCATION -> addMetrics(turn.metrics(), sample);
+            case DELTA, FINAL_FOR_INVOCATION -> addMetrics(turn.metrics(), sample, addCost(turn.metrics(), sample));
+            case FINAL_WITH_SESSION_COST -> addMetrics(turn.metrics(), sample, sample.cost().flatMap(sessionCost -> ownCost(taskId, turnId, sessionCost)));
         };
         if (updated.equals(turn.metrics())) {
             return updated;
@@ -187,9 +190,24 @@ public final class DefaultAgentMetricsService
         return Optional.empty();
     }
 
-    private static AgentMetrics addMetrics(AgentMetrics current, ProviderUsageSample sample)
+    /**
+     * A turn's own part of a cost its provider counts across the whole session. A task keeps one provider session, so its other turns hold what the
+     * session cost before, and the turn gets what the total exceeds that by. A turn that ended without a report holds nothing: what it spent falls to
+     * the next turn that reports.
+     */
+    private Optional<BigDecimal> ownCost(TaskId taskId, TurnId turnId, BigDecimal sessionCost)
     {
-        Optional<BigDecimal> cost = addCost(current, sample);
+        BigDecimal own = sessionCost.subtract(turnStore.list(taskId).stream()
+                .filter(turn -> !turn.id().equals(turnId))
+                .flatMap(turn -> turn.metrics().cost().stream())
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+        // ponytail: a total below what the other turns hold means the provider began counting again, and nothing stored says from where, so the cost stays
+        // unknown until the total passes them. Keep the session's last total on the turn if that ever has to heal at once.
+        return own.compareTo(COST_NOISE.negate()) < 0 ? Optional.empty() : Optional.of(own.max(BigDecimal.ZERO));
+    }
+
+    private static AgentMetrics addMetrics(AgentMetrics current, ProviderUsageSample sample, Optional<BigDecimal> cost)
+    {
         try {
             return new AgentMetrics(
                     Math.addExact(current.inputTokens(), sample.inputTokens()),

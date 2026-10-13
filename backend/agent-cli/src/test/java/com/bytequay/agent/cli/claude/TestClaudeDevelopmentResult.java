@@ -100,7 +100,7 @@ class TestClaudeDevelopmentResult
 
     private ClaudeEventMapper mapper()
     {
-        return new ClaudeEventMapper(SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")), Optional.of(bridge));
+        return new ClaudeEventMapper(SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret")), Optional.of(bridge), true);
     }
 
     private List<ProviderAgentEvent> start(ClaudeEventMapper mapper, boolean child)

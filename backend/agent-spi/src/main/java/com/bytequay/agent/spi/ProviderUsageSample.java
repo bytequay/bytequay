@@ -38,6 +38,8 @@ public record ProviderUsageSample(Optional<String> providerEventId, Semantics se
         /** Totals of the current invocation alone: the adapter has already taken out whatever its provider counted before it. */
         CUMULATIVE_FOR_INVOCATION,
         DELTA,
-        FINAL_FOR_INVOCATION
+        FINAL_FOR_INVOCATION,
+        /** The tokens of one finished invocation, with a cost the provider counts across the task's whole session, earlier turns included. */
+        FINAL_WITH_SESSION_COST
     }
 }

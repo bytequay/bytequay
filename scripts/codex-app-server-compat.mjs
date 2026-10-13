@@ -21,21 +21,21 @@ import { createInterface } from "node:readline";
 import { fileURLToPath } from "node:url";
 
 const contract = {
-  version: "0.151.0",
+  version: "0.159.3",
   schemaCommand:
     "codex app-server generate-json-schema --experimental --out <temporary-directory>",
   experimentalBundleSha256:
-    "31ae67beb2c94cc9509f6a71968600062dc8c6d7fe45437ed3a9129838f4d2d9",
+    "7243ba241962af92ca60581f1a81808ebda4212a800f8b205f54703bcfd508c5",
   experimentalV2BundleSha256:
-    "a586cdc50f84c56c7654387e869b470a689796fa1c57678dcafb5921bb2d5255",
+    "e77b7d1436a78f431a74b2cb263a862e92ae40d70411bc63835b47ab2168827c",
   stableBundleSha256:
-    "424b204943b18e5ffa52667a2aa397c9950730ec1e49ad767e2a016743990541",
+    "8683f6fd9fbb994fa2bfb704ab5b02c9890238fa507a4c0ff33ff45884cd0a2e",
   stableV2BundleSha256:
-    "2442b15801bc019ad55987ad03e0f0ae60c51417825b9b6d708db640e6c2651c",
+    "81a88c04ae4984b16d73080f4109d0477682bc76c8adbe483e371175ce54c054",
 };
 
 const referenceBindingsPath = fileURLToPath(new URL(
-  "../backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.151.0-bindings.json",
+  "../backend/agent-cli/src/test/resources/com/bytequay/agent/cli/codex/app-server-v0.159.3-bindings.json",
   import.meta.url,
 ));
 

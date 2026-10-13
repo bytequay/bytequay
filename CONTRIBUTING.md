@@ -42,8 +42,9 @@ newer versions installed. It then checks the configured Codex executable
 again, so an npm installation that does not update that executable cannot
 bypass the minimum. Missing, failed, or unreadable version checks do not
 trigger installation. Restart ByteQuay after changing the installation
-manually. The separate `0.151.0` App Server compatibility fixture is historical
-protocol evidence, not the production version requirement.
+manually. The App Server compatibility fixture is generated from that same
+release; when the minimum changes, re-pin `scripts/codex-app-server-compat.mjs`
+and regenerate the fixture with its `--update-bindings` option.
 
 The `0.159.3` minimum includes the GPT-6.1 Sol catalog added in Codex `0.159.1`.
 ByteQuay discovers available models through the CLI's `model/list` response;

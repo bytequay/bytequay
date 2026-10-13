@@ -191,8 +191,7 @@ def cost(shown, table, folder, mode):
         st.metric("Recorded cost", f"${recorded:,.2f}", border=True, width=TILE, help="What the Claude command line says its turns would cost at API prices.")
         if prices:
             st.metric("Estimated cost", f"${estimated:,.2f}", border=True, width=TILE, help="Tokens times your own prices, for turns with no recorded cost.")
-    st.caption(f"Tokens are known for {len(kinds):,} of {len(turns):,} turns. Each amount is the turn's own: ByteQuay stores running totals for Codex tokens and "
-               "Claude cost, and the lab takes what they grew by.")
+    st.caption(f"Tokens are known for {len(kinds):,} of {len(turns):,} turns. Each amount is the turn's own.")
     left, right = st.columns(2)
     with left:
         st.subheader("Tokens by kind")

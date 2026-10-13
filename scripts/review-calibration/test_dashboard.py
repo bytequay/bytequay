@@ -152,8 +152,7 @@ class Page(unittest.TestCase):
         page = self.page()
         self.assertEqual([(tile.label, tile.value) for tile in page.metric][5:], [("Tokens in", "1.1 M"), ("From the cache", "90.4%"), ("Tokens out", "7.0 K"), ("Recorded cost", "$1.50")])
         self.assertEqual(headings(page)[-5:], COST)
-        self.assertIn("Tokens are known for 3 of 4 turns. Each amount is the turn's own: ByteQuay stores running totals for Codex tokens and Claude cost, "
-                      "and the lab takes what they grew by.", captions(page))
+        self.assertIn("Tokens are known for 3 of 4 turns. Each amount is the turn's own.", captions(page))
         cost = table(page, "how")
         self.assertEqual(cost[["model and effort", "dollars", "how"]].values.tolist()[0], ["opus · high", 1.5, "recorded"])
         self.assertEqual(cost["how"].tolist()[1:], ["unknown", "unknown"])  # no recorded cost and no price: nothing is made up

@@ -211,12 +211,10 @@ database gets a row without a time split, because its log is gone. When the
 database is missing or has another shape, the table is saved from the logs
 alone and says why.
 
-ByteQuay stores two running totals where a turn's own amount belongs: on a
-Codex turn the token total of its thread, and on a Claude turn the cost of its
-whole session. `records.py` gives such a turn what the total grew by since the
-task's turn before it, and takes a total that fell as a fresh start. A Claude
-turn's tokens are already its own. For any other provider the lab cannot tell
-how ByteQuay counts and saves neither tokens nor cost. A test reads the
+ByteQuay stores on a Codex turn and on a Claude turn the tokens and the cost
+of that turn alone, and `records.py` saves them as they are. For any other
+provider the lab cannot tell what the stored amounts count and saves neither
+tokens nor cost. A test reads the
 application's source and fails when the columns the lab reads, or the way the
 application counts tokens and cost, change. `fixture/saved-review-scores.json` and
 `fixture/saved-turns.json` are small examples of the two shapes. The tests

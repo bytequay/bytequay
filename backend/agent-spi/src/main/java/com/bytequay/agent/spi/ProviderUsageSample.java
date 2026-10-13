@@ -35,7 +35,7 @@ public record ProviderUsageSample(Optional<String> providerEventId, Semantics se
     {
         /** Totals across the task's provider session, including earlier turns. */
         CUMULATIVE,
-        /** Totals for the current invocation, whose provider process starts afresh for this turn. */
+        /** Totals of the current invocation alone: the adapter has already taken out whatever its provider counted before it. */
         CUMULATIVE_FOR_INVOCATION,
         DELTA,
         FINAL_FOR_INVOCATION

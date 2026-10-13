@@ -20,10 +20,10 @@ QUERY = """
            task.lane_id, task.repository_owner, task.repository_name
     FROM agent_turn turn LEFT JOIN agent_task task ON task.id = turn.task_id"""
 TOKENS = ("inputTokens", "cachedInputTokens", "outputTokens")
-# What ByteQuay stores on a turn as a running total instead of the turn's own amount. The Codex command line reports
-# the token total of its thread, and the Claude command line the cost of its whole session, and ByteQuay keeps both as
-# they come. A Claude turn's tokens are its own. For any other provider the lab cannot tell, so it shows neither.
-RUNNING_TOTAL = {"codex": (TOKENS,), "claude": (("cost",),)}
+# What ByteQuay stores on a turn as a running total instead of the turn's own amount. The Claude command line reports
+# the cost of its whole session, and ByteQuay keeps that as it comes. The tokens of a Codex turn and of a Claude turn
+# are the turn's own. For any other provider the lab cannot tell, so it shows neither tokens nor cost.
+RUNNING_TOTAL = {"codex": (), "claude": (("cost",),)}
 
 
 def read(path):

@@ -1581,6 +1581,19 @@
             "reasoningOutputTokens": 1,
             "totalTokens": 1
           }
+        },
+        {
+          "javaName": "last",
+          "wireName": "last",
+          "required": true,
+          "nullable": false,
+          "sample": {
+            "cachedInputTokens": 1,
+            "inputTokens": 1,
+            "outputTokens": 1,
+            "reasoningOutputTokens": 1,
+            "totalTokens": 1
+          }
         }
       ]
     },

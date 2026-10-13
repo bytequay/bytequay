@@ -50,6 +50,7 @@ import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
+import com.bytequay.agent.spi.ProviderUsageSample;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.RelatedWorkspaceBridge;
 import com.bytequay.agent.spi.ReviewBridge;
@@ -101,6 +102,7 @@ import java.util.stream.Stream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.tuple;
 
 class TestCodexCliDriver
 {
@@ -234,6 +236,8 @@ class TestCodexCliDriver
         assertThat(startedTurn.path("sandboxPolicy").path("networkAccess").asBoolean()).isTrue();
         assertThat(startedTurn.path("sandboxPolicy").path("excludeTmpdirEnvVar").booleanValue()).isFalse();
         assertThat(startedTurn.path("sandboxPolicy").path("excludeSlashTmp").booleanValue()).isFalse();
+        // A turn can report before its first response, repeating the total the resume replayed.
+        resumedServer.emitUsage("thread-1", resumedServer.activeTurn(), AppServerProcess.EARLIER_USAGE, AppServerProcess.EARLIER_USAGE);
         resumedServer.completeTurn();
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
@@ -248,13 +252,11 @@ class TestCodexCliDriver
             assertThat(message.phase()).isEqualTo(ProviderAgentEvent.MessagePhase.PARTIAL);
             assertThat(message.text()).isEqualTo("draft [REDACTED]");
         });
-        assertThat(events).anySatisfy(event -> {
-            assertThat(event).isInstanceOf(ProviderAgentEvent.Usage.class);
-            ProviderAgentEvent.Usage usage = (ProviderAgentEvent.Usage) event;
-            assertThat(usage.sample().semantics()).isEqualTo(com.bytequay.agent.spi.ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION);
-            assertThat(usage.sample().inputTokens()).isEqualTo(80);
-            assertThat(usage.sample().outputTokens()).isEqualTo(20);
-        });
+        // What the thread counted in earlier turns is none of this turn's usage, however often it is reported.
+        assertThat(events.stream().filter(ProviderAgentEvent.Usage.class::isInstance).map(event -> ((ProviderAgentEvent.Usage) event).sample()))
+                .allSatisfy(sample -> assertThat(sample.semantics()).isEqualTo(ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION))
+                .extracting(ProviderUsageSample::inputTokens, ProviderUsageSample::cachedInputTokens, ProviderUsageSample::outputTokens)
+                .containsExactly(tuple(0L, 0L, 0L), tuple(80L, 30L, 20L));
         assertThat(events.toString()).doesNotContain("known-secret");
 
         resumed.close();
@@ -4094,6 +4096,9 @@ class TestCodexCliDriver
     private static final class AppServerProcess
             implements ManagedProcess
     {
+        /** What thread-1 counted in the turns before a session resumes it. */
+        private static final String EARLIER_USAGE = tokens(1000, 800, 300, 200);
+
         private final ObjectMapper objectMapper;
         private final ProcessOutputSink output;
         private final boolean failThreadStart;
@@ -4507,6 +4512,8 @@ class TestCodexCliDriver
                     sandboxes.add(message.path("params").path("sandbox").asText());
                     resumes.incrementAndGet();
                     respond(id, "{\"thread\":{\"id\":\"thread-1\"}}");
+                    // As App Server does for the client that resumes a thread: its token counter, under the turn that last moved it.
+                    emitUsage("thread-1", "earlier-turn", EARLIER_USAGE, EARLIER_USAGE);
                 }
                 case "thread/unsubscribe" -> respond(id, "{\"status\":\"unsubscribed\"}");
                 case "turn/start" -> {
@@ -4625,10 +4632,7 @@ class TestCodexCliDriver
                     + "\"threadId\":\"" + threadId + "\",\"turnId\":\"subagent-turn\","
                     + "\"itemId\":\"message-9\",\"delta\":\"from a child thread\"}}");
             // Its own cumulative counter, which is not the task's.
-            emit("{\"method\":\"thread/tokenUsage/updated\",\"params\":{"
-                    + "\"threadId\":\"" + threadId + "\",\"turnId\":\"subagent-turn\","
-                    + "\"tokenUsage\":{\"total\":{\"inputTokens\":900,\"cachedInputTokens\":0,"
-                    + "\"outputTokens\":300,\"reasoningOutputTokens\":0,\"totalTokens\":1200}}}}");
+            emitUsage(threadId, "subagent-turn", tokens(1200, 900, 0, 300), tokens(1200, 900, 0, 300));
             // Its own final answer, which is not the task's answer.
             emit("{\"method\":\"item/completed\",\"params\":{\"item\":{"
                     + "\"type\":\"agentMessage\",\"id\":\"message-9\","
@@ -4705,6 +4709,17 @@ class TestCodexCliDriver
                     + "\"threadId\":\"" + threadId + "\",\"turnId\":\"child-turn\"}}");
         }
 
+        private void emitUsage(String threadId, String turnId, String total, String last)
+        {
+            emit("{\"method\":\"thread/tokenUsage/updated\",\"params\":{\"threadId\":\"" + threadId + "\",\"turnId\":\"" + turnId + "\","
+                    + "\"tokenUsage\":{\"total\":" + total + ",\"last\":" + last + "}}}");
+        }
+
+        private static String tokens(long total, long input, long cachedInput, long output)
+        {
+            return "{\"totalTokens\":%d,\"inputTokens\":%d,\"cachedInputTokens\":%d,\"outputTokens\":%d,\"reasoningOutputTokens\":0}".formatted(total, input, cachedInput, output);
+        }
+
         private void completeTurnWithoutOutput()
         {
             completeTurnWithSummary("[]");
@@ -4731,10 +4746,8 @@ class TestCodexCliDriver
                     + "\"type\":\"agentMessage\",\"id\":\"message-1\","
                     + "\"text\":\"authoritative known-secret\",\"phase\":\"final_answer\"},"
                     + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\"}}");
-            emit("{\"method\":\"thread/tokenUsage/updated\",\"params\":{"
-                    + "\"threadId\":\"thread-1\",\"turnId\":\"" + activeTurn + "\","
-                    + "\"tokenUsage\":{\"total\":{\"totalTokens\":100,\"inputTokens\":80,"
-                    + "\"cachedInputTokens\":30,\"outputTokens\":20}}}}");
+            // One response: the thread's running total, which earlier turns moved too, and what that response used.
+            emitUsage("thread-1", activeTurn, tokens(1100, 880, 330, 220), tokens(100, 80, 30, 20));
             emit("{\"method\":\"turn/completed\",\"params\":{\"threadId\":\"thread-1\","
                     + "\"turn\":{\"id\":\"" + activeTurn
                     + "\",\"status\":\"completed\",\"error\":null,\"durationMs\":2,\"items\":[]}}}");

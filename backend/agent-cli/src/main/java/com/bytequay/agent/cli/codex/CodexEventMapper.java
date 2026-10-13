@@ -47,6 +47,10 @@ final class CodexEventMapper
     private final Map<String, String> heldStreams = new HashMap<>();
     /** Each thread's last message with no phase label in its current turn, by thread. */
     private final Map<String, ProviderAgentEvent.Message> unlabelledMessages = new HashMap<>();
+    /** Each thread's token counter as App Server last reported it, by thread. */
+    private final Map<String, CodexProtocol.TokenUsageBreakdown> threadUsage = new HashMap<>();
+    /** What each turn's thread had counted before the turn used anything, by turn. */
+    private final Map<String, CodexProtocol.TokenUsageBreakdown> turnBaselines = new HashMap<>();
 
     CodexEventMapper()
     {
@@ -538,17 +542,43 @@ final class CodexEventMapper
         return ImmutableList.of(new ProviderAgentEvent.Plan(Optional.of(params.turnId() + ":plan"), plan, source));
     }
 
-    private static List<ProviderAgentEvent> mapUsage(CodexProtocol.TokenUsageParams params, ProviderAgentEventSource source)
+    /** Remembers a thread's counter from a report no running turn owns, such as the one App Server replays after a resume. */
+    void observeUsage(CodexProtocol.TokenUsageParams params)
+    {
+        threadUsage.put(params.threadId(), params.tokenUsage().total());
+    }
+
+    /**
+     * App Server counts tokens per thread: the total runs on across turns and across a resume in a new process. A turn's
+     * own usage is how far that total moved since the turn began.
+     */
+    private List<ProviderAgentEvent> mapUsage(CodexProtocol.TokenUsageParams params, ProviderAgentEventSource source)
     {
         CodexProtocol.TokenUsageBreakdown total = params.tokenUsage().total();
+        CodexProtocol.TokenUsageBreakdown known = threadUsage.put(params.threadId(), total);
+        // A turn's first report either repeats the known total, having used nothing yet, or follows one response, whose
+        // own usage comes beside the total. The second also holds where a resume begins the counter again, as Codex 0.153 did.
+        CodexProtocol.TokenUsageBreakdown baseline = turnBaselines.computeIfAbsent(params.turnId(),
+                ignored -> total.equals(known) ? total : minus(total, params.tokenUsage().last()));
+        CodexProtocol.TokenUsageBreakdown own = minus(total, baseline);
         return ImmutableList.of(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                 Optional.of(params.turnId() + ":usage:" + total.totalTokens()),
                 ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION,
-                total.inputTokens(),
-                total.cachedInputTokens(),
-                total.outputTokens(),
+                own.inputTokens(),
+                own.cachedInputTokens(),
+                own.outputTokens(),
                 Optional.empty()),
                 source));
+    }
+
+    private static CodexProtocol.TokenUsageBreakdown minus(CodexProtocol.TokenUsageBreakdown total, CodexProtocol.TokenUsageBreakdown earlier)
+    {
+        // Floored: after a compaction the latest response's total is the context's estimated size, which can exceed the thread's count.
+        return new CodexProtocol.TokenUsageBreakdown(
+                Math.max(0, total.totalTokens() - earlier.totalTokens()),
+                Math.max(0, total.inputTokens() - earlier.inputTokens()),
+                Math.max(0, total.cachedInputTokens() - earlier.cachedInputTokens()),
+                Math.max(0, total.outputTokens() - earlier.outputTokens()));
     }
 
     private static ProviderAgentEvent.Lifecycle lifecycle(String eventId, ProviderAgentEvent.LifecyclePhase phase, String message, ProviderAgentEventSource source)

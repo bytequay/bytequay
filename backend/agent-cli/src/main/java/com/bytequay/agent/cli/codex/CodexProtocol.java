@@ -691,11 +691,13 @@ final class CodexProtocol
         }
     }
 
-    record ThreadTokenUsage(TokenUsageBreakdown total)
+    /** The thread's running total, and what the latest response added to it. */
+    record ThreadTokenUsage(TokenUsageBreakdown total, TokenUsageBreakdown last)
     {
         ThreadTokenUsage
         {
             requireNonNull(total, "total is null");
+            requireNonNull(last, "last is null");
         }
     }
 

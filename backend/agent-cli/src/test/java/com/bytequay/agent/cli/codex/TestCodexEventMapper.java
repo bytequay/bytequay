@@ -89,8 +89,8 @@ class TestCodexEventMapper
                 {"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1",
                 "turnId":"turn-1","tokenUsage":{"total":{"totalTokens":65312,
                 "inputTokens":64841,"cachedInputTokens":50432,"outputTokens":471,
-                "reasoningOutputTokens":138},"last":{"totalTokens":1,"inputTokens":1,
-                "cachedInputTokens":0,"outputTokens":0,"reasoningOutputTokens":0}}},
+                "reasoningOutputTokens":138},"last":{"totalTokens":65312,"inputTokens":64841,
+                "cachedInputTokens":50432,"outputTokens":471,"reasoningOutputTokens":138}}},
                 "emittedAtMs":1786884871458}
                 """, ProviderAgentEvent.Usage.class);
         assertThat(usage.sample().inputTokens()).isEqualTo(64841);
@@ -126,6 +126,41 @@ class TestCodexEventMapper
                 "inputTokens":8,"cachedInputTokens":2}}}}
                 """))
                 .hasRootCauseMessage("outputTokens is null");
+    }
+
+    @Test
+    void reportsEachTurnsOwnUsageFromTheThreadsRunningTotal()
+    {
+        // A new thread counts from zero, and its next turn in the same process counts on.
+        assertThat(usage(mapper, "turn-1", "1000,100,10", "1000,100,10")).containsExactly(1000L, 100L, 10L);
+        assertThat(usage(mapper, "turn-2", "3000,300,30", "2000,200,20")).containsExactly(2000L, 200L, 20L);
+        assertThat(usage(mapper, "turn-2", "6000,600,60", "3000,300,30")).containsExactly(5000L, 500L, 50L);
+
+        // A resume in a new process: App Server replays the thread's total under its last turn, then counts on from it.
+        CodexEventMapper resumed = new CodexEventMapper();
+        resumed.observeUsage(usageNotification("turn-2", "6000,600,60", "3000,300,30").params());
+        assertThat(usage(resumed, "turn-3", "10000,1000,100", "4000,400,40")).containsExactly(4000L, 400L, 40L);
+        assertThat(usage(resumed, "turn-3", "15000,1500,150", "5000,500,50")).containsExactly(9000L, 900L, 90L);
+
+        // The same turn when the replay never arrived: the first response's own usage gives the starting point.
+        assertThat(usage(new CodexEventMapper(), "turn-3", "10000,1000,100", "4000,400,40")).containsExactly(4000L, 400L, 40L);
+    }
+
+    @Test
+    void reportsATurnsOwnUsageWhenItsFirstReportRepeatsOrRestartsTheTotal()
+    {
+        // A turn can report before any response: the replayed total again, or the same total after a compaction.
+        CodexEventMapper repeated = new CodexEventMapper();
+        repeated.observeUsage(usageNotification("turn-1", "576120,533248,4432", "65238,64768,224").params());
+        assertThat(usage(repeated, "turn-2", "576120,533248,4432", "65238,64768,224")).containsExactly(0L, 0L, 0L);
+        assertThat(usage(repeated, "turn-2", "642000,598000,4600", "65880,64752,168")).containsExactly(65880L, 64752L, 168L);
+        assertThat(usage(repeated, "turn-2", "642000,598000,4600", "0,0,0")).containsExactly(65880L, 64752L, 168L);
+
+        // A resume that begins the counter again, as Codex 0.153 did: the first response reports itself alone, below the earlier total.
+        CodexEventMapper restarted = new CodexEventMapper();
+        restarted.observeUsage(usageNotification("turn-1", "59857,24960,234", "20634,18560,58").params());
+        assertThat(usage(restarted, "turn-2", "20759,20224,73", "20759,20224,73")).containsExactly(20759L, 20224L, 73L);
+        assertThat(usage(restarted, "turn-2", "42682,40832,179", "21923,20608,106")).containsExactly(42682L, 40832L, 179L);
     }
 
     @Test
@@ -550,5 +585,29 @@ class TestCodexEventMapper
         List<ProviderAgentEvent> events = mapper.map(codec.decodeNotification(json), true, CodexEventMapper.ThreadLineage.NONE);
         assertThat(events).hasSize(1);
         return type.cast(events.getFirst());
+    }
+
+    /** The usage one report maps to, as input, cached input and output tokens. */
+    private List<Long> usage(CodexEventMapper usageMapper, String turnId, String total, String last)
+    {
+        List<ProviderAgentEvent> events = usageMapper.map(usageNotification(turnId, total, last), true, CodexEventMapper.ThreadLineage.NONE);
+        assertThat(events).hasSize(1);
+        ProviderUsageSample sample = ((ProviderAgentEvent.Usage) events.getFirst()).sample();
+        return ImmutableList.of(sample.inputTokens(), sample.cachedInputTokens(), sample.outputTokens());
+    }
+
+    /** A report for thread-1 whose {@code total} and {@code last} are each given as input, cached input and output tokens. */
+    private CodexProtocol.TokenUsageUpdatedNotification usageNotification(String turnId, String total, String last)
+    {
+        return (CodexProtocol.TokenUsageUpdatedNotification) codec.decodeNotification("""
+                {"method":"thread/tokenUsage/updated","params":{"threadId":"thread-1","turnId":"%s","tokenUsage":{"total":%s,"last":%s}}}
+                """.formatted(turnId, breakdown(total), breakdown(last)));
+    }
+
+    private static String breakdown(String counts)
+    {
+        String[] tokens = counts.split(",");
+        return "{\"totalTokens\":%d,\"inputTokens\":%s,\"cachedInputTokens\":%s,\"outputTokens\":%s,\"reasoningOutputTokens\":0}"
+                .formatted(Long.parseLong(tokens[0]) + Long.parseLong(tokens[2]), tokens[0], tokens[1], tokens[2]);
     }
 }

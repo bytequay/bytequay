@@ -270,7 +270,7 @@ const referenceRecordBindings = [
   ]),
   recordBinding("ThreadTokenUsage", "decode", [
     schemaSource("v2", "ThreadTokenUsage"),
-  ], [component("total")]),
+  ], [component("total"), component("last")]),
   recordBinding("TokenUsageBreakdown", "decode", [
     schemaSource("v2", "TokenUsageBreakdown"),
   ], [

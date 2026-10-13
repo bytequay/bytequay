@@ -85,7 +85,9 @@ code. `case.py list` prints recently merged pull requests that fit, so cases
 are chosen by a rule. Private repositories are refused: the judge sends comment
 text and leads to a model provider. A case holds other people's comment text,
 so `--output` must be outside this repository; record chosen cases here only as
-pointers (repository, number, commit, comment ids).
+pointers (repository, number, commit, comment ids) in `cases.json`. A case whose
+comments or scores anyone has read is a `tuning` case and can no longer serve
+as an unseen holdout.
 
 ```sh
 uv run case.py list --repo OWNER/NAME --since YYYY-MM-DD

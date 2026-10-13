@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import Composer from '../Composer';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type {
   AgentApprovalDecision,
@@ -576,22 +577,11 @@ export default function ProgressView({
 
         {active && (
           <div className="cmt-composer">
-            <div className="cmt-composer-box">
-              <input
-                value={message}
-                placeholder="Let's ship something"
-                onChange={event => setMessage(event.target.value)}
-                onKeyDown={event => { if (event.key === 'Enter') void send(); }}
-              />
-              <button
-                type="button"
-                aria-label="Send note"
-                disabled={busy || !message.trim()}
-                onClick={() => { void send(); }}
-              >
-                ↑
-              </button>
-            </div>
+            <Composer value={message} aria-label="Note to the agent" placeholder="Let's ship something"
+              onChange={event => setMessage(event.target.value)} onSubmit={() => { void send(); }} busy={busy}
+              submitEnabled={!busy && Boolean(message.trim())} submitLabel="Send note">
+              <span className="agt-spacer" />
+            </Composer>
             <div className="cmt-composer-hint">
               Delivered to the current item's agent turn as an untrusted note — the service still
               verifies every commit.

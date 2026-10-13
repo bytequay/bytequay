@@ -15,6 +15,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ArrowUpRight, CalendarDays, Eraser, KeyRound, LoaderCircle, Lock, Mail, MailWarning, Reply, Search, ShieldQuestionMark, Sparkles, Square, X } from 'lucide-react';
 import type { GeminiSetupStatus, GoogleChatState } from './contracts';
 import MarkdownBody from '../pulls/MarkdownBody';
+import Composer from '../Composer';
 import { settingsRoute } from '../settings/routes';
 
 /** What the next question is about; it travels as part of the message so the conversation shows what was sent. */
@@ -107,23 +108,18 @@ export default function GoogleChat({ profile, email, context, onContext }: { pro
       {failure && <p className="google-screen__error" role="alert">{failure}</p>}
       <div ref={bottom} />
     </div>
-    {(ready || busy) && <div className="google-chat__compose"><div className="agt-compose is-new-task">
-      {context && <div className="google-chat__context"><span>{context.kind === 'event' ? <CalendarDays size={12} aria-hidden="true" /> : <Mail size={12} aria-hidden="true" />}<span>{context.label}</span>
-        <button type="button" aria-label="Remove context" title="Remove context" onClick={() => onContext(null)}><X size={11} /></button></span></div>}
-      <textarea ref={input} className="agt-compose__input" rows={1} aria-label="Message Gemini" placeholder="Ask Gemini about your mail or calendar…" value={draft} maxLength={20000}
-        onChange={event => setDraft(event.target.value)}
-        onKeyDown={event => {
-          if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-          event.preventDefault();
-          void ask(draft);
-        }} />
-      <div className="agt-compose__row">
+    {(ready || busy) && <div className="google-chat__compose">
+      <Composer className="is-new-task" inputRef={input} aria-label="Message Gemini" placeholder="Ask Gemini about your mail or calendar…"
+        value={draft} maxLength={20000} onChange={event => setDraft(event.target.value)} busy={pending}
+        onSubmit={() => { void ask(draft); }} submitEnabled={Boolean(draft.trim()) && !busy && !pending}
+        submitLabel="Send to Gemini" submitTitle="Send to Gemini (Enter)"
+        header={context && <div className="google-chat__context"><span>{context.kind === 'event' ? <CalendarDays size={12} aria-hidden="true" /> : <Mail size={12} aria-hidden="true" />}<span>{context.label}</span>
+          <button type="button" aria-label="Remove context" title="Remove context" onClick={() => onContext(null)}><X size={11} /></button></span></div>}>
         <span className="google-chat__private"><Lock size={12} aria-hidden="true" />Private</span>
         {!busy && <small>· Cleared when ByteQuay quits</small>}
         <span className="google-spacer" />
         {busy && <><LoaderCircle className="pr-task-spinner" size={14} aria-label="Gemini is responding" /><button type="button" className="google-chat__stop" disabled={pending} onClick={stop}><Square size={11} aria-hidden="true" />Stop</button></>}
-        <button type="button" className="agt-send" aria-label="Send to Gemini" title="Send to Gemini (Enter)" disabled={!draft.trim() || busy || pending} onClick={() => { void ask(draft); }}>↑</button>
-      </div>
-    </div></div>}
+      </Composer>
+    </div>}
   </aside>;
 }

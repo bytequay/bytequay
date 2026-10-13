@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 
+import Composer from '../Composer';
 import React, { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Ban, ChevronDown, FileText, Maximize2, MessageCircle, Minimize2, Pause, Play, Plus, RefreshCw, Search, X } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
@@ -339,7 +340,7 @@ function GoalGuide({ goal, repository, conversation, now, onStart, onOpenTask, o
   const shown = opening ? 'opening' : last?.id ?? '';
   const answers = picked.question === shown ? picked.answers : NONE_PICKED;
   const toggle = (answer: string): void => setPicked({ question: shown, answers: answers.includes(answer) ? answers.filter((value) => value !== answer) : [...answers, answer] });
-  const composer = <Composer answering={answering} focus={opening} picked={answers} seed={seed} onSent={() => setPicked({ question: '', answers: [] })}
+  const composer = <GoalComposer answering={answering} focus={opening} picked={answers} seed={seed} onSent={() => setPicked({ question: '', answers: [] })}
     placeholder={answers.length > 0 ? 'Add your own words, or just send' : opening ? 'I want to…' : question !== null ? 'Answer in your own words'
       : lessonId === undefined ? 'Ask about this goal' : 'Ask about this lesson'}
     onSend={send} />;
@@ -651,7 +652,7 @@ function LessonView({ goal, item, repository, conversation, ask, onLesson }: {
       {content !== null && <section className="goal-chapter__check" aria-label="Check yourself">
         <div className="goal-chapter__kicker">Check yourself</div>
         <p><GoalText>{content.check}</GoalText></p>
-        <Composer answering={answering} placeholder="Your answer" submitLabel="Answer" onSend={(operationId, message) => {
+        <GoalComposer answering={answering} placeholder="Your answer" submitLabel="Answer" onSend={(operationId, message) => {
           // The agent's word on the answer shows with the questions.
           setAsking(true);
           return conversation.ask(operationId, CHECK_ANSWER + message, item.id);
@@ -683,7 +684,7 @@ function LessonView({ goal, item, repository, conversation, ask, onLesson }: {
           {exchange.state === 'FAILED' && <div className="goal-thread__agent is-failed">{exchange.failure}</div>}
           {exchange.reply !== null && <div className="goal-thread__agent"><p><GoalText>{exchange.reply.assessment}</GoalText></p></div>}
         </li>)}</ol>}
-        <Composer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />
+        <GoalComposer answering={answering} placeholder="Ask about this lesson" onSend={(operationId, message) => conversation.ask(operationId, message, item.id)} />
       </div>
     );
   }
@@ -876,7 +877,7 @@ function Proposal({ proposal, title, onTitle }: { proposal: GoalProposalDto; tit
  *
  * @param focus whether the field takes focus as it appears and when the window opens, as for the opening question
  */
-function Composer({ answering, focus = false, picked = NONE_PICKED, seed = null, placeholder, submitLabel = 'Send', onSend, onSent }: {
+function GoalComposer({ answering, focus = false, picked = NONE_PICKED, seed = null, placeholder, submitLabel = 'Send', onSend, onSent }: {
   answering: boolean;
   focus?: boolean;
   picked?: string[];
@@ -907,14 +908,14 @@ function Composer({ answering, focus = false, picked = NONE_PICKED, seed = null,
       (failure: unknown) => setError(failure instanceof Error ? failure.message : 'The message was not sent')).finally(() => setBusy(false));
   };
   return (
-    <form className="goal-composer" onSubmit={(event) => { event.preventDefault(); submit(); }}>
-      <textarea ref={field} aria-label="Message the goal's agent" rows={2} maxLength={4000} value={draft} placeholder={placeholder} autoFocus={focus}
-        data-goal-focus={focus || undefined}
-        onChange={(event) => setDraft(event.target.value)}
-        onKeyDown={(event) => { if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); submit(); } }} />
-      {error !== null && <p className="goal-guide__error" role="alert">{error}</p>}
-      <button type="submit" className="goal-add" disabled={busy || answering || (draft.trim() === '' && picked.length === 0)}>{busy ? 'Sending…' : submitLabel}</button>
-    </form>
+    <Composer className="goal-composer" inputRef={field} aria-label="Message the goal's agent" rows={2} maxLength={4000}
+      value={draft} placeholder={placeholder} autoFocus={focus} data-goal-focus={focus || undefined}
+      onChange={event => setDraft(event.target.value)} onSubmit={submit} busy={busy}
+      submitEnabled={!busy && !answering && (draft.trim() !== '' || picked.length > 0)}
+      submitLabel={busy ? 'Sending…' : submitLabel} submitContent={busy ? 'Sending…' : submitLabel}
+      notice={error !== null && <p className="goal-guide__error" role="alert">{error}</p>}>
+      <span className="agt-spacer" />
+    </Composer>
   );
 }
 

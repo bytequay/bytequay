@@ -15,7 +15,7 @@
 import type { JiraTaskSource } from '../jira/contracts';
 import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
-import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
+import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -40,8 +40,8 @@ import { renderMarkdown } from './markdown';
 import { DiscussableAnswer, type SelectedPassage } from './discussions/DiscussableAnswer';
 import type { TaskDiscussionDto } from './discussions/contracts';
 import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQuestion, type PendingMessage } from './model';
-import { ModelPicker } from './ModelPicker';
-import { ProviderPicker } from './ProviderPicker';
+import Composer, { ComposerAttachments } from '../Composer';
+import ComposerModelControls from './ComposerModelControls';
 import { IssueRequestCard } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
@@ -1258,7 +1258,7 @@ export function AgentConversation({
   );
 }
 
-/** The whole task composer, including its controls, is shared by every conversation. */
+/** Task and reviewer actions around the shared message composer. */
 export function ConversationComposer({
   value, onChange, onSend, onStop, onSteer, onQueue, onEditQueued, running, sending, disabled,
   sendEnabled, steerEnabled, queueEnabled, models, model, effort, serviceTier, provider = '',
@@ -1350,90 +1350,63 @@ export function ConversationComposer({
   });
   return (
     <div className="agt-compose-dock is-task">
-      <div className="agt-compose" aria-busy={sending}>
-        <span className="agt-compose__streamer" aria-hidden="true" />
-        {attachments.length > 0 && (
-          <div className="agt-drafts" aria-label="Images to send">
-            {attachments.map(attachment => (
-              <span className="agt-draft" key={attachment.id}>
-                <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact />
-                <button type="button" className="agt-draft__remove" aria-label={`Remove image ${attachment.name}`}
-                  disabled={sending || onRemoveAttachment === undefined} onClick={() => onRemoveAttachment?.(attachment.id)}>
-                  <X aria-hidden="true" />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        {activeMention !== null && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Mention an agent">
-          <button type="button" id={`${mentionId}-ci`} role="option" aria-selected="true" tabIndex={-1}
-            onMouseDown={event => event.preventDefault()} onClick={selectCi}>
-            <strong>@ci</strong><span>CI Autofix</span>
-          </button>
-        </div>}
-        {ciMention && <BackportRequestHint text={value} />}
-        <textarea ref={setComposerRef} className="agt-compose__input" rows={1} value={value}
-          aria-label="Message the agent" placeholder={connection === 'connecting' ? 'Connecting…' : closing ? 'Closing…' : placeholder} disabled={disabled}
-          aria-autocomplete={ciMention ? 'list' : undefined} aria-controls={activeMention !== null ? mentionId : undefined}
-          aria-activedescendant={activeMention !== null ? `${mentionId}-ci` : undefined}
-          aria-describedby={ciMessageHint ? `${mentionId}-hint` : undefined}
-          onChange={event => { onChange(event.target.value); updateMention(event.currentTarget); }} onPaste={onPaste}
-          onFocus={event => updateMention(event.currentTarget)} onSelect={event => updateMention(event.currentTarget)}
-          onBlur={() => setMention(null)}
-          onCompositionStart={() => { composing.current = true; setMention(null); }}
-          onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
-          onKeyDown={event => {
-            if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
-            if (activeMention !== null) {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                dismissedMention.current = { value, start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd };
-                setMention(null);
-                return;
-              }
-              if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
-                event.preventDefault(); selectCi(); return;
-              }
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
-            }
-            if (event.key === 'ArrowUp' && value === '' && attachments.length === 0 && !sending && !event.repeat
-              && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && onEditQueued !== undefined) {
+      <Composer inputRef={setComposerRef} value={value} busy={sending} disabled={disabled}
+        aria-label="Message the agent" placeholder={connection === 'connecting' ? 'Connecting…' : closing ? 'Closing…' : placeholder}
+        onSubmit={onSend} submitEnabled={sendEnabled} showSubmit={!running || routedToCi}
+        submitLabel={routedToCi ? 'Send to CI agent' : 'Send message'} submitTitle={routedToCi ? 'Send to CI agent' : 'Send'}
+        header={<>
+          <ComposerAttachments items={attachments.map(attachment => ({ id: attachment.id, name: attachment.name,
+            preview: <AttachmentTile attachment={attachment} preview={previews[attachment.id]} compact /> }))}
+            disabled={sending} onRemove={onRemoveAttachment} />
+          {activeMention !== null && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Mention an agent">
+            <button type="button" id={`${mentionId}-ci`} role="option" aria-selected="true" tabIndex={-1}
+              onMouseDown={event => event.preventDefault()} onClick={selectCi}>
+              <strong>@ci</strong><span>CI Autofix</span>
+            </button>
+          </div>}
+          {ciMention && <BackportRequestHint text={value} />}
+        </>}
+        notice={ciMessageHint && <div className="agt-compose__hint" id={`${mentionId}-hint`} role="status">{ciMessageHint}</div>}
+        aria-autocomplete={ciMention ? 'list' : undefined} aria-controls={activeMention !== null ? mentionId : undefined}
+        aria-activedescendant={activeMention !== null ? `${mentionId}-ci` : undefined}
+        aria-describedby={ciMessageHint ? `${mentionId}-hint` : undefined}
+        onChange={event => { onChange(event.target.value); updateMention(event.currentTarget); }} onPaste={onPaste}
+        onFocus={event => updateMention(event.currentTarget)} onSelect={event => updateMention(event.currentTarget)}
+        onBlur={() => setMention(null)}
+        onCompositionStart={() => { composing.current = true; setMention(null); }}
+        onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
+        onKeyDown={event => {
+          if (activeMention !== null) {
+            if (event.key === 'Escape') {
               event.preventDefault();
-              onEditQueued();
+              dismissedMention.current = { value, start: event.currentTarget.selectionStart, end: event.currentTarget.selectionEnd };
+              setMention(null);
               return;
             }
-            if (event.key === 'Enter' && !event.shiftKey) {
-              event.preventDefault();
-              if (sendEnabled) onSend();
+            if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
+              event.preventDefault(); selectCi(); return;
             }
-          }} />
-        {ciMessageHint && <div className="agt-compose__hint" id={`${mentionId}-hint`} role="status">{ciMessageHint}</div>}
-        <div className="agt-compose__row">
-          <button type="button" className="agt-attach" aria-label="Attach an image" title={attachTitle}
-            disabled={!attachEnabled || onAttach === undefined || closing || sending} onClick={onAttach}>+</button>
-          {automation}
-          {providers !== undefined && laneId !== undefined && onSelectProvider !== undefined && <ProviderPicker
-            providers={providers} selectedId={laneId} onSelect={onSelectProvider} disabled={sending || disabled || closing} />}
-          <ModelPicker
-            ariaLabel="Model and effort for the next message"
-            disabled={models.length === 0 || sending || disabled || closing || onSelectModel === undefined}
-            models={models} provider={provider} selectedModel={model ?? ''}
-            selectedEffort={effort ?? undefined} selectedServiceTier={serviceTier}
-            onSelect={onSelectModel ?? (() => {})} />
-          {running && !routedToCi && value.trim() !== '' && <>
-            <button type="button" className="agt-steer" disabled={!steerEnabled} title={steerTitle} onClick={onSteer}>Steer</button>
-            <button type="button" className="agt-compose__chip" disabled={!queueEnabled} title={queueTitle} onClick={onQueue}>Run next</button>
-          </>}
-          {(!running || routedToCi) && <button type="button" className="agt-send" aria-label={routedToCi ? 'Send to CI agent' : 'Send message'}
-            title={routedToCi ? 'Send to CI agent' : 'Send'} onClick={onSend} disabled={!sendEnabled}>↑</button>}
-          {running &&
-            // A development turn reads as running during its baseline capture, before it can be stopped cleanly.
-            <button type="button" className="agt-send is-stop" aria-label={stopLabel}
-                title={stopTitle} onClick={onStop} disabled={sending}>
-                <span className="agt-stop-square" aria-hidden="true" />
-              </button>}
-        </div>
-      </div>
+            if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
+          }
+          if (event.key === 'ArrowUp' && value === '' && attachments.length === 0 && !sending && !event.repeat
+            && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && onEditQueued !== undefined) {
+            event.preventDefault();
+            onEditQueued();
+          }
+        }}
+        trailingActions={running &&
+          // A development turn reads as running during its baseline capture, before it can be stopped cleanly.
+          <button type="button" className="agt-send is-stop" aria-label={stopLabel}
+            title={stopTitle} onClick={onStop} disabled={sending}><span className="agt-stop-square" aria-hidden="true" /></button>}>
+        <ComposerModelControls models={models} model={model} effort={effort} serviceTier={serviceTier} provider={provider}
+          providers={providers} laneId={laneId} onSelectProvider={onSelectProvider} onSelectModel={onSelectModel}
+          disabled={sending || disabled || closing} modelLabel="Model and effort for the next message" automation={automation}
+          onAttach={onAttach} attachEnabled={attachEnabled} attachTitle={attachTitle} />
+        {running && !routedToCi && value.trim() !== '' && <>
+          <button type="button" className="agt-steer" disabled={!steerEnabled} title={steerTitle} onClick={onSteer}>Steer</button>
+          <button type="button" className="agt-compose__chip" disabled={!queueEnabled} title={queueTitle} onClick={onQueue}>Run next</button>
+        </>}
+      </Composer>
       {footer}
     </div>
   );

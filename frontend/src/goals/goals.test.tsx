@@ -598,7 +598,7 @@ describe('goal guidance', () => {
     const pending = panel({ view: 'guide', now: Date.parse('2026-10-03T10:01:20Z'), conversation: conversation([{ ...ASKED, state: 'PENDING', reply: null }]) });
     expect(pending).toContain('<span role="status">Thinking…</span><span class="goal-muted">1:20</span>');
     expect(pending).toContain('>Stop</button>');
-    expect(pending).toMatch(/<button type="submit" class="goal-add" disabled="">Send<\/button>/);
+    expect(pending).toMatch(/<button[^>]*aria-label="Send"[^>]*disabled="">Send<\/button>/);
 
     const asked = panel({ view: 'guide', conversation: conversation([ASKED]) });
     expect(asked).toContain('Do you already know the Iceberg specification?');
@@ -613,7 +613,7 @@ describe('goal guidance', () => {
     expect(asked.indexOf('<div class="goal-guide__question">Do you already know the Iceberg specification?</div><div class="goal-choices">'))
       .toBeGreaterThan(asked.indexOf('<ol class="goal-thread"'));
     expect(asked.indexOf('>Other options</button>')).toBeLessThan(dock);
-    expect(asked.slice(dock)).toMatch(/^<div class="goal-guide__dock"><form class="goal-composer">/);
+    expect(asked.slice(dock)).toMatch(/^<div class="goal-guide__dock"><div class="agt-compose goal-composer"/);
 
     const proposed = panel({ view: 'guide', conversation: conversation([ASKED, PROPOSED]) });
     expect(proposed).toContain('Proposed goal');

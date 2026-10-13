@@ -13,6 +13,7 @@
  */
 
 
+import Composer from '../../Composer';
 import React, { useEffect, useState } from 'react';
 
 import { discussionLabel, replyCount, retryTarget } from './DiscussionFooter';
@@ -163,27 +164,15 @@ export function DiscussionCard({ discussion, repository, siblings, discussions, 
 
           {readOnly !== null ? <p className="agt-disc-card__closed">{readOnly}</p>
             : replying ? (
-              <div className="agt-disc-reply">
-                <textarea
-                  rows={2}
-                  autoFocus
-                  aria-label="Reply"
-                  placeholder="Reply…"
-                  value={draft}
-                  disabled={busy || discussion.pending}
-                  onChange={event => setDraft(event.target.value)}
-                  onKeyDown={event => {
-                    if (event.key === 'Escape') { setDraft(''); setReplying(false); }
-                    else if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void send();
-                  }}
-                />
-                <div className="agt-disc-reply__foot">
-                  <span className="agt-disc-reply__private">{LOCK}Private · reads code, never writes</span>
-                  <button className="agt-disc-reply__cancel" type="button" onClick={() => { setDraft(''); setReplying(false); }}>Cancel</button>
-                  <button className="agt-disc-reply__ask" type="button" disabled={busy || discussions.busy || draft.trim() === ''}
-                    title={blocked} onClick={() => { void send(); }}>Ask</button>
-                </div>
-              </div>
+              <Composer className="agt-disc-reply" rows={2} autoFocus aria-label="Reply" placeholder="Reply…"
+                value={draft} disabled={busy || discussion.pending} onChange={event => setDraft(event.target.value)}
+                onKeyDown={event => { if (event.key === 'Escape') { setDraft(''); setReplying(false); } }}
+                onSubmit={() => { void send(); }} submitShortcut="mod-enter" busy={busy}
+                submitEnabled={!busy && !discussion.pending && !discussions.busy && draft.trim() !== ''}
+                submitLabel="Ask" submitContent="Ask" submitTitle={blocked}>
+                <span className="agt-disc-reply__private">{LOCK}Private · reads code, never writes</span>
+                <button className="agt-disc-reply__cancel" type="button" onClick={() => { setDraft(''); setReplying(false); }}>Cancel</button>
+              </Composer>
             ) : (
               <div className="agt-disc-card__actions">
                 {!discussion.resolved && <button className="agt-disc-card__reply" type="button" onClick={() => setReplying(true)}>Reply</button>}

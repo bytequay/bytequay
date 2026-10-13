@@ -390,7 +390,7 @@
 
 /*
  * The composer as the design draws it: one rounded card, the message above a row of controls,
- * and exactly one round button that sends. Shared by the Tasks page and the task screen.
+ * and the controls each surface needs. The markup lives in Composer.
  */
 .agt-compose-dock {
   padding: 0 32px 18px;
@@ -405,6 +405,8 @@
 
 .agt-compose {
   position: relative;
+  width: 100%;
+  box-sizing: border-box;
   max-width: 760px;
   margin: 0 auto;
   border: 1px solid #d0d7de;
@@ -534,6 +536,8 @@
   margin-top: auto;
   padding: 12px 10px 6px;
 }
+
+.agt-compose.is-new-task .agt-picker:not(.agt-provider-picker) { margin-left: auto; }
 
 .agt-compose.is-new-task .agt-compose__input {
   font-size: 13px;
@@ -803,6 +807,15 @@
   font-size: 18px;
   font-weight: 400;
   cursor: pointer;
+}
+
+.agt-send.is-label {
+  width: auto;
+  padding: 0 12px;
+  border-radius: 7px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .agt-send:disabled {
@@ -4222,52 +4235,20 @@ button.agt-disc-mark:hover {
   flex-direction: column;
   flex: 1;
   min-height: 0;
-  padding: 10px 12px 11px;
+  width: auto;
+  margin: 10px 12px 11px;
 }
 
-.agt-disc-pop__body textarea {
-  width: 100%;
-  flex: 1;
-  min-height: 62px;
-  box-sizing: border-box;
-  resize: none;
-  user-select: text;
-  border: 1px solid var(--disc-bd);
-  border-radius: 7px;
-  background: var(--disc-bg);
-  color: var(--disc-fg);
-  padding: 7px 9px;
-  font: inherit;
-  font-size: 13px;
-  line-height: 1.5;
-  outline: none;
-}
-
-.agt-disc-pop__body textarea:focus {
-  border-color: var(--disc-bl);
-  box-shadow: 0 0 0 3px var(--disc-focus);
-}
-
-.agt-disc-pop__actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: none;
-  margin-top: 9px;
-}
-
-.agt-disc-pop__actions > span {
-  flex: 1;
-}
+.agt-disc-pop__body .agt-compose__input { flex: 1; min-height: 62px; }
 
 .agt-disc-pop__refusal {
+  flex: 1;
   min-width: 0;
   color: #cf222e;
   font-size: 12px;
 }
 
-.agt-disc-pop__cancel,
-.agt-disc-pop__ask {
+.agt-disc-pop__cancel {
   flex: none;
   height: 28px;
   border-radius: 7px;
@@ -4284,24 +4265,10 @@ button.agt-disc-mark:hover {
   color: var(--disc-fg);
 }
 
-/* Never green: green in this app means an action that leaves for GitHub. */
-.agt-disc-pop__ask {
-  padding: 0 12px;
-  border: 1px solid transparent;
-  background: var(--disc-btn);
-  color: var(--disc-btnfg);
-}
-
-.agt-disc-pop__ask[disabled] {
-  opacity: 0.5;
-  cursor: default;
-}
-
 /* No global focus ring, so every control here carries its own. */
 .agt-disc-pill:focus-visible,
 .agt-disc-inert__fix:focus-visible,
-.agt-disc-pop__cancel:focus-visible,
-.agt-disc-pop__ask:focus-visible {
+.agt-disc-pop button:focus-visible {
   outline: 2px solid var(--disc-bl);
   outline-offset: 2px;
 }
@@ -4545,28 +4512,15 @@ button.agt-disc-mark:hover {
 }
 .agt-disc-card__closed { margin: 9px 0 0 10px; font-size: 12px; color: var(--disc-fg3); }
 
-/* The box is the field: the textarea inside it carries no border of its own. */
-.agt-disc-reply {
-  margin: 9px 0 0 10px; border: 1px solid var(--disc-bd); border-radius: 8px;
-  background: var(--disc-bg); padding: 8px 9px;
-}
-.agt-disc-reply textarea {
-  width: 100%; box-sizing: border-box; resize: none; border: none; outline: none; background: none;
-  color: var(--disc-fg); font: inherit; font-size: 12.5px; line-height: 1.5; padding: 0;
-}
-.agt-disc-reply__foot { display: flex; align-items: center; gap: 7px; margin-top: 7px; }
+.agt-disc-reply { margin: 9px 0 0 10px; width: calc(100% - 10px); }
 .agt-disc-reply__private {
   flex: 1; min-width: 0; display: inline-flex; align-items: center; gap: 5px;
   font-size: 11px; color: var(--disc-fg3);
 }
-.agt-disc-reply__cancel,
-.agt-disc-reply__ask { flex: none; height: 26px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
+.agt-disc-reply__cancel { flex: none; height: 26px; border-radius: 6px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; }
 .agt-disc-reply__cancel { padding: 0 10px; border: 1px solid var(--disc-bd); background: var(--disc-bg); color: var(--disc-fg); }
-.agt-disc-reply__ask { padding: 0 11px; border: 1px solid transparent; background: var(--disc-btn); color: var(--disc-btnfg); }
-.agt-disc-reply__ask[disabled] { opacity: 0.5; cursor: default; }
 .agt-disc-card button:focus-visible,
 .agt-disc-fail button:focus-visible { outline: 2px solid var(--disc-bl); outline-offset: 2px; }
-.agt-disc-reply:focus-within { border-color: var(--disc-bl); box-shadow: 0 0 0 3px var(--disc-focus); }
 
 /* What an agent remembered, with Undo, shown even while its activity group is folded. */
 .agt-remembered { flex-wrap: wrap; }

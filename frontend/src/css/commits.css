@@ -1714,39 +1714,6 @@
 
 .cmt-composer { padding: 10px 14px 8px; border-top: 1px solid #d0d7de; background: #ffffff; }
 
-.cmt-composer-box {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  border: 1px solid #d0d7de;
-  border-radius: 12px;
-  padding: 6px 6px 6px 14px;
-  box-shadow: 0 1px 3px rgba(27, 31, 36, 0.06);
-}
-
-.cmt-composer-box input {
-  flex: 1;
-  border: none;
-  outline: none;
-  font-size: var(--ui-font-size);
-  color: var(--text-1);
-  background: none;
-}
-
-.cmt-composer-box button {
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 50%;
-  background: #24292f;
-  color: #ffffff;
-  font-size: 18px;
-  font-weight: 400;
-  cursor: pointer;
-}
-
-.cmt-composer-box button:disabled { opacity: 0.5; cursor: default; }
-
 .cmt-composer-hint { font-size: var(--ui-font-size); color: #8c959f; margin-top: 5px; }
 
 .cmt-prog-pr { display: flex; flex-direction: column; overflow: hidden; min-height: 0; min-width: 0; background: #ffffff; }

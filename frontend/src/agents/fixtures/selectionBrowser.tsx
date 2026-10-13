@@ -78,7 +78,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
     assert(field !== null, 'The inline composer did not open');
     changeInput(field, question);
     await settle();
-    const send = document.querySelector('.agt-disc-pop__ask') as HTMLButtonElement;
+    const send = document.querySelector('.agt-disc-pop [aria-label="Ask"]') as HTMLButtonElement;
     assert(!send.disabled, 'Ask stayed disabled after typing a question');
     send.click();
     await settle();
@@ -353,7 +353,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       const field = busyHost.querySelector('.agt-disc-pop textarea') as HTMLTextAreaElement;
       changeInput(field, 'why?');
       await settle();
-      const send = busyHost.querySelector('.agt-disc-pop__ask') as HTMLButtonElement;
+      const send = busyHost.querySelector('.agt-disc-pop [aria-label="Ask"]') as HTMLButtonElement;
       assert(send.disabled && send.title === 'The agent is answering another question on this task', 'Ask stayed open while the task was busy');
       render(false);
       await settle();

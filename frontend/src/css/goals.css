@@ -1026,15 +1026,10 @@ button.goal-tile:hover {
 .goal-proposal input {
   padding: 5px 8px; border: 1px solid #d0d7de; border-radius: 6px; font: inherit; font-size: 13px;
 }
-.goal-composer { display: grid; gap: 6px; margin-top: auto; }
+.goal-composer { margin-top: auto; }
 .goal-guide__opening .goal-composer { margin-top: 10px; }
 .goal-guide__back { display: block; margin: 0 0 8px -4px; }
-.goal-composer textarea {
-  width: 100%; min-width: 0; box-sizing: border-box; padding: 7px 9px; border: 1px solid #d0d7de; border-radius: 8px;
-  background: #ffffff; color: inherit; font: inherit; font-size: 13px; line-height: 18px; resize: vertical;
-}
-.goal-composer .goal-add { justify-self: end; }
-.goal-choice:focus-visible, .goal-proposal input:focus-visible, .goal-composer textarea:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
+.goal-choice:focus-visible, .goal-proposal input:focus-visible { outline: 2px solid var(--control-strong); outline-offset: 1px; }
 
 .goal-thread__event {
   display: -webkit-box; justify-self: center; max-width: 90%; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;

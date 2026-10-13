@@ -13,6 +13,7 @@
  */
 
 
+import Composer from '../../Composer';
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type MouseEvent as ReactMouseEvent } from 'react';
 
 import { DiscussionFooter } from './DiscussionFooter';
@@ -320,25 +321,13 @@ export function DiscussableAnswer({ turnId, text, repository, discussions, compl
                 <span className="agt-disc-pop__rail" />
                 <span className="agt-disc-pop__text">{offer.passage.quote}</span>
               </div>
-              <div className="agt-disc-pop__body">
-                <textarea
-                  rows={3}
-                  autoFocus
-                  aria-label="Ask about this passage"
-                  placeholder="Ask about this passage…"
-                  value={draft}
-                  onChange={event => setDraft(event.target.value)}
-                  onKeyDown={event => {
-                    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) void ask(offer.passage);
-                  }}
-                />
-                <div className="agt-disc-pop__actions">
-                  <span className="agt-disc-pop__refusal" role="alert">{refusal}</span>
-                  <button className="agt-disc-pop__cancel" type="button" onClick={() => { setDraft(''); place(null); }}>Cancel</button>
-                  <button className="agt-disc-pop__ask" type="button" disabled={draft.trim() === '' || busy || sending}
-                    title={busy ? ANSWERING_ELSEWHERE : undefined} onClick={() => { void ask(offer.passage); }}>Ask</button>
-                </div>
-              </div>
+              <Composer className="agt-disc-pop__body" rows={3} autoFocus aria-label="Ask about this passage" placeholder="Ask about this passage…"
+                value={draft} onChange={event => setDraft(event.target.value)} onSubmit={() => { void ask(offer.passage); }}
+                submitShortcut="mod-enter" submitEnabled={draft.trim() !== '' && !busy && !sending} busy={sending}
+                submitLabel="Ask" submitContent="Ask" submitTitle={busy ? ANSWERING_ELSEWHERE : undefined}>
+                <span className="agt-disc-pop__refusal" role="alert">{refusal}</span>
+                <button className="agt-disc-pop__cancel" type="button" onClick={() => { setDraft(''); place(null); }}>Cancel</button>
+              </Composer>
             </div>
           )}
         </div>

@@ -211,14 +211,14 @@ export async function run(local = false): Promise<string> {
     const question = conversation.querySelector<HTMLTextAreaElement>('[aria-label="Ask about this passage"]');
     assert(question !== null, 'The shared passage composer must open');
     changeInput(question, 'How does cancellation do that?'); await settle();
-    conversation.querySelector<HTMLButtonElement>('.agt-disc-pop__ask')?.click(); await settle();
+    conversation.querySelector<HTMLButtonElement>('.agt-disc-pop [aria-label="Ask"]')?.click(); await settle();
     assert(opens === 1 && panel()?.textContent?.includes('Cancellation closes the writer.'), 'The saved discussion must open in the side panel');
     assert(code.hasAttribute('hidden') && input.value === 'Keep this unsent question', 'Discussing text must preserve the code surface and main draft');
     panel()?.querySelector<HTMLButtonElement>('.agt-disc-card__reply')?.click(); await settle();
     const reply = panel()?.querySelector<HTMLTextAreaElement>('[aria-label="Reply"]');
     assert(reply !== null && reply !== undefined, 'A discussion must accept follow-up questions');
     changeInput(reply, 'What if it repeats?'); await settle();
-    panel()?.querySelector<HTMLButtonElement>('.agt-disc-reply__ask')?.click(); await settle();
+    panel()?.querySelector<HTMLButtonElement>('.agt-disc-reply [aria-label="Ask"]')?.click(); await settle();
     assert(replies === 1 && panel()?.textContent?.includes('Repeated cancellation is safe.'), 'The follow-up must use the review bridge');
     panel()?.querySelector<HTMLButtonElement>('.agt-disc-card__done')?.click(); await settle();
     assert(panel()?.textContent?.includes('Reopen'), 'The discussion must resolve locally');

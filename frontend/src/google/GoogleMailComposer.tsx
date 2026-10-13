@@ -16,6 +16,7 @@ import { Reply, Send, X } from 'lucide-react';
 import type { GoogleMail, GoogleStatus } from './contracts';
 import { mailSender } from './mailView';
 import BetterWordsButton from '../pulls/BetterWordsButton';
+import Composer from '../Composer';
 
 /** Writes a reply under the message being read, or a new email; nothing leaves before the confirmation. */
 export default function GoogleMailComposer({ profile, email, reply, status, busy, act, onClose, onSent }: {
@@ -43,37 +44,37 @@ export default function GoogleMailComposer({ profile, email, reply, status, busy
   const recipient = to.trim() || 'the recipients above';
   const ready = body.trim() !== '' && to.trim() !== '' && !busy && !sent;
   const discard = <button type="button" className="google-icon-btn" aria-label="Discard draft" title="Discard draft" disabled={sent} onClick={onClose}><X size={reply ? 14 : 16} /></button>;
-  const editor = <section ref={box} className="agt-compose is-new-task google-compose" aria-label={reply ? 'Reply to email' : 'New email'}>
-    {sender && <div className="google-compose__to"><Reply size={14} aria-hidden="true" />
-      <span className="google-compose__chip"><span className={`google-avatar is-tone-${sender.tone}`} aria-hidden="true">{sender.initials}</span>{to}</span>
-      <span className="google-compose__subject">{subject}</span>{discard}</div>}
-    <textarea ref={textarea} className="agt-compose__input" rows={1} autoFocus={reply !== null} aria-label="Email body" placeholder={reply ? 'Write your reply…' : 'Write your message…'}
-      value={body} maxLength={100000} disabled={sent} onChange={event => { setBody(event.target.value); setConfirm(false); }}
-      onKeyDown={event => {
-        if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return;
-        event.preventDefault();
-        if (ready) setConfirm(true);
-      }} />
-    {rewriteError && <p className="google-compose__error" role="alert">{rewriteError}</p>}
-    {confirm ? <div className="google-compose__confirm" role="group" aria-label="Confirm send"><Send size={14} aria-hidden="true" />
-      <span>Send to <strong>{recipient}</strong>? It leaves ByteQuay immediately.</span>
-      <button type="button" disabled={busy} onClick={() => setConfirm(false)}>Keep editing</button>
-      <button type="button" className="is-primary" disabled={busy || sent} onClick={() => {
-        if (attempted.current) return;
-        attempted.current = true;
-        void act(async () => {
-          try {
-            const next = await window.bridge.sendGoogleMail({ profile, to, subject, body, replyId: reply?.id ?? '' });
-            setSent(true); setConfirm(false); return next;
-          } finally { attempted.current = false; }
-        });
-      }}><Send size={13} aria-hidden="true" />Send email</button>
-    </div> : <div className="agt-compose__row">
-      <BetterWordsButton text={body} textareaRef={textarea} repository="" disabled={busy || sent}
-        onError={failure => setRewriteError(failure === null ? null : failure instanceof Error ? failure.message : 'Could not improve the text.')} />
-      <span className="google-compose__route">{sent ? 'Sending…' : `Sends from ${email} to ${recipient}`}</span>
-      <button type="button" className="agt-send" aria-label="Review email" title="Review before sending (Enter)" disabled={!ready} onClick={() => setConfirm(true)}>↑</button>
-    </div>}
+  const editor = <section ref={box} aria-label={reply ? 'Reply to email' : 'New email'}>
+    <Composer className="is-new-task google-compose" inputRef={textarea} autoFocus={reply !== null} aria-label="Email body"
+      placeholder={reply ? 'Write your reply…' : 'Write your message…'} value={body} maxLength={100000} disabled={sent} busy={sent}
+      onChange={event => { setBody(event.target.value); setConfirm(false); }} onSubmit={() => setConfirm(true)} submitEnabled={ready}
+      showSubmit={!confirm} submitLabel="Review email" submitTitle="Review before sending (Enter)"
+      header={sender && <div className="google-compose__to"><Reply size={14} aria-hidden="true" />
+        <span className="google-compose__chip"><span className={`google-avatar is-tone-${sender.tone}`} aria-hidden="true">{sender.initials}</span>{to}</span>
+        <span className="google-compose__subject">{subject}</span>{discard}</div>}
+      notice={<>
+        {rewriteError && <p className="google-compose__error" role="alert">{rewriteError}</p>}
+        {confirm && <div className="google-compose__confirm" role="group" aria-label="Confirm send"><Send size={14} aria-hidden="true" />
+          <span>Send to <strong>{recipient}</strong>? It leaves ByteQuay immediately.</span>
+          <button type="button" disabled={busy} onClick={() => setConfirm(false)}>Keep editing</button>
+          <button type="button" className="is-primary" disabled={busy || sent} onClick={() => {
+            if (attempted.current) return;
+            attempted.current = true;
+            void act(async () => {
+              try {
+                const next = await window.bridge.sendGoogleMail({ profile, to, subject, body, replyId: reply?.id ?? '' });
+                setSent(true); setConfirm(false); return next;
+              } finally { attempted.current = false; }
+            });
+          }}><Send size={13} aria-hidden="true" />Send email</button>
+        </div>}
+      </>}>
+      {!confirm && <>
+        <BetterWordsButton text={body} textareaRef={textarea} repository="" disabled={busy || sent}
+          onError={failure => setRewriteError(failure === null ? null : failure instanceof Error ? failure.message : 'Could not improve the text.')} />
+        <span className="google-compose__route">{sent ? 'Sending…' : `Sends from ${email} to ${recipient}`}</span>
+      </>}
+    </Composer>
   </section>;
   if (reply) return editor;
   return <div className="google-compose-new">

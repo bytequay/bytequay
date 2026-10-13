@@ -16,7 +16,7 @@ import { BackportButton, BackportRequestHint, backportDraft, startBackportReques
 import { notifyJiraChanged, type JiraIssue } from '../jira/contracts';
 import { JiraSourceAttachment } from '../jira/JiraSourceAttachment';
 import React, { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2, X } from 'lucide-react';
+import { Archive, ArchiveRestore, Check, Circle, Link2, LoaderCircle, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from '../ConfirmDialog';
 import { Chevron } from '../Chevron';
 import RepoAvatar from '../RepoAvatar';
@@ -34,8 +34,8 @@ import { IssueAttachment } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { AutomationControl } from './AutomationControl';
 import { automationForSubmission } from './developmentAutomation';
-import { ModelPicker } from './ModelPicker';
-import { ProviderPicker } from './ProviderPicker';
+import Composer, { ComposerAttachments } from '../Composer';
+import ComposerModelControls from './ComposerModelControls';
 import '../css/agents.css';
 import type {
   AgentTaskActivityDto, AgentTaskChangesDto, AgentTaskDto, AgentTaskStartupPhase, CherryPickExecution, CiAutofixRunDto, DevelopmentAutomationDto,
@@ -641,9 +641,8 @@ export function StartingAgentTask({ draft, images, laneId, providers, models, se
       </div>
       <div className="agt-bottom">
         <div className="agt-compose-dock is-task">
-          <div className="agt-compose" aria-busy="true">
-            <textarea className="agt-compose__input" aria-label="Message agent" placeholder="Waiting for task to start…" rows={2} disabled />
-          </div>
+          <Composer aria-label="Message agent" placeholder="Waiting for task to start…" rows={2} disabled busy
+            onSubmit={() => {}} submitEnabled={false} showSubmit={false} />
         </div>
       </div>
     </div>
@@ -915,101 +914,49 @@ export function TaskComposer({
         </div>
       )}
       {issueAttachment}
-      <div className="agt-compose is-new-task">
-        <span className="agt-compose__streamer" aria-hidden="true" />
-        {images.length > 0 && (
-          <div className="agt-drafts" aria-label="Images to send">
-            {images.map((image) => (
-              <span className="agt-draft" key={image.id}>
-                <ImageAttachment url={image.url} name={image.name} compact />
-                <button type="button" className="agt-draft__remove" aria-label={`Remove image ${image.name}`} disabled={busy} onClick={() => onRemoveImage?.(image.id)}><X aria-hidden="true" /></button>
-              </span>
-            ))}
-          </div>
-        )}
-        <BackportRequestHint text={draft} />
-        {showMention && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Task suggestions">
-          <button type="button" id={`${mentionId}-backport`} role="option" aria-selected="true" tabIndex={-1}
-            onMouseDown={event => event.preventDefault()} onClick={selectBackport}>
-            <strong>@backport</strong><span>Backport a PR through related workspaces</span>
-          </button>
-        </div>}
-        <textarea
-          ref={inputRef}
-          className="agt-compose__input"
-          rows={1}
-          aria-label="Describe a task"
-          placeholder="Let's ship something"
-          value={draft}
-          disabled={disabled}
-          aria-autocomplete={backport ? 'list' : undefined}
-          aria-controls={showMention ? mentionId : undefined}
-          aria-activedescendant={showMention ? `${mentionId}-backport` : undefined}
-          onChange={event => { onDraftChange(event.target.value); updateMention(event.currentTarget); }}
-          onFocus={event => updateMention(event.currentTarget)}
-          onSelect={event => updateMention(event.currentTarget)}
-          onBlur={() => setMention(null)}
-          onCompositionStart={() => { composing.current = true; setMention(null); }}
-          onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
-          onPaste={(event) => pasteImage(event, imagesAccepted && blocker === null && !busy, onPasteImages)}
-          onKeyDown={(event) => {
-            if (event.nativeEvent.isComposing || composing.current || event.keyCode === 229) return;
-            if (showMention) {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                dismissed.current = { value: draft, caret: event.currentTarget.selectionStart };
-                setMention(null);
-                return;
-              }
-              if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
-                event.preventDefault(); selectBackport(); return;
-              }
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
-            }
-            if (event.key !== 'Enter' || event.shiftKey) return;
+      <Composer className="is-new-task" inputRef={inputRef} aria-label="Describe a task" placeholder="Let's ship something"
+        value={draft} disabled={disabled} busy={busy} onSubmit={onCreate}
+        submitEnabled={!busy && blocker === null && selection !== null && draft.trim() !== ''}
+        submitLabel="Send — creates the task" submitTitle="Sends the first message, which creates the task"
+        header={<>
+          <ComposerAttachments items={images.map(image => ({ ...image, preview: <ImageAttachment url={image.url} name={image.name} compact /> }))}
+            disabled={busy} onRemove={onRemoveImage} />
+          <BackportRequestHint text={draft} />
+          {showMention && <div className="agt-mentions" id={mentionId} role="listbox" aria-label="Task suggestions">
+            <button type="button" id={`${mentionId}-backport`} role="option" aria-selected="true" tabIndex={-1}
+              onMouseDown={event => event.preventDefault()} onClick={selectBackport}>
+              <strong>@backport</strong><span>Backport a PR through related workspaces</span>
+            </button>
+          </div>}
+        </>}
+        aria-autocomplete={backport ? 'list' : undefined}
+        aria-controls={showMention ? mentionId : undefined}
+        aria-activedescendant={showMention ? `${mentionId}-backport` : undefined}
+        onChange={event => { onDraftChange(event.target.value); updateMention(event.currentTarget); }}
+        onFocus={event => updateMention(event.currentTarget)} onSelect={event => updateMention(event.currentTarget)}
+        onBlur={() => setMention(null)}
+        onCompositionStart={() => { composing.current = true; setMention(null); }}
+        onCompositionEnd={event => { composing.current = false; updateMention(event.currentTarget); }}
+        onPaste={event => pasteImage(event, imagesAccepted && blocker === null && !busy, onPasteImages)}
+        onKeyDown={event => {
+          if (!showMention) return;
+          if (event.key === 'Escape') {
             event.preventDefault();
-            if (!busy && blocker === null && selection !== null && draft.trim() !== '') onCreate();
-          }}
-        />
-        <div className="agt-compose__row">
-          <button
-            type="button"
-            className="agt-attach"
-            aria-label="Attach an image"
-            title={imagesAccepted
-              ? 'Attach images or paste with ⌘V' : 'This model does not accept images'}
-            disabled={busy || onAttach === undefined || !imagesAccepted}
-            onClick={onAttach}
-          >+</button>
-          <ProviderPicker
-            providers={providers}
-            selectedId={laneId}
-            onSelect={onSelectProvider}
-            onOpenSettings={onOpenSettings !== undefined || providers.some(provider => isDeepSeekKeyLane(provider.id)) ? openProviderSettings : undefined}
-          />
-          {automation}
-          <span className="agt-spacer" />
-          <ModelPicker
-            ariaLabel="Model and effort for the new task"
-            disabled={busy || models.length === 0}
-            models={models}
-            selectedModel={selection?.model ?? ''}
-            selectedEffort={selection?.effort ?? undefined}
-            selectedServiceTier={selection?.serviceTier ?? null}
-            onSelect={onSelectModel}
-          />
-          <button
-            type="button"
-            className="agt-send"
-            aria-label="Send — creates the task"
-            title="Sends the first message, which creates the task"
-            onClick={onCreate}
-            disabled={busy || blocker !== null || selection === null || draft.trim() === ''}
-          >
-            ↑
-          </button>
-        </div>
-      </div>
+            dismissed.current = { value: draft, caret: event.currentTarget.selectionStart };
+            setMention(null);
+          }
+          else if ((event.key === 'Enter' || event.key === 'Tab') && !event.shiftKey) {
+            event.preventDefault(); selectBackport();
+          }
+          else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') event.preventDefault();
+        }}>
+        <ComposerModelControls models={models} model={selection?.model ?? null} effort={selection?.effort} serviceTier={selection?.serviceTier}
+          providers={providers} laneId={laneId} onSelectProvider={onSelectProvider} onSelectModel={onSelectModel}
+          onOpenSettings={onOpenSettings !== undefined || providers.some(provider => isDeepSeekKeyLane(provider.id)) ? openProviderSettings : undefined}
+          disabled={busy} modelLabel="Model and effort for the new task" automation={automation}
+          onAttach={onAttach} attachEnabled={imagesAccepted}
+          attachTitle={imagesAccepted ? 'Attach images or paste with ⌘V' : 'This model does not accept images'} />
+      </Composer>
     </div>
   );
 }

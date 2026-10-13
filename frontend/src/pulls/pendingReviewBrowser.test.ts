@@ -28,7 +28,7 @@ it('keeps and edits staged review comments across panel tabs in Chromium', async
   expect(results).toEqual([{ name: 'A staged review lasts as long as the pull request page' }]);
 }, 40_000);
 
-it('edits saved review comments with validation, retry and explicit publication in Chromium', async () => {
+it('edits saved review comments and retries unconfirmed delivery only after confirmation in Chromium', async () => {
   const result = await fixture.run<string>({
     body: "const results = await window.webContents.executeJavaScript('PendingReviewTests.runDraftCommentEdit()');",
   });

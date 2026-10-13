@@ -467,6 +467,23 @@ describe('PullOverview', () => {
     expect(html).toContain('class="pr-better-words" type="button" aria-busy="false"');
   });
 
+  it.each(['UNCERTAIN', 'RESERVED'] as const)('blocks review submission and editing for %s comments', state => {
+    const review = reviewFixture();
+    review.draft = { repo: review.repo, number: 42, body: 'Saved review', event: 'COMMENT', version: 7, updatedAt: review.createdAt,
+      items: [{ id: 'unconfirmed', source: 'MANUAL', findingId: null, findingRevision: null, path: 'file.java', side: 'RIGHT', line: 1,
+        startLine: null, commitId: 'head', body: 'Saved comment', included: true, published: false,
+        publication: { state, remoteReviewId: null, remoteCommentId: null, url: null, at: review.createdAt } }] };
+    const html = renderToStaticMarkup(<ReviewDialog pr={pullRequest()} detail={detail()} review={review}
+      onClose={() => {}} onReviewSubmitted={() => {}} />);
+    expect(html).toContain(state === 'UNCERTAIN' ? 'Delivery unconfirmed' : 'Sending…');
+    expect(html).toContain('Check the <a href=');
+    expect(html).toContain('Saved comment');
+    expect(html).toContain('class="pr-review-sheet__edit" type="button" disabled=""');
+    expect(html).toContain('class="pr-review-sheet__remove" type="button" disabled=""');
+    expect(html).toContain('class="is-primary" type="button" disabled="">Submit review');
+    expect(html.includes('>Confirmed not posted</button>')).toBe(state === 'UNCERTAIN');
+  });
+
   it('submits body-only findings through the durable draft and reloads its cleared prose', async () => {
     const review = reviewFixture();
     review.draft = { repo: 'owner/repo', number: 42, body: 'Clarify the cancellation commit message.',

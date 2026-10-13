@@ -186,6 +186,7 @@ public class ReviewPublicationService
             if (item.published()) {
                 throw new ReviewConflictException("This comment was already posted to GitHub");
             }
+            requireKnownOutcome(item);
             ReviewDraftItem edited = item.withBody(body(body)).withIncluded(included);
             return drafts.save(draft.withItems(replace(draft.items(), edited), now()));
         });
@@ -202,7 +203,21 @@ public class ReviewPublicationService
             if (item.published()) {
                 throw new ReviewConflictException("A posted comment cannot be removed from here; remote changes need a separate action on GitHub");
             }
+            requireKnownOutcome(item);
             return drafts.save(draft.withItems(draft.items().stream().filter(candidate -> !candidate.id().equals(itemId)).collect(toImmutableList()), now()));
+        });
+    }
+
+    /** The user checked GitHub and confirmed this uncertain comment is absent; preparing it again never sends it. */
+    public ReviewDraft confirmNotPosted(String repo, int number, long expectedVersion, String itemId)
+    {
+        return locked(repo, number, () -> {
+            ReviewDraft draft = expect(repo, number, expectedVersion);
+            ReviewDraftItem item = requireItem(draft, itemId);
+            if (item.publication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN).isEmpty()) {
+                throw new ReviewConflictException("Only a comment with unconfirmed delivery can be returned to your pending review");
+            }
+            return drafts.save(draft.withItems(replace(draft.items(), item.withPublication(Optional.empty())), now()));
         });
     }
 
@@ -443,17 +458,27 @@ public class ReviewPublicationService
         if (items.stream().map(ReviewDraftItem::publication).anyMatch(publication -> publication.filter(value -> value.state() == ReviewPublication.State.RESERVED).isPresent())) {
             throw new ReviewConflictException("Another send of this review is already in flight");
         }
-        if (items.stream().map(ReviewDraftItem::publication).anyMatch(publication -> publication.filter(value -> value.state() == ReviewPublication.State.UNCERTAIN).isPresent())) {
-            throw new ReviewConflictException("An earlier send of this comment has an unknown outcome; check the pull request on GitHub before sending it again");
-        }
+    }
+
+    private static void requireKnownOutcome(ReviewDraftItem item)
+    {
+        uncertainReason(item).ifPresent(reason -> {
+            throw new ReviewConflictException(reason);
+        });
+    }
+
+    private static Optional<String> uncertainReason(ReviewDraftItem item)
+    {
+        return item.publication().filter(value -> value.state() == ReviewPublication.State.UNCERTAIN)
+                .map(ignored -> "An earlier send of this comment has an unknown outcome; check the pull request on GitHub before sending it again");
     }
 
     /** A saved comment belongs to the user; its source finding no longer controls publication. */
     private static Optional<String> reason(ReviewDraftItem item)
     {
-        return item.replyToCommentId().isEmpty() && item.commitId().isEmpty()
+        return uncertainReason(item).or(() -> item.replyToCommentId().isEmpty() && item.commitId().isEmpty()
                 ? Optional.of("The comment's original commit is unknown; reopen the review preview before submitting")
-                : Optional.empty();
+                : Optional.empty());
     }
 
     private static void requirePromotable(ReviewFinding finding)

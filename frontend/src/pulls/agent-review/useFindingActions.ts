@@ -126,7 +126,14 @@ export function useFindingActions({
       if (body !== (existing?.body ?? findingReviewText(finding))) {
         version = (await window.bridge.editReviewDraftComment(review.repo, number(), version, itemId, body, true)).version;
       }
-      await window.bridge.publishReviewDraftComment(review.repo, number(), version, itemId);
+      try {
+        await window.bridge.publishReviewDraftComment(review.repo, number(), version, itemId);
+      }
+      catch (failure) {
+        // A failed request can still save an uncertain delivery; preserve the send error if reloading also fails.
+        await reload().catch(() => {});
+        throw failure;
+      }
       recordAttentionAction(`${review.repo}#${number()}`, 'comment');
       await reload();
     }, true),

@@ -2010,6 +2010,8 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
     included: boolean,
   ) => Promise<ReviewDraftDto>;
   removeReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
+  /** Returns an uncertain comment to pending after the user confirms it is absent on GitHub; does not publish it. */
+  confirmReviewDraftCommentNotPosted: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<ReviewDraftDto>;
   saveReviewDraft: (repo: string, number: number, expectedVersion: number, body: string, event: ReviewEvent) => Promise<ReviewDraftDto>;
   /** Publishes one previewed comment at its saved commit; the backend validates the payload first. */
   publishReviewDraftComment: (repo: string, number: number, expectedVersion: number, itemId: string) => Promise<void>;

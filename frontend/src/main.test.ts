@@ -15,7 +15,7 @@
 import type { TaskDiscussionDto } from './agents/discussions/contracts';
 import { afterEach, expect, it, vi } from 'vitest';
 import { CI_RUN } from './agents/fixtures/ciAutofix';
-import { parseAgentReview } from './pulls/agent-review/contracts';
+import { parseAgentReview, type ReviewDraftDto } from './pulls/agent-review/contracts';
 import { runningReviewFixture } from './pulls/agent-review/fixtures/review';
 import type { ReviewCodeFileDto } from './pulls/code-tests/contracts';
 import type { ContextBuildViewDto, ContextSpecCheckDto } from './repository-context/contracts';
@@ -86,6 +86,21 @@ it.each([
     cwd: '/managed/cork', cols: 100, rows: 30, env: expect.objectContaining({ CLAUDE_CONFIG_DIR: '/profiles/work' }),
   }));
   expect(result).toEqual({ terminalId: expect.any(String), scrollback: '' });
+});
+
+it('returns a confirmed-missing comment to its draft through the versioned local endpoint', async () => {
+  await import('./main');
+  await expect(desktop.listeners.get('ready')?.()).rejects.toThrow('End test startup');
+  const draft: ReviewDraftDto = { repo: 'owner/repo', number: 7, body: 'Saved review', event: 'COMMENT', items: [], version: 5, updatedAt: '2026-09-07T00:00:00Z' };
+  const fetch = vi.fn(async () => new Response(JSON.stringify(draft)));
+  vi.stubGlobal('fetch', fetch);
+
+  const result = await desktop.handlers.get('review:draft:confirm-not-posted')?.({}, 'owner/repo', 7, 4, 'item/1');
+
+  expect(result).toEqual(draft);
+  expect(fetch).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:9527/api/agent-review/drafts/items/item%2F1/confirm-not-posted?repo=owner%2Frepo&number=7&expectedVersion=4',
+    expect.objectContaining({ method: 'POST', headers: expect.objectContaining({ 'X-ByteQuay-Session': 'test-session' }) }));
 });
 
 it('forwards PR opening freshness separately from periodic and checks-only refreshes', async () => {

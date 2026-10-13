@@ -543,6 +543,15 @@ describe('publication eligibility', () => {
     expect(findingPublication(sent, sent.findings[0]).kind).toBe('published');
   });
 
+  it.each(['UNCERTAIN', 'RESERVED'] as const)('does not treat %s delivery as published', state => {
+    const pending = reviewFixture({ draft: draft([draftItem({ publication: {
+      state, remoteReviewId: null, remoteCommentId: null, url: null, at: '2026-09-06T16:32:00Z',
+    } })]) });
+    expect(findingPublication(pending, finding).kind).toBe(state === 'UNCERTAIN' ? 'uncertain' : 'sending');
+    expect(findingPill(pending, finding).text).toBe(state === 'UNCERTAIN' ? 'Delivery unconfirmed' : 'Sending…');
+    expect(findingInResults({ ...pending, runs: [] }, finding)).toBe(true);
+  });
+
   it('counts only included, unsent comments toward Submit review', () => {
     expect(pendingDraftCount(null)).toBe(0);
     expect(pendingDraftCount(draft([

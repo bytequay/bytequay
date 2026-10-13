@@ -62,7 +62,7 @@ public record ReviewDraftItem(
 
     public boolean published()
     {
-        return publication.filter(value -> value.state() != ReviewPublication.State.RESERVED).isPresent();
+        return publication.filter(value -> value.state() == ReviewPublication.State.PUBLISHED).isPresent();
     }
 
     public ReviewDraftItem withBody(String updatedBody)

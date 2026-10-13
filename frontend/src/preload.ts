@@ -595,6 +595,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('review:draft:edit', repo, number, expectedVersion, itemId, body, included),
   removeReviewDraftComment: (repo, number, expectedVersion, itemId) =>
     ipcRenderer.invoke('review:draft:remove', repo, number, expectedVersion, itemId),
+  confirmReviewDraftCommentNotPosted: (repo, number, expectedVersion, itemId) =>
+    ipcRenderer.invoke('review:draft:confirm-not-posted', repo, number, expectedVersion, itemId),
   saveReviewDraft: (repo, number, expectedVersion, body, event) =>
     ipcRenderer.invoke('review:draft:save', repo, number, expectedVersion, body, event),
   publishReviewDraftComment: (repo, number, expectedVersion, itemId) =>

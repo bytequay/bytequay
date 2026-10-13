@@ -403,6 +403,8 @@ class TestSqliteReviewStores
                 Optional.of("a".repeat(40)), OptionalLong.empty());
         ReviewDraftItem reply = new ReviewDraftItem("reply", ReviewDraftItem.Source.MANUAL, Optional.empty(), OptionalInt.empty(), REVIEW_TOOLS,
                 "RIGHT", 42, OptionalInt.empty(), "Reply to the existing discussion", true, Optional.empty(), Optional.empty(), OptionalLong.of(61));
+        reply = reply.withPublication(Optional.of(new ReviewPublication(
+                "attempt-2", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW.plusSeconds(11))));
         ReviewDraft draft = ReviewDraft.empty("ByteQuay/Sample", 7, NOW)
                 .withReview("Close, but the counter is wrong.", "REQUEST_CHANGES", NOW.plusSeconds(1))
                 .withItems(ImmutableList.of(manual, promoted, reply), NOW.plusSeconds(2));
@@ -416,6 +418,7 @@ class TestSqliteReviewStores
         assertThat(stored.items()).containsExactly(manual, promoted, reply);
         assertThat(stored.items().get(0).published()).isFalse();
         assertThat(stored.items().get(1).published()).isTrue();
+        assertThat(stored.items().get(2).published()).isFalse();
     }
 
     @Test

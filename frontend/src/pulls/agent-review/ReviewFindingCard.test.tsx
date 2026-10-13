@@ -36,6 +36,22 @@ function render(value = finding, item?: ReviewDraftItemDto, projection: 'review'
 }
 
 describe('finding suggestions', () => {
+  it.each(['review', 'changes'] as const)('shows unconfirmed delivery without a success message in %s', projection => {
+    const html = render(finding, { ...draftItem, publication: {
+      state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: finding.updatedAt,
+    } }, projection);
+    expect(html).toContain('Delivery unconfirmed');
+    expect(html).toContain('GitHub did not confirm this comment');
+    expect(html).toContain('Your comment is saved here');
+    expect(html).toContain('Guard the empty value.');
+    expect(html).toContain('<button type="button" disabled="">Edit</button>');
+    expect(html).toContain('<button type="button" disabled="">Remove</button>');
+    expect(html).not.toContain('Posted to GitHub');
+    expect(html).not.toContain('is-published');
+    expect(html).not.toContain('Post comment now');
+    expect(html).not.toContain('Add to my review');
+  });
+
   it.each(['review', 'changes'] as const)('compares a suggestion with its exact reviewed range in %s', projection => {
     const html = render(finding, undefined, projection);
     expect(html).toContain('<span class="pr-commented-code-line__number">118</span>');

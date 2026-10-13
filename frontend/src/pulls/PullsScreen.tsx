@@ -1725,7 +1725,8 @@ export function ReviewDialog({
   const [commentEdit, setCommentEdit] = useState<{ key: string; body: string; version: number } | null>(null);
   const busy = submitting || saving || command.loading;
   const [error, setError] = useState<string | null>(null);
-  const promoted = review?.draft?.items.filter(item => item.included && !item.published) ?? [];
+  const promoted = review?.draft?.items.filter(item => !item.published && (item.included || item.publication !== null)) ?? [];
+  const unconfirmed = review?.draft?.items.some(item => item.publication?.state === 'UNCERTAIN' || item.publication?.state === 'RESERVED') ?? false;
   const bodyRequired = event !== 'APPROVE' && pendingComments.length === 0 && promoted.length === 0;
   const failed = useCallback((value: unknown) => setError(remoteErrorMessage(value)), []);
 
@@ -1796,6 +1797,26 @@ export function ReviewDialog({
     reloadReview();
   };
 
+  const confirmNotPosted = async (itemId: string) => {
+    if (!review?.draft || inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await window.bridge.confirmReviewDraftCommentNotPosted(detail.repo, detail.number, savedDraft.current?.version ?? review.draft.version, itemId);
+      if (updated.body === savedDraft.current?.body && updated.event === savedDraft.current.event) savedDraft.current = updated;
+      onReviewChange({ ...review, draft: updated });
+    }
+    catch (value) {
+      failed(value);
+      reloadReview();
+    }
+    finally {
+      inFlight.current = false;
+      setSaving(false);
+    }
+  };
+
   const outgoing = [
     ...pendingComments.map((comment, index) => ({
       key: `${comment.path}:${comment.side}:${comment.startLine ?? comment.line}:${comment.line}:${index}`,
@@ -1852,7 +1873,7 @@ export function ReviewDialog({
   };
 
   const submit = async () => {
-    if (inFlight.current || command.loading || commentEdit !== null || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
+    if (inFlight.current || command.loading || unconfirmed || commentEdit !== null || detail.state?.toLowerCase() !== 'open' || (bodyRequired && !body.trim())) return;
     inFlight.current = true;
     setSubmitting(true);
     setError(null);
@@ -1926,7 +1947,7 @@ export function ReviewDialog({
         {unsavedClose && <button type="button" disabled={busy} onClick={() => { reloadReview(); onClose(); }}>Close without saving</button>}
         <button type="button" disabled={busy} onClick={() => { void close(); }}>Cancel</button>
         <button className="is-primary" type="button"
-          disabled={busy || commentEdit !== null || (bodyRequired && !body.trim())}
+          disabled={busy || unconfirmed || commentEdit !== null || (bodyRequired && !body.trim())}
           title={commentEdit !== null ? 'Save or cancel the comment edit before submitting.' : undefined}
           onClick={() => { void submit(); }}>
           {submitting ? 'Submitting…' : 'Submit review'}
@@ -1950,6 +1971,8 @@ export function ReviewDialog({
           <div className="pr-review-sheet__pending">
             {outgoing.map(({ key, comment, remove, save }) => {
               const lines = comment.replyToCommentId == null ? codeLines(comment) : [];
+              const publication = 'publication' in comment ? comment.publication : null;
+              const locked = publication !== null;
               return <ReviewThreadCard key={key} resolved={false} controls={null}
                 title={<span className="lrc__title"><code title={comment.path}>{comment.path}</code>
                   {comment.replyToCommentId != null && <span> · Reply to thread</span>}
@@ -1959,11 +1982,15 @@ export function ReviewDialog({
                 </div>}>
                 <ReviewThreadMessage timestamp={null}
                   author={<>{viewer && <UserAvatar login={viewer.login} avatarUrl={viewer.avatarUrl} size={22} showLogin />}
-                    <span className="pull-diff-pending__badge">Pending</span></>}
+                    <span className="pull-diff-pending__badge">{publication?.state === 'UNCERTAIN' ? 'Delivery unconfirmed'
+                      : publication?.state === 'RESERVED' ? 'Sending…' : 'Pending'}</span></>}
                   menu={<>
-                    <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
+                    {publication?.state === 'UNCERTAIN' && <button className="pr-review-sheet__edit" type="button" disabled={busy || commentEdit !== null}
+                      title="I checked GitHub and this comment is not there. Return it to pending without sending it."
+                      onClick={() => { void confirmNotPosted(key); }}>Confirmed not posted</button>}
+                    <button className="pr-review-sheet__edit" type="button" disabled={busy || locked || commentEdit !== null}
                       onClick={() => { setError(null); setCommentPreview(false); setCommentEdit({ key, body: comment.body, version: review?.draft?.version ?? 0 }); }}>Edit</button>
-                    <button className="pr-review-sheet__remove" type="button" disabled={busy || commentEdit !== null} onClick={remove}>Remove</button>
+                    <button className="pr-review-sheet__remove" type="button" disabled={busy || locked || commentEdit !== null} onClick={remove}>Remove</button>
                   </>}>
                   {commentEdit?.key === key ? <MarkdownEditor
                     textareaRef={commentRef} preview={commentPreview} onPreviewChange={setCommentPreview}
@@ -1999,6 +2026,10 @@ export function ReviewDialog({
           title="Request Changes"
           description="Submit feedback that must be addressed before merging."
           onChange={() => { edited.current = true; setEvent('REQUEST_CHANGES'); }} />}
+        {unconfirmed && <div className="pr-review-sheet__error" role="alert">
+          An earlier comment is still sending or its delivery is unconfirmed. Check the <a href={`https://github.com/${detail.repo}/pull/${detail.number}`}>pull request on GitHub</a>.
+          {' '}For each unconfirmed comment that is missing, choose <strong>Confirmed not posted</strong> to return it to pending, then submit your review.
+        </div>}
         {error && <div className="pr-review-sheet__error" role="alert">{error}</div>}
     </PullActionSheet>
   );

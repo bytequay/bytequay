@@ -84,6 +84,7 @@ export default function ReviewFindingCard({
   const [error, setError] = useState<string | null>(null);
   const pill = findingPill(review, finding);
   const publication = findingPublication(review, finding);
+  const awaitingConfirmation = publication.kind === 'sending' || publication.kind === 'uncertain';
   const messages = messagesFor(review, finding.id);
   const item = draftItemFor(review.draft, finding.id);
   const itemCommit = item === null ? null : draftCommentCommit(item, review.findings);
@@ -114,7 +115,8 @@ export default function ReviewFindingCard({
   };
   const submit = async () => {
     const body = text.trim();
-    if (busy || (body === '' && !(composer === 'resolve' && !remember) && !(composer === 'draft' && reviewText !== null))) return;
+    if (busy || (composer === 'post' && awaitingConfirmation)
+      || (body === '' && !(composer === 'resolve' && !remember) && !(composer === 'draft' && reviewText !== null))) return;
     setError(null);
     try {
       if (composer === 'fix') { await actions.onRequestFix?.(finding, body); setFixSent(true); }
@@ -156,6 +158,7 @@ export default function ReviewFindingCard({
               suggestion={composer === 'post' ? suggestion : undefined}
               autoFocus
               busy={busy}
+              disabledReason={composer === 'post' && awaitingConfirmation ? 'Wait for delivery confirmation before sending again.' : null}
               allowEmpty={(composer === 'resolve' && !remember) || (composer === 'draft' && reviewText !== null)}
               extra={composer === 'resolve' && lines !== null && <label className="agr-remember" title="Saves your reason as a rule agents get for this file">
                 <input type="checkbox" checked={remember} disabled={busy} onChange={event => setRemember(event.target.checked)} />
@@ -281,20 +284,29 @@ export default function ReviewFindingCard({
           {outgoingBody !== null && (
             <div className="agr-draft">
               <div className="agr-draft__head">
-                {reviewText !== null ? 'Outgoing review summary' : 'Outgoing comment · in your pending review'}
+                {reviewText !== null ? 'Outgoing review summary' : publication.kind === 'uncertain' ? 'Outgoing comment · delivery unconfirmed'
+                  : publication.kind === 'sending' ? 'Outgoing comment · sending' : 'Outgoing comment · in your pending review'}
                 {item !== null && itemCommit !== null && <span className="agr-draft__note">
                   · {shortPath(item.path, 28)} · commit {shortSha(itemCommit)}
                 </span>}
                 <span className="agr-spacer" />
                 <span className="agr-draft__note">Editing this never changes the finding</span>
-                <button type="button" disabled={busy} onClick={() => openComposer('draft', outgoingBody)}>Edit</button>
-                <button type="button" disabled={busy} title={reviewText !== null ? "Remove this finding's text from your review summary" : undefined}
+                <button type="button" disabled={busy || awaitingConfirmation} onClick={() => openComposer('draft', outgoingBody)}>Edit</button>
+                <button type="button" disabled={busy || awaitingConfirmation} title={reviewText !== null ? "Remove this finding's text from your review summary" : undefined}
                   onClick={() => { void remove(); }}>Remove</button>
               </div>
               <div className="agr-draft__body"><MarkdownBody body={outgoingBody} repository={review.repo} /></div>
             </div>
           )}
-          {item !== null && item.published && (
+          {publication.kind === 'uncertain' && (
+            <div className="agr-notice is-outdated" role="alert">
+              <span aria-hidden="true">⚠</span>
+              <span>GitHub did not confirm this comment. Check the <a href={`https://github.com/${review.repo}/pull/${review.number}`}>pull request on GitHub</a>.
+                {' '}If it is missing, open <strong>Submit review</strong> and choose <strong>Confirmed not posted</strong> to prepare it again.
+                {' '}Your comment is saved here and will not be sent again automatically.</span>
+            </div>
+          )}
+          {item !== null && publication.kind === 'published' && (
             <div className="agr-notice is-published">
               <span aria-hidden="true">✓</span>
               <span>

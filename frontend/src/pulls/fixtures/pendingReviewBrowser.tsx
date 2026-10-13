@@ -21,7 +21,7 @@ import '../../css/base.css';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import { DETAIL_REFRESH_INTERVAL } from '../usePullRequestDetail';
 import { EMPTY_TIMELINE_PAYLOAD } from '../model';
-import type { ReviewDraftDto } from '../agent-review/contracts';
+import type { ReviewDraftDto, ReviewDraftItemDto } from '../agent-review/contracts';
 
 const review = reviewFixture({ id: 'pending-review', state: 'CLOSED', closedAt: '2026-09-07T00:00:00Z' });
 const stored: PullRequestDetailDto = {
@@ -258,6 +258,9 @@ export async function runDraftCommentEdit(): Promise<string> {
   const edits: Parameters<Bridge['editReviewDraftComment']>[] = [];
   let saveError: string | null = 'The draft changed. Try again.';
   let finishSave = () => {};
+  let confirmationError: string | null = 'Could not update the pending review. Try again.';
+  let finishConfirmation = () => {};
+  const confirmations: Parameters<Bridge['confirmReviewDraftCommentNotPosted']>[] = [];
   let published = 0;
   let closed = false;
   const bridge = {
@@ -279,6 +282,16 @@ export async function runDraftCommentEdit(): Promise<string> {
       draft = { ...draft, version: version + 1, items: draft.items.map(item => item.id === id ? { ...item, body, included } : item) };
       return draft;
     },
+    confirmReviewDraftCommentNotPosted: async (...request) => {
+      confirmations.push(request);
+      await new Promise<void>(resolve => { finishConfirmation = resolve; });
+      if (confirmationError !== null) throw new Error(confirmationError);
+      const [repo, number, version, itemId] = request;
+      assert(repo === stored.repo && number === stored.number && version === draft.version && itemId === draft.items[0].id,
+        'Confirmation must identify the current saved comment and version');
+      draft = { ...draft, version: version + 1, items: draft.items.map(item => item.id === itemId ? { ...item, publication: null } : item) };
+      return draft;
+    },
     saveReviewDraft: async (_repo, _number, version, body, event) => {
       assert(version === draft.version, 'Submitting must use the version returned by the comment edit');
       draft = { ...draft, body, event, version: version + 1 };
@@ -290,7 +303,7 @@ export async function runDraftCommentEdit(): Promise<string> {
     },
     fetchPullRequestDetailByRef: async () => stored,
   } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrDiffFiles' | 'fetchPrDiffCommits' | 'getAgentReview' | 'editReviewDraftComment'
-    | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef' | 'betterWords'>;
+    | 'saveReviewDraft' | 'submitReviewDraft' | 'fetchPullRequestDetailByRef' | 'betterWords' | 'confirmReviewDraftCommentNotPosted'>;
   const previous = window.bridge;
   Object.assign(window, { bridge });
   const host = document.createElement('main');
@@ -333,8 +346,37 @@ export async function runDraftCommentEdit(): Promise<string> {
       && !host.querySelector('.pr-review-sheet__pending')?.textContent?.includes('The agent changed its conclusion')
       && !button('.pr-review-sheet__footer .is-primary').disabled,
       'Resolving or revising the agent finding must not change the saved comment or block submission');
+
+    draft = { ...draft, version: draft.version + 1, items: draft.items.map((item): ReviewDraftItemDto => ({ ...item, publication: {
+      state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: draft.updatedAt,
+    } })) };
+    currentReview = { ...currentReview, draft };
+    flushSync(render); await settle();
+    const confirm = () => {
+      const node = [...host.querySelectorAll<HTMLButtonElement>('button')].find(item => item.textContent === 'Confirmed not posted');
+      assert(node !== undefined, 'Unconfirmed comments must offer explicit recovery');
+      return node;
+    };
+    const summary = host.querySelector<HTMLTextAreaElement>('[aria-label="Review comment"]');
+    assert(summary !== null, 'Review summary must remain editable');
+    changeInput(summary, 'Review summary with retries'); await settle();
+    assert(button('.pr-review-sheet__footer .is-primary').disabled && confirmations.length === 0 && published === 0,
+      'An uncertain comment must never be retried on opening the sheet');
+    confirm().click(); confirm().click(); await settle();
+    assert(confirm().disabled && Number(confirmations.length) === 1, 'Confirmation must prevent duplicate requests while saving');
+    finishConfirmation(); await settle();
+    assert(host.textContent?.includes(confirmationError) && !confirm().disabled && button('.pr-review-sheet__footer .is-primary').disabled,
+      'Failed confirmation must keep the comment unconfirmed and allow retrying the local action');
+    confirmationError = null;
+    confirm().click(); await settle(); finishConfirmation(); await settle();
+    assert(host.querySelector('.pr-review-sheet__pending')?.textContent?.includes('Pending')
+      && !host.querySelector('.pr-review-sheet__pending')?.textContent?.includes('Delivery unconfirmed')
+      && !button('.pr-review-sheet__footer .is-primary').disabled && published === 0 && Number(confirmations.length) === 2,
+      'Confirmation must restore a pending comment without publishing it');
+    assert(summary.value === 'Review summary with retries' && draft.items[0].body === 'Edited finding' && draft.items[0].commitId === 'two',
+      'Recovery must preserve unsaved review prose, the saved comment, and its original commit');
     button('.pr-review-sheet__footer .is-primary').click(); await settle();
-    assert(Number(published) === 1 && closed && draft.body === 'Review summary', 'Explicit submission must publish the saved edit and preserve review prose');
+    assert(Number(published) === 1 && closed && draft.body === 'Review summary with retries', 'Explicit submission must publish the saved edit and preserve review prose');
     return 'Saved draft comments support editing, retry and explicit submission';
   }
   finally {

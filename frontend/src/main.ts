@@ -1180,6 +1180,9 @@ function registerIpc(): void {
     }));
   ipcMain.handle('review:draft:remove', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
     draft(`/drafts/items/${encodeURIComponent(itemId)}`, { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'DELETE' }));
+  ipcMain.handle('review:draft:confirm-not-posted', (_event, repo: string, number: number, expectedVersion: number, itemId: string) =>
+    draft(`/drafts/items/${encodeURIComponent(itemId)}/confirm-not-posted`,
+      { repo, number: String(number), expectedVersion: String(expectedVersion) }, { method: 'POST' }));
   ipcMain.handle('review:draft:save', (_event, repo: string, number: number, expectedVersion: number, body: string, event: string) =>
     draft('/drafts/review', { repo, number: String(number) }, {
       method: 'PUT',

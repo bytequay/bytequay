@@ -108,7 +108,7 @@ export function reviewRecoveryRequired(review: AgentReviewDto): boolean {
 
 /** Automatic cards use the sealed selection; explicit discussion and user history remain visible. */
 export function findingInResults(review: AgentReviewDto, finding: ReviewFindingDto): boolean {
-  if (review.draft?.items.some(item => item.findingId === finding.id && item.published)) return true;
+  if (review.draft?.items.some(item => item.findingId === finding.id && (item.published || item.publication !== null))) return true;
   const source = review.runs.find(run => run.id === finding.runId);
   if (source?.state !== 'ACCEPTED' || !completeCoverage(source)) return false;
   return finding.origin === 'DISCUSSION'
@@ -399,6 +399,8 @@ type FindingPublication =
   | { kind: 'inReviewText' }
   | { kind: 'draft'; item: ReviewDraftItemDto }
   | { kind: 'published'; item: ReviewDraftItemDto }
+  | { kind: 'sending'; item: ReviewDraftItemDto }
+  | { kind: 'uncertain'; item: ReviewDraftItemDto }
   | { kind: 'blocked'; reason: string };
 
 /**
@@ -410,6 +412,8 @@ type FindingPublication =
 export function findingPublication(review: AgentReviewDto, finding: ReviewFindingDto): FindingPublication {
   if (review.number === null) return { kind: 'blocked', reason: 'Private local review' };
   const item = draftItemFor(review.draft, finding.id);
+  if (item?.publication?.state === 'UNCERTAIN') return { kind: 'uncertain', item };
+  if (item?.publication?.state === 'RESERVED') return { kind: 'sending', item };
   if (item !== null && item.published) return { kind: 'published', item };
   if (item !== null) return { kind: 'draft', item };
   if (finding.state === 'WITHDRAWN') return { kind: 'blocked', reason: 'The agent withdrew this finding' };
@@ -432,6 +436,8 @@ export function findingPill(review: AgentReviewDto, finding: ReviewFindingDto): 
   const publication = findingPublication(review, finding);
   if (finding.state === 'WITHDRAWN') return { text: 'Withdrawn', tone: 'neutral' };
   if (finding.state === 'RESOLVED') return { text: 'Resolved locally', tone: 'neutral' };
+  if (publication.kind === 'uncertain') return { text: 'Delivery unconfirmed', tone: 'warn' };
+  if (publication.kind === 'sending') return { text: 'Sending…', tone: 'neutral' };
   if (publication.kind === 'published') return { text: 'Published', tone: 'ready' };
   if (finding.outdated) return { text: 'Needs reassessment', tone: 'warn' };
   if (draftItemFor(review.draft, finding.id) !== null

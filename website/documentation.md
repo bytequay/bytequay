@@ -164,6 +164,12 @@ repository.
 controls write to GitHub; inspect the outgoing content and selected action first. Your
 own PR cannot be self-approved.
 
+If a comment shows **Delivery unconfirmed**, check the PR on GitHub first. When you
+confirm it is missing, open **Submit review** and choose **Confirmed not posted**
+beside that comment. This returns it to pending without sending it. Once you have
+confirmed each missing comment, choose **Submit review** to send them. Comments
+already confirmed as published are not sent again.
+
 The **Review comment index** at the left edge of **PR** and **WorkBench → Summary** jumps
 to human and agent comments, including private discussions. It shows up to 30 markers,
 starting with the latest comments; scroll up within the index to reach earlier ones. Hover a dash marker

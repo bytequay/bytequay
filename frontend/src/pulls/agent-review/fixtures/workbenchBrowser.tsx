@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { AgentReviewDto } from '../contracts';
+import type { AgentReviewDto, ReviewDraftItemDto } from '../contracts';
 import { useState } from 'react';
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
@@ -118,6 +118,50 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(fixes[0].message.includes(review.findings[0].id) && fixes[0].message.includes('list_local_review_comments')
         && discussionReview.messages.every(message => !fixes[0].message.includes(message.body))
         && !fixes[0].message.includes(review.findings[0].evidence[1].excerpt), 'The developer must receive a lookup for the finding instead of a discussion and evidence dump');
+    });
+    await scenario('A failed GitHub post reloads its unconfirmed delivery and preserves the comment', async () => {
+      let current = reviewFixture({ draft: null });
+      let posts = 0;
+      install({
+        addReviewDraftFinding: async () => {
+          const finding = current.findings[0];
+          const draft: NonNullable<AgentReviewDto['draft']> = { repo: current.repo, number: 30304, body: '', event: 'COMMENT', version: 1,
+            updatedAt: finding.updatedAt, items: [{ id: 'outgoing', source: 'AGENT_FINDING', findingId: finding.id, findingRevision: finding.revision,
+              commitId: finding.validatedHeadSha, path: finding.path, side: finding.side, line: finding.endLine, startLine: finding.startLine,
+              body: `${finding.title}\n\n${finding.body}`, included: true, published: false, publication: null }] };
+          current = { ...current, draft };
+          return draft;
+        },
+        publishReviewDraftComment: async () => {
+          posts++;
+          assert(current.draft !== null, 'Posting must first save the outgoing comment');
+          current = { ...current, draft: { ...current.draft, version: 3, items: current.draft.items.map((item): ReviewDraftItemDto => ({ ...item, publication: {
+            state: 'UNCERTAIN', remoteReviewId: null, remoteCommentId: null, url: null, at: current.createdAt,
+          } })) } };
+          throw new Error('Network connection lost');
+        },
+        getAgentReview: async () => current,
+      });
+      function Surface() {
+        const [value, setValue] = useState(current);
+        const { actions, busy } = useFindingActions({ review: value, onReviewChange: setValue, onNavigate: () => {} });
+        return <ReviewFindingCard review={value} finding={value.findings[0]} projection="review" viewerLogin="me" viewerAvatarUrl={null}
+          actions={actions} busy={busy} />;
+      }
+      flushSync(() => root.render(<Surface />)); await settle();
+      button('Post comment now').click(); await settle();
+      button('Post now').click(); await settle();
+      assert(host.textContent?.includes('Network connection lost') === true && host.textContent.includes('GitHub did not confirm this comment'),
+        'The network error and saved uncertain delivery must both be visible immediately');
+      assert(!host.textContent?.includes('Posted to GitHub') && host.querySelector('.agr-notice.is-published') === null,
+        'A failed post must never claim success');
+      assert(button('Post now').disabled && !button('Cancel').disabled, 'An uncertain post must block resending while allowing the composer to close');
+      button('Cancel').click(); await settle();
+      assert(button('Edit').disabled && button('Remove').disabled && !button('Ask reviewer').disabled,
+        'Uncertain outgoing comments must retain their text and private discussion');
+      assert(posts === 1 && host.querySelector('.agr-draft__body')?.textContent?.includes(current.findings[0].title)
+        && current.draft?.items[0].body === `${current.findings[0].title}\n\n${current.findings[0].body}`,
+        'Failure must preserve the outgoing text without retrying the GitHub write');
     });
     await scenario('Published and withdrawn findings keep their private reviewer conversation open', async () => {
       const finding = { ...review.findings[0], state: 'WITHDRAWN' as const, outdated: true, stateReason: 'Fixed by the latest commit' };

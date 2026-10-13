@@ -634,9 +634,63 @@ class TestReviewPublicationService
 
         ReviewDraft after = service.draft(REPO, NUMBER);
         assertThat(after.items().getFirst().publication().orElseThrow().state()).isEqualTo(ReviewPublication.State.UNCERTAIN);
+        assertThat(after.items().getFirst().published()).isFalse();
+        assertThat(after.items().getFirst().body()).isEqualTo("Rename this");
+        assertThat(service.ineligible(REPO, NUMBER)).singleElement().satisfies(item -> {
+            assertThat(item.itemId()).isEqualTo(itemId);
+            assertThat(item.reason()).contains("unknown outcome");
+        });
         // A send whose outcome is unknown is never retried from here; the refusal is what keeps a duplicate comment off GitHub.
-        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), itemId)).isInstanceOf(ReviewConflictException.class);
+        assertThatThrownBy(() -> service.publishItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
+        assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), "Review", "COMMENT")).hasMessageContaining("unknown outcome");
+        assertThatThrownBy(() -> service.editItem(REPO, NUMBER, after.version(), itemId, "Changed", true)).hasMessageContaining("unknown outcome");
+        assertThatThrownBy(() -> service.removeItem(REPO, NUMBER, after.version(), itemId)).hasMessageContaining("unknown outcome");
         verify(pullRequests, times(1)).createReviewComment(eq(REPO), eq(NUMBER), any(InlineReviewComment.class));
+    }
+
+    @Test
+    void confirmedMissingCommentReturnsToPendingWithoutChangingThePayloadOrPosting()
+    {
+        ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN,
+                OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
+        ReviewDraftItem original = manual("src/A.java", 10, "My edited comment").withPublication(Optional.of(uncertain));
+        ReviewDraft saved = drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withReview("Saved review", "REQUEST_CHANGES", NOW)
+                .withItems(ImmutableList.of(original), NOW));
+
+        assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, saved.version() - 1, original.id())).hasMessageContaining("changed in another window");
+        assertThat(service.draft(REPO, NUMBER).items()).containsExactly(original);
+
+        ReviewDraft pending = service.confirmNotPosted(REPO, NUMBER, saved.version(), original.id());
+
+        assertThat(pending.items()).containsExactly(original.withPublication(Optional.empty()));
+        assertThat(pending.body()).isEqualTo(saved.body());
+        assertThat(pending.event()).isEqualTo(saved.event());
+        assertThat(pending.version()).isEqualTo(saved.version() + 1);
+        assertThat(service.ineligible(REPO, NUMBER)).isEmpty();
+        verifyNoInteractions(pullRequests);
+
+        when(pullRequests.createReviewComment(eq(REPO), eq(NUMBER), any())).thenReturn(detail());
+        ReviewDraft posted = service.publishItem(REPO, NUMBER, pending.version(), original.id()).draft();
+        assertThat(posted.items().getFirst().published()).isTrue();
+        assertThat(posted.items().getFirst().publication().orElseThrow().attemptId()).isNotEqualTo(uncertain.attemptId());
+        verify(pullRequests).createReviewComment(REPO, NUMBER, new InlineReviewComment(
+                original.path(), original.body(), original.line(), original.side(), null, null, REVIEWED_HEAD, OptionalLong.empty()));
+    }
+
+    @Test
+    void confirmedMissingCannotResetPendingInFlightOrSuccessfulComments()
+    {
+        ReviewDraft saved = service.addManual(REPO, NUMBER, 0, manual("src/A.java", 10, "Comment"));
+        for (Optional<ReviewPublication> publication : ImmutableList.of(Optional.<ReviewPublication>empty(),
+                Optional.of(new ReviewPublication("sending", ReviewPublication.State.RESERVED, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW)),
+                Optional.of(new ReviewPublication("posted", ReviewPublication.State.PUBLISHED, OptionalLong.of(1), OptionalLong.of(2), Optional.empty(), NOW)))) {
+            ReviewDraft current = drafts.save(saved.withItems(ImmutableList.of(saved.items().getFirst().withPublication(publication)), NOW));
+            assertThatThrownBy(() -> service.confirmNotPosted(REPO, NUMBER, current.version(), lastItemId(current)))
+                    .isInstanceOf(ReviewConflictException.class).hasMessageContaining("Only a comment with unconfirmed delivery");
+            assertThat(service.draft(REPO, NUMBER)).isEqualTo(current);
+            saved = current;
+        }
+        verifyNoInteractions(pullRequests);
     }
 
     @Test
@@ -678,10 +732,20 @@ class TestReviewPublicationService
         ReviewDraft after = service.draft(REPO, NUMBER);
         assertThat(after.items().get(0).publication()).hasValueSatisfying(value -> assertThat(value.state()).isEqualTo(ReviewPublication.State.PUBLISHED));
         assertThat(after.items().get(1).publication()).hasValueSatisfying(value -> assertThat(value.state()).isEqualTo(ReviewPublication.State.UNCERTAIN));
+        assertThat(after.items()).extracting(ReviewDraftItem::published).containsExactly(true, false, false);
         assertThat(after.items().get(2).publication()).isEmpty();
         assertThat(after.body()).isEqualTo("Final summary");
         assertThatThrownBy(() -> service.submit(REPO, NUMBER, after.version(), after.body(), after.event())).hasMessageContaining("unknown outcome");
         verify(pullRequests, times(2)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), eq("COMMENT"), eq(""), any());
+
+        ReviewDraft ready = service.confirmNotPosted(REPO, NUMBER, after.version(), after.items().get(1).id());
+        when(pullRequests.submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), any())).thenReturn(detail());
+        ReviewPublicationService.Publication retried = service.submit(REPO, NUMBER, ready.version(), ready.body(), ready.event());
+        assertThat(retried.publishedItemIds()).containsExactly(after.items().get(1).id(), after.items().get(2).id());
+        ArgumentCaptor<List<InlineReviewComment>> comments = ArgumentCaptor.captor();
+        verify(pullRequests, times(4)).submitReview(eq(REPO), eq(NUMBER), eq(PR_ID), any(), any(), comments.capture());
+        assertThat(comments.getAllValues().stream().flatMap(List::stream).map(InlineReviewComment::body))
+                .containsExactly("First", "Second", "Second", "Third");
     }
 
     @Test

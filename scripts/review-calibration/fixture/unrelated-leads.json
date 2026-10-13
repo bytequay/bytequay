@@ -1,0 +1,12 @@
+[
+  {
+    "id": "u1",
+    "text": "The retry loop never waits between attempts, so a failing server is called again as fast as possible.",
+    "where": "client.py:40-52"
+  },
+  {
+    "id": "u2",
+    "text": "The option name in the documentation is spelled differently from the one the parser reads.",
+    "where": "README.md:12 and options.py:8"
+  }
+]

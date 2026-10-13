@@ -1,0 +1,24 @@
+{
+  "repo": "fixture",
+  "number": 0,
+  "url": "scripts/review-calibration/fixture",
+  "title": "Decode CSV rows lazily",
+  "base": null,
+  "head": null,
+  "reviewer": "hand-written",
+  "cutoff": null,
+  "body": null,
+  "comments": [
+    {
+      "id": 1,
+      "path": "rows.py",
+      "line": 20,
+      "startLine": null,
+      "side": "RIGHT",
+      "hunk": "@@ -7,3 +18,3 @@\n     \"\"\"Yield independent rows; they remain readable after leaving this context.\"\"\"\n     with open(path, newline=\"\") as source:\n-        yield list(csv.DictReader(source))\n+        yield LazyRows(source)",
+      "body": "The docstring promises the rows stay readable after the context exits, but LazyRows does not read the file until it is first iterated. A caller that iterates after the with block reads a closed file. Read the rows before the file closes.",
+      "url": "scripts/review-calibration/fixture/head/rows.py"
+    }
+  ],
+  "dropped": []
+}

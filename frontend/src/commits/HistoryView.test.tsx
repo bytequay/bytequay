@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ComponentProps } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import Avatar from '../Avatar';
@@ -20,19 +21,7 @@ import HistoryView, { nextCommitRenderLimit } from './HistoryView';
 
 describe('workspace commit history', () => {
   it('shows the empty state without range controls or hints', () => {
-    const html = renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={[]}
-      loading={false}
-      checked={new Set()}
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const html = history();
 
     expect(html).toContain('No commits on this ref.');
     expect(html).not.toContain('select range');
@@ -41,61 +30,17 @@ describe('workspace commit history', () => {
   });
 
   it('hides commits the toolbar search does not match', () => {
-    const html = renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={[{
-        sha: '0123456789abcdef',
-        title: 'Improve commit browsing',
-        body: '',
-        author: 'example-author',
-        authorAvatarUrl: null,
-        committer: 'example-author',
-        committerAvatarUrl: null,
-        authoredAt: '2026-08-22T00:00:00Z',
-        committedAt: '2026-08-22T00:00:00Z',
-      }]}
-      loading={false}
-      checked={new Set()}
-      filter="kafka"
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const html = history({ commits: [commit({ authorAvatarUrl: null, committerAvatarUrl: null })], filter: 'kafka' });
 
     expect(html).toContain('No commits match “kafka”.');
     expect(html).not.toContain('cmt-commit-row');
   });
 
   it('renders commit history in scroll-loaded batches', () => {
-    const commits = Array.from({ length: 51 }, (_, index): GitCommitDto => ({
-      sha: `commit-${index}`,
-      title: `Commit ${index}`,
-      body: '',
-      author: 'example-author',
-      authorAvatarUrl: null,
-      committer: 'example-author',
-      committerAvatarUrl: null,
-      authoredAt: '2026-08-22T00:00:00Z',
-      committedAt: '2026-08-22T00:00:00Z',
+    const commits = Array.from({ length: 51 }, (_, index) => commit({
+      sha: `commit-${index}`, title: `Commit ${index}`, authorAvatarUrl: null, committerAvatarUrl: null,
     }));
-    const render = (checked: ReadonlySet<string>, filter?: string) => renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={commits}
-      loading={false}
-      checked={checked}
-      filter={filter}
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const render = (checked: ReadonlySet<string>, filter?: string) => history({ commits, checked, filter });
     const html = render(new Set());
 
     expect(html).toContain('width:400px');
@@ -134,27 +79,8 @@ describe('workspace commit history', () => {
   });
 
   it('offers the message body only on a commit that has one', () => {
-    const render = (body: string) => renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={[{
-        sha: '0123456789abcdef',
-        title: 'Improve commit browsing',
-        body,
-        author: 'percy-r',
-        committer: 'percy-r',
-        authoredAt: '2026-09-20T10:00:00Z',
-        committedAt: '2026-09-20T10:00:00Z',
-      }]}
-      loading={false}
-      checked={new Set()}
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const render = (body: string) => history({ commits: [commit({ body, author: 'percy-r', committer: 'percy-r',
+      authoredAt: '2026-09-20T10:00:00Z', committedAt: '2026-09-20T10:00:00Z' })] });
 
     const withBody = render('Why this change\n\nBecause the old one was wrong.');
     expect(withBody).toContain('class="cmt-view-body-toggle"');
@@ -171,27 +97,8 @@ describe('workspace commit history', () => {
   });
 
   it('offers select-all and fold on each day header', () => {
-    const html = renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={[{
-        sha: '0123456789abcdef',
-        title: 'Improve commit browsing',
-        body: '',
-        author: 'percy-r',
-        committer: 'percy-r',
-        authoredAt: '2026-09-20T10:00:00Z',
-        committedAt: '2026-09-20T10:00:00Z',
-      }]}
-      loading={false}
-      checked={new Set()}
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const html = history({ commits: [commit({ author: 'percy-r', committer: 'percy-r',
+      authoredAt: '2026-09-20T10:00:00Z', committedAt: '2026-09-20T10:00:00Z' })] });
 
     expect(html).toContain('class="cmt-day-actions"');
     expect(html).toContain('Select all commits on this day');
@@ -212,31 +119,9 @@ describe('workspace commit history', () => {
   it('shows pull-request context as a bottom-row link from the commit card', () => {
     const authorAvatarUrl = `http://127.0.0.1:48765/api/avatars/${'a'.repeat(64)}`;
     const committerAvatarUrl = `http://127.0.0.1:48765/api/avatars/${'b'.repeat(64)}`;
-    const html = renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={[{
-        sha: '0123456789abcdef',
-        title: 'Improve commit browsing (#42)',
-        body: '',
-        author: 'percy-r',
-        authorAvatarUrl,
-        committer: 'ezra-b',
-        committerAvatarUrl,
-        authoredAt: '2026-08-10T00:00:00Z',
-        committedAt: '2026-08-22T00:00:00Z',
-        pullRequestNumber: 42,
-        pullRequestTitle: 'Improve commit browsing',
-      }]}
-      loading={false}
-      checked={new Set(['0123456789abcdef'])}
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const html = history({ commits: [commit({ title: 'Improve commit browsing (#42)', author: 'percy-r', authorAvatarUrl,
+      committer: 'ezra-b', committerAvatarUrl, authoredAt: '2026-08-10T00:00:00Z', pullRequestNumber: 42, pullRequestTitle: 'Improve commit browsing' })],
+    checked: new Set(['0123456789abcdef']) });
 
     expect(html).toContain('#42');
     expect(html).toContain('Improve commit browsing');
@@ -261,29 +146,8 @@ describe('workspace commit history', () => {
   it('keeps yesterday’s committed day after midnight and shows the exact local time on hover', () => {
     const committedAt = new Date('2026-09-10T22:20:15');
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-11T00:04:00'));
-    const html = renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={[{
-        sha: '0123456789abcdef',
-        title: 'Separate the Git timestamps',
-        body: '',
-        author: 'example-author',
-        authorAvatarUrl: null,
-        committer: 'example-committer',
-        committerAvatarUrl: null,
-        authoredAt: '2026-08-13T10:00:00Z',
-        committedAt: committedAt.toISOString(),
-      }]}
-      loading={false}
-      checked={new Set()}
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const html = history({ commits: [commit({ title: 'Separate the Git timestamps', authorAvatarUrl: null, committer: 'example-committer',
+      committerAvatarUrl: null, authoredAt: '2026-08-13T10:00:00Z', committedAt: committedAt.toISOString() })] });
     now.mockRestore();
 
     expect(html).toContain('Commits on Sep 10, 2026');
@@ -309,29 +173,8 @@ describe('workspace commit history', () => {
   });
 
   it('keeps commit avatars local when no cached image exists', () => {
-    const render = (author: string) => renderToStaticMarkup(<HistoryView
-      workspaceId="workspace-id"
-      branch="main"
-      logRef="main"
-      isUpstream={false}
-      canRewrite={true}
-      commits={[{
-        sha: 'fedcba9876543210',
-        title: 'Keep history local',
-        body: '',
-        author,
-        authorAvatarUrl: null,
-        committer: author,
-        committerAvatarUrl: null,
-        authoredAt: '2026-08-22T00:00:00Z',
-        committedAt: '2026-08-22T00:00:00Z',
-      }]}
-      loading={false}
-      checked={new Set()}
-      onChangeChecked={() => {}}
-      onHistoryRewritten={() => {}}
-      onOpenPullRequest={() => {}}
-    />);
+    const render = (author: string) => history({ commits: [commit({ sha: 'fedcba9876543210', title: 'Keep history local', author,
+      authorAvatarUrl: null, committer: author, committerAvatarUrl: null })] });
 
     const displayName = render('Example Author');
     expect(displayName).toContain('avatar--fallback');
@@ -344,3 +187,14 @@ describe('workspace commit history', () => {
     expect(login).not.toContain('authored and');
   });
 });
+
+function history(props: Partial<ComponentProps<typeof HistoryView>> = {}): string {
+  return renderToStaticMarkup(<HistoryView workspaceId="workspace-id" branch="main" logRef="main" isUpstream={false}
+    canRewrite commits={[]} loading={false} checked={new Set()} onChangeChecked={() => {}}
+    onHistoryRewritten={() => {}} onOpenPullRequest={() => {}} {...props} />);
+}
+
+function commit(overrides: Partial<GitCommitDto> = {}): GitCommitDto {
+  return { sha: '0123456789abcdef', title: 'Improve commit browsing', body: '', author: 'example-author', committer: 'example-author',
+    authoredAt: '2026-08-22T00:00:00Z', committedAt: '2026-08-22T00:00:00Z', ...overrides };
+}

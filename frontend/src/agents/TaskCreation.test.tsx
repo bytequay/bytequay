@@ -111,6 +111,7 @@ describe.each(['Home', 'Tasks'])('first-message feedback on %s', (surface) => {
     expect(markup).not.toMatch(/<textarea[^>]*disabled/);
     expect(markup).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
     expect(markup).not.toContain('Starting task…');
+    expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
   });
 
   it('restores the original draft and images with the failure available for retry', () => {

@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { ANSWERING_ELSEWHERE, isSummaryRequest, parseCommentSummary, SUMMARY_REQUEST, type DiscussionMessageDto, type TaskDiscussionDto } from '../agents/discussions/contracts';
 import type { TaskDiscussions } from '../agents/discussions/useTaskDiscussions';
 import {
-  commentExcerpt, hiddenThreadCount, PrivateThreadControls, PrivateThreadForward, privateThreadKey, privateThreadSource, PrivateThreadsToggle,
+  commentExcerpt, hiddenThreadCount, PrivateThreadControls, PrivateThreadForward, privateThreadKey, privateThreadSource,
   PrivateThreadTab, withMention, type PrivateThreads,
 } from './PrivateThread';
 
@@ -108,15 +108,6 @@ describe('private thread helpers', () => {
 });
 
 describe('private thread surfaces', () => {
-  it('labels the icon toggle and exposes visibility and the hidden count', () => {
-    const html = renderToStaticMarkup(<PrivateThreadsToggle threads={threads({ show: false })} />);
-    expect(html).toContain('aria-label="Private threads" aria-pressed="false"');
-    expect(html).toContain('title="Show private threads (1 hidden)"');
-    const shown = renderToStaticMarkup(<PrivateThreadsToggle threads={threads()} />);
-    expect(shown).toContain('aria-pressed="true"');
-    expect(shown).toContain('title="Hide private threads"');
-  });
-
   it('shows a thread behind its comment as a chip and a tab, before Ask agent', () => {
     const html = controls(threads());
     expect(html).toContain('Local · 2 replies ↑');
@@ -135,13 +126,6 @@ describe('private thread surfaces', () => {
     expect(html).toContain('Ask agent');
     expect(renderToStaticMarkup(<PrivateThreadTab threads={threads({}, null)} threadKey={KEY} />)).toBe('');
     expect(controls(threads({ forward: KEY }))).not.toContain('pr-private-chip');
-  });
-
-  it('replaces the chip and tab with a hidden marker under Hide', () => {
-    const hidden = threads({ show: false });
-    expect(controls(hidden)).toContain('Private thread hidden');
-    expect(controls(hidden)).not.toContain('replies');
-    expect(renderToStaticMarkup(<PrivateThreadTab threads={hidden} threadKey={KEY} />)).toBe('');
   });
 
   it('offers Ask agent only on other people’s comments, and keeps the chip of a thread behind the user’s own', () => {
@@ -202,14 +186,6 @@ describe('private thread surfaces', () => {
       author="bob" avatarUrl={null} timestamp={AT} body="Please rename this." repository="o/r" />);
     expect(anonymous).toContain('aria-label="You" role="img"');
     expect(anonymous).not.toContain('https://github.com/You.png');
-  });
-
-  it('keeps a pending reply editable with an inline running icon and no status line', () => {
-    const html = forward(threads({ forward: KEY, busy: true, drafts: new Map([[KEY, 'My next question']]) }, thread({ pending: true })));
-    expect(html).toContain('class="agr-composer__waiting" role="status" aria-label="Wait for the agent’s answer"');
-    expect(html).not.toContain('class="pull-diff-review__status"');
-    expect(html).not.toMatch(/<textarea[^>]*disabled/);
-    expect(html).toMatch(/<button type="button" class="is-primary" disabled=""[^>]*>Reply<\/button>/);
   });
 
   it('keeps an unsent question in the view state, so a remounted card shows it again', () => {

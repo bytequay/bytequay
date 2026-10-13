@@ -178,7 +178,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       assert(toggle.getBoundingClientRect().left > labels.getBoundingClientRect().right,
         'The toggle must sit to the right of the labels');
       assert(host.querySelector('.pr-private-strip') === null && toggle.textContent === '', 'The old text toolbar must be absent');
-      assert(toggle.getAttribute('aria-pressed') === 'true' && toggle.getAttribute('title') === 'Hide private threads', 'The toggle must start on');
+      assert(toggle.getAttribute('aria-label') === 'Private threads' && toggle.getAttribute('aria-pressed') === 'true' && toggle.getAttribute('title') === 'Hide private threads', 'The toggle must start on');
       chip()?.click();
       await settle();
       assert(host.querySelector('.pr-private-forward') !== null, 'The thread must open before hiding');

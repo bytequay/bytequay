@@ -13,7 +13,7 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { LocalReviewThreadDto } from './local-review/types';
-import type { ReactElement } from 'react';
+import type { ComponentProps, ReactElement } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import type { InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelineCommentDto, PullTimelinePayloadDto } from '../types';
 import MarkdownBody, { markdownBlocks } from './MarkdownBody';
@@ -21,9 +21,9 @@ import { canSubmitReview, EMPTY_TIMELINE_PAYLOAD as emptyPayload } from './model
 import PullOverview, { activeMention, appendQuotedReply, applyViewerReaction, canUpdateComment, commentedCodeLines, CommentEditor, displayedMetadataPickerOptions, groupTimelineActivities, githubActionsJobId, isViewerComment, MAX_UNSELECTED_PEOPLE_PICKER_OPTIONS, mentionCandidates, mergePullRequestWriteDetail, MetadataPicker, nextViewerReaction, peoplePickerCandidates, remoteErrorMessage, replaceMention, ReviewThread, reviewThreadSuggestion, submitPullReaction, submitPullRequestComment, updatePullReactionDetail, updateReviewThreadResolution } from './PullOverview';
 import { relativeTime } from '../relativeTime';
 import PullsScreen, { hasMergeConflicts, isReviewRequestedForViewer, MergeDialog, mergeActionLabel, mergeStatus, PullDetailHeader, remotePullRequest, ReviewDialog, unresolvedReviewCount } from './PullsScreen';
-import { reviewFixture } from './agent-review/fixtures/review';
+import type { AgentReviewDto } from './agent-review/contracts';
+import { reviewFixture, runningReviewFixture } from './agent-review/fixtures/review';
 import type { PrivateThreads } from './PrivateThread';
-
 
 /** New lines 41 (context) through 44, as GitHub records a thread's diff_hunk. */
 const COMMENTED_HUNK = '@@ -41,4 +41,18 @@ default long getMemoryUsage()\n {\n+    MemoryUsageTracker createTracker();\n+\n+    interface MemoryUsageTracker';
@@ -1521,48 +1521,8 @@ describe('PullOverview', () => {
     expect(remotePullRequest(value, 'carol').origin).toBe('OTHER');
   });
 
-  it('keeps icon, review and merge actions in the compact detail header', () => {
-    const value = detail();
-    value.viewerCanWrite = true;
-    const html = renderToStaticMarkup(<PullDetailHeader
-      pr={{ ...pullRequest(), origin: 'REVIEW_REQUESTED' }}
-      detail={value}
-      tab="overview"
-      onTab={() => {}}
-      onRefresh={async () => {}}
-      onReviewSubmitted={() => {}}
-      refreshing={false}
-      pendingComments={[]}
-      onZoom={() => {}}
-      onPendingCommentsChange={() => {}} />);
-
-    expect(html).toContain('class="pull-detail__review-action"');
-    expect(html).toContain('>Submit review</button>');
-    expect(html).toContain('class="pull-detail__merge-action is-conflicts"');
-    expect(html).toContain('class="pull-detail__pr-tab is-open is-active"');
-    expect(html).toContain('PR #42');
-    expect(html).toContain('aria-pressed="false"');
-    expect(html).toContain('aria-pressed="true"');
-    expect(html).not.toContain('Files changed');
-    expect(html).not.toContain('Change source');
-    expect(html).toContain('aria-label="Zoom pull request details"');
-    expect(html).toContain('aria-label="Refresh pull request"');
-    expect(html).not.toContain('requested your review');
-    expect(html).not.toContain('Open on GitHub');
-  });
-
   it('shows when the backend refresh is running', () => {
-    const html = renderToStaticMarkup(<PullDetailHeader
-      pr={pullRequest()}
-      detail={detail()}
-      tab="overview"
-      onTab={() => {}}
-      onRefresh={async () => {}}
-      onReviewSubmitted={() => {}}
-      refreshing
-      pendingComments={[]}
-      onZoom={() => {}}
-      onPendingCommentsChange={() => {}} />);
+    const html = headerMarkup({ refreshing: true });
 
     expect(html).toMatch(/<button class="pull-detail__icon-action is-refreshing"[^>]*aria-busy="true"[^>]*disabled=""/);
     expect(html).toContain('title="Refreshing pull request…"');
@@ -1574,17 +1534,7 @@ describe('PullOverview', () => {
       ...detail(), draft: true, ciStatus: 'PENDING',
       checkRuns: [{ ...detail().checkRuns[0], category: 'pending', status: 'in_progress' }],
     };
-    const html = renderToStaticMarkup(<PullDetailHeader
-      pr={pullRequest()}
-      detail={value}
-      tab="overview"
-      onTab={() => {}}
-      onRefresh={async () => {}}
-      onReviewSubmitted={() => {}}
-      refreshing={false}
-      pendingComments={[]}
-      onZoom={() => {}}
-      onPendingCommentsChange={() => {}} />);
+    const html = headerMarkup({ detail: value });
 
     expect(html).toContain('class="pull-detail__review-action"');
     expect(html).toContain('class="pull-detail__merge-action');
@@ -1592,44 +1542,8 @@ describe('PullOverview', () => {
     expect(html).not.toContain('Ready for review</button>');
   });
 
-  it('shows the pending comment count in the submit review action', () => {
-    const pendingComment: InlineReviewCommentDto = {
-      path: 'src/Example.java',
-      body: 'Please simplify this',
-      line: 18,
-      side: 'RIGHT',
-      startLine: null,
-      startSide: null,
-      commitId: 'head-sha',
-    };
-    const html = renderToStaticMarkup(<PullDetailHeader
-      pr={{ ...pullRequest(), origin: 'REVIEW_REQUESTED' }}
-      detail={detail()}
-      tab="files"
-      onTab={() => {}}
-      onRefresh={async () => {}}
-      onReviewSubmitted={() => {}}
-      refreshing={false}
-      pendingComments={[pendingComment]}
-      onZoom={() => {}}
-      onPendingCommentsChange={() => {}} />);
-
-    expect(html).toContain('aria-label="Submit review, 1 pending review comment"');
-    expect(html).toContain('class="pull-detail__review-count" aria-hidden="true">1</span>');
-  });
-
   it('offers full screen and close controls inside the zoom layer', () => {
-    const html = renderToStaticMarkup(<PullDetailHeader
-      pr={pullRequest()}
-      detail={detail()}
-      tab="overview"
-      onTab={() => {}}
-      onRefresh={async () => {}}
-      onReviewSubmitted={() => {}}
-      refreshing={false}
-      pendingComments={[]}
-      zoom={{ full: true, toggle: () => {}, close: () => {} }}
-      onPendingCommentsChange={() => {}} />);
+    const html = headerMarkup({ zoom: { full: true, toggle: () => {}, close: () => {} } });
 
     expect(html).toContain('aria-label="Exit full screen" aria-pressed="true"');
     expect(html).toContain('aria-label="Close pull request details"');
@@ -1663,27 +1577,6 @@ describe('PullOverview', () => {
     expect(html).not.toContain('aria-modal="true"');
   });
 
-  it('offers full screen and close instead of zoom in a PR preview header', () => {
-    const html = renderToStaticMarkup(<PullDetailHeader
-      pr={pullRequest()}
-      detail={detail()}
-      tab="overview"
-      onTab={() => {}}
-      onRefresh={async () => {}}
-      onReviewSubmitted={() => {}}
-      refreshing={false}
-      pendingComments={[]}
-      zoom={{ full: false, toggle: () => {}, close: () => {} }}
-      onPendingCommentsChange={() => {}} />);
-
-    expect(html).toContain('aria-label="Close pull request details"');
-    expect(html).toContain('aria-label="Enter full screen" aria-pressed="false"');
-    expect(html).not.toContain('aria-label="Zoom pull request details"');
-    expect(html).toContain('aria-label="Refresh pull request"');
-    expect(html).toContain('WorkBench');
-    expect(html).not.toContain('Files changed');
-  });
-
   it('moves focus into review and merge dialogs when they open', () => {
     const review = renderToStaticMarkup(<ReviewDialog
       pr={pullRequest()} detail={detail()} onClose={() => {}} onReviewSubmitted={() => {}} />);
@@ -1701,17 +1594,7 @@ describe('PullOverview', () => {
     ['merged', false, 'merged'],
   ] as const)('uses the %s pull request icon state', (state, draft, iconState) => {
     const value = { ...detail(), state, draft };
-    const html = renderToStaticMarkup(<PullDetailHeader
-      pr={pullRequest()}
-      detail={value}
-      tab="overview"
-      onTab={() => {}}
-      onRefresh={async () => {}}
-      onReviewSubmitted={() => {}}
-      refreshing={false}
-      pendingComments={[]}
-      onZoom={() => {}}
-      onPendingCommentsChange={() => {}} />);
+    const html = headerMarkup({ detail: value });
 
     expect(html).toContain(`pull-detail__pr-tab is-${iconState} is-active`);
   });
@@ -1845,3 +1728,159 @@ function detail(): PullRequestDetailDto {
     viewerCanWrite: false,
   };
 }
+
+function headerMarkup(props: Partial<ComponentProps<typeof PullDetailHeader>> = {}): string {
+  return renderToStaticMarkup(<PullDetailHeader pr={pullRequest()} detail={detail()} tab="overview" onTab={() => {}}
+    onRefresh={async () => {}} onReviewSubmitted={() => {}} refreshing={false} pendingComments={[]}
+    onZoom={() => {}} onPendingCommentsChange={() => {}} {...props} />);
+}
+
+describe('the pane tab row', () => {
+  const pr: PullRequestDto = { ...pullRequest(), repo: 'trinodb/trino', number: 30304, origin: 'REVIEW_REQUESTED' };
+  const headerDetail = { ...detail(), repo: pr.repo, number: pr.number, viewerCanWrite: true };
+  function header(
+    tab: 'overview' | 'files' | 'changes' | 'review' | 'code' | null,
+    review: AgentReviewDto | null,
+    options: Partial<Pick<ComponentProps<typeof PullDetailHeader>, 'agentTab' | 'onZoom' | 'zoom' | 'pr' | 'detail' | 'onNavigate' | 'agent' | 'pendingComments'>> = {},
+  ): string {
+    return headerMarkup({ pr, detail: headerDetail, tab, review, ...options });
+  }
+  it('separates GitHub views from WorkBench views', () => {
+    const html = header('overview', null);
+    expect(html).toContain('PR #30304');
+    expect(html).toContain('class="pull-detail__review-action"');
+    expect(html).toContain('>Submit review</button>');
+    expect(html).toContain('class="pull-detail__merge-action is-conflicts"');
+    expect(html).toContain('class="pull-detail__pr-tab is-open is-active"');
+    expect(html).toContain('aria-pressed="false"');
+    expect(html).toContain('aria-label="Zoom pull request details"');
+    expect(html).not.toContain('Change source');
+    expect(html).not.toContain('requested your review');
+    expect(html).not.toContain('Open on GitHub');
+    expect(html).toContain('WorkBench');
+    expect(html).not.toContain('Files changed');
+    expect(html).not.toContain('Summary');
+    const workbench = header('review', null);
+    expect(workbench).toContain('Summary');
+    expect(workbench).toContain('Changes');
+    expect(workbench).toContain('Code &amp; Tests');
+    expect(workbench).not.toContain('Files changed');
+  });
+
+  it('marks the top-level destination and its selected view', () => {
+    const active = (html: string) => html.split('<button').filter(part => part.includes('aria-pressed="true"'));
+    expect(active(header('review', null))).toHaveLength(2);
+    expect(active(header('review', null))[0]).toContain('WorkBench');
+    expect(active(header('review', null))[1]).toContain('Summary');
+    expect(active(header('changes', null))[1]).toContain('Changes');
+    expect(active(header('overview', null))[0]).toContain('PR #30304');
+    expect(active(header('overview', null))).toHaveLength(1);
+    expect(active(header('files', null))[0]).toContain('WorkBench');
+    expect(active(header('files', null))[1]).toContain('Changes');
+    expect(header('files', null)).not.toContain('Changes source');
+  });
+
+  it('keeps both agents of a pull request in the tab row and marks the one whose screen it is', () => {
+    const fromTask = reviewFixture({ sourceTaskId: 'task-1' });
+    // Each agent the row names, with a star on the current one.
+    const agents = (review: AgentReviewDto | null, options: Parameters<typeof header>[2] = { onNavigate: () => {} }) =>
+      header('review', review, options).split('<button').flatMap((button) => {
+        const name = button.slice(button.indexOf('>') + 1, button.indexOf('</button>')).replace(/<[^>]*>/g, '').trim();
+        return name === 'Developer' || name === 'Reviewer' ? [`${name}${button.slice(0, button.indexOf('>')).includes('aria-current="true"') ? '*' : ''}`] : [];
+      });
+    expect(agents(fromTask)).toEqual(['Developer', 'Reviewer']);
+    expect(agents(fromTask, { onNavigate: () => {}, agent: 'developer' })).toEqual(['Developer*', 'Reviewer']);
+    expect(agents(fromTask, { onNavigate: () => {}, agent: 'reviewer' })).toEqual(['Developer', 'Reviewer*']);
+    expect(agents(reviewFixture(), { onNavigate: () => {}, agent: 'reviewer' })).toEqual(['Reviewer*']);
+    expect(agents(reviewFixture({ number: null }), { onNavigate: () => {}, agent: 'reviewer', pr: null, detail: null })).toEqual(['Reviewer*']);
+    expect(agents(null, { onNavigate: () => {}, agent: 'developer' })).toEqual([]);
+    expect(agents(reviewFixture())).toEqual(['Reviewer']);
+    expect(agents(fromTask, {})).toEqual([]);
+  });
+
+  it('keeps task utilities at the top level beside the linked PR actions', () => {
+    const html = header(null, null, {
+      agentTab: <button type="button" aria-pressed="true">Subagents 2</button>,
+    });
+    expect(html.match(/aria-label="Task destinations">([^]*?)<\/nav>/)?.[1]).toContain('Subagents 2');
+    // A utility is a destination of its own: PR and WorkBench step back and WorkBench's views go.
+    expect(html.match(/aria-pressed="true"/g)).toHaveLength(1);
+    expect(html).not.toContain('Summary');
+    expect(html).toContain('aria-label="Zoom pull request details"');
+    expect(html).toContain('aria-label="Refresh pull request"');
+    expect(html).toContain('Submit review');
+    expect(html).toContain('pull-detail__merge-action');
+  });
+
+  it.each(['overview', 'files', 'changes', 'review', 'code', null] as const)('keeps the shared PR actions on %s', tab => {
+    const html = header(tab, null, {
+      zoom: { full: false, toggle: () => {}, close: () => {} },
+    });
+    expect(html).toContain('aria-label="Enter full screen" aria-pressed="false"');
+    expect(html).toContain('aria-label="Close pull request details"');
+    expect(html).not.toContain('aria-label="Zoom pull request details"');
+    expect(html).toContain('WorkBench');
+    expect(html).not.toContain('Files changed');
+    expect(html).toContain('aria-label="Refresh pull request"');
+    expect(html).toContain('aria-label="Submit review"');
+    expect(html).toContain('class="pull-detail__merge-action');
+  });
+
+  it('retains only pane controls before there is a PR', () => {
+    const html = header('changes', null, {
+      pr: null, detail: null, zoom: { full: true, toggle: () => {}, close: () => {} },
+    });
+    expect(html).toContain('aria-label="Exit full screen"');
+    expect(html).toContain('aria-label="Close pull request details"');
+    expect(html).not.toContain('aria-label="Refresh pull request"');
+    expect(html).not.toContain('Submit review');
+    expect(html).not.toContain('pull-detail__merge-action');
+  });
+
+  it.each(['closed', 'merged'])('keeps the existing %s PR action guards inside WorkBench', state => {
+    const html = header('review', null, { pr: { ...pr, state }, detail: { ...headerDetail, state } });
+    expect(html).toContain('aria-label="Refresh pull request"');
+    expect(html).not.toContain('Submit review');
+    expect(html).not.toContain('pull-detail__merge-action');
+  });
+
+  it('keeps WorkBench available when there are no task utilities', () => {
+    const html = header('overview', null, { agentTab: null, onZoom: undefined });
+    expect(html).toContain('PR #30304');
+    expect(html).not.toContain('Files changed');
+    expect(html).toContain('WorkBench');
+    expect(html).not.toContain('Zoom pull request details');
+    expect(html).toContain('aria-label="Refresh pull request"');
+  });
+
+  it('appends the review status to the tab, with a spinner only while it runs', () => {
+    expect(header('overview', reviewFixture())).toContain('pull-detail__review-chip is-ready');
+    expect(header('overview', reviewFixture())).toContain('3 findings');
+    const running = header('overview', runningReviewFixture());
+    expect(running).toContain('pull-detail__review-chip is-running');
+    expect(running).toContain('agr-spinner');
+    // No review, no chip.
+    expect(header('overview', null)).not.toContain('pull-detail__review-chip');
+  });
+
+  it('counts promoted findings in Submit review alongside manual comments', () => {
+    const promoted = reviewFixture({
+      draft: {
+        repo: 'trinodb/trino', number: 30304, body: '', event: 'COMMENT', version: 1,
+        updatedAt: '2026-09-06T16:30:00Z',
+        items: [{
+          id: 'item-1', source: 'AGENT_FINDING', findingId: 'finding-1', findingRevision: 1, commitId: reviewFixture().findings[0].validatedHeadSha,
+          path: 'a.java', side: 'RIGHT', line: 131, startLine: 118, body: 'text',
+          included: true, published: false, publication: null,
+        }],
+      },
+    });
+    const pendingComment: InlineReviewCommentDto = { path: 'a.java', body: 'Please simplify this', line: 18,
+      side: 'RIGHT', startLine: null, startSide: null, commitId: 'head-sha' };
+    for (const html of [header('overview', promoted), header('files', null, { pendingComments: [pendingComment] })]) {
+      expect(html).toContain('aria-label="Submit review, 1 pending review comment"');
+      expect(html).toContain('class="pull-detail__review-count" aria-hidden="true">1</span>');
+    }
+    expect(header('overview', reviewFixture())).not.toContain('pending review comment');
+  });
+});

@@ -231,7 +231,6 @@ describe('agent home and overview', () => {
   });
 });
 
-
 describe('new task image composer', () => {
   const models = [{ ...MODELS[0], inputModalities: ['text', 'image'] }];
   const providers = [{ ...PROVIDERS[0], models, capabilities: { ...NO_AGENT_CAPABILITIES, attachmentMediaTypes: ['image/png'] } }];
@@ -261,13 +260,6 @@ describe('new task image composer', () => {
     expect(busy).toMatch(/aria-label="Remove image failure.png"[^>]*disabled/);
     expect(busy).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
     expect(busy).toMatch(/<textarea[^>]*aria-label="Describe a task"[^>]*disabled/);
-  });
-
-  it('keeps pasted text editable while its image loads and prevents sending before attachment finishes', () => {
-    const markup = renderToStaticMarkup(<TaskComposer {...props} busy attaching />);
-    expect(markup).not.toMatch(/<textarea[^>]*aria-label="Describe a task"[^>]*disabled/);
-    expect(markup).toMatch(/aria-label="Attach an image"[^>]*disabled/);
-    expect(markup).toMatch(/aria-label="Send — creates the task"[^>]*disabled/);
   });
 
   it('selects a saved DeepSeek key and model with automation controls', () => {

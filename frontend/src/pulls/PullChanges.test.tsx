@@ -15,6 +15,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, UserProfileDto } from '../types';
 import { parseUnifiedDiff } from '../diffParse';
+import type { AgentReviewDto } from './agent-review/contracts';
 import { reviewFixture } from './agent-review/fixtures/review';
 import {
   DiffViewer,
@@ -551,5 +552,106 @@ describe('suggestions', () => {
     expect(headLines(hunks, [], 95, 97)).toEqual(['context', 'aVeryLongReplacementValueThatMustWrapInsideTheVisibleDiffPane', 'trailing']);
     expect(headLines(hunks, newLines, 96, 98)).toEqual(['aVeryLongReplacementValueThatMustWrapInsideTheVisibleDiffPane', 'trailing', 'file line 98']);
     expect(headLines(hunks, [], 97, 98)).toBeNull();
+  });
+});
+
+describe('the same finding in Changes', () => {
+  const PATCH = [
+    '@@ -114,4 +114,18 @@ class IcebergSortField',
+    '     }',
+    ' ',
+    '     // sort fields are stored by field id',
+    ' ',
+    '+    private static int resolveNestedFieldId(Types.StructType struct, List<String> path)',
+    '+    {',
+    '+        Types.NestedField head = struct.field(path.get(0));',
+    '+        if (path.size() == 1) {',
+    '+            return head.fieldId();',
+    '+        }',
+    '+        // fall back to any descendant whose name matches the leaf',
+    '+        for (Types.NestedField field : struct.fields()) {',
+    '+            Optional<Integer> match = findByLeafName(field, path.get(path.size() - 1));',
+    '+            if (match.isPresent()) {',
+    '+                return match.get();',
+    '+            }',
+    '+        }',
+    '+        throw new TrinoException(INVALID_TABLE_PROPERTY, "Unknown sort field");',
+    '+    }',
+  ].join('\n');
+
+  const FILE: DiffFileDto = {
+    filename: 'plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java',
+    status: 'modified',
+    additions: 41,
+    deletions: 6,
+    patch: PATCH,
+  };
+
+  function changes(review: AgentReviewDto | null, navigation: { path: string; side: 'LEFT' | 'RIGHT'; startLine: number; endLine: number } | null = null): string {
+    return renderToStaticMarkup(
+      <DiffViewer
+        files={[FILE]}
+        agentReview={review === null ? undefined : {
+          review,
+          viewer,
+          headSha: review.runs[0]?.headSha,
+          navigation: navigation === null ? null : { ...navigation, findingId: 'finding-1', token: 1 },
+          onReviewChange: () => {},
+          onOpenInReview: () => {},
+        }} />);
+  }
+  const review = reviewFixture();
+
+  it('mounts the finding card at the end line of its range', () => {
+    const html = changes(review);
+    expect(html).toContain('is-review-finding');
+    expect(html).toContain('data-finding-id="finding-1"');
+    // One card, at one line: the range ends at R131.
+    expect(html.match(/data-finding-id="finding-1"/g) ?? []).toHaveLength(1);
+    expect(html).toContain('data-diff-row="plugin/trino-iceberg/src/main/java/io/trino/plugin/iceberg/IcebergSortField.java:RIGHT:131"');
+  });
+
+  it('offers the same actions and the way back to Summary', () => {
+    const html = changes(review);
+    expect(html).toContain('Ask reviewer');
+    expect(html).toContain('>Resolve</button>');
+    expect(html).toContain('Add to my review');
+    expect(html).toContain('Post comment now');
+    expect(html).toContain('Open in Summary');
+    expect(html).not.toContain('View in Changes');
+  });
+
+  it('shows the same private discussion, not a copy', () => {
+    const talking = reviewFixture({
+      messages: [{
+        id: 'm1', findingId: 'finding-1', author: 'USER', body: 'Is the leaf name really ambiguous?',
+        targetRevision: 1, turnId: 'turn-2', queuedInputId: null, createdAt: '2026-09-06T16:20:00Z',
+      }],
+    });
+    expect(changes(talking)).toContain('Is the leaf name really ambiguous?');
+  });
+
+  it('leaves an outdated finding out of the diff until reassessment, even when its lines map', () => {
+    const outdated = reviewFixture({ findings: [{ ...review.findings[0], outdated: true }] });
+    expect(changes(outdated)).not.toContain('data-finding-id');
+  });
+
+  it('leaves a withdrawn finding out of the diff', () => {
+    const withdrawn = reviewFixture({ findings: [{ ...review.findings[0], state: 'WITHDRAWN' }] });
+    expect(changes(withdrawn)).not.toContain('data-finding-id');
+  });
+
+  it('highlights exactly the navigated range', () => {
+    const html = changes(review, { path: FILE.filename, side: 'RIGHT', startLine: 118, endLine: 131 });
+    const highlighted = html.match(/is-review-target/g) ?? [];
+    expect(highlighted).toHaveLength(14);
+    expect(changes(review, null)).not.toContain('is-review-target');
+  });
+
+  it('draws nothing of its own when the pull request has no review', () => {
+    const html = changes(null);
+    expect(html).not.toContain('is-review-finding');
+    expect(html).not.toContain('is-review-target');
+    expect(html).toContain('resolveNestedFieldId');
   });
 });

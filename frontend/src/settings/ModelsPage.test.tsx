@@ -13,7 +13,8 @@
  */
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { ModelSettingsDto } from '../types';
+import type { ModelSettingsDto, WorkspaceDto } from '../types';
+import { WorkspaceAgentsPage } from './WorkspacePages';
 import ModelsPage, { API_KEY_REASON, effortAfterModelChange, modelOptions } from './ModelsPage';
 import { NO_AGENT_CAPABILITIES } from '../agents/capabilities';
 
@@ -95,7 +96,7 @@ describe('models page', () => {
     />,
   );
 
-  it('offers sign-in as a button per unauthenticated lane, and never as row metadata', () => {
+  it.each(['global', 'workspace'])('offers sign-in only for an unauthenticated lane on the %s page', surface => {
     const command = 'CLAUDE_CONFIG_DIR="/homes/ByteQuay/claude-home" claude auth login';
     const blocked: ModelSettingsDto = {
       ...SETTINGS,
@@ -104,22 +105,20 @@ describe('models page', () => {
         { ...SETTINGS.providers[0], id: 'claude', label: 'Claude', readiness: 'AUTHENTICATION_REQUIRED', version: '2.1.259', signInCommand: command },
       ],
     };
-    const onSignIn = vi.fn();
-    const blockedMarkup = renderToStaticMarkup(
-      <ModelsPage settings={blocked} checkedAt="09:15" checking={false} error={null}
-        onCheck={vi.fn()} onSignIn={onSignIn} onChoose={vi.fn()} onInherit={vi.fn()} onAddKey={vi.fn()} onRemoveKey={vi.fn()} />);
-
-    // A shell command is not row metadata: the button carries it instead of the subtitle.
-    expect(blockedMarkup).toContain('Sign in');
+    const render = (onSignIn?: (providerId: string) => void) => {
+      const props = { checkedAt: '09:15', checking: false, error: null as string | null, onCheck: vi.fn(), onSignIn,
+        onChoose: vi.fn(), onInherit: vi.fn(), onAddKey: vi.fn(), onRemoveKey: vi.fn() };
+      return renderToStaticMarkup(surface === 'global' ? <ModelsPage {...props} settings={blocked} /> : <WorkspaceAgentsPage {...props}
+        workspace={{ id: 'ws-1', name: 'trino', selectedOwner: 'alice', selectedRepo: 'trino', localRepositoryPath: '/repos/trino' } as WorkspaceDto}
+        settings={{ remotes: [], commitsTarget: { remote: 'origin', branch: 'main', overridden: false }, agents: blocked.agents }}
+        models={blocked} onUseGlobal={vi.fn()} />);
+    };
+    const blockedMarkup = render(vi.fn());
+    expect(blockedMarkup).toContain('Sign in required');
+    expect(blockedMarkup.match(/>Sign in</g)).toHaveLength(1);
     expect(blockedMarkup).not.toContain('CLAUDE_CONFIG_DIR');
     expect(blockedMarkup).not.toContain('auth login');
-    // The ready lane offers only Check, so one blocked lane cannot invite a sign-in for another.
-    // The label text is matched, not the 'Sign in required' status beside it.
-    expect(blockedMarkup.match(/>Sign in</g)).toHaveLength(1);
-    // Without a way to open a terminal there is no button at all.
-    expect(renderToStaticMarkup(
-      <ModelsPage settings={blocked} checkedAt="09:15" checking={false} error={null}
-        onCheck={vi.fn()} onChoose={vi.fn()} onInherit={vi.fn()} onAddKey={vi.fn()} onRemoveKey={vi.fn()} />)).not.toContain('>Sign in<');
+    expect(render()).not.toContain('>Sign in<');
   });
 
   it('names both agent types and no longer offers a main model', () => {

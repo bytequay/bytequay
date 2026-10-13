@@ -37,7 +37,7 @@ class TestCodexDevelopmentResult
     private final CodexProtocolCodec codec = new CodexProtocolCodec(json);
     private final CodexEventMapper mapper = new CodexEventMapper(Path.of("/tmp"),
             SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
-    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("app-turn", DevelopmentResultBridge.INSTRUCTION, true);
+    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("app-turn", DevelopmentResultBridge.INSTRUCTION, true, Optional.empty());
 
     @Test
     void acceptsSuccessfulLiveRootCompletionAndKeepsReplayAsOrdinaryActivity()
@@ -95,7 +95,7 @@ class TestCodexDevelopmentResult
                 notification("item/started", "native-turn", "inProgress", "null", bridge),
                 notification("item/completed", "native-turn", "failed", "null", bridge),
                 notification("item/completed", "native-turn", "completed", "{\"message\":\"failed\"}", bridge),
-                notification("item/completed", "native-turn", "completed", "null", new DevelopmentResultBridge("old-app-turn", bridge.instruction(), true)))) {
+                notification("item/completed", "native-turn", "completed", "null", new DevelopmentResultBridge("old-app-turn", bridge.instruction(), true, Optional.empty())))) {
             assertThat(mapper.developmentResult(notification, true, "native-turn", Optional.of(bridge))).isEmpty();
         }
     }

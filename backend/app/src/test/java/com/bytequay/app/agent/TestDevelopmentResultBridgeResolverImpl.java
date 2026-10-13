@@ -30,7 +30,9 @@ import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.support.DefaultListableBeanFactory;
 
 import java.nio.file.Path;
 import java.time.Duration;
@@ -50,7 +52,16 @@ class TestDevelopmentResultBridgeResolverImpl
     private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final AgentTurnStore turns = mock(AgentTurnStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final DevelopmentResultBridgeResolverImpl resolver = new DevelopmentResultBridgeResolverImpl(tasks, turns, reviews);
+    private final DevelopmentBranchService branches = mock(DevelopmentBranchService.class);
+    private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
+    private final DevelopmentResultBridgeResolverImpl resolver = new DevelopmentResultBridgeResolverImpl(tasks, turns, reviews,
+            beans.getBeanProvider(DevelopmentBranchService.class));
+
+    @BeforeEach
+    void setUp()
+    {
+        beans.registerSingleton("branches", branches);
+    }
 
     @Test
     void bindsTheAcceptedTurnEvenWhenTaskDefaultsHaveChanged()
@@ -60,10 +71,29 @@ class TestDevelopmentResultBridgeResolverImpl
 
         DevelopmentResultBridge binding = resolver.resolve(task.id().toString()).orElseThrow();
         assertThat(binding.turnId()).isEqualTo(turn.id().toString());
-        assertThat(binding.instruction()).contains("readyForDelivery=false", "root agent");
+        assertThat(binding.instruction()).contains("readyForDelivery=false", "root agent", "rename_task_branch");
+        when(branches.rename(task.id(), turn.id(), "convert-parquet-time-millis-to-micro")).thenReturn("user/bytequay/convert-parquet-time-millis-to-micro");
+        assertThat(binding.branchRenamer().orElseThrow().apply("convert-parquet-time-millis-to-micro")).isEqualTo("user/bytequay/convert-parquet-time-millis-to-micro");
 
         AgentTurn next = accept(task, Optional.of(AUTOMATION));
-        assertThat(resolver.resolve(task.id().toString()).orElseThrow().turnId()).isEqualTo(next.id().toString());
+        DevelopmentResultBridge nextBinding = resolver.resolve(task.id().toString()).orElseThrow();
+        assertThat(nextBinding.turnId()).isEqualTo(next.id().toString());
+        assertThat(nextBinding.branchRenamer()).isEmpty();
+        assertThat(nextBinding.instruction()).doesNotContain("rename_task_branch").contains("Keep the task branch name fixed after the first turn");
+    }
+
+    @Test
+    void laterTurnsCannotAcquireBranchNamingWhenTheFirstTurnDidNotRename()
+    {
+        AgentTask task = task(true, Optional.of(AUTOMATION));
+        accept(task, Optional.of(AUTOMATION));
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isPresent();
+
+        accept(task, Optional.of(AUTOMATION));
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isEmpty();
+
+        accept(task, Optional.of(AUTOMATION));
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isEmpty();
     }
 
     @Test
@@ -86,6 +116,7 @@ class TestDevelopmentResultBridgeResolverImpl
                 .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.REFINE_SUMMARY, source.id()));
         when(turns.findActive(task.id())).thenReturn(Optional.of(refinement));
         assertThat(resolver.resolve(task.id().toString()).orElseThrow().learningSummaryAllowed()).isTrue();
+        assertThat(resolver.resolve(task.id().toString()).orElseThrow().branchRenamer()).isEmpty();
         accept(task, Optional.of(AUTOMATION));
         assertThat(resolver.resolve(task.id().toString()).orElseThrow().learningSummaryAllowed()).isFalse();
     }
@@ -135,6 +166,8 @@ class TestDevelopmentResultBridgeResolverImpl
                 TurnId.random(), task.id(), "request", new AgentTurnSettings(
                         Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofHours(1),
                         ImmutableList.of(), Optional.empty(), automation), task.createdAt());
+        ImmutableList<AgentTurn> history = ImmutableList.<AgentTurn>builder().addAll(turns.list(task.id())).add(turn).build();
+        when(turns.list(task.id())).thenReturn(history);
         when(turns.findActive(task.id())).thenReturn(Optional.of(turn));
         return turn;
     }

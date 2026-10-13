@@ -13,13 +13,34 @@
  */
 package com.bytequay.agent.spi;
 
+import java.util.Optional;
+import java.util.function.Function;
+
 import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
+import static java.util.Objects.requireNonNull;
 
 /** Binds the fixed reporting and publication capability to an accepted ByteQuay turn. */
-public record DevelopmentResultBridge(String turnId, String instruction, boolean learningSummaryAllowed)
+public record DevelopmentResultBridge(String turnId, String instruction, boolean learningSummaryAllowed, Optional<Function<String, String>> branchRenamer)
 {
     public static final String TOOL_NAME = "report_development_result";
     public static final String PUBLISH_TOOL_NAME = "create_draft_pull_request";
+    public static final String RENAME_BRANCH_TOOL_NAME = "rename_task_branch";
+    public static final String BRANCH_INSTRUCTION = """
+
+            The task's initial branch name is provisional because it was chosen before investigation.
+            Once the actual change is clear, call rename_task_branch before your first turn's final
+            response and BEFORE any first git push or PR creation, even when publishing in this turn.
+            Branch naming is available only during this first turn. If no concrete change is known by
+            its end, keep the initial name. Respect an explicit branch name from the user.
+            Supply only a concise English action-and-component suffix describing the actual diff, using
+            lowercase ASCII words separated by hyphens, at most 64 characters. Preserve meaningful terms;
+            for example convert-parquet-time-millis-to-micro, not find-and-fix-issue. Do not summarize
+            the user's generic request or include a username, slash, random ID, or hash. ByteQuay preserves
+            the username/bytequay/ prefix and updates task ownership. Use this tool instead of git branch -m.
+            The tool keeps already published or imported PR branches unchanged. On a name collision,
+            choose another accurate suffix; never overwrite a branch. Use the returned full branch name
+            for subsequent Git and GitHub commands. Renaming locally does not authorize publication.
+            """;
     public static final String INSTRUCTION = """
             Development result reporting is managed by ByteQuay for this turn. Before your final response,
             the root agent must call report_development_result with readyForDelivery=true only when the
@@ -42,11 +63,14 @@ public record DevelopmentResultBridge(String turnId, String instruction, boolean
             The tool refuses calls outside ByteQuay's own publication request. During ordinary development
             turns, explicitly requested git or gh publishing follows the shared command authorization
             policy and does not require this tool. Its refusal does not block an authorized CLI operation.
+            Keep the task branch name fixed after the first turn, even when it is still unpublished.
+            Do not rename it in later turns through Git commands or other tools.
             """;
 
     public DevelopmentResultBridge
     {
         checkNotBlank(turnId, "turnId");
         checkNotBlank(instruction, "instruction");
+        requireNonNull(branchRenamer, "branchRenamer is null");
     }
 }

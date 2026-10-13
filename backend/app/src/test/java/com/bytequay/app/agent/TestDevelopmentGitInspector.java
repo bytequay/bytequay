@@ -138,6 +138,90 @@ class TestDevelopmentGitInspector
     }
 
     @Test
+    void renamesUnpublishedWorkWithoutChangingFilesAndKeepsDeliveryAndCleanupWorking()
+            throws IOException
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        commit("Convert parquet time millis");
+        String head = run(worktree.canonicalWorktree(), "rev-parse", "HEAD");
+        Files.writeString(worktree.canonicalWorktree().resolve("README.md"), "uncommitted work\n");
+        String branch = "user/bytequay/convert-parquet-time-millis-to-micro";
+        List<TaskWorktree> recorded = new ArrayList<>();
+
+        TaskWorktree renamed = inspector.renameBranch(baseline, branch, recorded::add);
+
+        assertThat(recorded).containsExactly(renamed);
+        assertThat(renamed.generatedBranch()).isEqualTo(branch);
+        assertThat(worktreeService.inspect(renamed).head()).isEqualTo(head);
+        assertThat(worktreeService.inspect(renamed).uncommitted()).isTrue();
+        assertThat(Files.readString(renamed.canonicalWorktree().resolve("README.md"))).isEqualTo("uncommitted work\n");
+        DevelopmentBaseline updated = inspector.capture(task.withBranch(branch, NOW));
+        assertThat(updated.route().headBranch()).isEqualTo(branch);
+        assertThat(updated.worktree()).isEqualTo(renamed);
+        inspector.pushDevelopmentHead(renamed, updated.route(), head, Optional.empty());
+        assertThat(run(bareRemote, "rev-parse", "refs/heads/" + branch)).isEqualTo(head);
+        assertThat(git.run(repository, "show-ref", "--verify", "--quiet", "refs/heads/" + worktree.generatedBranch()).exitCode()).isEqualTo(1);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"remote", "pull-request", "tracking"})
+    void keepsPreviouslyPublishedBranches(String kind)
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        if (kind.equals("remote")) {
+            inspector.pushDevelopmentHead(worktree, baseline.route(), baseSha, Optional.empty());
+        }
+        if (kind.equals("pull-request")) {
+            when(pullRequests.fetchPullRequestIdentities("test-token", REPOSITORY, REPOSITORY, worktree.generatedBranch()))
+                    .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
+                            "https://github.com/alice/project/pull/12", REPOSITORY, worktree.generatedBranch(), baseSha,
+                            REPOSITORY, "main", baseSha, GitHubPullRequestIdentity.State.CLOSED, true, "alice")));
+        }
+        if (kind.equals("tracking")) {
+            run(repository, "config", "branch." + worktree.generatedBranch() + ".remote", "origin");
+            run(repository, "config", "branch." + worktree.generatedBranch() + ".merge", "refs/heads/" + worktree.generatedBranch());
+        }
+        List<TaskWorktree> recorded = new ArrayList<>();
+        assertThat(inspector.renameBranch(baseline, "user/bytequay/convert-parquet-time-millis-to-micro", recorded::add)).isEqualTo(worktree);
+        assertThat(recorded).isEmpty();
+        assertThat(worktreeService.currentBranch(worktree)).contains(worktree.generatedBranch());
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"local", "remote", "pull-request", "unverifiable", "namespace", "persistence"})
+    void renameFailuresPreserveTheOriginalBranch(String kind)
+    {
+        DevelopmentBaseline baseline = inspector.capture(task);
+        String branch = (kind.equals("namespace") ? "other" : "user") + "/bytequay/convert-parquet-time-millis-to-micro";
+        if (kind.equals("local")) {
+            run(repository, "branch", branch, baseSha);
+        }
+        if (kind.equals("remote")) {
+            run(repository, "push", bareRemote.toString(), baseSha + ":refs/heads/" + branch);
+        }
+        if (kind.equals("pull-request")) {
+            when(pullRequests.fetchPullRequestIdentities("test-token", REPOSITORY, REPOSITORY, branch))
+                    .thenReturn(ImmutableList.of(new GitHubPullRequestIdentity(PullRequestRef.of("alice", "project", 12),
+                            "https://github.com/alice/project/pull/12", REPOSITORY, branch, baseSha,
+                            REPOSITORY, "main", baseSha, GitHubPullRequestIdentity.State.CLOSED, true, "alice")));
+        }
+        if (kind.equals("unverifiable")) {
+            git.remoteResult = Optional.of(new Result(128, "offline", false));
+        }
+        assertThatThrownBy(() -> inspector.renameBranch(baseline, branch, renamed -> {
+            if (kind.equals("persistence")) {
+                throw new IllegalStateException("Cannot save task");
+            }
+            throw new AssertionError("Must not record an unsafe rename");
+        })).isInstanceOf(RuntimeException.class);
+        assertThat(worktreeService.inspect(worktree).head()).isEqualTo(baseSha);
+        assertThat(worktreeService.currentBranch(worktree)).contains(worktree.generatedBranch());
+        if (kind.equals("local")) {
+            assertThat(run(repository, "rev-parse", branch)).isEqualTo(baseSha);
+        }
+    }
+
+    @Test
     void countsUniqueChangedFilesAndIgnoresBuildOutputs()
             throws IOException
     {

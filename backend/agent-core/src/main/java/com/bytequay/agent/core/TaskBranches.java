@@ -22,7 +22,7 @@ import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-/** Git-safe task branch names, frozen before the worktree is created. */
+/** Git-safe initial task branch names. */
 public final class TaskBranches
 {
     private static final int MAX_SLUG_WORDS = 4;

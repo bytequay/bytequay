@@ -34,7 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestClaudeDevelopmentResult
 {
     private final ObjectMapper json = new ObjectMapper().registerModule(new Jdk8Module()).disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
-    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, true);
+    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, true, Optional.empty());
     private final DevelopmentResultReport report = new DevelopmentResultReport(true, Optional.of("done known-secret"),
                         Optional.of(new DevelopmentLearningSummary("Purpose known-secret", ImmutableList.of(), Optional.empty(), "", ImmutableList.of())));
 
@@ -94,7 +94,7 @@ class TestClaudeDevelopmentResult
         assertThat(finish(mapper(), bridge, false, false)).noneMatch(ProviderAgentEvent.DevelopmentResult.class::isInstance);
         ClaudeEventMapper stale = mapper();
         start(stale, false);
-        assertThat(finish(stale, new DevelopmentResultBridge("previous-turn", bridge.instruction(), true), false, false))
+        assertThat(finish(stale, new DevelopmentResultBridge("previous-turn", bridge.instruction(), true, Optional.empty()), false, false))
                 .noneMatch(ProviderAgentEvent.DevelopmentResult.class::isInstance);
     }
 

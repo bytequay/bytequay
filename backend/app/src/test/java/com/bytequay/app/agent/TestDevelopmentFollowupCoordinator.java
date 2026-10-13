@@ -958,6 +958,32 @@ class TestDevelopmentFollowupCoordinator
     }
 
     @Test
+    void publishesTheRenamedBranchWithoutLosingTheStartingRevision()
+    {
+        prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
+        TaskWorktree renamed = task.withBranch("owner/bytequay/convert-parquet-time-millis-to-micro", NOW).taskWorktree().orElseThrow();
+        coordinator.branchRenamed(taskId, source.id(), worktree, renamed);
+        route = route.withHeadBranch(renamed.generatedBranch());
+        when(git.inspectLocal(renamed, route)).thenReturn(local(HEAD, false));
+        AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.empty(), Optional.empty());
+        when(git.inspectPublication(renamed, route)).thenAnswer(ignored -> remote.get());
+        doAnswer(ignored -> {
+            remote.set(publication(Optional.of(HEAD), Optional.empty()));
+            return null;
+        }).when(git).pushDevelopmentHead(renamed, route, HEAD, Optional.empty());
+        generated(CREATE_DRAFT_PR, true, () -> assertThat(coordinator.publishDraftPullRequest(taskId.toString(), "Convert Parquet time", "Body"))
+                .contains(HEAD, "created draft pull request"));
+
+        advance();
+
+        verify(git).pushDevelopmentHead(renamed, route, HEAD, Optional.empty());
+        verify(writes).createPullRequest("token", route.baseRepository(), renamed.generatedBranch(), "main", "Convert Parquet time", "Body", true);
+        verify(turns).finishDevelopmentContinuation(taskId, source.id());
+        verify(turns, never()).failDevelopmentContinuation(any(), any(), anyString());
+        verify(git, never()).pushDevelopmentHead(eq(worktree), any(), anyString(), any());
+    }
+
+    @Test
     void publishReusesTheTrackingPullRequestInsteadOfOpeningASecond()
     {
         GitHubPullRequestIdentity existing = pr(BASE, true);

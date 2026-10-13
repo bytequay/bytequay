@@ -38,6 +38,7 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
@@ -123,6 +124,57 @@ public class DevelopmentGitInspector
     public DevelopmentPublicationFacts inspectPublication(TaskWorktree worktree, DevelopmentPublicationRoute route)
     {
         verify(worktree, route);
+        DevelopmentPublicationFacts facts = readPublication(worktree, route);
+        verify(worktree, route);
+        return facts;
+    }
+
+    /** Renames only an unpublished branch; persistence failure restores the original local name. */
+    public TaskWorktree renameBranch(DevelopmentBaseline baseline, String branch, Consumer<TaskWorktree> recordRename)
+    {
+        TaskWorktree worktree = baseline.worktree();
+        DevelopmentPublicationRoute route = baseline.route();
+        TaskWorktree renamed = new TaskWorktree(worktree.taskId(), worktree.workspaceId(), worktree.physicalRepository(),
+                worktree.canonicalWorktree(), branch, worktree.startCommit());
+        checkArgument(branch.substring(0, branch.lastIndexOf('/') + 1).equals(route.headBranch().substring(0, route.headBranch().lastIndexOf('/') + 1)),
+                "Branch rename must preserve the task namespace");
+        if (branch.equals(worktree.generatedBranch())) {
+            return worktree;
+        }
+        WorktreeSnapshot before = verify(worktree, route);
+        checkState(!before.gitOperationInProgress(), "Finish the current Git operation before renaming the branch");
+        DevelopmentPublicationFacts published = inspectPublication(worktree, route);
+        if (published.remoteHeadSha().isPresent() || !published.matchingPullRequests().isEmpty()
+                || !output(worktree, "for-each-ref", "--format=%(upstream)", "refs/heads/" + worktree.generatedBranch()).isBlank()) {
+            return worktree;
+        }
+        checkState(output(worktree, "for-each-ref", "--format=%(refname)",
+                "refs/heads/" + branch, "refs/remotes/origin/" + branch, "refs/remotes/upstream/" + branch).isBlank(), "The proposed branch name is already in use");
+        DevelopmentPublicationRoute renamedRoute = route.withHeadBranch(branch);
+        DevelopmentPublicationFacts target = readPublication(worktree, renamedRoute);
+        checkState(target.remoteHeadSha().isEmpty() && target.matchingPullRequests().isEmpty(), "The proposed branch name is already in use on GitHub");
+        WorktreeSnapshot checked = verify(worktree, route);
+        checkState(checked.head().equals(before.head()) && !checked.gitOperationInProgress(), "Task changed while checking its branch name");
+        output(worktree, "branch", "-m", branch);
+        try {
+            verify(renamed, renamedRoute);
+            recordRename.accept(renamed);
+        }
+        catch (RuntimeException failure) {
+            try {
+                verify(renamed, renamedRoute);
+                output(renamed, "branch", "-m", worktree.generatedBranch());
+            }
+            catch (RuntimeException rollbackFailure) {
+                failure.addSuppressed(rollbackFailure);
+            }
+            throw failure;
+        }
+        return renamed;
+    }
+
+    private DevelopmentPublicationFacts readPublication(TaskWorktree worktree, DevelopmentPublicationRoute route)
+    {
         String ref = "refs/heads/" + route.headBranch();
         Result result = git.run(worktree.canonicalWorktree(), Duration.ofSeconds(30),
                 credentials.gitAuthenticationEnvironment(worktree.workspaceId(), ImmutableList.of(route.pushUrl())),
@@ -141,7 +193,6 @@ public class DevelopmentGitInspector
         }
         var matches = pullRequests.fetchPullRequestIdentities(
                 credentials.resolveGitHubToken(worktree.workspaceId()), route.baseRepository(), route.headRepository(), route.headBranch());
-        verify(worktree, route);
         return new DevelopmentPublicationFacts(remoteHead, matches);
     }
 

@@ -37,6 +37,7 @@ import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.core.ci.CiAutofixRun;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -137,6 +138,17 @@ public class DevelopmentFollowupCoordinator
             fail(completion, "Could not start the development follow-up: " + message(failure));
             accepted.computeIfPresent(completion.task().id(), (id, current) -> current.turnId().equals(completion.turn().id()) ? null : current);
         }
+    }
+
+    /** Keeps the accepted destination and starting revision while adopting a verified unpublished name. */
+    public void branchRenamed(TaskId taskId, TurnId turnId, TaskWorktree previous, TaskWorktree renamed)
+    {
+        accepted.computeIfPresent(taskId, (id, source) -> {
+            checkState(source.turnId().equals(turnId) && source.baseline().worktree().equals(previous), "The accepted development branch changed");
+            DevelopmentBaseline baseline = source.baseline();
+            return new Accepted(turnId, new DevelopmentBaseline(renamed, baseline.route().withHeadBranch(renamed.generatedBranch()), baseline.local()),
+                    source.summaryBaseline(), source.pendingDelivery(), Optional.of(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())), Optional.empty());
+        });
     }
 
     private void advance(DevelopmentTurnCompletion completion, Instant activatedAt)

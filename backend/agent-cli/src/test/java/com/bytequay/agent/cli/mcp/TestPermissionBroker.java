@@ -80,7 +80,8 @@ class TestPermissionBroker
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory",
                 taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty(),
-                taskId -> taskId.equals("development") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)) : Optional.empty(),
+                taskId -> taskId.equals("development")
+                        ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty(),
                 DraftPullRequestPublisher.NONE,
                 taskId -> taskId.equals("development") ? Optional.of(local) : Optional.empty(),
                 taskId -> taskId.equals("development")
@@ -324,7 +325,8 @@ class TestPermissionBroker
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> taskId.equals("task-1") ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)) : Optional.empty(),
+                taskId -> taskId.equals("task-1")
+                        ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty(),
                 DraftPullRequestPublisher.NONE,
                 taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
@@ -419,11 +421,52 @@ class TestPermissionBroker
     }
 
     @Test
+    void branchNamingUsesTheSameTurnBoundToolOnBothProviders()
+            throws Exception
+    {
+        AtomicReference<String> renamed = new AtomicReference<>();
+        AtomicReference<String> activeTurn = new AtomicReference<>("turn-1");
+        PermissionBroker broker = new PermissionBroker(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
+                (taskId, query) -> "memory", BridgeResolver.none(),
+                taskId -> Optional.of(new DevelopmentResultBridge(activeTurn.get(), DevelopmentResultBridge.BRANCH_INSTRUCTION, false,
+                        Optional.of(branch -> {
+                            renamed.set(branch);
+                            return "user/bytequay/" + branch;
+                        }))));
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
+        try (McpRegistration codex = broker.registerTools(
+                "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow();
+                McpRegistration claude = broker.register(
+                        "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                        SessionAccess.FULL, (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty())) {
+            for (String token : ImmutableList.of(codex.token(), claude.token())) {
+                assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
+                        "{\"branch\":\"convert-parquet-time-millis-to-micro\"}").at("/result/content/0/text").asText())
+                        .isEqualTo("user/bytequay/convert-parquet-time-millis-to-micro");
+                assertThat(renamed.get()).isEqualTo("convert-parquet-time-millis-to-micro");
+                for (String invalid : ImmutableList.of("{}", "{\"branch\":\"user/bytequay/fix-bug\"}", "{\"branch\":\"../main\"}",
+                        "{\"branch\":\"fix-bug\",\"taskId\":\"other\"}")) {
+                    assertThat(localReviewCall(broker, token, DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME, invalid).at("/error/code").asInt()).isEqualTo(-32602);
+                }
+            }
+            assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction)
+                    .contains("BEFORE any first git push", "actual diff", "instead of git branch -m"));
+            activeTurn.set("turn-2");
+            renamed.set(null);
+            assertThat(localReviewCall(broker, codex.token(), DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
+                    "{\"branch\":\"fix-another-bug\"}").at("/error/code").asInt()).isEqualTo(-32602);
+            assertThat(renamed.get()).isNull();
+        }
+    }
+
+    @Test
     void developmentReportsAreAvailableWithoutCodeQueriesAndRejectExpiredOrInvalidClaims()
             throws Exception
     {
         AtomicReference<Optional<DevelopmentResultBridge>> active = new AtomicReference<>(Optional.of(
-                new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)));
+                new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())));
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
@@ -460,7 +503,7 @@ class TestPermissionBroker
             }
             assertThat(codex.instruction()).hasValueSatisfying(instruction -> assertThat(instruction)
                     .contains("readyForDelivery=false", "automation settings control delivery", "explicit user restriction").doesNotContain("stopAfter"));
-            active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION, false)));
+            active.set(Optional.of(new DevelopmentResultBridge("turn-2", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())));
             assertThat(developmentCall(broker, codex.token(), "{\"readyForDelivery\":true}").at("/error/code").intValue()).isEqualTo(-32602);
         }
         try (McpRegistration helper = broker.register(
@@ -477,7 +520,7 @@ class TestPermissionBroker
             throws Exception
     {
         for (boolean allowed : ImmutableList.of(false, true)) {
-            DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, allowed);
+            DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, allowed, Optional.empty());
             PermissionBroker broker = new PermissionBroker(
                     () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                     (taskId, query) -> "memory", BridgeResolver.none(), taskId -> Optional.of(bridge));
@@ -524,7 +567,7 @@ class TestPermissionBroker
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)),
+                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())),
                 (taskId, title, body) -> {
                     if (title.equals("Closed window")) {
                         throw new IllegalStateException("ByteQuay is not requesting a draft pull request for this task right now");

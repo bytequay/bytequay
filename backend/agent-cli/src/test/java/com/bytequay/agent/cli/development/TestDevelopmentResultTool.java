@@ -23,13 +23,15 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestDevelopmentResultTool
 {
     private final ObjectMapper json = new ObjectMapper();
-    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false);
+    private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty());
     private final SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
 
     @Test
@@ -52,7 +54,7 @@ class TestDevelopmentResultTool
     void refinementSummaryIsBoundedScopedAndFullyRedacted()
             throws Exception
     {
-        DevelopmentResultBridge refinement = new DevelopmentResultBridge("turn-1", bridge.instruction(), true);
+        DevelopmentResultBridge refinement = new DevelopmentResultBridge("turn-1", bridge.instruction(), true, Optional.empty());
         var input = json.readTree("""
                 {"readyForDelivery":true,"message":"done known-secret","learningSummary":{
                   "purpose":"purpose known-secret","commits":[{"sha":"%s","title":"title known-secret","summary":"commit known-secret"}]}}

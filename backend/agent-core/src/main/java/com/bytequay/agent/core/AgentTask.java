@@ -417,6 +417,19 @@ public record AgentTask(
                 summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
+    /** Records a verified local branch rename without changing checkout ownership. */
+    public AgentTask withBranch(String branch, Instant now)
+    {
+        requireState(TaskState.OPEN);
+        checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
+        TaskWorktree previous = taskWorktree.orElseThrow();
+        TaskWorktree renamed = new TaskWorktree(id, previous.workspaceId(), previous.physicalRepository(), previous.canonicalWorktree(), branch, previous.startCommit());
+        return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
+                worktree, Optional.of(renamed), defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
+                terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
+                cleanupFailure, archivedAt, developmentContinuationUnfinished, localReviewHead);
+    }
+
     /**
      * The same task, written again so its version moves.
      *

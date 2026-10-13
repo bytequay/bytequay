@@ -339,6 +339,14 @@ providers remain disabled.
    and working copy for the task. Shift+Enter adds a line; **+** attaches an image when
    the selected model supports it.
 
+The initial branch name is provisional. Once the actual change is clear, the agent
+names it `<username>/bytequay/<actual-change>` before finishing its first development
+turn or pushing, for example `chenjian2664/bytequay/convert-parquet-time-millis-to-micro`.
+Renaming is available only during the first turn. If that turn ends without a
+concrete change, the initial name stays. Later turns always keep the branch name,
+even when it has not been pushed.
+Published branches and tasks imported from existing pull requests keep their names.
+
 ### Guide the work
 
 - **Steer** sends information into the active turn when supported. **Run next** queues a

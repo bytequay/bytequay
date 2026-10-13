@@ -674,6 +674,7 @@ public final class PermissionBroker
             case MemoryBridge.TOOL_NAME -> memory(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.TOOL_NAME -> developmentResult(request.id(), params.arguments(), context);
             case DevelopmentResultBridge.PUBLISH_TOOL_NAME -> createDraftPullRequest(request.id(), params.arguments(), context);
+            case DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME -> renameTaskBranch(request.id(), params.arguments(), context);
             case CiDescriptionProposal.TOOL_NAME -> proposeCiDescription(request.id(), params.arguments(), context);
             case PullRequestCiBridge.RERUN_TOOL_NAME -> requestCiRerun(request.id(), params.arguments(), context);
             case PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME -> pullRequestCi(request.id(), params.name(), params.arguments(), context);
@@ -980,7 +981,7 @@ public final class PermissionBroker
     private McpHttpResponse developmentResult(JsonNode id, JsonNode arguments, PermissionContext context)
     {
         Optional<DevelopmentResultBridge> bridge = context.development()
-                .filter(value -> developments.resolve(context.taskId()).filter(value::equals).isPresent());
+                .filter(value -> developments.resolve(context.taskId()).filter(current -> current.turnId().equals(value.turnId())).isPresent());
         if (bridge.isEmpty()) {
             return error(id, -32602, "Development reporting is unavailable for this turn");
         }
@@ -1028,6 +1029,33 @@ public final class PermissionBroker
             String detail = Optional.ofNullable(failure.getMessage()).orElseGet(() -> failure.getClass().getSimpleName());
             return response(id, new ToolResult(
                     ImmutableList.of(new TextContent("text", context.redactor().redact("Publication was refused: " + detail))), true));
+        }
+    }
+
+    private McpHttpResponse renameTaskBranch(JsonNode id, JsonNode arguments, PermissionContext context)
+    {
+        Optional<DevelopmentResultBridge> bridge = context.development()
+                .flatMap(bound -> developments.resolve(context.taskId()).filter(current -> current.turnId().equals(bound.turnId())))
+                .filter(current -> current.branchRenamer().isPresent());
+        if (bridge.isEmpty()) {
+            return error(id, -32602, "Branch naming is unavailable for this turn");
+        }
+        String branch;
+        try {
+            checkArgument(arguments != null && arguments.isObject() && arguments.size() == 1, "Expected only branch");
+            branch = requireText(arguments, "branch", 64);
+            checkArgument(branch.matches("[a-z][a-z0-9]*(?:-[a-z0-9]+)+"), "Expected a descriptive branch suffix");
+        }
+        catch (IllegalArgumentException failure) {
+            return error(id, -32602, "Invalid rename_task_branch arguments");
+        }
+        try {
+            String result = bridge.orElseThrow().branchRenamer().orElseThrow().apply(branch);
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
+        }
+        catch (RuntimeException failure) {
+            String detail = Optional.ofNullable(failure.getMessage()).orElseGet(() -> failure.getClass().getSimpleName());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Branch rename was refused: " + detail))), true));
         }
     }
 
@@ -1517,6 +1545,14 @@ public final class PermissionBroker
                 DevelopmentResultBridge.TOOL_NAME,
                 "Report current root development readiness; the user's accepted automation settings control delivery",
                 DevelopmentResultTool.schema(bridge))));
+        context.development().filter(bridge -> bridge.branchRenamer().isPresent()).ifPresent(ignored -> tools.add(new ToolDefinition(
+                DevelopmentResultBridge.RENAME_BRANCH_TOOL_NAME,
+                "Name this task's unpublished branch after the actual change, only during its first turn and before first pushing",
+                ImmutableMap.of(
+                        "type", "object",
+                        "properties", ImmutableMap.of("branch", ImmutableMap.of("type", "string", "minLength", 3, "maxLength", 64)),
+                        "required", ImmutableList.of("branch"),
+                        "additionalProperties", false))));
         context.development().ifPresent(ignored -> tools.add(new ToolDefinition(
                 DevelopmentResultBridge.PUBLISH_TOOL_NAME,
                 "Publish this task's verified revision as a draft pull request; ByteQuay owns the push and the GitHub write",

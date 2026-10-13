@@ -1461,7 +1461,7 @@ class TestClaudeCliDriver
         PermissionBroker broker = new PermissionBroker(
                 () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
                 (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false)),
+                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())),
                 DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
         Map<String, String> environment = apiKey ? ImmutableMap.of("ANTHROPIC_API_KEY", "test-api-key") : ImmutableMap.of();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), environment);

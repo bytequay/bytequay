@@ -38,4 +38,9 @@ public record DevelopmentPublicationRoute(
         checkNotBlank(baseSha, "baseSha");
         checkNotBlank(headBranch, "headBranch");
     }
+
+    public DevelopmentPublicationRoute withHeadBranch(String branch)
+    {
+        return new DevelopmentPublicationRoute(headRepository, baseRepository, pushUrl, sourceRemote, baseBranch, baseSha, branch);
+    }
 }

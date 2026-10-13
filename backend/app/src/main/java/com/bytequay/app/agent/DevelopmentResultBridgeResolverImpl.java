@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.agent;
 
+import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.DevelopmentAutomation;
 import com.bytequay.agent.core.DevelopmentTurnOrigin;
@@ -23,8 +24,10 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.core.review.AgentReviewStore;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -37,12 +40,14 @@ public class DevelopmentResultBridgeResolverImpl
     private final AgentTaskStore tasks;
     private final AgentTurnStore turns;
     private final AgentReviewStore reviews;
+    private final ObjectProvider<DevelopmentBranchService> branches;
 
-    public DevelopmentResultBridgeResolverImpl(AgentTaskStore tasks, AgentTurnStore turns, AgentReviewStore reviews)
+    public DevelopmentResultBridgeResolverImpl(AgentTaskStore tasks, AgentTurnStore turns, AgentReviewStore reviews, ObjectProvider<DevelopmentBranchService> branches)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
+        this.branches = requireNonNull(branches, "branches is null");
     }
 
     @Override
@@ -55,7 +60,13 @@ public class DevelopmentResultBridgeResolverImpl
                 .flatMap(task -> turns.findActive(id))
                 .filter(turn -> turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()
                         || turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent())
-                .map(turn -> new DevelopmentResultBridge(turn.id().toString(), DevelopmentResultBridge.INSTRUCTION,
-                        turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent()));
+                .map(turn -> {
+                    List<AgentTurn> history = turns.list(id);
+                    boolean canRename = turn.developmentOrigin().isEmpty() && history.size() == 1 && history.getFirst().id().equals(turn.id());
+                    return new DevelopmentResultBridge(turn.id().toString(),
+                            DevelopmentResultBridge.INSTRUCTION + (canRename ? DevelopmentResultBridge.BRANCH_INSTRUCTION : ""),
+                            turn.developmentOrigin().filter(origin -> origin.kind() == DevelopmentTurnOrigin.Kind.REFINE_SUMMARY).isPresent(),
+                            canRename ? Optional.of(suffix -> branches.getObject().rename(id, turn.id(), suffix)) : Optional.empty());
+                });
     }
 }

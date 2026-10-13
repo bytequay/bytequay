@@ -32,6 +32,7 @@ import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,Agent
 import { AgentMark } from './AgentMark';
 import { developmentTurnRequest,draftPullRequestRequest } from './DevelopmentFacts';
 import { ciAutofixRequest } from './ciAutofix';
+import { workflowRequest } from './WorkflowRequest';
 import type { AgentEventEnvelope } from './events';
 import { captureHistoryAnchors,restoreHistoryAnchor,type HistoryScrollAnchor } from './historyScroll';
 import { ImageAttachment } from './ImageAttachment';
@@ -740,7 +741,7 @@ export function TurnView({ turn, repository, workspaceId, first, open, now, mode
   const hasLog = turn.startedAt !== null || turn.blocks.length > 0;
   const durable = turn.turnId === null ? undefined : durableTurns[turn.turnId];
   const opening = turn.users[0];
-  const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) : null;
+  const developmentRequest = opening?.delivery === 'TURN' ? developmentTurnRequest(durable) ?? workflowRequest(durable, opening.text) : null;
   const request = opening?.delivery === 'TURN' ? draftPullRequestRequest(durable, opening, generatedBranch) : null;
   const ciRequest = opening?.delivery === 'TURN' ? ciAutofixRequest(durable, opening.text) : null;
   // Legacy source responses lack the ID; ordinal 1 is known only when history includes its beginning.

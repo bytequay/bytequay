@@ -215,7 +215,7 @@ public class EpicBreakdowns
                 epicWork(workspaceId, epicId).stream().limit(MAX_LISTED).map(item -> new ExistingWork(item.title(), item.state().name())).collect(toImmutableList()),
                 epic.proposals().stream().map(proposal -> new PreviousProposal(proposal.title())).collect(toImmutableList()));
         try {
-            return INSTRUCTIONS + "\n<epic-data>\n" + MAPPER.writerWithDefaultPrettyPrinter().writeValueAsString(data) + "\n</epic-data>\n";
+            return INSTRUCTIONS + "\n<epic-data>\n" + MAPPER.writeValueAsString(data) + "\n</epic-data>\n";
         }
         catch (JsonProcessingException failure) {
             throw new IllegalStateException("Cannot encode Epic context", failure);

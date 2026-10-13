@@ -149,9 +149,28 @@ final class InteractiveAgentHttpContract
                 turn.metrics(),
                 turn.developmentResult(),
                 turn.developmentOrigin().map(origin -> new DevelopmentOrigin(origin.kind().name(), origin.parentUserTurnId().toString())),
+                workflowRequest(turn),
                 turn.plan(),
                 turn.guidelines(),
                 turn.memories());
+    }
+
+    /** Display hints from saved workflow keys and policies; never authorization for an operation. */
+    private static Optional<String> workflowRequest(AgentTurn turn)
+    {
+        String key = turn.idempotencyKey();
+        String contextPrefix = "context-build:" + turn.taskId() + ":";
+        if (key.startsWith(contextPrefix) && key.substring(contextPrefix.length()).matches("[1-9][0-9]*")) {
+            return Optional.of("CONTEXT_BUILD");
+        }
+        if (turn.settings().filter(settings -> settings.permissionPolicy() == AgentPermissionPolicy.CHERRY_PICK).isPresent()) {
+            return Optional.of("CHERRY_PICK");
+        }
+        if (turn.settings().filter(settings -> settings.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX).isPresent()
+                && key.matches("[0-9a-f-]{36}:agent_turn:(?:[0-9a-f]{40}|[0-9a-f]{64}):[1-9][0-9]*")) {
+            return Optional.of("REBASE");
+        }
+        return Optional.empty();
     }
 
     static QueuedInputResponse queuedInput(QueuedAgentInput input)
@@ -425,6 +444,7 @@ final class InteractiveAgentHttpContract
             AgentMetrics metrics,
             Optional<DevelopmentResultReport> developmentResult,
             Optional<DevelopmentOrigin> developmentOrigin,
+            Optional<String> workflowRequest,
             Optional<List<PlanItem>> plan,
             List<String> guidelines,
             List<TurnMemory> memories) {}

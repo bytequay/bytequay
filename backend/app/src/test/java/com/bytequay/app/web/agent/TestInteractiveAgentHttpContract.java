@@ -62,6 +62,31 @@ class TestInteractiveAgentHttpContract
     private Path temporaryDirectory;
 
     @Test
+    void derivesWorkflowDisplayHintsFromSavedTurnMetadata()
+    {
+        TaskId task = TaskId.random();
+        String rebaseKey = "11111111-1111-1111-1111-111111111111:agent_turn:" + "a".repeat(40) + ":1";
+        AgentTurn ordinary = AgentTurn.accepted(TurnId.random(), task, "user-key",
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), Instant.EPOCH);
+        assertThat(InteractiveAgentHttpContract.turn(ordinary).workflowRequest()).isEmpty();
+        for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
+            AgentTurnSettings settings = new AgentTurnSettings(Optional.empty(), Optional.empty(), policy, Duration.ofMinutes(5), ImmutableList.of());
+            AgentTurn rebase = AgentTurn.accepted(TurnId.random(), task, rebaseKey, settings, Instant.EPOCH);
+            assertThat(InteractiveAgentHttpContract.turn(rebase).workflowRequest()).isEqualTo(switch (policy) {
+                case AUTO -> Optional.empty();
+                case CI_AUTOFIX -> Optional.of("REBASE");
+                case CHERRY_PICK -> Optional.of("CHERRY_PICK");
+            });
+        }
+        AgentTurn context = AgentTurn.accepted(TurnId.random(), task, "context-build:" + task + ":1", ordinary.settings().orElseThrow(), Instant.EPOCH);
+        assertThat(InteractiveAgentHttpContract.turn(context).workflowRequest()).contains("CONTEXT_BUILD");
+        for (String key : ImmutableList.of("context-build:" + TaskId.random() + ":1", "context-build:" + task + ":not-a-sequence", rebaseKey)) {
+            AgentTurn unrelated = AgentTurn.accepted(TurnId.random(), task, key, ordinary.settings().orElseThrow(), Instant.EPOCH);
+            assertThat(InteractiveAgentHttpContract.turn(unrelated).workflowRequest()).isEmpty();
+        }
+    }
+
+    @Test
     void projectsPlanAbsenceAndExplicitClearSeparately()
     {
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), TaskId.random(), "plan",
@@ -193,6 +218,7 @@ class TestInteractiveAgentHttpContract
                         "metrics",
                         "developmentResult",
                         "developmentOrigin",
+                        "workflowRequest",
                         "plan",
                         "guidelines",
                         "memories");

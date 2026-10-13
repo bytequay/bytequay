@@ -711,6 +711,8 @@ export type DevelopmentResultDto = {
 };
 
 export type AgentTurnDto = {
+  /** Display hint from saved workflow metadata; never an authorization. */
+  workflowRequest?: 'CHERRY_PICK' | 'REBASE' | 'CONTEXT_BUILD' | null;
   /** Latest root plan, independent of the loaded transcript; an empty list explicitly clears it. */
   plan?: Extract<AgentEventEnvelope, { type: 'plan_updated' }>['payload']['items'] | null;
   developmentResult?: DevelopmentResultDto | null;

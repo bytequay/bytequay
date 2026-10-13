@@ -136,6 +136,7 @@ class TestContextSpecCheckTools
         JsonNode missing = call(bridge, "repository_context_read", "{\"kind\":\"PAGE\",\"url\":\"https://example.com/missing\"}");
 
         assertThat(selection.path("check").path("directory").textValue()).isEqualTo("plugin/x/");
+        assertThat(selection.path("check").path("brief").textValue()).isEqualTo("brief");
         assertThat(selection.path("baselineSha").textValue()).isEqualTo(SHA);
         assertThat(page.path("source").textValue()).isEqualTo("Checkpoints MUST contain");
         assertThat(page.path("untrusted").booleanValue()).isTrue();

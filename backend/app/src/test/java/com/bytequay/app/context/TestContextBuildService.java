@@ -226,7 +226,9 @@ class TestContextBuildService
         order.verify(tasks).create(any(CreateAgentTaskCommand.class));
         order.verify(coordinator).watch(bound);
         order.verify(turns).start(start.capture());
-        assertThat(start.getValue().message()).contains("in directory " + DIRECTORY + " of owner/repository", "save candidate gaps", "Specs to check against");
+        assertThat(start.getValue().message()).contains("in directory " + DIRECTORY + " of owner/repository", "save candidate gaps",
+                        "repository_context_read with kind SELECTION", "writes no files and runs no builds", "Never commit, push, comment on or file anything")
+                .doesNotContain("Specs to check against");
     }
 
     @Test
@@ -258,8 +260,9 @@ class TestContextBuildService
         verify(git).run(checkout, "clean", "--quiet", "--force", "-d", "--");
         ArgumentCaptor<StartAgentTurnCommand> starts = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(turns, times(2)).start(starts.capture());
-        assertThat(starts.getAllValues().get(1).message()).contains("Reproduce one spec check candidate", "Candidate c1: Gap", "repository_context_spec_result")
-                .doesNotContain("readIds");
+        assertThat(starts.getAllValues().get(1).message()).contains("Reproduce one spec check candidate", "repository_context_read with kind SELECTION",
+                        "repository_context_spec_result", "without cd, pipes, redirects or &&", "Never commit, push, comment on or file anything")
+                .doesNotContain("Candidate c1: Gap", "readIds");
 
         check.set(specCheck(ContextSpecCheck.Status.CONFIRMED));
         checked();

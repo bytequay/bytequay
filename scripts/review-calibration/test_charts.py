@@ -136,7 +136,7 @@ class TestFigures(unittest.TestCase):
         self.assertEqual(list(charts.tasks_figure(made()["turns"], made()["parts"], top=1).data[0].y), ["aaaa-1111"])
 
     def test_both_modes_have_every_color_a_chart_asks_for(self):
-        wanted = {*charts.KINDS.values(), *charts.ENDINGS.values(), "other", "surface", "grid", "scale", "ink"}
+        wanted = {*charts.KINDS.values(), *charts.ENDINGS.values(), *charts.TOKEN_KINDS.values(), "other", "surface", "grid", "scale", "ink", "lighter"}
         for mode, colors in charts.COLORS.items():
             self.assertLessEqual(wanted, set(colors), mode)
             for figure in (charts.states_donut, charts.sunburst):
@@ -199,6 +199,90 @@ class TestModels(unittest.TestCase):
         self.assertEqual(list(figure.data[0].y), ["gpt-6-astra · max  (2 turns)", "gpt-6-astra · medium  (2 turns)", "opus · high  (2 turns)"])
         self.assertEqual([list(bar.x) for bar in figure.data], [[50, 0, 50], [0, 50, 0], [50, 50, 50]])
         self.assertEqual([list(bar.text) for bar in figure.data], [["1", "", "1"], ["", "1", ""], ["1", "1", "1"]])
+
+
+PRICES = {"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": 2, "cachedInput": 0.2, "output": 10}, "opus": {"input": 15, "cachedInput": 1.5, "output": 75},
+                                                    "not priced yet": {"input": 0, "cachedInput": 0, "output": 0}}}
+
+
+class TestCost(unittest.TestCase):
+    def test_tokens_are_split_into_fresh_input_cached_input_and_output_for_turns_that_have_a_count(self):
+        kinds = charts.tokens(made()["turns"])
+        self.assertEqual((kinds.index.tolist(), kinds.values.tolist()), ([0, 1, 3], [[50000, 850000, 4000], [50000, 150000, 1000], [10000, 40000, 2000]]))
+        self.assertEqual(list(kinds.columns), list(charts.TOKEN_KINDS))
+
+    def test_token_numbers_are_written_in_the_largest_unit_that_fits(self):
+        self.assertEqual([charts.short(amount) for amount in (0, 950, 7000, 1_150_000, 2_500_000_000)], ["0", "950", "7.0 K", "1.1 M", "2.5 B"])
+
+    def test_token_ring_shows_millions_by_kind_with_the_share_in_its_key(self):
+        figure = charts.tokens_donut(made()["turns"])
+        ring = figure.data[0]
+        self.assertEqual(([round(value, 3) for value in ring.values], list(ring.labels)), ([0.11, 1.04, 0.007], ["fresh input  9.5%", "cached input  89.9%", "output  0.6%"]))
+        self.assertEqual((figure.layout.annotations[0].text, list(ring.marker.colors)), ("1.2 M", [charts.COLORS["light"][kind] for kind in ("model", "usual", "tool")]))
+
+    def test_token_bars_by_day_by_model_and_by_task_add_up_to_the_same_tokens(self):
+        turns = made()["turns"]
+        total = lambda figure, across: round(sum(sum(bar.x if across else bar.y) for bar in figure.data), 6)
+        days, settings, tasks = charts.tokens_days_figure(turns), charts.tokens_settings_figure(turns), charts.tokens_tasks_figure(turns)
+        self.assertEqual((total(days, False), total(settings, True), total(tasks, True)), (1.157, 1.157, 1.157))
+        self.assertEqual(([bar.name for bar in days.data], list(days.data[0].x)), (list(charts.TOKEN_KINDS), [date(2026, 1, 1), date(2026, 1, 2)]))
+        # The most tokens first, each bar named with its turns.
+        self.assertEqual(list(settings.data[0].y), ["gpt-6-astra · max  (1 turn)", "gpt-6-astra · medium  (1 turn)", "opus · high  (1 turn)"])
+        self.assertEqual((list(tasks.data[0].y), list(tasks.layout.yaxis.ticktext)), (["aaaa-1111", "cccc-3333"], ["aaaa-1111", "cccc-3333"]))
+        self.assertEqual((list(charts.tokens_settings_figure(turns, top=1).data[0].y), list(charts.tokens_tasks_figure(turns, top=1).data[0].y)),
+                         (["gpt-6-astra · max  (1 turn)"], ["aaaa-1111"]))
+
+    def test_price_table_keeps_models_with_a_price_and_refuses_another_shape(self):
+        self.assertEqual(charts.price_table(None), {})
+        self.assertEqual(charts.price_table(PRICES), {"gpt-6-astra": (2, 0.2, 10), "opus": (15, 1.5, 75)})  # all zeros is a price not filled in yet
+        for wrong, error in (({"version": 1}, KeyError), ({"dollarsPerMillionTokens": {"m": {"input": 1, "output": 1}}}, KeyError),
+                             ({"dollarsPerMillionTokens": {"m": {"input": "cheap", "cachedInput": 0, "output": 0}}}, ValueError),
+                             ({"dollarsPerMillionTokens": {"m": {"input": -1, "cachedInput": 0, "output": 0}}}, ValueError), ({"dollarsPerMillionTokens": [1]}, AttributeError)):
+            with self.subTest(wrong=wrong), self.assertRaises(error):
+                charts.price_table(wrong)
+
+    def test_recorded_cost_wins_and_the_rest_is_estimated_only_from_a_price_and_a_token_count(self):
+        turns = made()["turns"]
+        costed = charts.dollars(turns, charts.price_table(PRICES))
+        # 50,000 fresh at $2, 850,000 cached at $0.20 and 4,000 out at $10 a million is 31 cents. The opus turn has a recorded cost, so its price is not used.
+        self.assertEqual(([round(amount, 6) for amount in costed["dollars"].tolist()[:2]], costed["dollars"].tolist()[3], costed["how"].tolist()),
+                         ([0.31, 0.14], 1.5, ["estimated", "estimated", "unknown", "recorded"]))
+        self.assertTrue(pandas.isna(costed["dollars"][2]))
+        nothing = charts.dollars(turns, {})
+        self.assertEqual((nothing["how"].tolist(), charts.unpriced(nothing), charts.unpriced(costed)), (["unknown", "unknown", "unknown", "recorded"], ["gpt-6-astra"], []))
+        no_count = charts.dollars(turns.assign(inputTokens=None, cost=None), charts.price_table(PRICES))
+        self.assertEqual((no_count["how"].tolist(), charts.unpriced(no_count)), (["unknown"] * 4, []))  # a price cannot stand in for tokens that are not known
+
+    def test_cost_table_lists_tokens_for_every_model_and_dollars_only_where_they_are_known(self):
+        turns = made()["turns"]
+        rows = charts.cost_table(charts.dollars(turns, {}))
+        self.assertEqual(rows[0], {"model and effort": "opus · high", "turns": 1, "tokens in, M": 0.1, "cached %": 80, "tokens out, M": 0, "dollars": 1.5,
+                                   "turns with a cost": 1, "how": "recorded", "typical turn, $": 1.5, "completed turn, $": 1.5})
+        self.assertEqual([(row["model and effort"], row["tokens in, M"], row["cached %"], row["dollars"], row["turns with a cost"], row["how"]) for row in rows[1:]],
+                         [("gpt-6-astra · max", 0.9, 94, None, 0, "unknown"), ("gpt-6-astra · medium", 0.2, 75, None, 0, "unknown")])
+        mixed = pandas.concat([turns, turns[turns["setting"] == "opus · high"].assign(cost=None)], ignore_index=True)
+        (opus,) = [row for row in charts.cost_table(charts.dollars(mixed, charts.price_table(PRICES))) if row["model and effort"] == "opus · high"]
+        # One opus turn has a recorded cost; the other is estimated: 10,000 at $15, 40,000 at $1.50 and 2,000 at $75 a million is 36 cents.
+        self.assertEqual((opus["turns"], opus["dollars"], opus["turns with a cost"], opus["how"], opus["typical turn, $"]), (2, 1.86, 2, "estimated, recorded", 0.93))
+        # A turn that did not complete was paid for too: its dollars count, and it does not count as a finished turn.
+        failed = pandas.concat([turns, turns[turns["setting"] == "opus · high"].assign(outcome="failed", cost=0.5)], ignore_index=True)
+        (opus,) = [row for row in charts.cost_table(charts.dollars(failed, {})) if row["model and effort"] == "opus · high"]
+        self.assertEqual((opus["dollars"], opus["completed turn, $"]), (2, 2))
+        none_done = charts.cost_table(charts.dollars(turns.assign(outcome="failed"), {}))
+        self.assertEqual([row["completed turn, $"] for row in none_done], [None, None, None])
+        # A completed turn whose cost is not known is no turn to divide the known dollars by.
+        unknown = pandas.concat([turns[turns["setting"] == "opus · high"].assign(outcome="failed"), turns[turns["setting"] == "opus · high"].assign(cost=None)], ignore_index=True)
+        (opus,) = charts.cost_table(charts.dollars(unknown, {}))
+        self.assertEqual((opus["turns"], opus["turns with a cost"], opus["dollars"], opus["completed turn, $"]), (2, 1, 1.5, None))
+
+    def test_dollar_bars_stack_what_was_estimated_on_what_was_recorded(self):
+        turns = made()["turns"]
+        only_recorded = charts.dollars_days_figure(charts.dollars(turns, {}))
+        self.assertEqual([(bar.name, list(bar.x), list(bar.y)) for bar in only_recorded.data], [("recorded", [date(2026, 1, 2)], [1.5])])
+        both = charts.dollars_days_figure(charts.dollars(turns, charts.price_table(PRICES)), "dark")
+        self.assertEqual([(bar.name, list(bar.x), [round(amount, 6) for amount in bar.y]) for bar in both.data],
+                         [("recorded", [date(2026, 1, 1), date(2026, 1, 2)], [0, 1.5]), ("estimated", [date(2026, 1, 1), date(2026, 1, 2)], [0.31, 0.14])])
+        self.assertEqual([bar.marker.color for bar in both.data], [charts.COLORS["dark"]["model"], charts.COLORS["dark"]["lighter"]])
 
 
 if __name__ == "__main__":

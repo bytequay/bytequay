@@ -52,13 +52,13 @@ class TestRecords(unittest.TestCase):
         second = made[("bbbb", "t1")]
         # The model that ran wins over the one asked for; a lane keeps its provider and drops the account; effort is one spelling.
         self.assertEqual((second["model"], second["provider"], second["effort"], second["outcome"], second["cost"], second["seconds"]),
-                         ("opus-actual", "claude", "extra", "interrupted", 1.25, 90.5))
+                         ("opus-actual", "claude", "extra", "interrupted", 1.25, 90.5))  # the first cost of a task is the turn's own
         self.assertEqual(second["start"], 1767312000)  # any offset is read as the same moment
         self.assertEqual((second["toolCalls"], second["compactions"]), (None, None))  # not recorded is not zero
         gone = made[("gone", "t7")]
         self.assertEqual((gone["provider"], gone["model"], gone["effort"], gone["repository"], gone["outcome"], gone["seconds"]), (None, None, None, None, None, 0))
         # Its task is gone, so nobody can say whether these tokens are the turn's own or a running total: none are shown.
-        self.assertEqual((gone["inputTokens"], gone["cachedInputTokens"], gone["outputTokens"]), (None, None, None))
+        self.assertEqual((gone["inputTokens"], gone["cachedInputTokens"], gone["outputTokens"], gone["cost"]), (None, None, None, None))
 
     def test_codex_turn_gets_what_the_running_total_grew_by_and_a_claude_turn_keeps_its_own_tokens(self):
         turn = lambda task, name, hour, tokens_in, cached, tokens_out: (task, name, f"2026-01-01T{hour:02}:00:00Z", 1000, None, "m", "max", "COMPLETED", tokens_in, cached, tokens_out,
@@ -77,15 +77,29 @@ class TestRecords(unittest.TestCase):
         self.assertEqual([tokens("claude-task", name) for name in ("a1", "a2")], [(500, 400, 30), (900, 100, 40)])
         self.assertEqual(tokens("other-task", "d1"), (None, None, None))  # a provider whose way of counting the lab does not know
 
-    def test_application_still_counts_tokens_the_way_the_lab_undoes(self):
+    def test_claude_turn_gets_what_the_running_cost_grew_by(self):
+        turn = lambda task, name, hour, cost: (task, name, f"2026-01-01T{hour:02}:00:00Z", 1000, None, "opus", "max", "COMPLETED", 100 * hour, 90 * hour, 10, cost, 1, 0)
+        database(self.path, tasks=[("claude-task", "claude", "o", "n"), ("codex-task", "codex", "o", "n"), ("other-task", "deepseek-key-9621", "o", "n")], turns=[
+            turn("claude-task", "a2", 2, 30.68), turn("claude-task", "a1", 1, 14.96), turn("claude-task", "a3", 3, None), turn("claude-task", "a4", 4, 32.01),
+            turn("claude-task", "a5", 5, 5.5), turn("claude-task", "a6", 6, 5.5), turn("codex-task", "c1", 1, 9.0), turn("other-task", "d1", 1, 2.0)])
+        made = records.read(self.path)
+        costs = [made[("claude-task", name)]["cost"] for name in ("a1", "a2", "a3", "a4", "a5", "a6")]
+        # 14.96, then up to 30.68, nothing recorded, up to 32.01, then the session began again at 5.5 and did not move.
+        self.assertEqual(costs, [14.96, 15.72, None, 1.33, 5.5, 0])
+        self.assertEqual([made[("claude-task", name)]["inputTokens"] for name in ("a1", "a2", "a4")], [100, 200, 400])  # a Claude turn's tokens are already its own
+        # A cost on a Codex turn would be a per-turn amount as far as the lab knows; one of an unknown provider is not shown.
+        self.assertEqual((made[("codex-task", "c1")]["cost"], made[("other-task", "d1")]["cost"]), (9.0, None))
+
+    def test_application_still_counts_tokens_and_cost_the_way_the_lab_undoes(self):
         if not BACKEND.is_dir():
             self.skipTest("the application's source is not beside the lab")
         codex = (BACKEND / "agent-cli/src/main/java/com/bytequay/agent/cli/codex/CodexEventMapper.java").read_text()
         claude = (BACKEND / "agent-cli/src/main/java/com/bytequay/agent/cli/claude/ClaudeEventMapper.java").read_text()
         service = (BACKEND / "agent-core/src/main/java/com/bytequay/agent/core/impl/DefaultAgentMetricsService.java").read_text()
-        # If one of these fails, the application changed how it stores a turn's tokens: change RUNNING_TOTAL and OWN in records.py to match.
+        # If one of these fails, the application changed how it stores a turn's tokens or cost: change RUNNING_TOTAL in records.py to match.
         self.assertIn("ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION", codex)
         self.assertIn("ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION", claude)
+        self.assertIn("result.totalCostUsd()", claude)  # the session's running cost, stored on the turn as it comes
         self.assertRegex(service, r"case CUMULATIVE_FOR_INVOCATION -> cumulativeMetrics\(AgentMetrics\.empty\(\),")
         self.assertRegex(service, r"case DELTA, FINAL_FOR_INVOCATION -> addMetrics\(")
 

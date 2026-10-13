@@ -208,12 +208,14 @@ database gets a row without a time split, because its log is gone. When the
 database is missing or has another shape, the table is saved from the logs
 alone and says why.
 
-ByteQuay stores on a Codex turn the running token total of its thread, not the
-turn's own tokens, so `records.py` gives a Codex turn what that total grew by
-since the task's turn before it. A Claude turn already holds its own tokens.
-For any other provider the lab cannot tell which it is and saves no tokens.
-A test reads the application's source and fails when the columns the lab reads,
-or the way the application counts tokens, change. `fixture/saved-review-scores.json` and
+ByteQuay stores two running totals where a turn's own amount belongs: on a
+Codex turn the token total of its thread, and on a Claude turn the cost of its
+whole session. `records.py` gives such a turn what the total grew by since the
+task's turn before it, and takes a total that fell as a fresh start. A Claude
+turn's tokens are already its own. For any other provider the lab cannot tell
+how ByteQuay counts and saves neither tokens nor cost. A test reads the
+application's source and fails when the columns the lab reads, or the way the
+application counts tokens and cost, change. `fixture/saved-review-scores.json` and
 `fixture/saved-turns.json` are small examples of the two shapes. The tests
 write them, so an example is always exactly what the lab saves. Run the tests
 once with `UPDATE_SAVED_EXAMPLES=1` after changing a shape on purpose.
@@ -244,6 +246,24 @@ side. "Typical" is the middle turn, so a few very long turns do not move it.
 A model and effort with fewer than five turns stays in the table and out of
 the charts. Different tasks ran under each one, so the tab shows what
 happened and is not a fair test of which is better.
+
+The Cost tab is about tokens and dollars. Tokens come in three kinds: fresh
+input, input read from the cache, and output. The tab shows them as a ring,
+by model and effort, by day and for the tasks that used the most. Dollars are
+shown only where they are known. A recorded cost is the Claude command line's
+own figure at API prices, which on a subscription is not what was paid. For
+turns without one, the tab estimates from the reader's own prices when the
+folder holds a `prices.json`:
+
+```json
+{"version": 1, "dollarsPerMillionTokens": {"MODEL": {"input": 0, "cachedInput": 0, "output": 0}}}
+```
+
+The tab prints this file with every model that still has no cost, ready to
+fill in. A model whose prices are all zero has no price yet. The lab ships no
+prices of its own. The table gives each model and effort its tokens, its
+dollars, how they are known, the typical dollars of a turn, and the dollars
+of a completed turn, which also carries the turns that did not complete.
 
 The page is served to this machine only. Started any other way, for example
 with `streamlit run dashboard.py`, Streamlit would serve it to the whole

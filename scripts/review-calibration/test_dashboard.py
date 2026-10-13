@@ -45,12 +45,12 @@ class Page(unittest.TestCase):
         page = self.page()
         self.assertEqual(list(page.exception), [])
         self.assertEqual([title.value for title in page.title], ["ByteQuay Lab"])
-        self.assertEqual([(tile.label, tile.value) for tile in page.metric],
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][:5],
                          [("Turn time", "0.3 h"), ("Tasks", "2"), ("Turns", "3"), ("Typical turn", "5.0 min"), ("Longest turn", "10 min")])
-        self.assertEqual([heading.value for heading in page.subheader],
+        self.assertEqual([heading.value for heading in page.subheader][:8],
                          ["Where the time went", "How the turns ended", "Turn time per day", "Every part of the time", "Waiting for a tool to finish: what was running",
                           "Shell time by program, summed over runs", "Model time by what just finished", "The tasks that took the most time"])
-        self.assertEqual(len(page.get("plotly_chart")), 8)
+        self.assertEqual(len(page.get("plotly_chart")), 13)  # three on the first tab, five on the second, none yet on the third, five on the fourth
         captions = [caption.value for caption in page.caption]
         self.assertIn("Two or more tools ran at once for 1.3 minutes; the most at once was 2.", captions)  # 60 seconds in one turn and 20 in another
         self.assertIn("4 of 4 turns. Days are in your own time zone.", captions)
@@ -65,13 +65,13 @@ class Page(unittest.TestCase):
                          [["gpt-6-astra · max", 1, 10, 900000, 100], ["gpt-6-astra · medium", 1, 5, 200000, 0], ["opus · high", 1, 4, 50000, 100]])
         self.assertIn("Different tasks ran on each model and effort, so this shows what happened, not which one is better. One with fewer than 5 turns is in the table only. "
                       "Typical means the middle turn: half are below it, half above.", [caption.value for caption in page.caption])
-        self.assertEqual(len(page.get("plotly_chart")), 8)  # one turn each: the table has them, the charts do not
+        self.assertNotIn("How long a turn took", [heading.value for heading in page.subheader])  # one turn each: the table has them, the charts do not
         with mock.patch.object(charts, "MIN_TURNS", 1):
             drawn = self.page()
         self.assertEqual(list(drawn.exception), [])
-        self.assertEqual([heading.value for heading in drawn.subheader][-4:],
+        self.assertEqual([heading.value for heading in drawn.subheader][8:12],
                          ["Typical turn, by model and effort", "How long a turn took", "How each split its time", "How the turns ended"])
-        self.assertEqual(len(drawn.get("plotly_chart")), 12)
+        self.assertEqual(len(drawn.get("plotly_chart")) - len(page.get("plotly_chart")), 4)
 
     def test_choosing_a_model_and_effort_narrows_every_tab(self):
         self.save()
@@ -84,7 +84,7 @@ class Page(unittest.TestCase):
         self.assertEqual(page.dataframe[1].value["model and effort"].tolist(), ["gpt-6-astra · medium"])
         # A turn the database knows and no log holds: the time tabs say so, and the Models tab still has it.
         page.sidebar.multiselect[0].set_value(["opus · high"]).run()
-        self.assertEqual(([note.value for note in page.info], len(page.metric)), (["No turn of this choice has a log."] * 2, 0))
+        self.assertEqual(([note.value for note in page.info], [tile.label for tile in page.metric][0]), (["No turn of this choice has a log."] * 2, "Tokens in"))
         self.assertEqual(page.dataframe[0].value["model and effort"].tolist(), ["opus · high"])
 
     def test_models_tab_says_why_when_the_database_was_not_read(self):
@@ -93,8 +93,59 @@ class Page(unittest.TestCase):
         self.save(json.dumps({**table, "database": {"problem": "the database is not there"}, "turns": logged}))
         page = self.page()
         self.assertEqual(list(page.exception), [])
-        self.assertEqual([note.value for note in page.info], ["Model, effort and tokens were not saved: the database is not there. Save again with `uv run activity.py --save`"])
+        self.assertEqual([note.value for note in page.info], ["Model, effort and tokens were not saved: the database is not there. Save again with `uv run activity.py --save`",
+                                                              "Tokens and cost were not saved: the database is not there. Save again with `uv run activity.py --save`"])
         self.assertEqual((len(page.metric), len(page.sidebar.multiselect)), (5, 0))  # the time tabs are whole, and there is no model to pick
+
+    def test_cost_tab_adds_up_tokens_and_keeps_recorded_cost_apart_from_what_it_cannot_know(self):
+        self.save()
+        page = self.page()
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][5:], [("Tokens in", "1.1 M"), ("From the cache", "90.4%"), ("Tokens out", "7.0 K"), ("Recorded cost", "$1.50")])
+        self.assertEqual([heading.value for heading in page.subheader][8:],
+                         ["Tokens by kind", "Tokens by model and effort", "Tokens per day", "The tasks that used the most tokens", "Cost in dollars"])
+        captions = [caption.value for caption in page.caption]
+        self.assertIn("Tokens are known for 3 of 4 turns. Each amount is the turn's own: ByteQuay stores running totals for Codex tokens and Claude cost, "
+                      "and the lab takes what they grew by.", captions)
+        table = page.dataframe[2].value
+        self.assertEqual(table[["model and effort", "dollars", "how"]].values.tolist()[0], ["opus · high", 1.5, "recorded"])
+        self.assertEqual(table["how"].tolist()[1:], ["unknown", "unknown"])  # no recorded cost and no price: nothing is made up
+        # The models without a cost are named with a price table to fill in, and nothing was written for the reader.
+        self.assertIn(f"No cost is known for gpt-6-astra. To estimate it, save this as `prices.json` in `{self.folder}` with your own prices, in dollars for a million tokens:", captions)
+        self.assertEqual(json.loads(page.code[0].value), {"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": 0, "cachedInput": 0, "output": 0}}})
+        self.assertEqual(sorted(path.name for path in self.folder.iterdir()), ["turns.json"])
+
+    def test_cost_tab_estimates_from_the_readers_own_prices(self):
+        self.save()
+        prices = {"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": 2, "cachedInput": 0.2, "output": 10}}}
+        (self.folder / "prices.json").write_text(json.dumps(prices))
+        page = self.page()
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][8:], [("Recorded cost", "$1.50"), ("Estimated cost", "$0.45")])
+        table = page.dataframe[2].value
+        self.assertEqual(table[["model and effort", "dollars", "how"]].values.tolist(),
+                         [["opus · high", 1.5, "recorded"], ["gpt-6-astra · max", 0.31, "estimated"], ["gpt-6-astra · medium", 0.14, "estimated"]])
+        self.assertEqual((len(page.code), [caption.value for caption in page.caption if caption.value.startswith("No cost is known")]), (0, []))
+
+    def test_price_table_to_fill_in_keeps_the_prices_already_given(self):
+        self.save()
+        opus = {"input": 15.0, "cachedInput": 1.5, "output": 75.0}
+        (self.folder / "prices.json").write_text(json.dumps({"version": 1, "dollarsPerMillionTokens": {"opus": opus}}))
+        page = self.page()
+        self.assertEqual(json.loads(page.code[0].value), {"version": 1, "dollarsPerMillionTokens": {"opus": opus, "gpt-6-astra": {"input": 0, "cachedInput": 0, "output": 0}}})
+
+    def test_price_table_in_another_shape_estimates_nothing_and_says_so(self):
+        self.save()
+        for name, text in [("cut off", '{"version": 1, "dollarsPer'), ("later version", json.dumps({"version": 2, "dollarsPerMillionTokens": {}})),
+                           ("no prices", json.dumps({"version": 1})), ("a price missing", json.dumps({"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": 2}}})),
+                           ("text for a price", json.dumps({"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": "cheap", "cachedInput": 0, "output": 0}}})),
+                           ("below zero", json.dumps({"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": -2, "cachedInput": 0, "output": 0}}})),
+                           ("a list", json.dumps({"version": 1, "dollarsPerMillionTokens": [1, 2]}))]:
+            with self.subTest(name=name):
+                (self.folder / "prices.json").write_text(text)
+                page = self.page()
+                self.assertEqual(([note.value for note in page.warning], list(page.exception)), (["The price table `prices.json` could not be read, so no cost is estimated."], []))
+                self.assertEqual([tile.label for tile in page.metric][5:], ["Tokens in", "From the cache", "Tokens out", "Recorded cost"])
+                self.assertEqual(page.dataframe[2].value["how"].tolist(), ["recorded", "unknown", "unknown"])
 
     def test_choosing_days_changes_every_number(self):
         self.save()

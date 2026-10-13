@@ -12,14 +12,19 @@ import activity
 TOP_PROGRAMS = 5  # programs named in the chart; the rest are added up, as in the terminal table
 TOP_TASKS = 10
 MIN_TURNS = 5  # a model and effort with fewer turns is listed in the table and left out of the charts
+TOP_SETTINGS = 8
+# The three kinds of tokens a turn is billed for, and the color each wears in the token charts. Fresh input is what was
+# not read from the cache. Cached input is most of the tokens and the cheapest, so it stays quiet and the eye goes to the other two.
+TOKEN_KINDS = {"fresh input": "model", "cached input": "usual", "output": "tool"}
+PRICES = ("input", "cachedInput", "output")  # dollars for a million tokens of each kind, in the order of TOKEN_KINDS
 EFFORTS = ("low", "medium", "high", "extra", "max")
 # One step of each hue for each mode, checked against that mode's page surface: neighbours stay apart for color-blind
 # readers and every mark clears the surface. Text never wears these colors.
 COLORS = {
     "light": {"model": "#2a78d6", "tool": "#eb6834", "you": "#1baf7a", "other": "#8b929b", "surface": "#ffffff", "grid": "#e6e9ed",
-              "usual": "#d5d9df", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b", "scale": ("#cde2fb", "#5598e7"), "ink": "#1f2328"},
+              "usual": "#d5d9df", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b", "scale": ("#cde2fb", "#5598e7"), "ink": "#1f2328", "lighter": "#86b6ef"},
     "dark": {"model": "#3987e5", "tool": "#d95926", "you": "#199e70", "other": "#8b929b", "surface": "#0e1117", "grid": "#2a2f3a",
-             "usual": "#3d4350", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b", "scale": ("#0d366b", "#2a78d6"), "ink": "#ffffff"},
+             "usual": "#3d4350", "warning": "#fab219", "serious": "#ec835a", "critical": "#d03b3b", "scale": ("#0d366b", "#2a78d6"), "ink": "#ffffff", "lighter": "#1c5cab"},
 }
 STATES = [state for state, _ in activity.STATES]
 # A state keeps its color whatever else is saved.
@@ -278,3 +283,129 @@ def outcomes_figure(turns, mode="light"):
                        marker={"color": COLORS[mode][ENDINGS.get(outcome, "other")], "line": {"color": COLORS[mode]["surface"], "width": 2}},
                        hovertemplate="%{y}<br>" + outcome + ": %{customdata} turns · %{x:.1f}%<extra></extra>")
     return bar_list(figure, 40 * len(drawn) + 40, legend=True)
+
+
+def tokens(turns):
+    """The tokens of each turn by kind, for the turns whose tokens are known."""
+    known = turns[turns["inputTokens"].notna()]
+    cached = known["cachedInputTokens"].fillna(0).astype(float)
+    return pandas.DataFrame({"fresh input": known["inputTokens"].astype(float) - cached, "cached input": cached, "output": known["outputTokens"].fillna(0).astype(float)},
+                            index=known.index)
+
+
+def short(amount):
+    """A number of tokens in the largest unit that keeps it above one: 7.0 K, 1.2 M, 3.4 B."""
+    for least, unit in ((1e9, "B"), (1e6, "M"), (1e3, "K")):
+        if amount >= least:
+            return f"{amount / least:,.1f} {unit}"
+    return f"{amount:,.0f}"
+
+
+def tokens_donut(turns, mode="light"):
+    """All tokens as one ring cut by kind, with their number in the middle."""
+    summed = tokens(turns).sum()
+    figure = go.Figure(go.Pie(labels=[f"{kind}  {share(summed[kind], summed.sum()):.1f}%" for kind in TOKEN_KINDS], values=[summed[kind] / 1e6 for kind in TOKEN_KINDS], hole=0.6,
+                              sort=False, direction="clockwise", textposition="inside", insidetextorientation="horizontal", texttemplate="%{percent:.1%}", customdata=list(TOKEN_KINDS),
+                              marker={"colors": [COLORS[mode][kind] for kind in TOKEN_KINDS.values()], "line": {"color": COLORS[mode]["surface"], "width": 2}},
+                              hovertemplate="%{customdata}<br>%{value:,.1f} million tokens · %{percent:.1%}<extra></extra>"))
+    figure.add_annotation(text=short(summed.sum()), showarrow=False, font={"size": 22})
+    return tidy(figure, 300, legend=True)
+
+
+def token_bars(figure, summed, names, mode, across):
+    """One bar for every row of `summed`, cut by kind of token, in millions."""
+    for kind, color in TOKEN_KINDS.items():
+        amounts = list(summed[kind] / 1e6)
+        figure.add_bar(name=kind, marker={"color": COLORS[mode][color], "line": {"color": COLORS[mode]["surface"], "width": 1}}, orientation="h" if across else "v",
+                       **({"y": names, "x": amounts} if across else {"x": names, "y": amounts}),
+                       hovertemplate=("%{y}<br>" if across else "%{x|%b %d}<br>") + kind + (": %{x:,.1f}" if across else ": %{y:,.1f}") + " million tokens<extra></extra>")
+    return figure
+
+
+def tokens_days_figure(turns, mode="light"):
+    """Millions of tokens for each day, cut by kind."""
+    daily = tokens(turns).join(turns["day"]).groupby("day").sum()
+    figure = token_bars(go.Figure(), daily, list(daily.index), mode, across=False)
+    figure.update_xaxes(fixedrange=True, showgrid=False, tickformat="%b %d")
+    figure.update_yaxes(fixedrange=True, title_text="million tokens", gridcolor=COLORS[mode]["grid"], zeroline=False)
+    return tidy(figure, 300, legend=True)
+
+
+def tokens_settings_figure(turns, mode="light", top=TOP_SETTINGS):
+    """The models and efforts that used the most tokens, cut by kind."""
+    summed = tokens(turns).join(turns["setting"]).groupby("setting").sum()
+    most = summed.loc[summed.sum(axis=1).sort_values(ascending=False, kind="stable").head(top).index]
+    counted = turns[turns["inputTokens"].notna()].groupby("setting").size()
+    figure = token_bars(go.Figure(), most, named([(name, int(counted[name])) for name in most.index]), mode, across=True)
+    return bar_list(figure, 34 * len(most) + 40, legend=True)
+
+
+def tokens_tasks_figure(turns, mode="light", top=TOP_TASKS):
+    """The tasks that used the most tokens, cut by kind. A task is named by the start of its id."""
+    summed = tokens(turns).join(turns["task"]).groupby("task").sum()
+    most = summed.loc[summed.sum(axis=1).sort_values(ascending=False, kind="stable").head(top).index]
+    figure = token_bars(go.Figure(), most, list(most.index), mode, across=True)
+    figure.update_yaxes(tickvals=list(most.index), ticktext=[task[:13] for task in most.index])
+    return bar_list(figure, 30 * len(most) + 40, legend=True)
+
+
+def price_table(made):
+    """The reader's own prices as {model: dollars for a million tokens of each kind}. A model whose prices are all zero
+    has no price yet. A table in another shape fails, so a wrong price is never used quietly."""
+    if made is None:
+        return {}
+    table = {}
+    for model, price in made["dollarsPerMillionTokens"].items():
+        amounts = tuple(float(price[name]) for name in PRICES)
+        if any(amount < 0 for amount in amounts):
+            raise ValueError(f"a price of {model} is below zero")
+        if any(amounts):
+            table[model] = amounts
+    return table
+
+
+def dollars(turns, prices):
+    """What each turn cost and how the lab knows it: `recorded` by the provider's own command line, `estimated` from the
+    reader's price table and the turn's tokens, or `unknown`."""
+    kinds, cost, how = tokens(turns), [], []
+    for number, row in turns.iterrows():
+        if pandas.notna(row["cost"]):
+            cost.append(float(row["cost"])), how.append("recorded")
+        elif row["model"] in prices and number in kinds.index:
+            cost.append(sum(kinds.loc[number, kind] * price for kind, price in zip(TOKEN_KINDS, prices[row["model"]])) / 1e6), how.append("estimated")
+        else:
+            cost.append(float("nan")), how.append("unknown")
+    return turns.assign(dollars=cost, how=how)
+
+
+def unpriced(costed):
+    """The models with tokens and no cost: neither recorded nor in the price table."""
+    return sorted(set(costed[(costed["how"] == "unknown") & costed["inputTokens"].notna() & costed["model"].notna()]["model"]))
+
+
+def cost_table(costed):
+    """One row for every model and effort: its tokens, and its cost as far as it is known."""
+    rows = []
+    for name, group in costed[costed["setting"].notna()].groupby("setting"):
+        kinds, known = tokens(group).sum(), group[group["how"] != "unknown"]
+        rows.append({"model and effort": name, "turns": len(group), "tokens in, M": round(float(kinds["fresh input"] + kinds["cached input"]) / 1e6, 1),
+                     "cached %": whole_or_none(share(kinds["cached input"], kinds["fresh input"] + kinds["cached input"])) if kinds["fresh input"] + kinds["cached input"] else None,
+                     "tokens out, M": round(float(kinds["output"]) / 1e6, 2),
+                     "dollars": round(float(known["dollars"].sum()), 2) if len(known) else None, "turns with a cost": len(known),
+                     "how": ", ".join(sorted(set(known["how"]))) or "unknown", "typical turn, $": round(float(known["dollars"].median()), 2) if len(known) else None,
+                     # What a finished turn cost, with the turns that did not finish paid for as well.
+                     "completed turn, $": round(float(known["dollars"].sum()) / completed, 2) if (completed := int((known["outcome"] == "completed").sum())) else None})
+    return sorted(rows, key=lambda row: (-(row["dollars"] or 0), -row["tokens in, M"], row["model and effort"]))
+
+
+def dollars_days_figure(costed, mode="light"):
+    """Dollars for each day: what was recorded, and on top of it what was estimated."""
+    daily = costed[costed["how"] != "unknown"].groupby(["day", "how"])["dollars"].sum().unstack(fill_value=0.0).reindex(columns=["recorded", "estimated"], fill_value=0.0)
+    figure = go.Figure()
+    for how, color in (("recorded", "model"), ("estimated", "lighter")):
+        if daily[how].any():
+            figure.add_bar(x=list(daily.index), y=list(daily[how]), name=how, marker={"color": COLORS[mode][color], "line": {"color": COLORS[mode]["surface"], "width": 1}},
+                           hovertemplate="%{x|%b %d}<br>" + how + ": $%{y:,.2f}<extra></extra>")
+    figure.update_xaxes(fixedrange=True, showgrid=False, tickformat="%b %d")
+    figure.update_yaxes(fixedrange=True, title_text="dollars", gridcolor=COLORS[mode]["grid"], zeroline=False)
+    return tidy(figure, 280, legend=True)

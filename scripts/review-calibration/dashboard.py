@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import datetime
+import json
 from pathlib import Path
 import sys
 
@@ -124,6 +125,55 @@ def models(shown, table, mode):
     st.plotly_chart(charts.outcomes_figure(turns, mode), **SHOW)
 
 
+def cost(shown, table, folder, mode):
+    turns = shown["turns"]
+    if "problem" in table["database"]:
+        st.info(f"Tokens and cost were not saved: {table['database']['problem']}. Save again with `{SAVE}`")
+        return
+    kinds = charts.tokens(turns)
+    if kinds.empty:
+        st.info("No turn of this choice has a token count.")
+        return
+    try:
+        prices = charts.price_table(saved.read(folder, "prices.json"))
+    except (OSError, AttributeError, KeyError, TypeError, ValueError):
+        # A price table in another shape estimates nothing. It is never read as far as it goes.
+        st.warning("The price table `prices.json` could not be read, so no cost is estimated.")
+        prices = {}
+    costed = charts.dollars(turns, prices)
+    summed, recorded, estimated = kinds.sum(), costed[costed["how"] == "recorded"]["dollars"].sum(), costed[costed["how"] == "estimated"]["dollars"].sum()
+    with st.container(horizontal=True):
+        st.metric("Tokens in", charts.short(summed["fresh input"] + summed["cached input"]), border=True, width=TILE)
+        st.metric("From the cache", f"{charts.share(summed['cached input'], summed['fresh input'] + summed['cached input']):.1f}%", border=True, width=TILE)
+        st.metric("Tokens out", charts.short(summed["output"]), border=True, width=TILE)
+        st.metric("Recorded cost", f"${recorded:,.2f}", border=True, width=TILE, help="What the Claude command line says its turns would cost at API prices.")
+        if prices:
+            st.metric("Estimated cost", f"${estimated:,.2f}", border=True, width=TILE, help="Tokens times your own prices, for turns with no recorded cost.")
+    st.caption(f"Tokens are known for {len(kinds):,} of {len(turns):,} turns. Each amount is the turn's own: ByteQuay stores running totals for Codex tokens and "
+               "Claude cost, and the lab takes what they grew by.")
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Tokens by kind")
+        st.plotly_chart(charts.tokens_donut(turns, mode), **SHOW)
+    with right:
+        st.subheader("Tokens by model and effort")
+        st.plotly_chart(charts.tokens_settings_figure(turns, mode), **SHOW)
+    st.subheader("Tokens per day")
+    st.plotly_chart(charts.tokens_days_figure(turns, mode), **SHOW)
+    st.subheader("The tasks that used the most tokens")
+    st.plotly_chart(charts.tokens_tasks_figure(turns, mode), **SHOW)
+    st.subheader("Cost in dollars")
+    st.caption("Recorded cost is the Claude command line's own figure at API prices. On a subscription it is not what you paid.")
+    st.dataframe(charts.cost_table(costed), hide_index=True)
+    if (costed["how"] != "unknown").any():
+        st.plotly_chart(charts.dollars_days_figure(costed, mode), **SHOW)
+    missing = charts.unpriced(costed)
+    if missing:
+        st.caption(f"No cost is known for {', '.join(missing)}. To estimate it, save this as `prices.json` in `{folder}` with your own prices, in dollars for a million tokens:")
+        wanted = {model: dict(zip(charts.PRICES, amounts)) for model, amounts in prices.items()} | {model: dict.fromkeys(charts.PRICES, 0) for model in missing}
+        st.code(json.dumps({"version": 1, "dollarsPerMillionTokens": wanted}, indent=2), language="json")
+
+
 def page(folder):
     st.set_page_config(page_title="ByteQuay Lab", layout="wide")
     # Started any other way, Streamlit would serve the page to the whole network.
@@ -149,15 +199,17 @@ def page(folder):
         st.info("No turn matches this choice.")
         return
     mode = "dark" if st.context.theme.type == "dark" else "light"
-    # The first two tabs are about time, which only a log can split. The third is about what ByteQuay recorded.
+    # The first two tabs are about time, which only a log can split. The other two are about what ByteQuay recorded.
     logged = charts.only(shown, shown["turns"]["logged"])
-    first, second, third = st.tabs(["Overview", "Time", "Models"])
+    first, second, third, fourth = st.tabs(["Overview", "Time", "Models", "Cost"])
     with first:
         overview(logged, table, mode) if len(logged["turns"]) else st.info("No turn of this choice has a log.")
     with second:
         time(logged, mode) if len(logged["turns"]) else st.info("No turn of this choice has a log.")
     with third:
         models(shown, table, mode)
+    with fourth:
+        cost(shown, table, folder, mode)
 
 
 def main():

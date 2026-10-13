@@ -1,0 +1,6 @@
+[project]
+name = "review-calibration"
+version = "0"
+description = "Offline review calibration: frozen review runs, a model judge, and a score table"
+requires-python = ">=3.12"
+dependencies = ["openai"]

@@ -113,3 +113,7 @@ AGENTS.md
 
 # Vendored IDE runtime, fetched by scripts/ide-bundle.mjs
 frontend/vendor/
+
+# Python tools under scripts/
+__pycache__/
+.venv/

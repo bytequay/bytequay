@@ -27,12 +27,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param remoteHeadSha the remote head the run expects, which is also the attempt input
  */
-public record CiWorktreeRange(
-        Path worktree,
-        RepositoryIdentity repository,
-        String localBranch,
-        String baseSha,
-        String remoteHeadSha)
+public record CiWorktreeRange(Path worktree, RepositoryIdentity repository, String localBranch, String baseSha, String remoteHeadSha)
 {
     public CiWorktreeRange
     {

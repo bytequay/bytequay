@@ -89,18 +89,13 @@ public class CommitHistoryService
     }
 
     /** Fetches, enriches, and persists commits before returning. */
-    public CommitRefreshStatus refresh(
-            String workspaceId,
-            List<CommitHistoryRef> refs)
+    public CommitRefreshStatus refresh(String workspaceId, List<CommitHistoryRef> refs)
     {
         return refresher.refresh(workspaceId, validatedRefs(workspaceId, refs));
     }
 
     /** Refreshes only if no manual or scheduled attempt made this workspace fresh while queued. */
-    public CommitRefreshStatus refreshIfDue(
-            String workspaceId,
-            List<CommitHistoryRef> refs,
-            Instant staleBefore)
+    public CommitRefreshStatus refreshIfDue(String workspaceId, List<CommitHistoryRef> refs, Instant staleBefore)
     {
         requireNonNull(staleBefore, "staleBefore is null");
         return refresher.refreshIfDue(workspaceId, validatedRefs(workspaceId, refs), staleBefore);

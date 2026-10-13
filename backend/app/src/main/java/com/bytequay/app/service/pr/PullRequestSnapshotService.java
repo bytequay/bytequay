@@ -68,11 +68,7 @@ public class PullRequestSnapshotService
     private final PrDetailStore details;
     private final PrDiffStore diffs;
 
-    public PullRequestSnapshotService(
-            GitHubPullRequestReadClient gitHub,
-            GitHubActionsClient actions,
-            PrDetailStore details,
-            PrDiffStore diffs)
+    public PullRequestSnapshotService(GitHubPullRequestReadClient gitHub, GitHubActionsClient actions, PrDetailStore details, PrDiffStore diffs)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.actions = requireNonNull(actions, "actions is null");
@@ -154,11 +150,7 @@ public class PullRequestSnapshotService
         return storedDiff(prId, null, null).commits();
     }
 
-    DiffFileContent getFileContent(
-            long prId,
-            String path,
-            String baseSha,
-            String headSha)
+    DiffFileContent getFileContent(long prId, String path, String baseSha, String headSha)
     {
         requireNotBlank(path, "path");
         return Optional.ofNullable(storedDiff(prId, baseSha, headSha).fileContents().get(path))
@@ -271,12 +263,7 @@ public class PullRequestSnapshotService
                 new PrDiffEtags(files.etag(), commits.etag()));
     }
 
-    void refreshDiff(
-            String pat,
-            PullRequestRef pullRequest,
-            long prId,
-            String baseSha,
-            String headSha)
+    void refreshDiff(String pat, PullRequestRef pullRequest, long prId, String baseSha, String headSha)
     {
         validateRange(baseSha, headSha);
         if (baseSha == null) {
@@ -292,13 +279,7 @@ public class PullRequestSnapshotService
                         ImmutableList.of(), ImmutableMap.of(), Optional.of(baseSha), Optional.of(headSha), Optional.of(Instant.now())));
     }
 
-    void refreshFileContent(
-            String pat,
-            PullRequestRef pullRequest,
-            long prId,
-            String path,
-            String baseSha,
-            String headSha)
+    void refreshFileContent(String pat, PullRequestRef pullRequest, long prId, String path, String baseSha, String headSha)
     {
         requireNotBlank(path, "path");
         validateRange(baseSha, headSha);

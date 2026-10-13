@@ -78,8 +78,7 @@ public class JiraActivityLog
             record(saved, commented(comment.get()));
         }
         else if (!fields.isEmpty()) {
-            record(saved, new JiraActivity(JiraActivity.Kind.FIELDS_CHANGED, saved.updatedAt(), Optional.empty(), Optional.empty(), Optional.empty(),
-                    Optional.empty(), fields));
+            record(saved, new JiraActivity(JiraActivity.Kind.FIELDS_CHANGED, saved.updatedAt(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), fields));
         }
         else if (!withComments) {
             unexplained.put(key(saved), before.updatedAt());

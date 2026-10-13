@@ -49,8 +49,7 @@ public class WorkItemPublicationService
     private final JiraService jira;
     private final Clock clock;
 
-    public WorkItemPublicationService(WorkItemService work, WorkspaceStore workspaces, GitHubRepoClient github, CredentialService credentials,
-            JiraService jira, Clock clock)
+    public WorkItemPublicationService(WorkItemService work, WorkspaceStore workspaces, GitHubRepoClient github, CredentialService credentials, JiraService jira, Clock clock)
     {
         this.work = requireNonNull(work, "work is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");

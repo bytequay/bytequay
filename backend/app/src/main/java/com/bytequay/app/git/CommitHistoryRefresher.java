@@ -110,10 +110,7 @@ class CommitHistoryRefresher
         return withWorkspaceLock(workspaceId, () -> refreshLocked(workspaceId, refs));
     }
 
-    CommitRefreshStatus refreshIfDue(
-            String workspaceId,
-            Collection<CommitHistoryRef> refs,
-            Instant staleBefore)
+    CommitRefreshStatus refreshIfDue(String workspaceId, Collection<CommitHistoryRef> refs, Instant staleBefore)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(refs, "refs is null");
@@ -185,9 +182,7 @@ class CommitHistoryRefresher
         return synchronization;
     }
 
-    private static void validateRemoteSources(
-            Collection<CommitHistoryRef> refs,
-            WorkspaceCodeSyncResult synchronization)
+    private static void validateRemoteSources(Collection<CommitHistoryRef> refs, WorkspaceCodeSyncResult synchronization)
     {
         refs.stream()
                 .filter(ref -> ref.source() == Source.REMOTE)
@@ -199,18 +194,14 @@ class CommitHistoryRefresher
                 });
     }
 
-    private static List<ResolvedCommitHistoryRef> resolveRefs(
-            WorkspaceRepositoryContext context,
-            Collection<CommitHistoryRef> refs)
+    private static List<ResolvedCommitHistoryRef> resolveRefs(WorkspaceRepositoryContext context, Collection<CommitHistoryRef> refs)
     {
         return refs.stream()
                 .map(ref -> CommitHistoryRouting.resolve(context, ref))
                 .toList();
     }
 
-    private Collection<CommitEnrichment> enrichRefs(
-            WorkspaceRepositoryContext context,
-            Collection<ResolvedCommitHistoryRef> refs)
+    private Collection<CommitEnrichment> enrichRefs(WorkspaceRepositoryContext context, Collection<ResolvedCommitHistoryRef> refs)
     {
         String token = credentials.resolveGitHubToken();
         Instant now = clock.instant();
@@ -227,11 +218,7 @@ class CommitHistoryRefresher
         return updates.values();
     }
 
-    private List<CommitEnrichment> enrich(
-            WorkspaceRepositoryContext context,
-            ResolvedCommitHistoryRef ref,
-            String token,
-            Instant now)
+    private List<CommitEnrichment> enrich(WorkspaceRepositoryContext context, ResolvedCommitHistoryRef ref, String token, Instant now)
     {
         long repositoryId = ref.repositoryId().orElseThrow();
         RepoRef repository = ref.repository().orElseThrow();

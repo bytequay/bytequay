@@ -306,9 +306,7 @@ final class InteractiveAgentHttpContract
         }
     }
 
-    record UpdateDefaultsRequest(
-            long expectedVersion,
-            TaskDefaults defaults)
+    record UpdateDefaultsRequest(long expectedVersion, TaskDefaults defaults)
     {
         UpdateDefaultsRequest
         {
@@ -319,10 +317,7 @@ final class InteractiveAgentHttpContract
     }
 
     /** One change to a task: a person's title, or whether it sits on the archive shelf. Exactly one is given. */
-    record PatchTaskRequest(
-            long expectedVersion,
-            Optional<String> title,
-            Optional<Boolean> archived)
+    record PatchTaskRequest(long expectedVersion, Optional<String> title, Optional<Boolean> archived)
     {
         PatchTaskRequest
         {

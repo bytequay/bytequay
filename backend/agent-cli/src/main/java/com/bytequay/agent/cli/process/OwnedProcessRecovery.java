@@ -27,12 +27,7 @@ import static java.util.Objects.requireNonNull;
  * @param outcome fail-closed classification of the recorded launch
  * @param detail short operator-facing explanation without prompt text or credentials
  */
-public record OwnedProcessRecovery(
-        String launchId,
-        Optional<ProcessOwner> owner,
-        Optional<LaunchPhase> phase,
-        Outcome outcome,
-        String detail)
+public record OwnedProcessRecovery(String launchId, Optional<ProcessOwner> owner, Optional<LaunchPhase> phase, Outcome outcome, String detail)
 {
     public OwnedProcessRecovery
     {

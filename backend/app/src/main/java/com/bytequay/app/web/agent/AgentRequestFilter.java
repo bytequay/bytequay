@@ -64,10 +64,7 @@ public final class AgentRequestFilter
     }
 
     @Override
-    protected void doFilterInternal(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            FilterChain filterChain)
+    protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException
     {
         if (request.getHeader("Origin") != null) {
@@ -98,11 +95,7 @@ public final class AgentRequestFilter
         return request.getMethod().equals("GET") && request.getRequestURI().equals("/agent/providers/status");
     }
 
-    private void reject(
-            HttpServletRequest request,
-            HttpServletResponse response,
-            HttpStatus status,
-            String message)
+    private void reject(HttpServletRequest request, HttpServletResponse response, HttpStatus status, String message)
             throws IOException
     {
         response.setStatus(status.value());

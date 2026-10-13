@@ -57,12 +57,7 @@ final class GitHubPaginator
      * page one. Callers must withhold it when their stored copy spans more than
      * a page, or a change past page one is never seen.</p>
      */
-    <T> ConditionalList<T> paginateConditional(
-            String pat,
-            String pathTemplate,
-            ParameterizedTypeReference<List<T>> typeRef,
-            Optional<String> etag,
-            Object... uriVariables)
+    <T> ConditionalList<T> paginateConditional(String pat, String pathTemplate, ParameterizedTypeReference<List<T>> typeRef, Optional<String> etag, Object... uriVariables)
     {
         requireNonNull(etag, "etag is null");
         // GitHub can return the same row on adjacent pages while rows are created during the walk;
@@ -101,21 +96,12 @@ final class GitHubPaginator
         return new ConditionalList<>(Optional.of(ImmutableList.copyOf(seen)), responseEtag);
     }
 
-    <T> List<T> paginate(
-            String pat,
-            String pathTemplate,
-            ParameterizedTypeReference<List<T>> typeRef,
-            Object... uriVariables)
+    <T> List<T> paginate(String pat, String pathTemplate, ParameterizedTypeReference<List<T>> typeRef, Object... uriVariables)
     {
         return paginateConditional(pat, pathTemplate, typeRef, Optional.empty(), uriVariables).values().orElseThrow();
     }
 
-    <T> List<T> fetchPage(
-            String pat,
-            String pathTemplate,
-            ParameterizedTypeReference<List<T>> typeRef,
-            int page,
-            Object... uriVariables)
+    <T> List<T> fetchPage(String pat, String pathTemplate, ParameterizedTypeReference<List<T>> typeRef, int page, Object... uriVariables)
     {
         return translating(() -> {
             List<T> rows = get(gitHubRestClient, pat, u -> u.path(pathTemplate)

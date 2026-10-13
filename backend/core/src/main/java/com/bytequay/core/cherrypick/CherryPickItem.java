@@ -65,13 +65,7 @@ public record CherryPickItem(
         validate(disposition, result, targetSha);
     }
 
-    public static CherryPickItem planned(
-            int position,
-            String sourceSha,
-            String sourceParentSha,
-            String title,
-            Optional<PullRequestRefView> pullRequest,
-            Disposition disposition)
+    public static CherryPickItem planned(int position, String sourceSha, String sourceParentSha, String title, Optional<PullRequestRefView> pullRequest, Disposition disposition)
     {
         return new CherryPickItem(position, sourceSha, sourceParentSha, title, pullRequest, disposition, initialResult(disposition), Optional.empty(), ImmutableList.of(), 0);
     }

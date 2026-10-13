@@ -229,9 +229,7 @@ final class InMemoryAgentStores
     }
 
     @Override
-    public synchronized List<AgentTask> listPendingWorktreeCleanup(
-            AgentPermissionPolicy permissionPolicy,
-            Instant retryBefore)
+    public synchronized List<AgentTask> listPendingWorktreeCleanup(AgentPermissionPolicy permissionPolicy, Instant retryBefore)
     {
         return tasks.values().stream()
                 .filter(task -> task.state().terminal())
@@ -366,10 +364,7 @@ final class InMemoryAgentStores
     }
 
     @Override
-    public synchronized boolean resolve(
-            ApprovalId approvalId,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome)
+    public synchronized boolean resolve(ApprovalId approvalId, ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome)
     {
         if (approvalResolveFailure != null) {
             RuntimeException failure = approvalResolveFailure;

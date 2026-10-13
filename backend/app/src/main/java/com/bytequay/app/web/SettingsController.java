@@ -46,11 +46,7 @@ public class SettingsController
     private final ClaudeAccounts claudeAccounts;
     private final WorkspaceStore workspaces;
 
-    public SettingsController(
-            ModelSettingsService models,
-            AppSettingsService settings,
-            ClaudeAccounts claudeAccounts,
-            WorkspaceStore workspaces)
+    public SettingsController(ModelSettingsService models, AppSettingsService settings, ClaudeAccounts claudeAccounts, WorkspaceStore workspaces)
     {
         this.models = requireNonNull(models, "models is null");
         this.settings = requireNonNull(settings, "settings is null");

@@ -93,12 +93,7 @@ public class SqlitePrDiffStore
 
     @Override
     @Transactional
-    public void saveFileContent(
-            long prId,
-            String baseSha,
-            String headSha,
-            String path,
-            DiffFileContent content)
+    public void saveFileContent(long prId, String baseSha, String headSha, String path, DiffFileContent content)
     {
         requireNonNull(path, "path is null");
         requireNonNull(content, "content is null");

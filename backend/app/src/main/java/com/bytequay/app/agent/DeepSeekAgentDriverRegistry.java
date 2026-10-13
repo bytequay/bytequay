@@ -42,10 +42,7 @@ final class DeepSeekAgentDriverRegistry
     private final Function<ModelApiKey, AgentDriver> createDriver;
     private final ConcurrentMap<String, AgentDriver> keyDrivers = new ConcurrentHashMap<>();
 
-    DeepSeekAgentDriverRegistry(
-            AgentDriverRegistry cliDrivers,
-            ModelApiKeyStore keys,
-            Function<ModelApiKey, AgentDriver> createDriver)
+    DeepSeekAgentDriverRegistry(AgentDriverRegistry cliDrivers, ModelApiKeyStore keys, Function<ModelApiKey, AgentDriver> createDriver)
     {
         this.cliDrivers = requireNonNull(cliDrivers, "cliDrivers is null");
         this.keys = requireNonNull(keys, "keys is null");

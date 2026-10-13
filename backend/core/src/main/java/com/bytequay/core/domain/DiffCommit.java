@@ -17,12 +17,7 @@ import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
 
-public record DiffCommit(
-        String sha,
-        String parentSha,
-        String message,
-        String author,
-        Instant authoredAt)
+public record DiffCommit(String sha, String parentSha, String message, String author, Instant authoredAt)
 {
     public DiffCommit
     {

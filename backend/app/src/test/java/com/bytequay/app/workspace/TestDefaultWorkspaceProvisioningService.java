@@ -333,9 +333,7 @@ class TestDefaultWorkspaceProvisioningService
                 .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("REPOSITORY_ROUTING_INVALID"));
     }
 
-    private DefaultWorkspaceProvisioningService service(
-            WorkspaceStore store,
-            GitCommandRunner git)
+    private DefaultWorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git)
     {
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
@@ -344,19 +342,12 @@ class TestDefaultWorkspaceProvisioningService
         return service(store, git, gitHub);
     }
 
-    private DefaultWorkspaceProvisioningService service(
-            WorkspaceStore store,
-            GitCommandRunner git,
-            GitHubAccountClient gitHub)
+    private DefaultWorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub)
     {
         return service(store, git, gitHub, new InMemoryRemoteSourceStore());
     }
 
-    private DefaultWorkspaceProvisioningService service(
-            WorkspaceStore store,
-            GitCommandRunner git,
-            GitHubAccountClient gitHub,
-            InMemoryRemoteSourceStore remoteSources)
+    private DefaultWorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub, InMemoryRemoteSourceStore remoteSources)
     {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");

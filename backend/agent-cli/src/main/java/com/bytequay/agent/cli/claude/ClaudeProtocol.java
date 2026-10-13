@@ -226,10 +226,7 @@ final class ClaudeProtocol
         }
     }
 
-    record RateLimitMessage(
-            @JsonProperty("rate_limit_info") RateLimitInfo rateLimitInfo,
-            @JsonProperty("session_id") String sessionIdValue,
-            Optional<String> uuid)
+    record RateLimitMessage(@JsonProperty("rate_limit_info") RateLimitInfo rateLimitInfo, @JsonProperty("session_id") String sessionIdValue, Optional<String> uuid)
             implements Message
     {
         RateLimitMessage
@@ -300,10 +297,7 @@ final class ClaudeProtocol
     record UnknownMessage()
             implements Message {}
 
-    record CommandLifecycleMessage(
-            @JsonProperty("command_uuid") String commandId,
-            String state,
-            @JsonProperty("session_id") String sessionIdValue)
+    record CommandLifecycleMessage(@JsonProperty("command_uuid") String commandId, String state, @JsonProperty("session_id") String sessionIdValue)
             implements Message
     {
         CommandLifecycleMessage
@@ -360,10 +354,7 @@ final class ClaudeProtocol
         }
     }
 
-    record ToolResultBlock(
-            @JsonProperty("tool_use_id") String toolUseId,
-            JsonNode content,
-            @JsonProperty("is_error") boolean error)
+    record ToolResultBlock(@JsonProperty("tool_use_id") String toolUseId, JsonNode content, @JsonProperty("is_error") boolean error)
             implements ContentBlock
     {
         ToolResultBlock
@@ -424,9 +415,7 @@ final class ClaudeProtocol
         }
     }
 
-    record BackgroundTask(
-            @JsonProperty("task_id") String taskId,
-            @JsonProperty("task_type") Optional<String> taskType)
+    record BackgroundTask(@JsonProperty("task_id") String taskId, @JsonProperty("task_type") Optional<String> taskType)
     {
         BackgroundTask
         {

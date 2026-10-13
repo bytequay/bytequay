@@ -19,14 +19,7 @@ import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static java.util.Objects.requireNonNull;
 
 /** The accepted destination; later workspace changes cannot silently reroute publication. */
-public record DevelopmentPublicationRoute(
-        RepoRef headRepository,
-        RepoRef baseRepository,
-        String pushUrl,
-        String sourceRemote,
-        String baseBranch,
-        String baseSha,
-        String headBranch)
+public record DevelopmentPublicationRoute(RepoRef headRepository, RepoRef baseRepository, String pushUrl, String sourceRemote, String baseBranch, String baseSha, String headBranch)
 {
     public DevelopmentPublicationRoute
     {

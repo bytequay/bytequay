@@ -48,18 +48,12 @@ public interface PullRequestJpaRepository
 
     @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) AND e.workspaceVisible = true "
             + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
-    Page<PullRequestEntity> searchWorkspacePage(
-            @Param("repo") String repo,
-            @Param("search") String search,
-            @Param("number") Integer number,
-            Pageable pageable);
+    Page<PullRequestEntity> searchWorkspacePage(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number, Pageable pageable);
 
     @Query("SELECT e FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) "
             + "AND e.workspaceVisible = true "
             + "AND (e.workspaceSyncMarker IS NULL OR e.workspaceSyncMarker <> :syncMarker)")
-    List<PullRequestEntity> findWorkspaceRowsMissingSync(
-            @Param("repo") String repo,
-            @Param("syncMarker") String syncMarker);
+    List<PullRequestEntity> findWorkspaceRowsMissingSync(@Param("repo") String repo, @Param("syncMarker") String syncMarker);
 
     @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE "
             + "((e.dashboardVisible = true OR e.dashboardVisible IS NULL OR e.monitoredAt IS NOT NULL) "
@@ -75,10 +69,7 @@ public interface PullRequestJpaRepository
     @Query("SELECT COUNT(e) FROM PullRequestEntity e WHERE LOWER(e.repo) = LOWER(:repo) "
             + "AND e.workspaceVisible = true AND (e.state IS NULL OR e.state = 'open') "
             + "AND (LOWER(e.title) LIKE CONCAT('%', CONCAT(LOWER(:search), '%')) OR e.number = :number)")
-    long countOpenWorkspaceSearch(
-            @Param("repo") String repo,
-            @Param("search") String search,
-            @Param("number") Integer number);
+    long countOpenWorkspaceSearch(@Param("repo") String repo, @Param("search") String search, @Param("number") Integer number);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE PullRequestEntity e SET e.dashboardVisible = false "
@@ -90,9 +81,7 @@ public interface PullRequestJpaRepository
             + "AND e.syncedAt < :retentionCutoff)) "
             + "AND e.id NOT IN (SELECT state.prId FROM PrViewStateEntity state "
             + "WHERE state.reviewedAt > :retentionCutoff)")
-    int hideStaleDashboardRows(
-            @Param("syncMarker") String syncMarker,
-            @Param("retentionCutoff") Instant retentionCutoff);
+    int hideStaleDashboardRows(@Param("syncMarker") String syncMarker, @Param("retentionCutoff") Instant retentionCutoff);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("UPDATE PullRequestEntity e SET e.origin = 'OTHER' WHERE e.origin = 'AUTHORED' "

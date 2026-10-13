@@ -80,10 +80,7 @@ public class TaskCodeController
     }
 
     @PutMapping("/file")
-    public ReviewCodeHttpModels.FileResponse save(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestBody ReviewCodeHttpModels.SaveFileRequest request)
+    public ReviewCodeHttpModels.FileResponse save(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody ReviewCodeHttpModels.SaveFileRequest request)
     {
         return ReviewCodeHttpModels.file(code.save(new TaskCodeHost(workspaceId, taskId), request.path(), request.content(), request.expectedHash()));
     }
@@ -104,10 +101,7 @@ public class TaskCodeController
     }
 
     @PostMapping("/runs/{runId}/stop")
-    public ReviewCodeHttpModels.RunResponse stopRun(
-            @PathVariable String taskId,
-            @PathVariable String runId,
-            @RequestParam String workspaceId)
+    public ReviewCodeHttpModels.RunResponse stopRun(@PathVariable String taskId, @PathVariable String runId, @RequestParam String workspaceId)
     {
         return ReviewCodeHttpModels.run(localRuns.stop(new TaskCodeHost(workspaceId, taskId), runId));
     }

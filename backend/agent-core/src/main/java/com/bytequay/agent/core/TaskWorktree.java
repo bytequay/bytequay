@@ -20,13 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Immutable ownership facts for one verified ByteQuay-generated worktree. */
-public record TaskWorktree(
-        TaskId taskId,
-        String workspaceId,
-        RepositoryIdentity physicalRepository,
-        Path canonicalWorktree,
-        String generatedBranch,
-        String startCommit)
+public record TaskWorktree(TaskId taskId, String workspaceId, RepositoryIdentity physicalRepository, Path canonicalWorktree, String generatedBranch, String startCommit)
 {
     public TaskWorktree
     {

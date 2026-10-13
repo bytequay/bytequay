@@ -21,12 +21,7 @@ import static java.util.Objects.requireNonNull;
  * @param patch unified diff hunks for this file; {@code null} for binary or
  *              renamed-without-content-change files
  */
-public record DiffFile(
-        String filename,
-        String status,
-        int additions,
-        int deletions,
-        String patch)
+public record DiffFile(String filename, String status, int additions, int deletions, String patch)
 {
     public DiffFile
     {

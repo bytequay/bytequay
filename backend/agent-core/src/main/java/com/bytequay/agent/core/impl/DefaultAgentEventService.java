@@ -60,11 +60,7 @@ public final class DefaultAgentEventService
     private final Clock clock;
     private final ConcurrentMap<TaskId, TaskChannel> channels = new ConcurrentHashMap<>();
 
-    public DefaultAgentEventService(
-            TaskLogStore logStore,
-            AgentEventOutboxStore outboxStore,
-            AgentTaskStore taskStore,
-            Clock clock)
+    public DefaultAgentEventService(TaskLogStore logStore, AgentEventOutboxStore outboxStore, AgentTaskStore taskStore, Clock clock)
     {
         this.logStore = requireNonNull(logStore, "logStore is null");
         this.outboxStore = requireNonNull(outboxStore, "outboxStore is null");
@@ -387,13 +383,7 @@ public final class DefaultAgentEventService
         private boolean cancelled;
         private boolean draining;
 
-        private EventSubscription(
-                Flow.Subscriber<? super AgentEventEnvelope> subscriber,
-                TaskChannel channel,
-                TaskId taskId,
-                long cursor,
-                long availableThrough,
-                boolean terminal)
+        private EventSubscription(Flow.Subscriber<? super AgentEventEnvelope> subscriber, TaskChannel channel, TaskId taskId, long cursor, long availableThrough, boolean terminal)
         {
             this.subscriber = subscriber;
             this.channel = channel;

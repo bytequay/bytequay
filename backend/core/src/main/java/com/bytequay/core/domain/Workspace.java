@@ -100,9 +100,7 @@ public record Workspace(
                 lastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
     }
 
-    public Workspace withCodeSyncAt(
-            Optional<Instant> nextLastCodeSyncAt,
-            Instant now)
+    public Workspace withCodeSyncAt(Optional<Instant> nextLastCodeSyncAt, Instant now)
     {
         return new Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,
@@ -111,9 +109,7 @@ public record Workspace(
                 nextLastCodeSyncAt, lastMetadataSyncAt, displayOrder, createdAt, now);
     }
 
-    public Workspace withMetadataSyncAt(
-            Optional<Instant> nextLastMetadataSyncAt,
-            Instant now)
+    public Workspace withMetadataSyncAt(Optional<Instant> nextLastMetadataSyncAt, Instant now)
     {
         return new Workspace(
                 id, name, selectedRepositoryId, selectedRepository, upstreamRepositoryId,

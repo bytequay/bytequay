@@ -507,20 +507,12 @@ class TestAgentMaintenance
         return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
     }
 
-    private static AgentMaintenance maintenance(
-            InMemoryAgentStores stores,
-            RecordingApprovals approvals,
-            RecordingCompletion completion,
-            Instant now)
+    private static AgentMaintenance maintenance(InMemoryAgentStores stores, RecordingApprovals approvals, RecordingCompletion completion, Instant now)
     {
         return maintenance(stores, approvals, completion, Clock.fixed(now, ZoneOffset.UTC));
     }
 
-    private static AgentMaintenance maintenance(
-            InMemoryAgentStores stores,
-            RecordingApprovals approvals,
-            RecordingCompletion completion,
-            Clock clock)
+    private static AgentMaintenance maintenance(InMemoryAgentStores stores, RecordingApprovals approvals, RecordingCompletion completion, Clock clock)
     {
         return new AgentMaintenance(
                 stores,

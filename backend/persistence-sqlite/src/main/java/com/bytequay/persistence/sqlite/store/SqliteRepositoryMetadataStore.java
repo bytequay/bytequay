@@ -92,11 +92,7 @@ public class SqliteRepositoryMetadataStore
 
     @Override
     @Transactional
-    public void upsertContributors(
-            long repositoryId,
-            RepoRef repositoryRef,
-            List<RepositoryContributor> contributors,
-            Instant syncedAt)
+    public void upsertContributors(long repositoryId, RepoRef repositoryRef, List<RepositoryContributor> contributors, Instant syncedAt)
     {
         requireNonNull(contributors, "contributors is null");
         RepositoryMetadataEntity entity = entity(repositoryId, repositoryRef);
@@ -110,11 +106,7 @@ public class SqliteRepositoryMetadataStore
 
     @Override
     @Transactional
-    public void replacePickerUsers(
-            long repositoryId,
-            RepoRef repositoryRef,
-            List<RepositoryPickerUser> pickerUsers,
-            Instant syncedAt)
+    public void replacePickerUsers(long repositoryId, RepoRef repositoryRef, List<RepositoryPickerUser> pickerUsers, Instant syncedAt)
     {
         requireNonNull(pickerUsers, "pickerUsers is null");
         RepositoryMetadataEntity entity = entity(repositoryId, repositoryRef);
@@ -125,12 +117,7 @@ public class SqliteRepositoryMetadataStore
 
     @Override
     @Transactional
-    public void upsertLabelsAndTopics(
-            long repositoryId,
-            RepoRef repositoryRef,
-            List<RepositoryLabel> labels,
-            List<String> topics,
-            Instant syncedAt)
+    public void upsertLabelsAndTopics(long repositoryId, RepoRef repositoryRef, List<RepositoryLabel> labels, List<String> topics, Instant syncedAt)
     {
         requireNonNull(labels, "labels is null");
         requireNonNull(topics, "topics is null");

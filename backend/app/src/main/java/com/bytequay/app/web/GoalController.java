@@ -197,8 +197,7 @@ public class GoalController
      * on its card.
      */
     @PostMapping("/{goalId}/lessons/{lessonId}")
-    public GoalLesson openLesson(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String lessonId,
-            @RequestParam(defaultValue = "false") boolean again)
+    public GoalLesson openLesson(@PathVariable String workspaceId, @PathVariable String goalId, @PathVariable String lessonId, @RequestParam(defaultValue = "false") boolean again)
     {
         return again ? lessons.writeAgain(workspaceId, goalId, lessonId) : lessons.open(workspaceId, goalId, lessonId);
     }

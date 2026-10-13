@@ -20,9 +20,7 @@ import java.time.Instant;
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record GitHubCheckRunsResponse(
-        @JsonProperty("total_count") int totalCount,
-        @JsonProperty("check_runs") List<CheckRun> checkRuns)
+public record GitHubCheckRunsResponse(@JsonProperty("total_count") int totalCount, @JsonProperty("check_runs") List<CheckRun> checkRuns)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CheckRun(

@@ -22,11 +22,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** A bounded ascending event window with adjacent byte cursors and its live sequence watermark. */
-public record AgentHistoryPage(
-        List<AgentEventEnvelope> events,
-        OptionalLong beforeCursor,
-        OptionalLong afterCursor,
-        long latestSequence)
+public record AgentHistoryPage(List<AgentEventEnvelope> events, OptionalLong beforeCursor, OptionalLong afterCursor, long latestSequence)
 {
     public AgentHistoryPage
     {

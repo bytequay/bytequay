@@ -175,8 +175,7 @@ public record ContextBuild(
      *
      * @param githubId GitHub's id of the thread or note, remembered once the harvest finishes so a later harvest skips it
      */
-    public record HarvestThread(String githubId, int pull, MemorySource.Part part, Optional<String> path, boolean resolved, boolean outdated,
-            List<HarvestNote> notes)
+    public record HarvestThread(String githubId, int pull, MemorySource.Part part, Optional<String> path, boolean resolved, boolean outdated, List<HarvestNote> notes)
     {
         public HarvestThread
         {

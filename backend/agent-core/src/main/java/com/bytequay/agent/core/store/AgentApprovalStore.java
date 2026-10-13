@@ -30,10 +30,7 @@ public interface AgentApprovalStore
     Optional<AgentApproval> find(ApprovalId approvalId);
 
     /** Resolves only a still-pending row and returns whether this call won. */
-    boolean resolve(
-            ApprovalId approvalId,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome);
+    boolean resolve(ApprovalId approvalId, ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome);
 
     List<AgentApproval> listPending(TurnId turnId);
 

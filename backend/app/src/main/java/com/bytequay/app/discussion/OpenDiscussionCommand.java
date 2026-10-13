@@ -22,13 +22,7 @@ import static java.util.Objects.requireNonNull;
  * @param occurrence which appearance of the quote in that answer the reader highlighted, 1-based;
  *         refused below 1, so a body omitting the field cannot silently mean the first
  */
-public record OpenDiscussionCommand(
-        String workspaceId,
-        String taskId,
-        String turnId,
-        String quote,
-        int occurrence,
-        String question)
+public record OpenDiscussionCommand(String workspaceId, String taskId, String turnId, String quote, int occurrence, String question)
 {
     public OpenDiscussionCommand
     {

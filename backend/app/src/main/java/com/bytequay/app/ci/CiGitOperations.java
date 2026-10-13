@@ -238,12 +238,7 @@ public final class CiGitOperations
         }
     }
 
-    private CiPushResult reconcilePush(
-            Path worktree,
-            String remoteName,
-            String headRef,
-            PushJournal journal,
-            Result push)
+    private CiPushResult reconcilePush(Path worktree, String remoteName, String headRef, PushJournal journal, Result push)
     {
         Optional<String> remote = remoteHead(worktree, remoteName, headRef);
         if (remote.isEmpty()) {
@@ -444,11 +439,7 @@ public final class CiGitOperations
         return result.output();
     }
 
-    static List<String> pushArguments(
-            String remote,
-            String headRef,
-            String expectedRemoteSha,
-            boolean descendant)
+    static List<String> pushArguments(String remote, String headRef, String expectedRemoteSha, boolean descendant)
     {
         ImmutableList.Builder<String> arguments = ImmutableList.builder();
         arguments.add("push", "--porcelain");
@@ -460,10 +451,7 @@ public final class CiGitOperations
                 .build();
     }
 
-    private void validateRemote(
-            Path worktree,
-            String remote,
-            RepositoryIdentity expectedRepository)
+    private void validateRemote(Path worktree, String remote, RepositoryIdentity expectedRepository)
     {
         String configuredUrl = requiredOutput(worktree, "config", "--get-all", "remote." + remote + ".url");
         Result pushUrls = runner.run(worktree, "config", "--get-all", "remote." + remote + ".pushurl");

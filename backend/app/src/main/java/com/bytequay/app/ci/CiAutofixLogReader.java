@@ -49,9 +49,7 @@ final class CiAutofixLogReader
     private final GitHubActionsClient gitHub;
     private final AgentEventService eventService;
 
-    CiAutofixLogReader(
-            GitHubActionsClient gitHub,
-            AgentEventService eventService)
+    CiAutofixLogReader(GitHubActionsClient gitHub, AgentEventService eventService)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.eventService = requireNonNull(eventService, "eventService is null");

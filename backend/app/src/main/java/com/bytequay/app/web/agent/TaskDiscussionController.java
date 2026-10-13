@@ -66,22 +66,19 @@ public class TaskDiscussionController
     }
 
     @PostMapping("/agent/tasks/{taskId}/discussions/{id}/messages")
-    public TaskDiscussionView ask(@PathVariable String taskId, @PathVariable String id,
-            @RequestParam String workspaceId, @RequestBody Ask request)
+    public TaskDiscussionView ask(@PathVariable String taskId, @PathVariable String id, @RequestParam String workspaceId, @RequestBody Ask request)
     {
         return discussions.ask(new AskDiscussionCommand(workspaceId, taskId, id, request.question()));
     }
 
     @PostMapping("/agent/tasks/{taskId}/discussions/{id}/messages/{messageId}/retry")
-    public TaskDiscussionView retry(@PathVariable String taskId, @PathVariable String id,
-            @PathVariable String messageId, @RequestParam String workspaceId)
+    public TaskDiscussionView retry(@PathVariable String taskId, @PathVariable String id, @PathVariable String messageId, @RequestParam String workspaceId)
     {
         return discussions.retry(workspaceId, taskId, id, messageId);
     }
 
     @PatchMapping("/agent/tasks/{taskId}/discussions/{id}")
-    public TaskDiscussionView resolve(@PathVariable String taskId, @PathVariable String id,
-            @RequestParam String workspaceId, @RequestBody Resolve request)
+    public TaskDiscussionView resolve(@PathVariable String taskId, @PathVariable String id, @RequestParam String workspaceId, @RequestBody Resolve request)
     {
         return discussions.resolve(workspaceId, taskId, id, request.resolved(), request.expectedVersion());
     }

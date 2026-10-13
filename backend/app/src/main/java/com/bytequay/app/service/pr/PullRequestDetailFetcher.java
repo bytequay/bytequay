@@ -67,9 +67,7 @@ class PullRequestDetailFetcher
     private final GitHubPullRequestReadClient gitHub;
     private final Executor ioExecutor;
 
-    PullRequestDetailFetcher(
-            GitHubPullRequestReadClient gitHub,
-            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
+    PullRequestDetailFetcher(GitHubPullRequestReadClient gitHub, @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
@@ -136,11 +134,7 @@ class PullRequestDetailFetcher
         }
     }
 
-    private <T> ListenableFuture<SourceItems<T>> fetchOptionalListAsync(
-            String name,
-            String section,
-            PullRequestRef ref,
-            Supplier<List<T>> task)
+    private <T> ListenableFuture<SourceItems<T>> fetchOptionalListAsync(String name, String section, PullRequestRef ref, Supplier<List<T>> task)
     {
         return submit(() -> {
             try {

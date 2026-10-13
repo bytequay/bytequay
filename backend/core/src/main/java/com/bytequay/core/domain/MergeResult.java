@@ -24,11 +24,7 @@ package com.bytequay.core.domain;
  * <p>The 3-arg constructor represents an immediate merge and defaults
  * the queue flag to {@code false}.
  */
-public record MergeResult(
-        String sha,
-        boolean merged,
-        String message,
-        boolean queued)
+public record MergeResult(String sha, boolean merged, String message, boolean queued)
 {
     public MergeResult(String sha, boolean merged, String message)
     {

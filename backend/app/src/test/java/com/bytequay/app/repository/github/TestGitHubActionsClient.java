@@ -953,12 +953,7 @@ class TestGitHubActionsClient
                 .toList();
     }
 
-    private static void expectSingleHead(
-            Fixture fixture,
-            String runStatus,
-            String runConclusion,
-            String jobStatus,
-            String jobConclusion)
+    private static void expectSingleHead(Fixture fixture, String runStatus, String runConclusion, String jobStatus, String jobConclusion)
     {
         expectPullRequest(fixture);
         fixture.apiServer.expect(requestTo(runsUrl(1)))
@@ -1097,12 +1092,7 @@ class TestGitHubActionsClient
         return new BlobRef("blobs/ci-log", mediaType, bytes.length);
     }
 
-    private record Fixture(
-            GitHubActionsClient client,
-            MockRestServiceServer apiServer,
-            MockRestServiceServer logServer,
-            AtomicReference<byte[]> stored,
-            CiRawLogStore rawLogs)
+    private record Fixture(GitHubActionsClient client, MockRestServiceServer apiServer, MockRestServiceServer logServer, AtomicReference<byte[]> stored, CiRawLogStore rawLogs)
     {
         private void verify()
         {

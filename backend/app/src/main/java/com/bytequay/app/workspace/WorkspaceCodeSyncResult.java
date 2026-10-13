@@ -23,11 +23,7 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /** Result of fetching a managed repository's configured remotes. */
-public record WorkspaceCodeSyncResult(
-        String workspaceId,
-        boolean successful,
-        Optional<Instant> lastCodeSyncAt,
-        Set<String> failedRemoteSources)
+public record WorkspaceCodeSyncResult(String workspaceId, boolean successful, Optional<Instant> lastCodeSyncAt, Set<String> failedRemoteSources)
 {
     public WorkspaceCodeSyncResult
     {
@@ -36,10 +32,7 @@ public record WorkspaceCodeSyncResult(
         failedRemoteSources = ImmutableSet.copyOf(requireNonNull(failedRemoteSources, "failedRemoteSources is null"));
     }
 
-    public WorkspaceCodeSyncResult(
-            String workspaceId,
-            boolean successful,
-            Optional<Instant> lastCodeSyncAt)
+    public WorkspaceCodeSyncResult(String workspaceId, boolean successful, Optional<Instant> lastCodeSyncAt)
     {
         this(workspaceId, successful, lastCodeSyncAt, ImmutableSet.of());
     }

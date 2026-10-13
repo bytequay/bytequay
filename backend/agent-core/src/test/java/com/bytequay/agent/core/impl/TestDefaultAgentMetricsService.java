@@ -204,12 +204,7 @@ class TestDefaultAgentMetricsService
         return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
     }
 
-    private static ProviderUsageSample cumulative(
-            String eventId,
-            long inputTokens,
-            long cachedInputTokens,
-            long outputTokens,
-            String cost)
+    private static ProviderUsageSample cumulative(String eventId, long inputTokens, long cachedInputTokens, long outputTokens, String cost)
     {
         return sample(eventId, ProviderUsageSample.Semantics.CUMULATIVE, inputTokens, cachedInputTokens, outputTokens, cost);
     }
@@ -225,13 +220,7 @@ class TestDefaultAgentMetricsService
                 Optional.empty());
     }
 
-    private static ProviderUsageSample sample(
-            String eventId,
-            ProviderUsageSample.Semantics semantics,
-            long inputTokens,
-            long cachedInputTokens,
-            long outputTokens,
-            String cost)
+    private static ProviderUsageSample sample(String eventId, ProviderUsageSample.Semantics semantics, long inputTokens, long cachedInputTokens, long outputTokens, String cost)
     {
         return new ProviderUsageSample(Optional.of(eventId), semantics, inputTokens, cachedInputTokens, outputTokens, Optional.of(new BigDecimal(cost)));
     }

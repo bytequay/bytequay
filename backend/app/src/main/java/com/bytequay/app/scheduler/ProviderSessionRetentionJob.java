@@ -47,9 +47,7 @@ public class ProviderSessionRetentionJob
     private final AgentProperties properties;
     private final Duration retention;
 
-    public ProviderSessionRetentionJob(
-            AgentProperties properties,
-            @Value("${bytequay.agent.session-retention-days:30}") int retentionDays)
+    public ProviderSessionRetentionJob(AgentProperties properties, @Value("${bytequay.agent.session-retention-days:30}") int retentionDays)
     {
         this.properties = requireNonNull(properties, "properties is null");
         checkArgument(retentionDays >= 1, "session-retention-days must be at least one day");

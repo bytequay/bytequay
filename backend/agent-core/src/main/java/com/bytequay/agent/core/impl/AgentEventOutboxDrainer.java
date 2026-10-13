@@ -26,10 +26,7 @@ final class AgentEventOutboxDrainer
 
     private AgentEventOutboxDrainer() {}
 
-    static void drainPending(
-            AgentEventOutboxStore outboxStore,
-            AgentEventService eventService,
-            TaskId taskId)
+    static void drainPending(AgentEventOutboxStore outboxStore, AgentEventService eventService, TaskId taskId)
     {
         while (true) {
             List<AgentEventOutboxEntry> pending = outboxStore.listPending(taskId, BATCH_SIZE);

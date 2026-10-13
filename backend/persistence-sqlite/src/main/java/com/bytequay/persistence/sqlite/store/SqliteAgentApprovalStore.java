@@ -64,10 +64,7 @@ public class SqliteAgentApprovalStore
 
     @Override
     @Transactional
-    public boolean resolve(
-            ApprovalId approvalId,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome)
+    public boolean resolve(ApprovalId approvalId, ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome)
     {
         requireNonNull(approvalId, "approvalId is null");
         requireNonNull(decision, "decision is null");

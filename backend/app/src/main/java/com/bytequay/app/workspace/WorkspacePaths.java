@@ -31,8 +31,7 @@ public final class WorkspacePaths
 
     private final Path root;
 
-    public WorkspacePaths(
-            @Value("${bytequay.workspace.root:${java.io.tmpdir}/bytequay-workspaces}") String root)
+    public WorkspacePaths(@Value("${bytequay.workspace.root:${java.io.tmpdir}/bytequay-workspaces}") String root)
     {
         this.root = Path.of(requireNonNull(root, "root is null")).toAbsolutePath().normalize();
     }

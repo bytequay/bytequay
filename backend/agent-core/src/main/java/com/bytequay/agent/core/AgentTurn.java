@@ -112,12 +112,7 @@ public record AgentTurn(
                 "cancellationRequestedAt is before createdAt");
     }
 
-    public static AgentTurn accepted(
-            TurnId id,
-            TaskId taskId,
-            String idempotencyKey,
-            AgentTurnSettings settings,
-            Instant now)
+    public static AgentTurn accepted(TurnId id, TaskId taskId, String idempotencyKey, AgentTurnSettings settings, Instant now)
     {
         return new AgentTurn(
                 id,
@@ -191,21 +186,12 @@ public record AgentTurn(
         return copy(state, version, startedAt, endedAt, Optional.of(now), providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
-    public AgentTurn finish(
-            TurnState terminalState,
-            AgentMetrics finalMetrics,
-            Optional<String> reason,
-            Instant now)
+    public AgentTurn finish(TurnState terminalState, AgentMetrics finalMetrics, Optional<String> reason, Instant now)
     {
         return finish(terminalState, finalMetrics, reason, Optional.empty(), now, false);
     }
 
-    public AgentTurn finish(
-            TurnState terminalState,
-            AgentMetrics finalMetrics,
-            Optional<String> reason,
-            Optional<AgentTurnFailureKind> updatedFailureKind,
-            Instant now)
+    public AgentTurn finish(TurnState terminalState, AgentMetrics finalMetrics, Optional<String> reason, Optional<AgentTurnFailureKind> updatedFailureKind, Instant now)
     {
         return finish(terminalState, finalMetrics, reason, updatedFailureKind, now, false);
     }

@@ -78,18 +78,14 @@ public class RecentController
 
     /** Items mode. An empty query answers with the most recently touched items. */
     @GetMapping("/recent/search")
-    public List<RecentRow> search(
-            @RequestParam(required = false) String q,
-            @RequestParam(defaultValue = "" + DEFAULT_SEARCH_LIMIT) int limit)
+    public List<RecentRow> search(@RequestParam(required = false) String q, @RequestParam(defaultValue = "" + DEFAULT_SEARCH_LIMIT) int limit)
     {
         return recent.search(q, Math.min(limit, MAX_LIMIT));
     }
 
     /** Words mode. */
     @GetMapping("/recent/words")
-    public List<RecentWordHit> words(
-            @RequestParam(required = false) String q,
-            @RequestParam(defaultValue = "" + DEFAULT_SEARCH_LIMIT) int limit)
+    public List<RecentWordHit> words(@RequestParam(required = false) String q, @RequestParam(defaultValue = "" + DEFAULT_SEARCH_LIMIT) int limit)
     {
         return recent.words(q, Math.min(limit, MAX_LIMIT));
     }

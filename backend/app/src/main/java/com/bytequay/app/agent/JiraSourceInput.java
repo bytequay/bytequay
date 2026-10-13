@@ -24,8 +24,7 @@ import static java.util.Objects.requireNonNull;
  *
  * @param replaces the ticket's ended attempt that Start another attempt replaces; without it, the ticket's current task opens
  */
-public record JiraSourceInput(String connectionId, String cloudId, String issueId, String key, String title, String body, Instant updatedAt,
-        Optional<String> replaces)
+public record JiraSourceInput(String connectionId, String cloudId, String issueId, String key, String title, String body, Instant updatedAt, Optional<String> replaces)
 {
     public JiraSourceInput
     {

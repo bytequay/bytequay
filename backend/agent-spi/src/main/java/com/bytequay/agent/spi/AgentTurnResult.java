@@ -28,12 +28,7 @@ public record AgentTurnResult(
         boolean providerQuiescent,
         Optional<AgentTurnFailureKind> failureKind)
 {
-    public AgentTurnResult(
-            State state,
-            Optional<String> finalResponse,
-            Optional<String> terminalReason,
-            Duration elapsed,
-            boolean providerQuiescent)
+    public AgentTurnResult(State state, Optional<String> finalResponse, Optional<String> terminalReason, Duration elapsed, boolean providerQuiescent)
     {
         this(state, finalResponse, terminalReason, elapsed, providerQuiescent, Optional.empty());
     }

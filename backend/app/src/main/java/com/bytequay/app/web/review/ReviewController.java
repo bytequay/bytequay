@@ -111,10 +111,7 @@ public class ReviewController
     }
 
     @GetMapping(params = {"repo", "number"})
-    public ResponseEntity<ReviewHttpModels.ReviewResponse> find(
-            @RequestParam String workspaceId,
-            @RequestParam String repo,
-            @RequestParam int number)
+    public ResponseEntity<ReviewHttpModels.ReviewResponse> find(@RequestParam String workspaceId, @RequestParam String repo, @RequestParam int number)
     {
         PullRequestRefUtil.parseRef(repo, number);
         return reviews.find(workspaceId, repo, number)
@@ -178,9 +175,7 @@ public class ReviewController
 
     /** Retries provider cleanup without ending the review or replaying its interrupted input. */
     @PostMapping("/{reviewId}/runtime/stop")
-    public ReviewHttpModels.ReviewResponse stopRuntime(
-            @PathVariable String reviewId,
-            @RequestBody ReviewHttpModels.StopRuntimeRequest request)
+    public ReviewHttpModels.ReviewResponse stopRuntime(@PathVariable String reviewId, @RequestBody ReviewHttpModels.StopRuntimeRequest request)
     {
         requireNotBlank(request.generation(), "generation must not be blank");
         AgentTask task = reviews.task(reviewId);
@@ -219,9 +214,7 @@ public class ReviewController
     }
 
     @PostMapping("/{reviewId}/questions")
-    public ReviewHttpModels.ReviewResponse ask(
-            @PathVariable String reviewId,
-            @RequestBody ReviewHttpModels.AskRequest request)
+    public ReviewHttpModels.ReviewResponse ask(@PathVariable String reviewId, @RequestBody ReviewHttpModels.AskRequest request)
     {
         requireNotBlank(request.message(), "message must not be blank");
         reviews.ask(
@@ -264,19 +257,14 @@ public class ReviewController
     }
 
     @PostMapping("/{reviewId}/queue/{queuedInputId}/steer")
-    public ReviewHttpModels.ReviewResponse steerQueued(
-            @PathVariable String reviewId,
-            @PathVariable String queuedInputId,
-            @RequestParam String turnId)
+    public ReviewHttpModels.ReviewResponse steerQueued(@PathVariable String reviewId, @PathVariable String queuedInputId, @RequestParam String turnId)
     {
         turns.steerQueued(reviews.task(reviewId).id(), TurnId.valueOf(turnId), QueuedInputId.valueOf(queuedInputId));
         return ReviewHttpModels.review(reviews.get(reviewId));
     }
 
     @DeleteMapping("/{reviewId}/queue/{queuedInputId}")
-    public ReviewHttpModels.ReviewResponse removeQueued(
-            @PathVariable String reviewId,
-            @PathVariable String queuedInputId)
+    public ReviewHttpModels.ReviewResponse removeQueued(@PathVariable String reviewId, @PathVariable String queuedInputId)
     {
         turns.removeQueued(reviews.task(reviewId).id(), QueuedInputId.valueOf(queuedInputId));
         return ReviewHttpModels.review(reviews.get(reviewId));
@@ -319,10 +307,7 @@ public class ReviewController
     // ---- activity, scoped to the review's own task ----
 
     @GetMapping("/{reviewId}/history")
-    public AgentHttpModels.HistoryResponse history(
-            @PathVariable String reviewId,
-            @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Long after)
+    public AgentHttpModels.HistoryResponse history(@PathVariable String reviewId, @RequestParam(required = false) Long before, @RequestParam(required = false) Long after)
     {
         return AgentHttpModels.history(events.readHistory(
                 reviews.task(reviewId).id(),
@@ -331,9 +316,7 @@ public class ReviewController
     }
 
     @GetMapping(path = "/{reviewId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(
-            @PathVariable String reviewId,
-            @RequestParam(defaultValue = "0") long after)
+    public SseEmitter stream(@PathVariable String reviewId, @RequestParam(defaultValue = "0") long after)
             throws IOException
     {
         return streams.open(events.subscribe(reviews.task(reviewId).id(), after));
@@ -353,10 +336,7 @@ public class ReviewController
 
     /** Resolves one approval, only when it belongs to the turn this review's task is running. */
     @PostMapping("/{reviewId}/approvals/{approvalId}")
-    public AgentHttpModels.ApprovalResponse resolveApproval(
-            @PathVariable String reviewId,
-            @PathVariable String approvalId,
-            @RequestBody ResolveApprovalRequest request)
+    public AgentHttpModels.ApprovalResponse resolveApproval(@PathVariable String reviewId, @PathVariable String approvalId, @RequestBody ResolveApprovalRequest request)
     {
         AgentTask task = reviews.task(reviewId);
         TurnId turnId = task.worktreeMutationClaim()
@@ -384,10 +364,7 @@ public class ReviewController
     }
 
     @PostMapping("/drafts/items")
-    public ReviewHttpModels.DraftResponse addManual(
-            @RequestParam String repo,
-            @RequestParam int number,
-            @RequestBody ReviewHttpModels.DraftItemRequest request)
+    public ReviewHttpModels.DraftResponse addManual(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftItemRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
         requireNotBlank(request.path(), "path must not be blank");
@@ -409,10 +386,7 @@ public class ReviewController
     }
 
     @PostMapping("/drafts/findings")
-    public ReviewHttpModels.DraftResponse addFinding(
-            @RequestParam String repo,
-            @RequestParam int number,
-            @RequestBody ReviewHttpModels.PromoteFindingRequest request)
+    public ReviewHttpModels.DraftResponse addFinding(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.PromoteFindingRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
         requireNotBlank(request.reviewId(), "reviewId must not be blank");
@@ -439,21 +413,14 @@ public class ReviewController
     }
 
     @DeleteMapping("/drafts/items/{itemId}")
-    public ReviewHttpModels.DraftResponse removeItem(
-            @RequestParam String repo,
-            @RequestParam int number,
-            @RequestParam long expectedVersion,
-            @PathVariable String itemId)
+    public ReviewHttpModels.DraftResponse removeItem(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @PathVariable String itemId)
     {
         PullRequestRefUtil.parseRef(repo, number);
         return ReviewHttpModels.draft(publications.removeItem(repo, number, expectedVersion, itemId));
     }
 
     @PutMapping("/drafts/review")
-    public ReviewHttpModels.DraftResponse saveReview(
-            @RequestParam String repo,
-            @RequestParam int number,
-            @RequestBody ReviewHttpModels.DraftReviewRequest request)
+    public ReviewHttpModels.DraftResponse saveReview(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftReviewRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
         return ReviewHttpModels.draft(publications.saveReview(
@@ -465,21 +432,14 @@ public class ReviewController
     }
 
     @PostMapping("/drafts/items/{itemId}/publish")
-    public ReviewHttpModels.PublishResponse publishItem(
-            @RequestParam String repo,
-            @RequestParam int number,
-            @RequestParam long expectedVersion,
-            @PathVariable String itemId)
+    public ReviewHttpModels.PublishResponse publishItem(@RequestParam String repo, @RequestParam int number, @RequestParam long expectedVersion, @PathVariable String itemId)
     {
         PullRequestRefUtil.parseRef(repo, number);
         return ReviewHttpModels.publish(publications.publishItem(repo, number, expectedVersion, itemId));
     }
 
     @PostMapping("/drafts/submit")
-    public ReviewHttpModels.PublishResponse submit(
-            @RequestParam String repo,
-            @RequestParam int number,
-            @RequestBody ReviewHttpModels.DraftReviewRequest request)
+    public ReviewHttpModels.PublishResponse submit(@RequestParam String repo, @RequestParam int number, @RequestBody ReviewHttpModels.DraftReviewRequest request)
     {
         PullRequestRefUtil.parseRef(repo, number);
         return ReviewHttpModels.publish(publications.submit(

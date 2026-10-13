@@ -414,10 +414,7 @@ final class ClaudeEventMapper
                 source(parentToolId, Optional.of(toolUseId))));
     }
 
-    private ProviderAgentEvent startedTool(
-            Optional<String> eventId,
-            String toolUseId,
-            ToolCall call)
+    private ProviderAgentEvent startedTool(Optional<String> eventId, String toolUseId, ToolCall call)
     {
         if (call.isCommand()) {
             return new ProviderAgentEvent.Command(
@@ -452,11 +449,7 @@ final class ClaudeEventMapper
         };
     }
 
-    private ProviderAgentEvent completedTool(
-            Optional<String> eventId,
-            ClaudeProtocol.ToolResultBlock result,
-            ToolCall call,
-            Optional<JsonNode> metadata)
+    private ProviderAgentEvent completedTool(Optional<String> eventId, ClaudeProtocol.ToolResultBlock result, ToolCall call, Optional<JsonNode> metadata)
     {
         ProviderAgentEvent.ActivityState state = result.error()
                 ? ProviderAgentEvent.ActivityState.FAILED
@@ -503,9 +496,7 @@ final class ClaudeEventMapper
         return matcher.lookingAt() ? Optional.of(Integer.parseInt(matcher.group(1))) : Optional.empty();
     }
 
-    private ProviderAgentEvent.Tool hook(
-            ClaudeProtocol.SystemMessage message,
-            ProviderAgentEvent.ActivityState state)
+    private ProviderAgentEvent.Tool hook(ClaudeProtocol.SystemMessage message, ProviderAgentEvent.ActivityState state)
     {
         String id = message.hookId().orElseGet(() -> message.uuid().orElse("claude-hook"));
         if (terminal(state)) {
@@ -522,11 +513,7 @@ final class ClaudeEventMapper
         return new ProviderAgentEvent.Tool(message.uuid(), "hook/" + name, state, bounded(summary), ProviderAgentEventSource.item(id));
     }
 
-    private void startAgent(
-            String toolId,
-            ToolCall call,
-            Optional<String> eventId,
-            ImmutableList.Builder<ProviderAgentEvent> events)
+    private void startAgent(String toolId, ToolCall call, Optional<String> eventId, ImmutableList.Builder<ProviderAgentEvent> events)
     {
         ProviderAgentEventSource parent = source(call.parentToolUseId(), Optional.empty());
         if (parent.providerThreadId().isEmpty() || agents.containsKey(toolId)) {
@@ -549,11 +536,7 @@ final class ClaudeEventMapper
                 child.withItem(Optional.of(toolId + ":prompt")))));
     }
 
-    private void completeInvocation(
-            ClaudeProtocol.UserMessage message,
-            ClaudeProtocol.ToolResultBlock result,
-            ToolCall call,
-            ImmutableList.Builder<ProviderAgentEvent> events)
+    private void completeInvocation(ClaudeProtocol.UserMessage message, ClaudeProtocol.ToolResultBlock result, ToolCall call, ImmutableList.Builder<ProviderAgentEvent> events)
     {
         String toolId = result.toolUseId();
         if (call.isAgent()) {
@@ -597,12 +580,7 @@ final class ClaudeEventMapper
         unidentifiedBackgroundTools.remove(toolId);
     }
 
-    private void finishAgent(
-            String toolId,
-            ProviderAgentEvent.ActivityState state,
-            String summary,
-            Optional<String> eventId,
-            ImmutableList.Builder<ProviderAgentEvent> events)
+    private void finishAgent(String toolId, ProviderAgentEvent.ActivityState state, String summary, Optional<String> eventId, ImmutableList.Builder<ProviderAgentEvent> events)
     {
         if (!activeAgents.remove(toolId)) {
             return;
@@ -649,9 +627,7 @@ final class ClaudeEventMapper
         return state == ProviderAgentEvent.ActivityState.COMPLETED || state == ProviderAgentEvent.ActivityState.FAILED;
     }
 
-    private List<ProviderAgentEvent> mapTask(
-            ClaudeProtocol.SystemMessage message,
-            ProviderAgentEvent.ActivityState state)
+    private List<ProviderAgentEvent> mapTask(ClaudeProtocol.SystemMessage message, ProviderAgentEvent.ActivityState state)
     {
         ImmutableList.Builder<ProviderAgentEvent> events = ImmutableList.builder();
         String id = message.taskId().orElseGet(() -> message.uuid().orElse("claude-task"));
@@ -702,10 +678,7 @@ final class ClaudeEventMapper
         return events.build();
     }
 
-    private ProviderAgentEvent.Lifecycle lifecycle(
-            Optional<String> eventId,
-            ProviderAgentEvent.LifecyclePhase phase,
-            String message)
+    private ProviderAgentEvent.Lifecycle lifecycle(Optional<String> eventId, ProviderAgentEvent.LifecyclePhase phase, String message)
     {
         return new ProviderAgentEvent.Lifecycle(eventId, phase, bounded(message));
     }
@@ -729,10 +702,7 @@ final class ClaudeEventMapper
         return uuid.map(value -> value + ":" + suffix + ":" + index);
     }
 
-    private record ToolCall(
-            String name,
-            ClaudeProtocol.ToolInput input,
-            Optional<String> parentToolUseId)
+    private record ToolCall(String name, ClaudeProtocol.ToolInput input, Optional<String> parentToolUseId)
     {
         private ToolCall
         {

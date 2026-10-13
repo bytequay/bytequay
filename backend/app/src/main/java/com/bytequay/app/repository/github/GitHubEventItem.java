@@ -20,12 +20,7 @@ import java.time.Instant;
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-record GitHubEventItem(
-        String type,
-        Actor actor,
-        Repo repo,
-        Payload payload,
-        @JsonProperty("created_at") Instant createdAt)
+record GitHubEventItem(String type, Actor actor, Repo repo, Payload payload, @JsonProperty("created_at") Instant createdAt)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Actor(String login, @JsonProperty("avatar_url") String avatarUrl) {}

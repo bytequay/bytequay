@@ -28,12 +28,7 @@ import static java.util.Objects.requireNonNull;
  * these to its own results, which is what keeps one component in charge of
  * saying what happened.
  */
-public record SequenceState(
-        Kind kind,
-        String head,
-        Optional<String> stoppedCommit,
-        List<ConflictedPath> conflicts,
-        String diagnostics)
+public record SequenceState(Kind kind, String head, Optional<String> stoppedCommit, List<ConflictedPath> conflicts, String diagnostics)
 {
     private static final int MAX_DIAGNOSTIC_CHARACTERS = 8 * 1024;
     private static final int MAX_PATHS = 200;

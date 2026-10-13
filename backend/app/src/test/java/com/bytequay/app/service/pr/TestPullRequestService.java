@@ -2391,23 +2391,12 @@ class TestPullRequestService
         return pullRequest(githubId, state, updatedAt, closedAt, null, null);
     }
 
-    private static FetchedPullRequest pullRequest(
-            String state,
-            Instant updatedAt,
-            Instant closedAt,
-            Boolean mergeable,
-            String mergeableState)
+    private static FetchedPullRequest pullRequest(String state, Instant updatedAt, Instant closedAt, Boolean mergeable, String mergeableState)
     {
         return pullRequest(12, state, updatedAt, closedAt, mergeable, mergeableState);
     }
 
-    private static FetchedPullRequest pullRequest(
-            long githubId,
-            String state,
-            Instant updatedAt,
-            Instant closedAt,
-            Boolean mergeable,
-            String mergeableState)
+    private static FetchedPullRequest pullRequest(long githubId, String state, Instant updatedAt, Instant closedAt, Boolean mergeable, String mergeableState)
     {
         return new FetchedPullRequest(
                 githubId,

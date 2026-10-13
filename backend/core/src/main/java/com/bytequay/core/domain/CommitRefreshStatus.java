@@ -21,12 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Current commit-refresh state returned to the frontend. */
-public record CommitRefreshStatus(
-        String workspaceId,
-        State state,
-        Optional<Instant> lastAttemptAt,
-        Optional<Instant> lastSucceededAt,
-        Optional<String> error)
+public record CommitRefreshStatus(String workspaceId, State state, Optional<Instant> lastAttemptAt, Optional<Instant> lastSucceededAt, Optional<String> error)
 {
     public CommitRefreshStatus
     {

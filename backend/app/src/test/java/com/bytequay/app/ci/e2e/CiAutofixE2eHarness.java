@@ -246,12 +246,7 @@ final class CiAutofixE2eHarness
         return new StartResult(runId, response);
     }
 
-    int startStatus(
-            Fixture fixture,
-            String idempotencyKey,
-            boolean allowFailedJobReruns,
-            boolean allowHistoryRewrites,
-            boolean allowExactLeasePush)
+    int startStatus(Fixture fixture, String idempotencyKey, boolean allowFailedJobReruns, boolean allowHistoryRewrites, boolean allowExactLeasePush)
             throws Exception
     {
         return mvc.perform(post("/api/ci-autofix/runs")
@@ -401,11 +396,7 @@ final class CiAutofixE2eHarness
         return startBody(fixture, true, true, true);
     }
 
-    private String startBody(
-            Fixture fixture,
-            boolean allowFailedJobReruns,
-            boolean allowHistoryRewrites,
-            boolean allowExactLeasePush)
+    private String startBody(Fixture fixture, boolean allowFailedJobReruns, boolean allowHistoryRewrites, boolean allowExactLeasePush)
             throws Exception
     {
         return objectMapper.writeValueAsString(ImmutableMap.of(
@@ -440,11 +431,7 @@ final class CiAutofixE2eHarness
         return prId;
     }
 
-    private void seedWorkspace(
-            String workspaceId,
-            String name,
-            long repositoryId,
-            E2eGitRepository repository)
+    private void seedWorkspace(String workspaceId, String name, long repositoryId, E2eGitRepository repository)
     {
         Instant now = clock.instant();
         RepoRef repo = RepoRef.of(repository.pullRequest().owner(), repository.pullRequest().repo());
@@ -482,14 +469,7 @@ final class CiAutofixE2eHarness
         return failingSnapshot(fixture, fixture.repository().initialHeadSha(), fixture.workflowRunId(), fixture.jobId(), "Backend compile", "Compile", false);
     }
 
-    private static CiHeadSnapshot failingSnapshot(
-            Fixture fixture,
-            String headSha,
-            long workflowRunId,
-            long jobId,
-            String jobName,
-            String stepName,
-            boolean includePendingSlowJob)
+    private static CiHeadSnapshot failingSnapshot(Fixture fixture, String headSha, long workflowRunId, long jobId, String jobName, String stepName, boolean includePendingSlowJob)
     {
         E2eGitRepository repository = fixture.repository();
         CiStep step = new CiStep(1, stepName, "completed", Optional.of("failure"));

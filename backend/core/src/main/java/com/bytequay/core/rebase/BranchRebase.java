@@ -301,13 +301,7 @@ public record BranchRebase(
     }
 
     /** Intent saved immediately before one external action. */
-    public record ActionJournal(
-            ActionType type,
-            Optional<String> stoppedCommitSha,
-            String expectedHead,
-            int attempt,
-            String idempotencyKey,
-            Instant startedAt)
+    public record ActionJournal(ActionType type, Optional<String> stoppedCommitSha, String expectedHead, int attempt, String idempotencyKey, Instant startedAt)
     {
         public ActionJournal
         {

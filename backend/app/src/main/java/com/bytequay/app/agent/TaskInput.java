@@ -35,8 +35,7 @@ public final class TaskInput
 {
     private TaskInput() {}
 
-    public static Accepted send(AgentTurnService turns, TaskId taskId, long expectedVersion, String message, String key, boolean queue,
-            Optional<DevelopmentAutomation> automation)
+    public static Accepted send(AgentTurnService turns, TaskId taskId, long expectedVersion, String message, String key, boolean queue, Optional<DevelopmentAutomation> automation)
     {
         if (queue) {
             return new Accepted(Optional.empty(), Optional.of(turns.enqueue(

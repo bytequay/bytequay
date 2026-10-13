@@ -503,9 +503,7 @@ class TestPullRequestRefreshService
         return service(pullRequests, noWorkspaces());
     }
 
-    private static PullRequestRefreshService service(
-            PullRequestService pullRequests,
-            WorkspaceStore workspaces)
+    private static PullRequestRefreshService service(PullRequestService pullRequests, WorkspaceStore workspaces)
     {
         return new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), workspaces, event -> {});
     }

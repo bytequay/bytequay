@@ -24,12 +24,7 @@ import static java.util.Objects.requireNonNull;
  * without an extra round-trip. {@code shortMessage} is the first line
  * of the commit body, suitable for a single-row list entry.
  */
-public record UserCommitSummary(
-        String sha,
-        String repoFullName,
-        String shortMessage,
-        String htmlUrl,
-        Instant authoredAt)
+public record UserCommitSummary(String sha, String repoFullName, String shortMessage, String htmlUrl, Instant authoredAt)
 {
     public UserCommitSummary
     {

@@ -222,8 +222,7 @@ public class AgentController
     }
 
     @PostMapping(value = "/tasks", consumes = MediaType.APPLICATION_JSON_VALUE)
-    public ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(
-            @RequestBody InteractiveAgentHttpContract.CreateTaskRequest request)
+    public ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(@RequestBody InteractiveAgentHttpContract.CreateTaskRequest request)
     {
         return createTask(request, ImmutableList.of());
     }
@@ -247,9 +246,7 @@ public class AgentController
         return createTask(request, attachments.build());
     }
 
-    private ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(
-            InteractiveAgentHttpContract.CreateTaskRequest request,
-            List<StoreAgentAttachmentCommand> uploads)
+    private ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(InteractiveAgentHttpContract.CreateTaskRequest request, List<StoreAgentAttachmentCommand> uploads)
     {
         if (request.issueSource().isEmpty()) {
             issueDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
@@ -359,9 +356,7 @@ public class AgentController
     }
 
     @GetMapping("/tasks/{taskId}")
-    public InteractiveAgentHttpContract.TaskResponse getTask(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public InteractiveAgentHttpContract.TaskResponse getTask(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         return taskResponse(taskService.getInteractive(workspaceId, TaskId.valueOf(taskId)));
     }
@@ -414,9 +409,7 @@ public class AgentController
      * that branch may be destroyed. Delivery children stop first; repeating the request is a no-op.
      */
     @DeleteMapping("/tasks/{taskId}")
-    public ResponseEntity<Void> deleteTask(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public ResponseEntity<Void> deleteTask(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         AgentTask task;
@@ -442,9 +435,7 @@ public class AgentController
      * which may have been renamed by the agent while opening its pull request.
      */
     @GetMapping("/tasks/{taskId}/pull-requests")
-    public List<PullRequest> taskPullRequests(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public List<PullRequest> taskPullRequests(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
         return ownership.pullRequests(task);
@@ -463,9 +454,7 @@ public class AgentController
     }
 
     @PostMapping("/tasks/{taskId}/pull-requests/sync")
-    public List<PullRequest> refreshTaskPullRequests(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public List<PullRequest> refreshTaskPullRequests(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         Lock lock = WorkspaceOperationLocks.get(workspaceId);
         lock.lock();
@@ -493,10 +482,7 @@ public class AgentController
      * Refuses images for a model that does not advertise image input, so the catalog gates the
      * turn the same way it gates the composer's attach button.
      */
-    private void requireImageInput(
-            AgentTask task,
-            Optional<String> selectedModel,
-            List<AgentAttachment> attachments)
+    private void requireImageInput(AgentTask task, Optional<String> selectedModel, List<AgentAttachment> attachments)
     {
         requireImageInput(task.laneId(), selectedModel, attachments.stream().map(AgentAttachment::mediaType).collect(toImmutableList()));
     }
@@ -536,10 +522,7 @@ public class AgentController
     }
 
     @GetMapping("/tasks/{taskId}/attachments/{attachmentId}")
-    public ResponseEntity<byte[]> readAttachment(
-            @PathVariable String taskId,
-            @PathVariable String attachmentId,
-            @RequestParam String workspaceId)
+    public ResponseEntity<byte[]> readAttachment(@PathVariable String taskId, @PathVariable String attachmentId, @RequestParam String workspaceId)
             throws IOException
     {
         TaskId id = TaskId.valueOf(taskId);
@@ -552,10 +535,7 @@ public class AgentController
     }
 
     @DeleteMapping("/tasks/{taskId}/attachments/{attachmentId}")
-    public ResponseEntity<Void> deleteAttachment(
-            @PathVariable String taskId,
-            @PathVariable String attachmentId,
-            @RequestParam String workspaceId)
+    public ResponseEntity<Void> deleteAttachment(@PathVariable String taskId, @PathVariable String attachmentId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
@@ -564,9 +544,7 @@ public class AgentController
     }
 
     @GetMapping("/tasks/{taskId}/effective-settings")
-    public InteractiveAgentHttpContract.TurnSettings effectiveSettings(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public InteractiveAgentHttpContract.TurnSettings effectiveSettings(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
@@ -574,9 +552,7 @@ public class AgentController
     }
 
     @GetMapping("/tasks")
-    public List<InteractiveAgentHttpContract.TaskResponse> listTasks(
-            @RequestParam String workspaceId,
-            @RequestParam(defaultValue = "100") int limit)
+    public List<InteractiveAgentHttpContract.TaskResponse> listTasks(@RequestParam String workspaceId, @RequestParam(defaultValue = "100") int limit)
     {
         return taskService.list(workspaceId, limit).stream()
                 .map(this::taskResponse)
@@ -703,9 +679,7 @@ public class AgentController
     }
 
     @GetMapping("/tasks/{taskId}/queue")
-    public List<InteractiveAgentHttpContract.QueuedInputResponse> queue(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public List<InteractiveAgentHttpContract.QueuedInputResponse> queue(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
@@ -716,10 +690,7 @@ public class AgentController
 
     /** Removes a waiting input, or records an uncertain one as abandoned; a consumed one cannot be removed. */
     @DeleteMapping("/tasks/{taskId}/queue/{queuedInputId}")
-    public InteractiveAgentHttpContract.QueuedInputResponse removeQueued(
-            @PathVariable String taskId,
-            @PathVariable String queuedInputId,
-            @RequestParam String workspaceId)
+    public InteractiveAgentHttpContract.QueuedInputResponse removeQueued(@PathVariable String taskId, @PathVariable String queuedInputId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
@@ -729,10 +700,7 @@ public class AgentController
     }
 
     @PostMapping("/tasks/{taskId}/queue/{queuedInputId}/edit")
-    public InteractiveAgentHttpContract.QueuedInputDraftResponse editQueued(
-            @PathVariable String taskId,
-            @PathVariable String queuedInputId,
-            @RequestParam String workspaceId)
+    public InteractiveAgentHttpContract.QueuedInputDraftResponse editQueued(@PathVariable String taskId, @PathVariable String queuedInputId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
@@ -762,9 +730,7 @@ public class AgentController
 
     /** Starts the paused queue head on an idle task; a successful turn starts the next one by itself. */
     @PostMapping("/tasks/{taskId}/queue/resume")
-    public ResponseEntity<InteractiveAgentHttpContract.TurnResponse> resumeQueue(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public ResponseEntity<InteractiveAgentHttpContract.TurnResponse> resumeQueue(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
@@ -796,10 +762,7 @@ public class AgentController
     }
 
     @GetMapping("/tasks/{taskId}/events")
-    public List<AgentHttpModels.EventResponse> events(
-            @PathVariable String taskId,
-            @RequestParam(defaultValue = "0") long after,
-            @RequestParam(defaultValue = "100") int limit)
+    public List<AgentHttpModels.EventResponse> events(@PathVariable String taskId, @RequestParam(defaultValue = "0") long after, @RequestParam(defaultValue = "100") int limit)
     {
         return eventService.readAfter(TaskId.valueOf(taskId), after, limit).stream()
                 .map(AgentHttpModels::event)
@@ -807,19 +770,14 @@ public class AgentController
     }
 
     @GetMapping(path = "/tasks/{taskId}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter stream(
-            @PathVariable String taskId,
-            @RequestParam(defaultValue = "0") long after)
+    public SseEmitter stream(@PathVariable String taskId, @RequestParam(defaultValue = "0") long after)
             throws IOException
     {
         return streams.open(eventService.subscribe(TaskId.valueOf(taskId), after));
     }
 
     @GetMapping("/tasks/{taskId}/history")
-    public AgentHttpModels.HistoryResponse history(
-            @PathVariable String taskId,
-            @RequestParam(required = false) Long before,
-            @RequestParam(required = false) Long after)
+    public AgentHttpModels.HistoryResponse history(@PathVariable String taskId, @RequestParam(required = false) Long before, @RequestParam(required = false) Long after)
     {
         return AgentHttpModels.history(eventService.readHistory(
                 TaskId.valueOf(taskId),
@@ -828,9 +786,7 @@ public class AgentController
     }
 
     @GetMapping("/tasks/{taskId}/pending-approvals")
-    public List<AgentHttpModels.PendingApprovalResponse> pendingApprovals(
-            @PathVariable String taskId,
-            @RequestParam String turnId)
+    public List<AgentHttpModels.PendingApprovalResponse> pendingApprovals(@PathVariable String taskId, @RequestParam String turnId)
     {
         AgentTurn turn = turnService.get(TurnId.valueOf(turnId));
         checkArgument(turn.taskId().equals(TaskId.valueOf(taskId)), "Turn does not belong to this task");
@@ -840,9 +796,7 @@ public class AgentController
     }
 
     @PostMapping("/approvals/{approvalId}")
-    public AgentHttpModels.ApprovalResponse resolveApproval(
-            @PathVariable String approvalId,
-            @RequestBody ResolveApprovalRequest request)
+    public AgentHttpModels.ApprovalResponse resolveApproval(@PathVariable String approvalId, @RequestBody ResolveApprovalRequest request)
     {
         checkArgument(request.decision() != null, "decision is null");
         return AgentHttpModels.approval(approvalService.resolve(new ResolveApprovalCommand(
@@ -882,10 +836,7 @@ public class AgentController
      * stopped is not touched at all.
      */
     @PostMapping("/tasks/{taskId}/mark-failed")
-    public InteractiveAgentHttpContract.TaskResponse markTaskFailed(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestBody MarkTaskFailedRequest request)
+    public InteractiveAgentHttpContract.TaskResponse markTaskFailed(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody MarkTaskFailedRequest request)
     {
         requireNotBlank(request.reason(), "reason must not be blank");
         TaskId id = TaskId.valueOf(taskId);
@@ -913,9 +864,7 @@ public class AgentController
      * What stopping this task's provider runtime would interrupt, and the generation the stop must echo.
      */
     @GetMapping("/tasks/{taskId}/runtime/stop-impact")
-    public AgentHttpModels.RuntimeStopImpactResponse runtimeStopImpact(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public AgentHttpModels.RuntimeStopImpactResponse runtimeStopImpact(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
@@ -929,10 +878,7 @@ public class AgentController
      * user confirmed, so a turn that started since cannot be stopped by a stale confirmation.
      */
     @PostMapping("/tasks/{taskId}/runtime/stop")
-    public InteractiveAgentHttpContract.TaskResponse stopRuntime(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestBody StopRuntimeRequest request)
+    public InteractiveAgentHttpContract.TaskResponse stopRuntime(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody StopRuntimeRequest request)
     {
         requireNotBlank(request.generation(), "generation must not be blank");
         TaskId id = TaskId.valueOf(taskId);
@@ -949,9 +895,7 @@ public class AgentController
     }
 
     @PostMapping("/tasks/{taskId}/cleanup")
-    public InteractiveAgentHttpContract.TaskResponse cleanupTask(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId)
+    public InteractiveAgentHttpContract.TaskResponse cleanupTask(@PathVariable String taskId, @RequestParam String workspaceId)
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);

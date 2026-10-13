@@ -85,11 +85,7 @@ public class BetterWordsService
     private final TextOnlyHelper helper;
     private final AgentSkillService skills;
 
-    public BetterWordsService(
-            ModelSettingsService modelSettings,
-            WorkspaceStore workspaces,
-            TextOnlyHelper helper,
-            AgentSkillService skills)
+    public BetterWordsService(ModelSettingsService modelSettings, WorkspaceStore workspaces, TextOnlyHelper helper, AgentSkillService skills)
     {
         this.modelSettings = requireNonNull(modelSettings, "modelSettings is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");

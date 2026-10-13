@@ -85,11 +85,7 @@ public final class GitSequencerDriver
      * Only the paths Git reports as unmerged are staged, then the program—not
      * the agent—closes the cherry-pick operation.
      */
-    public SequenceState commitConflictSnapshot(
-            Path worktree,
-            String expectedHead,
-            String expectedStoppedCommit,
-            List<ConflictedPath> expectedConflicts)
+    public SequenceState commitConflictSnapshot(Path worktree, String expectedHead, String expectedStoppedCommit, List<ConflictedPath> expectedConflicts)
     {
         requireNonNull(expectedConflicts, "expectedConflicts is null");
         SequenceState before = observe(worktree);

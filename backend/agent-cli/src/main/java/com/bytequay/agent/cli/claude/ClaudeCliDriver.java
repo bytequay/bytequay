@@ -190,12 +190,7 @@ public final class ClaudeCliDriver
      * @param claudeHome ByteQuay's own Claude home; every Claude process this driver starts runs with
      * {@code CLAUDE_CONFIG_DIR} set to it, so the user's {@code ~/.claude} never reaches a task
      */
-    public ClaudeCliDriver(
-            String executable,
-            ObjectMapper objectMapper,
-            PermissionBroker permissions,
-            ProcessSupervisor supervisor,
-            Path claudeHome)
+    public ClaudeCliDriver(String executable, ObjectMapper objectMapper, PermissionBroker permissions, ProcessSupervisor supervisor, Path claudeHome)
     {
         this(executable, objectMapper, permissions, supervisor, claudeHome, inheritedEnvironment());
     }
@@ -213,13 +208,7 @@ public final class ClaudeCliDriver
         this(executable, objectMapper, permissions, supervisor, claudeHome, laneId, label, loginEmail, inheritedEnvironment());
     }
 
-    ClaudeCliDriver(
-            String executable,
-            ObjectMapper objectMapper,
-            PermissionBroker permissions,
-            ProcessSupervisor supervisor,
-            Path claudeHome,
-            Map<String, String> environment)
+    ClaudeCliDriver(String executable, ObjectMapper objectMapper, PermissionBroker permissions, ProcessSupervisor supervisor, Path claudeHome, Map<String, String> environment)
     {
         this(executable, objectMapper, permissions, supervisor, claudeHome, AgentLaneId.CLAUDE_CLI, "Claude Code", Optional.empty(), environment);
     }
@@ -534,10 +523,7 @@ public final class ClaudeCliDriver
         return normalized.equals("extra") ? "xhigh" : normalized;
     }
 
-    private AgentProviderStatus status(
-            AgentProviderStatus.Readiness readiness,
-            Optional<String> version,
-            String diagnostic)
+    private AgentProviderStatus status(AgentProviderStatus.Readiness readiness, Optional<String> version, String diagnostic)
     {
         String message = diagnostic == null || diagnostic.isBlank() ? readiness.name().toLowerCase() : diagnostic;
         String command = executable.matches("[A-Za-z0-9_./-]+") ? executable : shellQuote(executable);
@@ -662,13 +648,7 @@ public final class ClaudeCliDriver
                 MAX_PROBE_OUTPUT_BYTES), "Claude CLI");
     }
 
-    private ProcessSpec processSpec(
-            ProcessOwner owner,
-            List<String> argv,
-            Path workingDirectory,
-            Duration maximumRuntime,
-            OptionalInt stdoutCaptureLimit,
-            int maximumStderrBytes)
+    private ProcessSpec processSpec(ProcessOwner owner, List<String> argv, Path workingDirectory, Duration maximumRuntime, OptionalInt stdoutCaptureLimit, int maximumStderrBytes)
     {
         return new ProcessSpec(
                 owner,
@@ -733,11 +713,7 @@ public final class ClaudeCliDriver
         private boolean resume;
         private boolean sessionClosed;
 
-        private ClaudeSession(
-                AgentSessionRef reference,
-                AgentSessionContext context,
-                AgentEventSink events,
-                boolean resume)
+        private ClaudeSession(AgentSessionRef reference, AgentSessionContext context, AgentEventSink events, boolean resume)
         {
             this.reference = requireNonNull(reference, "reference is null");
             this.context = requireNonNull(context, "context is null");
@@ -1387,11 +1363,7 @@ public final class ClaudeCliDriver
             }
         }
 
-        private AgentTurnResult failedResult(
-                AgentTurnResult.State state,
-                String reason,
-                Duration duration,
-                boolean providerQuiescent)
+        private AgentTurnResult failedResult(AgentTurnResult.State state, String reason, Duration duration, boolean providerQuiescent)
         {
             return new AgentTurnResult(state, Optional.empty(), Optional.of(reason), duration, providerQuiescent);
         }
@@ -1454,9 +1426,7 @@ public final class ClaudeCliDriver
         }
     }
 
-    private static List<AgentAttachment> attachments(
-            AgentSessionContext context,
-            List<AgentAttachment> requested)
+    private static List<AgentAttachment> attachments(AgentSessionContext context, List<AgentAttachment> requested)
     {
         if (requested.isEmpty()) {
             return ImmutableList.of();

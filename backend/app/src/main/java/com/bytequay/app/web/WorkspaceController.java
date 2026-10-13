@@ -149,10 +149,7 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/pull-requests")
-    public PullRequestPage pullRequests(
-            @PathVariable String workspaceId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size)
+    public PullRequestPage pullRequests(@PathVariable String workspaceId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size)
     {
         WorkspaceSummary workspace = workspaces.getWorkspace(workspaceId);
         return pullRequests.listPullRequests(RepoRef.of(workspace.monitoredOwner(), workspace.monitoredRepo()), page, size, "");
@@ -172,10 +169,7 @@ public class WorkspaceController
     }
 
     @GetMapping("/{workspaceId}/issues")
-    public WorkspaceIssueHttpContract.Page issues(
-            @PathVariable String workspaceId,
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size)
+    public WorkspaceIssueHttpContract.Page issues(@PathVariable String workspaceId, @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size)
     {
         return WorkspaceIssueHttpContract.page(issues.list(workspaceId, page, size), issueDevelopment);
     }
@@ -199,35 +193,25 @@ public class WorkspaceController
     }
 
     @PatchMapping("/{workspaceId}/issues/{issueNumber}/epic")
-    public IssueDevelopmentService.Metadata updateIssueEpic(
-            @PathVariable String workspaceId,
-            @PathVariable int issueNumber,
-            @RequestBody IssueEpicRequest request)
+    public IssueDevelopmentService.Metadata updateIssueEpic(@PathVariable String workspaceId, @PathVariable int issueNumber, @RequestBody IssueEpicRequest request)
     {
         return issueDevelopment.setEpic(workspaceId, issueNumber, request.isEpic());
     }
 
     @GetMapping("/{workspaceId}/issues/{issueNumber}/detail")
-    public RepositoryIssueDetail issueDetail(
-            @PathVariable String workspaceId,
-            @PathVariable int issueNumber)
+    public RepositoryIssueDetail issueDetail(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
         return issues.detail(workspaceId, issueNumber);
     }
 
     @PostMapping("/{workspaceId}/issues/{issueNumber}/detail/refresh")
-    public RepositoryIssueDetail refreshIssueDetail(
-            @PathVariable String workspaceId,
-            @PathVariable int issueNumber)
+    public RepositoryIssueDetail refreshIssueDetail(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
         return issueRefresh.refreshDetail(workspaceId, issueNumber);
     }
 
     @PostMapping("/{workspaceId}/issues/{issueNumber}/comments")
-    public PrTimelineEvent commentOnIssue(
-            @PathVariable String workspaceId,
-            @PathVariable int issueNumber,
-            @RequestBody IssueCommentRequest request)
+    public PrTimelineEvent commentOnIssue(@PathVariable String workspaceId, @PathVariable int issueNumber, @RequestBody IssueCommentRequest request)
     {
         return issues.comment(workspaceId, issueNumber, request.body());
     }
@@ -240,19 +224,13 @@ public class WorkspaceController
     }
 
     @PatchMapping("/{workspaceId}/issues/{issueNumber}/type")
-    public WorkspaceIssueService.IssueTypeOptions updateIssueType(
-            @PathVariable String workspaceId,
-            @PathVariable int issueNumber,
-            @RequestBody IssueTypeRequest request)
+    public WorkspaceIssueService.IssueTypeOptions updateIssueType(@PathVariable String workspaceId, @PathVariable int issueNumber, @RequestBody IssueTypeRequest request)
     {
         return issues.updateIssueType(workspaceId, issueNumber, request.type());
     }
 
     @PatchMapping("/{workspaceId}/issues/{issueNumber}/metadata")
-    public WorkspaceIssueService.IssueMetadata updateIssueMetadata(
-            @PathVariable String workspaceId,
-            @PathVariable int issueNumber,
-            @RequestBody IssueMetadataRequest request)
+    public WorkspaceIssueService.IssueMetadata updateIssueMetadata(@PathVariable String workspaceId, @PathVariable int issueNumber, @RequestBody IssueMetadataRequest request)
     {
         return issues.updateMetadata(workspaceId, issueNumber, request.assignees(), request.labels());
     }
@@ -358,10 +336,7 @@ public class WorkspaceController
     }
 
     @PutMapping("/{workspaceId}/agent-model/{type}")
-    public AgentModelSetting setAgentModel(
-            @PathVariable String workspaceId,
-            @PathVariable AgentModelType type,
-            @RequestBody AgentModelRequest request)
+    public AgentModelSetting setAgentModel(@PathVariable String workspaceId, @PathVariable AgentModelType type, @RequestBody AgentModelRequest request)
     {
         workspaces.getWorkspace(workspaceId);
         return models.setWorkspaceOverride(workspaceId, type, request.configId(), request.model(), Optional.ofNullable(request.effort()));
@@ -374,9 +349,7 @@ public class WorkspaceController
     }
 
     @PutMapping("/{workspaceId}/github-token")
-    public Map<String, String> saveGitHubToken(
-            @PathVariable String workspaceId,
-            @RequestBody TokenRequest request)
+    public Map<String, String> saveGitHubToken(@PathVariable String workspaceId, @RequestBody TokenRequest request)
     {
         workspaces.getWorkspace(workspaceId);
         return ImmutableMap.of("login", credentials.saveWorkspaceGitHubToken(workspaceId, request.value()));

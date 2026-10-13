@@ -920,8 +920,7 @@ public class PullRequestService
     private record DetailWork(Duration freshness, Duration discussionFreshness, boolean checksOnly, boolean force, boolean warm, CompletableFuture<DetailRefresh> result) {}
 
     /** Returns locally persisted diff files without contacting GitHub. */
-    public List<DiffFile> getPullRequestDiffFiles(
-            String repo, int number, String baseSha, String headSha)
+    public List<DiffFile> getPullRequestDiffFiles(String repo, int number, String baseSha, String headSha)
     {
         parseRef(repo, number);
         return snapshots.getDiffFiles(storedPullRequestId(repo, number), baseSha, headSha);
@@ -934,27 +933,20 @@ public class PullRequestService
     }
 
     /** Returns locally persisted file content without contacting GitHub. */
-    public DiffFileContent getPullRequestDiffFileContent(
-            String repo, int number, String path, String baseSha, String headSha)
+    public DiffFileContent getPullRequestDiffFileContent(String repo, int number, String path, String baseSha, String headSha)
     {
         parseRef(repo, number);
         return snapshots.getFileContent(storedPullRequestId(repo, number), path, baseSha, headSha);
     }
 
-    void refreshPullRequestDiffFromGitHub(
-            String repo, int number, String baseSha, String headSha)
+    void refreshPullRequestDiffFromGitHub(String repo, int number, String baseSha, String headSha)
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
         snapshots.refreshDiff(pat, ref, storedPullRequestId(repo, number), baseSha, headSha);
     }
 
-    void refreshPullRequestDiffFileContentFromGitHub(
-            String repo,
-            int number,
-            String path,
-            String baseSha,
-            String headSha)
+    void refreshPullRequestDiffFileContentFromGitHub(String repo, int number, String path, String baseSha, String headSha)
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
@@ -988,13 +980,7 @@ public class PullRequestService
         return detail;
     }
 
-    public boolean toggleReaction(
-            String repo,
-            int number,
-            String target,
-            Long commentId,
-            String content,
-            Boolean viewerHasReacted)
+    public boolean toggleReaction(String repo, int number, String target, Long commentId, String content, Boolean viewerHasReacted)
     {
         requireNotBlank(target, "reaction target must not be blank");
         requireNotBlank(content, "reaction content must not be blank");
@@ -1198,13 +1184,7 @@ public class PullRequestService
      * Submits a review, with any inline comments, for the given pull request on GitHub and
      * records a local reviewed state.
      */
-    public PullRequestDetail submitReview(
-            String repo,
-            int number,
-            long prId,
-            String event,
-            String body,
-            List<InlineReviewComment> comments)
+    public PullRequestDetail submitReview(String repo, int number, long prId, String event, String body, List<InlineReviewComment> comments)
     {
         requireNotBlank(event, "review event must not be blank");
         String normalizedEvent = event.toUpperCase(Locale.ROOT);
@@ -1255,12 +1235,7 @@ public class PullRequestService
      * cached detail. Approving cannot change the diff or the checks, so nothing
      * else is invalidated and the poll picks up whatever else moved.
      */
-    private PullRequestDetail patchCachedReview(
-            String repo,
-            int number,
-            long prId,
-            PrReviewState created,
-            List<PrTimelineEvent> threads)
+    private PullRequestDetail patchCachedReview(String repo, int number, long prId, PrReviewState created, List<PrTimelineEvent> threads)
     {
         requireNonNull(created, "created is null");
         Optional<StoredPrDetail> patched = snapshots.patchDetail(prId, cached -> {
@@ -1639,11 +1614,7 @@ public class PullRequestService
         return HandledAction.COMMENTED;
     }
 
-    static boolean needsReviewAgain(
-            PullRequest pullRequest,
-            StoredPrDetail detail,
-            String currentLogin,
-            PrViewState viewState)
+    static boolean needsReviewAgain(PullRequest pullRequest, StoredPrDetail detail, String currentLogin, PrViewState viewState)
     {
         if (viewState == null || viewState.handledAction() == null || viewState.reviewedAt() == null) {
             return false;
@@ -1680,11 +1651,7 @@ public class PullRequestService
                 && item.timestamp().isAfter(reviewedAt));
     }
 
-    private static boolean hasAuthorReplyAfter(
-            List<PrTimelineEvent> timeline,
-            String currentLogin,
-            String author,
-            Instant reviewedAt)
+    private static boolean hasAuthorReplyAfter(List<PrTimelineEvent> timeline, String currentLogin, String author, Instant reviewedAt)
     {
         return timeline.stream()
                 .filter(item -> "review_thread".equals(item.event()))
@@ -1724,11 +1691,7 @@ public class PullRequestService
                 .ifPresent(snapshots::delete);
     }
 
-    private PullRequestDetail patchCachedTimeline(
-            String repo,
-            int number,
-            Optional<Long> prId,
-            PrTimelineEvent created)
+    private PullRequestDetail patchCachedTimeline(String repo, int number, Optional<Long> prId, PrTimelineEvent created)
     {
         requireNonNull(created, "created is null");
         Optional<StoredPrDetail> patched = prId.flatMap(id -> snapshots.patchDetail(id, cached -> {

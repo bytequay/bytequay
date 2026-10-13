@@ -31,10 +31,7 @@ public final class CommitHistoryRefreshRefRequest
     private final Optional<String> remote;
 
     @JsonCreator
-    public CommitHistoryRefreshRefRequest(
-            @JsonProperty("source") Source source,
-            @JsonProperty("branch") String branch,
-            @JsonProperty("remote") String remote)
+    public CommitHistoryRefreshRefRequest(@JsonProperty("source") Source source, @JsonProperty("branch") String branch, @JsonProperty("remote") String remote)
     {
         this.source = requireNonNull(source, "source is null");
         this.branch = requireNonNull(branch, "branch is null");

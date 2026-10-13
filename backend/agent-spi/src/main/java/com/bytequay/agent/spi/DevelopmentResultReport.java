@@ -20,10 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** A root agent's explicit assessment of its current development turn. */
-public record DevelopmentResultReport(
-        boolean readyForDelivery,
-        Optional<String> message,
-        Optional<DevelopmentLearningSummary> learningSummary)
+public record DevelopmentResultReport(boolean readyForDelivery, Optional<String> message, Optional<DevelopmentLearningSummary> learningSummary)
 {
     public static final int MAXIMUM_MESSAGE_LENGTH = 4_000;
 

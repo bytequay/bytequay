@@ -40,9 +40,7 @@ public class CherryPickPreviewController
     private final WorkspaceRepositoryService workspaces;
     private final CherryPickPreviewService previewService;
 
-    public CherryPickPreviewController(
-            WorkspaceRepositoryService workspaces,
-            CherryPickPreviewService previewService)
+    public CherryPickPreviewController(WorkspaceRepositoryService workspaces, CherryPickPreviewService previewService)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.previewService = requireNonNull(previewService, "previewService is null");
@@ -50,9 +48,7 @@ public class CherryPickPreviewController
 
     @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/preview")
     @ResponseStatus(HttpStatus.CREATED)
-    public CherryPickPreviewResponse create(
-            @PathVariable String workspaceId,
-            @RequestBody CherryPickPreviewRequest request)
+    public CherryPickPreviewResponse create(@PathVariable String workspaceId, @RequestBody CherryPickPreviewRequest request)
     {
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         boolean explicitSource = request.sourceRemote() != null && !request.sourceRemote().isBlank();

@@ -91,10 +91,7 @@ public class WebConfig
                 .build();
     }
 
-    private static ClientHttpRequestFactory newTimeoutRequestFactory(
-            Duration connect,
-            Duration read,
-            HttpClient.Redirect redirects)
+    private static ClientHttpRequestFactory newTimeoutRequestFactory(Duration connect, Duration read, HttpClient.Redirect redirects)
     {
         // JdkClientHttpRequestFactory wraps the JDK 11+ HttpClient. We use it
         // instead of SimpleClientHttpRequestFactory because the latter is

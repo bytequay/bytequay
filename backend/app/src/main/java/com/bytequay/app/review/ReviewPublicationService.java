@@ -74,11 +74,7 @@ public class ReviewPublicationService
     private final Clock clock;
     private final Striped<Lock> locks = Striped.lock(32);
 
-    public ReviewPublicationService(
-            ReviewDraftStore drafts,
-            AgentReviewStore reviews,
-            PullRequestService pullRequests,
-            Clock clock)
+    public ReviewPublicationService(ReviewDraftStore drafts, AgentReviewStore reviews, PullRequestService pullRequests, Clock clock)
     {
         this.drafts = requireNonNull(drafts, "drafts is null");
         this.reviews = requireNonNull(reviews, "reviews is null");

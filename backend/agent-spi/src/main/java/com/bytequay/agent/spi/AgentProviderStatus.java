@@ -27,12 +27,7 @@ public record AgentProviderStatus(
         AgentCapabilities capabilities,
         Optional<String> signInCommand)
 {
-    public AgentProviderStatus(
-            AgentLaneId laneId,
-            Readiness readiness,
-            Optional<String> version,
-            String diagnostic,
-            AgentCapabilities capabilities)
+    public AgentProviderStatus(AgentLaneId laneId, Readiness readiness, Optional<String> version, String diagnostic, AgentCapabilities capabilities)
     {
         this(laneId, readiness, version, diagnostic, capabilities, Optional.empty());
     }

@@ -20,10 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Result of synchronizing one exact CI target into a private local branch. */
-public record CiBaseSynchronization(
-        Outcome outcome,
-        Optional<String> localBaseBranch,
-        String diagnostics)
+public record CiBaseSynchronization(Outcome outcome, Optional<String> localBaseBranch, String diagnostics)
 {
     public CiBaseSynchronization
     {

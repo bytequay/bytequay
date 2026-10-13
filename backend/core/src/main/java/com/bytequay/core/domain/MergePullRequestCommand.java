@@ -26,11 +26,7 @@ import static java.util.Objects.requireNonNull;
  * @param commitMessage  extra detail in the merge commit message; empty means GitHub generates one
  * @param sha            expected HEAD SHA for safety — GitHub rejects the merge if it doesn't match; empty skips the check
  */
-public record MergePullRequestCommand(
-        String mergeMethod,
-        Optional<String> commitTitle,
-        Optional<String> commitMessage,
-        Optional<String> sha)
+public record MergePullRequestCommand(String mergeMethod, Optional<String> commitTitle, Optional<String> commitMessage, Optional<String> sha)
 {
     public MergePullRequestCommand
     {

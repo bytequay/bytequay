@@ -58,9 +58,7 @@ public class GitHubPullRequestWriteClient
     private final RestClient gitHubRestClient;
     private final RestClient graphQlRestClient;
 
-    public GitHubPullRequestWriteClient(
-            RestClient gitHubRestClient,
-            @Qualifier("gitHubGraphQLRestClient") RestClient graphQlRestClient)
+    public GitHubPullRequestWriteClient(RestClient gitHubRestClient, @Qualifier("gitHubGraphQLRestClient") RestClient graphQlRestClient)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphQlRestClient = requireNonNull(graphQlRestClient, "graphQlRestClient is null");
@@ -76,41 +74,22 @@ public class GitHubPullRequestWriteClient
         });
     }
 
-    public boolean togglePullRequestReaction(
-            String pat,
-            PullRequestRef pr,
-            String content,
-            Boolean viewerHasReacted)
+    public boolean togglePullRequestReaction(String pat, PullRequestRef pr, String content, Boolean viewerHasReacted)
     {
         return setReaction(pat, "/repos/{owner}/{repo}/issues/{number}/reactions", content, viewerHasReacted, pr.owner(), pr.repo(), pr.number());
     }
 
-    public boolean toggleIssueCommentReaction(
-            String pat,
-            PullRequestRef pr,
-            long commentId,
-            String content,
-            Boolean viewerHasReacted)
+    public boolean toggleIssueCommentReaction(String pat, PullRequestRef pr, long commentId, String content, Boolean viewerHasReacted)
     {
         return setReaction(pat, "/repos/{owner}/{repo}/issues/comments/{commentId}/reactions", content, viewerHasReacted, pr.owner(), pr.repo(), commentId);
     }
 
-    public boolean toggleReviewCommentReaction(
-            String pat,
-            PullRequestRef pr,
-            long commentId,
-            String content,
-            Boolean viewerHasReacted)
+    public boolean toggleReviewCommentReaction(String pat, PullRequestRef pr, long commentId, String content, Boolean viewerHasReacted)
     {
         return setReaction(pat, "/repos/{owner}/{repo}/pulls/comments/{commentId}/reactions", content, viewerHasReacted, pr.owner(), pr.repo(), commentId);
     }
 
-    private boolean setReaction(
-            String pat,
-            String uri,
-            String content,
-            Boolean viewerHasReacted,
-            Object... uriVariables)
+    private boolean setReaction(String pat, String uri, String content, Boolean viewerHasReacted, Object... uriVariables)
     {
         ResponseEntity<GitHubReaction> response = addReaction(pat, uri, content, uriVariables);
         if (response.getStatusCode() != HttpStatus.OK && response.getStatusCode() != HttpStatus.CREATED) {
@@ -175,11 +154,7 @@ public class GitHubPullRequestWriteClient
         return issueTypeName(updateIssue(pat, issue, request).type());
     }
 
-    public IssueMetadata updateIssueMetadata(
-            String pat,
-            PullRequestRef issue,
-            List<String> assignees,
-            List<String> labels)
+    public IssueMetadata updateIssueMetadata(String pat, PullRequestRef issue, List<String> assignees, List<String> labels)
     {
         checkArgument(assignees != null || labels != null, "assignees or labels must be provided");
         Map<String, Object> request = new LinkedHashMap<>();
@@ -226,12 +201,7 @@ public class GitHubPullRequestWriteClient
                 .toBodilessEntity());
     }
 
-    public PrReviewState submitReview(
-            String pat,
-            PullRequestRef pr,
-            String event,
-            String body,
-            List<InlineReviewComment> comments)
+    public PrReviewState submitReview(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments)
     {
         return translating(() -> {
             Map<String, Object> request = new LinkedHashMap<>();
@@ -252,13 +222,7 @@ public class GitHubPullRequestWriteClient
     }
 
     /** Replies belong to existing threads, so attach them to one pending review before publishing it. */
-    public PrReviewState submitReviewWithReplies(
-            String pat,
-            PullRequestRef pr,
-            String event,
-            String body,
-            List<InlineReviewComment> comments,
-            Map<Long, String> replyThreads)
+    public PrReviewState submitReviewWithReplies(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments, Map<Long, String> replyThreads)
     {
         return translating(() -> {
             Map<String, Object> request = new LinkedHashMap<>();
@@ -406,14 +370,7 @@ public class GitHubPullRequestWriteClient
     }
 
     /** Creates a pull request using the same authenticated write client as existing PR actions. */
-    public CreatedPullRequest createPullRequest(
-            String pat,
-            RepoRef baseRepository,
-            String head,
-            String base,
-            String title,
-            String body,
-            boolean draft)
+    public CreatedPullRequest createPullRequest(String pat, RepoRef baseRepository, String head, String base, String title, String body, boolean draft)
     {
         requireNonNull(baseRepository, "baseRepository is null");
         checkText(head, "head");

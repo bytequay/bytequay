@@ -39,9 +39,7 @@ public class SqliteCommitHistoryStore
     private final CommitEnrichmentJpaRepository enrichment;
     private final CommitRefreshMetadataJpaRepository refreshMetadata;
 
-    public SqliteCommitHistoryStore(
-            CommitEnrichmentJpaRepository enrichment,
-            CommitRefreshMetadataJpaRepository refreshMetadata)
+    public SqliteCommitHistoryStore(CommitEnrichmentJpaRepository enrichment, CommitRefreshMetadataJpaRepository refreshMetadata)
     {
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.refreshMetadata = requireNonNull(refreshMetadata, "refreshMetadata is null");

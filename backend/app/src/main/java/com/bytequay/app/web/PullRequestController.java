@@ -66,9 +66,7 @@ public class PullRequestController
     }
 
     @GetMapping("/prs")
-    public PullRequestPage list(
-            @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size)
+    public PullRequestPage list(@RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "50") int size)
     {
         return pullRequests.listPullRequests(page, size);
     }
@@ -132,9 +130,7 @@ public class PullRequestController
     public record MonitorRequest(Boolean monitored) {}
 
     @GetMapping("/prs/users")
-    public List<RepoUser> users(
-            @RequestParam("repo") String repo,
-            @RequestParam(required = false) String workspaceId)
+    public List<RepoUser> users(@RequestParam("repo") String repo, @RequestParam(required = false) String workspaceId)
     {
         return pullRequests.listRepositoryUsers(repo, workspaceId);
     }
@@ -164,9 +160,7 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/detail")
-    public PullRequestDetail detail(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+    public PullRequestDetail detail(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {
         return pullRequests.openPullRequestDetail(repo, number);
     }
@@ -185,9 +179,7 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/detail/refresh-all")
-    public PullRequestDetail refreshAllDetail(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+    public PullRequestDetail refreshAllDetail(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {
         return refreshService.refreshAllDetail(repo, number);
     }
@@ -203,9 +195,7 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/diffCommits")
-    public List<DiffCommit> diffCommits(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+    public List<DiffCommit> diffCommits(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {
         return pullRequests.getPullRequestDiffCommits(repo, number);
     }
@@ -243,9 +233,7 @@ public class PullRequestController
     }
 
     @GetMapping("/prs/merge-mode")
-    public Map<String, Boolean> mergeMode(
-            @RequestParam("repo") String repo,
-            @RequestParam("branch") String branch)
+    public Map<String, Boolean> mergeMode(@RequestParam("repo") String repo, @RequestParam("branch") String branch)
     {
         return ImmutableMap.of("mergeQueue", pullRequests.hasMergeQueue(repo, branch));
     }
@@ -276,104 +264,74 @@ public class PullRequestController
 
     @PatchMapping("/prs/title")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateTitle(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody TitleRequest request)
+    public void updateTitle(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody TitleRequest request)
     {
         pullRequests.updateTitle(repo, number, request.title());
     }
 
     @PatchMapping("/prs/description")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateDescription(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody DescriptionRequest request)
+    public void updateDescription(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody DescriptionRequest request)
     {
         pullRequests.updateDescription(repo, number, request.body());
     }
 
     @PatchMapping("/prs/metadata")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateMetadata(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody MetadataRequest request)
+    public void updateMetadata(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody MetadataRequest request)
     {
         pullRequests.updateMetadata(repo, number, request.assignees(), request.labels());
     }
 
     @PatchMapping("/prs/reviewers")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void updateReviewer(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody ReviewerRequest request)
+    public void updateReviewer(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody ReviewerRequest request)
     {
         pullRequests.updateReviewerRequest(repo, number, request.login(), request.requested());
     }
 
     @PostMapping("/prs/comment")
-    public PullRequestDetail comment(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody CommentRequest request)
+    public PullRequestDetail comment(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody CommentRequest request)
     {
         return pullRequests.commentOnPullRequest(repo, number, request.body());
     }
 
     @PatchMapping("/prs/comments")
-    public PullRequestDetail editComment(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody CommentEditRequest request)
+    public PullRequestDetail editComment(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody CommentEditRequest request)
     {
         checkArgument(request.commentId() != null, "commentId is required");
         return pullRequests.editComment(repo, number, request.target(), request.commentId(), request.body());
     }
 
     @PostMapping("/prs/reactions")
-    public ReactionResponse toggleReaction(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody ReactionRequest request)
+    public ReactionResponse toggleReaction(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody ReactionRequest request)
     {
         return new ReactionResponse(pullRequests.toggleReaction(repo, number, request.target(), request.commentId(), request.content(), request.viewerHasReacted()));
     }
 
     @PostMapping("/prs/close")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void close(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+    public void close(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {
         pullRequests.closePullRequest(repo, number);
     }
 
     @PostMapping("/prs/ready-for-review")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void readyForReview(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+    public void readyForReview(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {
         pullRequests.markReadyForReview(repo, number);
     }
 
     @GetMapping("/prs/checks/log")
-    public Map<String, String> readCheckLog(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestParam("jobId") long jobId)
+    public Map<String, String> readCheckLog(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam("jobId") long jobId)
     {
         return ImmutableMap.of("text", pullRequests.readCheckLog(repo, number, jobId));
     }
 
     @PostMapping("/prs/checks/rerun-failed")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void rerunFailedChecks(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+    public void rerunFailedChecks(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {
         pullRequests.rerunFailedChecks(repo, number);
     }
@@ -401,29 +359,20 @@ public class PullRequestController
     }
 
     @PostMapping("/prs/review")
-    public PullRequestDetail review(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestParam("id") long prId,
-            @RequestBody ReviewRequest request)
+    public PullRequestDetail review(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestParam("id") long prId, @RequestBody ReviewRequest request)
     {
         return pullRequests.submitReview(repo, number, prId, request.event(), request.body(), request.comments());
     }
 
     @PostMapping("/prs/review-comment")
-    public PullRequestDetail reviewComment(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number,
-            @RequestBody InlineReviewComment comment)
+    public PullRequestDetail reviewComment(@RequestParam("repo") String repo, @RequestParam("number") int number, @RequestBody InlineReviewComment comment)
     {
         return pullRequests.createReviewComment(repo, number, comment);
     }
 
     @DeleteMapping("/prs/merge-queue")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    public void removeFromMergeQueue(
-            @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+    public void removeFromMergeQueue(@RequestParam("repo") String repo, @RequestParam("number") int number)
     {
         pullRequests.removeFromMergeQueue(repo, number);
     }

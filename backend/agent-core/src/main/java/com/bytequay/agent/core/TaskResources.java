@@ -18,11 +18,7 @@ import java.nio.file.Path;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record TaskResources(
-        Path runtimeDirectory,
-        Path eventsFile,
-        Path blobsDirectory,
-        Path providerDirectory)
+public record TaskResources(Path runtimeDirectory, Path eventsFile, Path blobsDirectory, Path providerDirectory)
 {
     /** Disposable evidence retained only while the task worktree exists. */
     public Path worktreeCacheDirectory()

@@ -257,8 +257,7 @@ public record BackportChain(
                 || hops.stream().anyMatch(hop -> hop.route().workspaceId().equals(workspace));
     }
 
-    private BackportChain copy(Optional<PullRequestRef> pr, List<Acceptance> authority, List<Hop> next,
-            State status, Optional<String> message, long nextVersion, Instant now)
+    private BackportChain copy(Optional<PullRequestRef> pr, List<Acceptance> authority, List<Hop> next, State status, Optional<String> message, long nextVersion, Instant now)
     {
         return new BackportChain(id, workspaceId, requestingTaskId, sourceTaskId, sourceBranch, source, pr, sourceMerged, authority, next,
                 status, message, nextVersion, createdAt, now);

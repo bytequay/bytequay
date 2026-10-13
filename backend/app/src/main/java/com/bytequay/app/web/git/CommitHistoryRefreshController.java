@@ -42,9 +42,7 @@ public class CommitHistoryRefreshController
     }
 
     @PostMapping("/refresh")
-    public CommitRefreshStatus refresh(
-            @PathVariable String workspaceId,
-            @RequestBody CommitHistoryRefreshRequest request)
+    public CommitRefreshStatus refresh(@PathVariable String workspaceId, @RequestBody CommitHistoryRefreshRequest request)
     {
         return commits.refresh(workspaceId, request.historyRefs());
     }

@@ -163,10 +163,7 @@ public final class DefaultProcessSupervisor
         store.delete(launchId);
     }
 
-    private Optional<OwnedProcessRecovery> recover(
-            String launchId,
-            Optional<Boolean> attempted,
-            boolean retryUnverifiable)
+    private Optional<OwnedProcessRecovery> recover(String launchId, Optional<Boolean> attempted, boolean retryUnverifiable)
     {
         Optional<LaunchMarker> found = store.read(launchId);
         if (found.isEmpty()) {
@@ -210,10 +207,7 @@ public final class DefaultProcessSupervisor
         return !attempted.orElse(false);
     }
 
-    private OwnedProcessRecovery reconcile(
-            LaunchMarker marker,
-            Optional<Boolean> attempted,
-            boolean retryUnverifiable)
+    private OwnedProcessRecovery reconcile(LaunchMarker marker, Optional<Boolean> attempted, boolean retryUnverifiable)
     {
         String launchId = marker.launchId();
         boolean released = store.gateReleased(launchId);
@@ -748,13 +742,7 @@ public final class DefaultProcessSupervisor
         private final Thread outputDispatcher;
         private final Thread descendantObserver;
 
-        private DefaultManagedProcess(
-                LaunchMarker marker,
-                Process launcher,
-                long payloadPid,
-                long processGroup,
-                ProcessSpec spec,
-                ProcessOutputSink output)
+        private DefaultManagedProcess(LaunchMarker marker, Process launcher, long payloadPid, long processGroup, ProcessSpec spec, ProcessOutputSink output)
         {
             this.marker = marker;
             this.launcher = launcher;
@@ -1179,13 +1167,7 @@ public final class DefaultProcessSupervisor
                 if (termination == ProcessExit.TreeTermination.VERIFIED_STOPPED
                         && terminal != null
                         && terminal.treeTermination() != ProcessExit.TreeTermination.VERIFIED_STOPPED) {
-                    record(new ProcessExit(
-                            terminal.exitCode(),
-                            terminal.reason(),
-                            termination,
-                            terminal.duration(),
-                            terminal.stdoutTruncated(),
-                            terminal.stderrTruncated()));
+                    record(new ProcessExit(terminal.exitCode(), terminal.reason(), termination, terminal.duration(), terminal.stdoutTruncated(), terminal.stderrTruncated()));
                 }
                 return termination;
             }

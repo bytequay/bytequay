@@ -135,11 +135,7 @@ public sealed interface AgentEventPayload
         }
     }
 
-    record FileActivity(
-            ActivityState state,
-            String relativePath,
-            ChangeKind change,
-            Optional<String> diff)
+    record FileActivity(ActivityState state, String relativePath, ChangeKind change, Optional<String> diff)
             implements AgentEventPayload
     {
         public FileActivity
@@ -208,12 +204,7 @@ public sealed interface AgentEventPayload
         }
     }
 
-    record UsageUpdated(
-            UsageSemantics semantics,
-            long inputTokens,
-            long cachedInputTokens,
-            long outputTokens,
-            Optional<BigDecimal> cost)
+    record UsageUpdated(UsageSemantics semantics, long inputTokens, long cachedInputTokens, long outputTokens, Optional<BigDecimal> cost)
             implements AgentEventPayload
     {
         public UsageUpdated

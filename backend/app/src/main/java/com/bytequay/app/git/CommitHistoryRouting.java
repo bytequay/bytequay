@@ -27,9 +27,7 @@ final class CommitHistoryRouting
 {
     private CommitHistoryRouting() {}
 
-    static ResolvedCommitHistoryRef resolve(
-            WorkspaceRepositoryContext context,
-            CommitHistoryRef ref)
+    static ResolvedCommitHistoryRef resolve(WorkspaceRepositoryContext context, CommitHistoryRef ref)
     {
         requireNonNull(context, "context is null");
         requireNonNull(ref, "ref is null");
@@ -64,11 +62,7 @@ final class CommitHistoryRouting
         throw new IllegalArgumentException("unsupported source: " + ref.source());
     }
 
-    record ResolvedCommitHistoryRef(
-            OptionalLong repositoryId,
-            Optional<RepoRef> repository,
-            String gitRef,
-            String providerRef)
+    record ResolvedCommitHistoryRef(OptionalLong repositoryId, Optional<RepoRef> repository, String gitRef, String providerRef)
     {
         ResolvedCommitHistoryRef
         {

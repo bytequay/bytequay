@@ -20,12 +20,7 @@ import java.time.Instant;
 import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-public record GitHubPullRequestCommit(
-        String sha,
-        @JsonProperty("html_url") String htmlUrl,
-        User author,
-        Commit commit,
-        List<Parent> parents)
+public record GitHubPullRequestCommit(String sha, @JsonProperty("html_url") String htmlUrl, User author, Commit commit, List<Parent> parents)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record User(String login, @JsonProperty("avatar_url") String avatarUrl, String type) {}

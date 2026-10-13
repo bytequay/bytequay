@@ -348,11 +348,7 @@ class TestSqliteCiAutofixStore
         return newRun(key, headRef, PullRequestRef.of("bytequay", "sample", 7), now);
     }
 
-    private static CiAutofixRun newRun(
-            String key,
-            String headRef,
-            PullRequestRef pullRequest,
-            Instant now)
+    private static CiAutofixRun newRun(String key, String headRef, PullRequestRef pullRequest, Instant now)
     {
         return newRun(key, headRef, pullRequest, RepoRef.of(pullRequest.owner(), pullRequest.repo()), now);
     }

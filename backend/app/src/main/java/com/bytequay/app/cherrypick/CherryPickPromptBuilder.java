@@ -35,13 +35,7 @@ final class CherryPickPromptBuilder
 
     private CherryPickPromptBuilder() {}
 
-    static String resolveConflict(
-            CherryPickItem item,
-            String expectedParentSha,
-            String conflictCommitSha,
-            Optional<String> fixupCommitSha,
-            int attempt,
-            Optional<String> userNote)
+    static String resolveConflict(CherryPickItem item, String expectedParentSha, String conflictCommitSha, Optional<String> fixupCommitSha, int attempt, Optional<String> userNote)
     {
         requireNonNull(item, "item is null");
         StringBuilder prompt = new StringBuilder()

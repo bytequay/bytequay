@@ -54,8 +54,7 @@ public interface PullRequestStore
 
     Set<Long> completeDashboardSync(String syncMarker, String currentLogin);
 
-    List<PullRequest> saveRepositorySyncPage(
-            String repository, List<FetchedPullRequest> pullRequests, String syncMarker);
+    List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests, String syncMarker);
 
     List<PullRequest> findRepositoryRowsMissingSync(String repository, String syncMarker);
 

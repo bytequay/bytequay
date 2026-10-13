@@ -21,12 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Stable repository identity and routing fingerprint explicitly confirmed by the user. */
-public record WatchRepositoryCommand(
-        long selectedRepositoryId,
-        Topology topology,
-        String previewFingerprint,
-        Optional<String> name,
-        boolean allowForkCreation)
+public record WatchRepositoryCommand(long selectedRepositoryId, Topology topology, String previewFingerprint, Optional<String> name, boolean allowForkCreation)
 {
     public WatchRepositoryCommand
     {

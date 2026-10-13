@@ -54,10 +54,7 @@ public sealed interface ProviderAgentEvent
      */
     ProviderAgentEventSource source();
 
-    record DevelopmentResult(
-            Optional<String> providerEventId,
-            DevelopmentResultReport report,
-            ProviderAgentEventSource source)
+    record DevelopmentResult(Optional<String> providerEventId, DevelopmentResultReport report, ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
         public DevelopmentResult
@@ -68,20 +65,11 @@ public sealed interface ProviderAgentEvent
         }
     }
 
-    record Message(
-            Optional<String> providerEventId,
-            MessageKind messageKind,
-            MessagePhase phase,
-            String text,
-            ProviderAgentEventSource source)
+    record Message(Optional<String> providerEventId, MessageKind messageKind, MessagePhase phase, String text, ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
         /** An answer, which is what every message was before reasoning summaries and plan text were mapped. */
-        public Message(
-                Optional<String> providerEventId,
-                MessagePhase phase,
-                String text,
-                ProviderAgentEventSource source)
+        public Message(Optional<String> providerEventId, MessagePhase phase, String text, ProviderAgentEventSource source)
         {
             this(providerEventId, MessageKind.ANSWER, phase, text, source);
         }
@@ -96,10 +84,7 @@ public sealed interface ProviderAgentEvent
         }
     }
 
-    record Plan(
-            Optional<String> providerEventId,
-            List<PlanItem> items,
-            ProviderAgentEventSource source)
+    record Plan(Optional<String> providerEventId, List<PlanItem> items, ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
         public Plan
@@ -124,23 +109,12 @@ public sealed interface ProviderAgentEvent
         /** The provider summarized the conversation's context, so earlier input may no longer be in it word for word. */
         public static final String CONTEXT_COMPACTION = "Context compaction";
 
-        public Tool(
-                Optional<String> providerEventId,
-                String name,
-                ActivityState state,
-                String summary,
-                ProviderAgentEventSource source)
+        public Tool(Optional<String> providerEventId, String name, ActivityState state, String summary, ProviderAgentEventSource source)
         {
             this(providerEventId, name, state, summary, source, Optional.empty(), Optional.empty());
         }
 
-        public Tool(
-                Optional<String> providerEventId,
-                String name,
-                ActivityState state,
-                String summary,
-                ProviderAgentEventSource source,
-                Optional<Duration> duration)
+        public Tool(Optional<String> providerEventId, String name, ActivityState state, String summary, ProviderAgentEventSource source, Optional<Duration> duration)
         {
             this(providerEventId, name, state, summary, source, duration, Optional.empty());
         }
@@ -216,12 +190,7 @@ public sealed interface ProviderAgentEvent
         }
     }
 
-    record FileChange(
-            Optional<String> providerEventId,
-            String relativePath,
-            ChangeKind change,
-            Optional<String> diff,
-            ProviderAgentEventSource source)
+    record FileChange(Optional<String> providerEventId, String relativePath, ChangeKind change, Optional<String> diff, ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
         public FileChange
@@ -257,17 +226,10 @@ public sealed interface ProviderAgentEvent
         }
     }
 
-    record Lifecycle(
-            Optional<String> providerEventId,
-            LifecyclePhase phase,
-            String message,
-            ProviderAgentEventSource source)
+    record Lifecycle(Optional<String> providerEventId, LifecyclePhase phase, String message, ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public Lifecycle(
-                Optional<String> providerEventId,
-                LifecyclePhase phase,
-                String message)
+        public Lifecycle(Optional<String> providerEventId, LifecyclePhase phase, String message)
         {
             this(providerEventId, phase, message, root());
         }
@@ -281,19 +243,10 @@ public sealed interface ProviderAgentEvent
         }
     }
 
-    record Error(
-            Optional<String> providerEventId,
-            String code,
-            String message,
-            boolean retryable,
-            ProviderAgentEventSource source)
+    record Error(Optional<String> providerEventId, String code, String message, boolean retryable, ProviderAgentEventSource source)
             implements ProviderAgentEvent
     {
-        public Error(
-                Optional<String> providerEventId,
-                String code,
-                String message,
-                boolean retryable)
+        public Error(Optional<String> providerEventId, String code, String message, boolean retryable)
         {
             this(providerEventId, code, message, retryable, root());
         }

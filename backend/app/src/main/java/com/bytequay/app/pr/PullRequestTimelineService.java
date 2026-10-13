@@ -65,11 +65,7 @@ public class PullRequestTimelineService
         store.recordLocalTimelineEvent(pullRequest, new PrTimelineEvent(null, "ci_autofix", actor, timestamp, body, Optional.of(eventKey)));
     }
 
-    private static String body(
-            String expectedRemoteSha,
-            String pushedSha,
-            List<String> commitSubjects,
-            List<String> changedPaths)
+    private static String body(String expectedRemoteSha, String pushedSha, List<String> commitSubjects, List<String> changedPaths)
     {
         StringBuilder body = new StringBuilder("CI Autofix pushed `")
                 .append(pushedSha)

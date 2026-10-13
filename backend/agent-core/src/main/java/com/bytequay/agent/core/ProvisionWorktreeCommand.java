@@ -20,12 +20,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Validated internal service command used to derive a task's path and generated branch. */
-public record ProvisionWorktreeCommand(
-        TaskId taskId,
-        String workspaceId,
-        RepositoryIdentity physicalRepository,
-        String startCommit,
-        String generatedBranch)
+public record ProvisionWorktreeCommand(TaskId taskId, String workspaceId, RepositoryIdentity physicalRepository, String startCommit, String generatedBranch)
 {
     private static final Pattern GIT_OBJECT_ID = Pattern.compile("(?:[0-9a-f]{40}|[0-9a-f]{64})");
 

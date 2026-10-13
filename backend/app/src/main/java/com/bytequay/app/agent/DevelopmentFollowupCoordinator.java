@@ -424,8 +424,7 @@ public class DevelopmentFollowupCoordinator
         verifyDeliveryPr(baseline.route(), publishedPr, green, remote);
     }
 
-    private static void verifyDeliveryPr(DevelopmentPublicationRoute route, GitHubPullRequestIdentity publishedPr, CiAutofixRun green,
-            GitHubPullRequestIdentity current)
+    private static void verifyDeliveryPr(DevelopmentPublicationRoute route, GitHubPullRequestIdentity publishedPr, CiAutofixRun green, GitHubPullRequestIdentity current)
     {
         checkState(current.pullRequest().equals(publishedPr.pullRequest()) && current.state() == GitHubPullRequestIdentity.State.OPEN
                 && current.headRepository().equals(route.headRepository()) && current.headBranch().equals(route.headBranch())
@@ -721,8 +720,7 @@ public class DevelopmentFollowupCoordinator
         }
     }
 
-    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local,
-            Optional<GitHubPullRequestIdentity> pullRequest)
+    static String publicationPrompt(DevelopmentBaseline baseline, DevelopmentLocalFacts local, Optional<GitHubPullRequestIdentity> pullRequest)
     {
         DevelopmentPublicationRoute route = baseline.route();
         String prInstruction = pullRequest

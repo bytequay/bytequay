@@ -41,27 +41,19 @@ public final class WorkspacePullRequestController
     }
 
     @GetMapping("/api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/delivery")
-    public DeliveryStatus getStatus(
-            @PathVariable String workspaceId,
-            @PathVariable String executionId)
+    public DeliveryStatus getStatus(@PathVariable String workspaceId, @PathVariable String executionId)
     {
         return pullRequests.getStatus(workspaceId, executionId(executionId));
     }
 
     @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/push")
-    public PushResult push(
-            @PathVariable String workspaceId,
-            @PathVariable String executionId,
-            @RequestBody WorkspaceDeliveryRequest request)
+    public PushResult push(@PathVariable String workspaceId, @PathVariable String executionId, @RequestBody WorkspaceDeliveryRequest request)
     {
         return pullRequests.push(new PushCommand(workspaceId, executionId(executionId), request.confirmed()));
     }
 
     @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/pull-request")
-    public PullRequestResult createPullRequest(
-            @PathVariable String workspaceId,
-            @PathVariable String executionId,
-            @RequestBody WorkspaceDeliveryRequest request)
+    public PullRequestResult createPullRequest(@PathVariable String workspaceId, @PathVariable String executionId, @RequestBody WorkspaceDeliveryRequest request)
     {
         return pullRequests.createPullRequest(new PullRequestCommand(workspaceId, executionId(executionId), request.confirmed()));
     }

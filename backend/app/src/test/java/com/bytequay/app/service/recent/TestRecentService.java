@@ -418,10 +418,7 @@ class TestRecentService
         return new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, null, false, text);
     }
 
-    private static StoredPrDetail detailWith(
-            List<PrTimelineEvent> timeline,
-            List<PrCheckRunState> checkRuns,
-            List<String> requestedReviewers)
+    private static StoredPrDetail detailWith(List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, List<String> requestedReviewers)
     {
         PrRawDetail raw = new PrRawDetail(
                 "Support sorted by nested fields in Iceberg",

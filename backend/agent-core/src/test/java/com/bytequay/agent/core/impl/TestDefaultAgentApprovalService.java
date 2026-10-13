@@ -567,17 +567,12 @@ class TestDefaultAgentApprovalService
         return request(turnId, ImmutableList.of(ALLOW_ONCE, DENY));
     }
 
-    private ApprovalRequest request(
-            TurnId turnId,
-            List<ProviderApprovalRequest.Decision> availableDecisions)
+    private ApprovalRequest request(TurnId turnId, List<ProviderApprovalRequest.Decision> availableDecisions)
     {
         return request(turnId, availableDecisions, Optional.empty());
     }
 
-    private ApprovalRequest request(
-            TurnId turnId,
-            List<ProviderApprovalRequest.Decision> availableDecisions,
-            Optional<String> taskScope)
+    private ApprovalRequest request(TurnId turnId, List<ProviderApprovalRequest.Decision> availableDecisions, Optional<String> taskScope)
     {
         Optional<AgentTurn> existingTurn = stores.find(turnId);
         TaskId taskId = existingTurn.map(AgentTurn::taskId).orElseGet(TaskId::random);

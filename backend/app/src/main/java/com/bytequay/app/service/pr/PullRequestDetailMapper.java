@@ -39,8 +39,7 @@ final class PullRequestDetailMapper
 
     private PullRequestDetailMapper() {}
 
-    static PullRequestDetail toPullRequestDetail(
-            long id, String repo, int number, StoredPrDetail stored, boolean viewerCanWrite)
+    static PullRequestDetail toPullRequestDetail(long id, String repo, int number, StoredPrDetail stored, boolean viewerCanWrite)
     {
         PrRawDetail raw = stored.raw();
         return new PullRequestDetail(
@@ -175,9 +174,7 @@ final class PullRequestDetailMapper
                 .orElse(null);
     }
 
-    private static List<PullRequestDetail.Reviewer> reviewers(
-            PrRawDetail raw,
-            List<PrReviewState> reviews)
+    private static List<PullRequestDetail.Reviewer> reviewers(PrRawDetail raw, List<PrReviewState> reviews)
     {
         Map<String, PrReviewState> latest = latestReviews(reviews);
         Map<String, PullRequestDetail.Reviewer> out = new LinkedHashMap<>();

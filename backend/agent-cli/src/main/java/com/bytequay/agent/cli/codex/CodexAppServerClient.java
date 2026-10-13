@@ -107,21 +107,12 @@ final class CodexAppServerClient
     private volatile boolean closed;
     private volatile boolean workFinished;
 
-    CodexAppServerClient(
-            ProcessSupervisor supervisor,
-            ProcessSpec processSpec,
-            ObjectMapper objectMapper,
-            SecretRedactor redactor)
+    CodexAppServerClient(ProcessSupervisor supervisor, ProcessSpec processSpec, ObjectMapper objectMapper, SecretRedactor redactor)
     {
         this(supervisor, processSpec, objectMapper, redactor, Optional.empty());
     }
 
-    CodexAppServerClient(
-            ProcessSupervisor supervisor,
-            ProcessSpec processSpec,
-            ObjectMapper objectMapper,
-            SecretRedactor redactor,
-            Optional<DeepSeekLoopback> deepSeekLoopback)
+    CodexAppServerClient(ProcessSupervisor supervisor, ProcessSpec processSpec, ObjectMapper objectMapper, SecretRedactor redactor, Optional<DeepSeekLoopback> deepSeekLoopback)
     {
         this.supervisor = requireNonNull(supervisor, "supervisor is null");
         this.processSpec = requireNonNull(processSpec, "processSpec is null");
@@ -531,10 +522,7 @@ final class CodexAppServerClient
         }
     }
 
-    private static <T> T await(
-            CompletableFuture<T> future,
-            Duration timeout,
-            String operation)
+    private static <T> T await(CompletableFuture<T> future, Duration timeout, String operation)
     {
         try {
             return future.get(timeout.toMillis(), TimeUnit.MILLISECONDS);

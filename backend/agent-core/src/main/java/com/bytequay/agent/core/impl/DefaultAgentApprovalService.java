@@ -277,18 +277,12 @@ public final class DefaultAgentApprovalService
                 && providerRequest.taskScope().filter(scope -> approvalStore.hasTaskAllow(request.taskId(), scope)).isPresent();
     }
 
-    private void resolveAndPublish(
-            AgentApproval approval,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome)
+    private void resolveAndPublish(AgentApproval approval, ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome)
     {
         publishResolution(prepareResolution(approval, decision, outcome));
     }
 
-    private PreparedResolution prepareResolution(
-            AgentApproval approval,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome)
+    private PreparedResolution prepareResolution(AgentApproval approval, ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome)
     {
         PendingApproval live = pending.get(decision.approvalId());
         if (live == null) {
@@ -306,11 +300,7 @@ public final class DefaultAgentApprovalService
         }
     }
 
-    private PreparedResolution recordResolution(
-            AgentApproval approval,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome,
-            Optional<PendingApproval> live)
+    private PreparedResolution recordResolution(AgentApproval approval, ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome, Optional<PendingApproval> live)
     {
         EventId eventId = EventId.random();
         boolean changed = unitOfWork.execute(() -> {
@@ -425,11 +415,7 @@ public final class DefaultAgentApprovalService
                 request.requestedAt());
     }
 
-    private static AgentEventOutboxEntry resolutionEvent(
-            ApprovalRequest request,
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome,
-            EventId eventId)
+    private static AgentEventOutboxEntry resolutionEvent(ApprovalRequest request, ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome, EventId eventId)
     {
         return pendingInline(
                 eventId,
@@ -479,10 +465,7 @@ public final class DefaultAgentApprovalService
                 && previous.forTask() == command.forTask();
     }
 
-    private record PreparedResolution(
-            TaskId taskId,
-            ApprovalDecision decision,
-            Optional<PendingApproval> live)
+    private record PreparedResolution(TaskId taskId, ApprovalDecision decision, Optional<PendingApproval> live)
     {
         private PreparedResolution
         {

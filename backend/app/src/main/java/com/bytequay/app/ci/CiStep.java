@@ -21,11 +21,7 @@ import static com.bytequay.app.ci.CiActionsChecks.normalizeState;
 import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 
-public record CiStep(
-        int number,
-        String name,
-        String status,
-        Optional<String> conclusion)
+public record CiStep(int number, String name, String status, Optional<String> conclusion)
 {
     public CiStep
     {

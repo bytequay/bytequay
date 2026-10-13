@@ -22,14 +22,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** A verified, task-owned attachment: its facts, and the blob path only the provider input may use. */
-public record StoredAgentAttachment(
-        String id,
-        String name,
-        String mediaType,
-        long byteSize,
-        int width,
-        int height,
-        Path path)
+public record StoredAgentAttachment(String id, String name, String mediaType, long byteSize, int width, int height, Path path)
 {
     public StoredAgentAttachment
     {

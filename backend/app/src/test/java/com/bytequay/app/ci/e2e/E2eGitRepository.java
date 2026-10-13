@@ -51,12 +51,7 @@ final class E2eGitRepository
     private String baseSha;
     private final String initialHeadSha;
 
-    private E2eGitRepository(
-            PullRequestRef pullRequest,
-            Path bareRemote,
-            Path worktree,
-            String baseSha,
-            String initialHeadSha)
+    private E2eGitRepository(PullRequestRef pullRequest, Path bareRemote, Path worktree, String baseSha, String initialHeadSha)
     {
         this.pullRequest = requireNonNull(pullRequest, "pullRequest is null");
         this.bareRemote = requireNonNull(bareRemote, "bareRemote is null");

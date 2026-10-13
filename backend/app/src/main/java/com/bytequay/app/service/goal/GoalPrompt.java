@@ -36,8 +36,7 @@ final class GoalPrompt
     private GoalPrompt() {}
 
     @JsonInclude(JsonInclude.Include.NON_ABSENT)
-    record MapData(Optional<String> repository, String goal, String objective, List<CoursePart> course, List<Note> notes,
-            Optional<GoalSourceContext.Evidence> sourceContext)
+    record MapData(Optional<String> repository, String goal, String objective, List<CoursePart> course, List<Note> notes, Optional<GoalSourceContext.Evidence> sourceContext)
     {
         MapData
         {

@@ -263,12 +263,7 @@ class TestCherryPickPreviewHttpApi
         assertThat(commands.getValue().sourceRepositoryId()).hasValue(303);
     }
 
-    private static WorkspaceRepositoryContext context(
-            String workspaceId,
-            Path repository,
-            Topology topology,
-            String sourceRemote,
-            RemoteSource... extraRemotes)
+    private static WorkspaceRepositoryContext context(String workspaceId, Path repository, Topology topology, String sourceRemote, RemoteSource... extraRemotes)
     {
         RepoRef selected = RepoRef.of("contributor", "project");
         RepoRef monitored = topology == Topology.FORK ? RepoRef.of("upstream", "project") : selected;

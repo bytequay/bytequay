@@ -20,11 +20,7 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-public record SendCiAutofixMessageCommand(
-        CiAutofixRunId runId,
-        String message,
-        String idempotencyKey,
-        Optional<TurnId> expectedTurnId)
+public record SendCiAutofixMessageCommand(CiAutofixRunId runId, String message, String idempotencyKey, Optional<TurnId> expectedTurnId)
 {
     public SendCiAutofixMessageCommand
     {

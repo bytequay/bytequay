@@ -87,8 +87,7 @@ public class GitHubTeamActivityClient
         return collector.result();
     }
 
-    public Observation repository(String token, String repository, Identity identity, int offset,
-            BiFunction<Integer, Instant, Optional<StoredPrDetail>> cachedDetails)
+    public Observation repository(String token, String repository, Identity identity, int offset, BiFunction<Integer, Instant, Optional<StoredPrDetail>> cachedDetails)
     {
         requirePat(token);
         checkArgument(REPOSITORY.matcher(repository).matches() && !repository.endsWith("/.") && !repository.endsWith("/.."), "Invalid GitHub repository");

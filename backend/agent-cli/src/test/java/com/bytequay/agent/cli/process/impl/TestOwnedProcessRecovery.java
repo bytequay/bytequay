@@ -509,12 +509,7 @@ class TestOwnedProcessRecovery
         intents.commit(marker.launchId(), marker.phase() != LaunchPhase.PREPARED);
     }
 
-    private static LaunchMarker marker(
-            LaunchPhase phase,
-            Optional<Long> pid,
-            Optional<Instant> startToken,
-            Optional<Long> processGroup,
-            String executable)
+    private static LaunchMarker marker(LaunchPhase phase, Optional<Long> pid, Optional<Instant> startToken, Optional<Long> processGroup, String executable)
     {
         return new LaunchMarker(
                 LaunchMarker.CURRENT_FORMAT,

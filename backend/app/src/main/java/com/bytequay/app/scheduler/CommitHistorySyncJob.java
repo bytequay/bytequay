@@ -46,11 +46,7 @@ public class CommitHistorySyncJob
     private final AppSettingsService appSettings;
     private final Clock clock;
 
-    public CommitHistorySyncJob(
-            WorkspaceRepositoryService workspaces,
-            CommitHistoryService commits,
-            AppSettingsService appSettings,
-            Clock clock)
+    public CommitHistorySyncJob(WorkspaceRepositoryService workspaces, CommitHistoryService commits, AppSettingsService appSettings, Clock clock)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.commits = requireNonNull(commits, "commits is null");

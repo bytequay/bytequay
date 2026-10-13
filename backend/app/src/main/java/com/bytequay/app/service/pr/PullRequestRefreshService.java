@@ -54,11 +54,7 @@ public class PullRequestRefreshService
     private final Lock refreshLock = new ReentrantLock();
     private volatile DashboardSnapshot dashboardSnapshot;
 
-    public PullRequestRefreshService(
-            PullRequestService pullRequests,
-            CredentialService credentials,
-            WorkspaceStore workspaces,
-            ApplicationEventPublisher events)
+    public PullRequestRefreshService(PullRequestService pullRequests, CredentialService credentials, WorkspaceStore workspaces, ApplicationEventPublisher events)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
@@ -109,23 +105,14 @@ public class PullRequestRefreshService
     }
 
     /** Refreshes one diff snapshot and returns the newly persisted files. */
-    public List<DiffFile> refreshDiffFiles(
-            String repo,
-            int number,
-            String baseSha,
-            String headSha)
+    public List<DiffFile> refreshDiffFiles(String repo, int number, String baseSha, String headSha)
     {
         pullRequests.refreshPullRequestDiffFromGitHub(repo, number, baseSha, headSha);
         return pullRequests.getPullRequestDiffFiles(repo, number, baseSha, headSha);
     }
 
     /** Refreshes one file body and returns the newly persisted content. */
-    public DiffFileContent refreshDiffFileContent(
-            String repo,
-            int number,
-            String path,
-            String baseSha,
-            String headSha)
+    public DiffFileContent refreshDiffFileContent(String repo, int number, String path, String baseSha, String headSha)
     {
         pullRequests.refreshPullRequestDiffFileContentFromGitHub(repo, number, path, baseSha, headSha);
         return pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);

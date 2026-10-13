@@ -27,11 +27,7 @@ final class BranchRebasePromptBuilder
 
     private BranchRebasePromptBuilder() {}
 
-    public static String resolve(
-            BranchRebase rebase,
-            SequenceState state,
-            int attempt,
-            Optional<String> userNote)
+    public static String resolve(BranchRebase rebase, SequenceState state, int attempt, Optional<String> userNote)
     {
         StringBuilder prompt = new StringBuilder()
                 .append("Resolve only this rebase conflict.\n\n")

@@ -423,11 +423,7 @@ public class GitHubRepoClient
         }
     }
 
-    public record RepositoryOverview(
-            String description,
-            int stargazersCount,
-            List<String> topics,
-            Map<String, Long> languages)
+    public record RepositoryOverview(String description, int stargazersCount, List<String> topics, Map<String, Long> languages)
     {
         public RepositoryOverview
         {

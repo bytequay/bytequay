@@ -601,9 +601,7 @@ public class GitHubAccountClient
                 reviewState);
     }
 
-    private static String eventDetail(
-            List<GitHubEventItem.CommitPayload> commits,
-            int commitCount)
+    private static String eventDetail(List<GitHubEventItem.CommitPayload> commits, int commitCount)
     {
         if (commits == null || commits.isEmpty()) {
             return null;

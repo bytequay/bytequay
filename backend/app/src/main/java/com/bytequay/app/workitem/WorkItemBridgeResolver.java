@@ -50,8 +50,7 @@ public class WorkItemBridgeResolver
     private final WorkItemStore items;
     private final ObjectMapper mapper;
 
-    public WorkItemBridgeResolver(AgentTaskStore tasks, ObjectProvider<WorkItemCatalog> catalog, ObjectProvider<WorkItemService> work,
-            WorkItemStore items, ObjectMapper mapper)
+    public WorkItemBridgeResolver(AgentTaskStore tasks, ObjectProvider<WorkItemCatalog> catalog, ObjectProvider<WorkItemService> work, WorkItemStore items, ObjectMapper mapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.catalog = requireNonNull(catalog, "catalog is null");

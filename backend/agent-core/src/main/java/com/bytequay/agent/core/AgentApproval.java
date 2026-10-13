@@ -20,10 +20,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /** Durable approval facts; absence of a decision means the request is pending. */
-public record AgentApproval(
-        ApprovalRequest request,
-        Optional<ApprovalDecision> decision,
-        Optional<AgentEventPayload.ApprovalOutcome> outcome)
+public record AgentApproval(ApprovalRequest request, Optional<ApprovalDecision> decision, Optional<AgentEventPayload.ApprovalOutcome> outcome)
 {
     public AgentApproval
     {
@@ -47,18 +44,14 @@ public record AgentApproval(
         return decision.isEmpty();
     }
 
-    public AgentApproval resolve(
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome)
+    public AgentApproval resolve(ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome)
     {
         checkState(pending(), "approval is already resolved");
         return new AgentApproval(request, Optional.of(decision), Optional.of(outcome));
     }
 
     /** Whether a decision and the outcome recorded for it describe the same resolution. */
-    public static boolean matches(
-            ApprovalDecision decision,
-            AgentEventPayload.ApprovalOutcome outcome)
+    public static boolean matches(ApprovalDecision decision, AgentEventPayload.ApprovalOutcome outcome)
     {
         return switch (outcome) {
             case ALLOWED -> decision.decision() == ApprovalDecision.Decision.ALLOW && !decision.timedOut();

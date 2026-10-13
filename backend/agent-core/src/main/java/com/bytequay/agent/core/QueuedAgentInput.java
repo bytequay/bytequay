@@ -191,12 +191,7 @@ public record QueuedAgentInput(
                 messageEventId, turnId, pauseReason, createdAt, updatedAt, version);
     }
 
-    private QueuedAgentInput copy(
-            State updatedState,
-            Optional<EventId> updatedMessageEventId,
-            Optional<TurnId> updatedTurnId,
-            Optional<String> updatedPauseReason,
-            Instant now)
+    private QueuedAgentInput copy(State updatedState, Optional<EventId> updatedMessageEventId, Optional<TurnId> updatedTurnId, Optional<String> updatedPauseReason, Instant now)
     {
         requireNonNull(now, "now is null");
         return new QueuedAgentInput(id, taskId, position, updatedState, idempotencyKey, textBlob, preview, settings,

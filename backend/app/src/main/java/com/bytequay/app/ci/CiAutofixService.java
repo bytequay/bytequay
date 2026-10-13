@@ -253,8 +253,7 @@ public class CiAutofixService
     }
 
     /** Starts only under the live source continuation, retaining its original authorization deadline. */
-    public CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, TurnId sourceTurnId,
-            GitHubPullRequestIdentity expectedPr, Instant activatedAt)
+    public CiAutofixRun startDevelopment(StartCiAutofixCommand command, TaskId parentTaskId, TurnId sourceTurnId, GitHubPullRequestIdentity expectedPr, Instant activatedAt)
     {
         requireNonNull(parentTaskId, "parentTaskId is null");
         requireNonNull(sourceTurnId, "sourceTurnId is null");
@@ -857,11 +856,7 @@ public class CiAutofixService
                 : "Agent provider sign-in required";
     }
 
-    private CiAutofixRun inspectCompletedAttempt(
-            CiAutofixRun run,
-            CiAutofixAttempt attempt,
-            CiHeadSnapshot snapshot,
-            Instant now)
+    private CiAutofixRun inspectCompletedAttempt(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)
     {
         WorktreeSnapshot worktree = inspectWorktree(requireOpenTask(run), run);
         CiGitInspection inspection = gitService.inspectAgentResult(new CiWorktreeRange(
@@ -877,11 +872,7 @@ public class CiAutofixService
         };
     }
 
-    private CiAutofixRun journalPush(
-            CiAutofixRun run,
-            CiAutofixAttempt attempt,
-            CiGitInspection inspection,
-            Instant now)
+    private CiAutofixRun journalPush(CiAutofixRun run, CiAutofixAttempt attempt, CiGitInspection inspection, Instant now)
     {
         GitResult gitResult = new GitResult(inspection.localHead().orElseThrow(), inspection.fingerprint().orElseThrow(), inspection.changedPaths(), inspection.commitSubjects());
         CiAutofixAttempt inspected = attempt.withGitResult(gitResult, now);
@@ -969,11 +960,7 @@ public class CiAutofixService
         return credential.token();
     }
 
-    private CiAutofixRun handleNoChange(
-            CiAutofixRun run,
-            CiAutofixAttempt attempt,
-            CiHeadSnapshot snapshot,
-            Instant now)
+    private CiAutofixRun handleNoChange(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)
     {
         if (snapshot.green()) {
             return attempt.observedCiResult() == CiResult.PASSED
@@ -1125,10 +1112,7 @@ public class CiAutofixService
         return refreshMemory(resolved);
     }
 
-    private CiAutofixRun startNextAttemptOrFinish(
-            CiAutofixRun run,
-            CiHeadSnapshot snapshot,
-            Instant now)
+    private CiAutofixRun startNextAttemptOrFinish(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
     {
         if (run.attemptsUsed() >= run.authorization().maxFixAttempts()) {
             return finishRun(run, FinishReason.MAX_ATTEMPTS, "GitHub Actions still fails after " + run.attemptsUsed() + " fix attempts", now);
@@ -1189,21 +1173,12 @@ public class CiAutofixService
         return Optional.of(completeGreenRun(run, now));
     }
 
-    private CiAutofixRun observeCi(
-            CiAutofixRun run,
-            CiAutofixAttempt attempt,
-            CiResult result,
-            CiHeadSnapshot snapshot,
-            Instant now)
+    private CiAutofixRun observeCi(CiAutofixRun run, CiAutofixAttempt attempt, CiResult result, CiHeadSnapshot snapshot, Instant now)
     {
         return refreshMemory(store.update(run.observeCiResult(attempt.id(), result, snapshot.baseSha(), now)));
     }
 
-    private RebaseGate ensureBranchRebase(
-            CiAutofixRun run,
-            AgentTask task,
-            CiHeadSnapshot snapshot,
-            Instant now)
+    private RebaseGate ensureBranchRebase(CiAutofixRun run, AgentTask task, CiHeadSnapshot snapshot, Instant now)
     {
         SynchronizeCiBaseCommand syncCommand = synchronizeBaseCommand(run, snapshot.baseSha());
         requireWriteAuthority(run);
@@ -1382,11 +1357,7 @@ public class CiAutofixService
                 localBaseBranch(run));
     }
 
-    private CiAutofixRun finishRun(
-            CiAutofixRun run,
-            FinishReason reason,
-            String message,
-            Instant now)
+    private CiAutofixRun finishRun(CiAutofixRun run, FinishReason reason, String message, Instant now)
     {
         Optional<AgentTask> task = Optional.empty();
         if (run.agentTaskId().isPresent()) {
@@ -1464,11 +1435,7 @@ public class CiAutofixService
         }
     }
 
-    private CiAutofixRun pauseAndRefresh(
-            CiAutofixRun run,
-            PauseReason reason,
-            String message,
-            Instant now)
+    private CiAutofixRun pauseAndRefresh(CiAutofixRun run, PauseReason reason, String message, Instant now)
     {
         return refreshMemory(store.update(run.pause(reason, message, now)));
     }
@@ -1497,10 +1464,7 @@ public class CiAutofixService
                 .findFirst();
     }
 
-    private CiAutofixRun prepareFixAttempt(
-            CiAutofixRun run,
-            AgentTask task,
-            CiHeadSnapshot snapshot)
+    private CiAutofixRun prepareFixAttempt(CiAutofixRun run, AgentTask task, CiHeadSnapshot snapshot)
     {
         List<FailureEvidence> failures = logReader.readFailures(task.id(), snapshot);
         checkArgument(!failures.isEmpty(), "CI snapshot has no readable actionable failure");
@@ -1520,10 +1484,7 @@ public class CiAutofixService
         return store.update(run.linkAttemptTurn(attempt.id(), turn.id().toString(), Instant.now(clock)));
     }
 
-    private Optional<CiAutofixRun> rejectChangedPullRequest(
-            CiAutofixRun run,
-            CiHeadSnapshot snapshot,
-            Instant now)
+    private Optional<CiAutofixRun> rejectChangedPullRequest(CiAutofixRun run, CiHeadSnapshot snapshot, Instant now)
     {
         if (!matchesPullRequestScope(run, snapshot)) {
             return Optional.of(finishRun(run, FinishReason.STALE_HEAD, "Pull request no longer matches the authorized CI Autofix scope", now));
@@ -1618,10 +1579,7 @@ public class CiAutofixService
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.CI_AUTOFIX)));
     }
 
-    private static AgentTask requireAgentTask(
-            CiAutofixRun run,
-            AgentTask task,
-            RepositoryIdentity repository)
+    private static AgentTask requireAgentTask(CiAutofixRun run, AgentTask task, RepositoryIdentity repository)
     {
         TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
         TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
@@ -1751,19 +1709,14 @@ public class CiAutofixService
         checkText(command.idempotencyKey(), "idempotencyKey", 200);
     }
 
-    private static void validatePullRequest(
-            CiHeadSnapshot snapshot,
-            PullRequestRef expectedPullRequest,
-            String currentUser)
+    private static void validatePullRequest(CiHeadSnapshot snapshot, PullRequestRef expectedPullRequest, String currentUser)
     {
         checkArgument(snapshot.pullRequest().equals(expectedPullRequest), "GitHub returned another pull request");
         checkArgument(snapshot.open(), "Pull request is not open");
         checkArgument(snapshot.author().equalsIgnoreCase(currentUser), "CI Autofix is available only to the pull request author");
     }
 
-    private static void validateStartWorkspace(
-            WorkspaceRepositoryContext workspace,
-            CiHeadSnapshot snapshot)
+    private static void validateStartWorkspace(WorkspaceRepositoryContext workspace, CiHeadSnapshot snapshot)
     {
         PullRequestRef pullRequest = snapshot.pullRequest();
         checkArgument(workspace.monitoredRepository().owner().equalsIgnoreCase(pullRequest.owner())

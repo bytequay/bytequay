@@ -34,8 +34,7 @@ public record AgentTurnCommand(
         Optional<String> effort,
         Optional<String> serviceTier)
 {
-    public AgentTurnCommand(
-            String turnId, String message, List<AgentAttachment> attachments, Duration maximumRuntime, Optional<String> model, Optional<String> effort)
+    public AgentTurnCommand(String turnId, String message, List<AgentAttachment> attachments, Duration maximumRuntime, Optional<String> model, Optional<String> effort)
     {
         this(turnId, message, attachments, maximumRuntime, model, effort, Optional.empty());
     }

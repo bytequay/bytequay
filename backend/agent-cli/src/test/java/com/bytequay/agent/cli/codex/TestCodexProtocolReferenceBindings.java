@@ -296,11 +296,7 @@ class TestCodexProtocolReferenceBindings
         }
     }
 
-    private void verifyEncodedSample(
-            JsonNode binding,
-            Class<?> type,
-            ObjectNode sample,
-            String description)
+    private void verifyEncodedSample(JsonNode binding, Class<?> type, ObjectNode sample, String description)
             throws IOException
     {
         Object value = codec.decodeResult(sample, type);

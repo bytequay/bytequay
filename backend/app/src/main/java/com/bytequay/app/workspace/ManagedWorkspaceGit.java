@@ -59,11 +59,7 @@ class ManagedWorkspaceGit
     private final CredentialService credentials;
     private final RemoteSourceStore remoteSources;
 
-    ManagedWorkspaceGit(
-            WorkspacePaths paths,
-            GitCommandRunner git,
-            CredentialService credentials,
-            RemoteSourceStore remoteSources)
+    ManagedWorkspaceGit(WorkspacePaths paths, GitCommandRunner git, CredentialService credentials, RemoteSourceStore remoteSources)
     {
         this.paths = requireNonNull(paths, "paths is null");
         this.git = requireNonNull(git, "git is null");
@@ -178,10 +174,7 @@ class ManagedWorkspaceGit
         return repository;
     }
 
-    private void cloneRepository(
-            Workspace workspace,
-            Path repository,
-            Map<String, String> environment)
+    private void cloneRepository(Workspace workspace, Path repository, Map<String, String> environment)
     {
         Result result = git.run(
                 repository.getParent(),
@@ -273,11 +266,7 @@ class ManagedWorkspaceGit
         }
     }
 
-    private void reconcileRemote(
-            Path repository,
-            String name,
-            String previousUrl,
-            String currentUrl)
+    private void reconcileRemote(Path repository, String name, String previousUrl, String currentUrl)
     {
         Optional<String> actual = remoteUrl(repository, name);
         if (actual.isEmpty()) {
@@ -309,10 +298,7 @@ class ManagedWorkspaceGit
         return Optional.of(urls.getFirst());
     }
 
-    private Set<String> fetchConfiguredRemotes(
-            Workspace workspace,
-            Path repository,
-            Map<String, String> environment)
+    private Set<String> fetchConfiguredRemotes(Workspace workspace, Path repository, Map<String, String> environment)
     {
         fetch(repository, "origin", environment);
         if (workspace.upstreamRepositoryId().isPresent()) {

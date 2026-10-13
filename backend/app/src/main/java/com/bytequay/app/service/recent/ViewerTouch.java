@@ -24,13 +24,7 @@ import com.bytequay.core.domain.RecentItemType;
  * @param dwellSeconds how long the detail stayed open; ignored for
  * {@code DIFF_OPENED}, which records on intent.
  */
-public record ViewerTouch(
-        RecentItemType type,
-        String repo,
-        int number,
-        String workspaceId,
-        Signal signal,
-        int dwellSeconds)
+public record ViewerTouch(RecentItemType type, String repo, int number, String workspaceId, Signal signal, int dwellSeconds)
 {
     public enum Signal
     {

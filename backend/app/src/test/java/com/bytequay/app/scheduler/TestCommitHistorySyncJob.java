@@ -126,11 +126,7 @@ class TestCommitHistorySyncJob
                 Optional.of("Refresh failed. Reference: example-reference"));
     }
 
-    private static WorkspaceSummary workspace(
-            String id,
-            boolean codeAvailable,
-            boolean linked,
-            long repositoryId)
+    private static WorkspaceSummary workspace(String id, boolean codeAvailable, boolean linked, long repositoryId)
     {
         return new WorkspaceSummary(
                 id,

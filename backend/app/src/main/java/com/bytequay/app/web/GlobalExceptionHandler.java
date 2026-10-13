@@ -119,8 +119,7 @@ public class GlobalExceptionHandler
     }
 
     @ExceptionHandler({MissingServletRequestParameterException.class, MissingRequestHeaderException.class})
-    public ResponseEntity<ErrorResponse> handleMissingRequestParameter(
-            Exception exception, HttpServletRequest request)
+    public ResponseEntity<ErrorResponse> handleMissingRequestParameter(Exception exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
     }
@@ -130,8 +129,7 @@ public class GlobalExceptionHandler
             CherryPickInvalidRequestException.class,
             HttpMessageNotReadableException.class,
             MethodArgumentTypeMismatchException.class})
-    public ResponseEntity<ErrorResponse> handleInvalidAgentRequest(
-            Exception exception, HttpServletRequest request)
+    public ResponseEntity<ErrorResponse> handleInvalidAgentRequest(Exception exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
     }
@@ -152,8 +150,7 @@ public class GlobalExceptionHandler
     }
 
     @ExceptionHandler({AgentConflictException.class, CiAutofixConflictException.class, CherryPickConflictException.class, ReviewConflictException.class})
-    public ResponseEntity<ErrorResponse> handleAgentConflict(
-            RuntimeException exception, HttpServletRequest request)
+    public ResponseEntity<ErrorResponse> handleAgentConflict(RuntimeException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.CONFLICT.value(), exception.getMessage(), request.getRequestURI());
     }
@@ -166,8 +163,7 @@ public class GlobalExceptionHandler
     }
 
     @ExceptionHandler(AgentProviderUnavailableException.class)
-    public ResponseEntity<AgentProviderUnavailableResponse> handleAgentProviderUnavailable(
-            AgentProviderUnavailableException exception, HttpServletRequest request)
+    public ResponseEntity<AgentProviderUnavailableResponse> handleAgentProviderUnavailable(AgentProviderUnavailableException exception, HttpServletRequest request)
     {
         var status = exception.status();
         return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
@@ -183,15 +179,13 @@ public class GlobalExceptionHandler
     }
 
     @ExceptionHandler(AgentUnavailableException.class)
-    public ResponseEntity<ErrorResponse> handleAgentUnavailable(
-            AgentUnavailableException exception, HttpServletRequest request)
+    public ResponseEntity<ErrorResponse> handleAgentUnavailable(AgentUnavailableException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.SERVICE_UNAVAILABLE.value(), exception.getMessage(), request.getRequestURI());
     }
 
     @ExceptionHandler(AgentStorageException.class)
-    public ResponseEntity<ErrorResponse> handleAgentStorage(
-            AgentStorageException exception, HttpServletRequest request)
+    public ResponseEntity<ErrorResponse> handleAgentStorage(AgentStorageException exception, HttpServletRequest request)
     {
         log.error("Agent storage request failed: {}", request.getRequestURI(), exception);
         return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(), INTERNAL_SERVER_ERROR_MESSAGE, request.getRequestURI());
@@ -225,8 +219,7 @@ public class GlobalExceptionHandler
      * client error through the catch-all 500 response.
      */
     @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
-    public ResponseEntity<Void> handleMethodNotSupported(
-            HttpRequestMethodNotSupportedException exception, HttpServletRequest request)
+    public ResponseEntity<Void> handleMethodNotSupported(HttpRequestMethodNotSupportedException exception, HttpServletRequest request)
     {
         log.debug("Method {} not supported for {}", exception.getMethod(), request.getRequestURI());
         ResponseEntity.BodyBuilder builder = ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED);

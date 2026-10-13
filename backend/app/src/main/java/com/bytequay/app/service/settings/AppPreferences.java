@@ -25,11 +25,7 @@ import static java.util.Objects.requireNonNull;
  * settings row cannot stop the retention jobs or hammer GitHub, not to express
  * a product rule.
  */
-public record AppPreferences(
-        int taskRetentionDays,
-        int recentRetentionDays,
-        AppTheme theme,
-        int prWarmCount)
+public record AppPreferences(int taskRetentionDays, int recentRetentionDays, AppTheme theme, int prWarmCount)
 {
     public static final AppPreferences DEFAULT = new AppPreferences(7, 14, AppTheme.SYSTEM, 30);
 

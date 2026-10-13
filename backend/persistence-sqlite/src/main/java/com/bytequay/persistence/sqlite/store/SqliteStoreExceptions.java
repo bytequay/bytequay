@@ -29,10 +29,7 @@ final class SqliteStoreExceptions
      * storage exception, so a store method is the query plus the message it
      * fails with.
      */
-    public static <T> T read(
-            String message,
-            Supplier<T> query,
-            BiFunction<String, DataAccessException, RuntimeException> wrap)
+    public static <T> T read(String message, Supplier<T> query, BiFunction<String, DataAccessException, RuntimeException> wrap)
     {
         try {
             return query.get();

@@ -31,31 +31,11 @@ public interface RepositoryMetadataStore
     /** Cached contributors across repositories, deduplicated by GitHub identity and sorted by login. */
     List<RepositoryContributor> findAllContributors();
 
-    void upsertOverview(
-            long repositoryId,
-            RepoRef repository,
-            String description,
-            int stargazersCount,
-            List<String> topics,
-            Map<String, Long> languages,
-            Instant syncedAt);
+    void upsertOverview(long repositoryId, RepoRef repository, String description, int stargazersCount, List<String> topics, Map<String, Long> languages, Instant syncedAt);
 
-    void upsertContributors(
-            long repositoryId,
-            RepoRef repository,
-            List<RepositoryContributor> contributors,
-            Instant syncedAt);
+    void upsertContributors(long repositoryId, RepoRef repository, List<RepositoryContributor> contributors, Instant syncedAt);
 
-    void replacePickerUsers(
-            long repositoryId,
-            RepoRef repository,
-            List<RepositoryPickerUser> pickerUsers,
-            Instant syncedAt);
+    void replacePickerUsers(long repositoryId, RepoRef repository, List<RepositoryPickerUser> pickerUsers, Instant syncedAt);
 
-    void upsertLabelsAndTopics(
-            long repositoryId,
-            RepoRef repository,
-            List<RepositoryLabel> labels,
-            List<String> topics,
-            Instant syncedAt);
+    void upsertLabelsAndTopics(long repositoryId, RepoRef repository, List<RepositoryLabel> labels, List<String> topics, Instant syncedAt);
 }

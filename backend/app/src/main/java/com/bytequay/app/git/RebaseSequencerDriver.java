@@ -96,10 +96,7 @@ public final class RebaseSequencerDriver
     }
 
     /** Continues only the same fully staged rebase stop the caller inspected. */
-    public SequenceState continueRebase(
-            Path worktree,
-            String expectedHead,
-            String expectedStoppedCommit)
+    public SequenceState continueRebase(Path worktree, String expectedHead, String expectedStoppedCommit)
     {
         SequenceState before = observe(worktree);
         if (before.kind() != Kind.STOPPED_RESOLVED
@@ -112,10 +109,7 @@ public final class RebaseSequencerDriver
     }
 
     /** Skips only the same proven-empty rebase stop the caller inspected. */
-    public SequenceState skipEmpty(
-            Path worktree,
-            String expectedHead,
-            String expectedStoppedCommit)
+    public SequenceState skipEmpty(Path worktree, String expectedHead, String expectedStoppedCommit)
     {
         SequenceState before = observe(worktree);
         if (before.kind() != Kind.STOPPED_EMPTY

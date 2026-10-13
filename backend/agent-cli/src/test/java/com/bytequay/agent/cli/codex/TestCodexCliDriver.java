@@ -2864,9 +2864,7 @@ class TestCodexCliDriver
         assertThat(discovery).isLessThan(firstActivity);
     }
 
-    private AgentTurnResult runUnknownSupplement(
-            Optional<String> version,
-            Consumer<ScriptedProcessSupervisor> activity)
+    private AgentTurnResult runUnknownSupplement(Optional<String> version, Consumer<ScriptedProcessSupervisor> activity)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
@@ -3605,17 +3603,12 @@ class TestCodexCliDriver
                 .hasMessageContaining("MCP servers");
     }
 
-    private AgentSessionContext context(
-            Optional<AgentSessionRef> reference,
-            AtomicReference<ProviderApprovalRequest> approval)
+    private AgentSessionContext context(Optional<AgentSessionRef> reference, AtomicReference<ProviderApprovalRequest> approval)
     {
         return context(reference, approval, new AtomicReference<>(ProviderApprovalDecision.allow(Optional.empty())));
     }
 
-    private AgentSessionContext context(
-            Optional<AgentSessionRef> reference,
-            AtomicReference<ProviderApprovalRequest> approval,
-            AtomicReference<ProviderApprovalDecision> decision)
+    private AgentSessionContext context(Optional<AgentSessionRef> reference, AtomicReference<ProviderApprovalRequest> approval, AtomicReference<ProviderApprovalDecision> decision)
     {
         return context(reference, (request, timeout) -> {
             approval.set(request);
@@ -3623,18 +3616,12 @@ class TestCodexCliDriver
         });
     }
 
-    private AgentSessionContext context(
-            Optional<AgentSessionRef> reference,
-            AgentApprovalHandler approvals)
+    private AgentSessionContext context(Optional<AgentSessionRef> reference, AgentApprovalHandler approvals)
     {
         return context("task-1", worktree, reference, approvals);
     }
 
-    private AgentSessionContext context(
-            Optional<AgentSessionRef> reference,
-            AgentApprovalHandler approvals,
-            Optional<String> model,
-            Optional<String> effort)
+    private AgentSessionContext context(Optional<AgentSessionRef> reference, AgentApprovalHandler approvals, Optional<String> model, Optional<String> effort)
     {
         return new AgentSessionContext(
                 "task-1",
@@ -3651,11 +3638,7 @@ class TestCodexCliDriver
                 "");
     }
 
-    private static AgentSessionContext context(
-            String taskId,
-            Path taskWorktree,
-            Optional<AgentSessionRef> reference,
-            AgentApprovalHandler approvals)
+    private static AgentSessionContext context(String taskId, Path taskWorktree, Optional<AgentSessionRef> reference, AgentApprovalHandler approvals)
     {
         return new AgentSessionContext(
                 taskId,

@@ -33,7 +33,5 @@ public interface RepositoryIssueRowJpaRepository
     @Modifying
     @Query("delete from RepositoryIssueEntity issue where issue.repositoryId = :repositoryId "
             + "and (issue.syncMarker is null or issue.syncMarker <> :syncMarker)")
-    int deleteStale(
-            @Param("repositoryId") long repositoryId,
-            @Param("syncMarker") String syncMarker);
+    int deleteStale(@Param("repositoryId") long repositoryId, @Param("syncMarker") String syncMarker);
 }

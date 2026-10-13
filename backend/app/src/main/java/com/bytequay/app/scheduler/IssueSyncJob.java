@@ -40,11 +40,7 @@ public class IssueSyncJob
     private final CredentialService credentials;
     private final AppSettingsService appSettings;
 
-    public IssueSyncJob(
-            WorkspaceIssueRefreshService issues,
-            WorkspaceStore workspaces,
-            CredentialService credentials,
-            AppSettingsService appSettings)
+    public IssueSyncJob(WorkspaceIssueRefreshService issues, WorkspaceStore workspaces, CredentialService credentials, AppSettingsService appSettings)
     {
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");

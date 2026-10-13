@@ -302,11 +302,7 @@ public record CiAutofixRun(
         });
     }
 
-    public CiAutofixRun observeCiResult(
-            CiAutofixAttemptId attemptId,
-            CiAutofixAttempt.CiResult result,
-            String baseSha,
-            Instant now)
+    public CiAutofixRun observeCiResult(CiAutofixAttemptId attemptId, CiAutofixAttempt.CiResult result, String baseSha, Instant now)
     {
         requireActive(now);
         requireNonNull(result, "result is null");
@@ -530,11 +526,7 @@ public record CiAutofixRun(
         checkState(status == Status.ACTIVE, "run is not active");
     }
 
-    private static void validateAttempts(
-            CiAutofixRunId runId,
-            Authorization authorization,
-            int attemptsUsed,
-            List<CiAutofixAttempt> attempts)
+    private static void validateAttempts(CiAutofixRunId runId, Authorization authorization, int attemptsUsed, List<CiAutofixAttempt> attempts)
     {
         checkArgument(attempts.size() <= authorization.maxFixAttempts(), "attempts exceeds authorization");
         Set<CiAutofixAttemptId> ids = new HashSet<>();
@@ -578,9 +570,7 @@ public record CiAutofixRun(
         }
     }
 
-    private static CiAutofixAttempt requireAttempt(
-            List<CiAutofixAttempt> attempts,
-            CiAutofixAttemptId attemptId)
+    private static CiAutofixAttempt requireAttempt(List<CiAutofixAttempt> attempts, CiAutofixAttemptId attemptId)
     {
         requireNonNull(attemptId, "attemptId is null");
         return attempts.stream()
@@ -589,9 +579,7 @@ public record CiAutofixRun(
                 .orElseThrow(() -> new IllegalArgumentException("attempt is not part of the run: " + attemptId));
     }
 
-    private static List<CiAutofixAttempt> replaceAttempt(
-            List<CiAutofixAttempt> attempts,
-            CiAutofixAttempt replacement)
+    private static List<CiAutofixAttempt> replaceAttempt(List<CiAutofixAttempt> attempts, CiAutofixAttempt replacement)
     {
         ImmutableList.Builder<CiAutofixAttempt> builder = ImmutableList.builderWithExpectedSize(attempts.size());
         for (CiAutofixAttempt attempt : attempts) {
@@ -711,13 +699,7 @@ public record CiAutofixRun(
         }
     }
 
-    public record PushJournal(
-            CiAutofixAttemptId attemptId,
-            String expectedRemoteSha,
-            String localHeadSha,
-            String localFingerprint,
-            Instant startedAt,
-            int retries)
+    public record PushJournal(CiAutofixAttemptId attemptId, String expectedRemoteSha, String localHeadSha, String localFingerprint, Instant startedAt, int retries)
     {
         public PushJournal
         {
@@ -730,13 +712,7 @@ public record CiAutofixRun(
         }
     }
 
-    public record RerunJournal(
-            CiAutofixAttemptId attemptId,
-            long workflowRunId,
-            String headSha,
-            int previousAttempt,
-            Instant startedAt,
-            Optional<Integer> observedAttempt)
+    public record RerunJournal(CiAutofixAttemptId attemptId, long workflowRunId, String headSha, int previousAttempt, Instant startedAt, Optional<Integer> observedAttempt)
     {
         public RerunJournal
         {

@@ -191,9 +191,7 @@ public class SqliteCiAutofixStore
         }
     }
 
-    private CiAutofixAttemptEntity updateAttempt(
-            Map<String, CiAutofixAttemptEntity> existingById,
-            CiAutofixAttempt attempt)
+    private CiAutofixAttemptEntity updateAttempt(Map<String, CiAutofixAttemptEntity> existingById, CiAutofixAttempt attempt)
     {
         CiAutofixAttemptEntity entity = existingById.get(attempt.id().toString());
         if (entity == null) {

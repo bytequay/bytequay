@@ -2390,10 +2390,7 @@ class TestCiAutofixService
         return terminalTurn(turnId, state, reason);
     }
 
-    private AgentTurn terminalTurn(
-            TurnState state,
-            Optional<String> reason,
-            Optional<AgentTurnFailureKind> failureKind)
+    private AgentTurn terminalTurn(TurnState state, Optional<String> reason, Optional<AgentTurnFailureKind> failureKind)
     {
         return runningTurn(turnId, "provider-turn", "ignored")
                 .finish(state, AgentMetrics.empty(), reason, failureKind, NOW);
@@ -2489,13 +2486,7 @@ class TestCiAutofixService
                 workflows);
     }
 
-    private static CiWorkflowRun workflow(
-            long id,
-            int attempt,
-            String name,
-            String head,
-            String status,
-            Optional<String> conclusion)
+    private static CiWorkflowRun workflow(long id, int attempt, String name, String head, String status, Optional<String> conclusion)
     {
         CiStep step = new CiStep(1, name, status, conclusion);
         CiJob job = new CiJob(

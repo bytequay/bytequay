@@ -237,9 +237,7 @@ final class DeterministicAgentDriver
         emit(new ProviderAgentEvent.Usage(sample));
     }
 
-    synchronized CompletionStage<ProviderApprovalDecision> requestApproval(
-            ProviderApprovalRequest request,
-            Duration timeout)
+    synchronized CompletionStage<ProviderApprovalDecision> requestApproval(ProviderApprovalRequest request, Duration timeout)
     {
         return requireCurrentTurn().requestApproval(request, timeout);
     }
@@ -307,11 +305,7 @@ final class DeterministicAgentDriver
         private DeterministicRunningTurn running;
         private boolean closed;
 
-        private DeterministicSession(
-                AgentSessionContext context,
-                AgentEventSink events,
-                AgentSessionRef reference,
-                RuntimeException referenceAndCloseFailure)
+        private DeterministicSession(AgentSessionContext context, AgentEventSink events, AgentSessionRef reference, RuntimeException referenceAndCloseFailure)
         {
             this.context = context;
             this.events = events;
@@ -458,9 +452,7 @@ final class DeterministicAgentDriver
             events.emit(event);
         }
 
-        private CompletionStage<ProviderApprovalDecision> requestApproval(
-                ProviderApprovalRequest request,
-                Duration timeout)
+        private CompletionStage<ProviderApprovalDecision> requestApproval(ProviderApprovalRequest request, Duration timeout)
         {
             return context.approvals().request(request, timeout);
         }

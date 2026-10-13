@@ -371,10 +371,7 @@ class TestBetterWordsService
         return workspaces;
     }
 
-    private static WorkspaceStore linkedWorkspaceStore(
-            String workspaceId,
-            RepoRef selectedRepository,
-            RepoRef monitoredRepository)
+    private static WorkspaceStore linkedWorkspaceStore(String workspaceId, RepoRef selectedRepository, RepoRef monitoredRepository)
     {
         Instant now = Instant.parse("2026-08-28T00:00:00Z");
         Workspace workspace = new Workspace(

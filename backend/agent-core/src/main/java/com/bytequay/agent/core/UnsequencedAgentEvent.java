@@ -19,12 +19,7 @@ import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
-public record UnsequencedAgentEvent(
-        EventId eventId,
-        TaskId taskId,
-        Optional<TurnId> turnId,
-        AgentEventSource source,
-        AgentEventPayload payload)
+public record UnsequencedAgentEvent(EventId eventId, TaskId taskId, Optional<TurnId> turnId, AgentEventSource source, AgentEventPayload payload)
 {
     public UnsequencedAgentEvent
     {
@@ -40,10 +35,7 @@ public record UnsequencedAgentEvent(
         this(taskId, turnId, ProviderAgentEventAdapter.adapt(event));
     }
 
-    private UnsequencedAgentEvent(
-            TaskId taskId,
-            Optional<TurnId> turnId,
-            ProviderAgentEventAdapter.CanonicalEvent event)
+    private UnsequencedAgentEvent(TaskId taskId, Optional<TurnId> turnId, ProviderAgentEventAdapter.CanonicalEvent event)
     {
         this(EventId.random(), taskId, turnId, event.source(), event.payload());
     }

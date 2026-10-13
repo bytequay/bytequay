@@ -103,11 +103,7 @@ public record TaskDiscussion(
     }
 
     /** Replaces the mutable half of the aggregate: its messages, its resolution and its session. */
-    public TaskDiscussion update(
-            boolean nextResolved,
-            List<DiscussionMessage> nextMessages,
-            Optional<DiscussionSession> nextSession,
-            Instant now)
+    public TaskDiscussion update(boolean nextResolved, List<DiscussionMessage> nextMessages, Optional<DiscussionSession> nextSession, Instant now)
     {
         return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, nextSession, nextMessages, nextResolved, createdAt, now, version);
     }

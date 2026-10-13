@@ -22,11 +22,7 @@ import static java.util.Objects.requireNonNull;
  * the backend. The optional source remote must name a configured remote other
  * than origin; when absent the linked upstream is used.
  */
-public record CherryPickPreviewRequest(
-        String sourceRemote,
-        String sourceBaseRef,
-        String sourceTipRef,
-        String targetBranch)
+public record CherryPickPreviewRequest(String sourceRemote, String sourceBaseRef, String sourceTipRef, String targetBranch)
 {
     public CherryPickPreviewRequest
     {

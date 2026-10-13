@@ -22,11 +22,7 @@ import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static java.util.Objects.requireNonNull;
 
 /** Input for the turn running now. The turn named is the one the user was looking at; any other is refused. */
-public record SteerAgentTurnCommand(
-        TurnId turnId,
-        String message,
-        List<AgentAttachment> attachments,
-        String idempotencyKey)
+public record SteerAgentTurnCommand(TurnId turnId, String message, List<AgentAttachment> attachments, String idempotencyKey)
 {
     public SteerAgentTurnCommand
     {

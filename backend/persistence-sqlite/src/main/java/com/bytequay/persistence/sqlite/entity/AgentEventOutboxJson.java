@@ -42,10 +42,7 @@ final class AgentEventOutboxJson
         };
     }
 
-    public static AgentEventOutboxPayload decodePayload(
-            AgentEventPayload.Kind kind,
-            boolean blobBacked,
-            String json)
+    public static AgentEventOutboxPayload decodePayload(AgentEventPayload.Kind kind, boolean blobBacked, String json)
     {
         if (blobBacked) {
             if (kind != AgentEventPayload.Kind.USER_MESSAGE) {

@@ -17,15 +17,7 @@ import java.util.OptionalLong;
 
 import static java.util.Objects.requireNonNull;
 
-public record InlineReviewComment(
-        String path,
-        String body,
-        int line,
-        String side,
-        Integer startLine,
-        String startSide,
-        String commitId,
-        OptionalLong replyToCommentId)
+public record InlineReviewComment(String path, String body, int line, String side, Integer startLine, String startSide, String commitId, OptionalLong replyToCommentId)
 {
     public InlineReviewComment
     {

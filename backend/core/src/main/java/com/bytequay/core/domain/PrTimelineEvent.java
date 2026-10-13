@@ -19,14 +19,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /** A pull-request timeline event used by the activity view and attention detection. */
-public record PrTimelineEvent(
-        Long githubId,
-        String event,
-        String actor,
-        Instant timestamp,
-        String body,
-        PrTimelinePayload payload,
-        Optional<String> localEventKey)
+public record PrTimelineEvent(Long githubId, String event, String actor, Instant timestamp, String body, PrTimelinePayload payload, Optional<String> localEventKey)
 {
     public PrTimelineEvent
     {
@@ -34,13 +27,7 @@ public record PrTimelineEvent(
         requireNonNull(localEventKey, "localEventKey is null");
     }
 
-    public PrTimelineEvent(
-            Long githubId,
-            String event,
-            String actor,
-            Instant timestamp,
-            String body,
-            Optional<String> localEventKey)
+    public PrTimelineEvent(Long githubId, String event, String actor, Instant timestamp, String body, Optional<String> localEventKey)
     {
         this(githubId, event, actor, timestamp, body, PrTimelinePayload.empty(), localEventKey);
     }

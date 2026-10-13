@@ -60,12 +60,7 @@ public final class DefaultAgentTaskService
     private final AgentDriverRegistry driverRegistry;
     private final Clock clock;
 
-    public DefaultAgentTaskService(
-            AgentTaskStore taskStore,
-            WorktreeService worktreeService,
-            AgentResourceService resourceService,
-            AgentDriverRegistry driverRegistry,
-            Clock clock)
+    public DefaultAgentTaskService(AgentTaskStore taskStore, WorktreeService worktreeService, AgentResourceService resourceService, AgentDriverRegistry driverRegistry, Clock clock)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");

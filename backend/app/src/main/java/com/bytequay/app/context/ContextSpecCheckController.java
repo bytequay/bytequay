@@ -53,8 +53,7 @@ public class ContextSpecCheckController
     }
 
     @PostMapping("/{checkId}/candidates/{candidateId}/dismiss")
-    public ContextSpecCheck dismiss(@PathVariable String workspaceId, @PathVariable String checkId, @PathVariable String candidateId,
-            @RequestBody DismissRequest request)
+    public ContextSpecCheck dismiss(@PathVariable String workspaceId, @PathVariable String checkId, @PathVariable String candidateId, @RequestBody DismissRequest request)
     {
         return checks.dismiss(workspaceId, checkId, candidateId, request.reason(), Optional.ofNullable(request.rule()).filter(rule -> !rule.isBlank()));
     }

@@ -47,13 +47,7 @@ public record ApprovalDecision(
         checkArgument(!timedOut || decision == Decision.DENY, "an approval timeout must deny");
     }
 
-    public ApprovalDecision(
-            ApprovalId approvalId,
-            Decision decision,
-            Optional<String> scopedPermission,
-            boolean forTask,
-            Instant resolvedAt,
-            boolean timedOut)
+    public ApprovalDecision(ApprovalId approvalId, Decision decision, Optional<String> scopedPermission, boolean forTask, Instant resolvedAt, boolean timedOut)
     {
         this(approvalId, decision, scopedPermission, forTask, ImmutableMap.of(), resolvedAt, timedOut);
     }

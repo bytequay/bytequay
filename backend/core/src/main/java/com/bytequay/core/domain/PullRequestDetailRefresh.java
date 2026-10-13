@@ -20,10 +20,7 @@ import java.util.List;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record PullRequestDetailRefresh(
-        boolean full,
-        PullRequestDetail detail,
-        Status status)
+public record PullRequestDetailRefresh(boolean full, PullRequestDetail detail, Status status)
 {
     public PullRequestDetailRefresh
     {

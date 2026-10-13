@@ -29,11 +29,7 @@ public final class CiAutofixHttpModels
 
     private CiAutofixHttpModels() {}
 
-    static RunResponse run(
-            CiAutofixRun run,
-            Optional<AgentMetrics> metrics,
-            Optional<String> generatedLocalBranch,
-            boolean canMessage)
+    static RunResponse run(CiAutofixRun run, Optional<AgentMetrics> metrics, Optional<String> generatedLocalBranch, boolean canMessage)
     {
         return new RunResponse(
                 run.id().toString(),

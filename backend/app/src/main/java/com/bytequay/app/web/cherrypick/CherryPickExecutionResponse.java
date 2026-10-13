@@ -102,13 +102,7 @@ public record CherryPickExecutionResponse(
     }
 
     /** Remote delivery persisted after the two explicit user actions. */
-    public record DeliveryResponse(
-            String pushRemote,
-            String head,
-            String sha,
-            Optional<Long> pullRequestId,
-            Optional<Integer> pullRequestNumber,
-            Optional<String> pullRequestUrl)
+    public record DeliveryResponse(String pushRemote, String head, String sha, Optional<Long> pullRequestId, Optional<Integer> pullRequestNumber, Optional<String> pullRequestUrl)
     {
         public DeliveryResponse
         {
@@ -142,13 +136,7 @@ public record CherryPickExecutionResponse(
     }
 
     /** One plan item and its one final result. */
-    public record ItemResponse(
-            int position,
-            String sourceSha,
-            String title,
-            String result,
-            Optional<String> targetSha,
-            Optional<Integer> pullRequestNumber)
+    public record ItemResponse(int position, String sourceSha, String title, String result, Optional<String> targetSha, Optional<Integer> pullRequestNumber)
     {
         public ItemResponse
         {

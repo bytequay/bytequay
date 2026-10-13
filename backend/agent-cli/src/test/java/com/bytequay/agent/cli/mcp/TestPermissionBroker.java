@@ -1600,12 +1600,7 @@ class TestPermissionBroker
         return process.exitValue();
     }
 
-    private String permission(
-            PermissionBroker broker,
-            String token,
-            String toolName,
-            String field,
-            String value)
+    private String permission(PermissionBroker broker, String token, String toolName, String field, String value)
             throws Exception
     {
         return permission(broker, token, toolName, objectMapper.createObjectNode().put(field, value));

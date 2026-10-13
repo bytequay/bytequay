@@ -22,9 +22,7 @@ import java.util.Set;
 import static java.util.Objects.requireNonNull;
 
 /** Named commit-to-PR lookup result that distinguishes checked negatives from failures. */
-public record PullRequestLookupResult(
-        List<Association> associations,
-        Set<String> failedShas)
+public record PullRequestLookupResult(List<Association> associations, Set<String> failedShas)
 {
     public PullRequestLookupResult
     {

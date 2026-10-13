@@ -84,13 +84,7 @@ public record CiAutofixAttempt(
         });
     }
 
-    public static CiAutofixAttempt create(
-            CiAutofixAttemptId id,
-            CiAutofixRunId runId,
-            int number,
-            String inputSha,
-            List<FailureEvidence> failures,
-            Instant now)
+    public static CiAutofixAttempt create(CiAutofixAttemptId id, CiAutofixRunId runId, int number, String inputSha, List<FailureEvidence> failures, Instant now)
     {
         return new CiAutofixAttempt(
                 id,
@@ -256,14 +250,7 @@ public record CiAutofixAttempt(
         }
     }
 
-    public record FailureEvidence(
-            String signature,
-            String summary,
-            long workflowRunId,
-            int workflowAttempt,
-            long jobId,
-            int jobAttempt,
-            Optional<LogReference> log)
+    public record FailureEvidence(String signature, String summary, long workflowRunId, int workflowAttempt, long jobId, int jobAttempt, Optional<LogReference> log)
     {
         public FailureEvidence
         {
@@ -275,11 +262,7 @@ public record CiAutofixAttempt(
         }
     }
 
-    public record GitResult(
-            String localHead,
-            String fingerprint,
-            List<String> changedPaths,
-            List<String> commitSubjects)
+    public record GitResult(String localHead, String fingerprint, List<String> changedPaths, List<String> commitSubjects)
     {
         private static final int MAX_CHANGED_PATHS = 1000;
 

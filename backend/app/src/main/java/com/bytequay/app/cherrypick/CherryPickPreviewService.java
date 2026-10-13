@@ -222,10 +222,7 @@ public class CherryPickPreviewService
         return preview;
     }
 
-    private Map<String, PullRequestAssociation> persistedAssociations(
-            PreviewCherryPickRangeCommand command,
-            List<RangeCommit> range,
-            List<String> warnings)
+    private Map<String, PullRequestAssociation> persistedAssociations(PreviewCherryPickRangeCommand command, List<RangeCommit> range, List<String> warnings)
     {
         OptionalLong repositoryId = command.sourceRepositoryId();
         if (repositoryId.isEmpty()) {
@@ -290,10 +287,7 @@ public class CherryPickPreviewService
         }
     }
 
-    private static Optional<TargetMatch> evidence(
-            String sourceSha,
-            Set<String> targetAncestors,
-            Map<String, String> originLines)
+    private static Optional<TargetMatch> evidence(String sourceSha, Set<String> targetAncestors, Map<String, String> originLines)
     {
         if (targetAncestors.contains(sourceSha)) {
             return Optional.of(new TargetMatch(TargetMatch.Kind.DIRECT_ANCESTOR, sourceSha));
@@ -318,10 +312,7 @@ public class CherryPickPreviewService
         }
     }
 
-    private void synchronizeTarget(
-            Path repository,
-            PreviewCherryPickRangeCommand command,
-            Map<String, String> environment)
+    private void synchronizeTarget(Path repository, PreviewCherryPickRangeCommand command, Map<String, String> environment)
     {
         Result source = git.run(repository, FETCH_TIMEOUT, environment, ImmutableList.of("fetch", "--quiet", command.sourceRemote()));
         if (!source.successful()) {
@@ -330,13 +321,7 @@ public class CherryPickPreviewService
         synchronizeTarget(repository, command.targetRemote(), command.targetBranch(), command.localTargetBranch(), command.remoteTrackingRef(), environment);
     }
 
-    private void synchronizeTarget(
-            Path repository,
-            String targetRemote,
-            String targetBranch,
-            String localBranch,
-            String remoteTrackingRef,
-            Map<String, String> environment)
+    private void synchronizeTarget(Path repository, String targetRemote, String targetBranch, String localBranch, String remoteTrackingRef, Map<String, String> environment)
     {
         Optional<String> holder = checkedOutAt(repository, localBranch);
         if (holder.isPresent()) {
@@ -482,12 +467,7 @@ public class CherryPickPreviewService
     }
 
     /** Advisory only: patch equivalence never causes an automatic skip. */
-    private Set<String> readPatchEquivalent(
-            Path repository,
-            String targetSha,
-            String tipSha,
-            String baseSha,
-            List<String> warnings)
+    private Set<String> readPatchEquivalent(Path repository, String targetSha, String tipSha, String baseSha, List<String> warnings)
     {
         Result result = git.run(repository, "cherry", targetSha, tipSha, baseSha);
         if (!result.successful()) {
@@ -534,10 +514,7 @@ public class CherryPickPreviewService
         return RepoRef.of(path.substring(0, separator), path.substring(separator + 1));
     }
 
-    private Map<String, String> authenticationEnvironment(
-            Path repository,
-            String workspaceId,
-            List<String> remotes)
+    private Map<String, String> authenticationEnvironment(Path repository, String workspaceId, List<String> remotes)
     {
         Map<String, String> configured = remoteSources.list(workspaceId).stream()
                 .collect(ImmutableMap.toImmutableMap(WorkspaceRemote::name, WorkspaceRemote::url));
@@ -611,13 +588,7 @@ public class CherryPickPreviewService
         return sha.length() <= 12 ? sha : sha.substring(0, 12);
     }
 
-    private record RangeCommit(
-            String sha,
-            String parentSha,
-            String title,
-            String author,
-            Instant committedAt,
-            List<String> changedPaths)
+    private record RangeCommit(String sha, String parentSha, String title, String author, Instant committedAt, List<String> changedPaths)
     {
         private RangeCommit
         {

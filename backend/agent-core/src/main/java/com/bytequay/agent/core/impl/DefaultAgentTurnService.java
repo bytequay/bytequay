@@ -974,10 +974,7 @@ public final class DefaultAgentTurnService
      * Records how a steer ended. A failure is also an error event on the turn, so the message the
      * transcript already shows is visibly not one the agent received, or not surely.
      */
-    private AgentInputDelivery settleSteer(
-            AgentInputDelivery accepted,
-            AgentInputDelivery.State outcome,
-            Optional<String> failure)
+    private AgentInputDelivery settleSteer(AgentInputDelivery accepted, AgentInputDelivery.State outcome, Optional<String> failure)
     {
         checkArgument(outcome == AgentInputDelivery.State.DELIVERED
                 || outcome == AgentInputDelivery.State.FAILED
@@ -1879,11 +1876,7 @@ public final class DefaultAgentTurnService
         };
     }
 
-    private CompletionStage<ProviderApprovalDecision> requestApproval(
-            TaskId taskId,
-            TurnId boundTurnId,
-            ProviderApprovalRequest request,
-            Duration timeout)
+    private CompletionStage<ProviderApprovalDecision> requestApproval(TaskId taskId, TurnId boundTurnId, ProviderApprovalRequest request, Duration timeout)
     {
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTurn turn = requireActiveTurn(taskId);
@@ -1918,12 +1911,7 @@ public final class DefaultAgentTurnService
         runningTurn.completion().whenComplete((result, failure) -> finishTurn(turn, runningTurn, result, failure, true));
     }
 
-    private void finishTurn(
-            AgentTurn observedTurn,
-            RunningTurn runningTurn,
-            AgentTurnResult providerResult,
-            Throwable completionFailure,
-            boolean liveCompletion)
+    private void finishTurn(AgentTurn observedTurn, RunningTurn runningTurn, AgentTurnResult providerResult, Throwable completionFailure, boolean liveCompletion)
     {
         boolean notifyDevelopment = false;
         // The provider's response reader must not wait for the steer lock: its holder can be
@@ -2099,10 +2087,7 @@ public final class DefaultAgentTurnService
         runtimeRegistry.removeRunning(turn.id(), runningTurn);
     }
 
-    private void recordKnownUnsentFailure(
-            AgentTurn acceptedTurn,
-            RuntimeException failure,
-            boolean providerQuiescent)
+    private void recordKnownUnsentFailure(AgentTurn acceptedTurn, RuntimeException failure, boolean providerQuiescent)
     {
         suppressFailure(failure, () -> {
             AgentTurn turn = turnStore.require(acceptedTurn.id());
@@ -2122,11 +2107,7 @@ public final class DefaultAgentTurnService
      *     may still be writing to. A later confirmed Stop may retry the retained process proof and
      *     release that claim only after the provider is verified stopped.
      */
-    private void persistTerminalTurn(
-            AgentTurn turn,
-            TurnState terminalState,
-            Optional<String> reason,
-            boolean providerQuiescent)
+    private void persistTerminalTurn(AgentTurn turn, TurnState terminalState, Optional<String> reason, boolean providerQuiescent)
     {
         persistTerminalTurn(turn, terminalState, reason, providerQuiescent, Optional.empty(), false);
     }
@@ -2197,11 +2178,7 @@ public final class DefaultAgentTurnService
      * What a turn's end means for the queue behind it: the input this turn was claimed from is
      * settled by what the turn proves, and anything less than a clean success pauses the rest.
      */
-    private void settleQueue(
-            AgentTurn terminal,
-            boolean providerQuiescent,
-            String outcome,
-            Instant endedAt)
+    private void settleQueue(AgentTurn terminal, boolean providerQuiescent, String outcome, Instant endedAt)
     {
         boolean deliveryGate = developmentTurnEligible(taskStore.require(terminal.taskId()), terminal)
                 && terminal.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent();
@@ -2324,12 +2301,7 @@ public final class DefaultAgentTurnService
         };
     }
 
-    private record TurnAcceptance(
-            AgentTurn turn,
-            EventId deliveryEventId,
-            String message,
-            List<AgentAttachment> attachments,
-            ReviewTurnInputResolver.Reference reference)
+    private record TurnAcceptance(AgentTurn turn, EventId deliveryEventId, String message, List<AgentAttachment> attachments, ReviewTurnInputResolver.Reference reference)
     {
         private TurnAcceptance
         {

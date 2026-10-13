@@ -20,10 +20,7 @@ import static java.util.Objects.requireNonNull;
 /**
  * A person's choice of title for a task, guarded by the task version they were looking at.
  */
-public record RenameAgentTaskCommand(
-        TaskId taskId,
-        long expectedVersion,
-        String title)
+public record RenameAgentTaskCommand(TaskId taskId, long expectedVersion, String title)
 {
     /** Generous: a header truncates what it cannot show, so the bound only stops nonsense. */
     public static final int MAX_LENGTH = 200;

@@ -65,8 +65,7 @@ public class GoalResearchTools
     private final AgentUnitOfWork unitOfWork;
     private final Clock clock;
 
-    public GoalResearchTools(ContextBuildStore builds, ContextBuildService service, GoalKnowledgeNoteStore notes, AgentTaskStore tasks, AgentUnitOfWork unitOfWork,
-            Clock clock)
+    public GoalResearchTools(ContextBuildStore builds, ContextBuildService service, GoalKnowledgeNoteStore notes, AgentTaskStore tasks, AgentUnitOfWork unitOfWork, Clock clock)
     {
         this.builds = requireNonNull(builds, "builds is null");
         this.service = requireNonNull(service, "service is null");

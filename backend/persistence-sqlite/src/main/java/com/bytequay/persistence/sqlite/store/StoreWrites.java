@@ -65,13 +65,7 @@ final class StoreWrites
     }
 
     /** Inserts the row unless one already carries the same idempotency key, in which case that row wins. */
-    static <E> E createOrGet(
-            JpaRepository<E, String> repository,
-            String id,
-            String label,
-            Supplier<Optional<E>> existing,
-            Supplier<E> entity,
-            Failures failures)
+    static <E> E createOrGet(JpaRepository<E, String> repository, String id, String label, Supplier<Optional<E>> existing, Supplier<E> entity, Failures failures)
     {
         Optional<E> found = existing.get();
         if (found.isPresent()) {

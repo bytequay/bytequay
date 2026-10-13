@@ -66,8 +66,7 @@ public class LocalReviewController
     }
 
     @PostMapping("/agent/tasks/{taskId}/local-review-comments/{id}/messages/{messageId}/retry")
-    public LocalReviewView retry(@PathVariable String taskId, @PathVariable String id, @PathVariable String messageId,
-            @RequestParam String workspaceId, @RequestBody Retry request)
+    public LocalReviewView retry(@PathVariable String taskId, @PathVariable String id, @PathVariable String messageId, @RequestParam String workspaceId, @RequestBody Retry request)
     {
         return reviews.retry(taskId, workspaceId, id, messageId, request.expectedTaskVersion());
     }

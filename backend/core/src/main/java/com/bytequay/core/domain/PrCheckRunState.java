@@ -18,15 +18,7 @@ import java.time.Instant;
 import static java.util.Objects.requireNonNull;
 
 /** The execution state of a single CI check run. */
-public record PrCheckRunState(
-        Long githubId,
-        String name,
-        String status,
-        String conclusion,
-        String detailsUrl,
-        String source,
-        Instant startedAt,
-        Instant completedAt)
+public record PrCheckRunState(Long githubId, String name, String status, String conclusion, String detailsUrl, String source, Instant startedAt, Instant completedAt)
 {
     public PrCheckRunState
     {

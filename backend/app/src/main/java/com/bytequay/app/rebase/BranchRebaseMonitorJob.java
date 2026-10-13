@@ -38,11 +38,7 @@ final class BranchRebaseMonitorJob
     private final int batchSize;
     private final MonitorLoop loop = new MonitorLoop(BranchRebaseMonitorJob.class, "branch rebase");
 
-    BranchRebaseMonitorJob(
-            BranchRebaseStore store,
-            BranchRebaseService service,
-            AgentServingGate servingGate,
-            @Value("${bytequay.rebase.monitor-batch-size:20}") int batchSize)
+    BranchRebaseMonitorJob(BranchRebaseStore store, BranchRebaseService service, AgentServingGate servingGate, @Value("${bytequay.rebase.monitor-batch-size:20}") int batchSize)
     {
         this.store = requireNonNull(store, "store is null");
         this.service = requireNonNull(service, "service is null");

@@ -19,12 +19,7 @@ import static com.bytequay.app.ci.CiActionsChecks.checkPullRequest;
 import static com.bytequay.core.domain.Checks.checkSha;
 import static com.google.common.base.Preconditions.checkArgument;
 
-public record RerunFailedJobsCommand(
-        PullRequestRef pullRequest,
-        long workflowRunId,
-        String headSha,
-        int previousAttempt,
-        boolean authorized)
+public record RerunFailedJobsCommand(PullRequestRef pullRequest, long workflowRunId, String headSha, int previousAttempt, boolean authorized)
 {
     public RerunFailedJobsCommand
     {

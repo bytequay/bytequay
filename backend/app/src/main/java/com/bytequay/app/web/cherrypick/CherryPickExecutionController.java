@@ -44,9 +44,7 @@ public class CherryPickExecutionController
     private final WorkspaceRepositoryService workspaces;
     private final CherryPickExecutionService executions;
 
-    public CherryPickExecutionController(
-            WorkspaceRepositoryService workspaces,
-            CherryPickExecutionService executions)
+    public CherryPickExecutionController(WorkspaceRepositoryService workspaces, CherryPickExecutionService executions)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.executions = requireNonNull(executions, "executions is null");
@@ -54,9 +52,7 @@ public class CherryPickExecutionController
 
     @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions")
     @ResponseStatus(HttpStatus.CREATED)
-    public CherryPickExecutionResponse start(
-            @PathVariable String workspaceId,
-            @RequestBody CherryPickExecutionRequest request)
+    public CherryPickExecutionResponse start(@PathVariable String workspaceId, @RequestBody CherryPickExecutionRequest request)
     {
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         return CherryPickExecutionResponse.of(executions.start(
@@ -91,17 +87,13 @@ public class CherryPickExecutionController
     }
 
     @PostMapping("/api/cherry-pick-ranges/executions/{executionId}/messages")
-    public CherryPickExecutionResponse sendMessage(
-            @PathVariable String executionId,
-            @RequestBody CherryPickMessageRequest request)
+    public CherryPickExecutionResponse sendMessage(@PathVariable String executionId, @RequestBody CherryPickMessageRequest request)
     {
         return CherryPickExecutionResponse.of(executions.sendMessage(executionId(executionId), text(request.message(), "message")));
     }
 
     @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/cancel")
-    public CherryPickExecutionResponse cancel(
-            @PathVariable String workspaceId,
-            @PathVariable String executionId)
+    public CherryPickExecutionResponse cancel(@PathVariable String workspaceId, @PathVariable String executionId)
     {
         return CherryPickExecutionResponse.of(executions.cancel(executionId(executionId), workspaceId));
     }

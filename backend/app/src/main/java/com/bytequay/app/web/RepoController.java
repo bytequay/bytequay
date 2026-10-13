@@ -39,9 +39,7 @@ public class RepoController
     private final RepoService repos;
     private final WorkspaceRepositoryService workspaces;
 
-    public RepoController(
-            RepoService repos,
-            WorkspaceRepositoryService workspaces)
+    public RepoController(RepoService repos, WorkspaceRepositoryService workspaces)
     {
         this.repos = requireNonNull(repos, "repos is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -66,18 +64,13 @@ public class RepoController
     }
 
     @GetMapping("/contribution-graph/day")
-    public List<UserCommitSummary> getContributionGraphDay(
-            @RequestParam("login") String login,
-            @RequestParam("date") String date)
+    public List<UserCommitSummary> getContributionGraphDay(@RequestParam("login") String login, @RequestParam("date") String date)
     {
         return repos.getUserCommitsOnDate(login, date);
     }
 
     @GetMapping("/repos/{owner}/{repo}/issues/{number}/preview")
-    public GitHubIssuePreview getIssuePreview(
-            @PathVariable String owner,
-            @PathVariable String repo,
-            @PathVariable int number)
+    public GitHubIssuePreview getIssuePreview(@PathVariable String owner, @PathVariable String repo, @PathVariable int number)
     {
         return repos.getIssuePreview(owner, repo, number);
     }

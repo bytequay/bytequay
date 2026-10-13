@@ -144,10 +144,7 @@ class CherryPickConflictScout
         return previews.build();
     }
 
-    private static Map<String, ConflictPreview> fillNotAnalyzed(
-            Map<String, ConflictPreview> previews,
-            List<String> sourceShas,
-            int from)
+    private static Map<String, ConflictPreview> fillNotAnalyzed(Map<String, ConflictPreview> previews, List<String> sourceShas, int from)
     {
         for (int index = from; index < sourceShas.size(); index++) {
             previews.put(sourceShas.get(index), ConflictPreview.notAnalyzed());

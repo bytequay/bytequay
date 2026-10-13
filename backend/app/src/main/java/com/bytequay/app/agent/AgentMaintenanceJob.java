@@ -33,10 +33,7 @@ public final class AgentMaintenanceJob
     private final AgentServingGate servingGate;
     private final Duration autoArchiveWindow;
 
-    public AgentMaintenanceJob(
-            AgentMaintenance maintenance,
-            AgentServingGate servingGate,
-            @Value("${bytequay.agent.auto-archive-days:7}") int autoArchiveDays)
+    public AgentMaintenanceJob(AgentMaintenance maintenance, AgentServingGate servingGate, @Value("${bytequay.agent.auto-archive-days:7}") int autoArchiveDays)
     {
         this.maintenance = requireNonNull(maintenance, "maintenance is null");
         this.servingGate = requireNonNull(servingGate, "servingGate is null");

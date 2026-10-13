@@ -21,13 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** An exact description proposal and the facts needed to reconcile its write and replacement workflow. */
-public record CiDescriptionChange(
-        String expectedBody,
-        String body,
-        long workflowId,
-        long previousRunId,
-        Optional<Instant> writeStartedAt,
-        Optional<Instant> appliedAt)
+public record CiDescriptionChange(String expectedBody, String body, long workflowId, long previousRunId, Optional<Instant> writeStartedAt, Optional<Instant> appliedAt)
 {
     public CiDescriptionChange
     {

@@ -410,10 +410,7 @@ final class CodexProtocol
         String id();
     }
 
-    record AgentMessageItem(
-            String id,
-            String text,
-            Optional<MessagePhase> phase)
+    record AgentMessageItem(String id, String text, Optional<MessagePhase> phase)
             implements ThreadItem
     {
         AgentMessageItem
@@ -449,10 +446,7 @@ final class CodexProtocol
         }
     }
 
-    record FileChangeItem(
-            String id,
-            List<FileUpdateChange> changes,
-            ActivityStatus status)
+    record FileChangeItem(String id, List<FileUpdateChange> changes, ActivityStatus status)
             implements ThreadItem
     {
         FileChangeItem
@@ -555,11 +549,7 @@ final class CodexProtocol
         }
     }
 
-    record SubAgentActivityItem(
-            String id,
-            String agentThreadId,
-            String agentPath,
-            SubAgentActivityKind kind)
+    record SubAgentActivityItem(String id, String agentThreadId, String agentPath, SubAgentActivityKind kind)
             implements ThreadItem
     {
         SubAgentActivityItem
@@ -576,12 +566,7 @@ final class CodexProtocol
      * several actions; the variants share {@code command} and differ only in which other fields
      * they fill, so one record with optional fields decodes every variant, known or not.
      */
-    record CommandAction(
-            String type,
-            String command,
-            Optional<String> name,
-            Optional<String> path,
-            Optional<String> query)
+    record CommandAction(String type, String command, Optional<String> name, Optional<String> path, Optional<String> query)
     {
         CommandAction
         {
@@ -671,12 +656,7 @@ final class CodexProtocol
         }
     }
 
-    record Turn(
-            String id,
-            TurnStatus status,
-            Optional<TurnError> error,
-            Optional<Long> durationMs,
-            List<ThreadItem> items)
+    record Turn(String id, TurnStatus status, Optional<TurnError> error, Optional<Long> durationMs, List<ThreadItem> items)
     {
         Turn
         {
@@ -719,11 +699,7 @@ final class CodexProtocol
         }
     }
 
-    record TokenUsageBreakdown(
-            Long totalTokens,
-            Long inputTokens,
-            Long cachedInputTokens,
-            Long outputTokens)
+    record TokenUsageBreakdown(Long totalTokens, Long inputTokens, Long cachedInputTokens, Long outputTokens)
     {
         TokenUsageBreakdown
         {
@@ -901,8 +877,7 @@ final class CodexProtocol
         }
     }
 
-    record DynamicToolCallParams(
-            String threadId, String turnId, String callId, String tool, Optional<String> namespace, JsonNode arguments)
+    record DynamicToolCallParams(String threadId, String turnId, String callId, String tool, Optional<String> namespace, JsonNode arguments)
             implements TurnScopedParams
     {
         DynamicToolCallParams
@@ -986,13 +961,7 @@ final class CodexProtocol
         }
     }
 
-    record FileChangeApprovalParams(
-            Optional<String> grantRoot,
-            String itemId,
-            Optional<String> reason,
-            Long startedAtMs,
-            String threadId,
-            String turnId)
+    record FileChangeApprovalParams(Optional<String> grantRoot, String itemId, Optional<String> reason, Long startedAtMs, String threadId, String turnId)
             implements TurnScopedParams
     {
         FileChangeApprovalParams
@@ -1031,11 +1000,7 @@ final class CodexProtocol
         }
     }
 
-    record JsonRpcEnvelope(
-            Optional<Object> id,
-            Optional<String> method,
-            Optional<JsonNode> result,
-            Optional<JsonRpcError> error)
+    record JsonRpcEnvelope(Optional<Object> id, Optional<String> method, Optional<JsonNode> result, Optional<JsonRpcError> error)
     {
         JsonRpcEnvelope
         {
@@ -1349,9 +1314,7 @@ final class CodexProtocol
         }
     }
 
-    record ThreadBackgroundTerminalsListResponse(
-            List<ThreadBackgroundTerminal> data,
-            Optional<String> nextCursor)
+    record ThreadBackgroundTerminalsListResponse(List<ThreadBackgroundTerminal> data, Optional<String> nextCursor)
     {
         ThreadBackgroundTerminalsListResponse
         {
@@ -1411,13 +1374,7 @@ final class CodexProtocol
         }
     }
 
-    record HistoryThread(
-            String id,
-            Optional<String> parentThreadId,
-            ThreadStatus status,
-            Optional<String> agentNickname,
-            Optional<String> agentRole,
-            Optional<JsonNode> source)
+    record HistoryThread(String id, Optional<String> parentThreadId, ThreadStatus status, Optional<String> agentNickname, Optional<String> agentRole, Optional<JsonNode> source)
     {
         HistoryThread
         {

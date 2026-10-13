@@ -47,12 +47,7 @@ public record StoredPrDetail(
         unavailableSections = ImmutableList.copyOf(requireNonNull(unavailableSections, "unavailableSections is null"));
     }
 
-    public StoredPrDetail(
-            PrRawDetail raw,
-            List<PrReviewState> reviews,
-            List<PrTimelineEvent> timeline,
-            List<PrCheckRunState> checkRuns,
-            List<String> unavailableSections)
+    public StoredPrDetail(PrRawDetail raw, List<PrReviewState> reviews, List<PrTimelineEvent> timeline, List<PrCheckRunState> checkRuns, List<String> unavailableSections)
     {
         this(raw, reviews, timeline, checkRuns, unavailableSections, false);
     }

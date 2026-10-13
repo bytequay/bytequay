@@ -19,10 +19,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static java.util.Objects.requireNonNull;
 
 /** Exact local scope authorized for one branch rebase. */
-public record StartBranchRebaseCommand(
-        TaskWorktree taskWorktree,
-        String baseBranch,
-        String idempotencyKey)
+public record StartBranchRebaseCommand(TaskWorktree taskWorktree, String baseBranch, String idempotencyKey)
 {
     public StartBranchRebaseCommand
     {

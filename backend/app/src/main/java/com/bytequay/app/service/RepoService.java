@@ -52,11 +52,7 @@ public class RepoService
     private final GitHubRepoClient repositories;
     private final CredentialService credentialService;
 
-    public RepoService(
-            GitHubPullRequestReadClient pullRequests,
-            GitHubAccountClient accounts,
-            GitHubRepoClient repositories,
-            CredentialService credentialService)
+    public RepoService(GitHubPullRequestReadClient pullRequests, GitHubAccountClient accounts, GitHubRepoClient repositories, CredentialService credentialService)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
@@ -105,13 +101,7 @@ public class RepoService
         return repositories.fetchIssuePreview(credentialService.resolveGitHubToken(), RepoRef.of(owner, repo), number);
     }
 
-    public List<String> getCodeSnippet(
-            String owner,
-            String repo,
-            String commit,
-            String path,
-            int startLine,
-            int endLine)
+    public List<String> getCodeSnippet(String owner, String repo, String commit, String path, int startLine, int endLine)
     {
         requireNotBlank(owner, "owner must not be blank");
         requireNotBlank(repo, "repo must not be blank");

@@ -66,8 +66,7 @@ public class MemorySources
     private final ReviewToolAssignment assignments;
     private final GitCommandRunner git;
 
-    public MemorySources(AgentTurnStore turns, AgentEventService events, TaskLogStore logs, AgentReviewStore reviews, ReviewToolAssignment assignments,
-            GitCommandRunner git)
+    public MemorySources(AgentTurnStore turns, AgentEventService events, TaskLogStore logs, AgentReviewStore reviews, ReviewToolAssignment assignments, GitCommandRunner git)
     {
         this.turns = requireNonNull(turns, "turns is null");
         this.events = requireNonNull(events, "events is null");

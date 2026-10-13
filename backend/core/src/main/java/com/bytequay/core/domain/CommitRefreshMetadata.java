@@ -21,11 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Durable outcome metadata for one workspace's last commit refresh. */
-public record CommitRefreshMetadata(
-        String workspaceId,
-        Optional<Instant> lastAttemptAt,
-        Optional<Instant> lastSucceededAt,
-        Optional<String> error)
+public record CommitRefreshMetadata(String workspaceId, Optional<Instant> lastAttemptAt, Optional<Instant> lastSucceededAt, Optional<String> error)
 {
     public CommitRefreshMetadata
     {

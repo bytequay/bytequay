@@ -28,15 +28,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
-public record CiJob(
-        long id,
-        long workflowRunId,
-        String name,
-        int attempt,
-        String status,
-        Optional<String> conclusion,
-        String url,
-        List<CiStep> steps)
+public record CiJob(long id, long workflowRunId, String name, int attempt, String status, Optional<String> conclusion, String url, List<CiStep> steps)
 {
     public CiJob
     {

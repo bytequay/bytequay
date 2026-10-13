@@ -19,12 +19,7 @@ import java.time.Instant;
 
 import static java.util.Objects.requireNonNull;
 
-public record ApprovalRequest(
-        ApprovalId id,
-        TaskId taskId,
-        TurnId turnId,
-        ProviderApprovalRequest providerRequest,
-        Instant requestedAt)
+public record ApprovalRequest(ApprovalId id, TaskId taskId, TurnId turnId, ProviderApprovalRequest providerRequest, Instant requestedAt)
 {
     public ApprovalRequest
     {

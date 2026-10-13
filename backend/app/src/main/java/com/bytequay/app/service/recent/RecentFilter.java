@@ -27,14 +27,7 @@ import static java.util.Objects.requireNonNull;
  * The stream's window and chips. An empty {@code types} means every type, which
  * is the {@code All} chip.
  */
-public record RecentFilter(
-        LocalDate from,
-        LocalDate to,
-        Set<RecentItemType> types,
-        RecentReason action,
-        String workspaceId,
-        boolean changedSinceRead,
-        String text)
+public record RecentFilter(LocalDate from, LocalDate to, Set<RecentItemType> types, RecentReason action, String workspaceId, boolean changedSinceRead, String text)
 {
     public RecentFilter
     {

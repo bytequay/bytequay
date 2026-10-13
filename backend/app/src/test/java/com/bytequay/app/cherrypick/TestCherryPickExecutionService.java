@@ -1216,8 +1216,7 @@ class TestCherryPickExecutionService
         throw new AssertionError("execution did not reach conflict-pair finalization");
     }
 
-    private static List<CherryPickItem.ConflictPath> conflictPaths(
-            com.bytequay.app.git.SequenceState state)
+    private static List<CherryPickItem.ConflictPath> conflictPaths(com.bytequay.app.git.SequenceState state)
     {
         return state.conflicts().stream()
                 .map(conflict -> new CherryPickItem.ConflictPath(
@@ -1245,10 +1244,7 @@ class TestCherryPickExecutionService
         return previews.preview(new PreviewCherryPickRangeCommand(clone, WORKSPACE_ID, OptionalLong.empty(), "origin", baseRef, "origin/main", "cork", "main"));
     }
 
-    private static StartCherryPickExecutionCommand command(
-            CherryPickPreview preview,
-            List<String> skipped,
-            String key)
+    private static StartCherryPickExecutionCommand command(CherryPickPreview preview, List<String> skipped, String key)
     {
         return new StartCherryPickExecutionCommand(
                 preview.previewId(),

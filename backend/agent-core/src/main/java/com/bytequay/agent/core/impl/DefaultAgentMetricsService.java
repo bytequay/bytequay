@@ -158,10 +158,7 @@ public final class DefaultAgentMetricsService
                 .collect(toImmutableList()));
     }
 
-    private static AgentMetrics cumulativeMetrics(
-            AgentMetrics baseline,
-            AgentMetrics current,
-            ProviderUsageSample sample)
+    private static AgentMetrics cumulativeMetrics(AgentMetrics baseline, AgentMetrics current, ProviderUsageSample sample)
     {
         long inputTokens = subtractFloor(sample.inputTokens(), baseline.inputTokens());
         long cachedInputTokens = subtractFloor(sample.cachedInputTokens(), baseline.cachedInputTokens());

@@ -1071,13 +1071,7 @@ public class ReviewCodeService
      * @param sourceFingerprint the working copy's {@link #fingerprint}; empty for a revision
      * @param savedExperiment a failed Update left this review's experiments stashed, which Discard also drops
      */
-    public record CodeFiles(
-            CodeSource source,
-            String revision,
-            Optional<String> sourceFingerprint,
-            boolean savedExperiment,
-            boolean truncated,
-            List<CodeFileEntry> files)
+    public record CodeFiles(CodeSource source, String revision, Optional<String> sourceFingerprint, boolean savedExperiment, boolean truncated, List<CodeFileEntry> files)
     {
         public CodeFiles
         {

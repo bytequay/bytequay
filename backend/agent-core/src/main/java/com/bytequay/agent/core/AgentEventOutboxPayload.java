@@ -43,10 +43,7 @@ public sealed interface AgentEventOutboxPayload
     }
 
     /** Keeps message bytes outside SQLite while retaining enough data to materialize the event. */
-    record UserMessageBlob(
-            BlobRef textBlob,
-            List<AgentAttachmentReference> attachments,
-            AgentEventPayload.DeliveryKind deliveryKind)
+    record UserMessageBlob(BlobRef textBlob, List<AgentAttachmentReference> attachments, AgentEventPayload.DeliveryKind deliveryKind)
             implements AgentEventOutboxPayload
     {
         public UserMessageBlob

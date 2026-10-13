@@ -87,9 +87,7 @@ public class GitHubPullRequestReadClient
     private final RestClient graphQlRestClient;
     private final GitHubPaginator paginator;
 
-    public GitHubPullRequestReadClient(
-            RestClient gitHubRestClient,
-            @Qualifier("gitHubGraphQLRestClient") RestClient graphQlRestClient)
+    public GitHubPullRequestReadClient(RestClient gitHubRestClient, @Qualifier("gitHubGraphQLRestClient") RestClient graphQlRestClient)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphQlRestClient = requireNonNull(graphQlRestClient, "graphQlRestClient is null");
@@ -710,8 +708,7 @@ public class GitHubPullRequestReadClient
         return applyIssueReferenceReplacements(body, resolveIssueReferences(pat, pr, ImmutableList.of(body)));
     }
 
-    public List<PrTimelineEvent> enrichTimelineReferences(
-            String pat, PullRequestRef pr, List<PrTimelineEvent> timeline)
+    public List<PrTimelineEvent> enrichTimelineReferences(String pat, PullRequestRef pr, List<PrTimelineEvent> timeline)
     {
         List<String> bodies = new ArrayList<>();
         for (PrTimelineEvent event : timeline) {
@@ -727,8 +724,7 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    private Map<String, String> resolveIssueReferences(
-            String pat, PullRequestRef pr, Iterable<String> bodies)
+    private Map<String, String> resolveIssueReferences(String pat, PullRequestRef pr, Iterable<String> bodies)
     {
         Map<String, String> references = new LinkedHashMap<>();
         for (String body : bodies) {
@@ -798,8 +794,7 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    private static PrTimelineEvent withIssueReferenceReplacements(
-            PrTimelineEvent event, Map<String, String> replacements)
+    private static PrTimelineEvent withIssueReferenceReplacements(PrTimelineEvent event, Map<String, String> replacements)
     {
         String body = applyIssueReferenceReplacements(event.body(), replacements);
         PrTimelinePayload payload = event.payload();
@@ -873,8 +868,7 @@ public class GitHubPullRequestReadClient
      * is the copy the caller already holds; its size decides whether the ETag
      * can be trusted, since the ETag only covers the first page.
      */
-    public ConditionalList<DiffFile> fetchPrDiffFiles(
-            String pat, PullRequestRef pr, List<DiffFile> stored, Optional<String> etag)
+    public ConditionalList<DiffFile> fetchPrDiffFiles(String pat, PullRequestRef pr, List<DiffFile> stored, Optional<String> etag)
     {
         return translating(() -> paginator.paginateConditional(
                         pat,
@@ -909,8 +903,7 @@ public class GitHubPullRequestReadClient
         return response == null ? ImmutableList.of() : toDiffFiles(response.files());
     }
 
-    public ConditionalList<DiffCommit> fetchPrDiffCommits(
-            String pat, PullRequestRef pr, List<DiffCommit> stored, Optional<String> etag)
+    public ConditionalList<DiffCommit> fetchPrDiffCommits(String pat, PullRequestRef pr, List<DiffCommit> stored, Optional<String> etag)
     {
         return paginator.paginateConditional(
                         pat,
@@ -946,8 +939,7 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    public DiffFileContent fetchPrDiffFileContent(
-            String pat, PullRequestRef pr, String path, String baseSha, String headSha)
+    public DiffFileContent fetchPrDiffFileContent(String pat, PullRequestRef pr, String path, String baseSha, String headSha)
     {
         requirePat(pat);
         requireNotBlank(path, "path must not be blank");
@@ -993,13 +985,7 @@ public class GitHubPullRequestReadClient
                 .toUri();
     }
 
-    public Optional<List<String>> fetchRepositoryFileLines(
-            String pat,
-            RepoRef repository,
-            String path,
-            String ref,
-            int startLine,
-            int endLine)
+    public Optional<List<String>> fetchRepositoryFileLines(String pat, RepoRef repository, String path, String ref, int startLine, int endLine)
     {
         requirePat(pat);
         requireNonNull(repository, "repository is null");
@@ -1134,12 +1120,7 @@ public class GitHubPullRequestReadClient
      * connection's page info, or null to stop. GitHub errors propagate raw
      * so each caller keeps its own translation or fallback policy.
      */
-    private <R> void forEachGraphQlPage(
-            String pat,
-            PullRequestRef pr,
-            String query,
-            Class<R> responseType,
-            Function<R, GitHubReviewThreadsResponse.PageInfo> page)
+    private <R> void forEachGraphQlPage(String pat, PullRequestRef pr, String query, Class<R> responseType, Function<R, GitHubReviewThreadsResponse.PageInfo> page)
     {
         String cursor = null;
         for (int i = 0; i < 50; i++) {
@@ -1252,9 +1233,7 @@ public class GitHubPullRequestReadClient
         return toCommentedTimelineEvent(c, null);
     }
 
-    private static PrTimelineEvent toCommentedTimelineEvent(
-            GitHubIssueComment c,
-            Set<String> viewerReactions)
+    private static PrTimelineEvent toCommentedTimelineEvent(GitHubIssueComment c, Set<String> viewerReactions)
     {
         GitHubIssueComment.User user = c.user();
         return new PrTimelineEvent(
@@ -1503,10 +1482,7 @@ public class GitHubPullRequestReadClient
         return thread.id();
     }
 
-    private static PrTimelineEvent toReviewThreadEvent(
-            List<GitHubReviewComment> thread,
-            GitHubReviewThreadsResponse.Thread details,
-            Map<String, Set<String>> viewerReactions)
+    private static PrTimelineEvent toReviewThreadEvent(List<GitHubReviewComment> thread, GitHubReviewThreadsResponse.Thread details, Map<String, Set<String>> viewerReactions)
     {
         GitHubReviewComment root = thread.getFirst();
         GitHubReviewComment.User user = root.user();
@@ -1543,9 +1519,7 @@ public class GitHubPullRequestReadClient
         return toReviewThreadEvent(ImmutableList.of(comment), null, ImmutableMap.of());
     }
 
-    private static PrTimelineComment toTimelineComment(
-            GitHubReviewComment comment,
-            Set<String> viewerReactions)
+    private static PrTimelineComment toTimelineComment(GitHubReviewComment comment, Set<String> viewerReactions)
     {
         GitHubReviewComment.User user = comment.user();
         return new PrTimelineComment(
@@ -1561,9 +1535,7 @@ public class GitHubPullRequestReadClient
                 toReactions(comment.reactions(), viewerReactions));
     }
 
-    private static List<PrReaction> toReactions(
-            GitHubReactions reactions,
-            Set<String> viewerReactions)
+    private static List<PrReaction> toReactions(GitHubReactions reactions, Set<String> viewerReactions)
     {
         if (reactions == null) {
             return ImmutableList.of();
@@ -1624,10 +1596,7 @@ public class GitHubPullRequestReadClient
         return new PullRequestFetch(Optional.of(fetched), responseEtag, Optional.of(item));
     }
 
-    public record PullRequestFetch(
-            Optional<FetchedPullRequest> pullRequest,
-            Optional<String> etag,
-            Optional<GitHubPullRequestDetailResponse> detailResponse)
+    public record PullRequestFetch(Optional<FetchedPullRequest> pullRequest, Optional<String> etag, Optional<GitHubPullRequestDetailResponse> detailResponse)
     {
         public PullRequestFetch
         {

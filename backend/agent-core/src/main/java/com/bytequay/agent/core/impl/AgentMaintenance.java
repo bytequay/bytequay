@@ -225,10 +225,7 @@ public final class AgentMaintenance
      * case no turn outside {@code unverifiableLaunches} may be treated as stopped, because the
      * stray process could be its own
      */
-    public void settleAfterProcessRecovery(
-            Map<TaskId, String> unverifiableLaunches,
-            Set<String> verifiedLaunches,
-            boolean everyProcessAttributed)
+    public void settleAfterProcessRecovery(Map<TaskId, String> unverifiableLaunches, Set<String> verifiedLaunches, boolean everyProcessAttributed)
     {
         requireNonNull(unverifiableLaunches, "unverifiableLaunches is null");
         requireNonNull(verifiedLaunches, "verifiedLaunches is null");
@@ -255,11 +252,7 @@ public final class AgentMaintenance
      * @param remainingUnverifiableLaunch another launch that still blocks the task, if any
      * @return the current or updated task
      */
-    public AgentTask settleRecoveryClaim(
-            TaskId taskId,
-            long expectedVersion,
-            String expectedClaimLaunch,
-            Optional<String> remainingUnverifiableLaunch)
+    public AgentTask settleRecoveryClaim(TaskId taskId, long expectedVersion, String expectedClaimLaunch, Optional<String> remainingUnverifiableLaunch)
     {
         requireNonNull(taskId, "taskId is null");
         checkArgument(expectedVersion >= 0, "expectedVersion is negative");

@@ -60,8 +60,7 @@ public class AvatarCache
     private final HttpClient client;
 
     @Autowired
-    public AvatarCache(
-            @Value("${bytequay.avatar-cache.root:${java.io.tmpdir}/bytequay-avatars}") String root)
+    public AvatarCache(@Value("${bytequay.avatar-cache.root:${java.io.tmpdir}/bytequay-avatars}") String root)
     {
         this(Path.of(root), HttpClient.newBuilder()
                 .connectTimeout(TIMEOUT)

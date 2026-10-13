@@ -43,9 +43,7 @@ public class GitHubMergeClient
     private final RestClient gitHubRestClient;
     private final RestClient graphqlRestClient;
 
-    public GitHubMergeClient(
-            RestClient gitHubRestClient,
-            @Qualifier("gitHubGraphQLRestClient") RestClient gitHubGraphQLRestClient)
+    public GitHubMergeClient(RestClient gitHubRestClient, @Qualifier("gitHubGraphQLRestClient") RestClient gitHubGraphQLRestClient)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.graphqlRestClient = requireNonNull(gitHubGraphQLRestClient, "gitHubGraphQLRestClient is null");
@@ -68,8 +66,7 @@ public class GitHubMergeClient
         });
     }
 
-    public MergeResult mergePullRequest(
-            String pat, PullRequestRef pr, MergePullRequestCommand command)
+    public MergeResult mergePullRequest(String pat, PullRequestRef pr, MergePullRequestCommand command)
     {
         Map<String, Object> body = new HashMap<>();
         body.put("merge_method", command.mergeMethod());

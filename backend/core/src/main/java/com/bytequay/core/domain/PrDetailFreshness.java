@@ -19,11 +19,7 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /** Successful remote validations; a checks response never dates the cached discussion. */
-public record PrDetailFreshness(
-        Optional<Instant> metadataAt,
-        Optional<Instant> discussionAt,
-        Optional<Instant> checksAt,
-        Optional<Instant> discussionSourceUpdatedAt)
+public record PrDetailFreshness(Optional<Instant> metadataAt, Optional<Instant> discussionAt, Optional<Instant> checksAt, Optional<Instant> discussionSourceUpdatedAt)
 {
     public PrDetailFreshness
     {

@@ -16,10 +16,7 @@ package com.bytequay.agent.core;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record UpdateAgentTaskDefaultsCommand(
-        TaskId taskId,
-        long expectedVersion,
-        AgentTaskDefaults defaults)
+public record UpdateAgentTaskDefaultsCommand(TaskId taskId, long expectedVersion, AgentTaskDefaults defaults)
 {
     public UpdateAgentTaskDefaultsCommand
     {

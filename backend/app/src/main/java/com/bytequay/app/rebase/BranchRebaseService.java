@@ -327,10 +327,7 @@ public class BranchRebaseService
         return store.save(rebase.finish(FinishReason.CANCELLED, "Rebase cancelled", Optional.empty(), clock.instant()));
     }
 
-    private BranchRebase recordState(
-            BranchRebase rebase,
-            SequenceState state,
-            Optional<String> userNote)
+    private BranchRebase recordState(BranchRebase rebase, SequenceState state, Optional<String> userNote)
     {
         return switch (state.kind()) {
             case COMPLETED -> complete(rebase, state);
@@ -343,10 +340,7 @@ public class BranchRebaseService
         };
     }
 
-    private BranchRebase prepareAgentTurn(
-            BranchRebase rebase,
-            SequenceState state,
-            Optional<String> userNote)
+    private BranchRebase prepareAgentTurn(BranchRebase rebase, SequenceState state, Optional<String> userNote)
     {
         String stopped = state.stoppedCommit().orElseThrow();
         BranchRebase resolving = rebase.resolving(stopped, clock.instant());
@@ -534,12 +528,7 @@ public class BranchRebaseService
         return result.successful() ? result.output().strip() : "0".repeat(40);
     }
 
-    private ActionJournal journal(
-            BranchRebase rebase,
-            ActionType type,
-            Optional<String> stoppedCommit,
-            String expectedHead,
-            int attempt)
+    private ActionJournal journal(BranchRebase rebase, ActionType type, Optional<String> stoppedCommit, String expectedHead, int attempt)
     {
         return new ActionJournal(
                 type,
@@ -551,10 +540,7 @@ public class BranchRebaseService
                 clock.instant());
     }
 
-    private static boolean sameStop(
-            SequenceState state,
-            ActionJournal action,
-            SequenceState.Kind kind)
+    private static boolean sameStop(SequenceState state, ActionJournal action, SequenceState.Kind kind)
     {
         return state.kind() == kind
                 && state.head().equals(action.expectedHead())

@@ -42,12 +42,7 @@ public record UserRepo(
         requireNonNull(upstream, "upstream is null");
     }
 
-    public record Upstream(
-            long id,
-            String owner,
-            String name,
-            String defaultBranch,
-            String cloneUrl)
+    public record Upstream(long id, String owner, String name, String defaultBranch, String cloneUrl)
     {
         public Upstream
         {

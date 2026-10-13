@@ -21,14 +21,7 @@ import java.util.List;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record GitHubIssuePreview(
-        String title,
-        String body,
-        String author,
-        List<String> labels,
-        Instant updatedAt,
-        String state,
-        boolean pullRequest)
+public record GitHubIssuePreview(String title, String body, String author, List<String> labels, Instant updatedAt, String state, boolean pullRequest)
 {
     public GitHubIssuePreview
     {

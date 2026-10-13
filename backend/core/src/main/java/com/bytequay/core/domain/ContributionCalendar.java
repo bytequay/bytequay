@@ -34,9 +34,7 @@ import static java.util.Objects.requireNonNull;
  *                           by GitHub for this calendar window
  * @param weeks              one week per column, oldest first
  */
-public record ContributionCalendar(
-        int totalContributions,
-        List<Week> weeks)
+public record ContributionCalendar(int totalContributions, List<Week> weeks)
 {
     public ContributionCalendar
     {

@@ -111,13 +111,7 @@ public class ModelSettingsService
     private volatile List<AgentProviderStatus> providerStatuses = ImmutableList.of();
     private volatile Optional<Instant> checkedAt = Optional.empty();
 
-    public ModelSettingsService(
-            AgentDriverRegistry drivers,
-            ModelApiKeyStore apiKeys,
-            ClaudeAccounts claudeAccounts,
-            AppSettingsStore settings,
-            ObjectMapper mapper,
-            Clock clock)
+    public ModelSettingsService(AgentDriverRegistry drivers, ModelApiKeyStore apiKeys, ClaudeAccounts claudeAccounts, AppSettingsStore settings, ObjectMapper mapper, Clock clock)
     {
         this.drivers = requireNonNull(drivers, "drivers is null");
         this.apiKeys = requireNonNull(apiKeys, "apiKeys is null");
@@ -343,12 +337,7 @@ public class ModelSettingsService
         return get();
     }
 
-    public AgentModelSetting setWorkspaceOverride(
-            String workspaceId,
-            AgentModelType type,
-            String configId,
-            String model,
-            Optional<String> effort)
+    public AgentModelSetting setWorkspaceOverride(String workspaceId, AgentModelType type, String configId, String model, Optional<String> effort)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(type, "type is null");

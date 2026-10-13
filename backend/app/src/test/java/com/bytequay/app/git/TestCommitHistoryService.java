@@ -223,10 +223,7 @@ class TestCommitHistoryService
         return summary(null, null, null);
     }
 
-    private static WorkspaceSummary summary(
-            Long upstreamRepositoryId,
-            String upstreamOwner,
-            String upstreamRepo)
+    private static WorkspaceSummary summary(Long upstreamRepositoryId, String upstreamOwner, String upstreamRepo)
     {
         return new WorkspaceSummary(
                 WORKSPACE_ID,

@@ -620,25 +620,12 @@ class TestSqlitePullRequestWorkspaceScope
         return pullRequest(githubId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
     }
 
-    private static FetchedPullRequest pullRequest(
-            long githubId,
-            String repository,
-            int number,
-            String state,
-            Instant closedAt,
-            Instant updatedAt)
+    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String state, Instant closedAt, Instant updatedAt)
     {
         return pullRequest(githubId, repository, number, state, closedAt, updatedAt, "feature");
     }
 
-    private static FetchedPullRequest pullRequest(
-            long githubId,
-            String repository,
-            int number,
-            String state,
-            Instant closedAt,
-            Instant updatedAt,
-            String headRef)
+    private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String state, Instant closedAt, Instant updatedAt, String headRef)
     {
         return new FetchedPullRequest(
                 githubId,

@@ -85,16 +85,7 @@ public record PullRequestDetail(
 
     public record Reviewer(String login, String avatarUrl, String state) {}
 
-    public record CheckRun(
-            Long githubId,
-            String name,
-            String status,
-            String conclusion,
-            String detailsUrl,
-            String source,
-            String category,
-            Instant startedAt,
-            Instant completedAt)
+    public record CheckRun(Long githubId, String name, String status, String conclusion, String detailsUrl, String source, String category, Instant startedAt, Instant completedAt)
     {
     }
 }

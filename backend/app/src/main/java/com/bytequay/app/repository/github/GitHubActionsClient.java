@@ -125,12 +125,7 @@ public class GitHubActionsClient
         this(gitHubRestClient, logRestClient, credentials::resolveGitHubToken, taskLogStore::writeBlob, rawLogs);
     }
 
-    GitHubActionsClient(
-            RestClient gitHubRestClient,
-            RestClient logRestClient,
-            Supplier<String> tokenSupplier,
-            LogBlobWriter blobWriter,
-            CiRawLogStore rawLogs)
+    GitHubActionsClient(RestClient gitHubRestClient, RestClient logRestClient, Supplier<String> tokenSupplier, LogBlobWriter blobWriter, CiRawLogStore rawLogs)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
         this.logRestClient = requireNonNull(logRestClient, "logRestClient is null");
@@ -169,12 +164,7 @@ public class GitHubActionsClient
         return checkRuns.stream().filter(check -> "check_run".equals(check.source())).count() <= PAGE_SIZE;
     }
 
-    private ConditionalList<PrCheckRunState> fetchCheckRuns(
-            String pat,
-            String owner,
-            String repo,
-            String sha,
-            Optional<String> etag)
+    private ConditionalList<PrCheckRunState> fetchCheckRuns(String pat, String owner, String repo, String sha, Optional<String> etag)
     {
         List<PrCheckRunState> result = new ArrayList<>();
         int collected = 0;
@@ -218,12 +208,7 @@ public class GitHubActionsClient
         return new ConditionalList<>(Optional.of(ImmutableList.copyOf(result)), responseEtag);
     }
 
-    private ConditionalList<PrCheckRunState> fetchCommitStatuses(
-            String pat,
-            String owner,
-            String repo,
-            String sha,
-            Optional<String> etag)
+    private ConditionalList<PrCheckRunState> fetchCommitStatuses(String pat, String owner, String repo, String sha, Optional<String> etag)
     {
         return translating(() -> {
             RestClient.RequestHeadersSpec<?> request = get(gitHubRestClient, pat, "/repos/{owner}/{repo}/commits/{sha}/status", owner, repo, sha);
@@ -261,10 +246,7 @@ public class GitHubActionsClient
         return checks.stream().filter(check -> source.equals(check.source())).collect(toImmutableList());
     }
 
-    public record PrCheckRunsFetch(
-            List<PrCheckRunState> checkRuns,
-            Optional<String> checkRunsEtag,
-            Optional<String> commitStatusesEtag)
+    public record PrCheckRunsFetch(List<PrCheckRunState> checkRuns, Optional<String> checkRunsEtag, Optional<String> commitStatusesEtag)
     {
         public PrCheckRunsFetch
         {
@@ -499,11 +481,7 @@ public class GitHubActionsClient
                 .collect(toImmutableList());
     }
 
-    private WorkflowRunsResponse fetchWorkflowRunPage(
-            String pat,
-            PullRequestRef pullRequest,
-            String headSha,
-            int page)
+    private WorkflowRunsResponse fetchWorkflowRunPage(String pat, PullRequestRef pullRequest, String headSha, int page)
     {
         return translating(() -> {
             WorkflowRunsResponse response = conditional(
@@ -521,10 +499,7 @@ public class GitHubActionsClient
         });
     }
 
-    private CiWorkflowRun toWorkflowRun(
-            String pat,
-            PullRequestRef pullRequest,
-            WorkflowRunResponse run)
+    private CiWorkflowRun toWorkflowRun(String pat, PullRequestRef pullRequest, WorkflowRunResponse run)
     {
         int attempt = positiveOrOne(run.runAttempt());
         return new CiWorkflowRun(
@@ -539,12 +514,7 @@ public class GitHubActionsClient
                 fetchJobs(pat, pullRequest, run.id(), attempt, run.htmlUrl()));
     }
 
-    private List<CiJob> fetchJobs(
-            String pat,
-            PullRequestRef pullRequest,
-            long workflowRunId,
-            int workflowAttempt,
-            String workflowUrl)
+    private List<CiJob> fetchJobs(String pat, PullRequestRef pullRequest, long workflowRunId, int workflowAttempt, String workflowUrl)
     {
         Map<String, JobResponse> latest = new LinkedHashMap<>();
         Set<Long> observedJobs = new HashSet<>();
@@ -580,11 +550,7 @@ public class GitHubActionsClient
                 .collect(toImmutableList());
     }
 
-    private JobsResponse fetchJobPage(
-            String pat,
-            PullRequestRef pullRequest,
-            long workflowRunId,
-            int page)
+    private JobsResponse fetchJobPage(String pat, PullRequestRef pullRequest, long workflowRunId, int page)
     {
         return translating(() -> {
             JobsResponse response = conditional(
@@ -602,11 +568,7 @@ public class GitHubActionsClient
         });
     }
 
-    private static CiJob toJob(
-            long workflowRunId,
-            int workflowAttempt,
-            String workflowUrl,
-            JobResponse job)
+    private static CiJob toJob(long workflowRunId, int workflowAttempt, String workflowUrl, JobResponse job)
     {
         int attempt = job.runAttempt() <= 0 ? workflowAttempt : job.runAttempt();
         List<CiStep> steps = Optional.ofNullable(job.steps()).orElse(ImmutableList.of()).stream()

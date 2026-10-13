@@ -35,14 +35,7 @@ import static java.util.Objects.requireNonNull;
  * @param argvDigest digest of the argument vector
  * @param updatedAt time of the last recorded transition
  */
-public record AgentProcessLaunch(
-        String launchId,
-        LaunchOwnerKind ownerKind,
-        String ownerId,
-        boolean attempted,
-        String executable,
-        String argvDigest,
-        Instant updatedAt)
+public record AgentProcessLaunch(String launchId, LaunchOwnerKind ownerKind, String ownerId, boolean attempted, String executable, String argvDigest, Instant updatedAt)
 {
     public AgentProcessLaunch
     {

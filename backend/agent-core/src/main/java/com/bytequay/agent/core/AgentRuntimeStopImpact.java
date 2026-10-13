@@ -27,11 +27,7 @@ import static java.util.Objects.requireNonNull;
  * @param activeTurnId the turn the stop would interrupt, when one is active
  * @param liveProcess whether this backend currently runs a provider process for the task
  */
-public record AgentRuntimeStopImpact(
-        TaskId taskId,
-        String generation,
-        Optional<TurnId> activeTurnId,
-        boolean liveProcess)
+public record AgentRuntimeStopImpact(TaskId taskId, String generation, Optional<TurnId> activeTurnId, boolean liveProcess)
 {
     public AgentRuntimeStopImpact
     {

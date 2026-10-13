@@ -21,12 +21,7 @@ import static java.util.Objects.requireNonNull;
  * <p>{@code dirty} also counts ignored files, which removing the worktree deletes. {@code uncommitted}
  * counts only changes that are not ignored, so build output alone leaves it false.
  */
-public record WorktreeSnapshot(
-        TaskWorktree worktree,
-        String head,
-        boolean dirty,
-        boolean gitOperationInProgress,
-        boolean uncommitted)
+public record WorktreeSnapshot(TaskWorktree worktree, String head, boolean dirty, boolean gitOperationInProgress, boolean uncommitted)
 {
     public WorktreeSnapshot
     {

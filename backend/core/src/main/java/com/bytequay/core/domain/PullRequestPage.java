@@ -21,13 +21,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** One database-backed page of pull requests. */
-public record PullRequestPage(
-        List<PullRequest> pullRequests,
-        int page,
-        int pageSize,
-        long totalPullRequests,
-        long openPullRequests,
-        boolean hasMore)
+public record PullRequestPage(List<PullRequest> pullRequests, int page, int pageSize, long totalPullRequests, long openPullRequests, boolean hasMore)
 {
     public PullRequestPage
     {

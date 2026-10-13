@@ -186,12 +186,7 @@ class TestRepositoryEnrichmentService
                 NOW);
     }
 
-    private static Workspace linkedWorkspace(
-            String id,
-            long selectedRepositoryId,
-            RepoRef selectedRepository,
-            long upstreamRepositoryId,
-            RepoRef upstreamRepository)
+    private static Workspace linkedWorkspace(String id, long selectedRepositoryId, RepoRef selectedRepository, long upstreamRepositoryId, RepoRef upstreamRepository)
     {
         return new Workspace(
                 id,

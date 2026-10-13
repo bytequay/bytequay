@@ -22,12 +22,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** One persisted assignment; its accepted turn is identified by the deterministic key. */
-public record ReviewStep(
-        int number,
-        Kind kind,
-        boolean repair,
-        Optional<ReviewInvestigation> investigation,
-        Optional<ReviewValidation> validation)
+public record ReviewStep(int number, Kind kind, boolean repair, Optional<ReviewInvestigation> investigation, Optional<ReviewValidation> validation)
 {
     public ReviewStep
     {

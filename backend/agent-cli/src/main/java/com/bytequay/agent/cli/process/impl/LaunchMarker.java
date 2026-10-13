@@ -88,12 +88,7 @@ record LaunchMarker(
         checkArgument(phase == LaunchPhase.PREPARED || pid.isPresent(), "launched marker has no pid");
     }
 
-    static LaunchMarker prepared(
-            String launchId,
-            String backendId,
-            ProcessOwner owner,
-            String executable,
-            String argvDigest)
+    static LaunchMarker prepared(String launchId, String backendId, ProcessOwner owner, String executable, String argvDigest)
     {
         return new LaunchMarker(
                 CURRENT_FORMAT,

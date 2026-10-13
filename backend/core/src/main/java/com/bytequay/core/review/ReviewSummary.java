@@ -22,13 +22,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** The agent's structured explanation of the run, kept at its latest accepted revision. */
-public record ReviewSummary(
-        int revision,
-        String purpose,
-        List<CommitExplanation> commits,
-        String combinedResult,
-        Optional<String> evidence,
-        List<String> criticalFindingIds)
+public record ReviewSummary(int revision, String purpose, List<CommitExplanation> commits, String combinedResult, Optional<String> evidence, List<String> criticalFindingIds)
 {
     public ReviewSummary
     {

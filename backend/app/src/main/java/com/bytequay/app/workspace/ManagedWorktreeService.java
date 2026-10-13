@@ -67,11 +67,7 @@ public final class ManagedWorktreeService
     private final GitCommandRunner git;
     private final IdeRuntimeService ide;
 
-    public ManagedWorktreeService(
-            WorkspacePaths paths,
-            WorkspaceStore workspaces,
-            GitCommandRunner git,
-            IdeRuntimeService ide)
+    public ManagedWorktreeService(WorkspacePaths paths, WorkspaceStore workspaces, GitCommandRunner git, IdeRuntimeService ide)
     {
         this.paths = requireNonNull(paths, "paths is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
@@ -326,10 +322,7 @@ public final class ManagedWorktreeService
     }
 
     /** The task's checkout, once every recorded ownership fact has been checked against the disk and Git. */
-    private Path verifyOwnedWorktree(
-            Workspace workspace,
-            Path repository,
-            TaskWorktree worktree)
+    private Path verifyOwnedWorktree(Workspace workspace, Path repository, TaskWorktree worktree)
     {
         verifyDerivedPath(worktree);
         requireExactCommit(repository, worktree.startCommit(), "recorded start commit");
@@ -359,10 +352,7 @@ public final class ManagedWorktreeService
         }
     }
 
-    private WorktreeSnapshot inspectVerified(
-            Workspace workspace,
-            Path repository,
-            TaskWorktree worktree)
+    private WorktreeSnapshot inspectVerified(Workspace workspace, Path repository, TaskWorktree worktree)
     {
         Path canonical = verifyOwnedWorktree(workspace, repository, worktree);
         String branch = requireOutput(git.run(canonical, "symbolic-ref", "--quiet", "--short", "HEAD"), "read task worktree branch");
@@ -561,10 +551,7 @@ public final class ManagedWorktreeService
                 .orElseThrow(() -> invalid("Workspace is not watched: " + workspaceId));
     }
 
-    private static TaskWorktree recordedWorktree(
-            ProvisionWorktreeCommand command,
-            Path canonicalWorktree,
-            String branch)
+    private static TaskWorktree recordedWorktree(ProvisionWorktreeCommand command, Path canonicalWorktree, String branch)
     {
         return new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(), canonicalWorktree, branch, command.startCommit());
     }

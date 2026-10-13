@@ -44,9 +44,7 @@ public class SqliteRepositoryIssueStore
     private final RepositoryIssueSyncJpaRepository repository;
     private final RepositoryIssueRowJpaRepository issueRows;
 
-    public SqliteRepositoryIssueStore(
-            RepositoryIssueSyncJpaRepository repository,
-            RepositoryIssueRowJpaRepository issueRows)
+    public SqliteRepositoryIssueStore(RepositoryIssueSyncJpaRepository repository, RepositoryIssueRowJpaRepository issueRows)
     {
         this.repository = requireNonNull(repository, "repository is null");
         this.issueRows = requireNonNull(issueRows, "issueRows is null");
@@ -100,10 +98,7 @@ public class SqliteRepositoryIssueStore
 
     @Override
     @Transactional
-    public void completeSync(
-            long repositoryId,
-            String syncMarker,
-            Instant syncedAt)
+    public void completeSync(long repositoryId, String syncMarker, Instant syncedAt)
     {
         requireNonNull(syncMarker, "syncMarker is null");
         issueRows.deleteStale(repositoryId, syncMarker);
@@ -116,12 +111,7 @@ public class SqliteRepositoryIssueStore
 
     @Override
     @Transactional
-    public void updateMetadata(
-            long repositoryId,
-            int issueNumber,
-            List<String> assignees,
-            List<String> labels,
-            Instant updatedAt)
+    public void updateMetadata(long repositoryId, int issueNumber, List<String> assignees, List<String> labels, Instant updatedAt)
     {
         RepositoryIssueEntity issue = issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber)
                 .orElseThrow(() -> new IllegalArgumentException("issue is not stored: " + issueNumber));

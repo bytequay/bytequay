@@ -1952,8 +1952,7 @@ class TestDefaultAgentTurnService
         driver.emit(developmentReport(turn, "ready-" + turn.id(), new DevelopmentResultReport(true, Optional.empty()), Optional.empty()));
     }
 
-    private static ProviderAgentEvent.DevelopmentResult developmentReport(
-            AgentTurn turn, String itemId, DevelopmentResultReport report, Optional<String> parentThreadId)
+    private static ProviderAgentEvent.DevelopmentResult developmentReport(AgentTurn turn, String itemId, DevelopmentResultReport report, Optional<String> parentThreadId)
     {
         return new ProviderAgentEvent.DevelopmentResult(Optional.empty(), report, new ProviderAgentEventSource(
                 Optional.of("root-thread"), parentThreadId, Optional.of("/"), turn.providerTurnReference().map(ProviderTurnRef::value), Optional.of(itemId)));
@@ -3605,17 +3604,12 @@ class TestDefaultAgentTurnService
         assertThat(driver.commands()).hasSize(1);
     }
 
-    private DefaultAgentTurnService service(
-            DeterministicAgentDriver configuredDriver,
-            AgentRuntimeRegistry runtimeRegistry)
+    private DefaultAgentTurnService service(DeterministicAgentDriver configuredDriver, AgentRuntimeRegistry runtimeRegistry)
     {
         return service(configuredDriver, runtimeRegistry, events);
     }
 
-    private DefaultAgentTurnService service(
-            DeterministicAgentDriver configuredDriver,
-            AgentRuntimeRegistry runtimeRegistry,
-            AgentEventService configuredEvents)
+    private DefaultAgentTurnService service(DeterministicAgentDriver configuredDriver, AgentRuntimeRegistry runtimeRegistry, AgentEventService configuredEvents)
     {
         return service(configuredDriver, runtimeRegistry, configuredEvents, approvals);
     }
@@ -3909,19 +3903,12 @@ class TestDefaultAgentTurnService
         private final AgentEventPayload.LifecyclePhase phase;
         private boolean fail;
 
-        private FailLifecycleDrainEventService(
-                AgentEventService delegate,
-                InMemoryAgentStores stores,
-                AgentEventPayload.LifecyclePhase phase)
+        private FailLifecycleDrainEventService(AgentEventService delegate, InMemoryAgentStores stores, AgentEventPayload.LifecyclePhase phase)
         {
             this(delegate, stores, phase, true);
         }
 
-        private FailLifecycleDrainEventService(
-                AgentEventService delegate,
-                InMemoryAgentStores stores,
-                AgentEventPayload.LifecyclePhase phase,
-                boolean fail)
+        private FailLifecycleDrainEventService(AgentEventService delegate, InMemoryAgentStores stores, AgentEventPayload.LifecyclePhase phase, boolean fail)
         {
             this.delegate = delegate;
             this.stores = stores;

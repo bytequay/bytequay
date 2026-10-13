@@ -730,11 +730,7 @@ class TestDefaultAgentCompletionService
             throw new UnsupportedOperationException();
         }
 
-        private static AgentEventEnvelope event(
-                TaskId taskId,
-                long sequence,
-                MessagePhase phase,
-                String text)
+        private static AgentEventEnvelope event(TaskId taskId, long sequence, MessagePhase phase, String text)
         {
             return new AgentEventEnvelope(
                     AgentEventEnvelope.CURRENT_SCHEMA_VERSION,

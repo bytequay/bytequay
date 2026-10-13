@@ -101,8 +101,5 @@ public interface AgentTaskJpaRepository
               AND task.terminalAt <= :completedBefore
             ORDER BY task.terminalAt ASC
             """)
-    List<AgentTaskEntity> findArchiveDue(
-            @Param("completed") TaskState completed,
-            @Param("completedBefore") Instant completedBefore,
-            Pageable pageable);
+    List<AgentTaskEntity> findArchiveDue(@Param("completed") TaskState completed, @Param("completedBefore") Instant completedBefore, Pageable pageable);
 }

@@ -1972,17 +1972,12 @@ class TestClaudeCliDriver
                 plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), plain.access(), plain.codeQueries(), managedInstructions);
     }
 
-    private AgentSessionContext context(
-            Optional<AgentSessionRef> reference,
-            AgentPermissionPolicy permissionPolicy)
+    private AgentSessionContext context(Optional<AgentSessionRef> reference, AgentPermissionPolicy permissionPolicy)
     {
         return context(reference, permissionPolicy, SessionAccess.FULL);
     }
 
-    private AgentSessionContext context(
-            Optional<AgentSessionRef> reference,
-            AgentPermissionPolicy permissionPolicy,
-            SessionAccess access)
+    private AgentSessionContext context(Optional<AgentSessionRef> reference, AgentPermissionPolicy permissionPolicy, SessionAccess access)
     {
         return context(reference, permissionPolicy, Optional.empty(), Optional.empty(), access);
     }
@@ -2031,9 +2026,7 @@ class TestClaudeCliDriver
         return turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
     }
 
-    private static int indexOf(
-            List<ProviderAgentEvent> events,
-            Predicate<ProviderAgentEvent> predicate)
+    private static int indexOf(List<ProviderAgentEvent> events, Predicate<ProviderAgentEvent> predicate)
     {
         for (int index = 0; index < events.size(); index++) {
             if (predicate.test(events.get(index))) {
@@ -2291,12 +2284,7 @@ class TestClaudeCliDriver
         private boolean acknowledgeInput = true;
         private boolean failSteerWrite;
 
-        private ScriptedTurn(
-                ProcessSpec spec,
-                ProcessOutputSink output,
-                boolean failPromptWrite,
-                boolean failPromptClose,
-                String runtimeSecret)
+        private ScriptedTurn(ProcessSpec spec, ProcessOutputSink output, boolean failPromptWrite, boolean failPromptClose, String runtimeSecret)
         {
             this.spec = spec;
             this.output = output;
@@ -2556,11 +2544,7 @@ class TestClaudeCliDriver
             this.exit = exit;
         }
 
-        private ImmediateProcess(
-                int exitCode,
-                ProcessExit.Reason reason,
-                boolean stdoutTruncated,
-                boolean stderrTruncated)
+        private ImmediateProcess(int exitCode, ProcessExit.Reason reason, boolean stdoutTruncated, boolean stderrTruncated)
         {
             exit = CompletableFuture.completedFuture(
                     new ProcessExit(exitCode, reason, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, stdoutTruncated, stderrTruncated));

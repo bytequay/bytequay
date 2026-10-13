@@ -24,13 +24,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record CiGitInspection(
-        Outcome outcome,
-        Optional<String> localHead,
-        Optional<String> fingerprint,
-        List<String> changedPaths,
-        List<String> commitSubjects,
-        String diagnostics)
+public record CiGitInspection(Outcome outcome, Optional<String> localHead, Optional<String> fingerprint, List<String> changedPaths, List<String> commitSubjects, String diagnostics)
 {
     public CiGitInspection
     {
@@ -58,11 +52,7 @@ public record CiGitInspection(
         return new CiGitInspection(Outcome.NO_CHANGE, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), "");
     }
 
-    public static CiGitInspection ready(
-            String localHead,
-            String fingerprint,
-            List<String> changedPaths,
-            List<String> commitSubjects)
+    public static CiGitInspection ready(String localHead, String fingerprint, List<String> changedPaths, List<String> commitSubjects)
     {
         return new CiGitInspection(Outcome.READY, Optional.of(localHead), Optional.of(fingerprint), changedPaths, commitSubjects, "");
     }

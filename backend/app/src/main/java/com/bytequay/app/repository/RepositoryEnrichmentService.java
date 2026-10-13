@@ -47,10 +47,7 @@ public class RepositoryEnrichmentService
     private final RemoteSourceStore remoteSources;
     private final WorkspaceStore workspaces;
 
-    public RepositoryEnrichmentService(
-            CommitHistoryStore commitHistory,
-            RemoteSourceStore remoteSources,
-            WorkspaceStore workspaces)
+    public RepositoryEnrichmentService(CommitHistoryStore commitHistory, RemoteSourceStore remoteSources, WorkspaceStore workspaces)
     {
         this.commitHistory = requireNonNull(commitHistory, "commitHistory is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");

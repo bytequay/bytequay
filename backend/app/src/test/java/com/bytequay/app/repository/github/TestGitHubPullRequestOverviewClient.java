@@ -734,10 +734,7 @@ class TestGitHubPullRequestOverviewClient
         return new Fixture(new GitHubPullRequestReadClient(apiBuilder.build(), graphQlBuilder.build()), api, graphQl);
     }
 
-    private record Fixture(
-            GitHubPullRequestReadClient client,
-            MockRestServiceServer api,
-            MockRestServiceServer graphQl)
+    private record Fixture(GitHubPullRequestReadClient client, MockRestServiceServer api, MockRestServiceServer graphQl)
     {
         void verify()
         {

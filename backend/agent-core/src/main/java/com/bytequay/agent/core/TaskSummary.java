@@ -21,12 +21,7 @@ import java.util.Optional;
 import static com.bytequay.agent.spi.AgentChecks.checkOptionalText;
 import static java.util.Objects.requireNonNull;
 
-public record TaskSummary(
-        String finalResponse,
-        Optional<WorktreeSnapshot> worktree,
-        AgentMetrics metrics,
-        Optional<String> notes,
-        List<ChildSummary> children)
+public record TaskSummary(String finalResponse, Optional<WorktreeSnapshot> worktree, AgentMetrics metrics, Optional<String> notes, List<ChildSummary> children)
 {
     public TaskSummary
     {

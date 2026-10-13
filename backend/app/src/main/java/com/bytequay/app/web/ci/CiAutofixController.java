@@ -51,10 +51,7 @@ public class CiAutofixController
     private final AgentMetricsService metricsService;
     private final AgentTaskService taskService;
 
-    public CiAutofixController(
-            CiAutofixService service,
-            AgentMetricsService metricsService,
-            AgentTaskService taskService)
+    public CiAutofixController(CiAutofixService service, AgentMetricsService metricsService, AgentTaskService taskService)
     {
         this.service = requireNonNull(service, "service is null");
         this.metricsService = requireNonNull(metricsService, "metricsService is null");
@@ -62,9 +59,7 @@ public class CiAutofixController
     }
 
     @PostMapping
-    public ResponseEntity<CiAutofixHttpModels.RunResponse> start(
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @RequestBody StartRequest request)
+    public ResponseEntity<CiAutofixHttpModels.RunResponse> start(@RequestHeader("Idempotency-Key") String idempotencyKey, @RequestBody StartRequest request)
     {
         requireNotBlank(idempotencyKey, "Idempotency-Key must not be blank");
         requireNotBlank(request.workspaceId(), "workspaceId must not be blank");

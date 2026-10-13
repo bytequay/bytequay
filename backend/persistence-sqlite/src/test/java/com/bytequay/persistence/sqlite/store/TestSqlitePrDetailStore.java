@@ -552,11 +552,7 @@ class TestSqlitePrDetailStore
                 detail.viewerCanWrite());
     }
 
-    private static StoredPrDetail partial(
-            List<PrReviewState> reviews,
-            List<PrCheckRunState> checkRuns,
-            List<PrTimelineEvent> events,
-            List<String> unavailableSections)
+    private static StoredPrDetail partial(List<PrReviewState> reviews, List<PrCheckRunState> checkRuns, List<PrTimelineEvent> events, List<String> unavailableSections)
     {
         return new StoredPrDetail(
                 new PrRawDetail(null, null, null, null, null, null, null, null, "body", ImmutableList.of(), null, ImmutableList.of(), null, false, true, "clean", 1, 1, 1, 0,

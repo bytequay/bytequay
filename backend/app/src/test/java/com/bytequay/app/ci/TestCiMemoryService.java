@@ -191,12 +191,7 @@ class TestCiMemoryService
         return run.assignAgentTask(taskId.toString(), NOW.plusSeconds(1));
     }
 
-    private static CiAutofixAttempt attempt(
-            CiAutofixRun run,
-            int number,
-            String inputSha,
-            List<FailureEvidence> failures,
-            Instant now)
+    private static CiAutofixAttempt attempt(CiAutofixRun run, int number, String inputSha, List<FailureEvidence> failures, Instant now)
     {
         return CiAutofixAttempt.create(CiAutofixAttemptId.random(), run.id(), number, inputSha, failures, now);
     }

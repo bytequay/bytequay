@@ -25,11 +25,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Fixed private discussion operations available to agents within one development or review task. */
-public record LocalReviewBridge(
-        BiFunction<Optional<String>, Integer, String> list,
-        Function<Reply, String> reply,
-        Function<Resolution, String> resolve,
-        String instruction)
+public record LocalReviewBridge(BiFunction<Optional<String>, Integer, String> list, Function<Reply, String> reply, Function<Resolution, String> resolve, String instruction)
 {
     public static final String LIST_TOOL = "list_local_review_comments";
     public static final String REPLY_TOOL = "reply_local_review_comment";

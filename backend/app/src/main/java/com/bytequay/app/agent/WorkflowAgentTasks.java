@@ -70,10 +70,7 @@ public final class WorkflowAgentTasks
     }
 
     /** Rejects provisioning against a repository the workspace no longer selects. */
-    public static void requireSelectedRepository(
-            RepositoryIdentity selectedRepository,
-            RepositoryIdentity expectedRepository,
-            Function<String, RuntimeException> conflict)
+    public static void requireSelectedRepository(RepositoryIdentity selectedRepository, RepositoryIdentity expectedRepository, Function<String, RuntimeException> conflict)
     {
         if (!selectedRepository.equals(expectedRepository)) {
             throw conflict.apply("Workspace repository selection changed before task provisioning");
@@ -81,19 +78,12 @@ public final class WorkflowAgentTasks
     }
 
     /** Requires a lane that both enforces {@code policy} and is available now. */
-    public static void requireReady(
-            AgentDriverRegistry drivers,
-            AgentLaneId laneId,
-            AgentPermissionPolicy policy)
+    public static void requireReady(AgentDriverRegistry drivers, AgentLaneId laneId, AgentPermissionPolicy policy)
     {
         requireReady(drivers, laneId, policy, Optional.empty());
     }
 
-    public static void requireReady(
-            AgentDriverRegistry drivers,
-            AgentLaneId laneId,
-            AgentPermissionPolicy policy,
-            Optional<String> model)
+    public static void requireReady(AgentDriverRegistry drivers, AgentLaneId laneId, AgentPermissionPolicy policy, Optional<String> model)
     {
         AgentDriver driver = drivers.require(laneId);
         if (!driver.capabilities().permissionPolicies().contains(policy)) {

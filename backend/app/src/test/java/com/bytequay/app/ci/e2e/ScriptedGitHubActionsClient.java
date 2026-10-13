@@ -69,14 +69,7 @@ final class ScriptedGitHubActionsClient
         snapshots.put(snapshot.pullRequest(), snapshot);
     }
 
-    synchronized void setLog(
-            PullRequestRef pullRequest,
-            long workflowRunId,
-            int workflowAttempt,
-            long jobId,
-            int jobAttempt,
-            String content,
-            List<String> terminalErrorLines)
+    synchronized void setLog(PullRequestRef pullRequest, long workflowRunId, int workflowAttempt, long jobId, int jobAttempt, String content, List<String> terminalErrorLines)
     {
         requireNonNull(content, "content is null");
         jobLogs.put(new LogKey(pullRequest, workflowRunId, workflowAttempt, jobId, jobAttempt), new ScriptedLog(content.getBytes(StandardCharsets.UTF_8), terminalErrorLines));
@@ -157,12 +150,7 @@ final class ScriptedGitHubActionsClient
         }
     }
 
-    private record LogKey(
-            PullRequestRef pullRequest,
-            long workflowRunId,
-            int workflowAttempt,
-            long jobId,
-            int jobAttempt)
+    private record LogKey(PullRequestRef pullRequest, long workflowRunId, int workflowAttempt, long jobId, int jobAttempt)
     {
         private static LogKey from(ReadCiLogQuery query)
         {
@@ -176,12 +164,7 @@ final class ScriptedGitHubActionsClient
         }
     }
 
-    private record RerunKey(
-            PullRequestRef pullRequest,
-            long workflowRunId,
-            String headSha,
-            int previousAttempt,
-            boolean authorized)
+    private record RerunKey(PullRequestRef pullRequest, long workflowRunId, String headSha, int previousAttempt, boolean authorized)
     {
         private static RerunKey from(RerunFailedJobsCommand command)
         {

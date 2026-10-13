@@ -43,12 +43,7 @@ public final class DefaultWorkspaceProvisioningService
     private final CredentialService credentials;
     private final Clock clock;
 
-    public DefaultWorkspaceProvisioningService(
-            WorkspaceStore store,
-            ManagedWorkspaceGit managedGit,
-            GitHubAccountClient gitHub,
-            CredentialService credentials,
-            Clock clock)
+    public DefaultWorkspaceProvisioningService(WorkspaceStore store, ManagedWorkspaceGit managedGit, GitHubAccountClient gitHub, CredentialService credentials, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.managedGit = requireNonNull(managedGit, "managedGit is null");

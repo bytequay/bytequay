@@ -90,8 +90,7 @@ public class WorkItemService
         return items.list(workspaceId).stream().map(this::view).collect(toImmutableList());
     }
 
-    public WorkItemView create(String workspaceId, String id, Optional<String> goalId, String title, WorkItem.Kind kind,
-            String criteria, WorkItem.CompletionRule rule)
+    public WorkItemView create(String workspaceId, String id, Optional<String> goalId, String title, WorkItem.Kind kind, String criteria, WorkItem.CompletionRule rule)
     {
         requireWorkspace(workspaces, workspaceId);
         UUID.fromString(id);
@@ -100,8 +99,7 @@ public class WorkItemService
     }
 
     /** New work at the end of an Epic's order; it belongs to no Goal until the user moves it to one. */
-    public WorkItemView createInEpic(String workspaceId, String id, String epicId, String title, WorkItem.Kind kind, String criteria,
-            WorkItem.CompletionRule rule)
+    public WorkItemView createInEpic(String workspaceId, String id, String epicId, String title, WorkItem.Kind kind, String criteria, WorkItem.CompletionRule rule)
     {
         requireWorkspace(workspaces, workspaceId);
         UUID.fromString(id);

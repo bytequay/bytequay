@@ -24,12 +24,7 @@ import static java.util.Objects.requireNonNull;
  * {@code git remote add name url}. The managed {@code origin} and linked
  * {@code upstream} remotes are workspace routing, not remote sources.
  */
-public record RemoteSource(
-        String workspaceId,
-        String name,
-        String url,
-        Optional<Long> repositoryId,
-        Optional<RepoRef> repository)
+public record RemoteSource(String workspaceId, String name, String url, Optional<Long> repositoryId, Optional<RepoRef> repository)
 {
     public RemoteSource
     {

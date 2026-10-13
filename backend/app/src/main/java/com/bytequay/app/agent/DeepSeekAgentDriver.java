@@ -66,12 +66,7 @@ final class DeepSeekAgentDriver
                 .build(), mapper);
     }
 
-    DeepSeekAgentDriver(
-            AgentDriver codex,
-            Supplier<Optional<String>> secret,
-            URI modelsEndpoint,
-            HttpClient client,
-            ObjectMapper mapper)
+    DeepSeekAgentDriver(AgentDriver codex, Supplier<Optional<String>> secret, URI modelsEndpoint, HttpClient client, ObjectMapper mapper)
     {
         this.codex = requireNonNull(codex, "codex is null");
         this.secret = requireNonNull(secret, "secret is null");

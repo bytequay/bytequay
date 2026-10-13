@@ -201,20 +201,12 @@ public record CherryPickExecution(
      * Records a conflicted source as its target commit followed by the agent's
      * fixup, while advancing the execution tip to the fixup.
      */
-    public CherryPickExecution recordAppliedWithFixup(
-            String sourceSha,
-            String targetSha,
-            String fixupSha,
-            Instant now)
+    public CherryPickExecution recordAppliedWithFixup(String sourceSha, String targetSha, String fixupSha, Instant now)
     {
         return recordApplied(sourceSha, targetSha, fixupSha, now);
     }
 
-    private CherryPickExecution recordApplied(
-            String sourceSha,
-            String targetSha,
-            String resultingHeadSha,
-            Instant now)
+    private CherryPickExecution recordApplied(String sourceSha, String targetSha, String resultingHeadSha, Instant now)
     {
         requireRunning(now);
         checkSha(sourceSha, "sourceSha");
@@ -504,13 +496,7 @@ public record CherryPickExecution(
     }
 
     /** Durable remote-delivery facts for a successfully completed execution. */
-    public record Delivery(
-            String pushRemote,
-            String head,
-            String sha,
-            Optional<Long> pullRequestId,
-            Optional<Integer> pullRequestNumber,
-            Optional<String> pullRequestUrl)
+    public record Delivery(String pushRemote, String head, String sha, Optional<Long> pullRequestId, Optional<Integer> pullRequestNumber, Optional<String> pullRequestUrl)
     {
         public Delivery
         {
@@ -557,13 +543,7 @@ public record CherryPickExecution(
      * <p>After a restart this says where to look; Git inspection says what
      * actually happened.
      */
-    public record ActionJournal(
-            ActionType type,
-            Optional<String> sourceSha,
-            String expectedHead,
-            int attempt,
-            String idempotencyKey,
-            Instant startedAt)
+    public record ActionJournal(ActionType type, Optional<String> sourceSha, String expectedHead, int attempt, String idempotencyKey, Instant startedAt)
     {
         public ActionJournal
         {

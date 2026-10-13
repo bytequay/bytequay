@@ -19,13 +19,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Terminal child-process status, runtime-cleanup verdict, and output-bound metadata. */
-public record ProcessExit(
-        int exitCode,
-        Reason reason,
-        TreeTermination treeTermination,
-        Duration duration,
-        boolean stdoutTruncated,
-        boolean stderrTruncated)
+public record ProcessExit(int exitCode, Reason reason, TreeTermination treeTermination, Duration duration, boolean stdoutTruncated, boolean stderrTruncated)
 {
     public ProcessExit
     {

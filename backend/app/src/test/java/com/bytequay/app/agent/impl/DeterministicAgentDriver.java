@@ -192,11 +192,7 @@ public final class DeterministicAgentDriver
         return new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(response), Optional.empty(), Duration.ZERO, true);
     }
 
-    private record DeterministicSession(
-            DeterministicAgentDriver driver,
-            AgentSessionRef reference,
-            AgentEventSink events,
-            boolean textOnly)
+    private record DeterministicSession(DeterministicAgentDriver driver, AgentSessionRef reference, AgentEventSink events, boolean textOnly)
             implements AgentSession
     {
         @Override

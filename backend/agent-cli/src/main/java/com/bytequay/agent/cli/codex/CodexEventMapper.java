@@ -237,10 +237,7 @@ final class CodexEventMapper
         return chunk.text();
     }
 
-    private ProviderAgentEvent autoApprovalReview(
-            CodexProtocol.Notification notification,
-            CodexProtocol.AutoApprovalReviewParams params,
-            ThreadLineage lineage)
+    private ProviderAgentEvent autoApprovalReview(CodexProtocol.Notification notification, CodexProtocol.AutoApprovalReviewParams params, ThreadLineage lineage)
     {
         // A review has its own identity: using the target command's item ID would overwrite its output.
         String itemId = "approval-review:" + params.reviewId();
@@ -270,11 +267,7 @@ final class CodexEventMapper
                 Optional.empty());
     }
 
-    private List<ProviderAgentEvent> mapItem(
-            CodexProtocol.ThreadItem item,
-            boolean started,
-            boolean rootThread,
-            ProviderAgentEventSource source)
+    private List<ProviderAgentEvent> mapItem(CodexProtocol.ThreadItem item, boolean started, boolean rootThread, ProviderAgentEventSource source)
     {
         String eventId = item.id() + (started ? ":started" : ":completed");
         return switch (item) {
@@ -367,11 +360,7 @@ final class CodexEventMapper
         };
     }
 
-    private ProviderAgentEvent command(
-            CodexProtocol.CommandExecutionItem item,
-            String eventId,
-            boolean started,
-            ProviderAgentEventSource source)
+    private ProviderAgentEvent command(CodexProtocol.CommandExecutionItem item, String eventId, boolean started, ProviderAgentEventSource source)
     {
         Optional<String> output = started ? Optional.empty() : item.aggregatedOutput().map(redactor::redact);
         return new ProviderAgentEvent.Command(
@@ -427,12 +416,7 @@ final class CodexEventMapper
     }
 
     /** A built-in App Server tool has no status of its own: it runs until its item completes. */
-    private ProviderAgentEvent builtIn(
-            String name,
-            String summary,
-            String eventId,
-            boolean started,
-            ProviderAgentEventSource source)
+    private ProviderAgentEvent builtIn(String name, String summary, String eventId, boolean started, ProviderAgentEventSource source)
     {
         return new ProviderAgentEvent.Tool(
                 Optional.of(eventId),
@@ -464,10 +448,7 @@ final class CodexEventMapper
         });
     }
 
-    private List<ProviderAgentEvent> mapFileChanges(
-            CodexProtocol.FileChangeItem item,
-            boolean started,
-            ProviderAgentEventSource source)
+    private List<ProviderAgentEvent> mapFileChanges(CodexProtocol.FileChangeItem item, boolean started, ProviderAgentEventSource source)
     {
         if (started || item.status() != CodexProtocol.ActivityStatus.COMPLETED) {
             return ImmutableList.of();
@@ -538,9 +519,7 @@ final class CodexEventMapper
         };
     }
 
-    private List<ProviderAgentEvent> mapPlan(
-            CodexProtocol.PlanUpdatedParams params,
-            ProviderAgentEventSource source)
+    private List<ProviderAgentEvent> mapPlan(CodexProtocol.PlanUpdatedParams params, ProviderAgentEventSource source)
     {
         ImmutableList.Builder<ProviderAgentEvent.PlanItem> items = ImmutableList.builder();
         for (CodexProtocol.PlanStep step : params.plan()) {
@@ -559,9 +538,7 @@ final class CodexEventMapper
         return ImmutableList.of(new ProviderAgentEvent.Plan(Optional.of(params.turnId() + ":plan"), plan, source));
     }
 
-    private static List<ProviderAgentEvent> mapUsage(
-            CodexProtocol.TokenUsageParams params,
-            ProviderAgentEventSource source)
+    private static List<ProviderAgentEvent> mapUsage(CodexProtocol.TokenUsageParams params, ProviderAgentEventSource source)
     {
         CodexProtocol.TokenUsageBreakdown total = params.tokenUsage().total();
         return ImmutableList.of(new ProviderAgentEvent.Usage(new ProviderUsageSample(
@@ -574,19 +551,12 @@ final class CodexEventMapper
                 source));
     }
 
-    private static ProviderAgentEvent.Lifecycle lifecycle(
-            String eventId,
-            ProviderAgentEvent.LifecyclePhase phase,
-            String message,
-            ProviderAgentEventSource source)
+    private static ProviderAgentEvent.Lifecycle lifecycle(String eventId, ProviderAgentEvent.LifecyclePhase phase, String message, ProviderAgentEventSource source)
     {
         return new ProviderAgentEvent.Lifecycle(Optional.of(eventId), phase, message, source);
     }
 
-    private static ProviderAgentEventSource source(
-            CodexProtocol.Notification notification,
-            Optional<String> providerItemId,
-            ThreadLineage lineage)
+    private static ProviderAgentEventSource source(CodexProtocol.Notification notification, Optional<String> providerItemId, ThreadLineage lineage)
     {
         String threadId = notification.threadId();
         return new ProviderAgentEventSource(Optional.of(threadId), lineage.parentOf(threadId), lineage.labelOf(threadId), notification.turnId(), providerItemId);

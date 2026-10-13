@@ -202,8 +202,7 @@ public class SqlitePullRequestStore
 
     @Override
     @Transactional
-    public List<PullRequest> saveRepositorySyncPage(
-            String repository, List<FetchedPullRequest> pullRequests, String syncMarker)
+    public List<PullRequest> saveRepositorySyncPage(String repository, List<FetchedPullRequest> pullRequests, String syncMarker)
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(pullRequests, "pullRequests is null");
@@ -252,10 +251,7 @@ public class SqlitePullRequestStore
      * so a resync cannot silently drop it. {@code mark} receives the
      * previous row, which is null for a first sighting.
      */
-    private PullRequest upsert(
-            FetchedPullRequest pullRequest,
-            Instant now,
-            BiConsumer<PullRequestEntity, PullRequestEntity> mark)
+    private PullRequest upsert(FetchedPullRequest pullRequest, Instant now, BiConsumer<PullRequestEntity, PullRequestEntity> mark)
     {
         PullRequestEntity previous = storedByRef(pullRequest).orElse(null);
         if (previous != null && previous.getUpdatedAt() != null && pullRequest.updatedAt() != null

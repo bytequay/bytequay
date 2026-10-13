@@ -26,14 +26,7 @@ import static java.util.Objects.requireNonNull;
  * row, never a copied one, so this is what tells a settings row whether to
  * offer pickers or a "use global" badge.
  */
-public record AgentModelSetting(
-        AgentModelType type,
-        boolean explicit,
-        String configId,
-        String label,
-        String model,
-        String modelLabel,
-        Optional<String> effort)
+public record AgentModelSetting(AgentModelType type, boolean explicit, String configId, String label, String model, String modelLabel, Optional<String> effort)
 {
     public AgentModelSetting
     {

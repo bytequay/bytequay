@@ -29,12 +29,7 @@ public record CommitAvatarSnapshot(List<CommitAvatar> avatars, boolean succeeded
         avatars = ImmutableList.copyOf(requireNonNull(avatars, "avatars is null"));
     }
 
-    public record CommitAvatar(
-            String sha,
-            Optional<String> authorLogin,
-            Optional<String> authorSourceUrl,
-            Optional<String> committerLogin,
-            Optional<String> committerSourceUrl)
+    public record CommitAvatar(String sha, Optional<String> authorLogin, Optional<String> authorSourceUrl, Optional<String> committerLogin, Optional<String> committerSourceUrl)
     {
         public CommitAvatar
         {

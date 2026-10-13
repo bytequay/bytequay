@@ -541,11 +541,7 @@ class TestCiGitOperations
         return new CiWorktreeRange(fixture.worktree(), REPOSITORY, HEAD_REF, fixture.baseSha(), head(fixture.worktree()));
     }
 
-    private static PushCiHeadCommand push(
-            Repository fixture,
-            CiGitInspection inspection,
-            int retries,
-            Authorization authorization)
+    private static PushCiHeadCommand push(Repository fixture, CiGitInspection inspection, int retries, Authorization authorization)
     {
         return new PushCiHeadCommand(fixture.worktree(), REPOSITORY, HEAD_REF, "origin", REPOSITORY, HEAD_REF, authorization, journal(fixture, inspection, retries));
     }

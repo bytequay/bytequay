@@ -227,21 +227,14 @@ public record AgentTask(
         return completed(completedSummary, completedAt, deletionDeadline);
     }
 
-    public AgentTask complete(
-            TaskSummary completedSummary,
-            Instant completedAt,
-            Instant deletionDeadline,
-            WorktreeMutationClaim claim)
+    public AgentTask complete(TaskSummary completedSummary, Instant completedAt, Instant deletionDeadline, WorktreeMutationClaim claim)
     {
         requireNonNull(claim, "claim is null");
         checkState(worktreeMutationClaim.equals(Optional.of(claim)), "worktree mutation claim owner changed");
         return completed(completedSummary, completedAt, deletionDeadline);
     }
 
-    private AgentTask completed(
-            TaskSummary completedSummary,
-            Instant completedAt,
-            Instant deletionDeadline)
+    private AgentTask completed(TaskSummary completedSummary, Instant completedAt, Instant deletionDeadline)
     {
         requireState(TaskState.OPEN);
         requireNonNull(completedSummary, "completedSummary is null");

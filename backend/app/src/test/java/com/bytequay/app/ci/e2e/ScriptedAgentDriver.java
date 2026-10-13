@@ -117,10 +117,7 @@ final class ScriptedAgentDriver
         completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(finalResponse), Optional.empty(), Duration.ZERO, true));
     }
 
-    synchronized void enqueueCompleted(
-            PullRequestRef pullRequest,
-            String untrustedFinalResponse,
-            WorktreeAction action)
+    synchronized void enqueueCompleted(PullRequestRef pullRequest, String untrustedFinalResponse, WorktreeAction action)
     {
         AgentScript script = requireScript(pullRequest);
         script.actions().add(AgentAction.completed(untrustedFinalResponse, action, "worktree-action", Optional.empty(), Optional.empty()));
@@ -138,10 +135,7 @@ final class ScriptedAgentDriver
         script.actions().add(AgentAction.completed(untrustedFinalResponse, action, actionName, memoryQuery, changedPath));
     }
 
-    synchronized void enqueueFailed(
-            PullRequestRef pullRequest,
-            AgentTurnResult.State state,
-            String reason)
+    synchronized void enqueueFailed(PullRequestRef pullRequest, AgentTurnResult.State state, String reason)
     {
         AgentScript script = requireScript(pullRequest);
         script.actions().add(AgentAction.failed(state, reason));
@@ -200,11 +194,7 @@ final class ScriptedAgentDriver
         return new ScriptedSession(context, events, script, reference);
     }
 
-    private synchronized StartedAction takeAction(
-            AgentScript script,
-            Path worktree,
-            AgentTurnCommand command,
-            String instructions)
+    private synchronized StartedAction takeAction(AgentScript script, Path worktree, AgentTurnCommand command, String instructions)
     {
         checkState(!script.actions().isEmpty(), "No agent turn scripted for " + script.pullRequest().fullName());
         AgentAction action = script.actions().removeFirst();
@@ -241,13 +231,7 @@ final class ScriptedAgentDriver
         return "https://github.com/" + pullRequest.repoFullName() + ".git";
     }
 
-    record TurnCall(
-            PullRequestRef pullRequest,
-            Path worktree,
-            String turnId,
-            String message,
-            String instructions,
-            List<AgentAttachment> attachments)
+    record TurnCall(PullRequestRef pullRequest, Path worktree, String turnId, String message, String instructions, List<AgentAttachment> attachments)
     {
         TurnCall
         {
@@ -275,11 +259,7 @@ final class ScriptedAgentDriver
         private final AgentScript script;
         private final AgentSessionRef reference;
 
-        private ScriptedSession(
-                AgentSessionContext context,
-                AgentEventSink events,
-                AgentScript script,
-                AgentSessionRef reference)
+        private ScriptedSession(AgentSessionContext context, AgentEventSink events, AgentScript script, AgentSessionRef reference)
         {
             this.context = context;
             this.events = events;
@@ -443,12 +423,7 @@ final class ScriptedAgentDriver
                     Optional.empty());
         }
 
-        private static AgentAction completed(
-                String untrustedFinalResponse,
-                WorktreeAction action,
-                String actionName,
-                Optional<String> memoryQuery,
-                Optional<String> changedPath)
+        private static AgentAction completed(String untrustedFinalResponse, WorktreeAction action, String actionName, Optional<String> memoryQuery, Optional<String> changedPath)
         {
             return new AgentAction(
                     Optional.of(untrustedFinalResponse),

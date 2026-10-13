@@ -24,12 +24,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** The bounded explanation retained with a generated summary-refinement turn. */
-public record DevelopmentLearningSummary(
-        String purpose,
-        List<DevelopmentLearningCommit> commits,
-        Optional<String> combinedResult,
-        String evidence,
-        List<String> limitations)
+public record DevelopmentLearningSummary(String purpose, List<DevelopmentLearningCommit> commits, Optional<String> combinedResult, String evidence, List<String> limitations)
 {
     public static final int MAXIMUM_PURPOSE_LENGTH = 4_000;
     public static final int MAXIMUM_COMMITS = 200;

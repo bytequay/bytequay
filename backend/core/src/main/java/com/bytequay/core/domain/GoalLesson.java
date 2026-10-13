@@ -90,8 +90,7 @@ public record GoalLesson(
      * @param observe what the user should see when the exercise works
      * @param check a short question the user can answer once they learned the lesson
      */
-    public record Content(Optional<String> summary, List<String> invariants, List<Section> sections, Optional<String> explanation, String exercise,
-            String observe, String check)
+    public record Content(Optional<String> summary, List<String> invariants, List<Section> sections, Optional<String> explanation, String exercise, String observe, String check)
     {
         public static final int MAX_INVARIANTS = 6;
         public static final int MAX_SECTIONS = 6;

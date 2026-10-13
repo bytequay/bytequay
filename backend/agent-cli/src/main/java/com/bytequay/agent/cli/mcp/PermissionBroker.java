@@ -159,19 +159,12 @@ public final class PermissionBroker
     private final BridgeResolver<RelatedWorkspaceBridge> relatedWork;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader)
+    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader)
     {
         this(endpoint, objectMapper, ciMemoryReader, BridgeResolver.none());
     }
 
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews)
+    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader, BridgeResolver<ReviewBridge> reviews)
     {
         this(endpoint, objectMapper, ciMemoryReader, reviews, BridgeResolver.none());
     }
@@ -1639,12 +1632,7 @@ public final class PermissionBroker
         return query == null || query.isNull() || query.isTextual();
     }
 
-    private String sandboxSettings(
-            AgentPermissionScope scope,
-            Path runtimeDirectory,
-            Path worktree,
-            Map<String, String> environment,
-            Optional<Path> childGate)
+    private String sandboxSettings(AgentPermissionScope scope, Path runtimeDirectory, Path worktree, Map<String, String> environment, Optional<Path> childGate)
             throws IOException
     {
         AgentPermissionPolicy permissionPolicy = scope.policy();
@@ -1933,9 +1921,7 @@ public final class PermissionBroker
         }
     }
 
-    private record PermissionArguments(
-            @JsonProperty("tool_name") String toolName,
-            JsonNode input)
+    private record PermissionArguments(@JsonProperty("tool_name") String toolName, JsonNode input)
     {
         private PermissionArguments
         {

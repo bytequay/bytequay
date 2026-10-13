@@ -26,16 +26,7 @@ import static com.bytequay.core.domain.Checks.checkText;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record CiWorkflowRun(
-        long id,
-        long workflowId,
-        String name,
-        int attempt,
-        String status,
-        Optional<String> conclusion,
-        String headSha,
-        String url,
-        List<CiJob> jobs)
+public record CiWorkflowRun(long id, long workflowId, String name, int attempt, String status, Optional<String> conclusion, String headSha, String url, List<CiJob> jobs)
 {
     public CiWorkflowRun
     {

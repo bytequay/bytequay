@@ -48,11 +48,7 @@ public class CredentialService
     private final GitHubAccountClient gitHubAccount;
     private volatile GitHubCredential cachedGitHubCredential;
 
-    public CredentialService(
-            CredentialStore credentialStore,
-            WorkspaceCredentialStore workspaceCredentials,
-            GhCliService ghCli,
-            GitHubAccountClient gitHubAccount)
+    public CredentialService(CredentialStore credentialStore, WorkspaceCredentialStore workspaceCredentials, GhCliService ghCli, GitHubAccountClient gitHubAccount)
     {
         this.credentialStore = requireNonNull(credentialStore, "credentialStore is null");
         this.workspaceCredentials = requireNonNull(workspaceCredentials, "workspaceCredentials is null");
@@ -131,9 +127,7 @@ public class CredentialService
     }
 
     /** Git environment that authenticates HTTPS remotes with one workspace's token. */
-    public Map<String, String> gitAuthenticationEnvironment(
-            String workspaceId,
-            Collection<String> remoteUrls)
+    public Map<String, String> gitAuthenticationEnvironment(String workspaceId, Collection<String> remoteUrls)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(remoteUrls, "remoteUrls is null");

@@ -121,11 +121,7 @@ public class AgentConfiguration
 
     @Bean
     @ConditionalOnProperty(name = "bytequay.agent.codex-enabled", havingValue = "true")
-    public CodexCliDriver codexCliDriver(
-            AgentProperties properties,
-            ObjectMapper objectMapper,
-            ProcessSupervisor supervisor,
-            PermissionBroker permissions)
+    public CodexCliDriver codexCliDriver(AgentProperties properties, ObjectMapper objectMapper, ProcessSupervisor supervisor, PermissionBroker permissions)
             throws IOException
     {
         return new CodexCliDriver(properties.codexExecutable(), properties.codexMinimumVersion(), objectMapper, supervisor, CodexHome.prepare(properties.codexHome()), permissions);
@@ -165,11 +161,7 @@ public class AgentConfiguration
 
     @Bean(destroyMethod = "close")
     @ConditionalOnProperty(name = "bytequay.agent.claude-enabled", havingValue = "true")
-    public ClaudeCliDriver claudeCliDriver(
-            AgentProperties properties,
-            ObjectMapper objectMapper,
-            PermissionBroker permissions,
-            ProcessSupervisor supervisor)
+    public ClaudeCliDriver claudeCliDriver(AgentProperties properties, ObjectMapper objectMapper, PermissionBroker permissions, ProcessSupervisor supervisor)
             throws IOException
     {
         return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor, ClaudeHome.prepare(properties.claudeHome()));
@@ -266,21 +258,13 @@ public class AgentConfiguration
     }
 
     @Bean
-    public AgentEventService agentEventService(
-            TaskLogStore logStore,
-            AgentEventOutboxStore outboxStore,
-            AgentTaskStore taskStore,
-            Clock agentClock)
+    public AgentEventService agentEventService(TaskLogStore logStore, AgentEventOutboxStore outboxStore, AgentTaskStore taskStore, Clock agentClock)
     {
         return new DefaultAgentEventService(logStore, outboxStore, taskStore, agentClock);
     }
 
     @Bean
-    public AgentMetricsService agentMetricsService(
-            AgentTaskStore taskStore,
-            AgentTurnStore turnStore,
-            TaskLogStore logStore,
-            Clock agentClock)
+    public AgentMetricsService agentMetricsService(AgentTaskStore taskStore, AgentTurnStore turnStore, TaskLogStore logStore, Clock agentClock)
     {
         return new DefaultAgentMetricsService(taskStore, turnStore, logStore, agentClock);
     }

@@ -323,10 +323,7 @@ public final class CodexCliDriver
                 ? CodexLaunchProfile.ChildProfile.NONE : configured;
     }
 
-    private CodexAppServerClient appServerClient(
-            String ownerId,
-            Path workingDirectory,
-            CodexLaunchProfile.ChildProfile childProfile)
+    private CodexAppServerClient appServerClient(String ownerId, Path workingDirectory, CodexLaunchProfile.ChildProfile childProfile)
     {
         return appServerClient(ownerId, workingDirectory, childProfile, Optional.empty(), SessionAccess.FULL,
                 deepSeekSecret.flatMap(Supplier::get), ImmutableList.of(), false, false,
@@ -731,10 +728,7 @@ public final class CodexCliDriver
         }
     }
 
-    private AgentProviderStatus status(
-            AgentProviderStatus.Readiness readiness,
-            Optional<String> version,
-            String diagnostic)
+    private AgentProviderStatus status(AgentProviderStatus.Readiness readiness, Optional<String> version, String diagnostic)
     {
         String message = diagnostic == null || diagnostic.isBlank() ? readiness.name().toLowerCase() : diagnostic;
         return new AgentProviderStatus(laneId, readiness, version, message, capabilities());
@@ -1531,11 +1525,7 @@ public final class CodexCliDriver
         }
 
         /** V2 paths are absolute and stable; a STARTED edge is nested below its direct parent. */
-        private String validateV2AgentPath(
-                String threadId,
-                String parentThreadId,
-                String rawPath,
-                boolean edge)
+        private String validateV2AgentPath(String threadId, String parentThreadId, String rawPath, boolean edge)
         {
             Path path;
             try {
@@ -1592,11 +1582,7 @@ public final class CodexCliDriver
             register(threadId, parentThreadId, label, Optional.empty());
         }
 
-        private void register(
-                String threadId,
-                String parentThreadId,
-                Optional<String> label,
-                Optional<String> purpose)
+        private void register(String threadId, String parentThreadId, Optional<String> label, Optional<String> purpose)
         {
             if (threadId.equals(reference.providerValue())) {
                 throw new AgentUnavailableException("Codex reported the root thread as its own child");
@@ -2074,8 +2060,7 @@ public final class CodexCliDriver
             return registerApproval(serverRequest, expectedTurn);
         }
 
-        private CompletionStage<CodexProtocol.DynamicToolCallResponse> callReviewRootTool(
-                CodexProtocol.DynamicToolCallRequest request, CodexRunningTurn expectedTurn)
+        private CompletionStage<CodexProtocol.DynamicToolCallResponse> callReviewRootTool(CodexProtocol.DynamicToolCallRequest request, CodexRunningTurn expectedTurn)
         {
             CompletableFuture<CodexProtocol.DynamicToolCallResponse> result = new CompletableFuture<>();
             Thread.ofVirtual().name("codex-review-tool").start(() -> {
@@ -2107,9 +2092,7 @@ public final class CodexCliDriver
             return new CodexProtocol.DynamicToolCallResponse(ImmutableList.of(new CodexProtocol.DynamicToolTextContent("inputText", text)), success);
         }
 
-        private CompletionStage<?> registerApproval(
-                CodexProtocol.ServerRequest serverRequest,
-                CodexRunningTurn expectedTurn)
+        private CompletionStage<?> registerApproval(CodexProtocol.ServerRequest serverRequest, CodexRunningTurn expectedTurn)
         {
             ProviderApprovalRequest.Kind kind;
             String title;
@@ -2229,8 +2212,7 @@ public final class CodexCliDriver
          * {@code acceptWithExecpolicyAmendment} and {@code cancel}. Requiring it to be listed
          * would leave such a request with no card at all.
          */
-        private static List<ProviderApprovalRequest.Decision> supportedCommandDecisions(
-                Optional<List<JsonNode>> offeredDecisions)
+        private static List<ProviderApprovalRequest.Decision> supportedCommandDecisions(Optional<List<JsonNode>> offeredDecisions)
         {
             boolean allowOnce = offeredDecisions
                     .map(decisions -> decisions.stream().anyMatch(CodexSession::isPlainAccept))
@@ -2314,10 +2296,7 @@ public final class CodexCliDriver
             }
         }
 
-        private synchronized Object approvalResponse(
-                CodexProtocol.ServerRequest serverRequest,
-                ProviderApprovalDecision decision,
-                CodexRunningTurn expectedTurn)
+        private synchronized Object approvalResponse(CodexProtocol.ServerRequest serverRequest, ProviderApprovalDecision decision, CodexRunningTurn expectedTurn)
         {
             synchronized (expectedTurn) {
                 if (closed

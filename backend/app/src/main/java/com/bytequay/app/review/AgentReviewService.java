@@ -1462,13 +1462,7 @@ public class AgentReviewService
                 "The review worktree could not be moved to %s: %s", ReviewPrompts.shortSha(headSha), moved.output().strip());
     }
 
-    private void startRun(
-            AgentReview review,
-            Snapshot snapshot,
-            WorkspaceRepositoryContext workspace,
-            int ordinal,
-            Optional<ReviewRun> previous,
-            List<ReviewFinding> findings)
+    private void startRun(AgentReview review, Snapshot snapshot, WorkspaceRepositoryContext workspace, int ordinal, Optional<ReviewRun> previous, List<ReviewFinding> findings)
     {
         Instant now = Instant.now(clock);
         boolean incremental = previous.isPresent()

@@ -17,10 +17,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 /** Shelves a task or brings it back, guarded by the task version the person was looking at. */
-public record ArchiveAgentTaskCommand(
-        TaskId taskId,
-        long expectedVersion,
-        boolean archived)
+public record ArchiveAgentTaskCommand(TaskId taskId, long expectedVersion, boolean archived)
 {
     public ArchiveAgentTaskCommand
     {

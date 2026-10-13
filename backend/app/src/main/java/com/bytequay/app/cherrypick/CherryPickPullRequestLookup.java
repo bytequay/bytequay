@@ -75,11 +75,7 @@ public class CherryPickPullRequestLookup
     }
 
     /** Looks up only the requested SHAs and reports provider failures separately from checked negatives. */
-    public PullRequestLookupResult lookUpResult(
-            RepoRef repository,
-            List<String> sourceShas,
-            String sourceBranch,
-            List<String> warnings)
+    public PullRequestLookupResult lookUpResult(RepoRef repository, List<String> sourceShas, String sourceBranch, List<String> warnings)
     {
         requireNonNull(repository, "repository is null");
         requireNonNull(sourceShas, "sourceShas is null");
@@ -133,11 +129,7 @@ public class CherryPickPullRequestLookup
         return new PullRequestLookupResult(associations, failedShas);
     }
 
-    private Optional<PullRequestAssociation> associate(
-            RepoRef repository,
-            String sha,
-            String sourceBranch,
-            String token)
+    private Optional<PullRequestAssociation> associate(RepoRef repository, String sha, String sourceBranch, String token)
     {
         CacheKey key = new CacheKey(repository, sha, sourceBranch);
         Optional<PullRequestAssociation> cached = Optional.ofNullable(cache.getIfPresent(key));
@@ -170,9 +162,7 @@ public class CherryPickPullRequestLookup
      * <p>Returns empty rather than guessing: an ungrouped commit is a smaller
      * problem than one filed under the wrong pull request.
      */
-    private static Optional<PullRequestAssociation> choose(
-            List<AssociatedPullRequest> candidates,
-            String sourceBranch)
+    private static Optional<PullRequestAssociation> choose(List<AssociatedPullRequest> candidates, String sourceBranch)
     {
         List<AssociatedPullRequest> merged = candidates.stream()
                 .filter(candidate -> candidate.mergedAt() != null && candidate.base() != null)
@@ -209,12 +199,7 @@ public class CherryPickPullRequestLookup
     private record CacheKey(RepoRef repository, String sha, String sourceBranch) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    private record AssociatedPullRequest(
-            int number,
-            String title,
-            @JsonProperty("html_url") String htmlUrl,
-            @JsonProperty("merged_at") String mergedAt,
-            Base base)
+    private record AssociatedPullRequest(int number, String title, @JsonProperty("html_url") String htmlUrl, @JsonProperty("merged_at") String mergedAt, Base base)
     {
         @JsonIgnoreProperties(ignoreUnknown = true)
         private record Base(String ref) {}

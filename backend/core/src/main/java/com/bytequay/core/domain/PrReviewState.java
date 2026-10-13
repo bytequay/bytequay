@@ -33,16 +33,7 @@ import static java.util.Objects.requireNonNull;
  * Callers that need to filter by time window must treat null as
  * "unknown" and skip rather than include.
  */
-public record PrReviewState(
-        Long githubId,
-        String login,
-        String avatarUrl,
-        boolean bot,
-        String state,
-        Instant submittedAt,
-        String body,
-        String htmlUrl,
-        String commitId)
+public record PrReviewState(Long githubId, String login, String avatarUrl, boolean bot, String state, Instant submittedAt, String body, String htmlUrl, String commitId)
 {
     public PrReviewState
     {

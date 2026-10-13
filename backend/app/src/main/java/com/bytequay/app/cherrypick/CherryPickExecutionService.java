@@ -150,11 +150,7 @@ public class CherryPickExecutionService
      * @param physicalRepository selected repository that physically owns the worktree
      * @return the durable execution
      */
-    public CherryPickExecution start(
-            StartCherryPickExecutionCommand command,
-            String workspaceId,
-            Path repository,
-            RepositoryIdentity physicalRepository)
+    public CherryPickExecution start(StartCherryPickExecutionCommand command, String workspaceId, Path repository, RepositoryIdentity physicalRepository)
     {
         requireNonNull(command, "command is null");
         requireNonNull(workspaceId, "workspaceId is null");
@@ -409,10 +405,7 @@ public class CherryPickExecutionService
      * that child records the source commit ByteQuay asked for. Anything else,
      * including a second commit, pauses.
      */
-    private CherryPickExecution reconcile(
-            CherryPickExecution execution,
-            String expectedHead,
-            SequenceState after)
+    private CherryPickExecution reconcile(CherryPickExecution execution, String expectedHead, SequenceState after)
     {
         Path worktree = execution.workspace().worktree();
         if (after.kind() == SequenceState.Kind.UNSAFE) {
@@ -652,11 +645,7 @@ public class CherryPickExecutionService
     }
 
     /** Starts one narrow agent turn after ByteQuay has committed snapshot C. */
-    private CherryPickExecution startAgentTurn(
-            CherryPickExecution execution,
-            String conflictCommit,
-            Optional<String> fixupCommit,
-            Optional<String> userNote)
+    private CherryPickExecution startAgentTurn(CherryPickExecution execution, String conflictCommit, Optional<String> fixupCommit, Optional<String> userNote)
     {
         String sourceSha = execution.journal().orElseThrow().sourceSha().orElseThrow();
         CherryPickItem current = itemOf(execution, sourceSha);
@@ -729,10 +718,7 @@ public class CherryPickExecutionService
         return inspectFixupCandidate(execution, conflictCommit, actualHead);
     }
 
-    private CherryPickExecution inspectFixupCandidate(
-            CherryPickExecution execution,
-            String conflictCommit,
-            String fixupCommit)
+    private CherryPickExecution inspectFixupCandidate(CherryPickExecution execution, String conflictCommit, String fixupCommit)
     {
         Path worktree = execution.workspace().worktree();
         ActionJournal journal = execution.journal().orElseThrow();
@@ -876,10 +862,7 @@ public class CherryPickExecutionService
         return requireAgentTask(execution, task, repository);
     }
 
-    private static AgentTask requireAgentTask(
-            CherryPickExecution execution,
-            AgentTask task,
-            RepositoryIdentity repository)
+    private static AgentTask requireAgentTask(CherryPickExecution execution, AgentTask task, RepositoryIdentity repository)
     {
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
         String workspaceId = execution.workspace().workspaceId();

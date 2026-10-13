@@ -54,11 +54,7 @@ public class GitBrowseController
     private final CommitHistoryService commits;
     private final RecentTouchRecorder recent;
 
-    public GitBrowseController(
-            WorkspaceRepositoryService workspaces,
-            GitBrowseService service,
-            CommitHistoryService commits,
-            RecentTouchRecorder recent)
+    public GitBrowseController(WorkspaceRepositoryService workspaces, GitBrowseService service, CommitHistoryService commits, RecentTouchRecorder recent)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.service = requireNonNull(service, "service is null");
@@ -91,20 +87,13 @@ public class GitBrowseController
     }
 
     @GetMapping("/diff")
-    public List<DiffFile> diff(
-            @PathVariable String workspaceId,
-            @RequestParam String base,
-            @RequestParam String head)
+    public List<DiffFile> diff(@PathVariable String workspaceId, @RequestParam String base, @RequestParam String head)
     {
         return service.diff(context(workspaceId).repository(), revision(base), revision(head));
     }
 
     @GetMapping("/diff-content")
-    public FileContent diffFileContent(
-            @PathVariable String workspaceId,
-            @RequestParam String base,
-            @RequestParam String head,
-            @RequestParam String path)
+    public FileContent diffFileContent(@PathVariable String workspaceId, @RequestParam String base, @RequestParam String head, @RequestParam String path)
     {
         return service.diffFileContent(context(workspaceId).repository(), revision(base), revision(head), path);
     }

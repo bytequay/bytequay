@@ -28,13 +28,7 @@ import static java.util.Objects.requireNonNull;
  * @param activeDays every day inside the requested window that holds a touch,
  * which is what greys out the empty squares in the jump-to-a-date calendar.
  */
-public record RecentDayPage(
-        LocalDate day,
-        List<RecentRow> rows,
-        LocalDate nextCursor,
-        boolean endOfWindow,
-        List<LocalDate> activeDays,
-        int retentionDays)
+public record RecentDayPage(LocalDate day, List<RecentRow> rows, LocalDate nextCursor, boolean endOfWindow, List<LocalDate> activeDays, int retentionDays)
 {
     public RecentDayPage
     {

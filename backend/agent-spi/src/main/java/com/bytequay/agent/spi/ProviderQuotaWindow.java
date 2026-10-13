@@ -21,13 +21,7 @@ import static com.bytequay.agent.spi.AgentChecks.checkNotBlank;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record ProviderQuotaWindow(
-        String id,
-        String label,
-        double usedPercent,
-        Optional<Instant> startsAt,
-        Optional<Instant> resetsAt,
-        Optional<Amount> amount)
+public record ProviderQuotaWindow(String id, String label, double usedPercent, Optional<Instant> startsAt, Optional<Instant> resetsAt, Optional<Amount> amount)
 {
     public ProviderQuotaWindow
     {

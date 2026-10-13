@@ -20,20 +20,9 @@ import java.util.Optional;
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
-public record AgentMetrics(
-        long inputTokens,
-        long cachedInputTokens,
-        long outputTokens,
-        Optional<BigDecimal> cost,
-        Duration elapsed,
-        ToolCounters counters)
+public record AgentMetrics(long inputTokens, long cachedInputTokens, long outputTokens, Optional<BigDecimal> cost, Duration elapsed, ToolCounters counters)
 {
-    public AgentMetrics(
-            long inputTokens,
-            long cachedInputTokens,
-            long outputTokens,
-            Optional<BigDecimal> cost,
-            Duration elapsed)
+    public AgentMetrics(long inputTokens, long cachedInputTokens, long outputTokens, Optional<BigDecimal> cost, Duration elapsed)
     {
         this(inputTokens, cachedInputTokens, outputTokens, cost, elapsed, ToolCounters.ZERO);
     }

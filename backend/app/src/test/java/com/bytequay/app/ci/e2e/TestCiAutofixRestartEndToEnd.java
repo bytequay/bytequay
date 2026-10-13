@@ -223,12 +223,7 @@ class TestCiAutofixRestartEndToEnd
         }
     }
 
-    private ConfigurableApplicationContext openContext(
-            Path database,
-            Path runtimeRoot,
-            String ddlMode,
-            Optional<Scripts> scripts,
-            boolean losePushResult)
+    private ConfigurableApplicationContext openContext(Path database, Path runtimeRoot, String ddlMode, Optional<Scripts> scripts, boolean losePushResult)
     {
         SpringApplication application = new SpringApplicationBuilder(ByteQuayApplication.class)
                 .web(WebApplicationType.SERVLET)
@@ -274,11 +269,7 @@ class TestCiAutofixRestartEndToEnd
                 context.getBean(Clock.class));
     }
 
-    private static CiAutofixRun driveUntilRemoteContainsJournal(
-            ConfigurableApplicationContext context,
-            E2eGitRepository repository,
-            CiAutofixRunId runId,
-            int maximumTicks)
+    private static CiAutofixRun driveUntilRemoteContainsJournal(ConfigurableApplicationContext context, E2eGitRepository repository, CiAutofixRunId runId, int maximumTicks)
     {
         CiAutofixService service = context.getBean(CiAutofixService.class);
         CiAutofixMonitorTestDriver monitor = context.getBean(CiAutofixMonitorTestDriver.class);
@@ -294,11 +285,7 @@ class TestCiAutofixRestartEndToEnd
         throw new AssertionError("Push did not reach the remote with its journal retained: " + run);
     }
 
-    private static CiAutofixRun driveUntilFinished(
-            CiAutofixService service,
-            CiAutofixMonitorTestDriver monitor,
-            CiAutofixRunId runId,
-            int maximumTicks)
+    private static CiAutofixRun driveUntilFinished(CiAutofixService service, CiAutofixMonitorTestDriver monitor, CiAutofixRunId runId, int maximumTicks)
     {
         CiAutofixRun run = service.get(runId);
         for (int tick = 0; tick < maximumTicks && run.status() != CiAutofixRun.Status.FINISHED; tick++) {

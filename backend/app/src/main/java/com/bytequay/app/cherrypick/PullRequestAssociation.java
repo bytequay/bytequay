@@ -22,12 +22,7 @@ import static java.util.Objects.requireNonNull;
  * <p>Grouping by pull request is a convenience for choosing what to skip. It
  * never changes commit order and is never a control fact.
  */
-public record PullRequestAssociation(
-        int number,
-        String title,
-        String url,
-        String baseRef,
-        String mergedAt)
+public record PullRequestAssociation(int number, String title, String url, String baseRef, String mergedAt)
 {
     public PullRequestAssociation
     {

@@ -55,6 +55,8 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 
@@ -375,39 +377,18 @@ class TestInteractiveAgentTaskCreator
         verifyNoInteractions(provisioning, workspaces, git);
     }
 
-    @Test
-    void invalidModelDoesNotProbeOrResolveWorkspace()
+    @ParameterizedTest
+    @CsvSource({"unknown-model, high, unknown model", "model-a, unsupported, unknown effort"})
+    void invalidSelectionDoesNotResolveWorkspaceAfterReadinessProbe(String model, String effort, String message)
     {
-        AgentTaskDefaults defaults = new AgentTaskDefaults(
-                Optional.of("unknown-model"),
-                Optional.of("high"),
-                AgentPermissionPolicy.AUTO);
-        doThrow(new IllegalArgumentException("unknown model"))
+        AgentTaskDefaults defaults = new AgentTaskDefaults(Optional.of(model), Optional.of(effort), AgentPermissionPolicy.AUTO);
+        doThrow(new IllegalArgumentException(message))
                 .when(models)
-                .validateSelection("codex", "unknown-model", Optional.of("high"), Optional.empty());
+                .validateSelection("codex", model, Optional.of(effort), Optional.empty());
 
         assertThatThrownBy(() -> create(defaults))
                 .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("unknown model");
-
-        verify(driver).probe();
-        verifyNoInteractions(provisioning, workspaces, git);
-    }
-
-    @Test
-    void invalidEffortDoesNotProbeOrResolveWorkspace()
-    {
-        AgentTaskDefaults defaults = new AgentTaskDefaults(
-                Optional.of("model-a"),
-                Optional.of("unsupported"),
-                AgentPermissionPolicy.AUTO);
-        doThrow(new IllegalArgumentException("unknown effort"))
-                .when(models)
-                .validateSelection("codex", "model-a", Optional.of("unsupported"), Optional.empty());
-
-        assertThatThrownBy(() -> create(defaults))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("unknown effort");
+                .hasMessageContaining(message);
 
         verify(driver).probe();
         verifyNoInteractions(provisioning, workspaces, git);

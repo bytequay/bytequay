@@ -62,6 +62,7 @@ import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
@@ -1616,39 +1617,22 @@ class TestClaudeCliDriver
         driver.close();
     }
 
-    @Test
-    void preservesFinishedClaudeWorkWhenKnownProcessCleanupStillFails()
+    @ParameterizedTest
+    @CsvSource({
+            "finished-live-process, COMPLETED, authoritative [REDACTED],",
+            "failed-live-process, FAILED,, Session limit reached"})
+    void preservesClaudeResultWhenKnownProcessCleanupStillFails(String prompt, AgentTurnResult.State state, String finalResponse, String terminalReason)
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
         AgentSession session = driver.open(context(Optional.empty()), event -> {});
 
-        AgentTurnResult result = await(session.start(command("finished-live-process")));
+        AgentTurnResult result = await(session.start(command(prompt)));
 
-        assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
-        assertThat(result.finalResponse()).contains("authoritative [REDACTED]");
-        assertThat(result.terminalReason()).isEmpty();
-        assertThat(result.providerQuiescent()).isFalse();
-        assertThat(supervisor.turns().getFirst().workFinished).isTrue();
-        assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);
-        supervisor.turns().getFirst().verifyNextStop();
-        session.close();
-        driver.close();
-    }
-
-    @Test
-    void preservesFailedClaudeWorkWhenKnownProcessCleanupStillFails()
-            throws Exception
-    {
-        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        ClaudeCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(Optional.empty()), event -> {});
-
-        AgentTurnResult result = await(session.start(command("failed-live-process")));
-
-        assertThat(result.state()).isEqualTo(AgentTurnResult.State.FAILED);
-        assertThat(result.terminalReason()).contains("Session limit reached");
+        assertThat(result.state()).isEqualTo(state);
+        assertThat(result.finalResponse()).isEqualTo(Optional.ofNullable(finalResponse));
+        assertThat(result.terminalReason()).isEqualTo(Optional.ofNullable(terminalReason));
         assertThat(result.providerQuiescent()).isFalse();
         assertThat(supervisor.turns().getFirst().workFinished).isTrue();
         assertThatThrownBy(session::close).isInstanceOf(AgentUnavailableException.class);

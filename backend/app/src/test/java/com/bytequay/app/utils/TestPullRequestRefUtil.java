@@ -15,6 +15,8 @@ package com.bytequay.app.utils;
 
 import com.bytequay.core.domain.PullRequestRef;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.web.server.ResponseStatusException;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,24 +34,11 @@ class TestPullRequestRefUtil
         assertThat(ref.number()).isEqualTo(42);
     }
 
-    @Test
-    void testParseRefRejectsRepoWithoutSlash()
+    @ParameterizedTest
+    @ValueSource(strings = {"no-slash", "/repo", "owner/"})
+    void testParseRefRejectsMalformedRepository(String repository)
     {
-        assertThatThrownBy(() -> PullRequestRefUtil.parseRef("no-slash", 1))
-                .isInstanceOf(ResponseStatusException.class);
-    }
-
-    @Test
-    void testParseRefRejectsBlankOwner()
-    {
-        assertThatThrownBy(() -> PullRequestRefUtil.parseRef("/repo", 1))
-                .isInstanceOf(ResponseStatusException.class);
-    }
-
-    @Test
-    void testParseRefRejectsBlankRepo()
-    {
-        assertThatThrownBy(() -> PullRequestRefUtil.parseRef("owner/", 1))
+        assertThatThrownBy(() -> PullRequestRefUtil.parseRef(repository, 1))
                 .isInstanceOf(ResponseStatusException.class);
     }
 }

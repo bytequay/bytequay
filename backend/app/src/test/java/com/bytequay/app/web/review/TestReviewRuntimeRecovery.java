@@ -57,12 +57,10 @@ import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.nio.file.Path;
@@ -318,13 +316,6 @@ class TestReviewRuntimeRecovery
         assertThatThrownBy(() -> controller.stopRuntime("unknown-review", new ReviewHttpModels.StopRuntimeRequest("task:7")))
                 .isInstanceOf(ReviewNotFoundException.class);
         verifyNoInteractions(turns, supervisor, taskStore, turnStore, launchStore);
-    }
-
-    private JsonNode getReview()
-            throws Exception
-    {
-        MockMvc mvc = standaloneSetup(controller).setMessageConverters(new MappingJackson2HttpMessageConverter(mapper)).build();
-        return mapper.readTree(mvc.perform(get("/api/agent-review/review-1")).andExpect(status().isOk()).andReturn().getResponse().getContentAsString());
     }
 
     private AgentMaintenance maintenance()

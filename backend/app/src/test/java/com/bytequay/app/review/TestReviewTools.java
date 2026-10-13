@@ -150,7 +150,6 @@ class TestReviewTools
     private static final String BASE_SHA = "2222222222222222222222222222222222222222";
     private static final String COMMIT_SHA = "3333333333333333333333333333333333333333";
     private static final String DIFF_VERSION = "abcdef01".repeat(8);
-    private static final String DOCUMENT_CAPTURE = "da8f7890-3814-4479-ac90-d6a105542e19";
     private static final String DIFF_PATH = "src/main/java/Widget.java";
     private static final String TEST_PATH = "src/test/java/TestWidget.java";
     private static final String CANDIDATE = "The new input might bypass validation";

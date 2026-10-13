@@ -31,6 +31,8 @@ import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 
 import java.nio.file.Path;
 import java.time.Clock;
@@ -41,8 +43,10 @@ import java.util.Optional;
 
 import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestCherryPickExecutionMonitorJob
@@ -106,8 +110,9 @@ class TestCherryPickExecutionMonitorJob
         verify(service).advance(executionId);
     }
 
-    @Test
-    void retriesTaskCompletionForFinishedExecutionWithLiveTask()
+    @ParameterizedTest
+    @CsvSource({"0, 1", "90, 0"})
+    void retriesTaskCompletionAfterBackoff(long updatedAfterSeconds, int expectedAdvances)
     {
         CherryPickExecutionStore store = mock(CherryPickExecutionStore.class);
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
@@ -122,40 +127,15 @@ class TestCherryPickExecutionMonitorJob
                 new RepositoryIdentity("bytequay", "sample"),
                 Path.of("/tmp/bytequay-cherry-pick-live-monitor"),
                 AgentPermissionPolicy.CHERRY_PICK,
-                NOW);
+                NOW.plusSeconds(updatedAfterSeconds));
         CherryPickExecutionId executionId = CherryPickExecutionId.random();
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finishedExecution(executionId, taskId)));
 
         new CherryPickExecutionMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
 
-        verify(service).advance(executionId);
-    }
-
-    @Test
-    void backsOffRecentlyFailedTaskCompletion()
-    {
-        CherryPickExecutionStore store = mock(CherryPickExecutionStore.class);
-        AgentTaskStore taskStore = mock(AgentTaskStore.class);
-        CherryPickExecutionService service = mock(CherryPickExecutionService.class);
-        TaskId taskId = TaskId.random();
-        AgentTask recentlyUpdated = AgentTask.created(
-                taskId,
-                Optional.empty(),
-                false,
-                "Cherry-pick",
-                AgentLaneId.CODEX_CLI,
-                new RepositoryIdentity("bytequay", "sample"),
-                Path.of("/tmp/bytequay-cherry-pick-live-backoff"),
-                AgentPermissionPolicy.CHERRY_PICK,
-                NOW.plusSeconds(90));
-        CherryPickExecutionId executionId = CherryPickExecutionId.random();
-        when(taskStore.listLive()).thenReturn(ImmutableList.of(recentlyUpdated));
-        when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finishedExecution(executionId, taskId)));
-
-        new CherryPickExecutionMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
-
-        verifyNoInteractions(service);
+        verify(service, times(expectedAdvances)).advance(executionId);
+        verifyNoMoreInteractions(service);
     }
 
     private static CherryPickExecution finishedExecution(CherryPickExecutionId executionId, TaskId taskId)

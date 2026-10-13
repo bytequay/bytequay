@@ -205,27 +205,6 @@ public class PullRequestSnapshotService
         return fetched.reviewsComplete() && fetched.timelineComplete() ? fetched : details.find(prId).orElse(fetched);
     }
 
-    /** Stores what a full fetch produced. */
-    StoredPrDetail saveDetail(long prId, StoredPrDetail fetched, boolean viewerCanWrite)
-    {
-        StoredPrDetail stored = new StoredPrDetail(fetched.raw(), fetched.reviews(), fetched.timeline(), fetched.checkRuns(), fetched.unavailableSections(), viewerCanWrite);
-        details.save(prId, stored);
-        return details.find(prId).orElse(stored);
-    }
-
-    StoredPrDetail refreshStatus(String pat, PullRequestRef pullRequest, long prId)
-    {
-        PullRequestFetch fetched = gitHub.getPullRequest(pat, pullRequest, details.findEtag(prId));
-        return refreshStatus(pat, pullRequest, prId, fetched);
-    }
-
-    StoredPrDetail refreshStatus(String pat, PullRequestRef pullRequest, long prId, PullRequestFetch fetched)
-    {
-        StoredPrDetail existing = details.find(prId).orElseThrow(() -> missing("Pull request detail"));
-        fetched.pullRequest().ifPresent(summary -> saveMetadata(prId, existing.raw().withMergeability(summary.mergeable(), summary.mergeableState()), existing.viewerCanWrite()));
-        return refreshChecks(pat, pullRequest, prId);
-    }
-
     StoredPrDetail refreshChecks(String pat, PullRequestRef pullRequest, long prId)
     {
         StoredPrDetail existing = details.find(prId).orElseThrow(() -> missing("Pull request detail"));
@@ -340,23 +319,6 @@ public class PullRequestSnapshotService
         else {
             diffs.saveFileContent(prId, baseSha, headSha, path, content);
         }
-    }
-
-    Optional<Instant> findDetailSyncedAt(String repo, int number)
-    {
-        return details.findSyncedAt(repo, number);
-    }
-
-    Optional<Instant> findDetailUpdatedAt(long prId)
-    {
-        return details.find(prId)
-                .map(StoredPrDetail::raw)
-                .map(PrRawDetail::updatedAt);
-    }
-
-    boolean detailIsIncomplete(long prId)
-    {
-        return details.find(prId).filter(detail -> !detail.unavailableSections().isEmpty()).isPresent();
     }
 
     Optional<String> findDetailEtag(long prId)

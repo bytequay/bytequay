@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service.pr;
 
-import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient.PullRequestFetch;
 import com.bytequay.core.domain.PrCheckRunState;
@@ -51,17 +50,14 @@ import static com.google.common.util.concurrent.Futures.getDone;
 import static com.google.common.util.concurrent.Futures.getUnchecked;
 import static com.google.common.util.concurrent.Futures.immediateFuture;
 import static com.google.common.util.concurrent.Futures.submit;
-import static com.google.common.util.concurrent.Futures.transformAsync;
 import static com.google.common.util.concurrent.Futures.whenAllComplete;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElse;
 
 /**
- * Fetches everything the app stores about a single pull request: the PR itself,
- * reviews, timeline, issue comments, and check runs for the head commit. The
- * independent calls run concurrently on the IO executor; check runs wait only
- * for the PR detail they need.
+ * Fetches pull-request discussion sources concurrently on the IO executor,
+ * preserving the metadata and checks refreshed separately by the caller.
  */
 @Component
 class PullRequestDetailFetcher
@@ -69,23 +65,14 @@ class PullRequestDetailFetcher
     private static final Logger log = LoggerFactory.getLogger(PullRequestDetailFetcher.class);
 
     private final GitHubPullRequestReadClient gitHub;
-    private final GitHubActionsClient actions;
     private final Executor ioExecutor;
 
     PullRequestDetailFetcher(
             GitHubPullRequestReadClient gitHub,
-            GitHubActionsClient actions,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
-        this.actions = requireNonNull(actions, "actions is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
-    }
-
-    ListenableFuture<StoredPrDetail> fetch(String pat, PullRequestRef ref)
-    {
-        ListenableFuture<PrRawDetail> detail = fetchAsync("fetchPrDetail", ref, () -> gitHub.fetchPrDetail(pat, ref));
-        return fetchSources(pat, ref, detail, null);
     }
 
     PrRawDetail raw(String pat, PullRequestRef ref, PullRequestFetch fetched)
@@ -95,11 +82,7 @@ class PullRequestDetailFetcher
 
     ListenableFuture<StoredPrDetail> fetchDiscussion(String pat, PullRequestRef ref, StoredPrDetail existing)
     {
-        return fetchSources(pat, ref, immediateFuture(existing.raw()), existing);
-    }
-
-    private ListenableFuture<StoredPrDetail> fetchSources(String pat, PullRequestRef ref, ListenableFuture<PrRawDetail> detail, StoredPrDetail existing)
-    {
+        PrRawDetail raw = existing.raw();
         ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync(
                 "fetchPrReviews", StoredPrDetail.REVIEWS, ref, () -> gitHub.fetchPrReviews(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> timeline = fetchOptionalListAsync(
@@ -107,21 +90,20 @@ class PullRequestDetailFetcher
         ListenableFuture<SourceItems<PrTimelineEvent>> comments = fetchOptionalListAsync(
                 "fetchPrIssueComments", StoredPrDetail.COMMENTS, ref, () -> gitHub.fetchPrIssueComments(pat, ref));
         // ponytail: Initial hydration also fetches diff commits for their parent SHAs; subsequent discussions reuse these immutable events.
-        ListenableFuture<SourceItems<PrTimelineEvent>> commits = existing != null && !existing.unavailableSections().contains(StoredPrDetail.COMMITS)
+        ListenableFuture<SourceItems<PrTimelineEvent>> commits = !existing.unavailableSections().contains(StoredPrDetail.COMMITS)
                 ? immediateFuture(new SourceItems<>(existing.timeline().stream().filter(event -> "committed".equals(event.event())).collect(toImmutableList()), null))
                 : fetchOptionalListAsync("fetchPrCommits", StoredPrDetail.COMMITS, ref, () -> gitHub.fetchPrCommits(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> threads = fetchOptionalListAsync(
                 "fetchPrReviewThreads", StoredPrDetail.REVIEW_THREADS, ref, () -> gitHub.fetchPrReviewThreads(pat, ref));
         ListenableFuture<SourceItems<PrReaction>> descriptionReactions = fetchOptionalListAsync(
                 "fetchPrDescriptionReactions", StoredPrDetail.REACTIONS, ref, () -> gitHub.fetchPrDescriptionReactions(pat, ref));
-        ListenableFuture<SourceItems<PrCheckRunState>> checks = existing == null
-                ? transformAsync(detail, raw -> fetchCheckRunsAsync(pat, ref, raw), directExecutor())
-                : immediateFuture(new SourceItems<>(existing.checkRuns(), existing.checkRunsComplete() ? null : StoredPrDetail.CHECKS));
+        ListenableFuture<SourceItems<PrCheckRunState>> checks = immediateFuture(
+                new SourceItems<>(existing.checkRuns(), existing.checkRunsComplete() ? null : StoredPrDetail.CHECKS));
 
         // Not whenAllSucceed: during a rate-limit pause every source fails alike, and it logs each later failure as an error with a stack trace.
-        return whenAllComplete(detail, reviews, timeline, comments, commits, threads, descriptionReactions, checks)
+        return whenAllComplete(reviews, timeline, comments, commits, threads, descriptionReactions, checks)
                 .call(() -> new StoredPrDetail(
-                                requireRaw(getDone(detail)),
+                                raw,
                                 getDone(reviews).items(),
                                 gitHub.enrichTimelineReferences(pat, ref, mergeTimeline(
                                         getDone(timeline).items(),
@@ -131,7 +113,7 @@ class PullRequestDetailFetcher
                                         getDone(descriptionReactions).items())),
                                 getDone(checks).items(),
                                 unavailable(reviews, timeline, comments, commits, threads, descriptionReactions, checks),
-                                existing != null && existing.viewerCanWrite()),
+                                existing.viewerCanWrite()),
                         directExecutor());
     }
 
@@ -156,19 +138,6 @@ class PullRequestDetailFetcher
         }
     }
 
-    private ListenableFuture<SourceItems<PrCheckRunState>> fetchCheckRunsAsync(
-            String pat,
-            PullRequestRef ref,
-            PrRawDetail detail)
-    {
-        if (detail == null || detail.headSha() == null) {
-            return com.google.common.util.concurrent.Futures.immediateFuture(
-                    new SourceItems<>(ImmutableList.of(), null));
-        }
-        return fetchOptionalListAsync("fetchPrCheckRuns", StoredPrDetail.CHECKS, ref,
-                () -> actions.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), detail.headSha()));
-    }
-
     private <T> ListenableFuture<SourceItems<T>> fetchOptionalListAsync(
             String name,
             String section,
@@ -185,21 +154,6 @@ class PullRequestDetailFetcher
                 }
                 log.warn("{}({}#{}) unavailable: {}", name, ref.repoFullName(), ref.number(), e.toString());
                 return new SourceItems<>(ImmutableList.of(), section);
-            }
-        }, ioExecutor);
-    }
-
-    private <T> ListenableFuture<T> fetchAsync(String name, PullRequestRef ref, Supplier<T> task)
-    {
-        return submit(() -> {
-            try {
-                return task.get();
-            }
-            catch (RuntimeException e) {
-                if (!isRateLimit(e)) {
-                    log.warn("{}({}#{}) failed: {}", name, ref.repoFullName(), ref.number(), e.toString());
-                }
-                throw e;
             }
         }, ioExecutor);
     }

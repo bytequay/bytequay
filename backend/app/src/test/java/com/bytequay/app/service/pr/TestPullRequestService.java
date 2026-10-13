@@ -170,7 +170,7 @@ class TestPullRequestService
         snapshots = new PullRequestSnapshotService(gitHub, actions, detailStore, diffStore);
         service = new PullRequestService(
                 gitHub, writes, repositories, merges, accounts, store, snapshots,
-                new PullRequestDetailFetcher(gitHub, actions, Runnable::run),
+                new PullRequestDetailFetcher(gitHub, Runnable::run),
                 viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
                 notifications, syncSettings, issues, Clock.systemUTC());
         org.mockito.Mockito.lenient().when(diffStore.findDefaultEtags(anyLong())).thenReturn(PrDiffEtags.none());
@@ -1360,12 +1360,13 @@ class TestPullRequestService
     @Test
     void explicitDetailRefreshUsesTheStoredEtagAndRefreshesOnlyStatusesOnNotModified()
     {
+        PrCheckRunState latest = new PrCheckRunState(2L, "build", "completed", "failure", null, "check_run", null, null);
         cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.EPOCH), Optional.of(Instant.now()), Optional.of(Instant.EPOCH), Optional.of(pullRequest().updatedAt())));
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(gitHub.getPullRequest("pat", ref, Optional.of("etag-1")))
                 .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("etag-1")));
         when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
-                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.of("checks"), Optional.of("statuses")));
+                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(latest), Optional.of("checks"), Optional.of("statuses")));
 
         PullRequestService.DetailRefresh refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7);
 
@@ -1374,7 +1375,15 @@ class TestPullRequestService
         verify(gitHub, never()).fetchPrDetail(anyString(), any());
         verify(gitHub, never()).fetchPrIssueComments(anyString(), any());
         verify(store, never()).saveObserved(any());
-        verify(detailStore).saveStatus(eq(12L), any());
+        ArgumentCaptor<StoredPrDetail> saved = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).saveStatus(eq(12L), saved.capture());
+        assertThat(saved.getValue().raw().mergeable()).isTrue();
+        assertThat(saved.getValue().reviews()).isEqualTo(stored().reviews());
+        assertThat(saved.getValue().checkRuns()).containsExactly(latest);
+        verify(detailStore, never()).updateEtag(anyLong(), any());
+        verify(detailStore).updateStatusEtags(12L, Optional.of("checks"), Optional.of("statuses"));
+        verify(gitHub, never()).fetchPrReviews(anyString(), any());
+        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
     }
 
     @ParameterizedTest
@@ -1415,49 +1424,24 @@ class TestPullRequestService
     }
 
     @Test
-    void statusRefreshUsesThePrEtagAndRefreshesCiAfterNotModified()
+    void detailRefreshAppliesChangedMergeabilityFromThePrEndpoint()
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        PrCheckRunState latest = new PrCheckRunState(2L, "build", "completed", "failure", null, "check_run", null, null);
-        when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
-        when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
-                .thenReturn(new PullRequestFetch(Optional.empty(), Optional.of("\"etag-1\"")));
-        when(actions.refreshPrCheckRuns(
-                eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
-                .thenReturn(new PrCheckRunsFetch(ImmutableList.of(latest), Optional.of("\"checks-2\""), Optional.of("\"statuses-2\"")));
-
-        StoredPrDetail refreshed = snapshots.refreshStatus("pat", ref, 12L);
-
-        assertThat(refreshed.raw().mergeable()).isTrue();
-        assertThat(refreshed.reviews()).containsExactly(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null));
-        assertThat(refreshed.checkRuns()).containsExactly(latest);
-        verify(detailStore).saveStatus(12L, refreshed);
-        verify(detailStore, never()).updateEtag(anyLong(), any());
-        verify(detailStore).updateStatusEtags(12L, Optional.of("\"checks-2\""), Optional.of("\"statuses-2\""));
-        verify(gitHub, never()).fetchPrReviews(anyString(), any());
-        verify(gitHub, never()).fetchPrDiffFiles(anyString(), any(), anyList(), any());
-    }
-
-    @Test
-    void statusRefreshAppliesChangedMergeabilityFromThePrEndpoint()
-    {
-        PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        FetchedPullRequest conflicted = pullRequest(
-                "open", Instant.parse("2026-08-24T11:00:00Z"), null, false, "dirty");
-        cacheDetail(stored(), freshTimes());
-        when(detailStore.findEtag(12L)).thenReturn(Optional.of("\"etag-1\""));
-        when(gitHub.getPullRequest("pat", ref, Optional.of("\"etag-1\"")))
-                .thenReturn(new PullRequestFetch(Optional.of(conflicted), Optional.of("\"etag-2\"")));
-        when(actions.refreshPrCheckRuns(
-                eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
+        FetchedPullRequest conflicted = pullRequest("open", pullRequest().updatedAt(), null, false, "dirty");
+        cacheDetail(stored(), new PrDetailFreshness(Optional.of(Instant.EPOCH), Optional.of(Instant.now()), Optional.of(Instant.now()), Optional.of(conflicted.updatedAt())));
+        when(gitHub.getPullRequest("pat", ref, Optional.of("etag-1")))
+                .thenReturn(new PullRequestFetch(Optional.of(conflicted), Optional.of("etag-2")));
+        when(store.saveObserved(any())).thenReturn(storedPullRequest(conflicted));
+        when(gitHub.fetchPrDetail("pat", ref)).thenReturn(raw().withMergeability(false, "dirty"));
+        when(actions.refreshPrCheckRuns(eq("pat"), eq("owner"), eq("repo"), eq("head"), anyList(), any(), any()))
                 .thenReturn(new PrCheckRunsFetch(ImmutableList.of(), Optional.empty(), Optional.empty()));
 
-        StoredPrDetail refreshed = snapshots.refreshStatus("pat", ref, 12L);
+        PullRequestDetail refreshed = service.refreshPullRequestDetailFromGitHub("owner/repo", 7).detail();
 
-        assertThat(refreshed.raw().mergeable()).isFalse();
-        assertThat(refreshed.raw().mergeableState()).isEqualTo("dirty");
-        verify(detailStore, never()).updateEtag(anyLong(), any());
+        assertThat(refreshed.mergeable()).isFalse();
+        assertThat(refreshed.mergeableState()).isEqualTo("dirty");
+        verify(detailStore).updateEtag(12L, Optional.of("etag-2"));
+        verify(gitHub, never()).fetchPrReviews(anyString(), any());
     }
 
     @Test

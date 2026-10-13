@@ -901,10 +901,11 @@ class TestDevelopmentFollowupCoordinator
         for (String prompt : ImmutableList.of(summary, commit, publication)) {
             assertThat(prompt).contains(worktree.canonicalWorktree().toString(), route.headBranch(), HEAD, "report_development_result");
         }
-        assertThat(summary).contains(BASE, "Read the current diff and commit history", "Reporting only", "do not edit files, create or rewrite commits",
+        assertThat(summary).contains(BASE, "Read the current diff", "Reporting only", "do not edit files, create or rewrite commits",
                 "push, publish, run repairs, or start a review", "Keep all text private", "never write a summary file",
                 "Preserve the existing question and pending user decision", "do not release held work", "only purpose and",
-                "one per actual commit, with full sha, title and summary", "does not authorize delivery of held work");
+                "one per actual commit, with full sha, title and summary", "does not authorize delivery of held work",
+                "frozen comparison base..HEAD, excluding the base and earlier history", "commits list when that range is empty");
         assertThat(commit).contains("accepted Auto commit setting", "only the completed task changes", "Verify ownership, branch and HEAD",
                 "stop and report any mismatch", "Preserve existing commits", "never amend, rebase, reset, or change branches",
                 "Do not discard changes", "Exclude ignored build output and credentials", "local validation limitations", "Do not push or create a pull request",

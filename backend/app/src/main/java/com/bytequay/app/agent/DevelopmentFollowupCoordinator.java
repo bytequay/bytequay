@@ -584,7 +584,8 @@ public class DevelopmentFollowupCoordinator
                 Refresh this task's private Review & Learning cards from the final code and actual commits.
                 Worktree: %s. Branch: %s. Expected HEAD: %s. Frozen comparison base: %s.
 
-                Read the current diff and commit history, including any uncommitted changes. Explain the intention and
+                List only commits in frozen comparison base..HEAD, excluding the base and earlier history; use an empty
+                commits list when that range is empty. Read the current diff, including any uncommitted changes. Explain the intention and
                 why each commit's design and implementation solve it. Explain uncommitted work in the intention; distinguish
                 stated intent from inferred rationale.
                 Ground explanations in code; never invent rationale or verification. Follow shared card writing targets and

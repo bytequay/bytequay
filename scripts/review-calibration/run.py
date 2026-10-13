@@ -15,19 +15,32 @@ def git(repo, *args):
     return subprocess.check_output(["git", "-C", str(repo), *args])
 
 
+def read_blob(batch, object_id):
+    # Without --buffer, cat-file flushes each answer before it reads the next id, so asking one at a time cannot stall on a full pipe.
+    batch.stdin.write(object_id.encode() + b"\n")
+    batch.stdin.flush()
+    header = batch.stdout.readline().decode().split()
+    if header[:2] == [object_id, "blob"]:
+        content = batch.stdout.read(int(header[2]))
+        if len(content) == int(header[2]) and batch.stdout.read(1) == b"\n":
+            return content
+    raise RuntimeError("git cat-file did not return blob " + object_id + ": " + " ".join(header))
+
+
 def export_tree(repo, revision, destination):
     destination.mkdir()
-    for entry in git(repo, "ls-tree", "-rz", "--full-tree", revision).split(b"\0"):
-        if not entry:
-            continue
-        metadata, name = entry.split(b"\t", 1)
-        mode, kind, object_id = metadata.decode().split()
-        path = Path(name.decode())
-        if kind != "blob" or mode not in ("100644", "100755") or path.is_absolute() or ".." in path.parts:
-            raise ValueError("Fixture export requires regular files: " + str(path))
-        target = destination / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(git(repo, "cat-file", "blob", object_id))
+    with subprocess.Popen(["git", "-C", str(repo), "cat-file", "--batch"], stdin=subprocess.PIPE, stdout=subprocess.PIPE) as batch:
+        for entry in git(repo, "ls-tree", "-rz", "--full-tree", revision).split(b"\0"):
+            if not entry:
+                continue
+            metadata, name = entry.split(b"\t", 1)
+            mode, kind, object_id = metadata.decode().split()
+            path = Path(name.decode())
+            if kind != "blob" or mode not in ("100644", "100755") or path.is_absolute() or ".." in path.parts:
+                raise ValueError("Fixture export requires regular files: " + str(path))
+            target = destination / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(read_blob(batch, object_id))
 
 
 def freeze(repo, base, head, policy, context, output):

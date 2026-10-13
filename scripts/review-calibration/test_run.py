@@ -50,6 +50,33 @@ class TestFrozenInput(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 calibration.freeze(repo, base, head, policy, context, root / "output")
 
+    def test_export_copies_blobs_byte_for_byte_and_rejects_symlinks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "repo"
+            repo.mkdir()
+            def git(*args):
+                return subprocess.check_output(["git", "-C", str(repo), *args], stderr=subprocess.DEVNULL).decode().strip()
+            git("init")
+            git("config", "user.email", "fixture@example.invalid")
+            git("config", "user.name", "Fixture")
+            files = {"empty": b"", "no-newline": b"last line", "tool.sh": b"#!/bin/sh\n",
+                     "nested/odd name\t\u00df.bin": bytes(range(256)) * 1024}
+            for name, content in files.items():
+                (repo / name).parent.mkdir(exist_ok=True)
+                (repo / name).write_bytes(content)
+            (repo / "tool.sh").chmod(0o755)
+            git("add", ".")
+            git("commit", "-m", "files")
+            calibration.export_tree(repo, "HEAD", root / "export")
+            self.assertEqual({str(path.relative_to(root / "export")): path.read_bytes()
+                              for path in (root / "export").rglob("*") if path.is_file()}, files)
+            (repo / "link").symlink_to("empty")
+            git("add", ".")
+            git("commit", "-m", "link")
+            with self.assertRaisesRegex(ValueError, "link"):
+                calibration.export_tree(repo, "HEAD", root / "rejected")
+
 
 class TestCompletion(unittest.TestCase):
     def setUp(self):

@@ -54,7 +54,6 @@ import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.JiraDevelopmentService;
-import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
@@ -120,7 +119,6 @@ class TestAgentHttpErrors
     private AgentCompletionService completionService;
     private CiAutofixStore ciRuns;
     private CiAutofixService ci;
-    private LocalReviewSessionService localReviewSessions;
 
     @BeforeEach
     void setUp()
@@ -135,7 +133,6 @@ class TestAgentHttpErrors
         completionService = mock(AgentCompletionService.class);
         ciRuns = mock(CiAutofixStore.class);
         ci = mock(CiAutofixService.class);
-        localReviewSessions = mock(LocalReviewSessionService.class);
         AppSettingsService appSettings = mock(AppSettingsService.class);
         when(appSettings.developmentAutomation()).thenReturn(DevelopmentAutomation.DEFAULT);
         AgentTaskStartupProgress startupProgress = new AgentTaskStartupProgress();
@@ -171,7 +168,6 @@ class TestAgentHttpErrors
                 ciRuns,
                 ci,
                 startupProgress,
-                localReviewSessions,
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class),
                 mock(JiraDevelopmentService.class),
@@ -296,51 +292,6 @@ class TestAgentHttpErrors
         when(driverRegistry.statuses()).thenThrow(new AgentUnavailableException("provider unavailable"));
         mvc.perform(get("/agent/providers/status"))
                 .andExpect(status().isServiceUnavailable());
-    }
-
-    @Test
-    void localReviewSyncReturnsTheUpdatedHeadAndRetainedExperimentWarning()
-            throws Exception
-    {
-        AgentTask task = deliveryTask().withDevelopmentContinuation(false, Instant.EPOCH)
-                .withLocalReviewHead(Optional.of("a".repeat(40)), Instant.EPOCH).withVersion(7);
-        AgentTask updated = task.withLocalReviewHead(Optional.of("b".repeat(40)), Instant.EPOCH).withVersion(8);
-        String warning = "Private experiments conflicted with the updated code and were discarded.";
-        when(taskService.getInteractive("workspace-1", task.id())).thenReturn(task);
-        when(localReviewSessions.synchronize(task.id(), 7)).thenReturn(new LocalReviewSessionService.SyncResult(updated, Optional.of(warning)));
-
-        mvc.perform(post("/agent/tasks/{taskId}/local-review/sync", task.id()).queryParam("workspaceId", "workspace-1")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":7}"))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.task.id").value(task.id().toString()))
-                .andExpect(jsonPath("$.task.localReviewHead").value("b".repeat(40)))
-                .andExpect(jsonPath("$.task.version").value(8))
-                .andExpect(jsonPath("$.warning").value(warning));
-
-        var order = inOrder(taskService, localReviewSessions);
-        order.verify(taskService).getInteractive("workspace-1", task.id());
-        order.verify(localReviewSessions).synchronize(task.id(), 7);
-        verifyNoMoreInteractions(localReviewSessions);
-    }
-
-    @Test
-    void localReviewSyncChecksWorkspaceOwnershipBeforeChangingTheCheckout()
-            throws Exception
-    {
-        TaskId taskId = TaskId.random();
-        when(taskService.getInteractive(any(), any())).thenThrow(new AgentTaskNotFoundException(taskId));
-
-        mvc.perform(post("/agent/tasks/{taskId}/local-review/sync", taskId).queryParam("workspaceId", "another-workspace")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":7}"))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/agent/tasks/{taskId}/local-review/sync", TaskId.random()).queryParam("workspaceId", "workspace-1")
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":7}"))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/agent/tasks/{taskId}/local-review/sync", taskId)
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"expectedVersion\":7}"))
-                .andExpect(status().isBadRequest());
-
-        verifyNoInteractions(localReviewSessions, turnService, git);
     }
 
     @Test

@@ -57,7 +57,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
@@ -142,12 +141,6 @@ final class ScriptedCherryPickAgent
     {
         completionFailure = Optional.of(requireNonNull(failure, "failure is null"));
         return this;
-    }
-
-    @Override
-    public AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action)
-    {
-        throw new UnsupportedOperationException();
     }
 
     @Override

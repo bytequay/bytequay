@@ -569,13 +569,16 @@ class TestSqliteAgentStores
     }
 
     @Test
-    void retainsPrivateReviewHeadAndInputSettingsAcrossReload()
+    void ignoresStoredDeveloperReviewModeAndPreservesSessionAndInputSettings()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentTask task = newTask(now, Optional.of("workspace-a"), true).withLocalReviewHead(Optional.of("a".repeat(40)), now);
+        AgentTask task = newTask(now, Optional.of("workspace-a"), true)
+                .withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 3, "existing-developer-session"), now);
+        jdbc.execute("ALTER TABLE agent_task ADD COLUMN local_review_head varchar(255)");
         taskStore.insert(task);
         AgentTurnSettings settings = new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO,
                 Duration.ZERO, ImmutableList.of(), Optional.empty(), Optional.of(DevelopmentAutomation.LOCAL_ONLY));
+        jdbc.update("UPDATE agent_task SET local_review_head = ? WHERE id = ?", "a".repeat(40), task.id().toString());
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "private-review", settings, now);
         turnStore.insert(turn);
         QueuedAgentInput queued = QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 1, "private-review-next",
@@ -584,13 +587,16 @@ class TestSqliteAgentStores
         entityManager.clear();
 
         AgentTask restored = taskStore.find(task.id()).orElseThrow();
-        assertThat(restored.localReviewHead()).contains("a".repeat(40));
-        assertThat(restored.withDefaults(restored.defaults(), now.plusSeconds(1)).localReviewHead()).isEqualTo(restored.localReviewHead());
+        assertThat(restored.interactive()).isTrue();
+        assertThat(restored.permissionPolicy()).isEqualTo(AgentPermissionPolicy.AUTO);
+        assertThat(restored.sessionReference()).isEqualTo(task.sessionReference());
+        assertThat(restored.taskWorktree()).isEqualTo(task.taskWorktree());
         assertThat(turnStore.find(turn.id()).orElseThrow().settings()).contains(settings);
         assertThat(queueStore.find(queued.id()).orElseThrow().settings()).isEqualTo(settings);
-        taskStore.update(restored.withLocalReviewHead(Optional.empty(), now.plusSeconds(2)));
+        taskStore.update(restored.withDefaults(restored.defaults(), now.plusSeconds(2)));
         entityManager.clear();
-        assertThat(taskStore.find(task.id()).orElseThrow().localReviewHead()).isEmpty();
+        assertThat(taskStore.find(task.id()).orElseThrow().sessionReference()).isEqualTo(task.sessionReference());
+        assertThat(jdbc.queryForObject("SELECT local_review_head FROM agent_task WHERE id = ?", String.class, task.id().toString())).isEqualTo("a".repeat(40));
     }
 
     @Test

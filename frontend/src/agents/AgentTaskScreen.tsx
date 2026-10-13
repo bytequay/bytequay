@@ -1081,7 +1081,6 @@ export function AgentTaskBody({
   const hasAgents = agents.length > 0 || expiredChildren.length > 0;
   const visiblePanelTab: PanelTab = supportsNestedAgents || panelTab !== 'agents' ? panelTab : 'pr';
   const taskPr = taskPullRequest(pullRequests, state.task?.pullRequest?.number);
-  const localReviewActive = state.task?.localReviewHead != null;
   const resultBranch = state.task?.summary?.resultBranch ?? null;
   /** The chip and a transcript link both open the panel on the pull request, never another tab. */
   const showPullRequest = (): void => {
@@ -1103,7 +1102,7 @@ export function AgentTaskBody({
   };
   const status = runtimeStatus(state);
   const keyLane = isDeepSeekKeyLane(state.task?.laneId ?? '');
-  const routedToCi = !localReviewActive && ciMessage(state.composer) !== null;
+  const routedToCi = ciMessage(state.composer) !== null;
   const ciUnavailable = ciMessageUnavailable(state);
   const automationActive = state.task?.developmentContinuationUnfinished === true;
   const currentCi = state.task?.developmentCi?.status === 'FINISHED' ? null : state.task?.developmentCi;
@@ -1338,7 +1337,7 @@ export function AgentTaskBody({
       {!terminal && status !== 'recovery' && !providerRecoveryRequired && (
         <ConversationComposer
           automation={automation}
-          ciMention={state.task?.interactive === true && !localReviewActive} routedToCi={routedToCi}
+          ciMention={state.task?.interactive === true} routedToCi={routedToCi}
           ciMessageHint={routedToCi ? ciUnavailable ?? (currentCi?.status === 'ACTIVE' ? 'Steer the running CI agent' : 'Send to CI Autofix') : undefined}
           placeholder={question !== null ? 'Waiting for your answer…' : undefined}
           value={state.composer} onChange={onCompose} onSend={onSend} onStop={automationActive ? onStopServer : onCancel} onSteer={onSteer} onQueue={onQueue}
@@ -1648,7 +1647,7 @@ export default function AgentTaskScreen({
   }, []);
 
   const taskKeyLane = isDeepSeekKeyLane(state.task?.laneId ?? '');
-  const automationEligible = state.task?.interactive === true && state.task.localReviewHead == null;
+  const automationEligible = state.task?.interactive === true;
   useEffect(() => {
     if (!automationEligible) return;
     let active = true;
@@ -2038,7 +2037,7 @@ export default function AgentTaskScreen({
 
   const send = useCallback(() => run(async () => {
     const draft = stateRef.current;
-    const ciText = draft.task?.localReviewHead == null ? ciMessage(draft.composer) : null;
+    const ciText = ciMessage(draft.composer);
     if (ciText !== null) {
       if (ciSending.current || attachmentPendingRef.current || confirmation !== null || confirming || ciPollingError !== null || ciMessageUnavailable(draft) !== null) return;
       const ci = draft.task?.developmentCi;
@@ -2070,7 +2069,7 @@ export default function AgentTaskScreen({
     }
     if (attachmentPendingRef.current || automationBlocked || !canSend(stateRef.current)) return;
     const message = state.composer.trim();
-    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
+    if (ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2146,7 +2145,7 @@ export default function AgentTaskScreen({
   const steer = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || !canSteer(stateRef.current)) return;
     const message = state.composer.trim();
-    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
+    if (ciMessage(message) !== null) return;
     const turn = state.turn;
     if (message.length === 0 || turn === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2175,12 +2174,12 @@ export default function AgentTaskScreen({
     finally {
       dispatch({ type: 'composer/sending', sending: false });
     }
-  }), [attentionAction, live, run, state.attachments, state.composer, state.task, state.turn, submissions, taskId]);
+  }), [attentionAction, live, run, state.attachments, state.composer, state.turn, submissions, taskId]);
 
   const queueNext = useCallback(() => run(async () => {
     if (attachmentPendingRef.current || automationBlocked || !canQueue(stateRef.current)) return;
     const message = state.composer.trim();
-    if (state.task?.localReviewHead == null && ciMessage(message) !== null) return;
+    if (ciMessage(message) !== null) return;
     const task = state.task;
     if (message.length === 0 || task === null) return;
     const attachmentIds = state.attachments.map((attachment) => attachment.id);
@@ -2505,7 +2504,7 @@ export default function AgentTaskScreen({
       || !providerAvailable(providerStatus.readiness)) return;
     const attachmentIds = input.attachments.map((attachment) => attachment.id);
     // Retrying the accepted input retains its publication choices, which may differ from the task defaults.
-    const developmentAutomation = task.interactive && task.localReviewHead == null
+    const developmentAutomation = task.interactive
       ? current.turn.settings?.developmentAutomation ?? { autoDraftPr: false, autoCiFix: false, ciLaneId: null, reviewSummary: false }
       : undefined;
     // The failed turn's key is never reused. The tracker retains this new key only if this reply is

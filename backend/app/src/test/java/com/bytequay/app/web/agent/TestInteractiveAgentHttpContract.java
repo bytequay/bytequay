@@ -169,7 +169,6 @@ class TestInteractiveAgentHttpContract
                         "developmentContinuationUnfinished",
                         "developmentCi",
                         "pullRequest",
-                        "localReviewHead",
                         "issueSource",
                         "jiraSource");
         assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())

@@ -169,7 +169,7 @@ class TestReviewSummaryWatcher
     }
 
     @Test
-    void skipsArchivedPrivateReviewReleasedAndNonInteractiveTasks()
+    void skipsArchivedReleasedAndNonInteractiveTasks()
     {
         TaskSummary summary = new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of());
         AgentTask released = task(true).complete(summary, CREATED, CREATED.plusSeconds(60)).withWorktreeRemovedAt(CREATED.plusSeconds(60));
@@ -180,7 +180,6 @@ class TestReviewSummaryWatcher
         AgentTask nonInteractive = AgentTask.created(background, false, "Task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree(background), defaults(true), CREATED);
         when(tasks.listLive()).thenReturn(ImmutableList.of(
                 task(true).withArchived(true, CREATED),
-                task(true).withLocalReviewHead(Optional.of("b".repeat(40)), CREATED),
                 released,
                 noWorktree,
                 nonInteractive));

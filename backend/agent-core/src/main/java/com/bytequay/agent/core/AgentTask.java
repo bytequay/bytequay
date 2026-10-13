@@ -54,8 +54,7 @@ public record AgentTask(
         Optional<Instant> deleteAfter,
         Optional<String> cleanupFailure,
         Optional<Instant> archivedAt,
-        boolean developmentContinuationUnfinished,
-        Optional<String> localReviewHead)
+        boolean developmentContinuationUnfinished)
 {
     public AgentTask
     {
@@ -84,9 +83,6 @@ public record AgentTask(
         requireNonNull(deleteAfter, "deleteAfter is null");
         checkOptionalText(cleanupFailure, "cleanupFailure");
         requireNonNull(archivedAt, "archivedAt is null");
-        requireNonNull(localReviewHead, "localReviewHead is null");
-        checkArgument(localReviewHead.stream().allMatch(head -> head.matches("[0-9a-f]{40}|[0-9a-f]{64}")), "localReviewHead is not a full commit SHA");
-        checkArgument(localReviewHead.isEmpty() || interactive, "local review requires an interactive task");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
         checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)),
                 "taskWorktree belongs to another task");
@@ -151,8 +147,7 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                false,
-                Optional.empty());
+                false);
     }
 
     public static AgentTask created(
@@ -207,8 +202,7 @@ public record AgentTask(
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty(),
-                false,
-                Optional.empty());
+                false);
     }
 
     public static AgentTask created(
@@ -265,7 +259,7 @@ public record AgentTask(
         requireNonNull(completedSummary, "completedSummary is null");
         requireNonNull(completedAt, "completedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
-        return withLocalReviewHead(Optional.empty(), completedAt).copy(
+        return copy(
                 TaskState.COMPLETED,
                 Optional.empty(),
                 version,
@@ -395,20 +389,7 @@ public record AgentTask(
         return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
                 worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
                 terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, archivedAt, unfinished, localReviewHead);
-    }
-
-    /** Pins private review edits to the published revision until the user returns to development. */
-    public AgentTask withLocalReviewHead(Optional<String> head, Instant now)
-    {
-        requireNonNull(head, "head is null");
-        requireNonNull(now, "now is null");
-        requireState(TaskState.OPEN);
-        checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
-        return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
-                worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
-                terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, archivedAt, developmentContinuationUnfinished, head);
+                cleanupFailure, archivedAt, unfinished);
     }
 
     public AgentTask withVersion(long updatedVersion)
@@ -427,7 +408,7 @@ public record AgentTask(
         return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
                 worktree, Optional.of(renamed), defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
                 terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, archivedAt, developmentContinuationUnfinished, localReviewHead);
+                cleanupFailure, archivedAt, developmentContinuationUnfinished);
     }
 
     /**
@@ -538,8 +519,7 @@ public record AgentTask(
                 updatedDeleteAfter,
                 updatedCleanupFailure,
                 archivedAt,
-                !updatedState.terminal() && developmentContinuationUnfinished,
-                localReviewHead);
+                !updatedState.terminal() && developmentContinuationUnfinished);
     }
 
     private AgentTask copyDetails(
@@ -577,8 +557,7 @@ public record AgentTask(
                 deleteAfter,
                 cleanupFailure,
                 updatedArchivedAt,
-                developmentContinuationUnfinished,
-                localReviewHead);
+                developmentContinuationUnfinished);
     }
 
     private void requireState(TaskState expected)

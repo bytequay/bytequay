@@ -29,7 +29,6 @@ import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.QueuedInputStore;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
-import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.agent.TaskInput;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.review.AgentReviewService;
@@ -74,7 +73,6 @@ public class LocalReviewService
     private final AgentTaskService tasks;
     private final AgentReviewStore reviews;
     private final AgentReviewService reviewTasks;
-    private final LocalReviewSessionService sessions;
     private final AgentTurnService turns;
     private final AgentTurnStore turnStore;
     private final QueuedInputStore queueStore;
@@ -83,13 +81,12 @@ public class LocalReviewService
     private final Striped<Lock> locks = Striped.lock(64);
 
     public LocalReviewService(LocalReviewStore store, AgentTaskService tasks, AgentTurnService turns, AgentTurnStore turnStore, QueuedInputStore queueStore,
-            AgentReviewStore reviews, AgentReviewService reviewTasks, LocalReviewSessionService sessions, TaskPullRequestOwnership pullRequestOwnership, Clock clock)
+            AgentReviewStore reviews, AgentReviewService reviewTasks, TaskPullRequestOwnership pullRequestOwnership, Clock clock)
     {
         this.store = requireNonNull(store, "store is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.reviewTasks = requireNonNull(reviewTasks, "reviewTasks is null");
-        this.sessions = requireNonNull(sessions, "sessions is null");
         this.turns = requireNonNull(turns, "turns is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.queueStore = requireNonNull(queueStore, "queueStore is null");
@@ -382,10 +379,8 @@ public class LocalReviewService
         try {
             AgentTask task = tasks.get(taskId);
             boolean development = task.interactive();
-            if (development && thread.learningAnchor().isEmpty() && task.localReviewHead().isEmpty()) {
-                expectedTaskVersion = sessions.start(taskId, expectedTaskVersion).version();
-            }
-            Optional<DevelopmentAutomation> automation = development ? Optional.of(DevelopmentAutomation.LOCAL_ONLY) : Optional.empty();
+            Optional<DevelopmentAutomation> automation = development && thread.learningAnchor().isPresent()
+                    ? Optional.of(DevelopmentAutomation.LOCAL_ONLY) : Optional.empty();
             String prompt = prompt(thread, message);
             if (!development) {
                 AgentReview review = reviews.findReviewByTask(thread.taskId()).orElseThrow();

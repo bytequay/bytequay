@@ -17,7 +17,6 @@ import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskDefaults;
 import com.bytequay.agent.core.RepositoryIdentity;
 import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.ReviewBridge;
@@ -41,12 +40,10 @@ import static org.mockito.Mockito.when;
 class TestReviewBridgeResolverImpl
 {
     private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
-    private static final String HEAD = "a".repeat(40);
     private final ReviewTools tools = mock(ReviewTools.class);
     private final ContextSpecCheckTools checks = mock(ContextSpecCheckTools.class);
     private final MemoryHarvestTools harvests = mock(MemoryHarvestTools.class);
     private final GoalResearchTools research = mock(GoalResearchTools.class);
-    private final AgentTaskStore tasks = mock(AgentTaskStore.class);
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
 
     @BeforeEach
@@ -64,10 +61,10 @@ class TestReviewBridgeResolverImpl
         ReviewBridge notes = new ReviewBridge(ImmutableList.of(), "This research run reads and saves knowledge notes only");
         when(research.bridge(task.id().toString())).thenReturn(Optional.of(notes));
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class), tasks);
+                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
 
         assertThat(resolver.resolve(task.id().toString())).contains(notes);
-        verifyNoInteractions(tools, tasks);
+        verifyNoInteractions(tools);
     }
 
     @Test
@@ -77,29 +74,10 @@ class TestReviewBridgeResolverImpl
         ReviewBridge check = new ReviewBridge(ImmutableList.of(), "Check the directory's code against its specifications");
         when(checks.bridge(task.id().toString())).thenReturn(Optional.of(check));
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class), tasks);
+                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
 
         assertThat(resolver.resolve(task.id().toString())).contains(check);
-        verifyNoInteractions(tools, tasks);
-    }
-
-    @Test
-    void authoredLocalReviewGetsPolicyWithoutFabricatedReportTools()
-    {
-        AgentTask development = task();
-        AgentTask privateReview = development.withLocalReviewHead(Optional.of(HEAD), NOW);
-        when(tasks.find(development.id())).thenReturn(Optional.of(privateReview));
-        beans.registerSingleton("reviewTools", tools);
-        ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class), tasks);
-
-        ReviewBridge bridge = resolver.resolve(privateReview.id().toString()).orElseThrow();
-
-        assertThat(bridge.tools()).isEmpty();
-        // The turn's own instructions state the no-commit rules for every local-only turn, so the bridge does not repeat them.
-        assertThat(bridge.instruction()).contains(HEAD, "committed review diff", "Only the user").doesNotContain("Never commit");
-        when(tasks.find(development.id())).thenReturn(Optional.of(development));
-        assertThat(resolver.resolve(development.id().toString())).isEmpty();
+        verifyNoInteractions(tools);
     }
 
     @Test
@@ -110,22 +88,19 @@ class TestReviewBridgeResolverImpl
         when(tools.bridge(task.id().toString())).thenReturn(Optional.of(review));
         beans.registerSingleton("reviewTools", tools);
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class), tasks);
+                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
 
         assertThat(resolver.resolve(task.id().toString())).contains(review);
-        verifyNoInteractions(tasks);
     }
 
     @Test
-    void endedTasksDoNotRetainPrivateReviewPermissions()
+    void developmentDoesNotReceiveReviewPermissions()
     {
-        AgentTask review = task().withLocalReviewHead(Optional.of(HEAD), NOW);
-        when(tasks.find(review.id())).thenReturn(Optional.of(review.fail("Task ended", NOW, NOW.plusSeconds(60))));
         beans.registerSingleton("reviewTools", tools);
         ReviewBridgeResolverImpl resolver = new ReviewBridgeResolverImpl(beans.getBeanProvider(ReviewTools.class), beans.getBeanProvider(ContextSpecCheckTools.class),
-                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class), tasks);
+                beans.getBeanProvider(MemoryHarvestTools.class), beans.getBeanProvider(GoalResearchTools.class));
 
-        assertThat(resolver.resolve(review.id().toString())).isEmpty();
+        assertThat(resolver.resolve(task().id().toString())).isEmpty();
     }
 
     private AgentTask task()

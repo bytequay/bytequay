@@ -54,6 +54,6 @@ export function developmentQuestion(state: AgentTaskState): string | null {
 /** Stop follows the active turn's accepted policy even before its continuation marker is set. */
 export function stoppingEndsDevelopment(state: AgentTaskState, activeTurnId: string | null): boolean {
   if (state.task?.developmentContinuationUnfinished) return true;
-  if (state.task?.interactive !== true || state.task.localReviewHead != null || activeTurnId === null || state.turn?.id !== activeTurnId) return false;
+  if (state.task?.interactive !== true || activeTurnId === null || state.turn?.id !== activeTurnId) return false;
   return state.turn.settings?.developmentAutomation != null;
 }

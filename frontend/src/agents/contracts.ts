@@ -286,7 +286,6 @@ export function parseAgentTask(value: unknown, path = 'task'): AgentTaskDto {
     issueSource: source.issueSource == null ? null : issueSource(source.issueSource, `${path}.issueSource`),
     generatedBranch: optionalText(source.generatedBranch, `${path}.generatedBranch`),
     ...(source.interactive === undefined ? {} : { interactive: flag(source.interactive, `${path}.interactive`) }),
-    localReviewHead: optionalText(source.localReviewHead, `${path}.localReviewHead`),
     developmentContinuationUnfinished: flag(source.developmentContinuationUnfinished, `${path}.developmentContinuationUnfinished`),
     developmentCi: source.developmentCi === null || source.developmentCi === undefined ? null : parseAgentDevelopmentCi(source.developmentCi, `${path}.developmentCi`),
     pullRequest: source.pullRequest === null || source.pullRequest === undefined ? null : taskPullRequest(source.pullRequest, `${path}.pullRequest`),

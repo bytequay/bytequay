@@ -748,85 +748,37 @@ class TestDefaultAgentTurnService
     }
 
     @Test
-    void worktreeSynchronizationReleasesClaimOnSuccessAndFailureWithoutChangingPrivateReviewOwnership()
+    void worktreeSynchronizationReleasesClaimOnSuccessAndFailure()
     {
         service.synchronizeWorktree(task.id(), task.version(), ignored -> {});
         AgentTask synchronizedTask = taskService.get(task.id());
         assertThat(synchronizedTask.worktreeMutationClaim()).isEmpty();
-        assertThat(synchronizedTask.localReviewHead()).isEmpty();
         assertThatThrownBy(() -> service.synchronizeWorktree(task.id(), task.version(), ignored -> {}))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("version changed");
 
-        AgentTask development = interactiveTask("Private review experiment");
-        AgentTask reviewing = service.updateLocalReview(development.id(), development.version(), ignored -> Optional.of("a".repeat(40)));
-        assertThatThrownBy(() -> service.synchronizeWorktree(development.id(), reviewing.version(), claimed -> {
+        AgentTask development = interactiveTask("Develop a feature");
+        assertThatThrownBy(() -> service.synchronizeWorktree(development.id(), development.version(), claimed -> {
             assertThat(claimed.worktreeMutationClaim()).isPresent();
             throw new IllegalStateException("Git move failed");
         })).hasMessage("Git move failed");
         AgentTask retained = taskService.get(development.id());
         assertThat(retained.worktreeMutationClaim()).isEmpty();
-        assertThat(retained.localReviewHead()).isEqualTo(reviewing.localReviewHead());
     }
 
     @Test
-    void privateReviewRetainsSourceAndQueuedSettingsWithoutDevelopmentFollowups()
-    {
-        List<DevelopmentTurnCompletion> completed = new CopyOnWriteArrayList<>();
-        developmentListener = Optional.of(completed::add);
-        service = service(driver, runtimeRegistry);
-        AgentTask development = interactiveTask("Develop a feature");
-        String head = "a".repeat(40);
-        AgentTask reviewing = service.updateLocalReview(development.id(), development.version(), claimed -> {
-            assertThat(claimed.worktreeMutationClaim()).isPresent();
-            return Optional.of(head);
-        });
-        assertThat(reviewing.localReviewHead()).contains(head);
-        assertThat(reviewing.worktreeMutationClaim()).isEmpty();
-        assertThat(service.effectiveSettings(development.id()).developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
-        AgentTurn first = service.start(new StartAgentTurnCommand(development.id(), "Write a private test", ImmutableList.of(), "private-first")
-                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.DEFAULT)));
-        AgentTask running = taskService.get(development.id());
-        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(development.id(), running.version(), "Add another private test", ImmutableList.of(), "private-next",
-                Optional.of(DevelopmentAutomation.DEFAULT)));
-        assertThat(first.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
-        assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
-        driver.complete("Private test retained");
-        AgentTurn second = stores.findActive(development.id()).orElseThrow();
-        assertThat(second.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
-        driver.complete("Second private test retained");
-        assertThat(completed).isEmpty();
-        assertThat(taskService.get(development.id()).localReviewHead()).contains(head);
-        assertThat(taskService.get(development.id()).developmentContinuationUnfinished()).isFalse();
-        assertThat(driver.openedContexts().getLast().managedInstructions()).contains("NEVER commit, push, publish");
-        assertThatThrownBy(() -> service.startGeneratedTurn(development.id(),
-                new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, first.id()), "Commit"))
-                .isInstanceOf(AgentConflictException.class).hasMessageContaining("Private review");
-    }
-
-    @Test
-    void localReviewTransitionRejectsActiveAndQueuedWorkAndKeepsOwnershipWhenActionFails()
+    void worktreeSynchronizationRejectsActiveAndQueuedWork()
     {
         AgentTask development = interactiveTask("Develop a feature");
-        AgentTask reviewing = service.updateLocalReview(development.id(), development.version(), ignored -> Optional.of("a".repeat(40)));
-        assertThatThrownBy(() -> service.updateLocalReview(development.id(), reviewing.version(), ignored -> {
-            throw new IllegalStateException("Cleanup failed");
-        })).hasMessage("Cleanup failed");
-        AgentTask retained = taskService.get(development.id());
-        assertThat(retained.localReviewHead()).contains("a".repeat(40));
-        assertThat(retained.worktreeMutationClaim()).isEmpty();
-        assertThatThrownBy(() -> service.updateLocalReview(development.id(), reviewing.version(), ignored -> Optional.empty()))
-                .isInstanceOf(AgentConflictException.class).hasMessageContaining("version changed");
         service.start(new StartAgentTurnCommand(development.id(), "Run tests", ImmutableList.of(), "private-running"));
-        assertThatThrownBy(() -> service.updateLocalReview(development.id(), taskService.get(development.id()).version(), ignored -> Optional.empty()))
+        assertThatThrownBy(() -> service.synchronizeWorktree(development.id(), taskService.get(development.id()).version(), ignored -> {}))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("active turn");
         service.enqueue(new QueueAgentInputCommand(development.id(), taskService.get(development.id()).version(), "Later", ImmutableList.of(), "private-later"));
         driver.fail("Test execution failed", AgentTurnFailureKind.AUTHENTICATION_REQUIRED);
-        assertThatThrownBy(() -> service.updateLocalReview(development.id(), taskService.get(development.id()).version(), ignored -> Optional.empty()))
+        assertThatThrownBy(() -> service.synchronizeWorktree(development.id(), taskService.get(development.id()).version(), ignored -> {}))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("queued input");
         QueuedAgentInput queued = service.queued(development.id()).getFirst();
         service.removeQueued(development.id(), queued.id());
-        AgentTask resumed = service.updateLocalReview(development.id(), taskService.get(development.id()).version(), ignored -> Optional.empty());
-        assertThat(resumed.localReviewHead()).isEmpty();
+        service.synchronizeWorktree(development.id(), taskService.get(development.id()).version(), ignored -> {});
         assertThat(service.effectiveSettings(development.id()).developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
     }
 
@@ -1036,7 +988,8 @@ class TestDefaultAgentTurnService
 
         assertThat(question.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
         assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
-        assertThat(driver.openedContexts().getFirst().managedInstructions()).contains("NEVER commit").doesNotContain("Commit finished development work");
+        assertThat(driver.openedContexts().getFirst().managedInstructions())
+                .contains("No automatic delivery is enabled for this turn").doesNotContain("Commit finished development work");
         driver.complete("Because");
         driver.complete("It covers the edge");
     }
@@ -1045,14 +998,40 @@ class TestDefaultAgentTurnService
     void localOnlyInstructionsUseTheAcceptedSelectionWithoutRequiringAReportingTool()
     {
         AgentTask development = interactiveTask("Development");
-        service.updateLocalReview(development.id(), development.version(), ignored -> Optional.of("a".repeat(40)));
         service.start(new StartAgentTurnCommand(development.id(), "Make the change", ImmutableList.of(), "development")
                 .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
 
         assertThat(driver.openedContexts().getFirst().managedInstructions())
-                .contains("Private local review", "NEVER commit, push, publish", "Keep tests and experimental edits local")
-                .doesNotContain("report_development_result");
+                .contains("No automatic delivery is enabled for this turn", "unless the user explicitly requests a commit, push, or PR update",
+                        "does not change the task's development scope")
+                .doesNotContain("report_development_result", "Private local review", "NEVER commit", "return to development");
         driver.complete("Finished");
+    }
+
+    @Test
+    void localOnlyFeedbackDoesNotRestrictLaterDevelopmentOrQueuedPublication()
+    {
+        AgentTask development = interactiveTask("Development");
+        service.start(new StartAgentTurnCommand(development.id(), "Explain this change", ImmutableList.of(), "feedback")
+                .withDevelopmentAutomation(Optional.of(DevelopmentAutomation.LOCAL_ONLY)));
+        driver.complete("Explained");
+        Optional<AgentSessionRef> reference = taskService.get(development.id()).sessionReference();
+
+        AgentTurn publish = service.start(new StartAgentTurnCommand(development.id(), "Push and update the PR", ImmutableList.of(), "publish"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(development.id(), taskService.get(development.id()).version(),
+                "Update the PR description too", ImmutableList.of(), "publish-description"));
+
+        assertThat(publish.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
+        assertThat(queued.settings().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
+        assertThat(driver.openedContexts().getLast().sessionReference()).isEqualTo(reference);
+        assertThat(driver.openedContexts().getLast().managedInstructions())
+                .contains("Commit finished development work: true").doesNotContain("Private local review", "NEVER commit", "return to development");
+        reportReady(publish);
+        driver.complete("Published");
+        AgentTurn next = stores.findActive(development.id()).orElseThrow();
+        assertThat(next.settings().orElseThrow().developmentAutomation()).contains(DevelopmentAutomation.DEFAULT);
+        reportReady(next);
+        driver.complete("Description updated");
     }
 
     @Test

@@ -57,7 +57,6 @@ import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
 import com.bytequay.app.agent.JiraDevelopmentService;
-import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.goal.WorkItemService;
@@ -146,7 +145,6 @@ public class AgentController
     private final CiAutofixStore ciRuns;
     private final CiAutofixService ci;
     private final AgentTaskStartupProgress startupProgress;
-    private final LocalReviewSessionService localReviewSessions;
     private final AgentStreamRegistry streams;
     private final IssueDevelopmentService issueDevelopment;
     private final JiraDevelopmentService jiraDevelopment;
@@ -173,7 +171,6 @@ public class AgentController
             CiAutofixStore ciRuns,
             CiAutofixService ci,
             AgentTaskStartupProgress startupProgress,
-            LocalReviewSessionService localReviewSessions,
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
             JiraDevelopmentService jiraDevelopment,
@@ -199,7 +196,6 @@ public class AgentController
         this.ciRuns = requireNonNull(ciRuns, "ciRuns is null");
         this.ci = requireNonNull(ci, "ci is null");
         this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
-        this.localReviewSessions = requireNonNull(localReviewSessions, "localReviewSessions is null");
         this.streams = requireNonNull(streams, "streams is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
         this.jiraDevelopment = requireNonNull(jiraDevelopment, "jiraDevelopment is null");
@@ -624,9 +620,6 @@ public class AgentController
             checkArgument(requested.isEmpty(), "Development automation requires an interactive task");
             return Optional.empty();
         }
-        if (task.localReviewHead().isPresent()) {
-            return Optional.of(DevelopmentAutomation.LOCAL_ONLY);
-        }
         DevelopmentAutomation automation = requested.map(DevelopmentAutomationDto::toDomain)
                 .or(task.defaults()::developmentAutomation)
                 .orElseGet(appSettings::developmentAutomation);
@@ -785,50 +778,6 @@ public class AgentController
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
         return ResponseEntity.accepted().body(InteractiveAgentHttpContract.turn(turnService.resumeQueued(id)));
-    }
-
-    @PostMapping("/tasks/{taskId}/local-review/start")
-    public InteractiveAgentHttpContract.TaskResponse startLocalReview(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestBody LocalReviewRequest request)
-    {
-        TaskId id = TaskId.valueOf(taskId);
-        taskService.getInteractive(workspaceId, id);
-        return taskResponse(localReviewSessions.start(id, request.expectedVersion()));
-    }
-
-    @PostMapping("/tasks/{taskId}/local-review/sync")
-    public LocalReviewSyncResponse synchronizeLocalReview(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestBody LocalReviewRequest request)
-    {
-        TaskId id = TaskId.valueOf(taskId);
-        taskService.getInteractive(workspaceId, id);
-        LocalReviewSessionService.SyncResult result = localReviewSessions.synchronize(id, request.expectedVersion());
-        return new LocalReviewSyncResponse(taskResponse(result.task()), result.warning());
-    }
-
-    public record LocalReviewSyncResponse(InteractiveAgentHttpContract.TaskResponse task, Optional<String> warning) {}
-
-    @PostMapping("/tasks/{taskId}/local-review/finish")
-    public InteractiveAgentHttpContract.TaskResponse finishLocalReview(
-            @PathVariable String taskId,
-            @RequestParam String workspaceId,
-            @RequestBody LocalReviewRequest request)
-    {
-        TaskId id = TaskId.valueOf(taskId);
-        taskService.getInteractive(workspaceId, id);
-        return taskResponse(localReviewSessions.finish(id, request.expectedVersion()));
-    }
-
-    public record LocalReviewRequest(long expectedVersion)
-    {
-        public LocalReviewRequest
-        {
-            checkArgument(expectedVersion >= 0, "expectedVersion is negative");
-        }
     }
 
     /** Files the user's prompt in Recent. Never on the path that decides the response. */

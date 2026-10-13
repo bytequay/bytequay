@@ -126,21 +126,6 @@ class TestAgentTaskLifecycle
     }
 
     @Test
-    void privateReviewRequiresAnInteractiveTaskAndFullCommitIdentity()
-    {
-        assertThatThrownBy(() -> newTask().withLocalReviewHead(Optional.of("a".repeat(40)), CREATED_AT))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("interactive task");
-        AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace-a"), true, "Review my change", AgentLaneId.CODEX_CLI,
-                new RepositoryIdentity("bytequay", "bytequay"), WORKTREE, AgentPermissionPolicy.AUTO, CREATED_AT);
-        assertThatThrownBy(() -> task.withLocalReviewHead(Optional.of("short-sha"), CREATED_AT))
-                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("full commit SHA");
-        AgentTask reviewing = task.withLocalReviewHead(Optional.of("a".repeat(40)), CREATED_AT);
-        assertThat(reviewing.withMetrics(AgentMetrics.empty(), CREATED_AT).withVersion(1).withArchived(true, CREATED_AT).localReviewHead())
-                .contains("a".repeat(40));
-        assertThat(reviewing.withLocalReviewHead(Optional.empty(), CREATED_AT).localReviewHead()).isEmpty();
-    }
-
-    @Test
     void terminalTaskCleanupPreservesTerminalState()
     {
         Instant completedAt = CREATED_AT.plusSeconds(4);

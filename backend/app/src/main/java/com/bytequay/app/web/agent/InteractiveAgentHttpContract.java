@@ -109,7 +109,6 @@ final class InteractiveAgentHttpContract
                 task.developmentContinuationUnfinished(),
                 developmentCi,
                 pullRequest,
-                task.localReviewHead(),
                 issueSource,
                 jiraSource);
     }
@@ -376,7 +375,6 @@ final class InteractiveAgentHttpContract
             boolean developmentContinuationUnfinished,
             Optional<CiAutofixHttpModels.DevelopmentResponse> developmentCi,
             Optional<TaskPullRequestResponse> pullRequest,
-            Optional<String> localReviewHead,
             Optional<IssueSourceResponse> issueSource,
             Optional<JiraSourceResponse> jiraSource) {}
 

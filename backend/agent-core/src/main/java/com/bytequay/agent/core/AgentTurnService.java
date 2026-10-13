@@ -17,7 +17,6 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 /**
  * Serializes turns and coordinates execution in a task's provider session.
@@ -44,12 +43,6 @@ public interface AgentTurnService
 
     /** Starts one bounded internal follow-up using its source user turn's immutable settings. */
     CompletionStage<DevelopmentTurnCompletion> startGeneratedTurn(TaskId taskId, DevelopmentTurnOrigin origin, String message);
-
-    /**
-     * Changes private review ownership only while the task is idle and has no queued input.
-     * The synchronous callback verifies or restores the worktree before the returned head is stored.
-     */
-    AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action);
 
     /** Holds the task's mutation ownership throughout a synchronous worktree update, excluding turns and queued input. */
     void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action);

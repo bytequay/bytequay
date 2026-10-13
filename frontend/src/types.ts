@@ -656,7 +656,6 @@ export type AgentTaskDto = {
   jiraSource?: JiraTaskSource | null;
   issueSource?: AgentIssueSourceDto | null;
   interactive?: boolean;
-  localReviewHead?: string | null;
   developmentContinuationUnfinished: boolean;
   developmentCi?: AgentDevelopmentCiDto | null;
   /** The pull request the backend picked from the generated branch's stored rows; absent without one. */

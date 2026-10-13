@@ -64,7 +64,6 @@
     "developmentContinuationUnfinished": true,
     "developmentCi": null,
     "pullRequest": null,
-    "localReviewHead": null,
     "issueSource": null,
     "jiraSource": null
   },
@@ -909,7 +908,6 @@
     "developmentContinuationUnfinished": false,
     "developmentCi": null,
     "pullRequest": null,
-    "localReviewHead": null,
     "issueSource": null,
     "jiraSource": null
   }

@@ -105,7 +105,6 @@ public class ReviewSummaryWatcher
         // A running turn may be mid-edit, so a summary checked against its tree would mislead; the next refresh picks it up.
         if (!task.interactive()
                 || task.archivedAt().isPresent()
-                || task.localReviewHead().isPresent()
                 || task.taskWorktree().isEmpty()
                 || task.worktreeRemovedAt().isPresent()
                 || task.worktreeMutationClaim().isPresent()

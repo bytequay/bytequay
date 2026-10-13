@@ -72,7 +72,7 @@ public class DevelopmentBranchService
         new TaskNames("Name branch", suffix);
         synchronized (runtime.taskLock(taskId)) {
             AgentTask task = tasks.require(taskId);
-            checkState(task.interactive() && task.state() == TaskState.OPEN && task.localReviewHead().isEmpty()
+            checkState(task.interactive() && task.state() == TaskState.OPEN
                     && reviews.findReviewByTask(taskId.toString()).isEmpty(), "Branch naming requires a development task");
             AgentTurn turn = turns.findActive(taskId).orElseThrow(() -> new IllegalStateException("The development turn has ended"));
             checkState(turn.id().equals(turnId) && turn.state() == TurnState.RUNNING && turn.cancellationRequestedAt().isEmpty() && turn.developmentOrigin().isEmpty()

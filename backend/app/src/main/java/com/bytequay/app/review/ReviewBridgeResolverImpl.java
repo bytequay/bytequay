@@ -13,15 +13,11 @@
  */
 package com.bytequay.app.review;
 
-import com.bytequay.agent.core.TaskId;
-import com.bytequay.agent.core.TaskState;
-import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.ReviewBridge;
 import com.bytequay.app.context.ContextSpecCheckTools;
 import com.bytequay.app.memory.MemoryHarvestTools;
 import com.bytequay.app.service.goal.GoalResearchTools;
-import com.google.common.collect.ImmutableList;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -41,16 +37,14 @@ public class ReviewBridgeResolverImpl
     private final ObjectProvider<ContextSpecCheckTools> checks;
     private final ObjectProvider<MemoryHarvestTools> harvests;
     private final ObjectProvider<GoalResearchTools> research;
-    private final AgentTaskStore tasks;
 
     public ReviewBridgeResolverImpl(ObjectProvider<ReviewTools> tools, ObjectProvider<ContextSpecCheckTools> checks, ObjectProvider<MemoryHarvestTools> harvests,
-            ObjectProvider<GoalResearchTools> research, AgentTaskStore tasks)
+            ObjectProvider<GoalResearchTools> research)
     {
         this.tools = requireNonNull(tools, "tools is null");
         this.checks = requireNonNull(checks, "checks is null");
         this.harvests = requireNonNull(harvests, "harvests is null");
         this.research = requireNonNull(research, "research is null");
-        this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
     @Override
@@ -59,12 +53,6 @@ public class ReviewBridgeResolverImpl
         return checks.getObject().bridge(taskId)
                 .or(() -> harvests.getObject().bridge(taskId))
                 .or(() -> research.getObject().bridge(taskId))
-                .or(() -> tools.getObject().bridge(taskId))
-                .or(() -> tasks.find(TaskId.valueOf(taskId))
-                .filter(task -> task.interactive() && task.state() == TaskState.OPEN)
-                .flatMap(task -> task.localReviewHead().map(head -> new ReviewBridge(ImmutableList.of(),
-                        "This task is in private local review of commit " + head + ". "
-                                + "Review comments refer to the committed review diff, never to experiment line numbers. "
-                                + "Only the user can finish local review through ByteQuay before development resumes."))));
+                .or(() -> tools.getObject().bridge(taskId));
     }
 }

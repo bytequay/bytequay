@@ -85,6 +85,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -1511,6 +1512,31 @@ class TestClaudeCliDriver
                         .doesNotContain("Agent", "Task", "Skill", "Workflow");
                 assertThat(supervisor.turns().getLast().spec().environment()).doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN");
             }
+        }
+    }
+
+    @Test
+    void restoresDevelopmentScopeOnAFormerlyRestrictedSession()
+            throws Exception
+    {
+        ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
+        AtomicReference<Optional<ReviewBridge>> review = new AtomicReference<>(Optional.of(new ReviewBridge(ImmutableList.of(), "Keep experiments uncommitted")));
+        try (ClaudeCliDriver driver = driver(supervisor, taskId -> review.get())) {
+            AgentSessionRef reference;
+            try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
+                await(session.start(command("Review this change")));
+                reference = session.reference();
+            }
+            review.set(Optional.empty());
+            try (AgentSession session = driver.open(context(Optional.of(reference)), event -> {})) {
+                assertThat(session.reference()).isEqualTo(reference);
+                await(session.start(command("Push the changes and update the PR description")));
+            }
+            List<String> argv = supervisor.turns().getLast().spec().argv();
+            assertThat(argv).doesNotContain("--disable-slash-commands", "--tools");
+            assertThat(argv.get(argv.indexOf("--append-system-prompt") + 1))
+                    .contains(DEVELOPMENT_POLICY, "replaces earlier ByteQuay private-review restrictions")
+                    .doesNotContain(AgentCommandPolicy.reviewInstructions(), "Keep experiments uncommitted");
         }
     }
 

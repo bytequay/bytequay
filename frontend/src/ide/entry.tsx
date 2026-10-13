@@ -193,7 +193,7 @@ function Workbench({ runtime, context, connection }: { runtime: IdeRuntime; cont
   }, [selected, files?.sourceFingerprint, files?.revision]); // eslint-disable-line react-hooks/exhaustive-deps
   const fileContext: CommentContext | null = useMemo(() => {
     if (!selected || !active || file?.path !== selected || !files || (!active.document.isDirty && active.document.getText() !== file.content)) return null;
-    const reviewedHead = context.review ? latestRun(context.review)?.headSha ?? null : context.task?.localReviewHead ?? files.revision;
+    const reviewedHead = context.review ? latestRun(context.review)?.headSha ?? null : files.revision;
     return { path: selected, text: active.document.getText(), prPatch: file.prPatch, draft: active.document.isDirty,
       uncommitted: files.files.find(entry => entry.path === selected)?.uncommitted ?? true,
       atReviewedRevision: files.revision === reviewedHead, reviewedHead, observedHead: context.review?.observedHeadSha ?? reviewedHead,

@@ -143,7 +143,7 @@ class TestDevelopmentBranchService
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"stale", "idle", "generated", "review", "claim", "cancelled", "invalid"})
+    @ValueSource(strings = {"stale", "idle", "generated", "claim", "cancelled", "invalid"})
     void refusesCallsOutsideTheActiveDevelopmentScope(String kind)
     {
         if (kind.equals("stale")) {
@@ -157,9 +157,6 @@ class TestDevelopmentBranchService
                     .withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, TurnId.random()))
                     .markDeliveryStarted(NOW).running(new ProviderTurnRef("provider"), Optional.empty());
             when(turns.findActive(id)).thenReturn(Optional.of(generated));
-        }
-        if (kind.equals("review")) {
-            when(tasks.require(id)).thenReturn(task.withLocalReviewHead(Optional.of(worktree.startCommit()), NOW));
         }
         if (kind.equals("cancelled")) {
             when(turns.findActive(id)).thenReturn(Optional.of(turn.requestCancellation(NOW)));

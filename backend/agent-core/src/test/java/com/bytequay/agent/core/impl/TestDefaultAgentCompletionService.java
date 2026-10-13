@@ -113,22 +113,20 @@ class TestDefaultAgentCompletionService
     }
 
     @Test
-    void privateReviewCompletesNormallyOnlyAfterExperimentsAreClean()
+    void developmentCompletesOnlyAfterUncommittedChangesAreHandled()
     {
         AgentTask original = stores.find(taskId).orElseThrow();
         AgentTask reviewing = AgentTask.created(taskId, true, original.title(), original.titleSource(), original.laneId(),
-                original.taskWorktree().orElseThrow(), original.defaults(), NOW).withLocalReviewHead(Optional.of("a".repeat(40)), NOW);
+                original.taskWorktree().orElseThrow(), original.defaults(), NOW);
         stores.update(reviewing);
         worktrees.uncommitted = true;
 
         assertThatThrownBy(() -> service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("not clean");
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.OPEN);
-        assertThat(stores.find(taskId).orElseThrow().localReviewHead()).contains("a".repeat(40));
         worktrees.uncommitted = false;
         service(Clock.fixed(NOW, ZoneOffset.UTC)).complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
         assertThat(stores.find(taskId).orElseThrow().state()).isEqualTo(TaskState.COMPLETED);
-        assertThat(stores.find(taskId).orElseThrow().localReviewHead()).isEmpty();
     }
 
     @Test

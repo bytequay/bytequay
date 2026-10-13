@@ -148,6 +148,10 @@ agent cannot name another task or review. It resolves only a finding it fixed an
 answered, the finding records which task did, and a resolution the user made is
 not an agent's to undo.
 
+Inline feedback stays in the development task's existing scope and uses its normal
+turn and queue admission. Private comments do not turn a developer into a reviewer
+or disable authorized delivery. Review permissions belong to separate review tasks.
+
 Private question sessions receive a read-only context capability scoped to their
 selected discussion or comment batch. The prompt carries the question and a short
 passage; the capability pages through source material, earlier messages, and saved

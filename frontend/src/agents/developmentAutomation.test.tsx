@@ -83,9 +83,7 @@ it('validates and narrows automation and durable readiness at the bridge', () =>
   expect(() => parseDevelopmentResult({ ...report, message: false })).toThrow();
   expect(parseAgentTurn({ ...contracts.turn, developmentResult: report }).developmentResult).toEqual(report);
   expect(parseAgentTask({ ...contracts.task, interactive: false }).interactive).toBe(false);
-  expect(parseAgentTask({ ...contracts.task, localReviewHead: 'a'.repeat(40) }).localReviewHead).toBe('a'.repeat(40));
-  expect(parseAgentTask(contracts.task).localReviewHead).toBeNull();
-  expect(() => parseAgentTask({ ...contracts.task, localReviewHead: false })).toThrow();
+  expect(parseAgentTask({ ...contracts.task, localReviewHead: 'a'.repeat(40) })).not.toHaveProperty('localReviewHead');
   expect(parseAgentTask({ ...contracts.task, developmentContinuationUnfinished: true }).developmentContinuationUnfinished).toBe(true);
   expect(() => parseAgentTask({ ...contracts.task, developmentContinuationUnfinished: 'false' })).toThrow();
 });
@@ -165,7 +163,6 @@ it('explains stop using the matching active turn policy instead of mutable task 
   expect(stoppingEndsDevelopment(active, null)).toBe(false);
   expect(stoppingEndsDevelopment({ ...active, task: { ...task, defaults: { ...task.defaults, developmentAutomation: defaults } },
     turn: { ...accepted, settings: { ...accepted.settings, developmentAutomation: local } } }, turn.id)).toBe(true);
-  expect(stoppingEndsDevelopment({ ...active, task: { ...active.task, localReviewHead: 'a'.repeat(40) } }, turn.id)).toBe(false);
   expect(stoppingEndsDevelopment({ ...active, task: { ...active.task, interactive: false } }, turn.id)).toBe(false);
   expect(stoppingEndsDevelopment({ ...state, task: { ...task, developmentContinuationUnfinished: true } }, null)).toBe(true);
 });

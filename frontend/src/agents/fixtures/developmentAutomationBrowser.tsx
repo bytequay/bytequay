@@ -213,14 +213,12 @@ async function multilineDraft(): Promise<{ name: string; error?: string }[]> {
 }
 
 export async function run(): Promise<{ name: string; error?: string }[]> {
-  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await localReviewExperiments(), ...await localReviewExperiments(true), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(),
+  return [...await createLocalTask(), ...await createDeepSeekTask(), ...await multilineDraft(), ...await retryLocalTurn(), ...await developerFeedback(), ...await continuationAdmission(), ...await stopPreservesTask(), ...await pullRequestLookupPolicy(),
     ...await pullRequestLookupPolicy(true), ...await worktreeVersionRefresh(), ...await worktreeVersionRefresh(true), ...await runCiAutofixScenarios(), ...await runDevelopmentDeliveryScenarios()];
 }
 
-async function localReviewExperiments(reloadPrivate = false): Promise<{ name: string; error?: string }[]> {
+async function developerFeedback(): Promise<{ name: string; error?: string }[]> {
   const bridge = createPreviewBridge('workspace-1');
-  let automationReads = 0;
-  if (reloadPrivate) bridge.getDevelopmentAutomation = async () => { automationReads++; throw new Error('Automation settings unavailable'); };
   const originalBridge = Object.getOwnPropertyDescriptor(window, 'bridge');
   Object.defineProperty(window, 'bridge', { configurable: true, value: {
     ...bridge,
@@ -235,7 +233,7 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
   const event = bridge.events[0];
   assert(event.turnId !== null, 'Fixture must identify a turn');
   let task: AgentTaskDto = { ...await bridge.getAgentTask(event.taskId, 'workspace-1'), interactive: true, mutationClaim: null,
-    developmentContinuationUnfinished: false, localReviewHead: 'a'.repeat(40) };
+    developmentContinuationUnfinished: false };
   const turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), id: event.turnId, state: 'COMPLETED', endedAt: '2026-01-01T12:00:00Z' };
   const pr: PullRequestDto = {
     id: 1, repo: 'acme/demo', number: 1, title: 'Development result', author: 'alice', htmlUrl: 'https://github.com/acme/demo/pull/1',
@@ -254,7 +252,7 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
   const complete = bridge.completeAgentTask;
   bridge.completeAgentTask = async (...args) => {
     const result = await complete(...args);
-    task = { ...task, state: 'COMPLETED', localReviewHead: null, version: task.version + 1 };
+    task = { ...task, state: 'COMPLETED', version: task.version + 1 };
     return result;
   };
   const host = document.createElement('div');
@@ -263,40 +261,25 @@ async function localReviewExperiments(reloadPrivate = false): Promise<{ name: st
   flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={task.id} bridge={bridge} onBack={() => {}} />));
   try {
     await settle();
-    assert(!host.textContent?.includes('Local review · changes stay uncommitted')
-      && !host.textContent?.includes('Sync PR head') && !host.textContent?.includes('Finish local review')
-      && !host.textContent?.includes('Review locally'), 'Private review must not add a manual housekeeping panel');
-    assert(host.querySelector('.agt-automation') === null, 'Private review must hide development publication controls');
+    assert(host.querySelector('.agt-automation') !== null, 'Developer feedback must retain publication controls');
     const completeButton = host.querySelector<HTMLButtonElement>('button[aria-label="Mark it complete"]');
-    assert(completeButton !== null && !completeButton.disabled, 'Private review uses the normal completion action');
+    assert(completeButton !== null && !completeButton.disabled, 'Development keeps the normal completion action');
     const input = host.querySelector<HTMLTextAreaElement>('textarea');
-    assert(input !== null && !input.disabled, 'Review mode keeps the normal composer available for experiments');
-    const experimentRequest = reloadPrivate ? '@ci Add another private test' : 'Add another private test';
-    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, experimentRequest);
+    assert(input !== null && !input.disabled, 'Development keeps its composer available after feedback');
+    const message = 'Push the reviewed changes and update the PR description';
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(input, message);
     input.dispatchEvent(new Event('input', { bubbles: true }));
     await settle();
-    assert(!bridge.commands.some(command => command.name === 'syncAgentLocalReview' || command.name === 'finishAgentLocalReview'),
-      'Reading private review must not move the checkout or discard experiments');
-    assert(host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.disabled === false, 'An experiment request can use the normal composer');
-    if (reloadPrivate) {
-      assert(automationReads === 0, 'Private review must not depend on unavailable development automation settings');
-      host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
-      await settle();
-      const sent = bridge.commands.find(command => command.name === 'startAgentTurn');
-      assert(sent !== undefined && (sent.args[0] as StartAgentTurnRequest).developmentAutomation === undefined,
-        'Private experiment submissions must not carry development publication selections');
-      assert((sent.args[0] as StartAgentTurnRequest).message === experimentRequest
-        && !bridge.commands.some(command => command.name === 'sendCiAutofixMessage'), 'Private review must send @ci text to its reviewer without routing a remote-writing CI task');
-      return [{ name: 'Reloaded private review submits experiments without reading development automation settings' }];
-    }
-    completeButton.click();
+    host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
     await settle();
-    assert(bridge.commands.filter(command => command.name === 'completeAgentTask').length === 1,
-      'Clean private review must complete through the ordinary action');
-    assert(!bridge.commands.some(command => command.name === 'finishAgentLocalReview'), 'Completion must not discard experiments');
-    return [{ name: 'Private review completes normally without a housekeeping panel or discard action' }];
+    const sent = bridge.commands.find(command => command.name === 'startAgentTurn');
+    assert(sent !== undefined && (sent.args[0] as StartAgentTurnRequest).message === message,
+      'The developer must accept the authorized publication request');
+    assert((sent.args[0] as StartAgentTurnRequest).developmentAutomation !== undefined,
+      'Development must send its delivery settings after inline feedback');
+    return [{ name: 'Developer feedback retains delivery and completion controls' }];
   }
-  catch (error) { return [{ name: 'Local review experiments', error: error instanceof Error ? error.message : String(error) }]; }
+  catch (error) { return [{ name: 'Developer feedback', error: error instanceof Error ? error.message : String(error) }]; }
   finally {
     flushSync(() => root.unmount());
     host.remove();

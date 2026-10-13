@@ -3359,7 +3359,7 @@ class TestCodexCliDriver
     }
 
     @Test
-    void resumesARelatedWorkThreadInPrivateLocalReview()
+    void restoresDevelopmentPermissionsForAPreviouslyRestrictedTask()
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper, "codex-cli 0.156.1", false);
@@ -3408,6 +3408,32 @@ class TestCodexCliDriver
                     """.formatted(server.activeTurn()));
             awaitCondition(() -> server.result(302) != null);
             assertThat(server.result(302).path("success").asBoolean()).isTrue();
+        }
+
+        localReview.set(false);
+        AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
+        try (AgentSession session = driver.open(context(Optional.of(reference), approval), event -> {})) {
+            assertThat(session.reference()).isEqualTo(reference);
+            AppServerProcess server = supervisor.servers().getLast();
+            assertThat(server.threadRequests().getFirst().path("developerInstructions").asText())
+                    .startsWith(DEVELOPMENT_POLICY).doesNotContain(AgentCommandPolicy.reviewInstructions());
+            session.start(command("Push the changes and update the PR description"));
+            assertThat(server.turnRequests().getFirst().at("/additionalContext/bytequay_instructions/value").asText())
+                    .contains(DEVELOPMENT_POLICY, "replaces earlier ByteQuay private-review restrictions").doesNotContain(privateReview.instruction());
+            for (String shellCommand : ImmutableList.of("git push origin HEAD", "gh pr edit 7 --body-file description.md")) {
+                approval.set(null);
+                ObjectNode params = objectMapper.createObjectNode()
+                        .put("threadId", reference.providerValue()).put("turnId", server.activeTurn())
+                        .put("itemId", "authorized-publication").put("command", shellCommand).put("startedAtMs", 1786884871461L);
+                params.set("availableDecisions", objectMapper.valueToTree(ImmutableList.of("accept", "decline")));
+                int requestId = shellCommand.startsWith("git") ? 303 : 304;
+                ObjectNode request = objectMapper.createObjectNode().put("id", requestId).put("method", "item/commandExecution/requestApproval");
+                request.set("params", params);
+                server.emit(request.toString());
+                awaitCondition(() -> server.result(requestId) != null);
+                assertThat(server.result(requestId).path("decision").asText()).isEqualTo("accept");
+                assertThat(approval.get().detail()).contains(shellCommand);
+            }
         }
     }
 

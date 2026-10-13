@@ -143,7 +143,7 @@ public class RelatedWorkspaceWork
     public Optional<AgentTask> eligible(String taskId)
     {
         return tasks.find(TaskId.valueOf(taskId)).filter(task -> task.interactive() && task.state() == TaskState.OPEN
-                && task.workspaceId().isPresent() && task.worktreeRemovedAt().isEmpty() && task.localReviewHead().isEmpty())
+                && task.workspaceId().isPresent() && task.worktreeRemovedAt().isEmpty())
                 .filter(task -> reviews.findReviewByTask(taskId).isEmpty());
     }
 

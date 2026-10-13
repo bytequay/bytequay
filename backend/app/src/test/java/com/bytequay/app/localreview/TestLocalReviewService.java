@@ -43,7 +43,6 @@ import com.bytequay.agent.spi.DevelopmentLearningCommit;
 import com.bytequay.agent.spi.DevelopmentLearningSummary;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderTurnRef;
-import com.bytequay.app.agent.LocalReviewSessionService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.review.AgentReviewService;
@@ -113,7 +112,6 @@ import static org.springframework.test.web.servlet.setup.MockMvcBuilders.standal
 
 class TestLocalReviewService
 {
-    private final LocalReviewSessionService sessions = mock(LocalReviewSessionService.class);
     private final LocalReviewStore store = mock(LocalReviewStore.class);
     private final AgentReviewService reviewTasks = mock(AgentReviewService.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
@@ -146,7 +144,6 @@ class TestLocalReviewService
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.EPOCH);
         when(tasks.getInteractive("workspace", taskId)).thenReturn(task);
         when(tasks.get(taskId)).thenReturn(task);
-        when(sessions.start(eq(taskId), org.mockito.ArgumentMatchers.anyLong())).thenAnswer(call -> task);
         Workspace workspace = new Workspace("workspace", "Repository", 1, new RepoRef("owner", "repo"), Optional.empty(), Optional.empty(),
                 1, new RepoRef("owner", "repo"), Workspace.Topology.DIRECT, "main", "https://github.com/owner/repo.git", Optional.empty(), Optional.empty(),
                 paths.repository("workspace").toString(), Optional.empty(), Optional.empty(), 0, Instant.EPOCH, Instant.EPOCH);
@@ -159,7 +156,7 @@ class TestLocalReviewService
         turn = AgentTurn.accepted(TurnId.random(), taskId, "turn", settings, Instant.EPOCH)
                 .markDeliveryStarted(Instant.EPOCH).running(new ProviderTurnRef("provider"), Optional.empty());
         ManagedWorktreeService worktrees = new ManagedWorktreeService(paths, workspaces, new GitCommandRunner(), mock(IdeRuntimeService.class));
-        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, reviews, reviewTasks, sessions,
+        service = new LocalReviewService(store, tasks, turns, turnStore, queueStore, reviews, reviewTasks,
                 new TaskPullRequestOwnership(workspaces, mock(PullRequestTaskStore.class), pullRequests, worktrees), clock);
         when(store.find(anyString())).thenAnswer(call -> Optional.ofNullable(stored.get(call.getArgument(0))));
         when(store.listByTask(anyString())).thenAnswer(call -> stored.values().stream()
@@ -181,9 +178,7 @@ class TestLocalReviewService
         when(turns.start(any())).thenAnswer(call -> {
             StartAgentTurnCommand command = call.getArgument(0);
             assertThat(stored).containsKey("thread");
-            assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
-            assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
-            assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
+            assertThat(command.developmentAutomation()).isEmpty();
             assertThat(command.message()).contains("list_local_review_comments with commentId=", "reply_local_review_comment",
                     "never quote private feedback in commit messages", "User comment:\nPlease fix this", "locate its current counterpart first")
                     .doesNotContain("newValue", "Selected code (reference only)");
@@ -202,7 +197,7 @@ class TestLocalReviewService
             assertThat(command.message()).contains("list_local_review_comments with commentId=\"thread\"", "contextOffset")
                     .doesNotContain("newValue").endsWith("User comment:\n" + question);
             assertThat(command.message().length() - question.length()).isLessThan(1200);
-            assertThat(command.developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+            assertThat(command.developmentAutomation()).isEmpty();
             return turn;
         }).when(turns).start(any());
         LocalReviewView saved = service.create(taskId.toString(), "workspace", new LocalReviewService.Create("thread", "message", "owner/repo", 7,
@@ -225,33 +220,19 @@ class TestLocalReviewService
     }
 
     @Test
-    void entersPrivateReviewBeforeSendingAndUsesTheUpdatedVersion()
+    void inlineFeedbackKeepsDevelopmentScopeAndTaskVersion()
     {
-        AgentTask reviewing = task.withLocalReviewHead(Optional.of("a".repeat(40)), Instant.EPOCH).withVersion(2);
-        when(sessions.start(taskId, 0)).thenReturn(reviewing);
         doAnswer(call -> {
             StartAgentTurnCommand command = call.getArgument(0);
-            assertThat(command.expectedTaskVersion()).hasValue(2);
-            assertThat(command.developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
+            assertThat(command.expectedTaskVersion()).hasValue(0);
+            assertThat(command.developmentAutomation()).isEmpty();
             accepted.put(command.idempotencyKey(), turn);
             return turn;
         }).when(turns).start(any());
 
         create(0);
 
-        verify(sessions).start(taskId, 0);
         verify(turns).start(any());
-    }
-
-    @Test
-    void preservesFeedbackWithoutStartingDevelopmentWhenReviewEntryFails()
-    {
-        when(sessions.start(taskId, 0)).thenThrow(new AgentConflictException("Finish development before entering local review"));
-
-        LocalReviewView result = create(0);
-
-        assertThat(result.messages().getFirst().deliveryError()).contains("Finish development before entering local review");
-        verify(turns, never()).start(any());
     }
 
     @Test
@@ -556,14 +537,10 @@ class TestLocalReviewService
         AgentTurn summary = learningTurn(0);
         when(turnStore.list(taskId)).thenReturn(ImmutableList.of(summary));
         when(pullRequests.findByHeadRef(anyString(), anyString())).thenReturn(ImmutableList.of());
-        when(sessions.start(eq(taskId), org.mockito.ArgumentMatchers.anyLong()))
-                .thenThrow(new AgentConflictException("Create a pull request before starting local review"));
         doAnswer(call -> {
             StartAgentTurnCommand command = call.getArgument(0);
             assertThat(stored).containsKey("learning-thread");
-            assertThat(command.developmentAutomation().orElseThrow().autoCommit()).isFalse();
-            assertThat(command.developmentAutomation().orElseThrow().autoDraftPr()).isFalse();
-            assertThat(command.developmentAutomation().orElseThrow().autoCiFix()).isFalse();
+            assertThat(command.developmentAutomation()).contains(DevelopmentAutomation.LOCAL_ONLY);
             assertThat(command.message()).contains("list_local_review_comments with commentId=\"learning-thread\"", "reply_local_review_comment", "Do not edit code",
                     "Never commit, push, or publish", "reference evidence", "User comment:")
                     .doesNotContain("Keep null values", "Preserve nullable values");
@@ -592,7 +569,6 @@ class TestLocalReviewService
         assertThat(service.resolveFromAgent(taskId.toString(), saved.id(), true, "resolve").learningAnchor()).contains(anchor);
         assertThat(service.list(taskId.toString(), "workspace").getFirst().resolved()).isTrue();
         verify(turns, times(3)).start(any());
-        verify(sessions, never()).start(any(), org.mockito.ArgumentMatchers.anyLong());
     }
 
     @Test

@@ -74,7 +74,7 @@ export default function ArchivedCode({ host, onExit, comments, active, bridge, o
   }, [active, bridge, hostRef, path, revision, files?.sourceFingerprint, reload]);
   const entries = useMemo(() => visibleFiles(files?.files ?? [], changed ? 'changed' : 'all', query), [files, changed, query]);
   const tree = useMemo(() => buildFileTree(entries, entry => entry.path, { layout: 'ide' }), [entries]);
-  const reviewedHead = review ? latestRun(review)?.headSha ?? null : host.kind === 'task' ? host.task.localReviewHead ?? files?.revision ?? null : null;
+  const reviewedHead = review ? latestRun(review)?.headSha ?? null : files?.revision ?? null;
   const entry = files?.files.find(entry => entry.path === path);
   const cards = useCodeComments(comments ? { ...comments, onAskAgent: undefined } : undefined,
     file?.content != null && file.path === path && files ? {

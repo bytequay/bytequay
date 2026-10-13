@@ -111,6 +111,10 @@ public final class AgentCommandPolicy
     private static final String INSTRUCTIONS = """
             ## ByteQuay Development Scope
 
+            This is a development task, including when responding to inline review feedback.
+            This scope replaces earlier ByteQuay private-review restrictions in this conversation.
+            Explicitly authorized commits, pushes, and PR updates remain development actions.
+
             Follow the task scope and native permission decisions. Preserve all native denials;
             these instructions do not override them. Authentication by subscription or API key does
             not change the task's permissions.

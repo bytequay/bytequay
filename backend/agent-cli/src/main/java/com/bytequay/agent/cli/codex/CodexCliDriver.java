@@ -643,7 +643,7 @@ public final class CodexCliDriver
                 context.taskId(), context.worktree(), context.permissionPolicy(), context.approvals(), toolRedactor,
                 deepSeekSecret.isPresent() ? Optional.empty() : context.codeQueries(), context.access(), context.discussionContext(), context.reviewContext());
         boolean review = codeQueries.flatMap(McpRegistration::review).isPresent();
-        // Private local review of a development task has a review boundary but no review tools to keep with the root.
+        // Restricted research can carry a review boundary without any reporting tools.
         boolean reviewTools = codeQueries.flatMap(McpRegistration::review).filter(bridge -> !bridge.tools().isEmpty()).isPresent();
         if (reviewTools && context.sessionReference().stream().anyMatch(reference -> reference.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION)
                 && compareVersion(runningVersion, REVIEW_CHILD_GATE_MINIMUM_RELEASE).orElse(-1) < 0) {
@@ -1052,7 +1052,7 @@ public final class CodexCliDriver
             String method = existing.isPresent() ? "thread/resume" : "thread/start";
             existing.ifPresent(previous -> {
                 // Root tools cannot be added to a thread after it starts. A thread that has them may resume without
-                // them, as in private local review: App Server still lists them and this session refuses each call.
+                // them: App Server still lists them and this session refuses each unavailable call.
                 boolean supported = previous.contractVersion() == REVIEW_DYNAMIC_CONTRACT_VERSION
                         || (previous.contractVersion() == CONTRACT_VERSION && guardedReviewTools.isEmpty());
                 if (!previous.laneId().equals(laneId) || !supported) {

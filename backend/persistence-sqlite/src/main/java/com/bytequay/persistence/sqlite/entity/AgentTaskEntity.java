@@ -180,8 +180,6 @@ public class AgentTaskEntity
     @Convert(converter = InstantToTextConverter.class)
     private Instant archivedAt;
 
-    private String localReviewHead;
-
     public AgentTaskEntity() {}
 
     public static AgentTaskEntity fromDomain(AgentTask task)
@@ -199,7 +197,6 @@ public class AgentTaskEntity
         interactive = task.interactive();
         creationFingerprint = task.creationFingerprint().orElse(null);
         developmentContinuationUnfinished = task.developmentContinuationUnfinished();
-        localReviewHead = task.localReviewHead().orElse(null);
         title = task.title();
         titleSource = task.titleSource();
         laneId = task.laneId().toString();
@@ -286,8 +283,7 @@ public class AgentTaskEntity
                 Optional.ofNullable(deleteAfter),
                 Optional.ofNullable(cleanupFailure),
                 Optional.ofNullable(archivedAt),
-                developmentContinuationUnfinished,
-                Optional.ofNullable(localReviewHead));
+                developmentContinuationUnfinished);
     }
 
     private Optional<WorktreeMutationClaim> worktreeMutationClaim()

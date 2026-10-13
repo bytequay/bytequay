@@ -321,22 +321,6 @@ public final class DefaultAgentTurnService
     }
 
     @Override
-    public AgentTask updateLocalReview(TaskId taskId, long expectedVersion, Function<AgentTask, Optional<String>> action)
-    {
-        return updateIdleWorktree(taskId, expectedVersion, true, action);
-    }
-
-    @Override
-    public void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action)
-    {
-        requireNonNull(action, "action is null");
-        updateIdleWorktree(taskId, expectedVersion, false, claimed -> {
-            action.accept(claimed);
-            return taskStore.require(taskId).localReviewHead();
-        });
-    }
-
-    @Override
     public AgentTask claimLocalRun(TaskId taskId, String runId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -363,15 +347,13 @@ public final class DefaultAgentTurnService
         }
     }
 
-    private AgentTask updateIdleWorktree(TaskId taskId, long expectedVersion, boolean requireInteractive, Function<AgentTask, Optional<String>> action)
+    @Override
+    public void synchronizeWorktree(TaskId taskId, long expectedVersion, Consumer<AgentTask> action)
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(action, "action is null");
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTask task = requireStartableTaskWithoutReadiness(taskId);
-            if (requireInteractive && !task.interactive()) {
-                throw new AgentConflictException("Local review mode requires an interactive task");
-            }
             if (task.version() != expectedVersion) {
                 throw new AgentConflictException("Task version changed: " + taskId);
             }
@@ -383,10 +365,10 @@ public final class DefaultAgentTurnService
             WorktreeMutationClaim claim = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "review-worktree:" + taskId, now);
             AgentTask claimed = updateWorktreeTask(task.claimWorktreeMutation(claim, now));
             try {
-                Optional<String> head = requireNonNull(action.apply(claimed), "local review action result is null");
+                action.accept(claimed);
                 AgentTask current = taskStore.require(taskId);
                 Instant finishedAt = Instant.now(clock);
-                return updateWorktreeTask(current.withLocalReviewHead(head, finishedAt).releaseWorktreeMutation(claim, finishedAt));
+                updateWorktreeTask(current.releaseWorktreeMutation(claim, finishedAt));
             }
             catch (RuntimeException failure) {
                 suppressFailure(failure, () -> {
@@ -431,9 +413,6 @@ public final class DefaultAgentTurnService
         TurnAcceptance acceptance;
         CompletableFuture<DevelopmentTurnCompletion> completion;
         synchronized (runtimeRegistry.taskLock(taskId)) {
-            if (taskStore.require(taskId).localReviewHead().isPresent()) {
-                throw new AgentConflictException("Private review cannot start development follow-ups");
-            }
             requireDevelopmentOwner(taskId, origin.parentUserTurnId());
             Optional<CompletableFuture<DevelopmentTurnCompletion>> repeated = runtimeRegistry.developmentTurn(taskId, origin);
             if (repeated.isPresent()) {
@@ -1970,10 +1949,9 @@ public final class DefaultAgentTurnService
             if (!automation.enabled()) {
                 return """
 
-                        Private local review: investigate, edit local experiments, and run tests as requested.
-                        NEVER commit, push, publish, change Git history, or use development delivery tools.
-                        Keep tests and experimental edits local and uncommitted.
-                        ByteQuay requires an explicit return to development before any delivery can resume.
+                        No automatic delivery is enabled for this turn. Keep investigation and experiments local
+                        unless the user explicitly requests a commit, push, or PR update; those requests follow
+                        the shared development authorization rules. This does not change the task's development scope.
                         """;
             }
             return """
@@ -2188,7 +2166,7 @@ public final class DefaultAgentTurnService
 
     private boolean developmentTurnEligible(AgentTask task, AgentTurn turn)
     {
-        return task.interactive() && task.localReviewHead().isEmpty()
+        return task.interactive()
                 && turn.settings().flatMap(AgentTurnSettings::developmentAutomation).filter(DevelopmentAutomation::enabled).isPresent()
                 && developmentEligibility.test(task);
     }
@@ -2435,12 +2413,9 @@ public final class DefaultAgentTurnService
         }
         Optional<DevelopmentAutomation> effective = automation.or(task.defaults()::developmentAutomation);
         if (task.interactive()) {
-            if (task.localReviewHead().isPresent()) {
-                effective = Optional.of(DevelopmentAutomation.LOCAL_ONLY);
-            }
             // A person's request always commits; only a trusted caller, such as a learning card's read-only question, asks for a
             // turn that commits nothing.
-            else if (automation.filter(requested -> !requested.autoCommit()).isEmpty()) {
+            if (automation.filter(requested -> !requested.autoCommit()).isEmpty()) {
                 effective = Optional.of(effective.orElse(DevelopmentAutomation.DEFAULT).forDevelopment());
             }
         }

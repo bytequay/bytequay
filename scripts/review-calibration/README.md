@@ -41,8 +41,8 @@ Replace `CONFIGURED_REVIEW_MODEL` and `CONFIGURED_REVIEW_EFFORT` with the actual
 Review configuration; both arguments are required. The harness ignores user
 configuration, so it cannot infer those settings. Replace `TEST_TIMEOUT_SECONDS`
 with the explicit wall-clock budget for this experiment. This timeout belongs
-only to the harness. Production retains
-`bytequay.agent.maximum-turn-runtime=30m` per turn, unchanged by these runs.
+only to the harness. Production turns have no time limit unless
+`bytequay.agent.maximum-turn-runtime` is set, and these runs do not change it.
 
 ```sh
 python3 scripts/review-calibration/run.py \

@@ -939,7 +939,7 @@ export function TaskComposer({
           className="agt-compose__input"
           rows={1}
           aria-label="Describe a task"
-          placeholder="Let's ship..."
+          placeholder="Let's ship something"
           value={draft}
           disabled={disabled}
           aria-autocomplete={backport ? 'list' : undefined}

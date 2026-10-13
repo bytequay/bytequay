@@ -263,7 +263,7 @@ describe('agent task layout', () => {
     const markup = renderToStaticMarkup(
       <AgentTaskList {...listProps} tasks={[]} loading={false} error={null} />);
     expect(markup).not.toContain('Branch the task starts from');
-    expect(markup).toContain('placeholder="Let&#x27;s ship..."');
+    expect(markup).toContain('placeholder="Let&#x27;s ship something"');
   });
 
   it('keeps the composer controls on one line and truncates labels in a narrow pane', () => {
@@ -1999,7 +1999,7 @@ describe('agent task detail', () => {
     const connecting = body({ task: task('t-1', 'OPEN', 'x'), connection: 'connecting' });
     expect(connecting).toContain('placeholder="Connecting\u2026"');
     expect(connecting).not.toContain('aria-label="Show or hide the side panel"');
-    expect(body({ connection: 'open' })).toContain('placeholder="Message the agent"');
+    expect(body({ connection: 'open' })).toContain('placeholder="Let&#x27;s ship something"');
   });
 
   it('keeps a healthy connection in the header instead of spending a row on it', () => {

@@ -131,7 +131,7 @@ async function deliveryResult(outcome: 'ready' | 'draft' | 'sync failure', publi
     await settle();
     host.querySelector<HTMLButtonElement>('button[aria-label="Send message"]')?.click();
     await settle();
-    assert(Number(submitted) === 1 && host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === 'Message the agent',
+    assert(Number(submitted) === 1 && host.querySelector<HTMLTextAreaElement>('.agt-compose__input')?.placeholder === "Let's ship something",
       'Accepted answer must clear the old question');
     changeInput(input, 'Keep my next development request');
     await settle();

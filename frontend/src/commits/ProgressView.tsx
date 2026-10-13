@@ -579,7 +579,7 @@ export default function ProgressView({
             <div className="cmt-composer-box">
               <input
                 value={message}
-                placeholder="Message the agent — e.g. keep our resolver retry property in pom.xml…"
+                placeholder="Let's ship something"
                 onChange={event => setMessage(event.target.value)}
                 onKeyDown={event => { if (event.key === 'Enter') void send(); }}
               />

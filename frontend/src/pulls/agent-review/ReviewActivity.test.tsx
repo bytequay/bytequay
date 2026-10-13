@@ -91,7 +91,7 @@ describe('the unified review conversation', () => {
     const html = render({ review: claude, composer: 'Check the edge case' });
     expect(html).toContain('<textarea');
     expect(html).toContain('class="agt-compose__input"');
-    expect(html).toContain('placeholder="Message the agent"');
+    expect(html).toContain('placeholder="Let&#x27;s ship something"');
     expect(html).toMatch(/aria-label="Attach an image"[^>]*disabled=""/);
     expect(html).toMatch(/aria-label="Model and effort for the next message"[^>]*disabled=""/);
     expect(html).toContain('class="agt-steer" disabled=""');

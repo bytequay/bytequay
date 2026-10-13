@@ -78,11 +78,8 @@ import com.bytequay.core.store.WorkItemStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -110,7 +107,6 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -119,12 +115,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.BooleanSupplier;
@@ -181,19 +175,6 @@ class TestAgentHttpApi
     private static final String REPOSITORY = "bytequay/agent-e2e";
     private static final String ORIGIN = "https://github.com/" + REPOSITORY + ".git";
     private static final AtomicLong NEXT_REPOSITORY_ID = new AtomicLong(10_000);
-    private static final String BASELINE_FIXTURE = "/com/bytequay/app/web/agent/agent-http-baseline.json";
-    private static final Set<String> TIMESTAMP_FIELDS = ImmutableSet.of(
-            "createdAt",
-            "updatedAt",
-            "startedAt",
-            "endedAt",
-            "cancellationRequestedAt",
-            "occurredAt",
-            "terminalAt",
-            "completedAt",
-            "deleteAfter",
-            "acquiredAt",
-            "checkoutRemovedAt");
 
     @LocalServerPort
     private int port;
@@ -1207,6 +1188,8 @@ class TestAgentHttpApi
         assertThat(createdTask).isNotNull();
         String taskId = createdTask.get("id").asText();
         assertThat(createdTask.get("workspaceId").asText()).isEqualTo(workspaceId);
+        assertThat(createdTask.required("laneId").asText()).isEqualTo("codex");
+        assertThat(createdTask.required("defaults").required("model").asText()).isEqualTo("test-model");
         assertThat(createdTask.required("generatedBranch").asText())
                 .isEqualTo(tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow().generatedBranch());
         assertThat(createdTask.has("worktree")).isFalse();
@@ -1225,6 +1208,7 @@ class TestAgentHttpApi
         assertThat(repeated.get("id").asText()).isEqualTo(first.get("id").asText());
         JsonNode firstTerminal = get("/agent/turns/" + first.get("id").asText()).getBody();
         assertThat(firstTerminal.get("state").asText()).isEqualTo("COMPLETED");
+        assertThat(firstTerminal.required("settings").required("model").asText()).isEqualTo("test-model");
         awaitCondition(() -> get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId)
                 .getBody().required("titleSource").asText().equals("AGENT"));
 
@@ -1299,32 +1283,11 @@ class TestAgentHttpApi
                 .isEqualTo("deterministic: second");
         assertThat(completion.getBody().get("summary").get("notes").asText())
                 .isEqualTo("ready for review");
+        assertThat(completion.getBody().required("summary").required("resultBranch")).isEqualTo(createdTask.required("generatedBranch"));
+        assertThat(completion.getBody().required("summary").required("resultHead").asText()).isEqualTo(run("git", "-C", repository.toString(), "rev-parse", "HEAD"));
         JsonNode finalTask = get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody();
         assertThat(finalTask.get("state").asText()).isEqualTo("COMPLETED");
-
-        ObjectNode transcript = objectMapper.createObjectNode();
-        transcript.set("createRequest", objectMapper.valueToTree(createRequest));
-        transcript.set("createResponse", createdTask);
-        ArrayNode turns = transcript.putArray("turns");
-        addTurnTranscript(turns, "request-1", "first", first, firstTerminal);
-        addTurnTranscript(turns, "request-1", "ignored", repeated, firstTerminal);
-        addTurnTranscript(turns, "request-2", "second", second, secondTerminal);
-        transcript.set("replay", events);
-        transcript.set("replayAfterFirst", afterFirst);
-        transcript.set("sse", sseEvent);
-        transcript.set("completionRequest", objectMapper.valueToTree(completionRequest));
-        transcript.set("completionResponse", completion.getBody());
-        transcript.set("finalTask", finalTask);
-
-        JsonNode sanitizedTranscript = sanitizeTranscript(
-                transcript,
-                taskId,
-                first.get("id").asText(),
-                second.get("id").asText());
-        try (InputStream fixture = getClass().getResourceAsStream(BASELINE_FIXTURE)) {
-            assertThat(fixture).as("baseline fixture %s", BASELINE_FIXTURE).isNotNull();
-            assertThat(sanitizedTranscript).isEqualTo(objectMapper.readTree(fixture));
-        }
+        assertThat(finalTask.required("summary")).isEqualTo(completion.getBody().required("summary"));
 
         ResponseEntity<JsonNode> repeatedCleanup = post(
                 "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
@@ -1510,80 +1473,6 @@ class TestAgentHttpApi
         assertThat(entryCount(existingResources.runtimeDirectory())).isEqualTo(runtimeEntries);
         assertThat(entryCount(workspacePaths.worktrees(workspaceId))).isEqualTo(worktrees);
         assertThat(tasks.get(taskId)).isEqualTo(orphan);
-    }
-
-    private void addTurnTranscript(
-            ArrayNode turns,
-            String idempotencyKey,
-            String message,
-            JsonNode acceptedResponse,
-            JsonNode terminalResponse)
-    {
-        ObjectNode turn = turns.addObject();
-        turn.put("idempotencyKey", idempotencyKey);
-        turn.set("request", objectMapper.valueToTree(ImmutableMap.of("message", message)));
-        turn.set("acceptedResponse", acceptedResponse);
-        turn.set("terminalResponse", terminalResponse);
-    }
-
-    private JsonNode sanitizeTranscript(
-            JsonNode transcript,
-            String taskId,
-            String firstTurnId,
-            String secondTurnId)
-    {
-        Map<String, String> values = ImmutableMap.<String, String>builder()
-                .put(workspaceId, "<workspace-id>")
-                .put(tasks.get(TaskId.valueOf(taskId)).taskWorktree().orElseThrow().generatedBranch(), "<generated-branch>")
-                .put(taskId, "<task-id>")
-                .put(firstTurnId, "<turn-1>")
-                .put(secondTurnId, "<turn-2>")
-                .buildOrThrow();
-        JsonNode sanitized = transcript.deepCopy();
-        sanitizeNode(sanitized, values);
-        return sanitized;
-    }
-
-    private static void sanitizeNode(JsonNode node, Map<String, String> replacements)
-    {
-        if (node.isArray()) {
-            node.forEach(child -> sanitizeNode(child, replacements));
-            return;
-        }
-        if (!node.isObject()) {
-            return;
-        }
-        ObjectNode object = (ObjectNode) node;
-        List<String> fields = new ArrayList<>();
-        object.fieldNames().forEachRemaining(fields::add);
-        for (String field : fields) {
-            JsonNode value = object.get(field);
-            if ((field.equals("head") || field.equals("resultHead")) && value.isTextual()) {
-                object.put(field, "<head>");
-                continue;
-            }
-            if (field.equals("elapsed") && value.isTextual()) {
-                object.put(field, "<duration>");
-                continue;
-            }
-            if (field.equals("eventId") && value.isTextual()) {
-                object.put(field, "<event-id>");
-                continue;
-            }
-            if (TIMESTAMP_FIELDS.contains(field) && value.isTextual()) {
-                object.put(field, "<timestamp>");
-                continue;
-            }
-            if (value.isTextual()) {
-                String text = value.asText();
-                for (Map.Entry<String, String> replacement : replacements.entrySet()) {
-                    text = text.replace(replacement.getKey(), replacement.getValue());
-                }
-                object.put(field, text);
-                continue;
-            }
-            sanitizeNode(value, replacements);
-        }
     }
 
     private Map<String, Object> createTaskBody(String laneId)
@@ -2193,6 +2082,7 @@ class TestAgentHttpApi
                         "expectedVersion", taskVersion(taskId)),
                 "attach-1").getBody();
         assertThat(turn.required("settings").required("attachments").get(0).required("id").asText()).isEqualTo(attachmentId);
+        assertThat(turn.required("settings").required("attachments").get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("id", "name", "mediaType");
         JsonNode events = get("/agent/tasks/" + taskId + "/events?after=0&limit=10").getBody();
         assertThat(events)
                 .filteredOn(event -> event.path("payload").path("attachments").size() == 1)

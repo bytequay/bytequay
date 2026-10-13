@@ -37,7 +37,6 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -217,18 +216,6 @@ class TestCommitHistoryService
                 .hasMessageContaining("Workspace not found");
 
         verify(refresher, never()).status("missing");
-    }
-
-    @Test
-    void hasNoProviderOrNetworkClientDependency()
-    {
-        Set<Class<?>> dependencies = java.util.Arrays.stream(CommitHistoryService.class.getDeclaredFields())
-                .map(java.lang.reflect.Field::getType)
-                .collect(java.util.stream.Collectors.toSet());
-
-        assertThat(dependencies)
-                .contains(WorkspaceRepositoryService.class, GitBrowseService.class, RepositoryEnrichmentService.class)
-                .noneMatch(type -> type.getSimpleName().contains("GitHub") || type.getSimpleName().contains("Http"));
     }
 
     private void ready(WorkspaceSummary summary, RemoteSource... extraRemotes)

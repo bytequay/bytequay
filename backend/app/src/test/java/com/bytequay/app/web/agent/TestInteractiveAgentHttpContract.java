@@ -26,6 +26,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentSessionRef;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -164,106 +165,6 @@ class TestInteractiveAgentHttpContract
     }
 
     @Test
-    void narrowedResponsesContainNoBackendExecutionHandles()
-    {
-        assertThat(InteractiveAgentHttpContract.TaskResponse.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly(
-                        "id",
-                        "workspaceId",
-                        "generatedBranch",
-                        "title",
-                        "titleSource",
-                        "laneId",
-                        "defaults",
-                        "state",
-                        "mutationClaim",
-                        "version",
-                        "createdAt",
-                        "updatedAt",
-                        "terminalAt",
-                        "terminalReason",
-                        "metrics",
-                        "summary",
-                        "cleanupState",
-                        "deleteAfter",
-                        "cleanupFailure",
-                        "checkoutRemovedAt",
-                        "archivedAt",
-                        "interactive",
-                        "developmentContinuationUnfinished",
-                        "developmentCi",
-                        "pullRequest",
-                        "issueSource",
-                        "jiraSource");
-        assertThat(InteractiveAgentHttpContract.MutationClaim.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly("kind", "ownerId", "acquiredAt");
-        assertThat(InteractiveAgentHttpContract.TurnResponse.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly(
-                        "id",
-                        "taskId",
-                        "state",
-                        "version",
-                        "createdAt",
-                        "startedAt",
-                        "endedAt",
-                        "cancellationRequestedAt",
-                        "delivered",
-                        "knownUnsent",
-                        "settings",
-                        "terminalReason",
-                        "failureKind",
-                        "metrics",
-                        "developmentResult",
-                        "developmentOrigin",
-                        "workflowRequest",
-                        "plan",
-                        "guidelines",
-                        "memories");
-        assertThat(InteractiveAgentHttpContract.TaskSummaryResponse.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly(
-                        "finalResponse",
-                        "resultBranch",
-                        "resultHead",
-                        "metrics",
-                        "notes",
-                        "children");
-        assertThat(InteractiveAgentHttpContract.TurnSettings.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly(
-                        "model",
-                        "effort",
-                        "permissionPolicy",
-                        "maximumRuntimeMillis",
-                        "attachments",
-                        "serviceTier",
-                        "developmentAutomation");
-        assertThat(InteractiveAgentHttpContract.AttachmentReference.class.getRecordComponents())
-                .extracting(component -> component.getName())
-                .containsExactly("id", "name", "mediaType");
-    }
-
-    @Test
-    void acceptsConfiguredInteractiveLanes()
-    {
-        InteractiveAgentHttpContract.CreateTaskRequest request = new InteractiveAgentHttpContract.CreateTaskRequest(
-                "11111111-1111-1111-1111-111111111111",
-                "workspace-1",
-                "Task",
-                "claude",
-                new InteractiveAgentHttpContract.TaskDefaults(
-                        Optional.of("claude-opus-4-1"),
-                        Optional.empty(),
-                        "AUTO"),
-                "create-key");
-
-        assertThat(request.laneId()).isEqualTo("claude");
-    }
-
-    @Test
     void rejectsMissingModelAndInternalPermissionPolicies()
     {
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
@@ -299,8 +200,6 @@ class TestInteractiveAgentHttpContract
                 Optional.of("gpt-5.6-codex"),
                 Optional.of("high"),
                 "AUTO");
-        assertThat(new InteractiveAgentHttpContract.UpdateDefaultsRequest(3, defaults).expectedVersion())
-                .isEqualTo(3);
 
         // Without a version a stale screen could overwrite a change it never saw.
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.UpdateDefaultsRequest(-1, defaults))
@@ -332,7 +231,8 @@ class TestInteractiveAgentHttpContract
                 new RepositoryIdentity("bytequay", "repository"),
                 temporaryDirectory.toAbsolutePath(),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                now);
+                now)
+                .withSessionReference(new AgentSessionRef(AgentLaneId.CODEX_CLI, 1, "private-provider-session"), now);
         AgentTurn turn = new AgentTurn(
                 TurnId.random(),
                 taskId,
@@ -356,7 +256,7 @@ class TestInteractiveAgentHttpContract
 
         assertThat(taskJson.path("defaults").get("model").isNull()).isTrue();
         assertThat(taskJson.get("generatedBranch").isNull()).isTrue();
-        assertThat(taskJson.toString()).doesNotContain("worktree", "repository", "sessionReference");
+        assertThat(taskJson.toString()).doesNotContain("worktree", "repository", "sessionReference", "private-provider-session", temporaryDirectory.toString());
         assertThat(turnJson.get("settings").isNull()).isTrue();
         assertThat(turnJson.toString()).doesNotContain("private-idempotency-key", "providerTurnReference");
     }

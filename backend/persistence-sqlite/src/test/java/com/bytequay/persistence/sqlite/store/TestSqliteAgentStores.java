@@ -78,6 +78,8 @@ import com.google.common.collect.ImmutableSet;
 import jakarta.persistence.EntityManager;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -539,8 +541,9 @@ class TestSqliteAgentStores
         assertThat(taskStore.find(task.id()).orElseThrow().defaults().serviceTier()).contains("priority");
     }
 
-    @Test
-    void retainsUnfinishedContinuationAndTrustedTurnOriginAcrossReload()
+    @ParameterizedTest
+    @EnumSource(DevelopmentTurnOrigin.Kind.class)
+    void retainsUnfinishedContinuationAndTrustedTurnOriginAcrossReload(DevelopmentTurnOrigin.Kind kind)
     {
         assertThat(jdbc.queryForList("PRAGMA table_info('agent_task')"))
                 .filteredOn(column -> column.get("name").equals("development_continuation_unfinished"))
@@ -548,21 +551,24 @@ class TestSqliteAgentStores
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask task = newTask(now).withDevelopmentContinuation(true, now);
         taskStore.insert(task);
-        DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, TurnId.random());
-        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "generated-commit",
+        DevelopmentTurnOrigin origin = new DevelopmentTurnOrigin(kind, TurnId.random());
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "generated-turn",
                         new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()), now)
-                .withDevelopmentOrigin(origin)
-                .markDeliveryStarted(now.plusSeconds(1))
+                .withDevelopmentOrigin(origin);
+        turnStore.insert(turn);
+        entityManager.clear();
+        assertThat(turnStore.find(turn.id())).contains(turn);
+
+        AgentTurn completed = turnStore.update(turn.markDeliveryStarted(now.plusSeconds(1))
                 .running(new ProviderTurnRef("generated-native-turn"), Optional.of("model"))
                 .withDevelopmentResult(new DevelopmentResultReport(true, Optional.empty()))
-                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusSeconds(2));
-        turnStore.insert(turn);
+                .finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), now.plusSeconds(2)));
         entityManager.clear();
 
         AgentTask restored = taskStore.find(task.id()).orElseThrow();
         assertThat(restored.developmentContinuationUnfinished()).isTrue();
         assertThat(restored.withDefaults(restored.defaults(), now.plusSeconds(3)).developmentContinuationUnfinished()).isTrue();
-        assertThat(turnStore.find(turn.id()).orElseThrow().developmentOrigin()).contains(origin);
+        assertThat(turnStore.find(turn.id())).contains(completed);
         taskStore.update(restored.withDevelopmentContinuation(false, now.plusSeconds(4)));
         entityManager.clear();
         assertThat(taskStore.find(task.id()).orElseThrow().developmentContinuationUnfinished()).isFalse();

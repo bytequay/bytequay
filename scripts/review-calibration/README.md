@@ -138,7 +138,9 @@ judge prompt measure it again on calls nobody has read.
 `activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It
 reads the task event logs under
 `~/Library/Application Support/ByteQuay/agent-runtime`, or `--runtime DIR`,
-opens no database and changes nothing. It needs only the standard library.
+and changes nothing. Its tables come from the logs alone; only `--save` also
+reads ByteQuay's database, as described below. It needs only the standard
+library.
 
 ```sh
 uv run activity.py
@@ -194,7 +196,24 @@ uv run activity.py --save
 turn table: one row for every turn, with its task id, its start, how it ended,
 the seconds of each part of its time, the programs it ran and what the model
 reacted to. Both hold names, counts and times and nothing else: no command
-arguments, no paths and no message text. `fixture/saved-review-scores.json` and
+arguments, no paths and no message text.
+
+For the turn table `activity.py` also reads ByteQuay's own database,
+`bytequay-1.0.db` beside the runtime folder or `--database PATH`. `records.py`
+opens it read-only and takes, for each turn, its model, effort, provider,
+repository name, tokens, cost, tool calls and how it ended, and no title,
+prompt or other text. A turn in both the log and the database gets these facts
+in its row. A turn only in the log has none of them. A turn only in the
+database gets a row without a time split, because its log is gone. When the
+database is missing or has another shape, the table is saved from the logs
+alone and says why.
+
+ByteQuay stores on a Codex turn the running token total of its thread, not the
+turn's own tokens, so `records.py` gives a Codex turn what that total grew by
+since the task's turn before it. A Claude turn already holds its own tokens.
+For any other provider the lab cannot tell which it is and saves no tokens.
+A test reads the application's source and fails when the columns the lab reads,
+or the way the application counts tokens, change. `fixture/saved-review-scores.json` and
 `fixture/saved-turns.json` are small examples of the two shapes. The tests
 write them, so an example is always exactly what the lab saves. Run the tests
 once with `UPDATE_SAVED_EXAMPLES=1` after changing a shape on purpose.
@@ -209,12 +228,22 @@ uv run dashboard.py FOLDER --port 8600
 `dashboard.py` shows the saved turn table as one page at
 `http://127.0.0.1:8517`. It reads the folder and nothing else: not the task
 logs and not the application's data. Pick the days in the side bar; days are
-in the reader's own time zone, while `--since` counts in UTC. The Overview tab
-has the totals, a ring of the three states, a ring of how the turns ended and
-the turn time of each day. The Time tab has every part of the time as rings,
-bars for what the agent waited for, shell time by program, model time by what
-just finished, and the tasks that took the most time. The numbers are those of
-the terminal tables on the same turns.
+in the reader's own time zone, while `--since` counts in UTC. A model and
+effort can be picked there too. The Overview tab has the totals, a ring of the
+three states, a ring of how the turns ended and the turn time of each day. The
+Time tab has every part of the time as rings, bars for what the agent waited
+for, shell time by program, model time by what just finished, and the tasks
+that took the most time. Both are about turns that have a log, and their
+numbers are those of the terminal tables on the same turns.
+
+The Models tab is about turns the database knows. It lists every model and
+effort with its turns, typical turn, typical tokens and tool calls, and how
+often a turn completed, then draws the typical turn as a grid of model by
+effort, the spread of turn length, the time split and the endings side by
+side. "Typical" is the middle turn, so a few very long turns do not move it.
+A model and effort with fewer than five turns stays in the table and out of
+the charts. Different tasks ran under each one, so the tab shows what
+happened and is not a fair test of which is better.
 
 The page is served to this machine only. Started any other way, for example
 with `streamlit run dashboard.py`, Streamlit would serve it to the whole

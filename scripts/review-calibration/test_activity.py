@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 import activity
+from test_records import database
 
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
 WHEN = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
@@ -226,7 +227,9 @@ class Logs(unittest.TestCase):
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
-        self.runtime = Path(directory.name)
+        # As in the application's own folder, the runtime folder has the database for a neighbour.
+        self.runtime = Path(directory.name) / "agent-runtime"
+        self.runtime.mkdir()
 
     def log(self, task, *groups, extra=""):
         folder = self.runtime / task
@@ -375,21 +378,60 @@ class TestTurns(Logs):
         late = self.log("cccc-3333", [event(0, "lifecycle", phase="TASK_FAILED")], turn(10, 70), [event(90, "lifecycle", phase="INTERRUPTED")])
         self.assertEqual([one.ended for one in activity.measure([late]).each], ["TURN_COMPLETED"])
 
+    def recorded(self):
+        """What the database holds: the two turns of the first task, nothing for the second task, and a turn that has no log."""
+        day = START.timestamp() + 86400
+        blank = dict.fromkeys(activity.FACTS)
+        return {("aaaa-1111", "t1"): {**blank, "start": START.timestamp(), "seconds": 601, "outcome": "completed", "provider": "codex", "model": "gpt-6-astra", "effort": "max",
+                                      "repository": "trinodb/trino", "inputTokens": 900000, "cachedInputTokens": 850000, "outputTokens": 4000, "toolCalls": 30, "compactions": 0},
+                ("aaaa-1111", "t2"): {**blank, "start": day, "seconds": 299, "outcome": "cancelled", "provider": "codex", "model": "gpt-6-astra", "effort": "medium",
+                                      "repository": "trinodb/trino", "inputTokens": 200000, "cachedInputTokens": 150000, "outputTokens": 1000, "toolCalls": 8, "compactions": 0},
+                ("cccc-3333", "t9"): {**blank, "start": day + 7200, "seconds": 240, "outcome": "completed", "provider": "claude", "model": "opus", "effort": "high",
+                                      "repository": "bytequay/bytequay", "inputTokens": 50000, "cachedInputTokens": 40000, "outputTokens": 2000, "cost": 1.5, "toolCalls": 12,
+                                      "compactions": 1}}
+
     def test_turn_table_has_one_row_per_turn_and_is_the_example_the_dashboard_tests_read(self):
-        made = activity.turn_table(self.two_days(), WHEN)
+        made = activity.turn_table(self.two_days(), WHEN, recorded=self.recorded())
         matches_example(self, "saved-turns.json", made)
         self.assertEqual((made["version"], made["savedAt"], made["since"], made["task"], made["leftOut"]), (1, "2026-01-02T03:04:05Z", None, None, {"skippedLines": 0, "unreadLogs": 0}))
-        self.assertEqual([(row["task"], row["start"], row["seconds"], row["ended"]) for row in made["turns"]],
-                         [("aaaa-1111", "2026-01-01T00:00:00Z", 600, "TURN_COMPLETED"), ("aaaa-1111", "2026-01-02T00:00:00Z", 300, "INTERRUPTED"),
-                          ("bbbb-2222", "2026-01-02T01:00:00Z", 120, "")])
+        self.assertEqual([(row["task"], row["start"], row["seconds"], row["logged"], row["outcome"]) for row in made["turns"]],
+                         [("aaaa-1111", "2026-01-01T00:00:00Z", 600, True, "completed"), ("aaaa-1111", "2026-01-02T00:00:00Z", 300, True, "cancelled"),
+                          ("bbbb-2222", "2026-01-02T01:00:00Z", 120, True, "no end mark"), ("cccc-3333", "2026-01-02T02:00:00Z", 240, False, "completed")])
         first = made["turns"][0]
         self.assertEqual(first["groups"], {"model silent": 358, "tests and builds": 120, "ByteQuay tools": 60, "waiting for you": 60, "model writing": 2})
         self.assertEqual(first["programs"], {"maven": {"seconds": 120, "runs": 1}})
         self.assertEqual(first["after"]["after you answered"], {"seconds": 330, "times": 1})
         self.assertEqual((first["parallel"], first["mostAtOnce"], first["unfinished"]), (60, 2, 0))
-        for row in made["turns"]:
+        for row in made["turns"][:3]:  # the turns with a log
             self.assertEqual(sum(row["groups"].values()), row["seconds"])
             self.assertEqual(sum(after["seconds"] for after in row["after"].values()), sum(row["groups"].get(group, 0) for group in activity.STATES[0][1]))
+
+    def test_turn_in_the_log_and_the_database_gets_its_model_effort_tokens_and_outcome_from_the_database(self):
+        made = activity.turn_table(self.two_days(), WHEN, recorded=self.recorded())
+        first, second, only_logged, only_recorded = made["turns"]
+        self.assertEqual({name: first[name] for name in activity.FACTS},
+                         {"provider": "codex", "model": "gpt-6-astra", "effort": "max", "repository": "trinodb/trino", "inputTokens": 900000, "cachedInputTokens": 850000,
+                          "outputTokens": 4000, "cost": None, "toolCalls": 30, "compactions": 0})
+        self.assertEqual((first["seconds"], second["effort"], second["outcome"]), (600, "medium", "cancelled"))  # time is the log's, the ending is the database's
+        # Only in the log: its time split is known, and nothing else is made up.
+        self.assertEqual(({name: only_logged[name] for name in activity.FACTS}, only_logged["outcome"]), (dict.fromkeys(activity.FACTS), "no end mark"))
+        # Only in the database: no time split, and its time is the database's own.
+        self.assertEqual((only_recorded["model"], only_recorded["cost"], only_recorded["seconds"], only_recorded["groups"], only_recorded["programs"], only_recorded["after"]),
+                         ("opus", 1.5, 240, {}, {}, {}))
+        self.assertEqual(made["database"], {"turns": 3, "matched": 2})
+
+    def test_turn_only_in_the_database_follows_the_same_filters_as_the_logs(self):
+        total, recorded = self.two_days(), self.recorded()
+        rows = lambda **filters: [row["task"] for row in activity.turn_table(total, WHEN, recorded=recorded, **filters)["turns"] if not row["logged"]]
+        self.assertEqual((rows(), rows(since="2026-01-02"), rows(since="2026-01-03"), rows(task="cccc"), rows(task="aaaa")), (["cccc-3333"], ["cccc-3333"], [], ["cccc-3333"], []))
+
+    def test_database_that_was_not_read_is_named_and_nothing_is_made_up(self):
+        total = self.two_days()
+        made = activity.turn_table(total, WHEN, problem="the database is not there")
+        self.assertEqual((made["database"], len(made["turns"])), ({"problem": "the database is not there"}, 3))
+        self.assertEqual({row[name] for row in made["turns"] for name in activity.FACTS}, {None})
+        self.assertEqual([row["outcome"] for row in made["turns"]], ["completed", "interrupted", "no end mark"])  # as the logs say it
+        self.assertEqual(activity.turn_table(total, WHEN)["database"], {"problem": "the database was not read"})
 
     def test_turn_table_names_programs_and_never_their_arguments(self):
         saved_text = json.dumps(activity.turn_table(self.two_days(), WHEN))
@@ -442,11 +484,37 @@ class TestCommandLine(Logs):
         self.assertEqual([path.name for path in folder.iterdir()], ["turns.json"])
         written = json.loads((folder / "turns.json").read_text())
         self.assertEqual((written["version"], written["task"], [(row["task"], row["seconds"]) for row in written["turns"]]), (1, "aaaa", [("aaaa-1111", 600)]))
+        # No database beside the runtime folder: the table is saved from the logs alone and says so.
+        self.assertEqual((written["database"], written["turns"][0]["model"]), ({"problem": "the database is not there"}, None))
+        self.assertIn("Model, effort, tokens and cost are left out: the database is not there.", first.stdout)
         self.assertTrue(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", written["savedAt"]))
         nothing = self.run_script("--since", "2030-01-01", "--save", str(folder))
         self.assertEqual((nothing.returncode, nothing.stderr), (0, ""))
         self.assertNotIn("Saved to", nothing.stdout)
         self.assertEqual(json.loads((folder / "turns.json").read_text()), written)
+
+    def test_save_adds_what_the_database_beside_the_runtime_folder_knows_and_never_changes_it(self):
+        self.log("aaaa-1111", TEN_MINUTES)
+        beside = database(self.runtime.parent / "bytequay-1.0.db", tasks=[("aaaa-1111", "codex", "trinodb", "trino"), ("zzzz-9999", "claude", "o", "n")], turns=[
+            ("aaaa-1111", "t1", at(0), 600_000, None, "gpt-6-astra", "Max", "COMPLETED", 900, 800, 40, None, 7, 0),
+            ("zzzz-9999", "t1", at(50), 30_000, None, "opus", "high", "FAILED", 100, 0, 10, 0.25, 1, 0)])
+        before = beside.read_bytes()
+        folder = self.runtime.parent / "saved"
+        saved_all = self.run_script("--save", str(folder))
+        self.assertEqual((saved_all.returncode, saved_all.stderr), (0, ""))
+        self.assertNotIn("left out", saved_all.stdout)
+        written = json.loads((folder / "turns.json").read_text())
+        self.assertEqual(written["database"], {"turns": 2, "matched": 1})
+        self.assertEqual([(row["task"], row["logged"], row["model"], row["effort"], row["outcome"], row["inputTokens"], row["cost"]) for row in written["turns"]],
+                         [("aaaa-1111", True, "gpt-6-astra", "max", "completed", 900, None), ("zzzz-9999", False, "opus", "high", "failed", 100, 0.25)])
+        self.assertEqual(beside.read_bytes(), before)
+        # The tables in the terminal are the same with and without the database: they come from the logs alone.
+        self.assertEqual(saved_all.stdout.split("\n\nSaved to")[0], self.run_script().stdout.rstrip("\n"))
+        elsewhere = database(self.runtime.parent / "another.db", without=("effort",))
+        other_shape = self.run_script("--save", str(folder), "--database", str(elsewhere))
+        self.assertEqual(other_shape.returncode, 0, other_shape.stderr)
+        self.assertIn("Model, effort, tokens and cost are left out: the database has another shape (no such column: turn.effort).", other_shape.stdout)
+        self.assertEqual(json.loads((folder / "turns.json").read_text())["database"], {"problem": "the database has another shape (no such column: turn.effort)"})
 
     def test_wrong_arguments_are_refused_with_a_reason(self):
         self.log("aaaa-1111", TEN_MINUTES)

@@ -10,6 +10,7 @@ from unittest import mock
 from streamlit import config
 from streamlit.testing.v1 import AppTest
 
+import activity
 import charts
 import dashboard
 
@@ -52,8 +53,48 @@ class Page(unittest.TestCase):
         self.assertEqual(len(page.get("plotly_chart")), 8)
         captions = [caption.value for caption in page.caption]
         self.assertIn("Two or more tools ran at once for 1.3 minutes; the most at once was 2.", captions)  # 60 seconds in one turn and 20 in another
-        self.assertIn("3 of 3 turns. Days are in your own time zone.", captions)
+        self.assertIn("4 of 4 turns. Days are in your own time zone.", captions)
+        self.assertIn("With a log, so the time split is known: 3. In ByteQuay's records, so the model is known: 3. In both: 2.", captions)
         self.assertEqual([[row["program"], row["minutes"], row["runs"]] for _, row in page.dataframe[0].value.iterrows()], [["maven", 2, 1], ["npm", 2, 1], ["git", 0.7, 1]])
+
+    def test_models_tab_lists_every_model_and_effort_and_draws_only_those_with_enough_turns(self):
+        self.save()
+        page = self.page()
+        table = page.dataframe[1].value
+        self.assertEqual(table[["model and effort", "turns", "typical minutes", "typical tokens in", "completed %"]].values.tolist(),
+                         [["gpt-6-astra · max", 1, 10, 900000, 100], ["gpt-6-astra · medium", 1, 5, 200000, 0], ["opus · high", 1, 4, 50000, 100]])
+        self.assertIn("Different tasks ran on each model and effort, so this shows what happened, not which one is better. One with fewer than 5 turns is in the table only. "
+                      "Typical means the middle turn: half are below it, half above.", [caption.value for caption in page.caption])
+        self.assertEqual(len(page.get("plotly_chart")), 8)  # one turn each: the table has them, the charts do not
+        with mock.patch.object(charts, "MIN_TURNS", 1):
+            drawn = self.page()
+        self.assertEqual(list(drawn.exception), [])
+        self.assertEqual([heading.value for heading in drawn.subheader][-4:],
+                         ["Typical turn, by model and effort", "How long a turn took", "How each split its time", "How the turns ended"])
+        self.assertEqual(len(drawn.get("plotly_chart")), 12)
+
+    def test_choosing_a_model_and_effort_narrows_every_tab(self):
+        self.save()
+        page = self.page()
+        self.assertEqual(page.sidebar.multiselect[0].options, ["gpt-6-astra · max", "gpt-6-astra · medium", "opus · high"])
+        page.sidebar.multiselect[0].set_value(["gpt-6-astra · medium"]).run()
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual([(tile.label, tile.value) for tile in page.metric][:3], [("Turn time", "0.1 h"), ("Tasks", "1"), ("Turns", "1")])
+        self.assertEqual([row["program"] for _, row in page.dataframe[0].value.iterrows()], ["npm"])
+        self.assertEqual(page.dataframe[1].value["model and effort"].tolist(), ["gpt-6-astra · medium"])
+        # A turn the database knows and no log holds: the time tabs say so, and the Models tab still has it.
+        page.sidebar.multiselect[0].set_value(["opus · high"]).run()
+        self.assertEqual(([note.value for note in page.info], len(page.metric)), (["No turn of this choice has a log."] * 2, 0))
+        self.assertEqual(page.dataframe[0].value["model and effort"].tolist(), ["opus · high"])
+
+    def test_models_tab_says_why_when_the_database_was_not_read(self):
+        table = json.loads(EXAMPLE.read_text())
+        logged = [{**row, **dict.fromkeys(activity.FACTS)} for row in table["turns"] if row["logged"]]
+        self.save(json.dumps({**table, "database": {"problem": "the database is not there"}, "turns": logged}))
+        page = self.page()
+        self.assertEqual(list(page.exception), [])
+        self.assertEqual([note.value for note in page.info], ["Model, effort and tokens were not saved: the database is not there. Save again with `uv run activity.py --save`"])
+        self.assertEqual((len(page.metric), len(page.sidebar.multiselect)), (5, 0))  # the time tabs are whole, and there is no model to pick
 
     def test_choosing_days_changes_every_number(self):
         self.save()
@@ -63,7 +104,7 @@ class Page(unittest.TestCase):
         self.assertEqual(list(page.exception), [])
         self.assertEqual([(tile.label, tile.value) for tile in page.metric][:3], [("Turn time", "0.1 h"), ("Tasks", "2"), ("Turns", "2")])
         captions = [caption.value for caption in page.caption]
-        self.assertIn("2 of 3 turns. Days are in your own time zone.", captions)
+        self.assertIn("3 of 4 turns. Days are in your own time zone.", captions)
         self.assertIn("Two or more tools ran at once for 0.3 minutes; the most at once was 2.", captions)
         self.assertEqual([row["program"] for _, row in page.dataframe[0].value.iterrows()], ["npm", "git"])
 

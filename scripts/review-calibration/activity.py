@@ -11,7 +11,9 @@ import json
 from pathlib import Path
 import re
 import shlex
+import sqlite3
 
+import records
 import saved
 
 ENDED = ("COMPLETED", "FAILED")
@@ -246,6 +248,7 @@ class Turn:
     """What one turn adds up to. Times are in seconds."""
 
     task: str
+    turn: str
     start: float
     end: float
     ended: str = ""  # the mark that closed the turn; empty when the log has none, as for a turn that is still running
@@ -308,7 +311,7 @@ def measure(logs, since=None):
         total.tasks += 1
         total.skipped += skipped
         closed = endings(events)
-        turns = {turn: Turn(log.parent.name, begin, end, closed.get(turn, "")) for turn, (begin, end) in windows.items()}
+        turns = {turn: Turn(log.parent.name, turn, begin, end, closed.get(turn, "")) for turn, (begin, end) in windows.items()}
         for item in unfinished:
             if item.turn in turns:
                 turns[item.turn].unfinished += 1
@@ -427,15 +430,44 @@ def timeline(total, least=30):
     return "\n".join(lines)
 
 
-def turn_table(total, when, since=None, task=None):
-    """One row per turn for the dashboard, which adds them up any way it likes. Names, counts and times, and nothing else."""
-    return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task,
-            "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread},
-            "turns": [{"task": one.task, "start": datetime.fromtimestamp(one.start, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "seconds": round(one.end - one.start, 3),
-                       "ended": one.ended, "groups": {group: round(length, 3) for group, length in one.groups.items()},
-                       "programs": {name: {"seconds": round(length, 3), "runs": one.program_runs[name]} for name, length in one.program_seconds.items()},
-                       "after": {before: {"seconds": round(length, 3), "times": one.after_times[before]} for before, length in one.after.items()},
-                       "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished} for one in total.each]}
+# How a turn ended when only its log can say, in the words the database uses for the same endings.
+OUTCOMES = {"TURN_COMPLETED": "completed", "INTERRUPTED": "interrupted", "TASK_FAILED": "failed", "": "no end mark"}
+FACTS = ("provider", "model", "effort", "repository", "inputTokens", "cachedInputTokens", "outputTokens", "cost", "toolCalls", "compactions")
+
+
+def stamp(moment):
+    return datetime.fromtimestamp(moment, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def midnight(day_text):
+    """The start of a UTC day given as YYYY-MM-DD, in seconds."""
+    return datetime.strptime(day_text, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
+
+
+def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
+    """One row per turn for the dashboard, which adds them up any way it likes. Names, counts and times, and nothing else.
+
+    `recorded` is what the database holds for each (task id, turn id). A turn found in both gets its model, effort,
+    tokens and outcome from there. A turn only the database knows gets a row without a time split. `problem` says why
+    the database was not read."""
+    rows, known = [], recorded or {}
+    for one in total.each:
+        facts = known.get((one.task, one.turn))
+        rows.append({"task": one.task, "start": stamp(one.start), "seconds": round(one.end - one.start, 3), "logged": True,
+                     "outcome": facts and facts["outcome"] or OUTCOMES[one.ended], **{name: facts[name] if facts else None for name in FACTS},
+                     "groups": {group: round(length, 3) for group, length in one.groups.items()},
+                     "programs": {name: {"seconds": round(length, 3), "runs": one.program_runs[name]} for name, length in one.program_seconds.items()},
+                     "after": {before: {"seconds": round(length, 3), "times": one.after_times[before]} for before, length in one.after.items()},
+                     "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished})
+    logged = {(one.task, one.turn) for one in total.each}
+    for (owner, turn), facts in sorted(known.items(), key=lambda made: (made[1]["start"], made[0])):
+        # The same filters as for the logs, so a saved table never mixes two selections.
+        if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
+            rows.append({"task": owner, "start": stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
+                         **{name: facts[name] for name in FACTS}, "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0})
+    database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
+    return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,
+            "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread}, "turns": rows}
 
 
 def main():
@@ -444,11 +476,12 @@ def main():
     parser.add_argument("--task", help="Only the task whose id starts with this, with a timeline of its long stretches")
     parser.add_argument("--since", help="Only turns that started on or after this day, YYYY-MM-DD in UTC")
     parser.add_argument("--save", type=Path, nargs="?", const=saved.FOLDER, metavar="FOLDER", help="Also save the numbers for the dashboard")
+    parser.add_argument("--database", type=Path, help="ByteQuay's database, read only when saving and never written; by default the one beside the runtime folder")
     args = parser.parse_args()
     if args.task and not re.fullmatch(r"[0-9a-fA-F-]+", args.task):
         parser.error("--task takes the start of a task id: letters a to f, digits and dashes")
     try:
-        since = datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp() if args.since else None
+        since = midnight(args.since) if args.since else None
     except ValueError:
         parser.error("--since takes a day as YYYY-MM-DD")
     logs = sorted(args.runtime.glob((args.task or "") + "*/events.jsonl"))
@@ -457,7 +490,16 @@ def main():
     total = measure(logs, since)
     print(render(total) + ("\n\n" + timeline(total) if args.task and total.turns else ""))
     if args.save and total.turns:  # with no turns there is nothing worth replacing an earlier result with
-        print("\nSaved to", saved.write(args.save, "turns.json", turn_table(total, datetime.now(timezone.utc), args.since, args.task)))
+        # The tables above come from the logs alone. Only the saved table also carries what the database knows about a turn.
+        try:
+            recorded, problem = records.read(args.database or args.runtime.parent / "bytequay-1.0.db"), None
+        except OSError:
+            recorded, problem = None, "the database is not there"
+        except sqlite3.Error as error:
+            recorded, problem = None, f"the database has another shape ({error})"
+        if problem:
+            print(f"\nModel, effort, tokens and cost are left out: {problem}.")
+        print("\nSaved to", saved.write(args.save, "turns.json", turn_table(total, datetime.now(timezone.utc), args.since, args.task, recorded, problem)))
 
 
 if __name__ == "__main__":

@@ -34,7 +34,15 @@ def chosen(made, table):
         # While the reader is still picking the second day there is only one, and it stands for both ends.
         first, last = (picked[0], picked[-1]) if picked else (days.min(), days.max())
         shown = charts.within(made, first, last)
-        st.caption(f"{len(shown['turns']):,} of {len(made['turns']):,} turns. Days are in your own time zone.")
+        names = [row["model and effort"] for row in charts.settings_table(made["turns"])]
+        wanted = st.multiselect("Model and effort", names, placeholder="All") if names else []
+        if wanted:
+            shown = charts.only(shown, shown["turns"]["setting"].isin(wanted))
+        turns = shown["turns"]
+        st.caption(f"{len(turns):,} of {len(made['turns']):,} turns. Days are in your own time zone.")
+        # Two sources stand behind a turn, and not every turn is in both.
+        st.caption(f"With a log, so the time split is known: {int(turns['logged'].sum()):,}. In ByteQuay's records, so the model is known: "
+                   f"{int(turns['setting'].notna().sum()):,}. In both: {int((turns['logged'] & turns['setting'].notna()).sum()):,}.")
         st.caption(f"Saved {when(table['savedAt'])}")
         if table["since"]:
             st.caption(f"Only turns that started on or after {table['since']} were saved.")
@@ -89,6 +97,33 @@ def time(shown, mode):
     st.plotly_chart(charts.tasks_figure(turns, parts, mode), **SHOW)
 
 
+def models(shown, table, mode):
+    turns = shown["turns"]
+    if "problem" in table["database"]:
+        st.info(f"Model, effort and tokens were not saved: {table['database']['problem']}. Save again with `{SAVE}`")
+        return
+    rows = charts.settings_table(turns)
+    if not rows:
+        st.info("ByteQuay's records hold no turn for this choice.")
+        return
+    st.caption(f"Different tasks ran on each model and effort, so this shows what happened, not which one is better. "
+               f"One with fewer than {charts.MIN_TURNS} turns is in the table only. Typical means the middle turn: half are below it, half above.")
+    st.dataframe(rows, hide_index=True, column_config={name: st.column_config.NumberColumn(format="localized") for name in ("typical tokens in", "typical tokens out")})
+    if not charts.settings(turns):
+        return
+    st.subheader("Typical turn, by model and effort")
+    st.plotly_chart(charts.heat_figure(turns, mode), **SHOW)
+    st.subheader("How long a turn took")
+    st.caption("A box holds the middle half of the turns. The line in it is the typical turn, and each dot is a turn far from the rest.")
+    st.plotly_chart(charts.lengths_figure(turns, mode), **SHOW)
+    if charts.settings(turns, logged=True):
+        st.subheader("How each split its time")
+        st.caption("Only turns that also have a log.")
+        st.plotly_chart(charts.split_figure(turns, shown["parts"], mode), **SHOW)
+    st.subheader("How the turns ended")
+    st.plotly_chart(charts.outcomes_figure(turns, mode), **SHOW)
+
+
 def page(folder):
     st.set_page_config(page_title="ByteQuay Lab", layout="wide")
     # Started any other way, Streamlit would serve the page to the whole network.
@@ -111,14 +146,18 @@ def page(folder):
         return
     shown = chosen(made, table)
     if shown["turns"].empty:
-        st.info("No turn started in these days.")
+        st.info("No turn matches this choice.")
         return
     mode = "dark" if st.context.theme.type == "dark" else "light"
-    first, second = st.tabs(["Overview", "Time"])
+    # The first two tabs are about time, which only a log can split. The third is about what ByteQuay recorded.
+    logged = charts.only(shown, shown["turns"]["logged"])
+    first, second, third = st.tabs(["Overview", "Time", "Models"])
     with first:
-        overview(shown, table, mode)
+        overview(logged, table, mode) if len(logged["turns"]) else st.info("No turn of this choice has a log.")
     with second:
-        time(shown, mode)
+        time(logged, mode) if len(logged["turns"]) else st.info("No turn of this choice has a log.")
+    with third:
+        models(shown, table, mode)
 
 
 def main():

@@ -702,12 +702,12 @@ The implementation is concentrated in the current review service:
 | --- | --- |
 | Append-only discovery and sealed-report identity | `core.review`, [ReviewTools](ReviewTools.java), existing SQLite JSON storage |
 | Responsibility mapping, concrete contrasts and parent fallback | [ReviewPrompts](ReviewPrompts.java), `agent-skills/bytequay-review.md` |
-| Investigation, validation and bounded evidence collection | [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewStep` |
+| Investigation, validation and bounded evidence collection | [AgentReviewService](AgentReviewService.java), `ReviewStep` |
 | Supported pool, final selection and discussion origin | `ReviewValidation`, `ReviewFinding`, [ReviewSelection](ReviewSelection.java), publication checks |
 | Second reader, its facts and its leads | [ReviewSweep](ReviewSweep.java), [ReviewFacts](ReviewFacts.java), [ReviewLead](ReviewLead.java), `agent-skills/bytequay-review-sweep.md` |
-| Carrying an accepted review to a head with the same change | [ReviewHeadCheck](ReviewHeadCheck.java), `followHead` in [DefaultAgentReviewService](DefaultAgentReviewService.java), `ReviewFinding.carried` |
+| Carrying an accepted review to a head with the same change | [ReviewHeadCheck](ReviewHeadCheck.java), `followHead` in [AgentReviewService](AgentReviewService.java), `ReviewFinding.carried` |
 | Test check gate, its outcomes and the comparison with recorded runs | `core.review.ReviewTestCheck`, [ReviewTools](ReviewTools.java), [ReviewFacts](ReviewFacts.java), `LocalRun` records |
-| Private Maven repository per reviewed head | [ReviewMavenRepository](ReviewMavenRepository.java), `assignment` context, `end` in [DefaultAgentReviewService](DefaultAgentReviewService.java) |
+| Private Maven repository per reviewed head | [ReviewMavenRepository](ReviewMavenRepository.java), `assignment` context, `end` in [AgentReviewService](AgentReviewService.java) |
 | Verdicts on the user's own threads | [ReviewOwnThreads](ReviewOwnThreads.java), `own_threads` and `review_finish` in [ReviewTools](ReviewTools.java), `core.review.ReviewThreadVerdict` |
 | Provisional coverage and selected/unselected results | Review HTTP models, frontend review contracts/model/details and IDE selection |
 | Offline input freezing and bounded discovery-only calibration | [Developer runbook](../../../../../../../../../scripts/review-calibration/README.md) |

@@ -111,7 +111,7 @@ import static org.mockito.Mockito.when;
                 "bytequay.agent.claude-enabled=false",
                 "bytequay.agent.desktop-session-token=" + CiAutofixE2eHarness.SESSION,
                 "bytequay.ci-autofix.monitor-initial-delay=PT1H",
-                "logging.level.com.bytequay.app.ci.DefaultCiAutofixService=OFF"
+                "logging.level.com.bytequay.app.ci.CiAutofixService=OFF"
         })
 @AutoConfigureMockMvc
 @Import({TestCiAutofixEndToEnd.E2eConfiguration.class, CiAutofixMonitorTestDriver.class})

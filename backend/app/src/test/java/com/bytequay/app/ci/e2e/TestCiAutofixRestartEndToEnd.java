@@ -249,7 +249,7 @@ class TestCiAutofixRestartEndToEnd
                 "--bytequay.agent.desktop-session-token=" + CiAutofixE2eHarness.SESSION,
                 "--bytequay.scheduling.enabled=false",
                 "--logging.file.name=" + temporaryDirectory.resolve("backend.log"),
-                "--logging.level.com.bytequay.app.ci.DefaultCiAutofixService=OFF",
+                "--logging.level.com.bytequay.app.ci.CiAutofixService=OFF",
                 "--spring.main.banner-mode=off");
     }
 

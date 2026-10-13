@@ -85,7 +85,7 @@ class TestReviewPublicationService
     private InMemoryReviewDraftStore drafts;
     private InMemoryAgentReviewStore reviews;
     private PullRequestService pullRequests;
-    private DefaultReviewPublicationService service;
+    private ReviewPublicationService service;
 
     @BeforeEach
     void setUp()
@@ -93,7 +93,7 @@ class TestReviewPublicationService
         drafts = new InMemoryReviewDraftStore();
         reviews = new InMemoryAgentReviewStore();
         pullRequests = mock(PullRequestService.class);
-        service = new DefaultReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new ReviewPublicationService(drafts, reviews, pullRequests, Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test

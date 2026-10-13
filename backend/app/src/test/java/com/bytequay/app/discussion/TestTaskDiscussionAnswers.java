@@ -146,7 +146,7 @@ class TestTaskDiscussionAnswers
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
     private boolean hold;
     private boolean answerDuringList;
-    private final DefaultTaskDiscussionService service = service();
+    private final TaskDiscussionService service = service();
 
     private String savedContext(String section)
     {
@@ -873,7 +873,7 @@ class TestTaskDiscussionAnswers
         jobs.forEach(Runnable::run);
     }
 
-    private DefaultTaskDiscussionService service()
+    private TaskDiscussionService service()
     {
         TaskDiscussionStore store = mock(TaskDiscussionStore.class);
         when(store.find(any())).thenAnswer(call -> Optional.ofNullable(rows.get(call.getArgument(0, String.class))));
@@ -929,7 +929,7 @@ class TestTaskDiscussionAnswers
         when(pullRequests.findIdByRepoAndNumber(REPO, 12)).thenReturn(Optional.of(12L));
         PrDetailStore details = mock(PrDetailStore.class);
         when(details.find(12L)).thenReturn(Optional.of(detail()));
-        return new DefaultTaskDiscussionService(store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), ownership,
+        return new TaskDiscussionService(store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), ownership,
                 new ReviewCommentReader(pullRequests, details), writer, reviews, job -> {
                     if (hold) {
                         held.add(job);

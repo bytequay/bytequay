@@ -154,7 +154,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestDefaultAgentReviewService
+class TestAgentReviewService
 {
     private static final String WORKSPACE = "workspace-1";
     private static final String REPO = "owner/repo";
@@ -3473,11 +3473,11 @@ class TestDefaultAgentReviewService
         private final ReviewTaskObserver observer = mock(ReviewTaskObserver.class);
         private final ReviewSweep sweeps = mock(ReviewSweep.class);
         private final Map<String, AgentTurn> acceptedTurns = new LinkedHashMap<>();
-        private final DefaultAgentReviewService service;
+        private final AgentReviewService service;
 
         private Fixture()
         {
-            service = new DefaultAgentReviewService(
+            service = new AgentReviewService(
                     store,
                     drafts,
                     publications,

@@ -49,7 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 
-class TestDefaultCiMemoryService
+class TestCiMemoryService
 {
     private static final Instant NOW = Instant.parse("2026-08-17T00:00:00Z");
     private static final String HEAD = "a".repeat(40);
@@ -62,7 +62,7 @@ class TestDefaultCiMemoryService
     private TaskId taskId;
     private InMemoryCiAutofixStore store;
     private AgentResourceService resources;
-    private DefaultCiMemoryService service;
+    private CiMemoryService service;
 
     @BeforeEach
     void setUp()
@@ -75,7 +75,7 @@ class TestDefaultCiMemoryService
         });
         doAnswer(invocation -> taskResources(invocation.getArgument(0))).when(resources).require(any(TaskId.class));
         Files.createDirectories(taskResources(taskId).runtimeDirectory());
-        service = new DefaultCiMemoryService(
+        service = new CiMemoryService(
                 store,
                 new CiMemoryFile(resources),
                 Clock.fixed(NOW.plus(Duration.ofHours(1)), ZoneOffset.UTC));
@@ -177,7 +177,7 @@ class TestDefaultCiMemoryService
         Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
         String valid = Files.readString(memory);
 
-        DefaultCiMemoryService failingService = new DefaultCiMemoryService(
+        CiMemoryService failingService = new CiMemoryService(
                 store,
                 new CiMemoryFile(resources, (target, markdown) -> {
                     throw new IOException("simulated atomic replacement failure");

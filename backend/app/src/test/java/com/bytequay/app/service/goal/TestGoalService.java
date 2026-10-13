@@ -44,7 +44,7 @@ class TestGoalService
     private final InMemoryGoalStore store = new InMemoryGoalStore();
     private final WorkspaceStore workspaces = mock(WorkspaceStore.class);
     private final WorkItemService work = mock(WorkItemService.class);
-    private final GoalService service = new GoalServiceImpl(store, workspaces, work, mock(GoalReferenceReader.class), new InMemoryGoalRecommendationStore(),
+    private final GoalService service = new GoalService(store, workspaces, work, mock(GoalReferenceReader.class), new InMemoryGoalRecommendationStore(),
             mock(GoalTopicStore.class), Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
     private final GoalSource source = new GoalSource(GoalItemKind.ISSUE, "org/repo#1");
 

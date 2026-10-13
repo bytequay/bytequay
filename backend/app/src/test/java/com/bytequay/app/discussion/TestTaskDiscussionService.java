@@ -57,7 +57,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class TestDefaultTaskDiscussionService
+class TestTaskDiscussionService
 {
     private static final Instant NOW = Instant.parse("2026-09-21T00:00:00Z");
     private static final TaskId TASK = TaskId.random();
@@ -69,7 +69,7 @@ class TestDefaultTaskDiscussionService
     private final AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
     private final TaskLogStore logStore = mock(TaskLogStore.class);
 
-    private final DefaultTaskDiscussionService service = new DefaultTaskDiscussionService(
+    private final TaskDiscussionService service = new TaskDiscussionService(
             store, tasks, resources, drivers, logStore, Clock.fixed(NOW, ZoneOffset.UTC), mock(TaskPullRequestOwnership.class),
             new ReviewCommentReader(mock(PullRequestStore.class), mock(PrDetailStore.class)), mock(BetterWordsService.class), mock(AgentReviewStore.class));
 

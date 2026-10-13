@@ -13,38 +13,137 @@
  */
 package com.bytequay.app.service.goal;
 
+import com.bytequay.core.domain.Goal;
 import com.bytequay.core.domain.GoalCourse;
 import com.bytequay.core.domain.GoalDefinition;
 import com.bytequay.core.domain.GoalItemKind;
 import com.bytequay.core.domain.GoalLesson;
+import com.bytequay.core.domain.GoalRecommendation;
+import com.bytequay.core.domain.GoalTopic;
+import com.bytequay.core.store.GoalRecommendationStore;
+import com.bytequay.core.store.GoalStore;
+import com.bytequay.core.store.GoalTopicStore;
+import com.bytequay.core.store.WorkspaceStore;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
+
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
+import static com.bytequay.core.domain.Checks.checkText;
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Objects.requireNonNull;
 
 /**
  * Workspace goals: local groupings of accepted work items. Every read
  * comes from local stores and no change writes to GitHub or Jira or starts any work.
  */
-public interface GoalService
+@Service
+public class GoalService
 {
+    private final GoalStore goals;
+    private final WorkspaceStore workspaces;
+    private final WorkItemService work;
+    private final GoalReferenceReader references;
+    private final GoalRecommendationStore recommendations;
+    private final GoalTopicStore topics;
+    private final Clock clock;
+    // ponytail: one lock for local Goal edits; split by workspace if edits ever contend.
+    private final Object writes = new Object();
+
+    public GoalService(GoalStore goals, WorkspaceStore workspaces, WorkItemService work, GoalReferenceReader references, GoalRecommendationStore recommendations,
+            GoalTopicStore topics, Clock clock)
+    {
+        this.goals = requireNonNull(goals, "goals is null");
+        this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.work = requireNonNull(work, "work is null");
+        this.references = requireNonNull(references, "references is null");
+        this.recommendations = requireNonNull(recommendations, "recommendations is null");
+        this.topics = requireNonNull(topics, "topics is null");
+        this.clock = requireNonNull(clock, "clock is null");
+    }
+
     /** The workspace's goals, oldest first, each work item and its supporting links read locally. */
-    List<GoalView> list(String workspaceId);
+    public List<GoalView> list(String workspaceId)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        List<WorkItemView> items = work.list(workspaceId);
+        return active(workspaceId).stream().map(goal -> view(goal, items, live(goal), topics.list(goal.id()))).collect(toImmutableList());
+    }
 
     /** A goal with no items; it is pinned when the workspace has no pinned goal yet. */
-    GoalView create(String workspaceId, String title, String description);
+    public GoalView create(String workspaceId, String title, String description)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Instant now = clock.instant();
+            Goal goal = new Goal(UUID.randomUUID().toString(), workspaceId, checkText(title, "title", 500).trim(), description.trim(),
+                    unpinned(workspaceId), false, Optional.empty(), Optional.empty(), 0, Optional.empty(), false, now, now);
+            goals.save(goal);
+            return view(goal);
+        }
+    }
 
     /** Renames or re-describes the goal, and pins it when asked, which unpins the workspace's other goals. */
-    GoalView update(String workspaceId, String goalId, Optional<String> title, Optional<String> description, boolean pin);
+    public GoalView update(String workspaceId, String goalId, Optional<String> title, Optional<String> description, boolean pin)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            Instant now = clock.instant();
+            Goal updated = goal.withText(title.map(value -> checkText(value, "title", 500).trim()).orElse(goal.title()),
+                    description.map(String::trim).orElse(goal.description()), now);
+            if (pin && !goal.pinned()) {
+                active(workspaceId).stream().filter(Goal::pinned).forEach(other -> goals.save(other.withPinned(false, now)));
+                updated = updated.withPinned(true, now);
+            }
+            goals.save(updated);
+            return view(updated);
+        }
+    }
 
     /** Pauses guidance, so the goal's agent hears no automatic events, or resumes it. */
-    GoalView pause(String workspaceId, String goalId, boolean paused);
+    public GoalView pause(String workspaceId, String goalId, boolean paused)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            if (goal.paused() == paused) {
+                return view(goal);
+            }
+            Goal updated = goal.withPaused(paused, clock.instant());
+            goals.save(updated);
+            return view(updated);
+        }
+    }
 
     /**
      * Saves a definition the user accepted, with the title and objective it proposed. Accepting the same proposal again changes nothing;
      * a proposal built before the goal's last change is refused.
      */
-    GoalView define(String workspaceId, String goalId, long expectedRevision, String title, String objective, GoalDefinition definition);
+    public GoalView define(String workspaceId, String goalId, long expectedRevision, String title, String objective, GoalDefinition definition)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            if (goal.definition().map(GoalDefinition::exchangeId).filter(definition.exchangeId()::equals).isPresent()) {
+                return view(goal);
+            }
+            if (goal.revision() != expectedRevision) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "The goal changed after this was proposed. Ask again for an updated proposal.");
+            }
+            Goal defined = goal.withDefinition(checkText(title, "title", 500).trim(), objective.trim(), definition, clock.instant());
+            goals.save(defined);
+            return view(defined);
+        }
+    }
 
     /**
      * Names the goal as its agent proposed, while the goal is still undefined and its title is one of the replaceable ones: the working title
@@ -52,22 +151,119 @@ public interface GoalService
      *
      * @return the goal under its new name, or empty when it kept its title
      */
-    Optional<GoalView> name(String workspaceId, String goalId, String title, Set<String> replaceable);
+    public Optional<GoalView> name(String workspaceId, String goalId, String title, Set<String> replaceable)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            String name = checkText(title, "title", 500).trim();
+            if (goal.definition().isPresent() || !replaceable.contains(goal.title()) || goal.title().equals(name)) {
+                return Optional.empty();
+            }
+            Goal named = goal.named(name, clock.instant());
+            goals.save(named);
+            return Optional.of(view(named));
+        }
+    }
 
     /** Saves the course the user accepted, in place of an earlier one it revises; accepting it again changes nothing. */
-    GoalView planCourse(String workspaceId, String goalId, GoalCourse course);
+    public GoalView planCourse(String workspaceId, String goalId, GoalCourse course)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            if (goal.course().map(GoalCourse::exchangeId).filter(course.exchangeId()::equals).isPresent()) {
+                return view(goal);
+            }
+            Goal planned = goal.withCourse(course, clock.instant());
+            goals.save(planned);
+            return view(planned);
+        }
+    }
 
     /** Saves the map drawn for the accepted course of that exchange; a course revised since, or one already mapped, keeps its own. */
-    void mapCourse(String workspaceId, String goalId, String exchangeId, GoalLesson.Diagram map);
+    public void mapCourse(String workspaceId, String goalId, String exchangeId, GoalLesson.Diagram map)
+    {
+        requireNonNull(map, "map is null");
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            Goal goal = goal(workspaceId, goalId);
+            goal.course().filter(course -> course.exchangeId().equals(exchangeId) && course.map().isEmpty())
+                    .ifPresent(course -> goals.save(goal.withCourse(course.withMap(map), clock.instant())));
+        }
+    }
 
     /** Archives the goal and retains its work; the oldest active goal inherits its pin. */
-    void delete(String workspaceId, String goalId);
+    public void delete(String workspaceId, String goalId)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        synchronized (writes) {
+            archive(goal(workspaceId, goalId));
+        }
+    }
 
     /** Adds an item ByteQuay has stored locally; adding one already in the goal changes nothing. */
-    GoalView addItem(String workspaceId, String goalId, GoalItemKind kind, String key);
+    public GoalView addItem(String workspaceId, String goalId, GoalItemKind kind, String key)
+    {
+        Goal goal = goal(workspaceId, goalId);
+        work.attach(workspaceId, goalId, kind, key);
+        return view(goal);
+    }
 
-    GoalView removeItem(String workspaceId, String goalId, GoalItemKind kind, String key);
+    public GoalView removeItem(String workspaceId, String goalId, GoalItemKind kind, String key)
+    {
+        Goal goal = goal(workspaceId, goalId);
+        work.detach(workspaceId, goalId, kind, key);
+        return view(goal);
+    }
 
     /** Stored pull requests, issues, Jira tickets and tasks matching the query, for adding to a goal. */
-    List<GoalItemView> candidates(String workspaceId, String query);
+    public List<GoalItemView> candidates(String workspaceId, String query)
+    {
+        return references.candidates(workspaceId, query);
+    }
+
+    private void archive(Goal goal)
+    {
+        goals.save(goal.archive(clock.instant()));
+        if (goal.pinned()) {
+            active(goal.workspaceId()).stream().findFirst().ifPresent(next -> goals.save(next.withPinned(true, clock.instant())));
+        }
+    }
+
+    private List<Goal> active(String workspaceId)
+    {
+        return goals.list(workspaceId).stream().filter(goal -> !goal.archived()).collect(toImmutableList());
+    }
+
+    private boolean unpinned(String workspaceId)
+    {
+        return active(workspaceId).stream().noneMatch(Goal::pinned);
+    }
+
+    private Goal goal(String workspaceId, String goalId)
+    {
+        requireWorkspace(workspaces, workspaceId);
+        return goals.find(goalId).filter(goal -> goal.workspaceId().equals(workspaceId) && !goal.archived())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Goal not found"));
+    }
+
+    private GoalView view(Goal goal)
+    {
+        return view(goal, work.list(goal.workspaceId()), live(goal), topics.list(goal.id()));
+    }
+
+    private List<GoalRecommendation> live(Goal goal)
+    {
+        return recommendations.list(goal.id()).stream()
+                .filter(card -> card.state() == GoalRecommendation.State.SHOWN || card.state() == GoalRecommendation.State.STARTED)
+                .sorted(Comparator.comparing(GoalRecommendation::createdAt).reversed()).collect(toImmutableList());
+    }
+
+    private static GoalView view(Goal goal, List<WorkItemView> items, List<GoalRecommendation> cards, List<GoalTopic> known)
+    {
+        return new GoalView(goal.id(), goal.workspaceId(), goal.title(), goal.description(), goal.pinned(), goal.source(), goal.definition(), goal.revision(),
+                goal.course(), goal.paused(), items.stream().filter(item -> item.goalId().filter(goal.id()::equals).isPresent()).collect(toImmutableList()), cards, known,
+                goal.createdAt(), goal.updatedAt());
+    }
 }

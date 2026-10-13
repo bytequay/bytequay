@@ -67,7 +67,7 @@ import static org.mockito.ArgumentMatchers.anySet;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-class TestRecentServiceImpl
+class TestRecentService
 {
     private static final Instant NOW = Instant.parse("2026-08-28T18:00:00Z");
     private static final LocalDate TODAY = LocalDate.parse("2026-08-28");
@@ -82,13 +82,13 @@ class TestRecentServiceImpl
     private final RecentTouchRecorder recorder = mock(RecentTouchRecorder.class);
     private final AppSettingsService appSettings = mock(AppSettingsService.class);
 
-    private RecentServiceImpl service;
+    private RecentService service;
 
     @BeforeEach
     void setUp()
     {
         when(appSettings.recentRetentionDays()).thenReturn(14);
-        service = new RecentServiceImpl(store, recorder, details, viewStates, workspaces, tasks, credentials, appSettings, CLOCK);
+        service = new RecentService(store, recorder, details, viewStates, workspaces, tasks, credentials, appSettings, CLOCK);
         when(credentials.cachedLogin()).thenReturn(Optional.of("me"));
         when(viewStates.findByPrIds(anySet())).thenReturn(ImmutableMap.of());
     }
@@ -121,11 +121,11 @@ class TestRecentServiceImpl
     @Test
     void labelsTheReasonBadgeTheWayTheDesignReadsIt()
     {
-        assertThat(RecentServiceImpl.reasonLabel(touch("a", TODAY, NOW, RecentReason.READ, 12))).isEqualTo("Read 12m");
-        assertThat(RecentServiceImpl.reasonLabel(touch("a", TODAY, NOW, RecentReason.READ, 0))).isEqualTo("Read");
-        assertThat(RecentServiceImpl.reasonLabel(touch("a", TODAY, NOW, RecentReason.PUSHED, 2))).isEqualTo("Pushed 2");
-        assertThat(RecentServiceImpl.reasonLabel(touch("a", TODAY, NOW, RecentReason.PROMPTED, 0))).isEqualTo("You prompted");
-        assertThat(RecentServiceImpl.reasonLabel(touch("a", TODAY, NOW, RecentReason.MERGED, 0))).isEqualTo("Merged");
+        assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.READ, 12))).isEqualTo("Read 12m");
+        assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.READ, 0))).isEqualTo("Read");
+        assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.PUSHED, 2))).isEqualTo("Pushed 2");
+        assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.PROMPTED, 0))).isEqualTo("You prompted");
+        assertThat(RecentService.reasonLabel(touch("a", TODAY, NOW, RecentReason.MERGED, 0))).isEqualTo("Merged");
     }
 
     @Test

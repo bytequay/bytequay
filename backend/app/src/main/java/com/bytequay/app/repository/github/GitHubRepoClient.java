@@ -339,30 +339,19 @@ public class GitHubRepoClient
 
     public record IssueActivity(int commentCount, Instant updatedAt) {}
 
-    /** One explicit bounded search; fixed repository/state qualifiers cannot be replaced by caller search syntax. */
-    public GitHubSearchResponse searchHistory(String pat, RepoRef repo, boolean pullRequests, String plainTerms)
-    {
-        return search(pat, repo, pullRequests ? " is:pr is:merged" : " is:issue is:closed", plainTerms, 20);
-    }
-
     /** Issues and pull requests in any state whose title or body has every word: where a gap may already be reported. */
     public GitHubSearchResponse searchReports(String pat, RepoRef repo, String plainTerms)
     {
         checkArgument(!plainTerms.isBlank(), "Name the words a report of the gap would use");
-        return search(pat, repo, "", plainTerms, 10);
-    }
-
-    private GitHubSearchResponse search(String pat, RepoRef repo, String qualifiers, String plainTerms, int results)
-    {
         checkArgument(pat != null && !pat.isBlank(), "GitHub credential is required");
         requireNonNull(repo, "repo is null");
         requireNonNull(plainTerms, "plainTerms is null");
         checkArgument(plainTerms.getBytes(UTF_8).length <= 200 && plainTerms.matches("[\\p{L}\\p{N} _./-]*"),
                 "Search query must contain at most 200 UTF-8 bytes of plain words");
         String words = Arrays.stream(plainTerms.strip().split(" +")).filter(word -> !word.isEmpty()).map(word -> "\"" + word + "\"").collect(joining(" "));
-        String query = "repo:" + repo.fullName() + qualifiers + " in:title,body" + (words.isEmpty() ? "" : " " + words);
+        String query = "repo:" + repo.fullName() + " in:title,body" + (words.isEmpty() ? "" : " " + words);
         return translating(() -> requireBody(get(gitHubRestClient, pat, uri -> uri.path("/search/issues").queryParam("q", "{query}")
-                        .queryParam("sort", "updated").queryParam("order", "desc").queryParam("per_page", results).queryParam("page", 1).build(query))
+                        .queryParam("sort", "updated").queryParam("order", "desc").queryParam("per_page", 10).queryParam("page", 1).build(query))
                 .retrieve().body(GitHubSearchResponse.class), "Missing search response from GitHub"));
     }
 

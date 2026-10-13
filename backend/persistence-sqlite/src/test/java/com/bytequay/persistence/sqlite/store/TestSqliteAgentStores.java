@@ -37,6 +37,7 @@ import com.bytequay.agent.core.QueueAgentInputCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.RepositoryIdentity;
+import com.bytequay.agent.core.ReviewTurnInputResolver;
 import com.bytequay.agent.core.StartAgentTurnCommand;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskSummary;
@@ -1094,6 +1095,7 @@ class TestSqliteAgentStores
                 runtimeRegistry,
                 (worktree, query) -> "IDE unavailable in this storage test",
                 task -> "",
+                ReviewTurnInputResolver.NONE,
                 clock,
                 Duration.ofMinutes(5),
                 Runnable::run,

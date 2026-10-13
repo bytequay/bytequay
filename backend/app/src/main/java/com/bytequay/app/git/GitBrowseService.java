@@ -14,7 +14,6 @@
 package com.bytequay.app.git;
 
 import com.bytequay.app.git.GitCommandRunner.Result;
-import com.bytequay.core.context.ContextLimits;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.stereotype.Component;
@@ -48,8 +47,6 @@ public class GitBrowseService
     private static final char RECORD = '\u001e';
     private static final String LOG_FORMAT = "--format=%H" + FIELD + "%an" + FIELD + "%cn" + FIELD + "%aI" + FIELD + "%cI" + FIELD + "%s" + FIELD + "%b" + RECORD;
     private static final int MAXIMUM_UNTRACKED_PATCHES = 50;
-    private static final int MAXIMUM_HISTORY_PATHS = 20;
-    private static final int MAXIMUM_PATH_HISTORY_COMMITS = 50;
 
     private final GitCommandRunner git;
 
@@ -109,64 +106,6 @@ public class GitBrowseService
                 ref,
                 "--");
         return parseCommits(output);
-    }
-
-    /**
-     * Reads bounded local history for literal files or directories, filtering before the result limit.
-     *
-     * @param repository verified managed repository
-     * @param ref captured commit or ref; Git options are rejected
-     * @param paths one to twenty distinct relative files or directory prefixes
-     * @param limit one to fifty commits
-     * @return matching commit facts without fetching or enrichment; renames are not followed
-     * @throws IllegalArgumentException for invalid inputs, failed Git reads, or truncated output
-     */
-    public List<Commit> log(Path repository, String ref, List<String> paths, int limit)
-    {
-        requireNonNull(ref, "ref is null");
-        checkArgument(!ref.isBlank() && !ref.startsWith("-") && ref.chars().noneMatch(Character::isISOControl), "Invalid history ref");
-        checkArgument(limit > 0 && limit <= MAXIMUM_PATH_HISTORY_COMMITS, "History limit must be between 1 and %s", MAXIMUM_PATH_HISTORY_COMMITS);
-        List<String> literalPaths = ImmutableList.copyOf(paths);
-        checkArgument(!literalPaths.isEmpty(), "History paths are empty");
-        ContextLimits.unique(literalPaths, "history paths", MAXIMUM_HISTORY_PATHS);
-        literalPaths.forEach(path -> ContextLimits.pathPrefix(path.endsWith("/") ? path : path + "/"));
-        List<String> arguments = ImmutableList.<String>builder()
-                .add("--literal-pathspecs", "log", "--no-show-signature")
-                .add(LOG_FORMAT)
-                .add("-n", String.valueOf(limit), ref, "--")
-                .addAll(literalPaths)
-                .build();
-        Result result = git.run(repository, arguments);
-        checkArgument(result.successful(), "Git failed: %s", result.output().strip());
-        checkArgument(!result.truncated(), "Git history output was truncated");
-        return parseCommits(result.output());
-    }
-
-    /**
-     * Reads frozen history without replacement objects or on-demand fetching, within two seconds and 256 KiB.
-     *
-     * @param repository verified managed repository
-     * @param frozenSha full captured commit object ID
-     * @param paths up to twenty distinct literal relative paths; empty selects repository-wide history
-     * @param limit one to fifty commits
-     * @return bounded matching commit facts; renames are not followed
-     * @throws IllegalArgumentException for invalid inputs, unavailable local objects or truncated output
-     */
-    public List<Commit> localLog(Path repository, String frozenSha, List<String> paths, int limit)
-    {
-        checkArgument(frozenSha != null && frozenSha.matches("[0-9a-f]{40}|[0-9a-f]{64}"), "A frozen history commit is required");
-        checkArgument(limit > 0 && limit <= MAXIMUM_PATH_HISTORY_COMMITS, "History limit must be between 1 and %s", MAXIMUM_PATH_HISTORY_COMMITS);
-        List<String> literalPaths = ImmutableList.copyOf(paths);
-        ContextLimits.unique(literalPaths, "history paths", MAXIMUM_HISTORY_PATHS);
-        literalPaths.forEach(path -> ContextLimits.pathPrefix(path.endsWith("/") ? path : path + "/"));
-        List<String> arguments = ImmutableList.<String>builder()
-                .add("--literal-pathspecs", "log", "--no-show-signature", LOG_FORMAT)
-                .add("-n", String.valueOf(limit), frozenSha, "--")
-                .addAll(literalPaths).build();
-        Result result = git.runLocalBounded(repository, Duration.ofSeconds(2), 256 * 1024, arguments);
-        checkArgument(result.successful(), "Git failed: %s", result.output().strip());
-        checkArgument(!result.truncated(), "Git history output was truncated");
-        return parseCommits(result.output());
     }
 
     private static List<Commit> parseCommits(String output)

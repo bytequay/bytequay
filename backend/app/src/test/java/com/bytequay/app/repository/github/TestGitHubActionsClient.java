@@ -837,7 +837,8 @@ class TestGitHubActionsClient
                         ]}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrCheckRunState> checks = fixture.client.fetchPrCheckRuns("pat", "owner", "repo", "head");
+        List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns(
+                "pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
         PrCheckRunState check = checks.getFirst();
 
         assertThat(check.githubId()).isEqualTo(99L);
@@ -878,7 +879,8 @@ class TestGitHubActionsClient
                         "https://api.github.test/repos/owner/repo/commits/head/status"))
                 .andRespond(withSuccess("{\"statuses\":[]}", MediaType.APPLICATION_JSON));
 
-        List<PrCheckRunState> checks = fixture.client.fetchPrCheckRuns("pat", "owner", "repo", "head");
+        List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns(
+                "pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
 
         assertThat(checks).hasSize(101);
         assertThat(checks.getLast().name()).isEqualTo("check-101");

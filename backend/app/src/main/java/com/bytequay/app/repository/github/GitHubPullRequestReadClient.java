@@ -964,16 +964,6 @@ public class GitHubPullRequestReadClient
                 .collect(toImmutableList());
     }
 
-    public DiffFileContent fetchPrDiffFileContent(String pat, PullRequestRef pr, String path)
-    {
-        requirePat(pat);
-        requireNotBlank(path, "path must not be blank");
-        GitHubPullRequestDetailResponse detail = requireBody(fetchPullRequestDetailResponse(pat, pr), "Empty pull request response from GitHub");
-        String baseSha = Optional.ofNullable(detail.base()).map(GitHubPullRequestDetailResponse.Base::sha).orElse(null);
-        String headSha = Optional.ofNullable(detail.head()).map(GitHubPullRequestDetailResponse.Head::sha).orElse(null);
-        return fetchPrDiffFileContent(pat, pr, path, baseSha, headSha);
-    }
-
     public DiffFileContent fetchPrDiffFileContent(
             String pat, PullRequestRef pr, String path, String baseSha, String headSha)
     {

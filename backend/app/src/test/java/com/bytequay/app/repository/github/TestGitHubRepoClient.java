@@ -364,20 +364,20 @@ class TestGitHubRepoClient
     }
 
     @Test
-    void historySearchQuotesPlainWordsAndRetainsClosureAndCompletenessObservations()
+    void reportSearchQuotesPlainWordsAndRetainsClosureAndCompletenessObservations()
     {
         Fixture fixture = fixture();
         fixture.server().expect(request -> {
             assertThat(request.getURI().getPath()).isEqualTo("/search/issues");
-            assertThat(request.getURI().getQuery()).isEqualTo("q=repo:owner/repo is:issue is:closed in:title,body \"engine/cache\" \"OR\""
-                    + "&sort=updated&order=desc&per_page=20&page=1");
+            assertThat(request.getURI().getQuery()).isEqualTo("q=repo:owner/repo in:title,body \"engine/cache\" \"OR\""
+                    + "&sort=updated&order=desc&per_page=10&page=1");
         }).andExpect(header("Authorization", "Bearer pat")).andRespond(withSuccess("""
                 {"total_count":40,"incomplete_results":true,"items":[
                   {"id":10,"number":7,"title":"Closed issue","body":"Not pursued","state":"closed","state_reason":"not_planned",
                    "html_url":"https://github.com/owner/repo/issues/7","repository_url":"https://api.github.com/repos/owner/repo",
                    "updated_at":"2026-08-21T00:00:00Z","closed_at":"2026-08-20T00:00:00Z"}]}
                 """, MediaType.APPLICATION_JSON));
-        GitHubSearchResponse result = fixture.client().searchHistory("pat", REPOSITORY, false, "engine/cache OR");
+        GitHubSearchResponse result = fixture.client().searchReports("pat", REPOSITORY, "engine/cache OR");
         assertThat(result.totalCount()).isEqualTo(40);
         assertThat(result.incompleteResults()).isTrue();
         assertThat(result.items()).singleElement().satisfies(item -> {
@@ -390,16 +390,16 @@ class TestGitHubRepoClient
     }
 
     @Test
-    void mergedHistorySearchUsesFixedQualifiersAndPreservesMissingCompleteness()
+    void reportSearchRetainsMergedPullRequestsAndMissingCompleteness()
     {
         Fixture fixture = fixture();
         fixture.server().expect(request -> assertThat(request.getURI().getQuery())
-                        .isEqualTo("q=repo:owner/repo is:pr is:merged in:title,body&sort=updated&order=desc&per_page=20&page=1"))
+                        .isEqualTo("q=repo:owner/repo in:title,body \"Merged\"&sort=updated&order=desc&per_page=10&page=1"))
                 .andRespond(withSuccess("""
                         {"total_count":1,"items":[{"id":10,"number":7,"title":"Merged PR","state":"closed",
                         "updated_at":"2026-08-21T00:00:00Z","pull_request":{"merged_at":"2026-08-20T00:00:00Z"}}]}
                         """, MediaType.APPLICATION_JSON));
-        GitHubSearchResponse result = fixture.client().searchHistory("pat", REPOSITORY, true, "");
+        GitHubSearchResponse result = fixture.client().searchReports("pat", REPOSITORY, "Merged");
         assertThat(result.incompleteResults()).isNull();
         assertThat(result.items().getFirst().pullRequest().mergedAt()).isEqualTo(Instant.parse("2026-08-20T00:00:00Z"));
         fixture.server().verify();
@@ -423,12 +423,12 @@ class TestGitHubRepoClient
     }
 
     @Test
-    void historySearchRejectsRawQualifiersAndQuoteEscapesWithoutSendingRequests()
+    void reportSearchRejectsRawQualifiersAndQuoteEscapesWithoutSendingRequests()
     {
         Fixture fixture = fixture();
-        assertThatThrownBy(() -> fixture.client().searchHistory("pat", REPOSITORY, false, "repo:other/repo"))
+        assertThatThrownBy(() -> fixture.client().searchReports("pat", REPOSITORY, "repo:other/repo"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("plain words");
-        assertThatThrownBy(() -> fixture.client().searchHistory("pat", REPOSITORY, true, "word\" OR is:open"))
+        assertThatThrownBy(() -> fixture.client().searchReports("pat", REPOSITORY, "word\" OR is:open"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("plain words");
         fixture.server().verify();
     }

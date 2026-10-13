@@ -47,6 +47,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class TestPullRequestSnapshotService
@@ -143,7 +144,8 @@ class TestPullRequestSnapshotService
         assertThatThrownBy(() -> snapshots.refreshFileContent("pat", REF, 1L, "a.txt", null, null))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode().value()).isEqualTo(409));
 
-        verify(gitHub, never()).fetchPrDiffFileContent("pat", REF, "a.txt");
+        verify(gitHub).fetchPrDiffFileContent("pat", REF, "a.txt", BASE, HEAD);
+        verifyNoMoreInteractions(gitHub);
         verify(diffs, never()).saveFileContent(anyLong(), any(), any(), any(), any());
     }
 

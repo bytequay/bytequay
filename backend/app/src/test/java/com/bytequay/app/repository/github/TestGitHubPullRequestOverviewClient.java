@@ -115,20 +115,16 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
-    void readsDefaultDiffContentsAtThePullRequestsBaseAndHead()
+    void readsDiffContentsAtTheSpecifiedBaseAndHead()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
-                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
-                .andRespond(withSuccess("""
-                        {"body":"See #7","base":{"sha":"base-sha"},"head":{"sha":"head-sha"}}
-                        """, MediaType.APPLICATION_JSON));
         fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=base-sha"))
+                .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andRespond(withSuccess("old content", MediaType.TEXT_PLAIN));
         fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/contents/src/App.java?ref=head-sha"))
                 .andRespond(withSuccess("new content", MediaType.TEXT_PLAIN));
 
-        assertThat(fixture.client().fetchPrDiffFileContent("pat", PULL_REQUEST, "src/App.java"))
+        assertThat(fixture.client().fetchPrDiffFileContent("pat", PULL_REQUEST, "src/App.java", "base-sha", "head-sha"))
                 .isEqualTo(new DiffFileContent("old content", "new content"));
         fixture.verify();
     }

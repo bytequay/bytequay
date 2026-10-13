@@ -144,18 +144,6 @@ public class GitHubActionsClient
         this.rawLogs = requireNonNull(rawLogs, "rawLogs is null");
     }
 
-    public List<PrCheckRunState> fetchPrCheckRuns(String pat, String owner, String repo, String sha)
-    {
-        return refreshPrCheckRuns(
-                pat,
-                owner,
-                repo,
-                sha,
-                ImmutableList.of(),
-                Optional.empty(),
-                Optional.empty()).checkRuns();
-    }
-
     public PrCheckRunsFetch refreshPrCheckRuns(
             String pat,
             String owner,

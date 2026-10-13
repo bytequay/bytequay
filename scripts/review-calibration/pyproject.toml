@@ -1,6 +1,7 @@
 [project]
 name = "review-calibration"
 version = "0"
-description = "Offline review calibration: frozen review runs, a model judge, and a score table"
-requires-python = ">=3.12"
-dependencies = ["openai"]
+description = "Offline review calibration: frozen review runs, a model judge, a score table, and a dashboard"
+# Streamlit needs pyarrow, which has no build for Python 3.15 yet.
+requires-python = ">=3.12,<3.15"
+dependencies = ["openai", "pandas", "plotly", "streamlit"]

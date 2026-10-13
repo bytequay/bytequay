@@ -199,6 +199,35 @@ arguments, no paths and no message text. `fixture/saved-review-scores.json` and
 write them, so an example is always exactly what the lab saves. Run the tests
 once with `UPDATE_SAVED_EXAMPLES=1` after changing a shape on purpose.
 
+## Dashboard
+
+```sh
+uv run dashboard.py
+uv run dashboard.py FOLDER --port 8600
+```
+
+`dashboard.py` shows the saved turn table as one page at
+`http://127.0.0.1:8517`. It reads the folder and nothing else: not the task
+logs and not the application's data. Pick the days in the side bar; days are
+in the reader's own time zone, while `--since` counts in UTC. The Overview tab
+has the totals, a ring of the three states, a ring of how the turns ended and
+the turn time of each day. The Time tab has every part of the time as rings,
+bars for what the agent waited for, shell time by program, model time by what
+just finished, and the tasks that took the most time. The numbers are those of
+the terminal tables on the same turns.
+
+The page is served to this machine only. Started any other way, for example
+with `streamlit run dashboard.py`, Streamlit would serve it to the whole
+network, so the page then shows one line saying how to start it and nothing
+else. A saved file that is missing, cut off or in another shape is named as
+such and never drawn as zeros.
+
+`charts.py` turns the table into pandas frames and Plotly figures and can be
+tested without a page; `test_dashboard.py` runs the whole page without a
+browser. The dashboard needs Streamlit, Plotly and pandas. Streamlit depends on
+pyarrow, which has no build for Python 3.15 yet, so the project asks for a
+Python below 3.15.
+
 ## Synthetic smoke fixture
 
 `fixture/` is a deliberately small example for checking the harness and reading

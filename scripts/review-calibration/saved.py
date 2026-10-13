@@ -15,3 +15,13 @@ def write(directory, name, made):
     partial.replace(directory / name)
     return directory / name
 
+
+def read(directory, name):
+    """A saved result, or None when the lab has not saved it yet. A file in another shape is an error and never an empty result."""
+    try:
+        made = json.loads((directory / name).read_text())
+    except FileNotFoundError:
+        return None
+    if not isinstance(made, dict) or made.get("version") != 1:
+        raise ValueError(f"{name} was saved in a shape this version does not read")
+    return made

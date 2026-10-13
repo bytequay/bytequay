@@ -495,6 +495,8 @@ const bridge: Bridge = {
   steerAgentTurn: request => ipcRenderer.invoke('agent:turns:steer', request),
   queueAgentInput: request => ipcRenderer.invoke('agent:queue:add', request),
   listAgentQueue: (taskId, workspaceId) => ipcRenderer.invoke('agent:queue:list', taskId, workspaceId),
+  editAgentQueuedInput: (taskId, workspaceId, queuedInputId) =>
+    ipcRenderer.invoke('agent:queue:edit', taskId, workspaceId, queuedInputId),
   removeAgentQueuedInput: (taskId, workspaceId, queuedInputId) =>
     ipcRenderer.invoke('agent:queue:remove', taskId, workspaceId, queuedInputId),
   steerAgentQueuedInput: (taskId, workspaceId, queuedInputId, turnId) =>

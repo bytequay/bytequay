@@ -55,14 +55,16 @@ function body(state: Partial<AgentTaskState>, providerStatus: AgentProviderStatu
       models={MODELS}
       providerStatus={providerStatus}
       {...TASK_BODY_NOOPS}
+      onEditQueued={() => {}}
     />);
 }
 
 describe('the queue behind a running turn', () => {
-  it('steers queued messages through the task bridge and preserves drafts in Chromium', async () => {
+  it('steers and edits queued messages while preserving drafts in Chromium', async () => {
     const result = await runBrowserFixture<string>({ prefix: 'bytequay-queue-', entry: 'src/agents/fixtures/queueBrowser.tsx',
       global: 'QueueTests', styles: true, charset: true, width: 1280, height: 800, timeoutMs: 30_000 });
     expect(result).toContain('queued steering preserves drafts');
+    expect(result).toContain('queued editing restores full drafts');
   }, 45_000);
   it('lists queued messages under the composer with their settings', () => {
     const markup = body({
@@ -78,6 +80,7 @@ describe('the queue behind a running turn', () => {
     expect(markup).toContain('1 image');
     // Each waiting row can be removed.
     expect(markup.match(/aria-label="Remove from queue"/g)).toHaveLength(2);
+    expect(markup.match(/aria-label="Edit queued message"/g)).toHaveLength(2);
     // Queued text is not in the transcript: only the queue shows it until it runs.
     expect(markup).not.toContain('agt-user__bubble">Then update');
   });
@@ -128,6 +131,7 @@ describe('the queue behind a running turn', () => {
     expect(markup).toContain('>Discard<');
     expect(markup).not.toContain('Resume queue');
     expect(markup).not.toContain('aria-label="Remove from queue"');
+    expect(markup).not.toContain('aria-label="Edit queued message"');
   });
 
   it('blocks Complete for live queue work but lets an uncertain row reach confirmation', () => {
@@ -147,6 +151,7 @@ describe('the queue behind a running turn', () => {
     expect(markup).toContain('>Starting<');
     expect(markup).toMatch(/class="[^"]*agt-spin[^"]*"/);
     expect(markup).not.toContain('aria-label="Remove from queue"');
+    expect(markup).not.toContain('aria-label="Edit queued message"');
     expect(markup).not.toContain('>Discard<');
   });
 

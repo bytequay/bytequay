@@ -1887,6 +1887,40 @@ class TestAgentHttpApi
     }
 
     @Test
+    void movesAQueuedMessageIntoAnEditableDraft()
+            throws Exception
+    {
+        String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
+        String attachmentId = uploadImage(taskId, "queued.png");
+        driver.holdNextTurn();
+        startTurn(taskId, "keep running", "queue-edit-turn");
+        String queuePath = "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId;
+        String message = "Preserve every line of the queued message\n".repeat(20);
+        String queuedId = post(queuePath,
+                ImmutableMap.of("message", message, "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)), "queue-edit")
+                .getBody().required("id").asText();
+        String editPath = "/agent/tasks/" + taskId + "/queue/" + queuedId + "/edit?workspaceId=" + workspaceId;
+        assertThat(post("/agent/tasks/" + taskId + "/queue/" + queuedId + "/edit?workspaceId=another-workspace", ImmutableMap.of(), null).getStatusCode())
+                .isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(get(queuePath).getBody()).hasSize(1);
+
+        ResponseEntity<JsonNode> edited = post(editPath, ImmutableMap.of(), null);
+
+        assertThat(edited.getStatusCode()).isEqualTo(HttpStatus.OK);
+        assertThat(edited.getBody().required("message").asText()).isEqualTo(message);
+        assertThat(edited.getBody().required("settings").required("model").asText()).isEqualTo("test-model");
+        assertThat(edited.getBody().required("attachments")).singleElement().satisfies(image -> {
+            assertThat(image.required("id").asText()).isEqualTo(attachmentId);
+            assertThat(image.required("width").asInt()).isPositive();
+            assertThat(image.has("path")).isFalse();
+        });
+        assertThat(get(queuePath).getBody()).isEmpty();
+        assertThat(post(editPath, ImmutableMap.of(), null).getBody()).isEqualTo(edited.getBody());
+        driver.completeHeldTurn();
+        awaitContinuationSettled(taskId);
+    }
+
+    @Test
     void steersAQueuedMessageOnceUsingItsFullSavedInput()
             throws Exception
     {

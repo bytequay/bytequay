@@ -17,6 +17,7 @@ import com.bytequay.agent.core.AgentCompletionService;
 import com.bytequay.agent.core.AgentConflictException;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
+import com.bytequay.agent.core.AgentQueuedInputDraft;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.AgentTaskNotFoundException;
@@ -332,6 +333,12 @@ final class ScriptedCherryPickAgent
 
     @Override
     public QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId)
+    {
+        throw new UnsupportedOperationException("this test never steers or queues a turn");
+    }
+
+    @Override
+    public AgentQueuedInputDraft editQueued(TaskId taskId, QueuedInputId queuedInputId)
     {
         throw new UnsupportedOperationException("this test never steers or queues a turn");
     }

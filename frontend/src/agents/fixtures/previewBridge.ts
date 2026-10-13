@@ -380,6 +380,13 @@ export function createPreviewBridge(
       record('listAgentQueue', taskId, id);
       return [...previewQueue];
     },
+    editAgentQueuedInput: async (taskId, id, queuedInputId) => {
+      record('editAgentQueuedInput', taskId, id, queuedInputId);
+      const index = previewQueue.findIndex(input => input.id === queuedInputId);
+      if (index < 0) throw new Error('Queued input not found');
+      const [input] = previewQueue.splice(index, 1);
+      return { message: input.preview, settings: input.settings, attachments: [] };
+    },
     removeAgentQueuedInput: async (taskId, id, queuedInputId) => {
       record('removeAgentQueuedInput', taskId, id, queuedInputId);
       const index = previewQueue.findIndex((queued) => queued.id === queuedInputId);

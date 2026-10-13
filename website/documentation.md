@@ -351,6 +351,9 @@ Published branches and tasks imported from existing pull requests keep their nam
 
 - **Steer** sends information into the active turn when supported. **Run next** queues a
   later message; **Resume queue** continues a paused queue after you address its cause.
+  To edit a waiting message, clear the composer and press **Up Arrow** to move the
+  first queued message back into it, or click the message’s pencil button. Its full
+  text, images, and model settings return for editing. Submit it again when ready.
   Claude steering requires Claude Code 2.1.295 or newer. It delivers your update while
   the agent works; a command already running may finish before Claude acts on it.
 - On **Approval needed**, inspect the action and permissions, then choose **Allow

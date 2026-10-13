@@ -38,6 +38,7 @@ import {
   parseAgentProviderUnavailable,
   parseAgentQueue,
   parseAgentQueuedInput,
+  parseAgentQueuedInputDraft,
   parseAgentRuntimeStopImpact,
   parseAgentSkillInput,
   parseAgentSkills,
@@ -837,6 +838,9 @@ function registerIpc(): void {
   ipcMain.handle('agent:queue:remove', (_event, taskId: string, workspaceId: string, queuedInputId: string) =>
     backendJson(taskUrl(taskId, `/queue/${encodeURIComponent(queuedInputId)}`, { workspaceId }), { method: 'DELETE', headers: agentHeaders() })
       .then((queued) => parseAgentQueuedInput(queued)));
+  ipcMain.handle('agent:queue:edit', (_event, taskId: string, workspaceId: string, queuedInputId: string) =>
+    backendJson(taskUrl(taskId, `/queue/${encodeURIComponent(queuedInputId)}/edit`, { workspaceId }), { method: 'POST', headers: agentHeaders() })
+      .then(parseAgentQueuedInputDraft));
   ipcMain.handle('agent:queue:resume', (_event, taskId: string, workspaceId: string) =>
     backendJson(taskUrl(taskId, '/queue/resume', { workspaceId }), { method: 'POST', headers: agentHeaders() })
       .then((turn) => parseAgentTurn(turn)));

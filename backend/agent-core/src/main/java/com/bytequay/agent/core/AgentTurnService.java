@@ -165,6 +165,9 @@ public interface AgentTurnService
      */
     QueuedAgentInput removeQueued(TaskId taskId, QueuedInputId queuedInputId);
 
+    /** Removes an unclaimed input and returns its full draft; retries return the same removed input. */
+    AgentQueuedInputDraft editQueued(TaskId taskId, QueuedInputId queuedInputId);
+
     /**
      * Starts the queue head on an idle task after a non-success terminal turn or a restart.
      *

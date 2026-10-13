@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentInputDelivery;
 import com.bytequay.agent.core.AgentMetrics;
 import com.bytequay.agent.core.AgentMetricsService;
+import com.bytequay.agent.core.AgentQueuedInputDraft;
 import com.bytequay.agent.core.AgentResourceService;
 import com.bytequay.agent.core.AgentRuntimeStopImpact;
 import com.bytequay.agent.core.AgentStorageException;
@@ -1245,6 +1246,31 @@ public final class DefaultAgentTurnService
                             now),
                     () -> queueStore.update(removed));
             return displayInput(stored);
+        }
+    }
+
+    @Override
+    public AgentQueuedInputDraft editQueued(TaskId taskId, QueuedInputId queuedInputId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(queuedInputId, "queuedInputId is null");
+        synchronized (runtimeRegistry.taskLock(taskId)) {
+            taskStore.require(taskId);
+            QueuedAgentInput input = requireQueued(queuedInputId);
+            if (!input.taskId().equals(taskId)) {
+                throw new AgentConflictException("Queued input does not belong to task " + taskId + ": " + queuedInputId);
+            }
+            if (input.messageEventId().isPresent() || (input.state() != QueuedAgentInput.State.QUEUED
+                    && input.state() != QueuedAgentInput.State.PAUSED && input.state() != QueuedAgentInput.State.REMOVED)) {
+                throw new AgentConflictException("Queued input can no longer be edited: " + input.state());
+            }
+            // Read every resource before removing the row, so an unreadable draft stays queued.
+            AgentQueuedInputDraft draft = new AgentQueuedInputDraft(readUtf8(taskId, input.textBlob()), input.settings(),
+                    input.settings().attachments().stream()
+                            .map(reference -> resourceService.readAttachment(taskId, reference.id()))
+                            .collect(toImmutableList()));
+            removeQueued(taskId, queuedInputId);
+            return draft;
         }
     }
 

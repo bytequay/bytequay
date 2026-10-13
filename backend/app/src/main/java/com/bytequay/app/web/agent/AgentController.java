@@ -744,6 +744,19 @@ public class AgentController
         return InteractiveAgentHttpContract.queuedInput(removed);
     }
 
+    @PostMapping("/tasks/{taskId}/queue/{queuedInputId}/edit")
+    public InteractiveAgentHttpContract.QueuedInputDraftResponse editQueued(
+            @PathVariable String taskId,
+            @PathVariable String queuedInputId,
+            @RequestParam String workspaceId)
+    {
+        TaskId id = TaskId.valueOf(taskId);
+        taskService.getInteractive(workspaceId, id);
+        var draft = turnService.editQueued(id, QueuedInputId.valueOf(queuedInputId));
+        return new InteractiveAgentHttpContract.QueuedInputDraftResponse(draft.message(), InteractiveAgentHttpContract.settings(draft.settings()),
+                draft.attachments().stream().map(AgentHttpModels::attachment).collect(toImmutableList()));
+    }
+
     @PostMapping("/tasks/{taskId}/queue/{queuedInputId}/steer")
     public ResponseEntity<InteractiveAgentHttpContract.InputDeliveryResponse> steerQueued(
             @PathVariable String taskId,

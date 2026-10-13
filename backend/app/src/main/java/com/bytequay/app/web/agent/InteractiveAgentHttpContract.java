@@ -457,6 +457,8 @@ final class InteractiveAgentHttpContract
             Instant createdAt,
             Instant updatedAt) {}
 
+    record QueuedInputDraftResponse(String message, TurnSettings settings, List<AgentHttpModels.AttachmentResponse> attachments) {}
+
     /** What became of one steer. UNKNOWN is final: the input was sent and nothing says whether it arrived. */
     record InputDeliveryResponse(
             String id,

@@ -32,6 +32,7 @@ import type {
   AgentProviderStatus,
   AgentProviderUnavailableDto,
   AgentQueuedInputDto,
+  AgentQueuedInputDraftDto,
   AgentRuntimeStopImpactDto,
   AgentSkillDto,
   AgentSkillInput,
@@ -659,6 +660,16 @@ export function parseAgentQueuedInput(value: unknown, path = 'queuedInput'): Age
     pauseReason: optionalText(source.pauseReason, `${path}.pauseReason`),
     createdAt: text(source.createdAt, `${path}.createdAt`),
     updatedAt: text(source.updatedAt, `${path}.updatedAt`),
+  };
+}
+
+export function parseAgentQueuedInputDraft(value: unknown): AgentQueuedInputDraftDto {
+  const source = object(value, 'queuedInputDraft');
+  if (!Array.isArray(source.attachments)) throw new Error('queuedInputDraft.attachments is not an array');
+  return {
+    message: text(source.message, 'queuedInputDraft.message'),
+    settings: parseAgentTurnSettings(source.settings, 'queuedInputDraft.settings'),
+    attachments: source.attachments.map((entry, index) => parseAgentAttachment(entry, `queuedInputDraft.attachments[${index}]`)),
   };
 }
 

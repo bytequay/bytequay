@@ -918,6 +918,7 @@ export function AgentTaskBody({
   onSteer: steer = () => {},
   onQueue = () => {},
   onRemoveQueued = () => {},
+  onEditQueued,
   onSteerQueued = () => {},
   onResumeQueue = () => {},
   onCleanup = () => {},
@@ -1036,6 +1037,7 @@ export function AgentTaskBody({
   onSteer?: () => void;
   onQueue?: () => void;
   onRemoveQueued?: (queuedInputId: string) => void;
+  onEditQueued?: (queuedInputId: string) => void;
   onSteerQueued?: (queuedInputId: string) => void;
   onResumeQueue?: () => void;
   /** Retries safe checkout removal for a terminal task whose first attempt failed. */
@@ -1285,6 +1287,8 @@ export function AgentTaskBody({
           resumeBlockedReason={question !== null ? 'Answer the agent’s question before resuming earlier queued messages'
             : automationActive ? 'Available when automation finishes' : undefined}
           onRemove={onRemoveQueued}
+          onEdit={onEditQueued}
+          editEnabled={!state.sending && state.composer === '' && state.attachments.length === 0 && status !== 'closing'}
           steerEnabled={canSteer(state, state.queue[0]?.preview ?? '')}
           onSteer={onSteerQueued}
           onResume={onResumeQueue}
@@ -1346,6 +1350,8 @@ export function AgentTaskBody({
           steerEnabled={!routedToCi && canSteer(state) && !steerImageBlocked} queueEnabled={!routedToCi && canQueue(state) && !queueImageBlocked && !submissionBlocked}
           connection={state.connection} closing={status === 'closing'}
           composerRef={composerRef}
+          onEditQueued={onEditQueued !== undefined && state.queue[0]?.turnId === null
+            && ['QUEUED', 'PAUSED'].includes(state.queue[0].state) ? () => onEditQueued(state.queue[0].id) : undefined}
           onPaste={event => pasteImage(event, !routedToCi && imagesAccepted && (status === 'idle' || status === 'running') && !state.sending, onPasteImages)}
           steerTitle={steerImageBlocked ? 'The running turn’s model does not accept images'
             : state.capabilities?.steering === true ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
@@ -1508,6 +1514,7 @@ export default function AgentTaskScreen({
   const confirmationPendingRef = useRef(false);
   const confirmationRequestRef = useRef(0);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const editingQueuedRef = useRef(false);
   const [attaching, setAttaching] = useState(false);
   const attachmentPendingRef = useRef(false);
   // Fold choices are the user's, kept here so a live update can never override them.
@@ -2209,6 +2216,40 @@ export default function AgentTaskScreen({
     await refreshProjection(state.latestTurnId);
   }), [attentionAction, live, refreshProjection, removeQueuedInput, run, state.latestTurnId, taskId, workspaceId]);
 
+  const editQueued = useCallback((queuedInputId: string) => run(async () => {
+    const current = stateRef.current;
+    const input = current.queue.find(input => input.id === queuedInputId);
+    if (editingQueuedRef.current || current.sending || attachmentPendingRef.current || current.composer !== '' || current.attachments.length > 0
+      || current.task === null || input === undefined || input.turnId !== null || !['QUEUED', 'PAUSED'].includes(input.state)) return;
+    editingQueuedRef.current = true;
+    dispatch({ type: 'composer/sending', sending: true });
+    try {
+      const draft = await live().editAgentQueuedInput(taskId, workspaceId, queuedInputId);
+      removeQueuedInput(queuedInputId);
+      dispatch({ type: 'composer/changed', text: draft.message });
+      dispatch({ type: 'attachments/added', attachments: draft.attachments });
+      attentionAction('update');
+      const { model, effort, serviceTier, permissionPolicy, developmentAutomation } = draft.settings;
+      const defaults = { model, effort, serviceTier, permissionPolicy, developmentAutomation };
+      submissions.draftChanged(taskId, draft.message, draft.attachments.map(attachment => attachment.id), defaults);
+      const task = await live().getAgentTask(taskId, workspaceId);
+      if (task.defaults.model !== model || task.defaults.effort !== effort || (task.defaults.serviceTier ?? null) !== (serviceTier ?? null)
+        || task.defaults.permissionPolicy !== permissionPolicy || JSON.stringify(task.defaults.developmentAutomation) !== JSON.stringify(developmentAutomation)) {
+        applyTask(await live().updateAgentTaskDefaults(taskId, workspaceId, task.version, defaults));
+      }
+      await refreshProjection(current.latestTurnId);
+    }
+    finally {
+      editingQueuedRef.current = false;
+      dispatch({ type: 'composer/sending', sending: false });
+      requestAnimationFrame(() => {
+        composerRef.current?.focus();
+        const length = composerRef.current?.value.length ?? 0;
+        composerRef.current?.setSelectionRange(length, length);
+      });
+    }
+  }), [applyTask, attentionAction, live, refreshProjection, removeQueuedInput, run, submissions, taskId, workspaceId]);
+
   const steerQueued = useCallback((queuedInputId: string) => run(async () => {
     const current = stateRef.current;
     const input = current.queue.find(input => input.id === queuedInputId);
@@ -2629,6 +2670,7 @@ export default function AgentTaskScreen({
       onSteer={() => { void steer(); }}
       onQueue={() => { void queueNext(); }}
       onRemoveQueued={(queuedInputId) => { void removeQueued(queuedInputId); }}
+      onEditQueued={(queuedInputId) => { void editQueued(queuedInputId); }}
       onSteerQueued={(queuedInputId) => { void steerQueued(queuedInputId); }}
       onResumeQueue={() => { void resumeQueue(); }}
     />

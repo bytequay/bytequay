@@ -3437,6 +3437,49 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void returnsTheFullQueuedDraftAndAttachmentsBeforeRemovingIt()
+    {
+        service.start(command("first", "key-1"));
+        var attachment = resources.storeAttachment(new StoreAgentAttachmentCommand(task.id(), "queued.png", "image/png",
+                Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")));
+        String message = "Full queued instructions\n".repeat(30);
+        QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), message, ImmutableList.of(attachment.input()), "queue-edit"));
+
+        var draft = service.editQueued(task.id(), input.id());
+
+        assertThat(draft.message()).isEqualTo(message);
+        assertThat(draft.settings()).isEqualTo(input.settings());
+        assertThat(draft.attachments()).containsExactly(attachment);
+        assertThat(service.queued(task.id())).isEmpty();
+        assertThat(service.editQueued(task.id(), input.id())).isEqualTo(draft);
+        driver.complete("done");
+        assertThat(driver.commands()).hasSize(1);
+    }
+
+    @Test
+    void refusesToEditClaimedInputOrLoseUnreadableInput()
+    {
+        service.start(command("first", "key-1"));
+        QueuedAgentInput waiting = service.enqueue(new QueueAgentInputCommand(
+                task.id(), taskService.get(task.id()).version(), "waiting", ImmutableList.of(), "queue-edit"));
+        QueuedAgentInput claimed = waiting.starting(TurnId.random(), EventId.random(), NOW);
+        for (QueuedAgentInput input : ImmutableList.of(claimed, claimed.uncertain("unknown delivery", NOW), claimed.paused("retry", NOW))) {
+            QueuedAgentInput stored = stores.update(input.withVersion(stores.find(input.id()).orElseThrow().version()));
+            assertThatThrownBy(() -> service.editQueued(task.id(), input.id())).isInstanceOf(AgentConflictException.class);
+            assertThat(stores.find(input.id())).contains(stored);
+        }
+        stores.update(waiting.paused("provider unavailable", NOW).withVersion(stores.find(waiting.id()).orElseThrow().version()));
+        assertThat(service.editQueued(task.id(), waiting.id()).message()).isEqualTo("waiting");
+
+        QueuedAgentInput unreadable = QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 2, "unreadable",
+                new BlobRef("blobs/queue/missing", "text/plain; charset=utf-8", 7), "missing", waiting.settings(), NOW);
+        stores.insert(unreadable);
+        assertThatThrownBy(() -> service.editQueued(task.id(), unreadable.id())).isInstanceOf(RuntimeException.class);
+        assertThat(stores.find(unreadable.id())).contains(unreadable);
+    }
+
+    @Test
     void removesWaitingInputAndAbandonsUncertainInputWithoutResendingIt()
     {
         service.start(command("first", "key-1"));
@@ -3488,6 +3531,9 @@ class TestDefaultAgentTurnService
                 NOW);
         stores.insert(foreign);
 
+        assertThatThrownBy(() -> service.editQueued(task.id(), foreign.id()))
+                .isInstanceOf(AgentConflictException.class)
+                .hasMessageContaining("does not belong");
         assertThatThrownBy(() -> service.removeQueued(task.id(), foreign.id()))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("does not belong");

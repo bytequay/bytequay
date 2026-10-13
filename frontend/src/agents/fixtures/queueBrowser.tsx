@@ -19,7 +19,7 @@ import type { AgentTurnDto } from '../../types';
 import { assert, changeInput, settle } from '../../fixtures/harness';
 import '../../css/base.css';
 
-export async function run(): Promise<string> {
+async function testSteering(): Promise<string> {
   const bridge = createPreviewBridge('workspace-1');
   const event = bridge.events[0];
   assert(event.turnId !== null, 'The fixture needs an active turn');
@@ -89,4 +89,96 @@ export async function run(): Promise<string> {
     return 'queued steering preserves drafts, rejects safely, and stays inside the composer';
   }
   finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+
+async function testEditing(): Promise<string> {
+  const bridge = createPreviewBridge('workspace-1');
+  const event = bridge.events[0];
+  assert(event.turnId !== null, 'The fixture needs an active turn');
+  const turn: AgentTurnDto = { ...await bridge.getAgentTurn(event.turnId), state: 'RUNNING', endedAt: null };
+  bridge.getAgentTurn = async () => turn;
+  bridge.readAgentHistory = async () => ({ events: [event], beforeCursor: null, afterCursor: null, latestSequence: event.sequence });
+  bridge.subscribeAgentTask = async (taskId, _after, listener) => {
+    listener({ subscriptionId: 'queue', taskId, kind: 'state', state: 'open' });
+    return () => {};
+  };
+  const message = 'Full first message\nwith every detail preserved.\n'.repeat(40);
+  for (const [index, text] of [message, 'Second queued message'].entries()) {
+    await bridge.queueAgentInput({ taskId: event.taskId, workspaceId: 'workspace-1', expectedVersion: index,
+      message: text, idempotencyKey: `edit-${index}` });
+  }
+  const edit = bridge.editAgentQueuedInput;
+  let calls = 0;
+  let release: () => void = () => {};
+  bridge.editAgentQueuedInput = async (...args) => {
+    calls++;
+    if (calls === 1) throw new Error('Message already starting');
+    if (calls === 2) await new Promise<void>(resolve => { release = resolve; });
+    const draft = await edit(...args);
+    return calls === 2 ? { ...draft, settings: { ...draft.settings, effort: 'medium' }, attachments: [
+      { id: 'edited-image', name: 'queued.png', mediaType: 'image/png', byteSize: 10, width: 1, height: 1 },
+    ] } : draft;
+  };
+  const host = document.createElement('div');
+  host.style.cssText = 'height:600px;width:600px';
+  document.body.append(host);
+  const root = createRoot(host);
+  try {
+    flushSync(() => root.render(<AgentTaskScreen workspaceId="workspace-1" taskId={event.taskId} bridge={bridge} onBack={() => {}} />));
+    for (let frame = 0; frame < 30 && !host.querySelector('[aria-label="Edit queued message"]'); frame++) await settle();
+    const input = host.querySelector<HTMLTextAreaElement>('.agt-compose__input');
+    assert(input !== null, 'The composer must render');
+    const up = (options: KeyboardEventInit = {}): void => {
+      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowUp', bubbles: true, cancelable: true, ...options }));
+    };
+    changeInput(input, 'Keep my draft');
+    await settle();
+    up();
+    assert(host.querySelector<HTMLButtonElement>('[aria-label="Edit queued message"]')?.disabled === true, 'Editing must protect a nonempty draft');
+    changeInput(input, '');
+    await settle();
+    up({ shiftKey: true }); up({ isComposing: true }); up({ repeat: true });
+    await settle();
+    assert(calls === 0, 'Navigation modifiers, held keys, and composition must not recall a message');
+    up();
+    await settle();
+    assert(host.querySelectorAll('.agt-queue__row').length === 2 && input.value === '', 'Rejected editing keeps the queue and draft intact');
+    assert(host.textContent?.includes('Message already starting') === true, 'Editing failures must be visible');
+    up();
+    await settle();
+    assert(input.disabled, 'The composer freezes while recall is pending');
+    up();
+    assert(Number(calls) === 2, 'Repeated input cannot claim another queued message');
+    release();
+    for (let frame = 0; frame < 30 && input.disabled; frame++) await settle();
+    assert(String(input.value) === message, 'Up Arrow restores the entire first message, including newlines');
+    assert(document.activeElement === input && input.selectionStart === message.length, 'Editing focuses the composer at the end');
+    assert(host.querySelectorAll('.agt-queue__row').length === 1, 'Only the first message is removed');
+    assert(host.querySelector('[aria-label="Remove image queued.png"]') !== null, 'Queued images return to the composer');
+    assert((await bridge.getAgentTask(event.taskId, 'workspace-1')).defaults.effort === 'medium', 'Queued model settings are restored');
+    changeInput(input, '');
+    await settle();
+    up();
+    assert(Number(calls) === 2, 'An attachment-only draft must also be protected');
+    host.querySelector<HTMLButtonElement>('.agt-draft button')?.click();
+    await settle();
+    host.querySelector<HTMLButtonElement>('[aria-label="Edit queued message"]')?.click();
+    await settle();
+    assert(String(input.value) === 'Second queued message' && host.querySelector('.agt-queue') === null, 'The pencil also moves a message into the composer');
+    changeInput(input, 'Updated queued message');
+    await settle();
+    const runNext = [...host.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Run next');
+    assert(runNext !== undefined && !runNext.disabled, 'The edited message can be submitted again');
+    runNext.click();
+    await settle();
+    assert((await bridge.listAgentQueue(event.taskId, 'workspace-1'))[0]?.preview === 'Updated queued message', 'Resubmission queues the edited text');
+    assert(String(input.value) === '', 'Successful resubmission clears the composer');
+    return 'queued editing restores full drafts and protects existing input';
+  }
+  finally { flushSync(() => root.unmount()); host.remove(); }
+}
+
+export async function run(): Promise<string> {
+  return `${await testSteering()}; ${await testEditing()}`;
 }

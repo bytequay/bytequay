@@ -856,6 +856,12 @@ export type AgentQueuedInputDto = {
   updatedAt: string;
 };
 
+export type AgentQueuedInputDraftDto = {
+  message: string;
+  settings: AgentTurnSettingsDto;
+  attachments: AgentAttachmentDto[];
+};
+
 /** A stored, verified image the task owns; the renderer only ever sees these facts. */
 export type AgentAttachmentDto = {
   id: string;
@@ -1854,6 +1860,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   listAgentQueue: (taskId: string, workspaceId: string) => Promise<AgentQueuedInputDto[]>;
   /** Removes a waiting input, or records an uncertain one as abandoned. */
   removeAgentQueuedInput: (taskId: string, workspaceId: string, queuedInputId: string) => Promise<AgentQueuedInputDto>;
+  editAgentQueuedInput: (taskId: string, workspaceId: string, queuedInputId: string) => Promise<AgentQueuedInputDraftDto>;
   steerAgentQueuedInput: (taskId: string, workspaceId: string, queuedInputId: string, turnId: string) => Promise<AgentInputDeliveryDto>;
   /** Starts the paused queue head on an idle task. */
   resumeAgentQueue: (taskId: string, workspaceId: string) => Promise<AgentTurnDto>;

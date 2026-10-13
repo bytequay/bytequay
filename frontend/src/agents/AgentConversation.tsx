@@ -15,7 +15,7 @@
 import type { JiraTaskSource } from '../jira/contracts';
 import { BackportRequestHint } from './BackportRequestHint';
 import { JiraRequestCard } from '../jira/JiraSourceAttachment';
-import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
+import { BookMarked,BookOpen,Check,ChevronsDownUp,Circle,CircleAlert,CircleCheck,CircleX,CornerDownRight,FilePenLine,FolderOpen,Globe,Image,ListChecks,ListPlus,LoaderCircle,MessageSquare,Pencil,Search,ShieldCheck,ShieldX,SquareTerminal,Trash2,TriangleAlert,Wrench,X,type LucideIcon } from 'lucide-react';
 import hljs from 'highlight.js/lib/common';
 import React,{ useCallback,useEffect,useId,useLayoutEffect,useMemo,useRef,useState } from 'react';
 import { Chevron } from '../Chevron';
@@ -911,7 +911,7 @@ const QUEUE_LABELS: Record<string, string> = {
  * offers to resume the queue; an uncertain one, which may or may not have reached the agent, is
  * only ever discarded by hand.
  */
-export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeBlockedReason, steerEnabled = false, onSteer, onRemove, onResume }: {
+export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeBlockedReason, steerEnabled = false, editEnabled = false, onEdit, onSteer, onRemove, onResume }: {
   queue: ConversationQueuedInput[];
   running: boolean;
   idle: boolean;
@@ -920,6 +920,8 @@ export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeB
   steerEnabled?: boolean;
   onSteer?: (queuedInputId: string) => void;
   onRemove: (queuedInputId: string) => void;
+  editEnabled?: boolean;
+  onEdit?: (queuedInputId: string) => void;
   onResume?: () => void;
 }): React.JSX.Element | null {
   if (queue.length === 0) return null;
@@ -947,6 +949,11 @@ export function ConversationQueue({ queue, running, idle, resumeBlocked, resumeB
             <span className="agt-mono agt-queue__meta">
               {input.modelLabel}
             </span>
+            {onEdit !== undefined && input.turnId == null && (state === 'QUEUED' || state === 'PAUSED') && (
+              <button type="button" className="agt-queue__remove" aria-label="Edit queued message" disabled={!editEnabled}
+                title={editEnabled ? 'Move to composer to edit (↑ in an empty composer)' : 'Send or clear the current draft before editing a queued message'}
+                onClick={() => onEdit(input.id)}><Pencil aria-hidden="true" /></button>
+            )}
             {running && onSteer !== undefined && input.turnId == null && ['QUEUED', 'PAUSED', 'UNKNOWN'].includes(state) && (
               <button type="button" className="agt-queue__link" disabled={!steerEnabled || input.steerBlockedReason !== undefined}
                 title={input.steerBlockedReason ?? (steerEnabled ? 'Sends this queued message into the running turn now' : 'Steering is unavailable for the current turn')}
@@ -1251,7 +1258,7 @@ export function AgentConversation({
 
 /** The whole task composer, including its controls, is shared by every conversation. */
 export function ConversationComposer({
-  value, onChange, onSend, onStop, onSteer, onQueue, running, sending, disabled,
+  value, onChange, onSend, onStop, onSteer, onQueue, onEditQueued, running, sending, disabled,
   sendEnabled, steerEnabled, queueEnabled, models, model, effort, serviceTier, provider = '',
   onSelectModel, onAttach, attachEnabled = false,
   attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer, automation,
@@ -1266,6 +1273,7 @@ export function ConversationComposer({
   onStop: () => void;
   onSteer: () => void;
   onQueue: () => void;
+  onEditQueued?: () => void;
   running: boolean;
   sending: boolean;
   disabled: boolean;
@@ -1382,6 +1390,12 @@ export function ConversationComposer({
                 event.preventDefault(); selectCi(); return;
               }
               if (event.key === 'ArrowDown' || event.key === 'ArrowUp') { event.preventDefault(); return; }
+            }
+            if (event.key === 'ArrowUp' && value === '' && attachments.length === 0 && !sending && !event.repeat
+              && !event.shiftKey && !event.ctrlKey && !event.altKey && !event.metaKey && onEditQueued !== undefined) {
+              event.preventDefault();
+              onEditQueued();
+              return;
             }
             if (event.key === 'Enter' && !event.shiftKey) {
               event.preventDefault();

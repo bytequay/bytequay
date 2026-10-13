@@ -34,6 +34,7 @@ import java.util.Set;
 
 import static com.bytequay.app.git.RepositoryUrls.isPlainHttps;
 import static com.bytequay.app.utils.StringInputUtil.isNotBlank;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -140,9 +141,7 @@ public class CredentialService
         requireNonNull(remoteUrls, "remoteUrls is null");
         Set<String> bases = new LinkedHashSet<>();
         remoteUrls.forEach(url -> bases.add(authenticationBase(url)));
-        if (bases.isEmpty()) {
-            throw new IllegalArgumentException("remoteUrls is empty");
-        }
+        checkArgument(!bases.isEmpty(), "remoteUrls is empty");
         String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(
                 ("x-access-token:" + resolveGitHubToken(workspaceId)).getBytes(StandardCharsets.UTF_8));
         ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
@@ -262,9 +261,7 @@ public class CredentialService
     private static String authenticationBase(String remoteUrl)
     {
         URI uri = URI.create(requireNonNull(remoteUrl, "remoteUrl is null"));
-        if (!isPlainHttps(uri)) {
-            throw new IllegalArgumentException("unsafe remote URL");
-        }
+        checkArgument(isPlainHttps(uri), "unsafe remote URL");
         return uri.getScheme().toLowerCase() + "://" + uri.getAuthority().toLowerCase() + "/";
     }
 }

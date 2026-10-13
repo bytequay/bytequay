@@ -105,9 +105,7 @@ record ReviewLead(String path, OptionalInt line, Lens lens, Kind kind, String cl
         catch (JsonProcessingException failure) {
             throw new IllegalArgumentException("The second reader's answer is not one JSON object", failure);
         }
-        if (root == null || !root.isObject() || !root.path("leads").isArray()) {
-            throw new IllegalArgumentException("The second reader's answer must be one object holding leads");
-        }
+        checkArgument(root != null && root.isObject() && root.path("leads").isArray(), "The second reader's answer must be one object holding leads");
         ImmutableList.Builder<ReviewLead> leads = ImmutableList.builder();
         int kept = 0;
         for (JsonNode item : root.get("leads")) {

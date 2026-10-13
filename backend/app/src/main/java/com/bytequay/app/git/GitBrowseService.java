@@ -294,19 +294,14 @@ public class GitBrowseService
         if (!currentBranch.equals(branch)) {
             throw new IllegalArgumentException("Branch " + branch + " is not checked out; " + currentBranch + " is");
         }
-        if (!require(repository, "status", "--porcelain").isBlank()) {
-            throw new IllegalArgumentException("The working tree has uncommitted changes; commit or stash them first");
-        }
+        checkArgument(require(repository, "status", "--porcelain").isBlank(), "The working tree has uncommitted changes; commit or stash them first");
         if (!git.run(repository, "merge-base", "--is-ancestor", baseSha, tipSha).successful()
                 || !git.run(repository, "merge-base", "--is-ancestor", tipSha, "HEAD").successful()) {
             throw new IllegalArgumentException("The commits are not an in-order span of " + branch);
         }
-        if (!git.run(repository, "rev-parse", "--verify", "--quiet", baseSha + "^^{commit}").successful()) {
-            throw new IllegalArgumentException("The repository's first commit cannot be rewritten");
-        }
-        if (!require(repository, "rev-list", "--merges", baseSha + "^.." + "HEAD").isBlank()) {
-            throw new IllegalArgumentException("The span or the commits above it contain a merge commit; rewriting would flatten it");
-        }
+        checkArgument(git.run(repository, "rev-parse", "--verify", "--quiet", baseSha + "^^{commit}").successful(), "The repository's first commit cannot be rewritten");
+        checkArgument(require(repository, "rev-list", "--merges", baseSha + "^.." + "HEAD").isBlank(),
+                "The span or the commits above it contain a merge commit; rewriting would flatten it");
     }
 
     /** New commit with {@code tipSha}'s tree and author on {@code baseSha}'s parent. */

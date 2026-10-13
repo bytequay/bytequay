@@ -23,6 +23,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -99,15 +100,9 @@ public class BetterWordsService
     public String improve(String comment, String repository, Optional<String> workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
-        if (comment == null || comment.isBlank()) {
-            throw new IllegalArgumentException("Write a comment before asking for better words.");
-        }
-        if (comment.length() > MAXIMUM_INPUT_CHARACTERS) {
-            throw new IllegalArgumentException("The comment is too long to rewrite.");
-        }
-        if (repository != null && repository.isBlank()) {
-            throw new IllegalArgumentException("The pull request repository is required.");
-        }
+        checkArgument(comment != null && !comment.isBlank(), "Write a comment before asking for better words.");
+        checkArgument(comment.length() <= MAXIMUM_INPUT_CHARACTERS, "The comment is too long to rewrite.");
+        checkArgument(repository == null || !repository.isBlank(), "The pull request repository is required.");
         Optional<String> requestedRepository = Optional.ofNullable(repository).map(String::trim);
 
         String improved = helper.answer(selectedModel(requestedRepository, workspaceId), CLI_PROMPT.formatted(INSTRUCTIONS, comment), skills.instructions(), FAILURE);
@@ -122,15 +117,9 @@ public class BetterWordsService
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(voice, "voice is null");
-        if (context == null || context.isBlank()) {
-            throw new IllegalArgumentException("There is nothing to draft a reply from.");
-        }
-        if (context.length() > MAXIMUM_INPUT_CHARACTERS) {
-            throw new IllegalArgumentException("The private thread is too long to draft a reply from.");
-        }
-        if (repository == null || repository.isBlank()) {
-            throw new IllegalArgumentException("The pull request repository is required.");
-        }
+        checkArgument(context != null && !context.isBlank(), "There is nothing to draft a reply from.");
+        checkArgument(context.length() <= MAXIMUM_INPUT_CHARACTERS, "The private thread is too long to draft a reply from.");
+        checkArgument(repository != null && !repository.isBlank(), "The pull request repository is required.");
         String instructions = switch (voice) {
             case AUTHOR -> DRAFT_INSTRUCTIONS;
             case REVIEWER -> REVIEWER_DRAFT_INSTRUCTIONS;
@@ -149,9 +138,7 @@ public class BetterWordsService
                     .orElseThrow(() -> new IllegalArgumentException("The workspace is no longer available."))
                     .monitoredRepository()
                     .fullName();
-            if (repository.filter(value -> !monitoredRepository.equalsIgnoreCase(value)).isPresent()) {
-                throw new IllegalArgumentException("The pull request does not belong to this workspace.");
-            }
+            checkArgument(repository.filter(value -> !monitoredRepository.equalsIgnoreCase(value)).isEmpty(), "The pull request does not belong to this workspace.");
             return id;
         });
         // The user's own writing runs on the development default, which a workspace may override.

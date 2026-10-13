@@ -47,6 +47,7 @@ import static com.bytequay.app.repository.github.GitHubApiSupport.requirePat;
 import static com.bytequay.app.repository.github.GitHubApiSupport.send;
 import static com.bytequay.app.repository.github.GitHubApiSupport.translating;
 import static com.bytequay.core.domain.Checks.checkText;
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -201,9 +202,7 @@ public class GitHubPullRequestWriteClient
             List<String> assignees,
             List<String> labels)
     {
-        if (assignees == null && labels == null) {
-            throw new IllegalArgumentException("assignees or labels must be provided");
-        }
+        checkArgument(assignees != null || labels != null, "assignees or labels must be provided");
         Map<String, Object> request = new LinkedHashMap<>();
         if (assignees != null) {
             request.put("assignees", ImmutableList.copyOf(assignees));

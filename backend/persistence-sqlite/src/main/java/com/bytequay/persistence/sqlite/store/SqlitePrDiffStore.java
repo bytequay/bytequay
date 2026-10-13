@@ -28,6 +28,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @Repository
@@ -134,9 +135,7 @@ public class SqlitePrDiffStore
 
     private static String snapshotId(long prId, String baseSha, String headSha)
     {
-        if ((baseSha == null) != (headSha == null)) {
-            throw new IllegalArgumentException("baseSha and headSha must be provided together");
-        }
+        checkArgument((baseSha == null) == (headSha == null), "baseSha and headSha must be provided together");
         return baseSha == null ? prId + ":default" : prId + ":" + baseSha + ":" + headSha;
     }
 }

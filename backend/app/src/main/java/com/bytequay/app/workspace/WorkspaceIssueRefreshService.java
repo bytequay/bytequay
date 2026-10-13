@@ -51,6 +51,7 @@ import java.util.concurrent.locks.Lock;
 import static com.bytequay.app.repository.github.GitHubRateLimitException.isRateLimit;
 import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
 import static com.google.common.base.Preconditions.checkArgument;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -168,9 +169,7 @@ public class WorkspaceIssueRefreshService
                 if (!fetched.hasNext()) {
                     break;
                 }
-                if (page == MAX_SYNC_PAGES) {
-                    throw new IllegalStateException("Recent GitHub issue refresh exceeded 5000 rows");
-                }
+                checkState(page != MAX_SYNC_PAGES, "Recent GitHub issue refresh exceeded 5000 rows");
             }
             requireSameAccount(credential);
             settings.put(checkpointKey, startedAt.toString());
@@ -182,9 +181,7 @@ public class WorkspaceIssueRefreshService
 
     private void requireSameAccount(GitHubCredential credential)
     {
-        if (credentials.cachedLogin().filter(login -> login.equalsIgnoreCase(credential.profile().login())).isEmpty()) {
-            throw new IllegalStateException("GitHub account changed during issue refresh");
-        }
+        checkState(credentials.cachedLogin().filter(login -> login.equalsIgnoreCase(credential.profile().login())).isPresent(), "GitHub account changed during issue refresh");
     }
 
     private static Optional<Instant> parseInstant(String value)
@@ -263,9 +260,7 @@ public class WorkspaceIssueRefreshService
             if (!fetched.hasNext()) {
                 break;
             }
-            if (page == MAX_SYNC_PAGES) {
-                throw new IllegalStateException("GitHub issue refresh exceeded 5000 rows");
-            }
+            checkState(page != MAX_SYNC_PAGES, "GitHub issue refresh exceeded 5000 rows");
         }
         issues.completeSync(
                 workspace.monitoredRepositoryId(),

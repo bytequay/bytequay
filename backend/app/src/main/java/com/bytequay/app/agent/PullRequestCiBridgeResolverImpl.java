@@ -63,6 +63,7 @@ import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Stream;
 
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -213,9 +214,7 @@ public class PullRequestCiBridgeResolverImpl
                 .filter(row -> row.repo().equalsIgnoreCase(scope.repository().fullName()) && scope.branches().contains(row.headRef()))
                 .filter(row -> "open".equalsIgnoreCase(row.state()))
                 .distinct().limit(MAXIMUM_CANDIDATES + 1).collect(toImmutableList());
-        if (rows.size() > MAXIMUM_CANDIDATES) {
-            throw new IllegalStateException("Too many task pull request candidates");
-        }
+        checkState(rows.size() <= MAXIMUM_CANDIDATES, "Too many task pull request candidates");
         ImmutableList.Builder<Candidate> matches = ImmutableList.builder();
         for (PullRequest row : rows) {
             PullRequestRef ref = PullRequestRef.of(scope.repository().owner(), scope.repository().repo(), row.number());

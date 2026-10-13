@@ -55,6 +55,7 @@ import java.util.function.Supplier;
 
 import static com.bytequay.core.domain.CommitRefreshStatus.State.FAILED;
 import static com.bytequay.core.domain.CommitRefreshStatus.State.IDLE;
+import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
 import static com.google.common.collect.ImmutableSet.toImmutableSet;
 import static java.util.Objects.requireNonNull;
@@ -181,9 +182,7 @@ class CommitHistoryRefresher
     private WorkspaceCodeSyncResult refreshCode(String workspaceId)
     {
         WorkspaceCodeSyncResult synchronization = provisioning.synchronizeCode(workspaceId);
-        if (!synchronization.successful()) {
-            throw new IllegalStateException("managed repository synchronization failed");
-        }
+        checkState(synchronization.successful(), "managed repository synchronization failed");
         return synchronization;
     }
 
@@ -247,9 +246,7 @@ class CommitHistoryRefresher
         Map<String, CommitAvatar> identities;
         if (avatarLimit > 0) {
             CommitAvatarSnapshot avatarSnapshot = gitHub.fetchCommitAvatarSnapshot(token, repository, commits.getFirst().sha(), avatarLimit);
-            if (!avatarSnapshot.succeeded()) {
-                throw new IllegalStateException("commit avatar synchronization failed");
-            }
+            checkState(avatarSnapshot.succeeded(), "commit avatar synchronization failed");
             identities = avatarSnapshot.avatars().stream()
                     .collect(toImmutableMap(CommitAvatar::sha, Function.identity()));
         }
@@ -263,9 +260,7 @@ class CommitHistoryRefresher
                 .toList();
         PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(
                 repository, dueAssociations, ref.providerRef(), new ArrayList<>());
-        if (!associationSnapshot.failedShas().isEmpty()) {
-            throw new IllegalStateException("commit pull-request synchronization failed");
-        }
+        checkState(associationSnapshot.failedShas().isEmpty(), "commit pull-request synchronization failed");
         Map<String, PullRequestAssociation> associations = associationSnapshot.associations().stream()
                 .collect(toImmutableMap(
                         PullRequestLookupResult.Association::sha,

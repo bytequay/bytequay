@@ -304,12 +304,8 @@ final class InteractiveAgentHttpContract
             requireNonNull(defaults, "defaults is null");
             checkNotBlank(idempotencyKey, "idempotencyKey");
             new AgentLaneId(laneId);
-            if (defaults.model().isEmpty()) {
-                throw new IllegalArgumentException("model must not be blank");
-            }
-            if (!AgentPermissionPolicy.AUTO.name().equals(defaults.permissionPolicy())) {
-                throw new IllegalArgumentException("Interactive tasks currently support only AUTO permission");
-            }
+            checkArgument(defaults.model().isPresent(), "model must not be blank");
+            checkArgument(AgentPermissionPolicy.AUTO.name().equals(defaults.permissionPolicy()), "Interactive tasks currently support only AUTO permission");
         }
     }
 
@@ -321,9 +317,7 @@ final class InteractiveAgentHttpContract
         {
             checkArgument(expectedVersion >= 0, "expectedVersion is negative");
             requireNonNull(defaults, "defaults is null");
-            if (!AgentPermissionPolicy.AUTO.name().equals(defaults.permissionPolicy())) {
-                throw new IllegalArgumentException("Interactive tasks currently support only AUTO permission");
-            }
+            checkArgument(AgentPermissionPolicy.AUTO.name().equals(defaults.permissionPolicy()), "Interactive tasks currently support only AUTO permission");
         }
     }
 

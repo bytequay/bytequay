@@ -21,6 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
 
+import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
 
 @RestController
@@ -37,9 +38,7 @@ public class BetterWordsController
     @PostMapping("/better-words")
     public BetterWordsResponse improve(@RequestBody BetterWordsRequest request)
     {
-        if (request == null) {
-            throw new IllegalArgumentException("Request body is required.");
-        }
+        checkArgument(request != null, "Request body is required.");
         return new BetterWordsResponse(betterWords.improve(
                 request.text(),
                 request.repository(),

@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -9,7 +11,16 @@ import unittest
 import activity
 
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
+WHEN = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 ORDER = ["approval", "mvn", "git", "Read", "text"]
+
+
+def matches_example(test, name, made):
+    """The example in the repository is what the dashboard's tests read, so it must be exactly what the lab writes."""
+    example = Path(__file__).with_name("fixture") / name
+    if os.environ.get("UPDATE_SAVED_EXAMPLES"):
+        example.write_text(json.dumps(made, indent=2) + "\n")
+    test.assertEqual(json.loads(example.read_text()), made, "Run the tests once with UPDATE_SAVED_EXAMPLES=1 if the saved shape changed on purpose")
 
 
 def at(second):
@@ -302,6 +313,92 @@ class TestTables(Logs):
         self.assertIn("maven", printed)
 
 
+class TestBusyTurn(Logs):
+    def busy_day(self):
+        """One turn with every kind of item in it, a second log in the old format, and two lines that cannot be read."""
+        old_format = json.dumps({"occurredAt": at(5), "type": "COMMAND", "event": {}}) + "\n"
+        turn_of_twenty_minutes = in_order(
+            turn(0, 1200), command(10, 130, "cd /Users/someone/secret-project && ./mvnw -Dpassword=hunter2 test", item="c1"), tool(20, 80, "Read", item="r1"),
+            tool(140, 200, "mcp__bytequay__review_get_context", item="b1"), approval(210, 270), pieces(300, 301, 302), command(400, 430, "git status", item="g1"),
+            command(440, 450, "ls", item="l1"), command(460, 470, "gh pr view 1", item="h1"), tool(500, 520, "Read", item="r2"), tool(505, 530, "Grep", item="r3"),
+            tool(600, 700, "Task", item="s1"), tool(720, 760, "Context compaction", item="k1"),
+            [event(800, "command", item="never", state="STARTED", argv=["./mvnw verify"], durationMs=None)])
+        return activity.measure([self.log("aaaa", turn_of_twenty_minutes, extra=old_format + '{"cut off'), self.log("bbbb", extra=old_format)])
+
+    def test_turn_table_of_a_busy_turn_holds_what_the_tables_show(self):
+        made = activity.turn_table(self.busy_day(), WHEN)
+        (row,) = made["turns"]
+        states = {state: sum(row["groups"].get(group, 0) for group in groups) for state, groups in activity.STATES}
+        self.assertEqual(states, {"The model is working": 740, "Waiting for a tool to finish": 400, "Waiting for you": 60})
+        self.assertEqual((row["seconds"], sum(row["groups"].values())), (1200, 1200))
+        self.assertEqual(row["programs"]["maven"], {"seconds": 120, "runs": 1})
+        # A file read ran for a minute inside the Maven run, and two reads overlapped for 15 seconds.
+        self.assertEqual((row["parallel"], row["mostAtOnce"], row["unfinished"], made["leftOut"]), (75, 2, 1, {"skippedLines": 2, "unreadLogs": 1}))
+        self.assertEqual(sum(after["seconds"] for after in row["after"].values()), states["The model is working"])
+
+    def test_turn_table_names_no_argument_path_or_text(self):
+        saved_text = json.dumps(activity.turn_table(self.busy_day(), WHEN, "2026-01-01", "aaaa"))
+        for secret in ["hunter2", "secret-project", "someone", "password", "rm -rf", "/Users", "verify"]:
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, saved_text)
+        self.assertIn('"since": "2026-01-01", "task": "aaaa"', saved_text)
+
+
+class TestTurns(Logs):
+    def two_days(self):
+        """Two tasks over two days: a full turn, a turn that was interrupted, and a turn that is still running. Two of them ran two tools at once."""
+        day = 86400
+        first = self.log("aaaa-1111", TEN_MINUTES, [event(day, "lifecycle", "t2", phase="TURN_STARTED"), event(day + 300, "lifecycle", "t2", phase="INTERRUPTED")],
+                         command(day + 20, day + 140, "cd /Users/someone/secret-project && npm test -- --token=hunter2", item="n1", turn="t2"))
+        second = self.log("bbbb-2222", [event(day + 3600, "lifecycle", phase="TURN_STARTED")], command(day + 3600, day + 3640, "git gc", item="g1"),
+                          tool(day + 3610, day + 3630, "Read", item="r1"), tool(day + 3700, day + 3720, "Read", item="r2"))
+        return activity.measure([first, second])
+
+    def test_totals_are_the_sum_of_their_turns(self):
+        total = self.two_days()
+        self.assertEqual((total.tasks, total.turns, len(total.each)), (2, 3, 3))
+        self.assertEqual([round(one.end - one.start) for one in total.each], [600, 300, 120])
+        for one in total.each:
+            self.assertAlmostEqual(sum(one.groups.values()), one.end - one.start)  # every second of a turn is in exactly one group
+        self.assertAlmostEqual(total.seconds, sum(one.end - one.start for one in total.each))
+        for whole, part in (("groups", "groups"), ("program_seconds", "program_seconds"), ("program_runs", "program_runs"), ("after", "after"), ("after_times", "after_times")):
+            added = sum((getattr(one, part) for one in total.each), activity.Counter())
+            self.assertEqual({name: round(amount, 6) for name, amount in getattr(total, whole).items()}, {name: round(amount, 6) for name, amount in added.items()})
+        # Overlapping time adds up over the turns. The most tools at once is the most in any one turn, not a sum.
+        self.assertEqual([(one.parallel, one.most_at_once) for one in total.each], [(60, 2), (0, 0), (20, 2)])
+        self.assertEqual((total.parallel, total.most_at_once), (80, 2))
+
+    def test_each_turn_names_its_task_and_how_it_ended(self):
+        self.assertEqual([(one.task, one.ended) for one in self.two_days().each],
+                         [("aaaa-1111", "TURN_COMPLETED"), ("aaaa-1111", "INTERRUPTED"), ("bbbb-2222", "")])
+        # A mark after the turn has closed does not change how it ended, and neither does a mark before it started.
+        late = self.log("cccc-3333", [event(0, "lifecycle", phase="TASK_FAILED")], turn(10, 70), [event(90, "lifecycle", phase="INTERRUPTED")])
+        self.assertEqual([one.ended for one in activity.measure([late]).each], ["TURN_COMPLETED"])
+
+    def test_turn_table_has_one_row_per_turn_and_is_the_example_the_dashboard_tests_read(self):
+        made = activity.turn_table(self.two_days(), WHEN)
+        matches_example(self, "saved-turns.json", made)
+        self.assertEqual((made["version"], made["savedAt"], made["since"], made["task"], made["leftOut"]), (1, "2026-01-02T03:04:05Z", None, None, {"skippedLines": 0, "unreadLogs": 0}))
+        self.assertEqual([(row["task"], row["start"], row["seconds"], row["ended"]) for row in made["turns"]],
+                         [("aaaa-1111", "2026-01-01T00:00:00Z", 600, "TURN_COMPLETED"), ("aaaa-1111", "2026-01-02T00:00:00Z", 300, "INTERRUPTED"),
+                          ("bbbb-2222", "2026-01-02T01:00:00Z", 120, "")])
+        first = made["turns"][0]
+        self.assertEqual(first["groups"], {"model silent": 358, "tests and builds": 120, "ByteQuay tools": 60, "waiting for you": 60, "model writing": 2})
+        self.assertEqual(first["programs"], {"maven": {"seconds": 120, "runs": 1}})
+        self.assertEqual(first["after"]["after you answered"], {"seconds": 330, "times": 1})
+        self.assertEqual((first["parallel"], first["mostAtOnce"], first["unfinished"]), (60, 2, 0))
+        for row in made["turns"]:
+            self.assertEqual(sum(row["groups"].values()), row["seconds"])
+            self.assertEqual(sum(after["seconds"] for after in row["after"].values()), sum(row["groups"].get(group, 0) for group in activity.STATES[0][1]))
+
+    def test_turn_table_names_programs_and_never_their_arguments(self):
+        saved_text = json.dumps(activity.turn_table(self.two_days(), WHEN))
+        for secret in ["hunter2", "secret-project", "someone", "token", "/Users", "gc"]:
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, saved_text)
+        self.assertIn('"npm"', saved_text)
+
+
 class TestTimeline(Logs):
     def test_long_stretches_are_listed_in_order_and_short_ones_are_only_counted(self):
         total = activity.measure([self.log("aaaa", turn(0, 300), command(10, 50, "./mvnw compile", item="m1"), command(50, 100, "./mvnw test", item="m2"),
@@ -334,6 +431,22 @@ class TestCommandLine(Logs):
         self.assertIn("\n\nTimeline: stretches of 30 seconds or more", one.stdout)
         self.assertIn("     0:00    0.7 min  other shell commands", one.stdout)
         self.assertIn("No turns found.", self.run_script("--since", "2030-01-01").stdout)
+
+    def test_save_writes_the_turn_table_and_keeps_an_earlier_one_when_there_are_no_turns(self):
+        self.log("aaaa-1111", TEN_MINUTES)
+        folder = self.runtime.parent / (self.runtime.name + " saved")
+        self.addCleanup(lambda: [path.unlink() for path in folder.glob("*")] and folder.rmdir())
+        first = self.run_script("--task", "aaaa", "--save", str(folder))
+        self.assertEqual(first.returncode, 0, first.stderr)
+        self.assertIn(f"Saved to {folder / 'turns.json'}", first.stdout)
+        self.assertEqual([path.name for path in folder.iterdir()], ["turns.json"])
+        written = json.loads((folder / "turns.json").read_text())
+        self.assertEqual((written["version"], written["task"], [(row["task"], row["seconds"]) for row in written["turns"]]), (1, "aaaa", [("aaaa-1111", 600)]))
+        self.assertTrue(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", written["savedAt"]))
+        nothing = self.run_script("--since", "2030-01-01", "--save", str(folder))
+        self.assertEqual((nothing.returncode, nothing.stderr), (0, ""))
+        self.assertNotIn("Saved to", nothing.stdout)
+        self.assertEqual(json.loads((folder / "turns.json").read_text()), written)
 
     def test_wrong_arguments_are_refused_with_a_reason(self):
         self.log("aaaa-1111", TEN_MINUTES)

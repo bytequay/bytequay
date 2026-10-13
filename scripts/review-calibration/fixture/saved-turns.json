@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "savedAt": "2026-01-02T03:04:05Z",
+  "since": null,
+  "task": null,
+  "leftOut": {
+    "skippedLines": 0,
+    "unreadLogs": 0
+  },
+  "turns": [
+    {
+      "task": "aaaa-1111",
+      "start": "2026-01-01T00:00:00Z",
+      "seconds": 600.0,
+      "ended": "TURN_COMPLETED",
+      "groups": {
+        "model silent": 358.0,
+        "tests and builds": 120.0,
+        "ByteQuay tools": 60.0,
+        "waiting for you": 60.0,
+        "model writing": 2.0
+      },
+      "programs": {
+        "maven": {
+          "seconds": 120.0,
+          "runs": 1
+        }
+      },
+      "after": {
+        "at the start of a turn": {
+          "seconds": 10.0,
+          "times": 1
+        },
+        "after tests and builds": {
+          "seconds": 10.0,
+          "times": 1
+        },
+        "after ByteQuay tools": {
+          "seconds": 10.0,
+          "times": 1
+        },
+        "after you answered": {
+          "seconds": 330.0,
+          "times": 1
+        }
+      },
+      "parallel": 60.0,
+      "mostAtOnce": 2,
+      "unfinished": 0
+    },
+    {
+      "task": "aaaa-1111",
+      "start": "2026-01-02T00:00:00Z",
+      "seconds": 300.0,
+      "ended": "INTERRUPTED",
+      "groups": {
+        "model silent": 180.0,
+        "tests and builds": 120.0
+      },
+      "programs": {
+        "npm": {
+          "seconds": 120.0,
+          "runs": 1
+        }
+      },
+      "after": {
+        "at the start of a turn": {
+          "seconds": 20.0,
+          "times": 1
+        },
+        "after tests and builds": {
+          "seconds": 160.0,
+          "times": 1
+        }
+      },
+      "parallel": 0.0,
+      "mostAtOnce": 0,
+      "unfinished": 0
+    },
+    {
+      "task": "bbbb-2222",
+      "start": "2026-01-02T01:00:00Z",
+      "seconds": 120.0,
+      "ended": "",
+      "groups": {
+        "other shell commands": 40.0,
+        "model silent": 60.0,
+        "reading and searching files": 20.0
+      },
+      "programs": {
+        "git": {
+          "seconds": 40.0,
+          "runs": 1
+        }
+      },
+      "after": {
+        "after other shell commands": {
+          "seconds": 60.0,
+          "times": 1
+        }
+      },
+      "parallel": 20.0,
+      "mostAtOnce": 2,
+      "unfinished": 0
+    }
+  ]
+}

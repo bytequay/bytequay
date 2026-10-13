@@ -176,6 +176,29 @@ task's stretches of 30 seconds or more. Only group names, program names,
 counts and times are printed, never a command's arguments, a path or any
 message text.
 
+## Saving results
+
+`report.py` and `activity.py` take `--save`. Besides printing, each then writes
+its numbers as one JSON file into `~/Library/Application Support/ByteQuay Lab`,
+or into the folder named after `--save`: `review-scores.json` from `report.py`
+and `turns.json` from `activity.py`. The folder is the lab's own. A new result
+replaces the earlier one in one step. Nothing is saved when no run or turn was
+found, so an empty filter cannot wipe a result.
+
+```sh
+uv run report.py ROOT --save
+uv run activity.py --save
+```
+
+`review-scores.json` holds what the score tables print. `turns.json` is the
+turn table: one row for every turn, with its task id, its start, how it ended,
+the seconds of each part of its time, the programs it ran and what the model
+reacted to. Both hold names, counts and times and nothing else: no command
+arguments, no paths and no message text. `fixture/saved-review-scores.json` and
+`fixture/saved-turns.json` are small examples of the two shapes. The tests
+write them, so an example is always exactly what the lab saves. Run the tests
+once with `UPDATE_SAVED_EXAMPLES=1` after changing a shape on purpose.
+
 ## Synthetic smoke fixture
 
 `fixture/` is a deliberately small example for checking the harness and reading

@@ -12,6 +12,8 @@ from pathlib import Path
 import re
 import shlex
 
+import saved
+
 ENDED = ("COMPLETED", "FAILED")
 TURN_ENDED = ("TURN_COMPLETED", "INTERRUPTED", "TASK_FAILED")
 WRITING_GAP = 3  # seconds; pieces of visible model text this close together are one run of writing
@@ -240,8 +242,27 @@ def group_of(item):
 
 
 @dataclass
+class Turn:
+    """What one turn adds up to. Times are in seconds."""
+
+    task: str
+    start: float
+    end: float
+    ended: str = ""  # the mark that closed the turn; empty when the log has none, as for a turn that is still running
+    groups: Counter = field(default_factory=Counter)
+    after: Counter = field(default_factory=Counter)
+    after_times: Counter = field(default_factory=Counter)
+    program_seconds: Counter = field(default_factory=Counter)
+    program_runs: Counter = field(default_factory=Counter)
+    parallel: float = 0.0
+    most_at_once: int = 0
+    unfinished: int = 0
+    stretches: list = field(default_factory=list)
+
+
+@dataclass
 class Totals:
-    """What a set of task logs adds up to. Times are in seconds."""
+    """What a set of task logs adds up to: the sum of its turns, and what was left out. Times are in seconds."""
 
     tasks: int = 0
     turns: int = 0
@@ -258,11 +279,24 @@ class Totals:
     unfinished: int = 0
     skipped: int = 0
     unread: int = 0
-    timeline: list = field(default_factory=list)
+    each: list = field(default_factory=list)  # one Turn per turn, in the order the logs were read
+
+
+def endings(events):
+    """The mark that closed each turn, by the rule `items` closes its window with: the first end mark after the turn started."""
+    closed = {}
+    for event in events:
+        if event["type"] == "lifecycle":
+            turn, phase = event.get("turnId"), event["payload"]["phase"]
+            if phase == "TURN_STARTED":
+                closed[turn] = ""
+            elif phase in TURN_ENDED and closed.get(turn) == "":
+                closed[turn] = phase
+    return closed
 
 
 def measure(logs, since=None):
-    """Add up the given task logs. Turns that started before `since` are left out."""
+    """Add up the given task logs, one turn at a time. Turns that started before `since` are left out."""
     total, tools = Totals(), set(STATES[1][1])
     for log in logs:
         events, skipped = read(log)
@@ -272,35 +306,46 @@ def measure(logs, since=None):
             total.unread += since is None  # a log with no turn mark at all, as the old format has
             continue
         total.tasks += 1
-        total.turns += len(windows)
         total.skipped += skipped
-        total.seconds += sum(end - start for start, end in windows.values())
-        total.first, total.last = min(total.first, *(start for start, _ in windows.values())), max(total.last, *(end for _, end in windows.values()))
-        total.unfinished += sum(item.turn in windows for item in unfinished)
-        turn = before = None
+        closed = endings(events)
+        turns = {turn: Turn(log.parent.name, begin, end, closed.get(turn, "")) for turn, (begin, end) in windows.items()}
+        for item in unfinished:
+            if item.turn in turns:
+                turns[item.turn].unfinished += 1
+        one = before = None
         for made in stretches(windows, finished, group_of, ORDER):
-            if made.turn != turn:
-                turn, before, thinking = made.turn, "at the start of a turn", False
-                total.timeline.append((windows[turn], []))
+            if turns[made.turn] is not one:
+                one, before, thinking = turns[made.turn], "at the start of a turn", False
             length = made.end - made.start
-            total.groups[made.group] += length
-            total.timeline[-1][1].append(made)
+            one.groups[made.group] += length
+            one.stretches.append(made)
             if made.group in STATES[0][1]:
-                total.after[before] += length  # model time belongs to whatever finished just before it
-                total.after_times[before] += not thinking  # silent and writing pieces in a row are one stretch of model time
+                one.after[before] += length  # model time belongs to whatever finished just before it
+                one.after_times[before] += not thinking  # silent and writing pieces in a row are one stretch of model time
                 thinking = True
             else:
                 before, thinking = "after you answered" if made.group == YOU else "after " + made.group, False
             at_once = sum(number for group, number in zip(made.running, made.counts) if group in tools)
             if at_once >= 2:
-                total.parallel += length
-                total.most_at_once = max(total.most_at_once, at_once)
+                one.parallel += length
+                one.most_at_once = max(one.most_at_once, at_once)
         for item in finished:
-            if item.kind == "command" and item.turn in windows:
-                begin, end = windows[item.turn]
+            if item.kind == "command" and item.turn in turns:
+                one = turns[item.turn]
                 name = program(command_text(item.detail))
-                total.program_seconds[name] += max(0.0, min(item.end, end) - max(item.start, begin))
-                total.program_runs[name] += 1
+                one.program_seconds[name] += max(0.0, min(item.end, one.end) - max(item.start, one.start))
+                one.program_runs[name] += 1
+        total.each.extend(turns.values())
+    for one in total.each:
+        total.turns += 1
+        total.seconds += one.end - one.start
+        total.first, total.last = min(total.first, one.start), max(total.last, one.end)
+        for whole, part in ((total.groups, one.groups), (total.after, one.after), (total.after_times, one.after_times),
+                            (total.program_seconds, one.program_seconds), (total.program_runs, one.program_runs)):
+            whole.update(part)
+        total.parallel += one.parallel
+        total.most_at_once = max(total.most_at_once, one.most_at_once)
+        total.unfinished += one.unfinished
     return total
 
 
@@ -317,6 +362,20 @@ def count(number, one, many=None):
 
 def day(moment):
     return datetime.fromtimestamp(moment, timezone.utc).strftime("%Y-%m-%d")
+
+
+def notes(parallel, most_at_once, unfinished, skipped, unread):
+    """What the tables cannot show: tools that overlapped, and what was left out of the count."""
+    lines = []
+    if parallel:
+        lines.append(f"Two or more tools ran at once for {parallel / 60:.1f} minutes; the most at once was {most_at_once}.")
+    if unfinished:
+        lines.append(f"{count(unfinished, 'command or tool', 'commands or tools')} never reported an end and {'is' if unfinished == 1 else 'are'} not counted.")
+    if skipped:
+        lines.append(f"{count(skipped, 'log line')} cut off or in an old format {'was' if skipped == 1 else 'were'} skipped.")
+    if unread:
+        lines.append(f"{count(unread, 'task log')} with no turn in the current format {'was' if unread == 1 else 'were'} left out.")
+    return lines
 
 
 def render(total, top=5):
@@ -339,25 +398,18 @@ def render(total, top=5):
     if model:
         lines += ["", f"{'Model time by what just finished':<46}{'minutes':>9}{'share':>9}{'times':>9}"]
         lines += [line(before, length, model, "    ") + f"{total.after_times[before]:>9}" for before, length in total.after.most_common() if length >= SHOWN]
-    lines.append("")
-    if total.parallel:
-        lines.append(f"Two or more tools ran at once for {total.parallel / 60:.1f} minutes; the most at once was {total.most_at_once}.")
-    if total.unfinished:
-        lines.append(f"{count(total.unfinished, 'command or tool', 'commands or tools')} never reported an end and {'is' if total.unfinished == 1 else 'are'} not counted.")
-    if total.skipped:
-        lines.append(f"{count(total.skipped, 'log line')} cut off or in an old format {'was' if total.skipped == 1 else 'were'} skipped.")
-    if total.unread:
-        lines.append(f"{count(total.unread, 'task log')} with no turn in the current format {'was' if total.unread == 1 else 'were'} left out.")
+    lines += ["", *notes(total.parallel, total.most_at_once, total.unfinished, total.skipped, total.unread)]
     return "\n".join(lines).rstrip()
 
 
 def timeline(total, least=30):
     """Each turn's stretches in order, neighbours of one group joined. Stretches shorter than `least` seconds are only counted."""
     lines = [f"Timeline: stretches of {least} seconds or more, with the time since the turn started"]
-    for number, ((begin, end), made) in enumerate(total.timeline, 1):
+    for number, turn in enumerate(total.each, 1):
+        begin, end = turn.start, turn.end
         lines += ["", f"Turn {number}, {(end - begin) / 60:.1f} minutes"]
         joined = []
-        for one in made:
+        for one in turn.stretches:
             if joined and joined[-1][2] == one.group:
                 joined[-1][1] = one.end
             else:
@@ -375,11 +427,23 @@ def timeline(total, least=30):
     return "\n".join(lines)
 
 
+def turn_table(total, when, since=None, task=None):
+    """One row per turn for the dashboard, which adds them up any way it likes. Names, counts and times, and nothing else."""
+    return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task,
+            "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread},
+            "turns": [{"task": one.task, "start": datetime.fromtimestamp(one.start, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "seconds": round(one.end - one.start, 3),
+                       "ended": one.ended, "groups": {group: round(length, 3) for group, length in one.groups.items()},
+                       "programs": {name: {"seconds": round(length, 3), "runs": one.program_runs[name]} for name, length in one.program_seconds.items()},
+                       "after": {before: {"seconds": round(length, 3), "times": one.after_times[before]} for before, length in one.after.items()},
+                       "parallel": round(one.parallel, 3), "mostAtOnce": one.most_at_once, "unfinished": one.unfinished} for one in total.each]}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime", type=Path, default=RUNTIME, help="Folder with one sub-folder per task, each holding an events.jsonl")
     parser.add_argument("--task", help="Only the task whose id starts with this, with a timeline of its long stretches")
     parser.add_argument("--since", help="Only turns that started on or after this day, YYYY-MM-DD in UTC")
+    parser.add_argument("--save", type=Path, nargs="?", const=saved.FOLDER, metavar="FOLDER", help="Also save the numbers for the dashboard")
     args = parser.parse_args()
     if args.task and not re.fullmatch(r"[0-9a-fA-F-]+", args.task):
         parser.error("--task takes the start of a task id: letters a to f, digits and dashes")
@@ -392,6 +456,8 @@ def main():
         parser.error(f"No task log matches under {args.runtime}")
     total = measure(logs, since)
     print(render(total) + ("\n\n" + timeline(total) if args.task and total.turns else ""))
+    if args.save and total.turns:  # with no turns there is nothing worth replacing an earlier result with
+        print("\nSaved to", saved.write(args.save, "turns.json", turn_table(total, datetime.now(timezone.utc), args.since, args.task)))
 
 
 if __name__ == "__main__":

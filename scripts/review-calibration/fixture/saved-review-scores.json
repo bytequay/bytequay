@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "savedAt": "2026-01-02T03:04:05Z",
+  "settings": [
+    {
+      "name": "before",
+      "rules": [
+        "aaaaaaaa reviewer-model"
+      ],
+      "runs": [
+        {
+          "run": "pr1_rep1",
+          "case": "o/n#1",
+          "comments": 2,
+          "found": 1,
+          "partly": 0,
+          "missed": 1,
+          "errors": 0,
+          "leads": 2,
+          "extra": 1,
+          "inputTokens": 1000,
+          "cachedInputTokens": 400,
+          "outputTokens": 50,
+          "seconds": 90.0,
+          "judgeInputTokens": 800,
+          "judgeOutputTokens": 60
+        }
+      ],
+      "notScored": [
+        {
+          "run": "pr1_rep2",
+          "status": "timed_out"
+        }
+      ]
+    },
+    {
+      "name": "today",
+      "rules": [
+        "aaaaaaaa reviewer-model",
+        "bbbbbbbb reviewer-model"
+      ],
+      "runs": [
+        {
+          "run": "pr1_rep1",
+          "case": "o/n#1",
+          "comments": 3,
+          "found": 1,
+          "partly": 1,
+          "missed": 0,
+          "errors": 1,
+          "leads": 3,
+          "extra": 1,
+          "inputTokens": 1000,
+          "cachedInputTokens": 400,
+          "outputTokens": 50,
+          "seconds": 90.0,
+          "judgeInputTokens": 800,
+          "judgeOutputTokens": 60
+        },
+        {
+          "run": "pr1_rep2",
+          "case": "o/n#1",
+          "comments": 2,
+          "found": 2,
+          "partly": 0,
+          "missed": 0,
+          "errors": 0,
+          "leads": 3,
+          "extra": 1,
+          "inputTokens": 1000,
+          "cachedInputTokens": 400,
+          "outputTokens": 50,
+          "seconds": 90.0,
+          "judgeInputTokens": 800,
+          "judgeOutputTokens": 60
+        }
+      ],
+      "notScored": [
+        {
+          "run": "pr2_rep1",
+          "status": "not judged"
+        }
+      ]
+    }
+  ]
+}

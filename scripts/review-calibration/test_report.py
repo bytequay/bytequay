@@ -1,9 +1,23 @@
+from datetime import datetime, timezone
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 
 import report
+
+WHEN = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
+
+def matches_example(test, name, made):
+    """The example in the repository shows the saved shape, so it must be exactly what the lab writes."""
+    example = Path(__file__).with_name("fixture") / name
+    if os.environ.get("UPDATE_SAVED_EXAMPLES"):
+        example.write_text(json.dumps(made, indent=2) + "\n")
+    test.assertEqual(json.loads(example.read_text()), made, "Run the tests once with UPDATE_SAVED_EXAMPLES=1 if the saved shape changed on purpose")
 
 
 class TestReport(unittest.TestCase):
@@ -58,6 +72,39 @@ class TestReport(unittest.TestCase):
         self.assertIn("Mixed rules files or models in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model, bbbbbbbb reviewer-model", table)
         self.assertIn("Judge tokens: 1,600 / 120 (in / out)", table)
         self.assertLess(table.index("## before"), table.index("## today"))
+
+    def two_settings(self):
+        self.run_directory("before", "pr1_rep1", leads=2, verdicts=[("FOUND", ["c1"]), ("MISSED", [])])
+        self.run_directory("before", "pr1_rep2", status="timed_out")
+        self.run_directory("today", "pr1_rep1", leads=3, errors=1, verdicts=[("FOUND", ["c1"]), ("PARTLY", ["c2"])])
+        self.run_directory("today", "pr1_rep2", policy="b" * 64, leads=3, verdicts=[("FOUND", ["c1"]), ("FOUND", ["c3"])])
+        self.run_directory("today", "pr2_rep1")
+
+    def test_summary_holds_what_the_tables_show_and_is_the_example_the_app_reads(self):
+        self.two_settings()
+        made = report.summary(report.collect(self.root), WHEN)
+        matches_example(self, "saved-review-scores.json", made)
+        self.assertEqual((made["version"], made["savedAt"], [setting["name"] for setting in made["settings"]]), (1, "2026-01-02T03:04:05Z", ["before", "today"]))
+        before, today = made["settings"]
+        self.assertEqual((before["rules"], before["notScored"]), (["aaaaaaaa reviewer-model"], [{"run": "pr1_rep2", "status": "timed_out"}]))
+        self.assertEqual(before["runs"], [{"run": "pr1_rep1", "case": "o/n#1", "comments": 2, "found": 1, "partly": 0, "missed": 1, "errors": 0, "leads": 2, "extra": 1,
+                                           "inputTokens": 1000, "cachedInputTokens": 400, "outputTokens": 50, "seconds": 90, "judgeInputTokens": 800, "judgeOutputTokens": 60}])
+        self.assertEqual((today["rules"], today["notScored"], [(run["found"], run["partly"], run["errors"], run["comments"]) for run in today["runs"]]),
+                         (["aaaaaaaa reviewer-model", "bbbbbbbb reviewer-model"], [{"run": "pr2_rep1", "status": "not judged"}], [(1, 1, 1, 3), (2, 0, 0, 2)]))
+
+    def test_save_writes_one_file_for_the_app_and_nothing_when_there_are_no_runs(self):
+        self.two_settings()
+        folder = self.root.parent / (self.root.name + " saved")
+        self.addCleanup(lambda: [path.unlink() for path in folder.glob("*")] and folder.rmdir())
+        result = subprocess.run([sys.executable, report.__file__, str(self.root), "--save", str(folder)], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("## before (aaaaaaaa reviewer-model)", result.stdout)
+        self.assertIn(f"Saved to {folder / 'review-scores.json'}", result.stdout)
+        self.assertEqual([path.name for path in folder.iterdir()], ["review-scores.json"])
+        self.assertEqual([setting["name"] for setting in json.loads((folder / "review-scores.json").read_text())["settings"]], ["before", "today"])
+        with tempfile.TemporaryDirectory() as empty:
+            nothing = subprocess.run([sys.executable, report.__file__, empty, "--save", str(folder / "other")], capture_output=True, text=True)
+        self.assertEqual((nothing.returncode, "Saved to" in nothing.stdout, (folder / "other").exists()), (0, False, False))
 
 
 if __name__ == "__main__":

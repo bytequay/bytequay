@@ -4,8 +4,11 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime, timezone
 import json
 from pathlib import Path
+
+import saved
 
 VERDICTS = ("FOUND", "PARTLY", "MISSED")
 REVIEWER = ("input_tokens", "cached_input_tokens", "output_tokens")
@@ -80,10 +83,30 @@ def render(rows):
     return "\n".join(lines)
 
 
+def summary(rows, when):
+    """What the tables show, as plain data to save: names, counts and times, and nothing else."""
+    settings = []
+    for setting in sorted({made["setting"] for made in rows}):
+        mine = [made for made in rows if made["setting"] == setting]
+        settings.append({
+            "name": setting, "rules": sorted({made["rules"] for made in mine}),
+            "runs": [{"run": made["run"], "case": made["case"], "comments": made["comments"], "found": made["FOUND"], "partly": made["PARTLY"], "missed": made["MISSED"],
+                      "errors": made["errors"], "leads": made["leads"], "extra": made["extra"], "inputTokens": made["input_tokens"],
+                      "cachedInputTokens": made["cached_input_tokens"], "outputTokens": made["output_tokens"], "seconds": round(made["minutes"] * 60, 3),
+                      "judgeInputTokens": made["prompt_tokens"], "judgeOutputTokens": made["completion_tokens"]} for made in mine if made["judged"]],
+            "notScored": [{"run": made["run"], "status": made["status"] if made["status"] != "completed" else "not judged"} for made in mine if not made["judged"]]})
+    return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "settings": settings}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("root", type=Path, help="Directory holding <setting>/<run>/ folders written by run.py and judge.py")
-    print(render(collect(parser.parse_args().root)))
+    parser.add_argument("--save", type=Path, nargs="?", const=saved.FOLDER, metavar="FOLDER", help="Also save the numbers as a file")
+    args = parser.parse_args()
+    rows = collect(args.root)
+    print(render(rows))
+    if args.save and rows:  # with no runs there is nothing worth replacing an earlier result with
+        print("Saved to", saved.write(args.save, "review-scores.json", summary(rows, datetime.now(timezone.utc))))
 
 
 if __name__ == "__main__":

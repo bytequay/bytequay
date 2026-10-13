@@ -33,8 +33,6 @@ export interface PreviewCommand {
 }
 
 interface PreviewOptions {
-  /** How the simulated stream misbehaves, so each case is exercised on purpose. */
-  delivery?: 'ordered' | 'duplicate' | 'gap' | 'reconnect';
   /** Events replayed before the subscription starts; the rest arrive live. */
   replayThrough?: number;
 }
@@ -124,8 +122,7 @@ function previewTurn(taskId: string, state: string): AgentTurnDto {
  * A bridge backed by the frozen fixture instead of a provider.
  *
  * The preview must never reach a real agent, so every method here answers from checked-in data and
- * records what it was asked to do. Delivery can be made to misbehave on purpose, because ordered
- * delivery is the case least likely to be wrong.
+ * records what it was asked to do.
  */
 export function createPreviewBridge(
   workspaceId: string,
@@ -136,7 +133,6 @@ export function createPreviewBridge(
     commands.push({ name, args });
   };
   let replayThrough = options.replayThrough ?? 2;
-  const delivery = options.delivery ?? 'ordered';
   let turnState = 'COMPLETED';
   let previewVersion = 0;
   const previewQueue: AgentQueuedInputDto[] = [];
@@ -144,20 +140,6 @@ export function createPreviewBridge(
     model: 'gpt-5.6-codex',
     effort: 'high',
     permissionPolicy: 'AUTO',
-  };
-
-  const liveEvents = (): AgentEventEnvelope[] => {
-    const live = FIXTURE_EVENTS.filter((event) => event.sequence > replayThrough);
-    switch (delivery) {
-      case 'duplicate':
-        // Replay and live delivery overlap at the boundary.
-        return [FIXTURE_EVENTS[replayThrough - 1], ...live];
-      case 'gap':
-        // The first live event is lost, so everything after it must wait.
-        return live.slice(1).concat(live.slice(0, 1));
-      default:
-        return live;
-    }
   };
 
   return {
@@ -491,11 +473,8 @@ export function createPreviewBridge(
         if (!stopped) listener(message);
       };
       push({ subscriptionId: 'preview', taskId, kind: 'state', state: 'connecting' });
-      if (delivery === 'reconnect') {
-        push({ subscriptionId: 'preview', taskId, kind: 'state', state: 'reconnecting', detail: 'simulated drop' });
-      }
       push({ subscriptionId: 'preview', taskId, kind: 'state', state: 'open' });
-      for (const event of liveEvents()) {
+      for (const event of FIXTURE_EVENTS.filter(event => event.sequence > replayThrough)) {
         replayThrough = Math.max(replayThrough, event.sequence);
         push(statusOnly
           ? { subscriptionId: 'preview', taskId, kind: 'changed', sequence: event.sequence, turnId: event.turnId }

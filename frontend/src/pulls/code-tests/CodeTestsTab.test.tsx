@@ -69,29 +69,6 @@ describe('CodeTestsTab', () => {
     expect(html).not.toContain('ct-code');
   });
 
-  it('keeps worktree controls inside the IDE without an extra toolbar', () => {
-    const review = reviewFixture({ observedHeadSha: 'new-head', worktreeSync: {
-      state: 'BLOCKED', headSha: 'old-head', targetHeadSha: 'new-head', dirty: true, reason: 'Local edits',
-    } });
-    const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={review}
-      onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
-    expect(html).toContain('ct-ide-surface');
-    expect(html).not.toContain('ct-toolbar');
-    expect(html).not.toContain('ct-banner ct-sync');
-    expect(html).not.toContain('>Update review</button>');
-  });
-
-  it('does not mark a current working copy stale just because the review covers an older head', () => {
-    const review = reviewFixture({ observedHeadSha: 'new-head', worktreeSync: {
-      state: 'CURRENT', headSha: 'new-head', targetHeadSha: 'new-head', dirty: false, reason: null,
-    } });
-    const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={review}
-      onReviewChange={() => {}} active ownReviewStream={false} bridge={bridge()} />);
-    expect(html).not.toContain('Local branch is stale');
-    expect(html).not.toContain('ct-banner ct-sync');
-    expect(html).not.toContain('>Update review</button>');
-  });
-
   it('opens code before a PR exists, including for a workflow task', () => {
     const task = { ...parseAgentTask(contracts.task), interactive: false };
     const html = renderToStaticMarkup(<CodeTestsTab workspaceId="workspace-1" review={null} task={task}

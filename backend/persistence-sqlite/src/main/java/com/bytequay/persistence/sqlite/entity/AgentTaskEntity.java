@@ -91,6 +91,8 @@ public class AgentTaskEntity
 
     private String defaultModel;
 
+    private String defaultLaneId;
+
     private String defaultEffort;
 
     private String defaultServiceTier;
@@ -206,6 +208,7 @@ public class AgentTaskEntity
         generatedBranch = task.taskWorktree().map(TaskWorktree::generatedBranch).orElse(null);
         startCommit = task.taskWorktree().map(TaskWorktree::startCommit).orElse(null);
         defaultModel = task.defaults().model().orElse(null);
+        defaultLaneId = task.defaults().laneId().map(AgentLaneId::value).orElse(null);
         defaultEffort = task.defaults().effort().orElse(null);
         defaultServiceTier = task.defaults().serviceTier().orElse(null);
         developmentAutomation = task.defaults().developmentAutomation().orElse(null);
@@ -258,7 +261,8 @@ public class AgentTaskEntity
                         Optional.ofNullable(defaultEffort),
                         permissionPolicy,
                         Optional.ofNullable(defaultServiceTier),
-                        Optional.ofNullable(developmentAutomation)),
+                        Optional.ofNullable(developmentAutomation),
+                        Optional.ofNullable(defaultLaneId).map(AgentLaneId::new)),
                 state,
                 worktreeMutationClaim(),
                 version,

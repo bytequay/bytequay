@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.google.common.collect.ImmutableList;
 
@@ -33,8 +34,20 @@ public record AgentTurnSettings(
         List<AgentAttachmentReference> attachments,
         Optional<String> serviceTier,
         Optional<DevelopmentAutomation> developmentAutomation,
-        boolean useRepositoryContext)
+        boolean useRepositoryContext,
+        Optional<AgentLaneId> laneId)
 {
+    public AgentTurnSettings(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy, Duration maximumRuntime,
+            List<AgentAttachmentReference> attachments, Optional<String> serviceTier, Optional<DevelopmentAutomation> developmentAutomation, boolean useRepositoryContext)
+    {
+        this(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, useRepositoryContext, Optional.empty());
+    }
+
+    public AgentTurnSettings withLaneId(AgentLaneId lane)
+    {
+        return new AgentTurnSettings(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, useRepositoryContext, Optional.of(lane));
+    }
+
     public AgentTurnSettings(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy, Duration maximumRuntime,
             List<AgentAttachmentReference> attachments, Optional<String> serviceTier, Optional<DevelopmentAutomation> developmentAutomation)
     {
@@ -53,12 +66,13 @@ public record AgentTurnSettings(
 
     public AgentTurnSettings withRepositoryContext(boolean enabled)
     {
-        return new AgentTurnSettings(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, enabled);
+        return new AgentTurnSettings(model, effort, permissionPolicy, maximumRuntime, attachments, serviceTier, developmentAutomation, enabled, laneId);
     }
 
     public AgentTurnSettings
     {
         requireNonNull(developmentAutomation, "developmentAutomation is null");
+        requireNonNull(laneId, "laneId is null");
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
         checkOptionalText(serviceTier, "serviceTier");

@@ -28,7 +28,7 @@ import { findingFixRequest } from '../pulls/local-review/conversation';
 import { linkIssueNumbers } from '../pulls/MarkdownBody';
 import { remoteErrorMessage } from '../pulls/PullOverview';
 import { MEMORY_CHANGED } from '../memory/model';
-import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto } from '../types';
+import type { AgentIssueSourceDto,AgentApprovalDecision,AgentAttachmentDto,AgentPendingApprovalDto,AgentQueuedInputDto,AgentStreamConnectionState,AgentTurnDto,ModelOptionDto,ModelProviderDto } from '../types';
 import { AgentMark } from './AgentMark';
 import { developmentTurnRequest,draftPullRequestRequest } from './DevelopmentFacts';
 import { ciAutofixRequest } from './ciAutofix';
@@ -41,6 +41,7 @@ import { DiscussableAnswer, type SelectedPassage } from './discussions/Discussab
 import type { TaskDiscussionDto } from './discussions/contracts';
 import { approvalDecisions, approvalQuestions, questionAnswers, type ApprovalQuestion, type PendingMessage } from './model';
 import { ModelPicker } from './ModelPicker';
+import { ProviderPicker } from './ProviderPicker';
 import { IssueRequestCard } from './IssueAttachment';
 import { WorkItemPrompt } from './WorkItemPrompt';
 import { ReviewRequestCard, type ReviewRequest, type ReviewRequestTarget } from './ReviewRequestCard';
@@ -1261,7 +1262,7 @@ export function AgentConversation({
 export function ConversationComposer({
   value, onChange, onSend, onStop, onSteer, onQueue, onEditQueued, running, sending, disabled,
   sendEnabled, steerEnabled, queueEnabled, models, model, effort, serviceTier, provider = '',
-  onSelectModel, onAttach, attachEnabled = false,
+  onSelectModel, providers, laneId, onSelectProvider, onAttach, attachEnabled = false,
   attachTitle = 'Image attachments are unavailable', attachments = [], previews = {}, onRemoveAttachment, footer, automation,
   composerRef, onPaste, connection, closing = false, ciMention = false, routedToCi = false, ciMessageHint,
   placeholder = "Let's ship something",
@@ -1287,6 +1288,9 @@ export function ConversationComposer({
   serviceTier?: string | null;
   provider?: string;
   onSelectModel?: (model: string, effort: string | null, serviceTier: string | null) => void;
+  providers?: ModelProviderDto[];
+  laneId?: string;
+  onSelectProvider?: (laneId: string) => void;
   onAttach?: () => void;
   attachEnabled?: boolean;
   attachTitle?: string;
@@ -1408,9 +1412,11 @@ export function ConversationComposer({
           <button type="button" className="agt-attach" aria-label="Attach an image" title={attachTitle}
             disabled={!attachEnabled || onAttach === undefined || closing || sending} onClick={onAttach}>+</button>
           {automation}
+          {providers !== undefined && laneId !== undefined && onSelectProvider !== undefined && <ProviderPicker
+            providers={providers} selectedId={laneId} onSelect={onSelectProvider} disabled={sending || disabled || closing} />}
           <ModelPicker
             ariaLabel="Model and effort for the next message"
-            disabled={models.length === 0 || sending || onSelectModel === undefined}
+            disabled={models.length === 0 || sending || disabled || closing || onSelectModel === undefined}
             models={models} provider={provider} selectedModel={model ?? ''}
             selectedEffort={effort ?? undefined} selectedServiceTier={serviceTier}
             onSelect={onSelectModel ?? (() => {})} />

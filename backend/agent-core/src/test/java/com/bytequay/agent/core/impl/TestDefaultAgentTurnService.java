@@ -359,6 +359,76 @@ class TestDefaultAgentTurnService
     }
 
     @Test
+    void aComposerProviderChangeAppliesOnlyToTheNextTurnWithAFreshSession()
+    {
+        DeterministicAgentDriver nextDriver = new DeterministicAgentDriver(new AgentLaneId("next-provider"));
+        var registry = new StaticAgentDriverRegistry(ImmutableList.of(driver, nextDriver));
+        scopedRegistry = Optional.of(registry);
+        taskService = new DefaultAgentTaskService(stores, worktrees, resources, registry, CLOCK);
+        service = service(driver, runtimeRegistry);
+        AgentTurn first = service.start(command("Investigate", "first"));
+        AgentTask running = taskService.get(task.id());
+        AgentTaskDefaults selected = new AgentTaskDefaults(Optional.of("model-b"), Optional.of("high"), AgentPermissionPolicy.AUTO).withLaneId(nextDriver.id());
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), running.version(), selected));
+
+        assertThat(service.get(first.id()).settings().orElseThrow().model()).contains("model-a");
+        assertThat(taskService.get(task.id()).laneId()).isEqualTo(driver.id());
+        assertThat(nextDriver.openedContexts()).isEmpty();
+        driver.complete("Investigation saved");
+        AgentTurn second = service.start(command("Validate saved findings", "second"));
+
+        assertThat(second.settings().orElseThrow().laneId()).contains(nextDriver.id());
+        assertThat(second.settings().orElseThrow().model()).contains("model-b");
+        assertThat(nextDriver.openedContexts()).singleElement().satisfies(context -> {
+            assertThat(context.sessionReference()).isEmpty();
+            assertThat(context.worktree()).isEqualTo(task.worktree());
+            assertThat(context.model()).contains("model-b");
+        });
+        assertThat(taskService.get(task.id()).laneId()).isEqualTo(nextDriver.id());
+        assertThat(service.get(first.id()).settings().orElseThrow().laneId()).contains(driver.id());
+        assertThat(service.start(command("Duplicate", "second")).id()).isEqualTo(second.id());
+        nextDriver.complete("Validated");
+        service.start(command("Continue", "third"));
+        assertThat(nextDriver.openedReferences()).hasSize(2).allSatisfy(reference -> assertThat(reference).isEqualTo(nextDriver.openedReferences().getFirst()));
+    }
+
+    @Test
+    void referenceReuseStopsAtAProviderHandoff()
+    {
+        AgentTurn first = service.start(command("First", "first"));
+        driver.complete("Done");
+        AgentTurn previous = service.get(first.id());
+        AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "second",
+                previous.settings().orElseThrow().withLaneId(new AgentLaneId("different-provider")), NOW);
+        assertThat(ReviewTurnInputResolver.stillInConversation(ImmutableList.of(previous, current), turn -> true)).isEmpty();
+        AgentTurn sameProvider = AgentTurn.accepted(TurnId.random(), task.id(), "same", previous.settings().orElseThrow(), NOW);
+        assertThat(ReviewTurnInputResolver.stillInConversation(ImmutableList.of(previous, sameProvider), turn -> true)).contains(previous);
+    }
+
+    @Test
+    void queuedInputKeepsItsSelectedProviderWhenTheComposerChangesAgain()
+    {
+        DeterministicAgentDriver nextDriver = new DeterministicAgentDriver(new AgentLaneId("queued-provider"));
+        var registry = new StaticAgentDriverRegistry(ImmutableList.of(driver, nextDriver));
+        scopedRegistry = Optional.of(registry);
+        taskService = new DefaultAgentTaskService(stores, worktrees, resources, registry, CLOCK);
+        service = service(driver, runtimeRegistry);
+        service.start(command("First", "first"));
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), taskService.get(task.id()).version(),
+                task.defaults().withLaneId(nextDriver.id())));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Next", ImmutableList.of(), "queued"));
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), taskService.get(task.id()).version(), task.defaults().withLaneId(driver.id())));
+        driver.complete("First done");
+
+        assertThat(nextDriver.commands()).singleElement().satisfies(command -> assertThat(command.message()).isEqualTo("Next"));
+        assertThat(queued.settings().laneId()).contains(nextDriver.id());
+        nextDriver.complete("Next done");
+        service.start(command("Third", "third"));
+        assertThat(driver.openedContexts().getLast().sessionReference()).isEmpty();
+        assertThat(taskService.get(task.id()).laneId()).isEqualTo(driver.id());
+    }
+
+    @Test
     void persistsTypedProviderFailureOnTheTerminalTurn()
     {
         AgentTurn turn = service.start(command("first", "key-1"));

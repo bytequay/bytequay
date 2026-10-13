@@ -252,6 +252,14 @@ what to share. First watch the repository and configure a ready Review model in
    **End review** ends the reviewer task and
    releases its working copy; saved findings and discussions remain.
 
+The reviewer starts with the repository's Review override or your global Review default.
+Use the provider and model controls in its conversation composer to change this review's
+next selection, including effort and Fast mode where supported. The running turn finishes
+with its accepted settings; the very next turn uses the new choice, including automatic
+review follow-ups and **Update review**. Already queued messages keep their saved selection.
+Switching providers starts a fresh session with access to the saved review context,
+findings, and evidence. Global and repository defaults are unchanged.
+
 For development before a PR exists, open the task’s **WorkBench → Summary → Review
 changes**. This reviews committed changes, including unpushed commits; it excludes
 uncommitted edits.

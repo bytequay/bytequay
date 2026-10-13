@@ -157,9 +157,11 @@ public final class DefaultAgentTaskService
         if (task.version() != command.expectedVersion()) {
             throw new AgentConflictException("Task version changed: " + task.id());
         }
-        AgentDriver driver = driverRegistry.require(task.laneId());
+        var lane = command.defaults().laneId().orElse(task.laneId());
+        driverRegistry.checkWorkspaceAccess(lane, task.workspaceId());
+        AgentDriver driver = driverRegistry.require(lane);
         if (!driver.capabilities().permissionPolicies().contains(command.defaults().permissionPolicy())) {
-            throw new AgentUnavailableException("Agent lane " + task.laneId() + " cannot enforce " + command.defaults().permissionPolicy());
+            throw new AgentUnavailableException("Agent lane " + lane + " cannot enforce " + command.defaults().permissionPolicy());
         }
         return taskStore.update(task.withDefaults(command.defaults(), Instant.now(clock)));
     }

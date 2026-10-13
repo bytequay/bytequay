@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { laneDefaults } from '../../settings/model';
 import { useMemo, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import ConversationUtilityTab, { type ConversationUtility } from '../../agents/ConversationUtilityTab';
@@ -24,8 +25,8 @@ import { AgentConversation, ConversationComposer, ConversationQueue, useConversa
 import { projectAgents, projectTranscript, withApprovalAuthority } from '../../agents/transcript';
 import type { AgentEventEnvelope } from '../../agents/events';
 import type { PendingMessage } from '../../agents/model';
-import type { AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto } from '../../types';
-import type { AgentReviewDto } from './contracts';
+import type { AgentPendingApprovalDto, AgentStreamConnectionState, AgentTurnDto, ModelOptionDto, ModelProviderDto } from '../../types';
+import type { AgentReviewDto, ReviewModelSelection } from './contracts';
 import type { LocalReviewThreads } from '../local-review/types';
 import { reviewRecoveryRequired, reviewRequests, reviewRunning } from './model';
 
@@ -42,7 +43,7 @@ export type ReviewConversationPanel = {
 
 /** Review owns its scoped actions; Tasks owns the shared conversation presentation. */
 export default function ReviewActivity({
-  review, events, turns, models, pendingApprovals, now, composer, busy,
+  review, events, turns, models, providers, onSelectModel, pendingApprovals, now, composer, busy,
   localReview, onOpenReview, conversationPanel, composerContext, pendingMessage = null,
   connection = 'open', history = EMPTY_HISTORY, lastSequence = events.at(-1)?.sequence ?? 0,
   reviewSequence = lastSequence,
@@ -58,6 +59,8 @@ export default function ReviewActivity({
   pendingMessage?: PendingMessage | null;
   turns: Record<string, AgentTurnDto>;
   models: ModelOptionDto[];
+  providers?: ModelProviderDto[];
+  onSelectModel?: (selection: ReviewModelSelection) => void;
   pendingApprovals: AgentPendingApprovalDto[];
   now: number;
   composer: string;
@@ -77,6 +80,8 @@ export default function ReviewActivity({
   onSteerQueued?: (queuedInputId: string) => void;
   onResumeQueue?: () => void;
 }) {
+  const selectedLane = review.task.selectionLaneId ?? review.task.laneId;
+  const selectedProvider = providers?.find(provider => provider.id === selectedLane);
   const [activityChoice, setActivityChoice] = useState<Record<string, boolean>>({});
   const [turnChoice, setTurnChoice] = useState<Record<string, boolean>>({});
   const [agentsOpen, setAgentsOpen] = useState(false);
@@ -184,7 +189,14 @@ export default function ReviewActivity({
           steerEnabled={ready && running && review.task.steering && review.activeTurn?.state === 'RUNNING'}
           queueEnabled={ready && running && review.activeTurn !== null}
           steerTitle={review.task.steering ? 'Sends into the running turn now' : 'This provider cannot take input into a running turn'}
-          connection={connection} models={models} model={review.task.model} provider={review.task.laneLabel} />
+          connection={connection} models={providers === undefined ? models : selectedProvider?.models ?? []} model={review.task.model} provider={selectedProvider?.label ?? review.task.laneLabel}
+          effort={review.task.effort} serviceTier={review.task.serviceTier}
+          providers={providers} laneId={selectedLane}
+          onSelectProvider={onSelectModel === undefined ? undefined : laneId => {
+            const defaults = laneDefaults(providers ?? [], laneId);
+            onSelectModel({ laneId, model: defaults.model, effort: defaults.effort || null, serviceTier: null });
+          }}
+          onSelectModel={onSelectModel === undefined ? undefined : (model, effort, serviceTier) => onSelectModel({ laneId: selectedLane, model, effort, serviceTier })} />
       )}
     </AgentConversation>
     </>

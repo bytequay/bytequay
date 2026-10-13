@@ -132,6 +132,12 @@ agents retain their read-only review scope. Conversations created with the old
 fixed tool contract must be replaced once; their saved provider tool list cannot
 be updated on resume.
 
+Review composer choices are saved as defaults for future turns. Acceptance captures
+provider, model, effort, and service tier; queued input keeps its own captured choice.
+The executing provider changes only while the task is idle and its previous runtime
+is verified stopped. A provider change drops the native session reference, while
+retaining the task, working copy, review evidence, and application conversation.
+
 Agent tasks use managed local worktrees. The application retains ownership of
 those working copies, execution lifetimes, approvals, and queued input. Provider
 completion and process cleanup are separate facts: an uncertain cleanup must not

@@ -40,6 +40,7 @@ import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TitleSource;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -180,6 +181,28 @@ class TestAgentReviewService
             AgentPermissionPolicy.AUTO,
             Duration.ofMinutes(30),
             ImmutableList.of());
+
+    @Test
+    void composerSelectionUpdatesOnlyTheReviewTaskAndChecksWorkspaceAccess()
+    {
+        Fixture fixture = new Fixture();
+        AgentReviewProjection review = fixture.service.start(WORKSPACE, REPO, NUMBER);
+        AgentLaneId selectedLane = new AgentLaneId("claude");
+        when(fixture.drivers.require(selectedLane)).thenReturn(fixture.driver);
+        fixture.service.configure(review.review().id(), review.task().version(), selectedLane, "opus", Optional.of("Max"), Optional.empty());
+
+        ArgumentCaptor<UpdateAgentTaskDefaultsCommand> update = ArgumentCaptor.forClass(UpdateAgentTaskDefaultsCommand.class);
+        verify(fixture.tasks).updateDefaults(update.capture());
+        assertThat(update.getValue().taskId()).isEqualTo(TASK_ID);
+        assertThat(update.getValue().expectedVersion()).isEqualTo(review.task().version());
+        assertThat(update.getValue().defaults().laneId()).contains(selectedLane);
+        assertThat(update.getValue().defaults().model()).contains("opus");
+        assertThat(update.getValue().defaults().effort()).contains("Max");
+        verify(fixture.models).validateWorkspaceAccess("claude", Optional.of(WORKSPACE));
+        verify(fixture.models).validateSelection("claude", "opus", Optional.of("Max"), Optional.empty());
+        verify(fixture.turns, times(1)).start(any());
+        verify(fixture.turns, never()).cancel(any());
+    }
 
     @Test
     void developmentReviewUsesASeparateReviewTaskAndFrozenUnpushedCommits()

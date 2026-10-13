@@ -25,6 +25,7 @@ import com.bytequay.agent.core.ToolCounters;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.TurnMemory;
 import com.bytequay.agent.core.TurnState;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentTurnFailureKind;
 import com.bytequay.agent.spi.DevelopmentResultReport;
@@ -121,6 +122,8 @@ public class AgentTurnEntity
     @Column(name = "requested_model")
     private String requestedModel;
 
+    private String laneId;
+
     private String effort;
 
     private String serviceTier;
@@ -216,6 +219,7 @@ public class AgentTurnEntity
         knownUnsent = turn.knownUnsent();
         model = turn.model().orElse(null);
         requestedModel = turn.settings().flatMap(AgentTurnSettings::model).orElse(null);
+        laneId = turn.settings().flatMap(AgentTurnSettings::laneId).map(AgentLaneId::value).orElse(null);
         effort = turn.settings().flatMap(AgentTurnSettings::effort).orElse(null);
         serviceTier = turn.settings().flatMap(AgentTurnSettings::serviceTier).orElse(null);
         developmentAutomation = turn.settings().flatMap(AgentTurnSettings::developmentAutomation).orElse(null);
@@ -258,7 +262,8 @@ public class AgentTurnEntity
                         AGENT.read(attachmentsJson, ATTACHMENTS, "turn attachment references"),
                         Optional.ofNullable(serviceTier),
                         Optional.ofNullable(developmentAutomation),
-                        !Boolean.FALSE.equals(useRepositoryContext)));
+                        !Boolean.FALSE.equals(useRepositoryContext),
+                        Optional.ofNullable(laneId).map(AgentLaneId::new)));
         return new AgentTurn(
                 TurnId.valueOf(id),
                 TaskId.valueOf(taskId),

@@ -353,7 +353,8 @@ class TestReviewRuntimeRecovery
                         new ReviewMessage("message-1", REVIEW_ID, Optional.empty(), Optional.of("run-1:limitations"), ReviewMessage.Author.USER,
                                 "Explain this limitation", 1, "run-1", Optional.empty(), Optional.of("queue-1"), 0, NOW),
                         Optional.of("turn-2"), Optional.of("event-1"))),
-                new AgentReviewProjection.TaskView(TASK_ID.toString(), "workspace-1", "OPEN", 8, "claude", "Claude Code", Optional.empty(), Optional.empty(), false, false),
+                new AgentReviewProjection.TaskView(TASK_ID.toString(), "workspace-1", "OPEN", 8, "claude", "Claude Code",
+                        Optional.empty(), Optional.empty(), Optional.empty(), "claude", Optional.empty(), false, false),
                 Optional.empty(), ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

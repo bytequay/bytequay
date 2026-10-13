@@ -25,9 +25,10 @@ export function providerFocusTarget(providers: ModelProviderDto[], selectedId: s
   return providers.find((provider) => providerAvailable(provider.readiness))?.id ?? null;
 }
 
-/** The creation-only provider choice. A task's lane becomes immutable after the first send. */
-export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings }: {
+/** Provider/account choice shared by task creation and configurable conversations. */
+export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings, disabled = false }: {
   providers: ModelProviderDto[];
+  disabled?: boolean;
   selectedId: string;
   onSelect: (laneId: string) => void;
   onOpenSettings?: (laneId: string) => void;
@@ -70,6 +71,7 @@ export function ProviderPicker({ providers, selectedId, onSelect, onOpenSettings
         type="button"
         className="agt-compose__chip"
         aria-label={`Provider: ${selected?.label ?? laneLabel(selectedId)}`}
+        disabled={disabled}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? cardId : undefined}

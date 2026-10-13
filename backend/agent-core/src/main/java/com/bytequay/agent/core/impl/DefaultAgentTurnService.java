@@ -386,7 +386,7 @@ public final class DefaultAgentTurnService
             if (head.isEmpty()) {
                 return false;
             }
-            AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId)), head.orElseThrow().settings().model());
+            AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId)), head.orElseThrow().settings());
             // The queued turn's claim is stored before releasing this owner. Send never sees an
             // unclaimed gap, including while the next turn captures its baseline outside the lock.
             acceptance = acceptQueuedLocked(task.withDevelopmentContinuation(false, Instant.now(clock)), head.orElseThrow());
@@ -1166,7 +1166,7 @@ public final class DefaultAgentTurnService
             if (head.state() == QueuedAgentInput.State.UNCERTAIN) {
                 throw new AgentConflictException("The next queued input may already have been delivered; discard it first: " + head.id());
             }
-            requireReady(task, head.settings().model());
+            requireReady(task, head.settings());
             acceptance = acceptQueuedLocked(task, head);
         }
         return launchAccepted(acceptance);
@@ -1215,7 +1215,7 @@ public final class DefaultAgentTurnService
                 return;
             }
             try {
-                requireReady(task, head.orElseThrow().settings().model());
+                requireReady(task, head.orElseThrow().settings());
                 acceptance = acceptQueuedLocked(task, head.orElseThrow());
             }
             catch (RuntimeException failure) {
@@ -1257,8 +1257,9 @@ public final class DefaultAgentTurnService
         AgentTurn turn = AgentTurn.accepted(turnId, task.id(), "queue:" + head.id() + ":" + turnId, settings, acceptedAt);
         EventId messageEventId = head.messageEventId().orElseGet(EventId::random);
         EventId deliveryEventId = head.messageEventId().isPresent() ? EventId.random() : messageEventId;
+        AgentTask executionTask = selectProvider(task, settings, acceptedAt);
         unitOfWork.execute(() -> {
-            taskStore.update(claimAcceptedTurn(task, turn));
+            taskStore.update(claimAcceptedTurn(executionTask, turn));
             turnStore.insert(turn);
             queueStore.update(head.starting(turnId, messageEventId, acceptedAt));
             if (head.messageEventId().isEmpty()) {
@@ -1370,14 +1371,15 @@ public final class DefaultAgentTurnService
 
     private AgentTask requireReady(AgentTask task)
     {
-        return requireReady(task, task.defaults().model());
+        return requireReady(task, turnSettings(task, ImmutableList.of()));
     }
 
-    private AgentTask requireReady(AgentTask task, Optional<String> model)
+    private AgentTask requireReady(AgentTask task, AgentTurnSettings settings)
     {
-        driverRegistry.checkWorkspaceAccess(task.laneId(), task.workspaceId());
-        var driver = driverRegistry.require(task.laneId());
-        AgentProviderStatus status = driver.probe(model);
+        var lane = settings.laneId().orElse(task.laneId());
+        driverRegistry.checkWorkspaceAccess(lane, task.workspaceId());
+        var driver = driverRegistry.require(lane);
+        AgentProviderStatus status = driver.probe(settings.model());
         if (!status.available()) {
             throw new AgentProviderUnavailableException(status);
         }
@@ -1413,8 +1415,9 @@ public final class DefaultAgentTurnService
         AgentTurn turn = origin.map(accepted::withDevelopmentOrigin).orElse(accepted);
         BlobRef messageBlob = logStore.writeBlob(task.id(), ByteBuffer.wrap(message.getBytes(UTF_8)), "text/plain; charset=utf-8");
         EventId messageEventId = EventId.random();
+        AgentTask executionTask = selectProvider(task, settings, acceptedAt);
         unitOfWork.execute(() -> {
-            taskStore.update(claimAcceptedTurn(task, turn));
+            taskStore.update(claimAcceptedTurn(executionTask, turn));
             turnStore.insert(turn);
             outboxStore.insert(new AgentEventOutboxEntry(
                     messageEventId,
@@ -1428,6 +1431,16 @@ public final class DefaultAgentTurnService
         });
         runtimeRegistry.recordAcceptedTurn(turn);
         return new TurnAcceptance(turn, messageEventId, message, attachments);
+    }
+
+    private AgentTask selectProvider(AgentTask task, AgentTurnSettings settings, Instant acceptedAt)
+    {
+        var lane = settings.laneId().orElse(task.laneId());
+        if (lane.equals(task.laneId())) {
+            return task;
+        }
+        runtimeRegistry.closeSession(task.id());
+        return task.withLaneId(lane, acceptedAt);
     }
 
     private AgentTask claimAcceptedTurn(AgentTask task, AgentTurn turn)
@@ -2253,7 +2266,7 @@ public final class DefaultAgentTurnService
                 maximumTurnRuntime,
                 attachments,
                 task.defaults().serviceTier(),
-                effective);
+                effective).withLaneId(task.defaults().laneId().orElse(task.laneId()));
     }
 
     private AgentTurn requireActiveTurn(TaskId taskId)

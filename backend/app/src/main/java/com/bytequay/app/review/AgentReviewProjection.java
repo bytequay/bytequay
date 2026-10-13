@@ -107,6 +107,9 @@ public record AgentReviewProjection(
             String laneId,
             String laneLabel,
             Optional<String> model,
+            Optional<String> effort,
+            Optional<String> serviceTier,
+            String selectionLaneId,
             Optional<String> mutationClaim,
             boolean steering,
             boolean nestedAgents) {}

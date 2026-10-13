@@ -245,7 +245,8 @@ final class InteractiveAgentHttpContract
                         .map(InteractiveAgentHttpContract::attachment)
                         .collect(toImmutableList()),
                 settings.serviceTier(),
-                settings.developmentAutomation().map(DevelopmentAutomationDto::from));
+                settings.developmentAutomation().map(DevelopmentAutomationDto::from),
+                settings.laneId().map(lane -> lane.value()));
     }
 
     private static AttachmentReference attachment(AgentAttachmentReference attachment)
@@ -480,7 +481,8 @@ final class InteractiveAgentHttpContract
             long maximumRuntimeMillis,
             List<AttachmentReference> attachments,
             Optional<String> serviceTier,
-            Optional<DevelopmentAutomationDto> developmentAutomation) {}
+            Optional<DevelopmentAutomationDto> developmentAutomation,
+            Optional<String> laneId) {}
 
     record AttachmentReference(
             String id,

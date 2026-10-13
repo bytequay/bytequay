@@ -94,7 +94,7 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
           <Diff size={14} aria-hidden="true" />Diff
         </button>}
       </> : compact ? <>
-        <span className="agr-explanation__meta">{review.task.laneLabel} · {relativeTime(run.endedAt ?? run.createdAt)}</span>
+        <span className="agr-explanation__meta">{relativeTime(run.endedAt ?? run.createdAt)}</span>
         {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
       </> : undefined}
       controls={<>
@@ -112,7 +112,6 @@ function SummarySectionCard({ card, review, run, viewerLogin, viewerAvatarUrl, b
       {card.kind === 'purpose' && refreshStatus}
       {messageOpen && <pre className="agr-explanation__message">{message.join('\n').trim()}</pre>}
       {card.body !== null && <LocalCardMessage timestamp={run.endedAt ?? run.createdAt} author="Agent review" avatar={<ReviewerAvatar />}
-        tag={<span className="lrc-message__meta">{review.task.laneLabel}</span>}
         menu={<>{card.pending && <span className="agr-pill is-pending">not yet read</span>}
           {provisional && <span className="agr-pill is-provisional">Provisional · rev {revision}</span>}
           <span className="agr-card__refs">head {shortSha(run.headSha)}</span></>}>

@@ -503,14 +503,16 @@ class TestSqliteAgentStores
     void roundTripsRequestedTurnSettings()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentTask task = newTask(now).withDefaults(new AgentTaskDefaults(Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.of("priority")), now);
+        AgentTask task = newTask(now).withDefaults(new AgentTaskDefaults(Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.of("priority"))
+                .withLaneId(AgentLaneId.CLAUDE_CLI), now);
         taskStore.insert(task);
-        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings().withLaneId(AgentLaneId.CODEX_CLI), now);
         turnStore.insert(turn);
         entityManager.clear();
 
         assertThat(turnStore.find(turn.id())).contains(turn);
         assertThat(taskStore.find(task.id()).orElseThrow().defaults().serviceTier()).contains("priority");
+        assertThat(taskStore.find(task.id()).orElseThrow().defaults().laneId()).contains(AgentLaneId.CLAUDE_CLI);
     }
 
     @ParameterizedTest
@@ -618,7 +620,7 @@ class TestSqliteAgentStores
         AgentTask task = original.withDefaults(original.defaults().withDevelopmentAutomation(selected), now);
         taskStore.insert(task);
         AgentTurnSettings settings = new AgentTurnSettings(
-                Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(selected));
+                Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of(), Optional.empty(), Optional.of(selected)).withLaneId(AgentLaneId.CLAUDE_CLI);
         DevelopmentResultReport question = new DevelopmentResultReport(false, Optional.of("Which implementation should I use?"));
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "automation-1", settings, now)
                 .markDeliveryStarted(now.plusSeconds(1))

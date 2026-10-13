@@ -1012,6 +1012,8 @@ function registerIpc(): void {
     }));
   ipcMain.handle('review:resume', (_event, reviewId: string) =>
     review(`/${encodeURIComponent(reviewId)}/resume`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
+  ipcMain.handle('review:settings', (_event, reviewId: string, expectedVersion: number, laneId: string, model: string, effort: string | null, serviceTier: string | null) =>
+    review(`/${encodeURIComponent(reviewId)}/settings`, {}, { method: 'POST', body: JSON.stringify({ expectedVersion, laneId, model, effort, serviceTier }) }));
   ipcMain.handle('review:update', (_event, reviewId: string) =>
     review(`/${encodeURIComponent(reviewId)}/update`, {}, { method: 'POST', signal: AbortSignal.timeout(15 * 60_000) }));
   ipcMain.handle('review:explanation:refresh', (_event, reviewId: string, runId: string, expectedRevision: number) =>

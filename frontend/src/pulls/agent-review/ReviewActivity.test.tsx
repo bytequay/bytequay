@@ -17,6 +17,7 @@ import { describe, expect, it } from 'vitest';
 import { parseAgentEventSequence, type AgentEventEnvelope } from '../../agents/events';
 import fixture from '../../agents/fixtures/agent-events-v2.json';
 import ReviewActivity from './ReviewActivity';
+import { NO_AGENT_CAPABILITIES } from '../../agents/capabilities';
 import { parseAgentReview } from './contracts';
 import { reviewFixture, runningReviewFixture } from './fixtures/review';
 
@@ -31,6 +32,19 @@ const render = (overrides: Partial<typeof props> = {}) => renderToStaticMarkup(<
 const liveLine = (overrides: Partial<typeof props> = {}) => render(overrides).match(/<div class="agt-live"[^]*?<\/div>/)?.[0];
 
 describe('the unified review conversation', () => {
+  it('enables the shared provider and model controls while preserving the running turn', () => {
+    const provider = { id: 'codex', label: 'Codex', readiness: 'READY' as const, diagnostic: '',
+      selectedModel: 'gpt-review', selectedEffort: 'high', capabilities: NO_AGENT_CAPABILITIES,
+      models: [{ id: 'gpt-review', name: 'GPT-Review', description: '', efforts: ['high'], defaultEffort: 'high' }] };
+    const review = { ...props.review, task: { ...props.review.task, selectionLaneId: 'codex', model: 'gpt-review', effort: 'high' } };
+    const html = render({ review, providers: [provider], onSelectModel: () => {} });
+    expect(html).toMatch(/aria-label="Model and effort for the next message"(?![^>]*disabled)[^>]*>/);
+    expect(html).toContain('aria-label="Provider: Codex"');
+    expect(html).toContain('aria-label="Stop this turn"');
+    expect(render({ review, providers: [provider], onSelectModel: () => {}, busy: true }))
+      .toMatch(/aria-label="Model and effort for the next message"[^>]*disabled/);
+  });
+
   it('enables steering for a Claude review whose provider supports it', () => {
     const review = { ...props.review, task: { ...props.review.task, laneId: 'claude-cli', laneLabel: 'Claude', steering: true } };
     const html = render({ review, composer: 'Docker started now' });

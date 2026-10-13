@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.core;
 
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 
 import java.util.Optional;
@@ -27,8 +28,20 @@ public record AgentTaskDefaults(
         Optional<String> effort,
         AgentPermissionPolicy permissionPolicy,
         Optional<String> serviceTier,
-        Optional<DevelopmentAutomation> developmentAutomation)
+        Optional<DevelopmentAutomation> developmentAutomation,
+        Optional<AgentLaneId> laneId)
 {
+    public AgentTaskDefaults(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy, Optional<String> serviceTier,
+            Optional<DevelopmentAutomation> developmentAutomation)
+    {
+        this(model, effort, permissionPolicy, serviceTier, developmentAutomation, Optional.empty());
+    }
+
+    public AgentTaskDefaults withLaneId(AgentLaneId lane)
+    {
+        return new AgentTaskDefaults(model, effort, permissionPolicy, serviceTier, developmentAutomation, Optional.of(lane));
+    }
+
     public AgentTaskDefaults(Optional<String> model, Optional<String> effort, AgentPermissionPolicy permissionPolicy)
     {
         this(model, effort, permissionPolicy, Optional.empty(), Optional.empty());
@@ -41,12 +54,13 @@ public record AgentTaskDefaults(
 
     public AgentTaskDefaults withDevelopmentAutomation(DevelopmentAutomation automation)
     {
-        return new AgentTaskDefaults(model, effort, permissionPolicy, serviceTier, Optional.of(automation));
+        return new AgentTaskDefaults(model, effort, permissionPolicy, serviceTier, Optional.of(automation), laneId);
     }
 
     public AgentTaskDefaults
     {
         requireNonNull(developmentAutomation, "developmentAutomation is null");
+        requireNonNull(laneId, "laneId is null");
         checkOptionalText(model, "model");
         checkOptionalText(effort, "effort");
         checkOptionalText(serviceTier, "serviceTier");

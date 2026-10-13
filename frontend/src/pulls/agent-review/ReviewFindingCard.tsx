@@ -213,7 +213,6 @@ export default function ReviewFindingCard({
         </footer>}>
         <LocalCardMessage timestamp={finding.updatedAt} author="Agent review" avatar={<ReviewerAvatar />}
           attributes={commentIndexTarget('agent', `Agent review · ${finding.label} · ${finding.state.toLowerCase()} · ${finding.outdated ? 'Outdated · ' : ''}${finding.title}`, finding.body)}
-          tag={<span className="lrc-message__meta">{review.task.laneLabel}</span>}
           menu={<>{publication.kind === 'blocked' && publication.reason.startsWith('Publishing unlocks') && <span className="agr-pill is-provisional">Provisional</span>}
             <span className="agr-finding__id">{finding.label} · rev {finding.revision}</span></>}>
           <h3 className="agr-finding__title">{finding.title}</h3>

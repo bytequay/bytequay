@@ -22,6 +22,7 @@ import com.bytequay.agent.core.QueuedAgentInput;
 import com.bytequay.agent.core.QueuedInputId;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.persistence.sqlite.converter.DevelopmentAutomationConverter;
 import com.bytequay.persistence.sqlite.converter.InstantToTextConverter;
@@ -80,6 +81,8 @@ public class AgentQueuedInputEntity
     private long textBlobSize;
 
     private String requestedModel;
+
+    private String laneId;
 
     private String effort;
 
@@ -141,6 +144,7 @@ public class AgentQueuedInputEntity
         textBlobMediaType = input.textBlob().mediaType();
         textBlobSize = input.textBlob().size();
         requestedModel = input.settings().model().orElse(null);
+        laneId = input.settings().laneId().map(AgentLaneId::value).orElse(null);
         effort = input.settings().effort().orElse(null);
         serviceTier = input.settings().serviceTier().orElse(null);
         developmentAutomation = input.settings().developmentAutomation().orElse(null);
@@ -173,7 +177,8 @@ public class AgentQueuedInputEntity
                         AGENT.read(attachmentsJson, ATTACHMENTS, "turn attachment references"),
                         Optional.ofNullable(serviceTier),
                         Optional.ofNullable(developmentAutomation),
-                        !Boolean.FALSE.equals(useRepositoryContext)),
+                        !Boolean.FALSE.equals(useRepositoryContext),
+                        Optional.ofNullable(laneId).map(AgentLaneId::new)),
                 Optional.ofNullable(messageEventId).map(EventId::valueOf),
                 Optional.ofNullable(turnId).map(TurnId::valueOf),
                 Optional.ofNullable(pauseReason),

@@ -114,7 +114,9 @@ ByteQuay inspects the CLI-owned credential entry for this shutdown check but
 does not persist tokens, refresh them itself, or write the credential store.
 
 Choose Development and Review directly from their account/model selectors. Account names are shown with the selection. New tasks use that choice; existing tasks keep the
-account they started with, including later turns and resumed sessions. Accounts
+account they started with, including later turns and resumed sessions, unless the user
+changes a reviewer’s provider in its conversation composer. That choice applies to the
+next accepted turn, with a fresh provider session when the provider changes. Accounts
 can run concurrently across repositories. The default Claude profile remains
 available for existing tasks and settings. DeepSeek API-key aliases can also be
 selected as model defaults; saved key providers without an execution driver

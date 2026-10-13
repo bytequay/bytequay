@@ -417,6 +417,7 @@ export function parseAgentTurnSettings(value: unknown, path = 'effectiveSettings
   const source = object(value, path);
   return {
     ...defaults(value, path),
+    laneId: optionalText(source.laneId, `${path}.laneId`),
     maximumRuntimeMillis: count(source.maximumRuntimeMillis, `${path}.maximumRuntimeMillis`),
     // Attachment contents and their paths stay in the backend; only their ids may cross.
     attachments: list(source.attachments ?? [], `${path}.attachments`).map((entry, index) => {

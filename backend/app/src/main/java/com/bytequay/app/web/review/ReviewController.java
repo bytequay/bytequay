@@ -23,6 +23,7 @@ import com.bytequay.agent.core.ResolveApprovalCommand;
 import com.bytequay.agent.core.SteerAgentTurnCommand;
 import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.WorktreeMutationClaim;
+import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.memory.MemoryService;
 import com.bytequay.app.review.AgentReviewProjection;
@@ -192,6 +193,15 @@ public class ReviewController
     public ReviewHttpModels.ReviewResponse resume(@PathVariable String reviewId)
     {
         return ReviewHttpModels.review(reviews.resume(reviewId));
+    }
+
+    @PostMapping("/{reviewId}/settings")
+    public ReviewHttpModels.ReviewResponse configure(@PathVariable String reviewId, @RequestBody ReviewHttpModels.ConfigureRequest request)
+    {
+        requireNotBlank(request.laneId(), "laneId must not be blank");
+        requireNotBlank(request.model(), "model must not be blank");
+        return ReviewHttpModels.review(reviews.configure(reviewId, required(request.expectedVersion(), "expectedVersion"),
+                new AgentLaneId(request.laneId()), request.model(), Optional.ofNullable(request.effort()), Optional.ofNullable(request.serviceTier())));
     }
 
     @PostMapping("/{reviewId}/update")

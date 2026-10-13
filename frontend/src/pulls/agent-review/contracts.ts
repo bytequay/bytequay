@@ -194,6 +194,8 @@ export type ReviewMessageDto = {
 };
 
 
+export type ReviewModelSelection = { laneId: string; model: string; effort: string | null; serviceTier: string | null };
+
 type ReviewTaskDto = {
   id: string;
   workspaceId: string;
@@ -202,6 +204,9 @@ type ReviewTaskDto = {
   laneId: string;
   laneLabel: string;
   model: string | null;
+  effort?: string | null;
+  serviceTier?: string | null;
+  selectionLaneId?: string;
   mutationClaim: string | null;
   steering: boolean;
   nestedAgents: boolean;
@@ -618,6 +623,9 @@ export function parseAgentReview(value: unknown): AgentReviewDto {
       laneId: text(task.laneId, 'provider lane'),
       laneLabel: text(task.laneLabel, 'provider name'),
       model: optionalText(task.model),
+      effort: optionalText(task.effort),
+      serviceTier: optionalText(task.serviceTier),
+      selectionLaneId: text(task.selectionLaneId ?? task.laneId, 'selected provider'),
       mutationClaim: optionalText(task.mutationClaim),
       steering: flag(task.steering),
       nestedAgents: flag(task.nestedAgents),

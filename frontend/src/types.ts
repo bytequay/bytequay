@@ -692,6 +692,7 @@ export type AgentAttachmentReferenceDto = {
 };
 
 export type AgentTurnSettingsDto = AgentTaskDefaultsDto & {
+  laneId?: string | null;
   maximumRuntimeMillis: number;
   attachments: AgentAttachmentReferenceDto[];
 };
@@ -1910,6 +1911,7 @@ export type Bridge = WorkItemBridge & JiraBridge & GoogleBridge & {
   resumeAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
   /** Refreshes the pull request now and follows its head. */
   updateAgentReview: (reviewId: string) => Promise<AgentReviewDto>;
+  configureAgentReview: (reviewId: string, expectedVersion: number, laneId: string, model: string, effort: string | null, serviceTier: string | null) => Promise<AgentReviewDto>;
   /** Regenerates the change intention and commit explanations at the latest committed head. */
   refreshAgentReviewExplanation: (reviewId: string, runId: string, expectedRevision: number) => Promise<AgentReviewDto>;
   /** Completes the task, closes the review, then cleans the worktree. */

@@ -23,6 +23,7 @@ import com.bytequay.agent.core.AgentTaskNotFoundException;
 import com.bytequay.agent.core.AgentTaskService;
 import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
+import com.bytequay.agent.core.AgentTurnSettings;
 import com.bytequay.agent.core.CompleteAgentTaskCommand;
 import com.bytequay.agent.core.CreateAgentTaskCommand;
 import com.bytequay.agent.core.QueuedAgentInput;
@@ -33,6 +34,7 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.TaskWorktree;
 import com.bytequay.agent.core.TurnId;
+import com.bytequay.agent.core.UpdateAgentTaskDefaultsCommand;
 import com.bytequay.agent.core.WorktreeMutationClaim;
 import com.bytequay.agent.core.WorktreeService;
 import com.bytequay.agent.core.WorktreeSnapshot;
@@ -406,6 +408,22 @@ public class AgentReviewService
             observer.watch(review);
             startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
             return projection(review.id());
+        });
+    }
+
+    /** Saves the composer choice without altering an already accepted turn. */
+    public AgentReviewProjection configure(String reviewId, long expectedVersion, AgentLaneId lane, String model, Optional<String> effort, Optional<String> serviceTier)
+    {
+        return locked(reviewId, () -> {
+            AgentReview review = requireOpen(reviewId);
+            AgentTask task = tasks.get(TaskId.valueOf(review.taskId()));
+            models.validateWorkspaceAccess(lane.value(), Optional.of(review.workspaceId()));
+            models.validateSelection(lane.value(), model, effort, serviceTier);
+            drivers.checkWorkspaceAccess(lane, task.workspaceId());
+            drivers.require(lane);
+            tasks.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), expectedVersion,
+                    new AgentTaskDefaults(Optional.of(model), effort, AgentPermissionPolicy.AUTO, serviceTier).withLaneId(lane)));
+            return projection(reviewId);
         });
     }
 
@@ -1664,7 +1682,8 @@ public class AgentReviewService
     /**
      * The model this workspace's reviews run with: its Review override, else
      * the global Review value, else Development. The setting is frozen into
-     * the task at review creation, so a later change reaches new reviews only.
+     * the task at review creation; later global changes reach new reviews only.
+     * An explicit composer choice updates the existing task defaults.
      */
     private ModelSelection selectModel(String workspaceId)
     {
@@ -1703,10 +1722,13 @@ public class AgentReviewService
                         task.laneId().value(),
                         drivers.require(task.laneId()).label(),
                         task.defaults().model(),
+                        task.defaults().effort(),
+                        task.defaults().serviceTier(),
+                        task.defaults().laneId().orElse(task.laneId()).value(),
                         task.worktreeMutationClaim().map(claim -> claim.kind().name()),
                         capabilities.steering(),
                         capabilities.nestedAgentActivity() && drivers.require(task.laneId())
-                                .reviewChildAgents(task.sessionReference(), task.defaults().model())),
+                                .reviewChildAgents(task.sessionReference(), active.flatMap(AgentTurn::settings).flatMap(AgentTurnSettings::model).or(task.defaults()::model))),
                 active.map(turn -> new AgentReviewProjection.TurnView(turn.id().toString(), turn.state().name(), turn.startedAt(), turn.cancellationRequestedAt())),
                 queued,
                 queuedInputs.stream().findFirst().filter(input -> input.state() == QueuedAgentInput.State.PAUSED).flatMap(QueuedAgentInput::pauseReason),

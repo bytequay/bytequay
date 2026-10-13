@@ -356,6 +356,22 @@ public record AgentTask(
         return copyDetails(title, titleSource, updatedDefaults, now, worktreeRemovedAt, archivedAt);
     }
 
+    /** Changes the executing provider only at an idle turn boundary; providers cannot share session references. */
+    public AgentTask withLaneId(AgentLaneId lane, Instant now)
+    {
+        requireNonNull(lane, "lane is null");
+        requireNonNull(now, "now is null");
+        requireState(TaskState.OPEN);
+        checkState(worktreeMutationClaim.isEmpty(), "cannot change provider while the worktree is claimed");
+        if (lane.equals(laneId)) {
+            return this;
+        }
+        return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, lane, repository,
+                worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
+                terminalReason, Optional.empty(), metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
+                cleanupFailure, archivedAt, developmentContinuationUnfinished);
+    }
+
     /** Records only whether a live continuation must fail if its backend owner is lost. */
     public AgentTask withDevelopmentContinuation(boolean unfinished, Instant now)
     {

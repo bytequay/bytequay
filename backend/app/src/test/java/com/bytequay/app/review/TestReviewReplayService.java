@@ -284,7 +284,8 @@ class TestReviewReplayService
                 AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, MemoryFixtures.NOW, MemoryFixtures.NOW, Optional.empty(),
                 Optional.of(new AgentReview.Replay("replay", NUMBER, true, FIRST_REVIEW)));
         return new AgentReviewProjection(review, ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                new AgentReviewProjection.TaskView("task-" + reviewId, WORKSPACE, "OPEN", 1, "codex", "Codex", Optional.empty(), Optional.empty(), false, false),
+                new AgentReviewProjection.TaskView("task-" + reviewId, WORKSPACE, "OPEN", 1, "codex", "Codex",
+                        Optional.empty(), Optional.empty(), Optional.empty(), "codex", Optional.empty(), false, false),
                 Optional.empty(), ImmutableList.of(), Optional.empty(), 0, ImmutableList.of(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 

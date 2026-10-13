@@ -179,6 +179,9 @@ final class ReviewHttpModels
                 task.laneId(),
                 task.laneLabel(),
                 task.model(),
+                task.effort(),
+                task.serviceTier(),
+                task.selectionLaneId(),
                 task.mutationClaim(),
                 task.steering(),
                 task.nestedAgents());
@@ -329,6 +332,8 @@ final class ReviewHttpModels
             Instant createdAt,
             Optional<String> developerTaskId) {}
 
+    record ConfigureRequest(Long expectedVersion, String laneId, String model, String effort, String serviceTier) {}
+
     record TaskResponse(
             String id,
             String workspaceId,
@@ -337,6 +342,9 @@ final class ReviewHttpModels
             String laneId,
             String laneLabel,
             Optional<String> model,
+            Optional<String> effort,
+            Optional<String> serviceTier,
+            String selectionLaneId,
             Optional<String> mutationClaim,
             boolean steering,
             boolean nestedAgents) {}

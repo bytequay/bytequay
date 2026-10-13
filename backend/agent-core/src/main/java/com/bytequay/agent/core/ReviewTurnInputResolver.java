@@ -74,7 +74,14 @@ public interface ReviewTurnInputResolver
      */
     static Optional<AgentTurn> stillInConversation(List<AgentTurn> turns, Predicate<AgentTurn> carried)
     {
+        if (turns.isEmpty()) {
+            return Optional.empty();
+        }
+        var lane = turns.getLast().settings().flatMap(AgentTurnSettings::laneId);
         for (AgentTurn turn : turns.reversed()) {
+            if (!turn.settings().flatMap(AgentTurnSettings::laneId).equals(lane)) {
+                return Optional.empty();
+            }
             if (turn.metrics().counters().compactions() > 0) {
                 return Optional.empty();
             }

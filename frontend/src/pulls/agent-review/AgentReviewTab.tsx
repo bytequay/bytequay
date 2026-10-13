@@ -35,7 +35,7 @@ import type {
   AgentPendingApprovalDto,
   AgentRuntimeStopImpactDto,
   Bridge,
-  ModelOptionDto,
+  ModelProviderDto,
   PullRequestDetailDto,
   UserProfileDto,
 } from '../../types';
@@ -151,7 +151,8 @@ export default function AgentReviewTab({
   const [approvals, setApprovals] = useState<AgentPendingApprovalDto[]>([]);
   const [composer, setComposer] = useState('');
   usePreparedAgentInput(mode === 'conversation' ? review?.task.id ?? null : null, text => setComposer(current => [current, text].filter(Boolean).join('\n\n')));
-  const [models, setModels] = useState<ModelOptionDto[]>([]);
+  const [providers, setProviders] = useState<ModelProviderDto[]>([]);
+  const models = useMemo(() => providers.flatMap(provider => provider.models), [providers]);
   const [now, setNow] = useState(() => Date.now());
   const navigationToken = useRef(0);
   const cardsRef = useRef<HTMLDivElement>(null);
@@ -199,7 +200,7 @@ export default function AgentReviewTab({
     let live = true;
     void window.bridge.getModelSettings(workspaceId)
       .then(catalog => {
-        if (live) setModels(catalog.providers.find(provider => provider.id === laneId)?.models ?? []);
+        if (live) setProviders(catalog.providers);
       })
       .catch(() => {});
     return () => { live = false; };
@@ -808,6 +809,11 @@ export default function AgentReviewTab({
           pendingMessage={conversation.pendingMessage}
           turns={turns}
           models={models}
+          providers={providers}
+          onSelectModel={selection => { void run_(async () => {
+            const updated = await window.bridge.configureAgentReview(review.id, review.task.version, selection.laneId, selection.model, selection.effort, selection.serviceTier);
+            onReviewChange(updated);
+          }); }}
           pendingApprovals={approvals}
           connection={conversation.connection}
           lastSequence={conversation.lastSequence}

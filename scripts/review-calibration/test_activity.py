@@ -1,0 +1,359 @@
+from datetime import datetime, timedelta, timezone
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import unittest
+
+import activity
+
+START = datetime(2026, 1, 1, tzinfo=timezone.utc)
+ORDER = ["approval", "mvn", "git", "Read", "text"]
+
+
+def at(second):
+    return (START + timedelta(seconds=second)).isoformat().replace("+00:00", "Z")
+
+
+def event(second, kind, turn="t1", item=None, **payload):
+    return {"occurredAt": at(second), "type": kind, "turnId": turn, "source": {"providerItemId": item}, "payload": payload}
+
+
+def turn(start, end, name="t1"):
+    return [event(start, "lifecycle", name, phase="TURN_STARTED"), event(end, "lifecycle", name, phase="TURN_COMPLETED")]
+
+
+def command(start, end, text, item=None, turn="t1"):
+    return [event(start, "command", turn, item, state="STARTED", argv=[text], durationMs=None),
+            event(end, "command", turn, item, state="COMPLETED", argv=[text], durationMs=None)]
+
+
+def tool(start, end, name, item=None, turn="t1"):
+    return [event(start, "tool", turn, item, state="STARTED", name=name, durationMs=None),
+            event(end, "tool", turn, item, state="COMPLETED", name=name, durationMs=None)]
+
+
+def in_order(*groups):
+    return sorted((made for group in groups for made in group), key=lambda made: made["occurredAt"])
+
+
+def group_of(item):
+    """The test's own sorting: a command by its first word, a tool by its name, anything else by its kind."""
+    return item.detail["argv"][0].split()[0] if item.kind == "command" else item.detail.get("name") or item.kind
+
+
+def cut(events):
+    """Stretches as (start, end, group, running), in seconds from the start of the test clock."""
+    windows, finished, _ = activity.items(events)
+    return [(round(made.start - START.timestamp(), 3), round(made.end - START.timestamp(), 3), made.group, made.running)
+            for made in activity.stretches(windows, finished, group_of, ORDER)]
+
+
+class TestItems(unittest.TestCase):
+    def test_timestamps_with_and_without_fractions_are_read(self):
+        self.assertEqual(activity.seconds("2026-01-01T00:00:01.250000Z") - activity.seconds("2026-01-01T00:00:00Z"), 1.25)
+        self.assertEqual(activity.seconds("2026-01-01T00:00:00.123Z"), activity.seconds("2026-01-01T00:00:00.123000Z"))
+
+    def test_item_that_never_ends_is_reported_apart_and_not_stretched(self):
+        events = in_order(turn(0, 100), [event(10, "command", state="STARTED", argv=["mvn test"], durationMs=None)])
+        windows, finished, unfinished = activity.items(events)
+        self.assertEqual((windows["t1"][1] - windows["t1"][0], finished), (100, []))
+        self.assertEqual([(made.kind, made.detail["argv"]) for made in unfinished], [("command", ["mvn test"])])
+        self.assertEqual(cut(events), [(0, 100, activity.SILENT, ())])
+
+    def test_end_without_a_start_uses_the_stored_duration_or_is_dropped(self):
+        events = in_order(turn(0, 100), [event(40, "tool", item="a", state="COMPLETED", name="Read", durationMs=15000),
+                                         event(60, "tool", item="b", state="COMPLETED", name="Read", durationMs=None)])
+        self.assertEqual(cut(events), [(0, 25, activity.SILENT, ()), (25, 40, "Read", ("Read",)), (40, 100, activity.SILENT, ())])
+
+    def test_same_named_tools_are_told_apart_by_their_item_id(self):
+        events = in_order(turn(0, 100), tool(10, 50, "Read", item="a"), tool(20, 30, "Read", item="b"))
+        _, finished, unfinished = activity.items(events)
+        self.assertEqual((sorted(made.end - made.start for made in finished), unfinished), ([10, 40], []))
+
+    def test_waiting_for_an_approval_is_an_item_of_its_own(self):
+        events = in_order(turn(0, 100), [event(10, "approval_requested", approvalId="p1"), event(70, "approval_resolved", approvalId="p1", outcome="ALLOWED")])
+        self.assertEqual(cut(events), [(0, 10, activity.SILENT, ()), (10, 70, "approval", ("approval",)), (70, 100, activity.SILENT, ())])
+
+    def test_pieces_of_visible_text_close_together_are_one_run_of_writing(self):
+        pieces = [event(second, "assistant_message", messageKind="ANSWER", phase="PARTIAL", text="x") for second in (10, 11, 12.5, 20, 21)]
+        final = [event(30, "assistant_message", messageKind="ANSWER", phase="FINAL", text="the whole answer")]
+        self.assertEqual(cut(in_order(turn(0, 40), pieces, final)),
+                         [(0, 10, activity.SILENT, ()), (10, 12.5, "text", ("text",)), (12.5, 20, activity.SILENT, ()), (20, 21, "text", ("text",)),
+                          (21, 40, activity.SILENT, ())])
+
+    def test_turn_without_an_end_mark_ends_at_its_last_event(self):
+        events = in_order([event(0, "lifecycle", phase="TURN_STARTED")], command(10, 30, "git status"))
+        self.assertEqual(cut(events), [(0, 10, activity.SILENT, ()), (10, 30, "git", ("git",))])
+
+    def test_interrupted_turn_ends_at_the_interruption_and_later_marks_do_not_move_it(self):
+        events = in_order([event(0, "lifecycle", phase="TURN_STARTED"), event(50, "lifecycle", phase="INTERRUPTED"), event(90, "lifecycle", phase="TURN_COMPLETED")])
+        self.assertEqual(cut(events), [(0, 50, activity.SILENT, ())])
+
+
+class TestStretches(unittest.TestCase):
+    def test_one_thing_after_another(self):
+        events = in_order(turn(0, 100), command(10, 40, "mvn test"), tool(50, 60, "Read"))
+        self.assertEqual(cut(events), [(0, 10, activity.SILENT, ()), (10, 40, "mvn", ("mvn",)), (40, 50, activity.SILENT, ()), (50, 60, "Read", ("Read",)),
+                                       (60, 100, activity.SILENT, ())])
+
+    def test_overlap_is_counted_once_under_the_first_group_in_order(self):
+        events = in_order(turn(0, 100), tool(10, 50, "Read", item="a"), command(20, 40, "mvn test"), tool(30, 45, "Read", item="b"))
+        made = cut(events)
+        self.assertEqual(made, [(0, 10, activity.SILENT, ()), (10, 20, "Read", ("Read",)), (20, 30, "mvn", ("mvn", "Read")), (30, 40, "mvn", ("mvn", "Read")),
+                                (40, 45, "Read", ("Read",)), (45, 50, "Read", ("Read",)), (50, 100, activity.SILENT, ())])
+        self.assertEqual(sum(end - start for start, end, _, _ in made), 100)
+
+    def test_only_the_part_inside_the_turn_counts(self):
+        events = in_order(command(-20, 30, "git fetch"), turn(0, 100), command(90, 130, "mvn test"),
+                          command(10, 20, "git status", turn="other turn with no start mark"))
+        self.assertEqual(cut(events), [(0, 30, "git", ("git",)), (30, 90, activity.SILENT, ()), (90, 100, "mvn", ("mvn",))])
+
+    def test_each_turn_is_cut_on_its_own(self):
+        events = in_order(turn(0, 50, "t1"), turn(100, 130, "t2"), command(10, 20, "mvn test", turn="t1"), command(110, 115, "git diff", turn="t2"))
+        made = activity.stretches(*activity.items(events)[:2], group_of, ORDER)
+        self.assertEqual([(made_one.turn, made_one.group, made_one.end - made_one.start) for made_one in made],
+                         [("t1", activity.SILENT, 10), ("t1", "mvn", 10), ("t1", activity.SILENT, 30), ("t2", activity.SILENT, 10), ("t2", "git", 5),
+                          ("t2", activity.SILENT, 15)])
+
+    def test_group_missing_from_the_order_fails_loudly(self):
+        with self.assertRaises(ValueError):
+            cut(in_order(turn(0, 100), tool(10, 20, "A tool nobody sorted")))
+
+
+class TestProgram(unittest.TestCase):
+    def named(self, cases):
+        for line, expected in cases:
+            with self.subTest(line=line):
+                self.assertEqual(activity.program(line), expected)
+
+    def test_program_is_the_first_word_of_a_command_not_a_word_in_its_arguments(self):
+        self.named([("git status --short", "git"), ("./mvnw -pl core test", "maven"), ("/opt/homebrew/bin/mvn -v", "maven"),
+                    ("sed -n '1,20p' core/src/main/java/io/Foo.java", "sed"), ("cat src/main/java/A.java | grep mvn", "cat"),
+                    ('git commit -m "fix; mvn test && sleep 5 | npm"', "git"), ('"$JAVA_HOME/bin/java" -version', "java"), ("ls $(./mvnw -q help:evaluate)", "ls")])
+
+    def test_leading_cd_and_variable_settings_are_not_the_program(self):
+        self.named([('cd "/Users/me/my repo" && ./mvnw test', "maven"), ('FOO=1 BAR="a b" npm test', "npm"), ("L=/tmp/x; git log", "git"),
+                    ("export A=1; set -e; ls", "ls"), ("X=$(git rev-parse HEAD)", "other"), ("(cd sub && make all)", "make"), ("cd somewhere", "other")])
+
+    def test_shell_that_only_wraps_the_command_is_removed(self):
+        for argv, expected in [(["/bin/zsh", "-lc", "cd x && git diff"], "cd x && git diff"), (["/bin/zsh -lc 'git status --short'"], "git status --short"),
+                               (['/bin/zsh -lc "cd \\"my repo\\" && ./mvnw test"'], 'cd "my repo" && ./mvnw test'),
+                               # The provider quotes one argument in pieces when it holds both kinds of quote.
+                               (['/bin/zsh -lc "./mvnw -pl core test "\'-Dtest=Foo$Bar\''], "./mvnw -pl core test -Dtest=Foo$Bar"),
+                               (["bash -c 'sh -c \"npm test\"'"], "npm test"), (["cd x && git status"], "cd x && git status"),
+                               (["git", "status", "--short"], "git status --short"), (['/bin/zsh -lc "never closed'], '/bin/zsh -lc "never closed'),
+                               # -c is also an option of programs that are not shells.
+                               (["git", "-c", "core.pager=cat"], "git -c core.pager=cat"), (["git -c core.pager=cat"], "git -c core.pager=cat"), ([], "")]:
+            with self.subTest(argv=argv):
+                self.assertEqual(activity.command_text({"argv": argv}), expected)
+        self.assertEqual(activity.program(activity.command_text({"argv": ['/bin/zsh -lc "cd \\"my repo\\" && ./mvnw test"']})), "maven")
+        self.assertEqual(activity.program("zsh run-all"), "shell script")
+
+    def test_line_is_named_after_a_build_tool_then_a_wait_loop_then_the_first_real_work(self):
+        self.named([("git status && ./mvnw test && git diff", "maven"), ("until gh run view 1 | grep -q done; do sleep 10; done", "wait loop"), ("sleep 5", "wait loop"),
+                    ("for i in 1 2 3; do curl -s x; done", "curl"), ("echo start && python3 run.py", "python"), ("mkdir -p out; echo done", "mkdir"),
+                    ("timeout 30 ./mvnw test", "maven"), ("time -p git gc", "git"), ("if [ -f x ]; then npm test; fi", "npm"), ("while read line; do grep x; done", "grep")])
+
+    def test_what_follows_a_here_document_mark_is_input_not_commands(self):
+        self.named([("python3 - <<'PY'\nimport git\nmvn = 1\nPY", "python"), ("cat <<EOF > notes\n./mvnw test\nEOF", "cat")])
+
+    def test_only_plain_program_names_come_out_never_arguments(self):
+        self.assertEqual(activity.programs("git commit -m 'secret words' && curl -H 'Authorization: abc123' https://example.invalid | jq .token"), ["git", "curl", "jq"])
+        self.named([("bash scripts/run.sh --token abc123", "shell script"), ("./tools/check.sh", "shell script"), ("", "other"), ("$(weird)", "other"),
+                    ("a" * 40 + " argument", "other"), ("/tmp/9f8a7b6c/run --password hunter2", "run")])
+
+
+class TestGroups(unittest.TestCase):
+    def test_commands_are_sorted_by_what_they_run_and_then_by_what_they_read(self):
+        for line, kinds, expected in [("./mvnw test", ["OTHER"], activity.BUILDS), ("cd x && npm test", [], activity.BUILDS), ("git status", ["OTHER"], activity.SHELL),
+                                      ("sed -n 1,5p A.java", ["READ"], activity.READING), ("rg foo && cat a", ["SEARCH", "READ"], activity.READING),
+                                      ("cat a && git add a", ["READ", "OTHER"], activity.SHELL), ("ls", [], activity.SHELL),
+                                      ("cat pom.xml | ./mvnw -f - test", ["READ"], activity.BUILDS)]:
+            with self.subTest(line=line):
+                made = activity.Item("command", "t1", 0, 1, {"argv": [line], "actions": [{"kind": kind} for kind in kinds]})
+                self.assertEqual(activity.group_of(made), expected)
+
+    def test_tools_are_sorted_by_name_whatever_server_prefix_they_carry(self):
+        for name, expected in [("Read", activity.READING), ("Grep", activity.READING), ("bytequay/codegraph_explore", activity.READING),
+                               ("mcp__bytequay__review_get_context", activity.BYTEQUAY), ("bytequay/review_save_finding", activity.BYTEQUAY),
+                               ("review_finish", activity.BYTEQUAY), ("repository_memory", activity.BYTEQUAY), ("list_local_review_comments", activity.BYTEQUAY),
+                               ("work_items", activity.BYTEQUAY), ("hook/PreToolUse:mcp__bytequay__review_get_context", activity.OTHER_TOOLS),
+                               ("Task", activity.SUBAGENTS), ("SubagentHandback", activity.SUBAGENTS), ("Context compaction", activity.COMPACTION),
+                               ("AskUserQuestion", activity.YOU), ("Bash", activity.SHELL), ("Edit", activity.OTHER_TOOLS), ("Web search", activity.OTHER_TOOLS),
+                               ("codex/list_mcp_resources", activity.OTHER_TOOLS), ("another_server/some_tool", activity.OTHER_TOOLS)]:
+            with self.subTest(name=name):
+                self.assertEqual(activity.group_of(activity.Item("tool", "t1", 0, 1, {"name": name})), expected)
+
+    def test_approvals_and_visible_text_have_groups_of_their_own(self):
+        self.assertEqual(activity.group_of(activity.Item("approval", "t1", 0, 1, {"approvalId": "p1"})), activity.YOU)
+        self.assertEqual(activity.group_of(activity.Item("text", "t1", 0, 1, {})), activity.WRITING)
+
+    def test_real_rules_and_order_cut_a_turn_where_a_build_outranks_a_read(self):
+        events = in_order(turn(0, 100), tool(10, 60, "Read", item="a"), command(20, 40, "cd repo && ./mvnw test"), tool(70, 80, "mcp__bytequay__review_finish"))
+        windows, finished, _ = activity.items(events)
+        made = [(round(one.end - one.start), one.group) for one in activity.stretches(windows, finished, activity.group_of, activity.ORDER)]
+        self.assertEqual(made, [(10, activity.SILENT), (10, activity.READING), (20, activity.BUILDS), (20, activity.READING), (10, activity.SILENT),
+                                (10, activity.BYTEQUAY), (20, activity.SILENT)])
+
+
+def pieces(*seconds_since_start):
+    return [event(second, "assistant_message", messageKind="ANSWER", phase="PARTIAL", text="the password is hunter2") for second in seconds_since_start]
+
+
+def approval(start, end, name="p1"):
+    return [event(start, "approval_requested", approvalId=name, detail="rm -rf /Users/someone/secret-project"), event(end, "approval_resolved", approvalId=name, outcome="ALLOWED")]
+
+
+# One ten-minute turn: a Maven run with a file read inside it, a ByteQuay tool, a wait for approval, then a little visible text.
+TEN_MINUTES = in_order(turn(0, 600), command(10, 130, "cd /Users/someone/secret-project && ./mvnw -Dpassword=hunter2 test", item="c1"),
+                       tool(20, 80, "Read", item="r1"), tool(140, 200, "mcp__bytequay__review_get_context", item="b1"), approval(210, 270), pieces(300, 301, 302))
+
+
+class Logs(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.runtime = Path(directory.name)
+
+    def log(self, task, *groups, extra=""):
+        folder = self.runtime / task
+        folder.mkdir()
+        (folder / "events.jsonl").write_text("".join(json.dumps(made) + "\n" for made in in_order(*groups)) + extra)
+        return folder / "events.jsonl"
+
+
+class TestMeasure(Logs):
+    def test_every_second_of_a_turn_is_in_exactly_one_of_the_three_states(self):
+        total = activity.measure([self.log("aaaa", TEN_MINUTES)])
+        self.assertEqual((total.tasks, total.turns, total.seconds), (1, 1, 600))
+        self.assertEqual({group: length for group, length in total.groups.items() if length},
+                         {activity.SILENT: 358, activity.WRITING: 2, activity.BUILDS: 120, activity.BYTEQUAY: 60, activity.YOU: 60})
+        by_state = {state: sum(total.groups[group] for group in groups) for state, groups in activity.STATES}
+        self.assertEqual(by_state, {"The model is working": 360, "Waiting for a tool to finish": 180, "Waiting for you": 60})
+        self.assertEqual(sum(by_state.values()), total.seconds)
+        self.assertEqual(set(total.groups) - {group for _, groups in activity.STATES for group in groups}, set())
+
+    def test_every_group_belongs_to_exactly_one_state(self):
+        in_states = [group for _, groups in activity.STATES for group in groups]
+        self.assertEqual(sorted(in_states), sorted([activity.SILENT, *activity.ORDER]))
+
+    def test_model_time_is_counted_under_what_just_finished(self):
+        total = activity.measure([self.log("aaaa", TEN_MINUTES)])
+        self.assertEqual(dict(total.after), {"at the start of a turn": 10, "after tests and builds": 10, "after ByteQuay tools": 10, "after you answered": 330})
+        # Silent, writing and silent again after the approval are one stretch of model time.
+        self.assertEqual(dict(total.after_times), {"at the start of a turn": 1, "after tests and builds": 1, "after ByteQuay tools": 1, "after you answered": 1})
+
+    def test_shell_time_by_program_sums_every_run_and_only_the_part_inside_its_turn(self):
+        total = activity.measure([self.log("aaaa", turn(0, 100), command(-20, 30, "git fetch", item="g1"), command(40, 50, "git status", item="g2"),
+                                           command(60, 70, "cd x && ./mvnw -q test", item="m1"), command(80, 130, "sleep 60", item="s1"))])
+        self.assertEqual((dict(total.program_seconds), dict(total.program_runs)), ({"git": 40, "maven": 10, "wait loop": 20}, {"git": 2, "maven": 1, "wait loop": 1}))
+
+    def test_parallel_work_counts_tools_running_at_once_and_not_waits_or_text(self):
+        total = activity.measure([self.log("aaaa", turn(0, 100), tool(10, 40, "Read", item="a"), tool(20, 50, "Read", item="b"), tool(25, 30, "Grep", item="c"),
+                                           approval(60, 90), tool(70, 80, "Read", item="d"), pieces(71, 72))])
+        self.assertEqual((total.parallel, total.most_at_once), (20, 3))
+
+    def test_since_leaves_out_turns_that_started_earlier(self):
+        log = self.log("aaaa", turn(0, 50, "t1"), turn(100, 130, "t2"), command(10, 20, "git status", turn="t1"), command(110, 120, "git diff", turn="t2"))
+        total = activity.measure([log, self.log("bbbb", turn(0, 40))], since=START.timestamp() + 60)
+        self.assertEqual((total.tasks, total.turns, total.seconds, dict(total.program_runs), total.unread), (1, 1, 30, {"git": 1}, 0))
+
+    def test_what_was_left_out_is_named(self):
+        old_format = json.dumps({"occurredAt": at(5), "type": "COMMAND", "event": {}}) + "\n"
+        logs = [self.log("aaaa", turn(0, 100), [event(10, "command", item="c1", state="STARTED", argv=["./mvnw test"], durationMs=None)], extra=old_format + '{"cut off'),
+                self.log("bbbb", extra=old_format)]
+        total = activity.measure(logs)
+        self.assertEqual((total.unfinished, total.skipped, total.unread, total.groups[activity.SILENT]), (1, 2, 1, 100))
+        printed = activity.render(total)
+        for sentence in ["1 command or tool never reported an end and is not counted.", "2 log lines cut off or in an old format were skipped.",
+                         "1 task log with no turn in the current format was left out."]:
+            self.assertIn(sentence, printed)
+
+    def test_no_turn_at_all_says_so(self):
+        self.assertEqual(activity.render(activity.measure([self.log("aaaa", command(0, 10, "git status"))])), "No turns found.")
+
+
+class TestTables(Logs):
+    def test_tables_show_the_three_states_their_parts_and_the_top_programs(self):
+        log = self.log("aaaa", TEN_MINUTES, command(400, 430, "git status", item="g1"), command(440, 450, "ls", item="l1"), command(460, 470, "gh pr view 1", item="h1"))
+        printed = activity.render(activity.measure([log]), top=2).splitlines()
+        self.assertEqual(printed[0], "Agent time: 1 task, 1 turn, 0.2 hours of turn time, 2026-01-01 to 2026-01-01")
+        for expected in [f"{'What is happening':<46}{'minutes':>9}{'share':>9}", f"{'The model is working':<46}{5.2:>9}{'51.7%':>9}", f"{'    model silent':<46}{5.1:>9}{'51.3%':>9}",
+                         f"{'Waiting for a tool to finish':<46}{3.8:>9}{'38.3%':>9}", f"{'    tests and builds':<46}{2.0:>9}{'20.0%':>9}", f"{'Waiting for you':<46}{1.0:>9}{'10.0%':>9}",
+                         f"{'    maven':<46}{2.0:>9}{1:>9}", f"{'    git':<46}{0.5:>9}{1:>9}", f"{'    every other program':<46}{0.3:>9}{2:>9}",
+                         f"{'Model time by what just finished':<46}{'minutes':>9}{'share':>9}{'times':>9}", f"{'    after you answered':<46}{2.2:>9}{'41.9%':>9}{1:>9}"]:
+            with self.subTest(expected=expected):
+                self.assertIn(expected, printed)
+        self.assertNotIn("reading and searching files", "\n".join(printed))  # the read ran inside the build, so it has no seconds of its own
+
+    def test_nothing_private_is_printed(self):
+        log = self.log("aaaa", TEN_MINUTES, command(400, 460, 'curl -H "Authorization: Bearer sk-live-SECRET123" https://internal.example.invalid/private/path', item="x1"),
+                       [event(470, "tool", item="x2", state="STARTED", name="Read", summary="/Users/someone/secret-project/keys.pem", durationMs=None),
+                        event(520, "tool", item="x2", state="COMPLETED", name="Read", summary="/Users/someone/secret-project/keys.pem", durationMs=None),
+                        event(530, "user_message", text="my token is sk-live-SECRET123", attachments=[], deliveryKind="TURN")])
+        total = activity.measure([log])
+        printed = activity.render(total) + activity.timeline(total)
+        for secret in ["hunter2", "SECRET123", "Authorization", "internal.example", "secret-project", "keys.pem", "someone", "password", "rm -rf", "/Users"]:
+            with self.subTest(secret=secret):
+                self.assertNotIn(secret, printed)
+        self.assertIn("curl", printed)
+        self.assertIn("maven", printed)
+
+
+class TestTimeline(Logs):
+    def test_long_stretches_are_listed_in_order_and_short_ones_are_only_counted(self):
+        total = activity.measure([self.log("aaaa", turn(0, 300), command(10, 50, "./mvnw compile", item="m1"), command(50, 100, "./mvnw test", item="m2"),
+                                           tool(105, 106, "Read", item="r1"))])
+        self.assertEqual(activity.timeline(total).splitlines(),
+                         ["Timeline: stretches of 30 seconds or more, with the time since the turn started", "", "Turn 1, 5.0 minutes",
+                          "           (1 shorter stretch, 0.2 minutes)", "     0:10    1.5 min  tests and builds", "           (2 shorter stretches, 0.1 minutes)",
+                          "     1:46    3.2 min  model silent"])
+
+    def test_each_turn_has_its_own_part_and_short_stretches_at_its_end_are_counted(self):
+        total = activity.measure([self.log("aaaa", turn(0, 60, "t1"), turn(100, 140, "t2"), command(0, 50, "git gc", item="g1", turn="t1"))])
+        self.assertEqual(activity.timeline(total).splitlines()[2:],
+                         ["Turn 1, 1.0 minutes", "     0:00    0.8 min  other shell commands", "           (1 shorter stretch, 0.2 minutes)", "",
+                          "Turn 2, 0.7 minutes", "     0:00    0.7 min  model silent"])
+
+
+class TestCommandLine(Logs):
+    def run_script(self, *arguments):
+        return subprocess.run([sys.executable, activity.__file__, "--runtime", str(self.runtime), *arguments], capture_output=True, text=True)
+
+    def test_all_tasks_are_added_up_and_one_task_comes_with_its_timeline(self):
+        self.log("aaaa-1111", TEN_MINUTES)
+        self.log("bbbb-2222", turn(0, 60), command(0, 40, "git gc", item="g1"))
+        everything = self.run_script()
+        self.assertEqual(everything.returncode, 0, everything.stderr)
+        self.assertIn("Agent time: 2 tasks, 2 turns, 0.2 hours of turn time", everything.stdout)
+        self.assertNotIn("Timeline", everything.stdout)
+        one = self.run_script("--task", "bbbb")
+        self.assertIn("Agent time: 1 task, 1 turn", one.stdout)
+        self.assertIn("\n\nTimeline: stretches of 30 seconds or more", one.stdout)
+        self.assertIn("     0:00    0.7 min  other shell commands", one.stdout)
+        self.assertIn("No turns found.", self.run_script("--since", "2030-01-01").stdout)
+
+    def test_wrong_arguments_are_refused_with_a_reason(self):
+        self.log("aaaa-1111", TEN_MINUTES)
+        for arguments, reason in [(["--task", "cccc"], "No task log matches"), (["--task", "../aaaa"], "--task takes the start of a task id"),
+                                  (["--since", "yesterday"], "--since takes a day as YYYY-MM-DD")]:
+            with self.subTest(arguments=arguments):
+                result = self.run_script(*arguments)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn(reason, result.stderr)
+
+
+class TestRead(unittest.TestCase):
+    def test_cut_off_and_old_format_lines_are_skipped_and_counted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "events.jsonl"
+            good = turn(0, 10)
+            log.write_text("".join(json.dumps(made) + "\n" for made in good) + json.dumps({"occurredAt": at(5), "type": "COMMAND", "event": {}}) + "\n"
+                           + '{"occurredAt": "2026-01-01T00:00:0')
+            self.assertEqual(activity.read(log), (good, 2))
+
+
+if __name__ == "__main__":
+    unittest.main()

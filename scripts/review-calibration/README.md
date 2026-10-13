@@ -131,6 +131,49 @@ uv run judge.py agree --judgement RUN/judgement.json --labels LABELS.json
 agreement to reach before reading the judge's answers, and after changing the
 judge prompt measure it again on calls nobody has read.
 
+## Agent activity
+
+`activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It
+reads the task event logs under
+`~/Library/Application Support/ByteQuay/agent-runtime`, or `--runtime DIR`,
+opens no database and changes nothing. It needs only the standard library.
+
+```sh
+uv run activity.py
+uv run activity.py --since YYYY-MM-DD
+uv run activity.py --task START_OF_TASK_ID
+```
+
+Every second of a turn is in one of three states: the model is working and
+nothing else runs, a tool or command is running, or the turn waits for the
+user's approval or answer. The first table gives each state and its parts in
+minutes and as a share of turn time, so the three states add up to 100%. When
+several things run at once, a second is counted once, under the first running
+group in a fixed order: the user, tests and builds, other shell commands,
+reading and searching files, ByteQuay tools, subagents, context compaction,
+other tools, then the model. A line under the tables says for how long two or
+more tools ran at once.
+
+"Shell time by program" names each command line after one program: a build or
+test tool if the line runs one, else a wait loop if it sleeps, else the first
+program that does real work. Only the first word of each command counts, after
+`cd`, variable settings and a wrapping `zsh -lc` are removed, so
+`src/main/java/` in an argument is not the `java` program. These times are
+summed over runs; commands that overlap can add up to more than their share in
+the first table. A script is "shell script" whatever it runs inside.
+
+"Model time by what just finished" counts each stretch of model time under the
+activity that ended right before it. The logs do not record when a model call
+starts or when its first output arrives, so model time cannot be split into
+reasoning and request time. Only visible text is told apart from silence.
+
+Start and end times are used, because many finished items carry no stored
+duration. An item that never reports an end is left out and counted on its own
+line, as are log lines in an old format. `--task` adds a timeline of that
+task's stretches of 30 seconds or more. Only group names, program names,
+counts and times are printed, never a command's arguments, a path or any
+message text.
+
 ## Synthetic smoke fixture
 
 `fixture/` is a deliberately small example for checking the harness and reading

@@ -113,8 +113,7 @@ class TestClaudeEventMapper
                 "errors":["provider failed"],"uuid":"result-error-1"}
                 """);
         assertThat(failed).anySatisfy(event -> assertThat(event)
-                .isInstanceOfSatisfying(ProviderAgentEvent.Error.class,
-                        error -> assertThat(error.message()).isEqualTo("provider failed")));
+                .isInstanceOfSatisfying(ProviderAgentEvent.Error.class, error -> assertThat(error.message()).isEqualTo("provider failed")));
     }
 
     @Test
@@ -407,9 +406,7 @@ class TestClaudeEventMapper
         assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
                         && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
                 .extracting(event -> event.source().providerThreadId().orElseThrow(), event -> event.source().parentProviderThreadId().orElseThrow())
-                .containsExactly(
-                        tuple("claude-agent:tool-1", "session-1"),
-                        tuple("claude-agent:tool-2", "claude-agent:tool-1"));
+                .containsExactly(tuple("claude-agent:tool-1", "session-1"), tuple("claude-agent:tool-2", "claude-agent:tool-1"));
         assertThat(events).filteredOn(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
                         && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_COMPLETED)
                 .hasSize(2);

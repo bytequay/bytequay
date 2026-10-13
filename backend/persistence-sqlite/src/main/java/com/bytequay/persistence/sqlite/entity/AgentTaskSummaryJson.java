@@ -82,12 +82,7 @@ final class AgentTaskSummaryJson
                     value.counters() == null ? ToolCounters.ZERO : value.counters());
             // Completion refuses uncommitted work, so a stored summary never records any.
             Optional<WorktreeSnapshot> worktree = Optional.ofNullable(value.head())
-                    .flatMap(head -> taskWorktree.map(task -> new WorktreeSnapshot(
-                            task,
-                            head,
-                            value.dirty(),
-                            Boolean.TRUE.equals(value.gitOperationInProgress()),
-                            false)));
+                    .flatMap(head -> taskWorktree.map(task -> new WorktreeSnapshot(task, head, value.dirty(), Boolean.TRUE.equals(value.gitOperationInProgress()), false)));
             return new TaskSummary(
                     value.finalResponse(),
                     worktree,

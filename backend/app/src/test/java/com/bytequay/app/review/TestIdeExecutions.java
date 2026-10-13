@@ -145,8 +145,7 @@ class TestIdeExecutions
     {
         LocalRun run = start(Scope.DEBUG);
         when(process.observedDescendants()).thenReturn(Optional.empty());
-        LocalRun finished = executions.finish(taskId.toString(), "session", run.id(),
-                new IdeExecutions.Result(false, false, false, OptionalInt.empty(), ImmutableList.of()));
+        LocalRun finished = executions.finish(taskId.toString(), "session", run.id(), new IdeExecutions.Result(false, false, false, OptionalInt.empty(), ImmutableList.of()));
         assertThat(finished.status()).isEqualTo(Status.COMPLETED);
         assertThat(finished.counts()).isEmpty();
         assertThat(finished.treeUnverified()).isTrue();

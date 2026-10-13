@@ -59,13 +59,10 @@ public class GitHubMergeClient
             MergeQueueResponse response = graphql(graphqlRestClient, pat, query, ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch))
                     .body(MergeQueueResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502),
-                        "GitHub merge queue lookup failed: " + response.errors().getFirst().message());
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub merge queue lookup failed: " + response.errors().getFirst().message());
             }
             if (response == null || response.data() == null || response.data().repository() == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "GitHub merge queue lookup returned incomplete GraphQL data");
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub merge queue lookup returned incomplete GraphQL data");
             }
             return response.data().repository().mergeQueue() != null;
         });
@@ -103,16 +100,13 @@ public class GitHubMergeClient
     {
         if (response != null && response.errors() != null && !response.errors().isEmpty()) {
             GraphQlError error = response.errors().getFirst();
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502),
-                    "GitHub " + operation + " returned GraphQL error " + error.type() + ": " + error.message());
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub " + operation + " returned GraphQL error " + error.type() + ": " + error.message());
         }
         if (response == null
                 || response.data() == null
                 || response.data().repository() == null
                 || response.data().repository().pullRequest() == null) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502), "GitHub " + operation + " returned incomplete GraphQL data");
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub " + operation + " returned incomplete GraphQL data");
         }
         return response.data().repository().pullRequest();
     }
@@ -126,9 +120,7 @@ public class GitHubMergeClient
             EnqueueResponse response = graphql(graphqlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
                     .body(EnqueueResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(422),
-                        "GitHub enqueuePullRequest failed: " + response.errors().getFirst().message());
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub enqueuePullRequest failed: " + response.errors().getFirst().message());
             }
             QueueEntry entry = response == null
                     || response.data() == null
@@ -136,8 +128,7 @@ public class GitHubMergeClient
                     ? null
                     : response.data().enqueuePullRequest().mergeQueueEntry();
             if (entry == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "GitHub enqueuePullRequest returned no queue entry");
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub enqueuePullRequest returned no queue entry");
             }
             return MergeResult.enqueued(queueMessage(entry));
         });
@@ -150,13 +141,10 @@ public class GitHubMergeClient
             DequeueResponse response = graphql(graphqlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
                     .body(DequeueResponse.class);
             if (response != null && response.errors() != null && !response.errors().isEmpty()) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(422),
-                        "GitHub dequeuePullRequest failed: " + response.errors().getFirst().message());
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub dequeuePullRequest failed: " + response.errors().getFirst().message());
             }
             if (response == null || response.data() == null || response.data().dequeuePullRequest() == null) {
-                throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(502), "GitHub dequeuePullRequest returned incomplete GraphQL data");
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub dequeuePullRequest returned incomplete GraphQL data");
             }
             return null;
         });

@@ -292,8 +292,7 @@ class TestWorkspaceDeletionService
 
     private AgentTask task()
     {
-        return AgentTask.created(TaskId.random(), Optional.of(WORKSPACE_ID), true, "Task", AgentLaneId.CODEX_CLI,
-                PHYSICAL_REPOSITORY, paths.repository(workspace), DEFAULTS, NOW);
+        return AgentTask.created(TaskId.random(), Optional.of(WORKSPACE_ID), true, "Task", AgentLaneId.CODEX_CLI, PHYSICAL_REPOSITORY, paths.repository(workspace), DEFAULTS, NOW);
     }
 
     private void delete()

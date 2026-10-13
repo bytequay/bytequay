@@ -66,8 +66,7 @@ public final class CiGitOperations
     {
         requireNonNull(command, "command is null");
         try {
-            Path worktree = validateWorktree(
-                    command.worktree(), command.physicalRepository(), command.localBranch());
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
             validateRemote(worktree, command.sourceRemote(), command.remoteRepository());
             requireCleanAndResolved(worktree);
             requireValidBranch(worktree, command.baseRef());
@@ -84,11 +83,7 @@ public final class CiGitOperations
                     throw problem("The exact pull request base SHA is unavailable after fetch");
                 }
             }
-            Result updated = runner.run(
-                    worktree,
-                    "update-ref",
-                    "refs/heads/" + command.localBaseBranch(),
-                    command.expectedBaseSha());
+            Result updated = runner.run(worktree, "update-ref", "refs/heads/" + command.localBaseBranch(), command.expectedBaseSha());
             if (!updated.successful()) {
                 throw problem("The private local base branch could not be updated");
             }
@@ -104,23 +99,13 @@ public final class CiGitOperations
     {
         requireNonNull(command, "command is null");
         try {
-            Path worktree = validateWorktree(
-                    command.worktree(), command.physicalRepository(), command.localBranch());
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
             requireValidBranch(worktree, command.localBaseBranch());
-            Result current = runner.run(
-                    worktree,
-                    "rev-parse",
-                    "--verify",
-                    "--quiet",
-                    "refs/heads/" + command.localBaseBranch());
+            Result current = runner.run(worktree, "rev-parse", "--verify", "--quiet", "refs/heads/" + command.localBaseBranch());
             if (!current.successful()) {
                 return true;
             }
-            return runner.run(
-                    worktree,
-                    "update-ref",
-                    "-d",
-                    "refs/heads/" + command.localBaseBranch()).successful();
+            return runner.run(worktree, "update-ref", "-d", "refs/heads/" + command.localBaseBranch()).successful();
         }
         catch (GitProblem problem) {
             return false;
@@ -146,11 +131,7 @@ public final class CiGitOperations
             List<String> commitSubjects = commits(worktree, command.baseSha(), head).stream()
                     .map(Commit::subject)
                     .collect(toImmutableList());
-            return CiGitInspection.ready(
-                    head,
-                    fingerprint(worktree, command.localBranch(), head),
-                    changedPaths,
-                    commitSubjects);
+            return CiGitInspection.ready(head, fingerprint(worktree, command.localBranch(), head), changedPaths, commitSubjects);
         }
         catch (GitProblem problem) {
             return CiGitInspection.invalid(problem.getMessage());
@@ -168,8 +149,7 @@ public final class CiGitOperations
         }
 
         try {
-            Path worktree = validateWorktree(
-                    command.worktree(), command.physicalRepository(), command.localBranch());
+            Path worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
             validateRemote(worktree, command.remote(), command.remoteRepository());
             requireValidBranch(worktree, command.remoteHeadRef());
             Optional<String> remote = remoteHead(worktree, command.remote(), command.remoteHeadRef());
@@ -203,8 +183,7 @@ public final class CiGitOperations
             if (!authorization.allowExactLeasePush() || !Instant.now(clock).isBefore(authorization.expiresAt())) {
                 return CiPushResult.failed(REJECTED, "CI Autofix push authorization is no longer valid");
             }
-            worktree = validateWorktree(
-                    command.worktree(), command.physicalRepository(), command.localBranch());
+            worktree = validateWorktree(command.worktree(), command.physicalRepository(), command.localBranch());
             requireCleanAndResolved(worktree);
             head = requiredOutput(worktree, "rev-parse", "HEAD");
             if (!head.equals(journal.localHeadSha())
@@ -212,11 +191,7 @@ public final class CiGitOperations
                 return CiPushResult.failed(REJECTED, "Local Git history changed immediately before push");
             }
             validateRemote(worktree, command.remote(), command.remoteRepository());
-            Result push = runner.run(worktree, pushArguments(
-                    command.remote(),
-                    command.remoteHeadRef(),
-                    journal.expectedRemoteSha(),
-                    descendant));
+            Result push = runner.run(worktree, pushArguments(command.remote(), command.remoteHeadRef(), journal.expectedRemoteSha(), descendant));
             return reconcilePush(worktree, command.remote(), command.remoteHeadRef(), journal, push);
         }
         catch (GitProblem problem) {
@@ -328,12 +303,7 @@ public final class CiGitOperations
         if (!unmerged.isEmpty()) {
             throw problem("Git has unresolved index entries:\n" + unmerged);
         }
-        List<String> states = ImmutableList.of(
-                "MERGE_HEAD",
-                "CHERRY_PICK_HEAD",
-                "rebase-merge",
-                "rebase-apply",
-                "sequencer");
+        List<String> states = ImmutableList.of("MERGE_HEAD", "CHERRY_PICK_HEAD", "rebase-merge", "rebase-apply", "sequencer");
         List<Path> statePaths = runner.gitPaths(worktree, states);
         if (statePaths.size() != states.size()) {
             throw problem("Git could not report its operation state");
@@ -399,12 +369,7 @@ public final class CiGitOperations
 
     private List<String> changedPaths(Path worktree, String baseSha, String headSha)
     {
-        String output = requiredRawOutput(
-                worktree,
-                "diff",
-                "--name-only",
-                "-z",
-                baseSha + ".." + headSha);
+        String output = requiredRawOutput(worktree, "diff", "--name-only", "-z", baseSha + ".." + headSha);
         if (output.isEmpty()) {
             return ImmutableList.of();
         }
@@ -446,12 +411,7 @@ public final class CiGitOperations
 
     private List<Commit> commits(Path worktree, String baseSha, String headSha)
     {
-        String output = requiredOutput(
-                worktree,
-                "log",
-                "--reverse",
-                "--format=%H%x00%s%x00",
-                baseSha + ".." + headSha);
+        String output = requiredOutput(worktree, "log", "--reverse", "--format=%H%x00%s%x00", baseSha + ".." + headSha);
         if (output.isEmpty()) {
             return ImmutableList.of();
         }
@@ -522,12 +482,7 @@ public final class CiGitOperations
 
     private void rejectMatchingUrlRewrite(Path worktree, String configuredUrl)
     {
-        Result rewrites = runner.run(
-                worktree,
-                "config",
-                "--null",
-                "--get-regexp",
-                "^url\\..*\\.(instead|pushinstead)of$");
+        Result rewrites = runner.run(worktree, "config", "--null", "--get-regexp", "^url\\..*\\.(instead|pushinstead)of$");
         if (rewrites.exitCode() == 1 && !rewrites.truncated()) {
             return;
         }

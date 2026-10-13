@@ -43,8 +43,7 @@ final class CommitHistoryRouting
             }
             case UPSTREAM -> {
                 checkArgument(context.upstreamRepositoryId().isPresent(), "no upstream repository is linked");
-                checkArgument(!context.sourceRemote().equals(context.targetRemote()),
-                        "linked upstream remote is missing");
+                checkArgument(!context.sourceRemote().equals(context.targetRemote()), "linked upstream remote is missing");
                 return new ResolvedCommitHistoryRef(
                         OptionalLong.of(context.upstreamRepositoryId().orElseThrow()),
                         Optional.of(context.monitoredRepository()),
@@ -54,8 +53,7 @@ final class CommitHistoryRouting
             case REMOTE -> {
                 String remote = ref.remote().orElseThrow();
                 RemoteSource source = context.extraRemote(remote).orElse(null);
-                checkArgument(source != null,
-                        "remote is not configured for this workspace");
+                checkArgument(source != null, "remote is not configured for this workspace");
                 return new ResolvedCommitHistoryRef(
                         source.repositoryId().map(OptionalLong::of).orElseGet(OptionalLong::empty),
                         source.repository(),
@@ -76,8 +74,7 @@ final class CommitHistoryRouting
         {
             requireNonNull(repositoryId, "repositoryId is null");
             requireNonNull(repository, "repository is null");
-            checkArgument(repositoryId.isPresent() == repository.isPresent(),
-                    "repositoryId and repository must be present together");
+            checkArgument(repositoryId.isPresent() == repository.isPresent(), "repositoryId and repository must be present together");
             repositoryId.ifPresent(value -> checkArgument(value > 0, "repositoryId must be positive"));
             requireNonNull(gitRef, "gitRef is null");
             requireNonNull(providerRef, "providerRef is null");

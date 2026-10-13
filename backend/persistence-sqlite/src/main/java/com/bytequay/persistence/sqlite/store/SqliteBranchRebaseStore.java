@@ -76,17 +76,14 @@ public class SqliteBranchRebaseStore
     public Optional<BranchRebase> find(BranchRebaseId rebaseId)
     {
         requireNonNull(rebaseId, "rebaseId is null");
-        return read("Cannot read branch rebase " + rebaseId,
-                () -> repository.findById(rebaseId.toString()).map(BranchRebaseEntity::toRebase),
-                StorageException::new);
+        return read("Cannot read branch rebase " + rebaseId, () -> repository.findById(rebaseId.toString()).map(BranchRebaseEntity::toRebase), StorageException::new);
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<BranchRebase> listRunning(int limit)
     {
-        checkArgument(limit >= 1 && limit <= MAX_LIST_LIMIT,
-                "limit must be between 1 and " + MAX_LIST_LIMIT);
+        checkArgument(limit >= 1 && limit <= MAX_LIST_LIMIT, "limit must be between 1 and " + MAX_LIST_LIMIT);
         return read("Cannot list running branch rebases",
                 () -> repository.findByStatusOrderByUpdatedAtAsc(Status.RUNNING, PageRequest.of(0, limit)).stream()
                         .map(BranchRebaseEntity::toRebase)

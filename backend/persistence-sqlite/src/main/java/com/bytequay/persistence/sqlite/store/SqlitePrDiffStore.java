@@ -62,9 +62,7 @@ public class SqlitePrDiffStore
     public PrDiffEtags findDefaultEtags(long prId)
     {
         return repository.findById(snapshotId(prId, null, null))
-                .map(entity -> new PrDiffEtags(
-                        Optional.ofNullable(entity.getFilesEtag()),
-                        Optional.ofNullable(entity.getCommitsEtag())))
+                .map(entity -> new PrDiffEtags(Optional.ofNullable(entity.getFilesEtag()), Optional.ofNullable(entity.getCommitsEtag())))
                 .orElseGet(PrDiffEtags::none);
     }
 

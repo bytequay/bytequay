@@ -65,15 +65,8 @@ class TestPullRequestDetailMapper
         StoredPrDetail stored = new StoredPrDetail(
                 raw(),
                 ImmutableList.of(new PrReviewState(null, "alice", null, false, "APPROVED", null, null, null, null)),
-                ImmutableList.of(new PrTimelineEvent(
-                        null,
-                        "ci_autofix",
-                        "bob",
-                        Instant.parse("2026-01-01T00:00:00Z"),
-                        "verified push",
-                        Optional.of("ci-autofix:event"))),
-                ImmutableList.of(new PrCheckRunState(
-                        1L, "build", "completed", "success", null, "check_run", startedAt, completedAt)),
+                ImmutableList.of(new PrTimelineEvent(null, "ci_autofix", "bob", Instant.parse("2026-01-01T00:00:00Z"), "verified push", Optional.of("ci-autofix:event"))),
+                ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success", null, "check_run", startedAt, completedAt)),
                 ImmutableList.of());
 
         PullRequestDetail detail = PullRequestDetailMapper.toPullRequestDetail(12L, "owner/repo", 5, stored, true);

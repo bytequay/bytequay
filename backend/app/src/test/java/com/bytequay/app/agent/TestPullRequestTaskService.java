@@ -309,8 +309,7 @@ class TestPullRequestTaskService
     {
         TaskId id = TaskId.random();
         AgentTask task = AgentTask.created(id, true, "DeepSeek task", TitleSource.USER, DEEPSEEK_LANE,
-                new TaskWorktree(id, "workspace", new RepositoryIdentity("alice", "repo"), Path.of("/tmp").resolve(id.toString()),
-                        "bytequay/task/" + id, HEAD),
+                new TaskWorktree(id, "workspace", new RepositoryIdentity("alice", "repo"), Path.of("/tmp").resolve(id.toString()), "bytequay/task/" + id, HEAD),
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), Instant.now());
         created.set(task);
         when(assignments.find("workspace", "upstream/repo", 7))

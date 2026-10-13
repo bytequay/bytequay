@@ -80,10 +80,7 @@ class TestCiAutofixMonitorJob
         TaskId taskId = TaskId.random();
         CiAutofixRun finished = run()
                 .assignAgentTask(taskId.toString(), Instant.parse("2026-08-18T00:00:01Z"))
-                .finish(
-                        CiAutofixRun.FinishReason.CANCELLED,
-                        "cancelled",
-                        Instant.parse("2026-08-18T00:00:02Z"));
+                .finish(CiAutofixRun.FinishReason.CANCELLED, "cancelled", Instant.parse("2026-08-18T00:00:02Z"));
         AgentTask task = AgentTask.created(
                 taskId,
                 Optional.empty(),
@@ -113,10 +110,7 @@ class TestCiAutofixMonitorJob
         TaskId taskId = TaskId.random();
         CiAutofixRun finished = run()
                 .assignAgentTask(taskId.toString(), Instant.parse("2026-08-18T00:00:01Z"))
-                .finish(
-                        CiAutofixRun.FinishReason.GREEN,
-                        "green",
-                        Instant.parse("2026-08-18T00:00:02Z"));
+                .finish(CiAutofixRun.FinishReason.GREEN, "green", Instant.parse("2026-08-18T00:00:02Z"));
         Instant now = Instant.parse("2026-08-18T00:00:00Z");
         AgentTask task = AgentTask.created(
                         taskId,
@@ -142,9 +136,7 @@ class TestCiAutofixMonitorJob
                 .fail("finished", now, now.plus(Duration.ofDays(7)));
         CiAutofixRun unfinished = run()
                 .assignAgentTask(unfinishedTaskId.toString(), Instant.parse("2026-08-18T00:00:01Z"));
-        when(taskStore.listPendingWorktreeCleanup(
-                AgentPermissionPolicy.CI_AUTOFIX,
-                MONITOR_NOW.minus(Duration.ofMinutes(1))))
+        when(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minus(Duration.ofMinutes(1))))
                 .thenReturn(ImmutableList.of(unfinishedTask, task));
         when(store.findByAgentTaskId(unfinishedTaskId.toString())).thenReturn(Optional.of(unfinished));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));

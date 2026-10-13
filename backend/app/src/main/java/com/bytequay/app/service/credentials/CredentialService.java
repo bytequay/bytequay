@@ -85,9 +85,7 @@ public class CredentialService
     {
         return liveGhCliToken()
                 .or(this::storedGitHubToken)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(401),
-                        "GitHub PAT not configured. Add it in Settings → GitHub token."));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT not configured. Add it in Settings → GitHub token."));
     }
 
     /**
@@ -142,8 +140,7 @@ public class CredentialService
         Set<String> bases = new LinkedHashSet<>();
         remoteUrls.forEach(url -> bases.add(authenticationBase(url)));
         checkArgument(!bases.isEmpty(), "remoteUrls is empty");
-        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(
-                ("x-access-token:" + resolveGitHubToken(workspaceId)).getBytes(StandardCharsets.UTF_8));
+        String header = "Authorization: Basic " + Base64.getEncoder().encodeToString(("x-access-token:" + resolveGitHubToken(workspaceId)).getBytes(StandardCharsets.UTF_8));
         ImmutableMap.Builder<String, String> environment = ImmutableMap.builder();
         environment.put("GIT_CONFIG_COUNT", Integer.toString(bases.size()));
         int index = 0;
@@ -204,9 +201,7 @@ public class CredentialService
     public Optional<WorkspaceToken> workspaceGitHubToken(String workspaceId)
     {
         return workspaceCredentials.getSecret(workspaceId)
-                .map(secret -> new WorkspaceToken(
-                        SecretMasker.mask(secret),
-                        workspaceCredentials.getLogin(workspaceId).orElse("")));
+                .map(secret -> new WorkspaceToken(SecretMasker.mask(secret), workspaceCredentials.getLogin(workspaceId).orElse("")));
     }
 
     public Optional<String> workspaceGitHubTokenValue(String workspaceId)

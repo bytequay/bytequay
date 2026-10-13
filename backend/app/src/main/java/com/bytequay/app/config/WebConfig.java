@@ -68,10 +68,7 @@ public class WebConfig
         // This client follows storage redirects but has no GitHub defaults or
         // credentials, so the bearer token cannot cross the host boundary.
         return RestClient.builder()
-                .requestFactory(newTimeoutRequestFactory(
-                        CONNECT_TIMEOUT,
-                        READ_TIMEOUT,
-                        HttpClient.Redirect.NORMAL))
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT, HttpClient.Redirect.NORMAL))
                 .build();
     }
 
@@ -90,10 +87,7 @@ public class WebConfig
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
                 .requestInterceptor(rateLimit)
-                .requestFactory(newTimeoutRequestFactory(
-                        CONNECT_TIMEOUT,
-                        READ_TIMEOUT,
-                        HttpClient.Redirect.NEVER))
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, READ_TIMEOUT, HttpClient.Redirect.NEVER))
                 .build();
     }
 

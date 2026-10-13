@@ -80,8 +80,7 @@ class TestSqliteTaskDiscussionStore
 
         assertThat(store.findByAnchor("task-1", "turn-10", HASH)).map(TaskDiscussion::id).contains("d1");
         assertThat(store.findByAnchor("task-1", "turn-10", OTHER_HASH)).isEmpty();
-        assertThat(store.find("d1")).map(TaskDiscussion::messages).get().asInstanceOf(
-                org.assertj.core.api.InstanceOfAssertFactories.list(DiscussionMessage.class)).hasSize(2);
+        assertThat(store.find("d1")).map(TaskDiscussion::messages).get().asInstanceOf(org.assertj.core.api.InstanceOfAssertFactories.list(DiscussionMessage.class)).hasSize(2);
 
         // A second passage on the same turn is a separate discussion.
         store.insertOrGet(discussion("d3", "task-1", "turn-10", OTHER_HASH));

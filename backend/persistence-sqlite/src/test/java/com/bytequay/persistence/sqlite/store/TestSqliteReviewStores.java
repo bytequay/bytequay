@@ -601,9 +601,7 @@ class TestSqliteReviewStores
                 MERGE_BASE_SHA,
                 HEAD_SHA,
                 Optional.of(PRIOR_HEAD_SHA),
-                ImmutableList.of(
-                        new ReviewCommit(PRIOR_HEAD_SHA, "Add the review tool surface", "octocat"),
-                        new ReviewCommit(HEAD_SHA, "Freeze the publication diff", "octocat")),
+                ImmutableList.of(new ReviewCommit(PRIOR_HEAD_SHA, "Add the review tool surface", "octocat"), new ReviewCommit(HEAD_SHA, "Freeze the publication diff", "octocat")),
                 ImmutableList.of(
                         new DiffFile(REVIEW_TOOLS, "modified", 41, 3, "@@ -115,4 +115,6 @@\n-int published;\n+int published = 0;\n"),
                         new DiffFile("docs/design/review.png", "added", 0, 0, null)),
@@ -644,11 +642,7 @@ class TestSqliteReviewStores
                 "RIGHT",
                 118,
                 121,
-                ImmutableList.of(
-                        "int published = 0;",
-                        "for (ReviewFinding finding : findings) {",
-                        "    publish(finding);",
-                        "}"));
+                ImmutableList.of("int published = 0;", "for (ReviewFinding finding : findings) {", "    publish(finding);", "}"));
         return new ReviewFinding(
                 id,
                 reviewId,

@@ -81,11 +81,7 @@ class TestSqliteCommitHistoryStore
         var snapshot = store.findEnrichment(100, ImmutableList.of(SHA, unrelated.sha())).commits();
         assertThat(snapshot).hasSize(2);
         assertThat(snapshot.stream().filter(value -> value.sha().equals(SHA)).findFirst().orElseThrow())
-                .extracting(
-                        CommitEnrichment::authorLogin,
-                        CommitEnrichment::committerLogin,
-                        CommitEnrichment::pullRequestNumber,
-                        CommitEnrichment::pullRequestTitle)
+                .extracting(CommitEnrichment::authorLogin, CommitEnrichment::committerLogin, CommitEnrichment::pullRequestNumber, CommitEnrichment::pullRequestTitle)
                 .containsExactly(Optional.of("percy-r"), Optional.of("ezra-b"), Optional.of(42), Optional.of("PR title"));
     }
 
@@ -93,17 +89,14 @@ class TestSqliteCommitHistoryStore
     void reloadsDurableMetadataAndKeepsLastSuccessOnFailure()
     {
         store.upsertEnrichment(ImmutableList.of(enrichment(100, SHA, Optional.of(42), Optional.of("PR title"))));
-        store.saveRefreshMetadata(new CommitRefreshMetadata(
-                "workspace", Optional.of(NOW), Optional.of(NOW), Optional.empty()));
-        store.saveRefreshMetadata(new CommitRefreshMetadata(
-                "workspace", Optional.of(NOW.plusSeconds(1)), Optional.empty(), Optional.of("Retry")));
+        store.saveRefreshMetadata(new CommitRefreshMetadata("workspace", Optional.of(NOW), Optional.of(NOW), Optional.empty()));
+        store.saveRefreshMetadata(new CommitRefreshMetadata("workspace", Optional.of(NOW.plusSeconds(1)), Optional.empty(), Optional.of("Retry")));
 
         SqliteCommitHistoryStore reloaded = new SqliteCommitHistoryStore(enrichmentRepository, refreshRepository);
 
         assertThat(reloaded.findEnrichment(100, ImmutableList.of(SHA)).commits()).hasSize(1);
         assertThat(reloaded.findRefreshMetadata("workspace"))
-                .isEqualTo(new CommitRefreshMetadata(
-                        "workspace", Optional.of(NOW.plusSeconds(1)), Optional.of(NOW), Optional.of("Retry")));
+                .isEqualTo(new CommitRefreshMetadata("workspace", Optional.of(NOW.plusSeconds(1)), Optional.of(NOW), Optional.of("Retry")));
         assertThat(reloaded.findRefreshMetadata("missing")).isEqualTo(CommitRefreshMetadata.empty("missing"));
     }
 

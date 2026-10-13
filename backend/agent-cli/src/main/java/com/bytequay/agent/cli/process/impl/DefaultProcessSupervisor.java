@@ -116,12 +116,7 @@ public final class DefaultProcessSupervisor
     {
         requireNonNull(spec, "spec is null");
         String executable = resolveExecutable(spec);
-        LaunchMarker marker = LaunchMarker.prepared(
-                UUID.randomUUID().toString(),
-                backendId,
-                spec.owner(),
-                executable,
-                argvDigest(spec.argv()));
+        LaunchMarker marker = LaunchMarker.prepared(UUID.randomUUID().toString(), backendId, spec.owner(), executable, argvDigest(spec.argv()));
         if (bootSessionId.isPresent()) {
             marker = marker.withRecoveryBootSessionId(bootSessionId.orElseThrow());
         }
@@ -227,8 +222,7 @@ public final class DefaultProcessSupervisor
             return result(marker, OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, "Replayed a durable terminal receipt");
         }
         if (impossibleOrdering(marker, attempted)) {
-            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                    "Recorded process facts do not follow the committed launch intent");
+            return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Recorded process facts do not follow the committed launch intent");
         }
         if (attempted.orElse(false) && bootSessionId.isPresent()) {
             if (marker.recoveryBootSessionId().isPresent()) {
@@ -335,8 +329,7 @@ public final class DefaultProcessSupervisor
                 return result(marker, OwnedProcessRecovery.Outcome.KNOWN_UNLAUNCHED, "Gated launcher already exited");
             }
             case UNKNOWN -> {
-                return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                        "Gated launcher exists but its start token cannot be read");
+                return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Gated launcher exists but its start token cannot be read");
             }
             case MATCHES -> ProcessHandle.of(gated.pid()).ifPresent(ProcessHandle::destroy);
         }
@@ -397,12 +390,7 @@ public final class DefaultProcessSupervisor
 
     private static OwnedProcessRecovery result(LaunchMarker marker, OwnedProcessRecovery.Outcome outcome, String detail)
     {
-        return new OwnedProcessRecovery(
-                marker.launchId(),
-                Optional.of(marker.owner()),
-                Optional.of(marker.phase()),
-                outcome,
-                detail);
+        return new OwnedProcessRecovery(marker.launchId(), Optional.of(marker.owner()), Optional.of(marker.phase()), outcome, detail);
     }
 
     /**
@@ -533,9 +521,7 @@ public final class DefaultProcessSupervisor
                 .filter(Files::isExecutable)
                 .filter(Files::isRegularFile)
                 .map(Path::toString)
-                .orElseThrow(() -> new AgentUnavailableException(
-                        "Unable to start process: " + command,
-                        new NoSuchFileException(command)));
+                .orElseThrow(() -> new AgentUnavailableException("Unable to start process: " + command, new NoSuchFileException(command)));
     }
 
     private static Optional<Path> searchPath(String command, String path)
@@ -647,8 +633,7 @@ public final class DefaultProcessSupervisor
                         .map(group -> terminateGroup(group, spec.cancellationGrace()))
                         .orElse(ProcessExit.TreeTermination.UNVERIFIABLE);
                 launcher.destroyForcibly();
-                store.write(recorded.terminal(
-                        new ProcessExit(-1, ProcessExit.Reason.CANCELLED, termination, Duration.ZERO, false, false)));
+                store.write(recorded.terminal(new ProcessExit(-1, ProcessExit.Reason.CANCELLED, termination, Duration.ZERO, false, false)));
                 return;
             }
             store.writeGate(launchId(), LaunchMarkerStore.CANCEL);
@@ -658,8 +643,7 @@ public final class DefaultProcessSupervisor
                     launcher.destroyForcibly();
                 }
                 else if (launcher.exitValue() != GATE_CLOSED_EXIT_CODE) {
-                    log.warn("Cancelled launcher {} exited with {} instead of the gate-closed status",
-                            launchId(), launcher.exitValue());
+                    log.warn("Cancelled launcher {} exited with {} instead of the gate-closed status", launchId(), launcher.exitValue());
                 }
             }
             catch (InterruptedException e) {
@@ -712,13 +696,11 @@ public final class DefaultProcessSupervisor
                     long pid = reported.orElseThrow();
                     Instant startToken = ProcessHandle.of(pid)
                             .flatMap(handle -> handle.info().startInstant())
-                            .orElseThrow(() -> new AgentUnavailableException(
-                                    "Gated launcher exited before its start token could be read"));
+                            .orElseThrow(() -> new AgentUnavailableException("Gated launcher exited before its start token could be read"));
                     return new ProcessIdentity(pid, startToken);
                 }
                 if (!launcher.isAlive()) {
-                    throw new AgentUnavailableException(
-                            "Gated launcher exited with code " + launcher.exitValue() + " before reporting its identity");
+                    throw new AgentUnavailableException("Gated launcher exited with code " + launcher.exitValue() + " before reporting its identity");
                 }
                 if (System.nanoTime() >= deadline || !sleep(5)) {
                     throw new AgentUnavailableException("Gated launcher did not report its identity");
@@ -780,8 +762,7 @@ public final class DefaultProcessSupervisor
             this.processGroup = processGroup;
             this.spec = spec;
             this.output = output;
-            this.inputExecutor = Executors.newSingleThreadExecutor(
-                    Thread.ofVirtual().name("bytequay-process-stdin-" + payloadPid).factory());
+            this.inputExecutor = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("bytequay-process-stdin-" + payloadPid).factory());
             this.outputDispatcher = Thread.ofVirtual()
                     .name("bytequay-process-output-" + payloadPid)
                     .start(this::dispatchOutput);

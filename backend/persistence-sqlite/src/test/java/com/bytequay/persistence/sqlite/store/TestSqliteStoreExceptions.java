@@ -28,8 +28,7 @@ class TestSqliteStoreExceptions
     @Test
     void reportsADuplicateKeyAsTheCallersConflict()
     {
-        assertThat(mapConstraint("Task already exists: t1", rejected(
-                "[SQLITE_CONSTRAINT_PRIMARYKEY] A PRIMARY KEY constraint failed (UNIQUE constraint failed: agent_task.id)")))
+        assertThat(mapConstraint("Task already exists: t1", rejected("[SQLITE_CONSTRAINT_PRIMARYKEY] A PRIMARY KEY constraint failed (UNIQUE constraint failed: agent_task.id)")))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessage("Task already exists: t1");
     }
@@ -37,8 +36,7 @@ class TestSqliteStoreExceptions
     @Test
     void reportsARowTheSchemaRejectsWithSqlitesReasonNotAConflict()
     {
-        assertThat(mapConstraint("Task already exists: t1", rejected(
-                "[SQLITE_CONSTRAINT_CHECK] A CHECK constraint failed (CHECK constraint failed: state in ('CREATED'))")))
+        assertThat(mapConstraint("Task already exists: t1", rejected("[SQLITE_CONSTRAINT_CHECK] A CHECK constraint failed (CHECK constraint failed: state in ('CREATED'))")))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("CHECK constraint failed: state in ('CREATED')")
                 .extracting(Throwable::getMessage).asString().doesNotContain("already exists");

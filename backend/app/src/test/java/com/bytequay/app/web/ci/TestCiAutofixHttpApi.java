@@ -245,21 +245,12 @@ class TestCiAutofixHttpApi
                 source.id(),
                 1,
                 "a".repeat(40),
-                ImmutableList.of(new FailureEvidence(
-                        "compile",
-                        "compile failed",
-                        100,
-                        1,
-                        200,
-                        1,
-                        Optional.empty())),
+                ImmutableList.of(new FailureEvidence("compile", "compile failed", 100, 1, 200, 1, Optional.empty())),
                 NOW.plusSeconds(1));
         source = source.addAttempt(attempt, NOW.plusSeconds(1));
         List<String> paths = IntStream.range(0, 201).mapToObj(index -> "src/File" + index + ".java").collect(toImmutableList());
         List<String> subjects = IntStream.range(0, 201).mapToObj(index -> "Commit " + index).collect(toImmutableList());
-        attempt = source.attempts().getFirst().withGitResult(
-                new GitResult("c".repeat(40), "fingerprint", paths, subjects),
-                NOW.plusSeconds(2));
+        attempt = source.attempts().getFirst().withGitResult(new GitResult("c".repeat(40), "fingerprint", paths, subjects), NOW.plusSeconds(2));
         source = source.updateAttempt(attempt, NOW.plusSeconds(2));
 
         CiAutofixHttpModels.GitResponse git = CiAutofixHttpModels.run(source, Optional.empty(), Optional.empty(), false)
@@ -315,11 +306,7 @@ class TestCiAutofixHttpApi
     {
         CiAutofixRun watching = run().assignAgentTask("task-1", NOW.plusSeconds(1));
 
-        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(
-                watching,
-                Optional.empty(),
-                Optional.of("bytequay/task/task-1"),
-                false);
+        CiAutofixHttpModels.RunResponse response = CiAutofixHttpModels.run(watching, Optional.empty(), Optional.of("bytequay/task/task-1"), false);
 
         assertThat(response.activity()).isEqualTo("WATCHING_CI");
         assertThat(response.attempts()).isEmpty();

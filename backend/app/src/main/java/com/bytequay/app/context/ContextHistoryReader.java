@@ -209,8 +209,7 @@ public class ContextHistoryReader
             gaps = ImmutableList.<String>builder().addAll(gaps).add("Omitted " + (sourceGaps.size() - 9) + " additional source limitations.").build();
         }
         String text = ContextText.excerpt(header + "excerptTruncated=" + truncated + "\nLimitations:\n" + String.join("\n", gaps) + "\n\n" + body.text, EXCERPT_BYTES);
-        return new Read(state, updatedAt, revision, Hashing.sha256().hashString(text, UTF_8).toString(), Instant.now(clock),
-                text, truncated, refreshFailed, gaps, provenance);
+        return new Read(state, updatedAt, revision, Hashing.sha256().hashString(text, UTF_8).toString(), Instant.now(clock), text, truncated, refreshFailed, gaps, provenance);
     }
 
     public enum SourceKind

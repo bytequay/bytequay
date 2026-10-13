@@ -93,8 +93,7 @@ public record CherryPickExecution(
         terminalAt.ifPresent(value -> checkArgument(!value.isBefore(createdAt), "terminalAt is before createdAt"));
         validateStatus(status, currentStep, pauseReason, finishReason, summary, currentTurnId, terminalAt, items);
         delivery.ifPresent(value -> {
-            checkArgument(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED,
-                    "delivery belongs to an incomplete execution");
+            checkArgument(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED, "delivery belongs to an incomplete execution");
             checkArgument(pullRequestDraft.isPresent(), "delivery has no pull-request draft");
         });
     }
@@ -351,8 +350,7 @@ public record CherryPickExecution(
     {
         requireNonNull(now, "now is null");
         checkArgument(!now.isBefore(updatedAt), "update time is before the previous update");
-        checkState(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED,
-                "execution did not complete successfully");
+        checkState(status == Status.FINISHED && finishReason.orElseThrow() == FinishReason.COMPLETED, "execution did not complete successfully");
         checkState(pullRequestDraft.isPresent(), "execution has no pull-request draft");
     }
 
@@ -537,8 +535,7 @@ public record CherryPickExecution(
 
         private Delivery withPullRequest(long providerId, int number, String url)
         {
-            return new Delivery(
-                    pushRemote, head, sha, Optional.of(providerId), Optional.of(number), Optional.of(url));
+            return new Delivery(pushRemote, head, sha, Optional.of(providerId), Optional.of(number), Optional.of(url));
         }
     }
 

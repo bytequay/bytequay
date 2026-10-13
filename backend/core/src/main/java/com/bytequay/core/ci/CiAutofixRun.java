@@ -83,8 +83,7 @@ public record CiAutofixRun(
         requireNonNull(finalFixupCheck, "finalFixupCheck is null");
         checkOptionalText(currentTurnId, "currentTurnId", 128);
         checkOptionalText(currentRebaseId, "currentRebaseId", 128);
-        checkArgument(currentTurnId.isEmpty() || currentRebaseId.isEmpty(),
-                "run cannot own a fix turn and a branch rebase together");
+        checkArgument(currentTurnId.isEmpty() || currentRebaseId.isEmpty(), "run cannot own a fix turn and a branch rebase together");
         requireNonNull(pushJournal, "pushJournal is null");
         requireNonNull(rerunJournal, "rerunJournal is null");
         requireNonNull(warnings, "warnings is null");
@@ -216,8 +215,7 @@ public record CiAutofixRun(
         requireActive(now);
         checkText(rebaseId, "rebaseId", 128);
         checkState(currentTurnId.isEmpty(), "run already owns a fix turn");
-        checkState(currentRebaseId.isEmpty() || currentRebaseId.orElseThrow().equals(rebaseId),
-                "run already owns another branch rebase");
+        checkState(currentRebaseId.isEmpty() || currentRebaseId.orElseThrow().equals(rebaseId), "run already owns another branch rebase");
         return edit(now, run -> run.currentRebaseId = Optional.of(rebaseId));
     }
 
@@ -226,8 +224,7 @@ public record CiAutofixRun(
         requireActive(now);
         checkText(rebaseId, "rebaseId", 128);
         checkSha(baseSha, "baseSha");
-        checkArgument(currentRebaseId.filter(rebaseId::equals).isPresent(),
-                "rebaseId is not the current branch rebase");
+        checkArgument(currentRebaseId.filter(rebaseId::equals).isPresent(), "rebaseId is not the current branch rebase");
         return edit(now, run -> {
             run.currentRebaseId = Optional.empty();
             run.latestObservedBaseSha = baseSha;
@@ -238,8 +235,7 @@ public record CiAutofixRun(
     {
         requireActive(now);
         checkText(rebaseId, "rebaseId", 128);
-        checkArgument(currentRebaseId.filter(rebaseId::equals).isPresent(),
-                "rebaseId is not the current branch rebase");
+        checkArgument(currentRebaseId.filter(rebaseId::equals).isPresent(), "rebaseId is not the current branch rebase");
         return edit(now, run -> run.currentRebaseId = Optional.empty());
     }
 

@@ -148,9 +148,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -167,8 +165,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -185,17 +182,14 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
                 .andExpect(content().json("{\"body\":\"Updated description\"}"))
                 .andRespond(withSuccess());
 
-        client.updatePullRequestDescription(
-                "pat", PullRequestRef.of("upstream", "project", 12), "Updated description");
+        client.updatePullRequestDescription("pat", PullRequestRef.of("upstream", "project", 12), "Updated description");
 
         server.verify();
     }
@@ -205,9 +199,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -225,9 +217,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -257,9 +247,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12/reactions"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -307,9 +295,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         String url = "https://api.github.test/repos/upstream/project/issues/12/reactions";
         server.expect(requestTo(url))
                 .andExpect(method(HttpMethod.POST))
@@ -337,9 +323,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         String url = "https://api.github.test/repos/upstream/project/issues/12/reactions";
         server.expect(requestTo(url))
                 .andExpect(method(HttpMethod.POST))
@@ -350,8 +334,7 @@ class TestGitHubPullRequestWriteClient
                 .andExpect(method(HttpMethod.DELETE))
                 .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 
-        assertThatThrownBy(() -> client.togglePullRequestReaction(
-                "pat", PullRequestRef.of("upstream", "project", 12), "eyes", false))
+        assertThatThrownBy(() -> client.togglePullRequestReaction("pat", PullRequestRef.of("upstream", "project", 12), "eyes", false))
                 .isInstanceOf(ResponseStatusException.class);
         server.verify();
     }
@@ -361,9 +344,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12/comments"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -404,8 +385,7 @@ class TestGitHubPullRequestWriteClient
         PrTimelineEvent posted = client.createReviewComment(
                 "pat",
                 PullRequestRef.of("upstream", "project", 12),
-                new InlineReviewComment(
-                        "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head-sha", OptionalLong.empty()));
+                new InlineReviewComment("src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head-sha", OptionalLong.empty()));
 
         assertThat(posted.githubId()).isEqualTo(91);
         assertThat(posted.event()).isEqualTo("review_thread");
@@ -439,9 +419,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls/12/reviews"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -475,10 +453,8 @@ class TestGitHubPullRequestWriteClient
                 "COMMENT",
                 "",
                 ImmutableList.of(
-                        new InlineReviewComment(
-                                "src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty()),
-                        new InlineReviewComment(
-                                "src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha", OptionalLong.empty())));
+                        new InlineReviewComment("src/Main.java", "First note", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty()),
+                        new InlineReviewComment("src/Other.java", "Second note", 9, "LEFT", null, null, "head-sha", OptionalLong.empty())));
 
         server.verify();
     }
@@ -488,9 +464,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/pulls"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -507,17 +481,9 @@ class TestGitHubPullRequestWriteClient
                         {"id":900,"number":12,"html_url":"https://github.com/upstream/project/pull/12"}
                         """, MediaType.APPLICATION_JSON));
 
-        CreatedPullRequest created = client.createPullRequest(
-                "pat",
-                RepoRef.of("upstream", "project"),
-                "contributor:bump-branch",
-                "main",
-                "PR title",
-                "PR body",
-                false);
+        CreatedPullRequest created = client.createPullRequest("pat", RepoRef.of("upstream", "project"), "contributor:bump-branch", "main", "PR title", "PR body", false);
 
-        assertThat(created).isEqualTo(new CreatedPullRequest(
-                900, 12, "https://github.com/upstream/project/pull/12"));
+        assertThat(created).isEqualTo(new CreatedPullRequest(900, 12, "https://github.com/upstream/project/pull/12"));
         server.verify();
     }
 
@@ -526,9 +492,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -540,8 +504,7 @@ class TestGitHubPullRequestWriteClient
                         {"type":{"name":"Bug"}}
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(client.updateIssueType(
-                "pat", PullRequestRef.of("upstream", "project", 12), "Bug")).isEqualTo("Bug");
+        assertThat(client.updateIssueType("pat", PullRequestRef.of("upstream", "project", 12), "Bug")).isEqualTo("Bug");
         server.verify();
     }
 
@@ -550,9 +513,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/12"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -567,15 +528,8 @@ class TestGitHubPullRequestWriteClient
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        assertThat(client.updateIssueMetadata(
-                "pat",
-                PullRequestRef.of("upstream", "project", 12),
-                ImmutableList.of("alice"),
-                ImmutableList.of("bug")))
-                .isEqualTo(new GitHubPullRequestWriteClient.IssueMetadata(
-                        ImmutableList.of("alice"),
-                        ImmutableList.of("bug"),
-                        java.time.Instant.parse("2026-08-23T10:00:00Z")));
+        assertThat(client.updateIssueMetadata("pat", PullRequestRef.of("upstream", "project", 12), ImmutableList.of("alice"), ImmutableList.of("bug")))
+                .isEqualTo(new GitHubPullRequestWriteClient.IssueMetadata(ImmutableList.of("alice"), ImmutableList.of("bug"), java.time.Instant.parse("2026-08-23T10:00:00Z")));
         server.verify();
     }
 
@@ -584,9 +538,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         String url = "https://api.github.test/repos/upstream/project/pulls/12/requested_reviewers";
         server.expect(requestTo(url))
                 .andExpect(method(HttpMethod.POST))
@@ -608,9 +560,7 @@ class TestGitHubPullRequestWriteClient
     {
         RestClient.Builder builder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                builder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(builder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repos/upstream/project/issues/comments/41"))
                 .andExpect(method(HttpMethod.PATCH))
                 .andExpect(header("Authorization", "Bearer pat"))
@@ -641,8 +591,7 @@ class TestGitHubPullRequestWriteClient
         RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");
         RestClient.Builder graphQlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
         MockRestServiceServer graphQlServer = MockRestServiceServer.bindTo(graphQlBuilder).build();
-        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(
-                restBuilder.build(), graphQlBuilder.build());
+        GitHubPullRequestWriteClient client = new GitHubPullRequestWriteClient(restBuilder.build(), graphQlBuilder.build());
         graphQlServer.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(method(HttpMethod.POST))
                 .andExpect(header("Authorization", "Bearer pat"))

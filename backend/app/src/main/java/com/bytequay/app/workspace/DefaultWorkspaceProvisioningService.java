@@ -88,8 +88,7 @@ public final class DefaultWorkspaceProvisioningService
     private Workspace refreshRouting(Workspace workspace)
     {
         String token = credentials.resolveGitHubToken();
-        UserRepo selected = gitHub.fetchRepository(
-                        token, workspace.selectedRepositoryId())
+        UserRepo selected = gitHub.fetchRepository(token, workspace.selectedRepositoryId())
                 .orElseThrow(() -> new ManagedWorkspaceGit.Failure(
                         "GitHub repository is no longer accessible. Restore access and retry.",
                         "Repository ID is unavailable: " + workspace.selectedRepositoryId()));
@@ -122,8 +121,7 @@ public final class DefaultWorkspaceProvisioningService
 
     private void logFailure(Workspace workspace, RuntimeException failure)
     {
-        log.warn("Workspace {} code synchronization failed: {}",
-                workspace.id(), failure.getMessage());
+        log.warn("Workspace {} code synchronization failed: {}", workspace.id(), failure.getMessage());
     }
 
     private static Workspace mergeRouting(Workspace latest, Workspace routing, Instant now)
@@ -143,8 +141,6 @@ public final class DefaultWorkspaceProvisioningService
 
     private static ManagedWorkspaceGit.Failure routingChanged(String internalMessage)
     {
-        return new ManagedWorkspaceGit.Failure(
-                "Workspace repository routing changed. Review the upstream repository and retry.",
-                internalMessage);
+        return new ManagedWorkspaceGit.Failure("Workspace repository routing changed. Review the upstream repository and retry.", internalMessage);
     }
 }

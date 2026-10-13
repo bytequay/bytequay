@@ -148,9 +148,7 @@ public final class GitSequencerDriver
         requireNonNull(worktree, "worktree is null");
         Result headResult = git.run(worktree, "rev-parse", "HEAD");
         if (!headResult.successful()) {
-            return new SequenceState(
-                    Kind.UNSAFE, "", Optional.empty(), ImmutableList.of(),
-                    "Cannot read HEAD: " + headResult.output().strip());
+            return new SequenceState(Kind.UNSAFE, "", Optional.empty(), ImmutableList.of(), "Cannot read HEAD: " + headResult.output().strip());
         }
         String head = headResult.output().strip();
 
@@ -170,16 +168,13 @@ public final class GitSequencerDriver
             return unsafe(head, "Unexpected Git operation in progress: " + String.join(", ", openMarkers));
         }
         if (!conflicts.isEmpty()) {
-            return new SequenceState(
-                    Kind.STOPPED_CONFLICT, head, cherryPickHead, conflicts, "");
+            return new SequenceState(Kind.STOPPED_CONFLICT, head, cherryPickHead, conflicts, "");
         }
         boolean nothingStaged = git.run(worktree, "diff", "--cached", "--quiet", "HEAD").successful();
         if (nothingStaged && !dirty) {
-            return new SequenceState(
-                    Kind.STOPPED_EMPTY, head, cherryPickHead, ImmutableList.of(), "");
+            return new SequenceState(Kind.STOPPED_EMPTY, head, cherryPickHead, ImmutableList.of(), "");
         }
-        return new SequenceState(
-                Kind.STOPPED_RESOLVED, head, cherryPickHead, ImmutableList.of(), "");
+        return new SequenceState(Kind.STOPPED_RESOLVED, head, cherryPickHead, ImmutableList.of(), "");
     }
 
     /**
@@ -207,7 +202,6 @@ public final class GitSequencerDriver
 
     private static SequenceState unsafe(String head, String diagnostics)
     {
-        return new SequenceState(
-                Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), diagnostics);
+        return new SequenceState(Kind.UNSAFE, head, Optional.empty(), ImmutableList.of(), diagnostics);
     }
 }

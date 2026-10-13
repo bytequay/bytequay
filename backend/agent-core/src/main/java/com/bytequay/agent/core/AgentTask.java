@@ -84,12 +84,9 @@ public record AgentTask(
         checkOptionalText(cleanupFailure, "cleanupFailure");
         requireNonNull(archivedAt, "archivedAt is null");
         checkArgument(worktree.isAbsolute(), "worktree is not absolute");
-        checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)),
-                "taskWorktree belongs to another task");
-        checkArgument(taskWorktree.stream().allMatch(value -> value.physicalRepository().equals(repository)),
-                "taskWorktree belongs to another repository");
-        checkArgument(taskWorktree.stream().allMatch(value -> value.canonicalWorktree().equals(worktree)),
-                "taskWorktree path does not match worktree");
+        checkArgument(taskWorktree.stream().allMatch(value -> value.taskId().equals(id)), "taskWorktree belongs to another task");
+        checkArgument(taskWorktree.stream().allMatch(value -> value.physicalRepository().equals(repository)), "taskWorktree belongs to another repository");
+        checkArgument(taskWorktree.stream().allMatch(value -> value.canonicalWorktree().equals(worktree)), "taskWorktree path does not match worktree");
         checkArgument(taskWorktree.stream().allMatch(value -> workspaceId
                         .map(value.workspaceId()::equals)
                         .orElse(false)),
@@ -216,16 +213,7 @@ public record AgentTask(
             AgentPermissionPolicy permissionPolicy,
             Instant now)
     {
-        return created(
-                id,
-                workspaceId,
-                interactive,
-                title,
-                laneId,
-                repository,
-                worktree,
-                AgentTaskDefaults.forPermission(permissionPolicy),
-                now);
+        return created(id, workspaceId, interactive, title, laneId, repository, worktree, AgentTaskDefaults.forPermission(permissionPolicy), now);
     }
 
     public AgentPermissionPolicy permissionPolicy()
@@ -296,9 +284,7 @@ public record AgentTask(
     public AgentTask fail(String reason, Instant failedAt, Instant deletionDeadline, WorktreeMutationClaim claim)
     {
         requireNonNull(claim, "claim is null");
-        checkState(
-                worktreeMutationClaim.isEmpty() || worktreeMutationClaim.equals(Optional.of(claim)),
-                "worktree mutation claim owner changed");
+        checkState(worktreeMutationClaim.isEmpty() || worktreeMutationClaim.equals(Optional.of(claim)), "worktree mutation claim owner changed");
         return failed(reason, failedAt, deletionDeadline);
     }
 
@@ -331,15 +317,13 @@ public record AgentTask(
     {
         requireNonNull(reference, "reference is null");
         checkState(!state.terminal(), "cannot update a terminal task session");
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, Optional.of(reference), metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, Optional.of(reference), metrics, summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     public AgentTask withMetrics(AgentMetrics updatedMetrics, Instant now)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, updatedMetrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, updatedMetrics, summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     /**
@@ -352,8 +336,7 @@ public record AgentTask(
         requireNonNull(source, "source is null");
         requireNonNull(now, "now is null");
         checkArgument(source != TitleSource.PROVISIONAL, "a title cannot become provisional again");
-        checkState(source == TitleSource.USER || titleSource == TitleSource.PROVISIONAL,
-                "only a provisional title accepts a proposal");
+        checkState(source == TitleSource.USER || titleSource == TitleSource.PROVISIONAL, "only a provisional title accepts a proposal");
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
         return copyDetails(updatedTitle, source, defaults, now, worktreeRemovedAt, archivedAt);
     }
@@ -422,8 +405,7 @@ public record AgentTask(
     {
         requireNonNull(now, "now is null");
         requireState(TaskState.OPEN);
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     public AgentTask withCleanupState(CleanupState updatedState, Optional<String> failure, Instant now)
@@ -432,8 +414,7 @@ public record AgentTask(
         checkOptionalText(failure, "failure");
         checkState(state.terminal(), "cannot clean up a live task");
         checkState(cleanupState.canTransitionTo(updatedState), "invalid cleanup transition: " + cleanupState + " -> " + updatedState);
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics,
-                summary, updatedState, deleteAfter, failure);
+        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics, summary, updatedState, deleteAfter, failure);
     }
 
     public AgentTask withWorktreeRemovedAt(Instant removedAt)
@@ -453,8 +434,7 @@ public record AgentTask(
         checkState(state.terminal(), "cannot clean up a live task worktree");
         checkState(worktreeRemovedAt.isEmpty(), "task worktree is already removed");
         checkArgument(!attemptedAt.isBefore(updatedAt), "attemptedAt is before the current update time");
-        return copy(state, worktreeMutationClaim, version, attemptedAt, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
+        return copy(state, worktreeMutationClaim, version, attemptedAt, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     public AgentTask claimWorktreeMutation(WorktreeMutationClaim claim, Instant now)
@@ -463,8 +443,7 @@ public record AgentTask(
         requireNonNull(now, "now is null");
         requireState(TaskState.OPEN);
         checkState(worktreeMutationClaim.isEmpty(), "task already has a worktree mutation claim");
-        return copy(state, Optional.of(claim), version, now, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
+        return copy(state, Optional.of(claim), version, now, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     public AgentTask releaseWorktreeMutation(WorktreeMutationClaim claim, Instant now)
@@ -473,8 +452,7 @@ public record AgentTask(
         requireNonNull(now, "now is null");
         requireState(TaskState.OPEN);
         checkState(worktreeMutationClaim.equals(Optional.of(claim)), "worktree mutation claim owner changed");
-        return copy(state, Optional.empty(), version, now, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
+        return copy(state, Optional.empty(), version, now, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
     }
 
     private AgentTask copy(

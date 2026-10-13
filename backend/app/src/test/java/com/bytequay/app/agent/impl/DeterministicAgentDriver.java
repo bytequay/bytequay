@@ -77,12 +77,7 @@ public final class DeterministicAgentDriver
     @Override
     public AgentCapabilities capabilities()
     {
-        return new AgentCapabilities(
-                false,
-                false,
-                true,
-                ImmutableSet.of(AgentPermissionPolicy.AUTO),
-                imageAttachments.get() ? ImmutableSet.of("image/png") : ImmutableSet.of());
+        return new AgentCapabilities(false, false, true, ImmutableSet.of(AgentPermissionPolicy.AUTO), imageAttachments.get() ? ImmutableSet.of("image/png") : ImmutableSet.of());
     }
 
     @Override
@@ -105,24 +100,8 @@ public final class DeterministicAgentDriver
     public List<ProviderModel> models()
     {
         return ImmutableList.of(
-                new ProviderModel(
-                        "test-model",
-                        "Test model",
-                        "",
-                        ImmutableList.of("high"),
-                        Optional.of("high"),
-                        true,
-                        ImmutableList.of("text", "image"),
-                        ImmutableList.of()),
-                new ProviderModel(
-                        "text-only-model",
-                        "Text only",
-                        "",
-                        ImmutableList.of("high"),
-                        Optional.of("high"),
-                        false,
-                        ImmutableList.of("text"),
-                        ImmutableList.of()));
+                new ProviderModel("test-model", "Test model", "", ImmutableList.of("high"), Optional.of("high"), true, ImmutableList.of("text", "image"), ImmutableList.of()),
+                new ProviderModel("text-only-model", "Text only", "", ImmutableList.of("high"), Optional.of("high"), false, ImmutableList.of("text"), ImmutableList.of()));
     }
 
     /** Keeps the next turn running until {@link #completeHeldTurn()} is called. */
@@ -153,12 +132,7 @@ public final class DeterministicAgentDriver
         probeReadiness.clear();
         HeldTurn held = heldTurn.getAndSet(null);
         if (held != null) {
-            held.completion().complete(new AgentTurnResult(
-                    AgentTurnResult.State.INTERRUPTED,
-                    Optional.empty(),
-                    Optional.of("test reset"),
-                    Duration.ZERO,
-                    true));
+            held.completion().complete(new AgentTurnResult(AgentTurnResult.State.INTERRUPTED, Optional.empty(), Optional.of("test reset"), Duration.ZERO, true));
         }
     }
 
@@ -188,21 +162,14 @@ public final class DeterministicAgentDriver
     public AgentSession open(AgentSessionContext context, AgentEventSink events)
     {
         openCount.incrementAndGet();
-        AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
-                laneId,
-                1,
-                "deterministic-" + UUID.randomUUID()));
+        AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(laneId, 1, "deterministic-" + UUID.randomUUID()));
         return new DeterministicSession(this, reference, events, context.textOnly());
     }
 
     private RunningTurn start(AgentTurnCommand command, AgentEventSink events, boolean textOnly)
     {
         String response = textOnly ? "{\"title\":\"Name first task\",\"branch\":\"name-first-task\"}" : "deterministic: " + command.message();
-        events.emit(new ProviderAgentEvent.Message(
-                Optional.of("message-" + command.turnId()),
-                ProviderAgentEvent.MessagePhase.FINAL,
-                response,
-                ProviderAgentEventSource.root()));
+        events.emit(new ProviderAgentEvent.Message(Optional.of("message-" + command.turnId()), ProviderAgentEvent.MessagePhase.FINAL, response, ProviderAgentEventSource.root()));
         if (!textOnly) {
             Optional.ofNullable(nextDevelopmentResult.getAndSet(null)).ifPresent(report -> events.emit(new ProviderAgentEvent.DevelopmentResult(
                     Optional.of("report-" + command.turnId()),
@@ -222,12 +189,7 @@ public final class DeterministicAgentDriver
 
     private static AgentTurnResult result(String response)
     {
-        return new AgentTurnResult(
-                AgentTurnResult.State.COMPLETED,
-                Optional.of(response),
-                Optional.empty(),
-                Duration.ZERO,
-                true);
+        return new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(response), Optional.empty(), Duration.ZERO, true);
     }
 
     private record DeterministicSession(

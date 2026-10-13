@@ -116,23 +116,17 @@ public record ReviewRun(
 
     public ReviewRun withSummary(ReviewSummary updatedSummary, Instant now)
     {
-        return copy(
-                turnIds, state, Optional.of(updatedSummary), coverage, investigation, steps, completionRepairUsed,
-                operations, evidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, Optional.of(updatedSummary), coverage, investigation, steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withCoverage(ReviewCoverage updatedCoverage, Instant now)
     {
-        return copy(
-                turnIds, state, summary, Optional.of(updatedCoverage), investigation, steps, completionRepairUsed,
-                operations, evidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, Optional.of(updatedCoverage), investigation, steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     public ReviewRun withInvestigation(ReviewInvestigation updatedInvestigation, Instant now)
     {
-        return copy(
-                turnIds, state, summary, coverage, Optional.of(updatedInvestigation), steps, completionRepairUsed,
-                operations, evidence, outcome, version, now, endedAt);
+        return copy(turnIds, state, summary, coverage, Optional.of(updatedInvestigation), steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
     }
 
     /** The immutable report and its assignment number must always be read together. */
@@ -192,9 +186,7 @@ public record ReviewRun(
     public ReviewRun ended(State terminalState, Optional<String> terminalOutcome, Instant now)
     {
         checkArgument(terminalState.terminal(), "state is not terminal");
-        return copy(
-                turnIds, terminalState, summary, coverage, investigation, steps, completionRepairUsed,
-                operations, evidence, terminalOutcome, version, now, Optional.of(now));
+        return copy(turnIds, terminalState, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, terminalOutcome, version, now, Optional.of(now));
     }
 
     /** Carries everything frozen with the head over unchanged; only the progress of the run varies. */

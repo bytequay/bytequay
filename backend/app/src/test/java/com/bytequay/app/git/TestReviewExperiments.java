@@ -94,8 +94,7 @@ class TestReviewExperiments
         when(store.findById(WORKSPACE_ID)).thenReturn(Optional.of(workspace));
         worktrees = new ManagedWorktreeService(paths, store, git, mock(IdeRuntimeService.class));
         TaskId taskId = TaskId.random();
-        worktree = worktrees.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()),
-                base, "bytequay/task/" + taskId));
+        worktree = worktrees.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, RepositoryIdentity.valueOf(REPOSITORY.fullName()), base, "bytequay/task/" + taskId));
         experiments = new ReviewExperiments(git, worktrees);
     }
 
@@ -109,8 +108,7 @@ class TestReviewExperiments
         Files.createDirectories(worktree.canonicalWorktree().resolve("build"));
         Files.writeString(worktree.canonicalWorktree().resolve("build/output"), "ignored result\n");
 
-        experiments.synchronizeClean(worktree, base, target,
-                () -> run(worktree.canonicalWorktree(), "merge", "--ff-only", "--no-overwrite-ignore", target));
+        experiments.synchronizeClean(worktree, base, target, () -> run(worktree.canonicalWorktree(), "merge", "--ff-only", "--no-overwrite-ignore", target));
 
         assertThat(head()).isEqualTo(target);
         assertThat(worktrees.inspect(worktree).uncommitted()).isFalse();

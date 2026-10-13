@@ -91,8 +91,7 @@ public final class ManagedWorktreeService
                 requireExactCommit(repository, command.startCommit(), "start commit");
                 prepareWorktreeParent(workspace);
 
-                Path requestedPath = paths.canonicalTaskWorktree(
-                        command.workspaceId(), command.taskId().toString());
+                Path requestedPath = paths.canonicalTaskWorktree(command.workspaceId(), command.taskId().toString());
                 String branch = command.generatedBranch();
                 if (Files.exists(requestedPath, LinkOption.NOFOLLOW_LINKS)) {
                     if (Files.isSymbolicLink(requestedPath)
@@ -105,9 +104,7 @@ public final class ManagedWorktreeService
                         snapshot = inspectVerified(workspace, repository, existing);
                     }
                     catch (InvalidAgentRequestException | AgentStorageException failure) {
-                        throw new AgentConflictException(
-                                "The generated task worktree path contains a mismatched or incomplete worktree",
-                                failure);
+                        throw new AgentConflictException("The generated task worktree path contains a mismatched or incomplete worktree", failure);
                     }
                     if (!snapshot.head().equals(command.startCommit())
                             || snapshot.dirty()
@@ -126,14 +123,7 @@ public final class ManagedWorktreeService
                     throw conflict("The generated task branch already exists");
                 }
 
-                Result created = git.run(repository, ImmutableList.of(
-                        "worktree",
-                        "add",
-                        "--quiet",
-                        "-b",
-                        branch,
-                        requestedPath.toString(),
-                        command.startCommit()));
+                Result created = git.run(repository, ImmutableList.of("worktree", "add", "--quiet", "-b", branch, requestedPath.toString(), command.startCommit()));
                 if (!created.successful()) {
                     throw new AgentStorageException("Cannot create task worktree: " + diagnostic(created));
                 }
@@ -285,10 +275,7 @@ public final class ManagedWorktreeService
                 throw conflict("Task worktree has an open Git operation");
             }
 
-            Result removed = git.run(repository, ImmutableList.of(
-                    "worktree",
-                    "remove",
-                    worktree.canonicalWorktree().toString()));
+            Result removed = git.run(repository, ImmutableList.of("worktree", "remove", worktree.canonicalWorktree().toString()));
             if (!removed.successful()) {
                 throw new AgentStorageException("Cannot remove task worktree: " + diagnostic(removed));
             }
@@ -378,15 +365,11 @@ public final class ManagedWorktreeService
             TaskWorktree worktree)
     {
         Path canonical = verifyOwnedWorktree(workspace, repository, worktree);
-        String branch = requireOutput(
-                git.run(canonical, "symbolic-ref", "--quiet", "--short", "HEAD"),
-                "read task worktree branch");
+        String branch = requireOutput(git.run(canonical, "symbolic-ref", "--quiet", "--short", "HEAD"), "read task worktree branch");
         if (!branch.equals(worktree.generatedBranch())) {
             throw invalid("Task worktree is on another branch");
         }
-        String head = requireOutput(
-                git.run(canonical, "rev-parse", "--verify", "HEAD^{commit}"),
-                "read task worktree HEAD");
+        String head = requireOutput(git.run(canonical, "rev-parse", "--verify", "HEAD^{commit}"), "read task worktree HEAD");
         String status = requireOutput(
                 git.run(canonical, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching", "--ignore-submodules=none"),
                 "read task worktree status");
@@ -479,8 +462,7 @@ public final class ManagedWorktreeService
     private void verifyDerivedPath(TaskWorktree worktree)
     {
         try {
-            Path canonicalExpected = paths.canonicalTaskWorktree(
-                    worktree.workspaceId(), worktree.taskId().toString());
+            Path canonicalExpected = paths.canonicalTaskWorktree(worktree.workspaceId(), worktree.taskId().toString());
             if (!canonicalExpected.equals(worktree.canonicalWorktree())) {
                 throw invalid("Recorded task worktree path is not task-derived");
             }
@@ -492,9 +474,7 @@ public final class ManagedWorktreeService
 
     private void verifyPhysicalRepository(Workspace workspace, RepositoryIdentity repository)
     {
-        RepositoryIdentity expected = new RepositoryIdentity(
-                workspace.selectedRepository().owner(),
-                workspace.selectedRepository().repo());
+        RepositoryIdentity expected = new RepositoryIdentity(workspace.selectedRepository().owner(), workspace.selectedRepository().repo());
         if (!expected.equals(repository)) {
             throw invalid("Task repository does not match the workspace origin");
         }
@@ -502,9 +482,7 @@ public final class ManagedWorktreeService
 
     private void requireOrigin(Path repository, String expectedUrl)
     {
-        String origin = requireOutput(
-                git.run(repository, "config", "--get-all", "remote.origin.url"),
-                "read origin URL");
+        String origin = requireOutput(git.run(repository, "config", "--get-all", "remote.origin.url"), "read origin URL");
         if (!origin.equals(expectedUrl) || origin.lines().count() != 1) {
             throw invalid("Managed repository origin does not match the workspace");
         }
@@ -547,9 +525,7 @@ public final class ManagedWorktreeService
 
     private List<Path> registeredWorktreePaths(Path repository)
     {
-        String output = requireOutput(
-                git.run(repository, "worktree", "list", "--porcelain"),
-                "list registered worktrees");
+        String output = requireOutput(git.run(repository, "worktree", "list", "--porcelain"), "list registered worktrees");
         return output.lines()
                 .filter(line -> line.startsWith("worktree "))
                 .map(line -> Path.of(line.substring("worktree ".length())).toAbsolutePath().normalize())
@@ -590,13 +566,7 @@ public final class ManagedWorktreeService
             Path canonicalWorktree,
             String branch)
     {
-        return new TaskWorktree(
-                command.taskId(),
-                command.workspaceId(),
-                command.physicalRepository(),
-                canonicalWorktree,
-                branch,
-                command.startCommit());
+        return new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(), canonicalWorktree, branch, command.startCommit());
     }
 
     private static String requireOutput(Result result, String operation)

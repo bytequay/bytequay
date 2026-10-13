@@ -112,19 +112,7 @@ public class RepositoryIssueEntity
 
     public RepositoryIssue toDomain()
     {
-        return new RepositoryIssue(
-                id,
-                number,
-                title,
-                body,
-                author,
-                authorAvatarUrl,
-                htmlUrl,
-                labels,
-                assignees,
-                commentCount,
-                createdAt,
-                updatedAt);
+        return new RepositoryIssue(id, number, title, body, author, authorAvatarUrl, htmlUrl, labels, assignees, commentCount, createdAt, updatedAt);
     }
 
     public void updateMetadata(List<String> assignees, List<String> labels, Instant updatedAt)

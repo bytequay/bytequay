@@ -118,10 +118,7 @@ public final class DefaultAgentApprovalService
             persisted = true;
             drainPending(outboxStore, eventService, request.taskId());
             requestEventDrained = true;
-            ScheduledFuture<?> timeoutFuture = scheduler.schedule(
-                    () -> timeout(request.id(), live),
-                    Math.max(1, timeout.toMillis()),
-                    TimeUnit.MILLISECONDS);
+            ScheduledFuture<?> timeoutFuture = scheduler.schedule(() -> timeout(request.id(), live), Math.max(1, timeout.toMillis()), TimeUnit.MILLISECONDS);
             live.setTimeoutFuture(timeoutFuture);
             if (covered) {
                 // An earlier "allow for this task" answers it; the transcript still shows the command and the allow.
@@ -130,12 +127,7 @@ public final class DefaultAgentApprovalService
             return live.future();
         }
         catch (RuntimeException failure) {
-            return handleRegistrationFailure(
-                    stored,
-                    live,
-                    persisted,
-                    requestEventDrained,
-                    failure);
+            return handleRegistrationFailure(stored, live, persisted, requestEventDrained, failure);
         }
     }
 
@@ -236,10 +228,7 @@ public final class DefaultAgentApprovalService
         RuntimeException firstFailure = null;
         for (AgentApproval approval : approvals) {
             try {
-                resolveAndPublish(
-                        approval,
-                        denial(approval.request().id(), false),
-                        AgentEventPayload.ApprovalOutcome.CANCELLED);
+                resolveAndPublish(approval, denial(approval.request().id(), false), AgentEventPayload.ApprovalOutcome.CANCELLED);
             }
             catch (RuntimeException failure) {
                 failLive(approval.request().id(), failure);
@@ -263,10 +252,7 @@ public final class DefaultAgentApprovalService
         }
         try {
             AgentApproval stored = requireApproval(approvalId);
-            resolveAndPublish(
-                    stored,
-                    denial(approvalId, true),
-                    AgentEventPayload.ApprovalOutcome.EXPIRED);
+            resolveAndPublish(stored, denial(approvalId, true), AgentEventPayload.ApprovalOutcome.EXPIRED);
         }
         catch (RuntimeException failure) {
             failLive(approvalId, failure);
@@ -275,13 +261,7 @@ public final class DefaultAgentApprovalService
 
     private ApprovalDecision denial(ApprovalId approvalId, boolean timedOut)
     {
-        return new ApprovalDecision(
-                approvalId,
-                ApprovalDecision.Decision.DENY,
-                Optional.empty(),
-                false,
-                Instant.now(clock),
-                timedOut);
+        return new ApprovalDecision(approvalId, ApprovalDecision.Decision.DENY, Optional.empty(), false, Instant.now(clock), timedOut);
     }
 
     private ApprovalDecision taskAllow(ApprovalId approvalId)
@@ -340,10 +320,7 @@ public final class DefaultAgentApprovalService
             }
             return resolved;
         });
-        return new PreparedResolution(
-                approval.request().taskId(),
-                changed ? decision : requireResolvedDecision(approval.request().id()),
-                live);
+        return new PreparedResolution(approval.request().taskId(), changed ? decision : requireResolvedDecision(approval.request().id()), live);
     }
 
     private ApprovalDecision publishResolution(PreparedResolution resolution)
@@ -364,11 +341,7 @@ public final class DefaultAgentApprovalService
 
     private void cancelPersistedRequest(AgentApproval approval, boolean requestEventDrained)
     {
-        PreparedResolution resolution = recordResolution(
-                approval,
-                denial(approval.request().id(), false),
-                AgentEventPayload.ApprovalOutcome.CANCELLED,
-                Optional.empty());
+        PreparedResolution resolution = recordResolution(approval, denial(approval.request().id(), false), AgentEventPayload.ApprovalOutcome.CANCELLED, Optional.empty());
         if (requestEventDrained) {
             publishResolution(resolution);
         }
@@ -381,8 +354,7 @@ public final class DefaultAgentApprovalService
                 .filter(turn -> turn.cancellationRequestedAt().isEmpty())
                 .isPresent();
         if (!acceptsDecision) {
-            throw new AgentConflictException(
-                    "Approval turn no longer accepts decisions: " + approval.request().turnId());
+            throw new AgentConflictException("Approval turn no longer accepts decisions: " + approval.request().turnId());
         }
     }
 
@@ -464,10 +436,7 @@ public final class DefaultAgentApprovalService
                 request.taskId(),
                 Optional.of(request.turnId()),
                 source(request.providerRequest()),
-                new AgentEventPayload.ApprovalResolved(
-                        request.id().toString(),
-                        outcome,
-                        decision.forTask()),
+                new AgentEventPayload.ApprovalResolved(request.id().toString(), outcome, decision.forTask()),
                 decision.resolvedAt());
     }
 

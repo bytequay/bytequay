@@ -58,12 +58,7 @@ class TestAppSettingsService
         AgentLaneId lane = new AgentLaneId(laneId);
         AgentDriver driver = mock(AgentDriver.class);
         when(drivers.require(lane)).thenReturn(driver);
-        when(driver.capabilities()).thenReturn(new AgentCapabilities(
-                false,
-                false,
-                false,
-                ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX),
-                ImmutableSet.of()));
+        when(driver.capabilities()).thenReturn(new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CI_AUTOFIX), ImmutableSet.of()));
         DevelopmentAutomation chosen = new DevelopmentAutomation(false, true, true, Optional.of(lane), true);
 
         settings.saveDevelopmentAutomation(chosen);
@@ -89,8 +84,7 @@ class TestAppSettingsService
         AgentDriver driver = mock(AgentDriver.class);
         when(drivers.require(lane)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
-        assertThatThrownBy(() -> settings.saveDevelopmentAutomation(
-                new DevelopmentAutomation(true, true, true, Optional.of(lane))))
+        assertThatThrownBy(() -> settings.saveDevelopmentAutomation(new DevelopmentAutomation(true, true, true, Optional.of(lane))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("does not support CI Autofix");
         assertThat(store.snapshot()).isEmpty();
         store.put("agent.developmentAutomation", "{\"autoCommit\":true}");

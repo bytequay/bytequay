@@ -73,17 +73,7 @@ public record CherryPickItem(
             Optional<PullRequestRefView> pullRequest,
             Disposition disposition)
     {
-        return new CherryPickItem(
-                position,
-                sourceSha,
-                sourceParentSha,
-                title,
-                pullRequest,
-                disposition,
-                initialResult(disposition),
-                Optional.empty(),
-                ImmutableList.of(),
-                0);
+        return new CherryPickItem(position, sourceSha, sourceParentSha, title, pullRequest, disposition, initialResult(disposition), Optional.empty(), ImmutableList.of(), 0);
     }
 
     /** Returns true when this item still needs work. */
@@ -111,50 +101,20 @@ public record CherryPickItem(
     public CherryPickItem emptySkipped()
     {
         checkArgument(pending(), "item %s is not pending", position);
-        return new CherryPickItem(
-                position,
-                sourceSha,
-                sourceParentSha,
-                title,
-                pullRequest,
-                disposition,
-                Result.EMPTY_SKIPPED,
-                Optional.empty(),
-                conflictPaths,
-                agentTurnCount);
+        return new CherryPickItem(position, sourceSha, sourceParentSha, title, pullRequest, disposition, Result.EMPTY_SKIPPED, Optional.empty(), conflictPaths, agentTurnCount);
     }
 
     public CherryPickItem withConflict(List<ConflictPath> paths)
     {
         checkArgument(pending(), "item %s is not pending", position);
-        return new CherryPickItem(
-                position,
-                sourceSha,
-                sourceParentSha,
-                title,
-                pullRequest,
-                disposition,
-                result,
-                targetSha,
-                paths,
-                agentTurnCount);
+        return new CherryPickItem(position, sourceSha, sourceParentSha, title, pullRequest, disposition, result, targetSha, paths, agentTurnCount);
     }
 
     public CherryPickItem withAgentTurnStarted()
     {
         checkArgument(pending(), "item %s is not pending", position);
         checkArgument(agentTurnCount < MAX_AGENT_TURNS, "item %s exhausted its agent turns", position);
-        return new CherryPickItem(
-                position,
-                sourceSha,
-                sourceParentSha,
-                title,
-                pullRequest,
-                disposition,
-                result,
-                targetSha,
-                conflictPaths,
-                agentTurnCount + 1);
+        return new CherryPickItem(position, sourceSha, sourceParentSha, title, pullRequest, disposition, result, targetSha, conflictPaths, agentTurnCount + 1);
     }
 
     private static Result initialResult(Disposition disposition)
@@ -169,19 +129,13 @@ public record CherryPickItem(
     private static void validate(Disposition disposition, Result result, Optional<String> targetSha)
     {
         switch (disposition) {
-            case ALREADY_ON_TARGET -> checkArgument(
-                    result == Result.ALREADY_ON_TARGET,
-                    "already-on-target item carries result %s", result);
-            case USER_SKIPPED -> checkArgument(
-                    result == Result.USER_SKIPPED,
-                    "user-skipped item carries result %s", result);
+            case ALREADY_ON_TARGET -> checkArgument(result == Result.ALREADY_ON_TARGET, "already-on-target item carries result %s", result);
+            case USER_SKIPPED -> checkArgument(result == Result.USER_SKIPPED, "user-skipped item carries result %s", result);
             case TO_CHERRY_PICK -> checkArgument(
                     result == Result.PENDING || result == Result.APPLIED || result == Result.EMPTY_SKIPPED,
                     "cherry-pick item carries result %s", result);
         }
-        checkArgument(
-                (result == Result.APPLIED) == targetSha.isPresent(),
-                "only an applied item carries a target SHA");
+        checkArgument((result == Result.APPLIED) == targetSha.isPresent(), "only an applied item carries a target SHA");
     }
 
     /** Frozen at confirmation; never recomputed from Git. */

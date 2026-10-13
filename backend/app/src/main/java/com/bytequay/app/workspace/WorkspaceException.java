@@ -42,86 +42,62 @@ public final class WorkspaceException
 
     public static WorkspaceException notFound(String workspaceId)
     {
-        return new WorkspaceException(
-                "WORKSPACE_NOT_FOUND", HttpStatus.NOT_FOUND,
-                "Workspace not found: " + workspaceId, false);
+        return new WorkspaceException("WORKSPACE_NOT_FOUND", HttpStatus.NOT_FOUND, "Workspace not found: " + workspaceId, false);
     }
 
     public static WorkspaceException repositoryNotFound(long repositoryId)
     {
-        return new WorkspaceException(
-                "REPOSITORY_NOT_FOUND", HttpStatus.NOT_FOUND,
-                "Repository is no longer visible: " + repositoryId, false);
+        return new WorkspaceException("REPOSITORY_NOT_FOUND", HttpStatus.NOT_FOUND, "Repository is no longer visible: " + repositoryId, false);
     }
 
     public static WorkspaceException previewChanged()
     {
-        return new WorkspaceException(
-                "WATCH_PREVIEW_CHANGED", HttpStatus.CONFLICT,
-                "Repository routing or permissions changed. Review the updated preview.", true);
+        return new WorkspaceException("WATCH_PREVIEW_CHANGED", HttpStatus.CONFLICT, "Repository routing or permissions changed. Review the updated preview.", true);
     }
 
     public static WorkspaceException forkConfirmationRequired()
     {
-        return new WorkspaceException(
-                "FORK_CONFIRMATION_REQUIRED", HttpStatus.BAD_REQUEST,
-                "Allow ByteQuay to create your fork before watching this repository.", false);
+        return new WorkspaceException("FORK_CONFIRMATION_REQUIRED", HttpStatus.BAD_REQUEST, "Allow ByteQuay to create your fork before watching this repository.", false);
     }
 
     public static WorkspaceException repositoryNotReady()
     {
-        return new WorkspaceException(
-                "WORKSPACE_CODE_NOT_READY", HttpStatus.CONFLICT,
-                "Repository clone is not ready.", true);
+        return new WorkspaceException("WORKSPACE_CODE_NOT_READY", HttpStatus.CONFLICT, "Repository clone is not ready.", true);
     }
 
     public static WorkspaceException busy()
     {
-        return new WorkspaceException(
-                "WORKSPACE_BUSY", HttpStatus.CONFLICT,
-                "Workspace has active synchronization, tasks, or workflows. Stop them before retrying.", true);
+        return new WorkspaceException("WORKSPACE_BUSY", HttpStatus.CONFLICT, "Workspace has active synchronization, tasks, or workflows. Stop them before retrying.", true);
     }
 
     public static WorkspaceException invalidUpstream(String message)
     {
-        return new WorkspaceException(
-                "WORKSPACE_UPSTREAM_INVALID", HttpStatus.UNPROCESSABLE_ENTITY,
-                message, false);
+        return new WorkspaceException("WORKSPACE_UPSTREAM_INVALID", HttpStatus.UNPROCESSABLE_ENTITY, message, false);
     }
 
     public static WorkspaceException invalidRemoteSource(String message)
     {
-        return new WorkspaceException(
-                "WORKSPACE_REMOTE_SOURCE_INVALID", HttpStatus.UNPROCESSABLE_ENTITY,
-                message, false);
+        return new WorkspaceException("WORKSPACE_REMOTE_SOURCE_INVALID", HttpStatus.UNPROCESSABLE_ENTITY, message, false);
     }
 
     public static WorkspaceException invalidRepository(String message)
     {
-        return new WorkspaceException(
-                "REPOSITORY_ROUTING_INVALID", HttpStatus.UNPROCESSABLE_ENTITY,
-                message, false);
+        return new WorkspaceException("REPOSITORY_ROUTING_INVALID", HttpStatus.UNPROCESSABLE_ENTITY, message, false);
     }
 
     public static WorkspaceException issueSyncFailed(String reference)
     {
-        return new WorkspaceException(
-                "ISSUE_SYNC_FAILED", HttpStatus.BAD_GATEWAY,
-                "Issue refresh failed. Retry later. Reference: " + reference, true);
+        return new WorkspaceException("ISSUE_SYNC_FAILED", HttpStatus.BAD_GATEWAY, "Issue refresh failed. Retry later. Reference: " + reference, true);
     }
 
     public static WorkspaceException deliveryConfirmationRequired()
     {
-        return new WorkspaceException(
-                "DELIVERY_CONFIRMATION_REQUIRED", HttpStatus.BAD_REQUEST,
-                "Confirm this remote write before continuing.", false);
+        return new WorkspaceException("DELIVERY_CONFIRMATION_REQUIRED", HttpStatus.BAD_REQUEST, "Confirm this remote write before continuing.", false);
     }
 
     public static WorkspaceException deliveryUnavailable(String message)
     {
-        return new WorkspaceException(
-                "WORKSPACE_DELIVERY_UNAVAILABLE", HttpStatus.CONFLICT,
-                message, false);
+        return new WorkspaceException("WORKSPACE_DELIVERY_UNAVAILABLE", HttpStatus.CONFLICT, message, false);
     }
 
     public static WorkspaceException pushNotWritable()
@@ -135,9 +111,7 @@ public final class WorkspaceException
 
     public static WorkspaceException deliveryFailed(String message)
     {
-        return new WorkspaceException(
-                "WORKSPACE_DELIVERY_FAILED", HttpStatus.BAD_GATEWAY,
-                message, true);
+        return new WorkspaceException("WORKSPACE_DELIVERY_FAILED", HttpStatus.BAD_GATEWAY, message, true);
     }
 
     public String code() { return code; }

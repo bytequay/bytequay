@@ -123,8 +123,7 @@ class TestReviewFacts
     {
         List<String> facts = ReviewFacts.describe(
                 ImmutableList.of(
-                        commit("a", "Add the storage", "src/main/java/io/Storage.java", "src/main/java/io/StorageConfig.java", "web/loader.ts",
-                                "docs/storage.md"),
+                        commit("a", "Add the storage", "src/main/java/io/Storage.java", "src/main/java/io/StorageConfig.java", "web/loader.ts", "docs/storage.md"),
                         commit("b", "Add its tests", "src/test/java/io/TestStorage.java", "src/test/java/io/StorageConfigTest.java", "web/loader.test.ts",
                                 "src/test/java/io/TestingStorageServer.java", "src/test/java/io/TestOther.java"),
                         commit("c", "Add the reader with its test", "src/main/java/io/Reader.java", "src/test/java/io/TestReader.java")),

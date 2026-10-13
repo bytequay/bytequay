@@ -128,13 +128,7 @@ public class AgentConfiguration
             PermissionBroker permissions)
             throws IOException
     {
-        return new CodexCliDriver(
-                properties.codexExecutable(),
-                properties.codexMinimumVersion(),
-                objectMapper,
-                supervisor,
-                CodexHome.prepare(properties.codexHome()),
-                permissions);
+        return new CodexCliDriver(properties.codexExecutable(), properties.codexMinimumVersion(), objectMapper, supervisor, CodexHome.prepare(properties.codexHome()), permissions);
     }
 
     // The managed tool endpoint also serves Codex tasks, so it must exist without the Claude lane.
@@ -159,8 +153,7 @@ public class AgentConfiguration
                 () -> URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort()
                         + "/internal/agent/claude/mcp"),
                 objectMapper,
-                (taskId, query) -> ciMemoryService.read(
-                        new ReadCiMemoryCommand(TaskId.valueOf(taskId), query)).markdown(),
+                (taskId, query) -> ciMemoryService.read(new ReadCiMemoryCommand(TaskId.valueOf(taskId), query)).markdown(),
                 reviews,
                 developmentResults,
                 (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
@@ -179,12 +172,7 @@ public class AgentConfiguration
             ProcessSupervisor supervisor)
             throws IOException
     {
-        return new ClaudeCliDriver(
-                properties.claudeExecutable(),
-                objectMapper,
-                permissions,
-                supervisor,
-                ClaudeHome.prepare(properties.claudeHome()));
+        return new ClaudeCliDriver(properties.claudeExecutable(), objectMapper, permissions, supervisor, ClaudeHome.prepare(properties.claudeHome()));
     }
 
     @Bean(destroyMethod = "close")
@@ -274,8 +262,7 @@ public class AgentConfiguration
     @Bean(destroyMethod = "shutdownNow")
     public ScheduledExecutorService agentApprovalScheduler()
     {
-        return Executors.newSingleThreadScheduledExecutor(
-                Thread.ofVirtual().name("bytequay-agent-approval").factory());
+        return Executors.newSingleThreadScheduledExecutor(Thread.ofVirtual().name("bytequay-agent-approval").factory());
     }
 
     @Bean
@@ -309,15 +296,7 @@ public class AgentConfiguration
             Clock agentClock,
             AgentRuntimeRegistry runtimeRegistry)
     {
-        return new DefaultAgentApprovalService(
-                approvalStore,
-                turnStore,
-                unitOfWork,
-                outboxStore,
-                eventService,
-                agentApprovalScheduler,
-                agentClock,
-                runtimeRegistry);
+        return new DefaultAgentApprovalService(approvalStore, turnStore, unitOfWork, outboxStore, eventService, agentApprovalScheduler, agentClock, runtimeRegistry);
     }
 
     @Bean
@@ -328,12 +307,7 @@ public class AgentConfiguration
             AgentDriverRegistry driverRegistry,
             Clock agentClock)
     {
-        return new DefaultAgentTaskService(
-                taskStore,
-                worktreeService,
-                resourceService,
-                driverRegistry,
-                agentClock);
+        return new DefaultAgentTaskService(taskStore, worktreeService, resourceService, driverRegistry, agentClock);
     }
 
     @Bean

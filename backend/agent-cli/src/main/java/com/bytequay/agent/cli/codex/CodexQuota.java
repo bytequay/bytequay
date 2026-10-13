@@ -40,8 +40,7 @@ final class CodexQuota
             main = response.path("rateLimits");
             addBucket(windows, "codex", main);
         }
-        return new ProviderQuotaSnapshot(
-                Optional.ofNullable(main.get("planType")).filter(JsonNode::isTextual).map(JsonNode::textValue), windows.build(), Optional.empty());
+        return new ProviderQuotaSnapshot(Optional.ofNullable(main.get("planType")).filter(JsonNode::isTextual).map(JsonNode::textValue), windows.build(), Optional.empty());
     }
 
     private static void addBucket(ImmutableList.Builder<ProviderQuotaWindow> windows, String id, JsonNode bucket)

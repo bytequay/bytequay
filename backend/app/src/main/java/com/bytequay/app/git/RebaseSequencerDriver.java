@@ -55,8 +55,7 @@ public final class RebaseSequencerDriver
         if (ignoredFileConflict.isPresent()) {
             return unsafe(expectedHead, ignoredFileConflict.orElseThrow());
         }
-        git.run(worktree, ImmutableList.of(
-                "-c", "commit.gpgSign=false", "rebase", "--no-autosquash", baseSha));
+        git.run(worktree, ImmutableList.of("-c", "commit.gpgSign=false", "rebase", "--no-autosquash", baseSha));
         return observe(worktree);
     }
 
@@ -108,10 +107,7 @@ public final class RebaseSequencerDriver
                 || !before.stoppedCommit().filter(expectedStoppedCommit::equals).isPresent()) {
             return unsafe(before.head(), "Rebase resolution changed before continue");
         }
-        git.run(worktree, ImmutableList.of(
-                "-c", "core.editor=true",
-                "-c", "commit.gpgSign=false",
-                "rebase", "--continue"));
+        git.run(worktree, ImmutableList.of("-c", "core.editor=true", "-c", "commit.gpgSign=false", "rebase", "--continue"));
         return observe(worktree);
     }
 

@@ -38,12 +38,6 @@ public record AgentEventSource(
 
     public static AgentEventSource root()
     {
-        return new AgentEventSource(
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty());
+        return new AgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

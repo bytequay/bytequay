@@ -87,10 +87,7 @@ public class GitBrowseController
             @RequestParam(required = false) String remote,
             @RequestParam(defaultValue = "200") int limit)
     {
-        return commits.listHistory(
-                workspaceId,
-                new CommitHistoryRef(source, branch, Optional.ofNullable(remote)),
-                limit);
+        return commits.listHistory(workspaceId, new CommitHistoryRef(source, branch, Optional.ofNullable(remote)), limit);
     }
 
     @GetMapping("/diff")
@@ -109,8 +106,7 @@ public class GitBrowseController
             @RequestParam String head,
             @RequestParam String path)
     {
-        return service.diffFileContent(
-                context(workspaceId).repository(), revision(base), revision(head), path);
+        return service.diffFileContent(context(workspaceId).repository(), revision(base), revision(head), path);
     }
 
     @GetMapping("/status")
@@ -122,10 +118,7 @@ public class GitBrowseController
     @PostMapping("/commit")
     public Map<String, String> commit(@PathVariable String workspaceId, @RequestBody GitCommitRequest request)
     {
-        String sha = service.commit(
-                context(workspaceId).repository(),
-                request.summary(),
-                request.description() == null ? "" : request.description());
+        String sha = service.commit(context(workspaceId).repository(), request.summary(), request.description() == null ? "" : request.description());
         recent.committed(workspaceId, request.summary(), sha);
         return ImmutableMap.of("sha", sha);
     }
@@ -133,11 +126,7 @@ public class GitBrowseController
     @PostMapping("/reword")
     public Map<String, String> reword(@PathVariable String workspaceId, @RequestBody GitRewordRequest request)
     {
-        return ImmutableMap.of("sha", service.reword(
-                context(workspaceId).repository(),
-                revision(request.branch()),
-                revision(request.sha()),
-                request.message()));
+        return ImmutableMap.of("sha", service.reword(context(workspaceId).repository(), revision(request.branch()), revision(request.sha()), request.message()));
     }
 
     @PostMapping("/squash")
@@ -158,9 +147,7 @@ public class GitBrowseController
 
     private static String allowedRemote(WorkspaceRepositoryContext context, String remote)
     {
-        checkArgument(
-                remote != null && context.knownRemote(remote),
-                "remote is not configured for this workspace");
+        checkArgument(remote != null && context.knownRemote(remote), "remote is not configured for this workspace");
         return remote;
     }
 

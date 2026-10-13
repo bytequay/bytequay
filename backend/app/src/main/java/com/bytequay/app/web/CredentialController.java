@@ -65,10 +65,7 @@ public class CredentialController
     @GetMapping("/api/auth/github/account")
     public AccountResponse account()
     {
-        return new AccountResponse(
-                credentialService.isGitHubAccountConfigured(),
-                credentialService.maskedGitHubToken().orElse(null),
-                credentialService.gitHubTokenSource());
+        return new AccountResponse(credentialService.isGitHubAccountConfigured(), credentialService.maskedGitHubToken().orElse(null), credentialService.gitHubTokenSource());
     }
 
     @GetMapping("/api/auth/github/sync-status")
@@ -91,8 +88,7 @@ public class CredentialController
     public Map<String, String> tokenValue()
     {
         return ImmutableMap.of("value", credentialService.gitHubTokenValue()
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(404), "No GitHub token is stored.")));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "No GitHub token is stored.")));
     }
 
     @DeleteMapping("/api/auth/github/token")

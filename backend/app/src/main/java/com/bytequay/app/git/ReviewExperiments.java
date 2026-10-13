@@ -204,8 +204,7 @@ public class ReviewExperiments
         for (String line : output(worktree, "stash", "list", "--format=%H%x09%gd%x09%gs").lines().toList()) {
             String[] fields = line.split("\t", 3);
             if (fields.length == 3 && fields[2].contains(": " + prefix(worktree))) {
-                checkState(fields[0].matches("[0-9a-f]{40}|[0-9a-f]{64}") && fields[1].matches("stash\\@\\{[0-9]+\\}"),
-                        "Cannot identify the private experiment stash");
+                checkState(fields[0].matches("[0-9a-f]{40}|[0-9a-f]{64}") && fields[1].matches("stash\\@\\{[0-9]+\\}"), "Cannot identify the private experiment stash");
                 result.add(new Stash(fields[0], fields[1], fields[2]));
             }
         }

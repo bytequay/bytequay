@@ -545,8 +545,7 @@ class TestDevelopmentFollowupCoordinator
         when(git.inspectPublication(worktree, route)).thenReturn(publication(existingRemote ? Optional.of(BASE) : Optional.empty(), Optional.empty()));
         prepare(local(localChanged ? BASE : HEAD, false), local(HEAD, false), DRAFT_ONLY, true);
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(HEAD), Optional.empty());
-        generated(CREATE_DRAFT_PR, true,
-                () -> coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"));
+        generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"));
 
         advance();
 
@@ -584,8 +583,7 @@ class TestDevelopmentFollowupCoordinator
         DevelopmentLocalFacts rewritten = new DevelopmentLocalFacts(route.headBranch(), HEAD, startingHead, HEAD + ":false", 0, 0, 0, 0, 1, true, false);
         prepare(local(startingHead, false), rewritten, FULL, true);
         AtomicReference<DevelopmentPublicationFacts> remote = trackedRemote(Optional.of(NEXT), Optional.of(existing));
-        generated(CREATE_DRAFT_PR, true,
-                () -> coordinator.publishDraftPullRequest(taskId.toString(), "Remove commit trailers", "Body"));
+        generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Remove commit trailers", "Body"));
 
         advance();
 
@@ -795,8 +793,7 @@ class TestDevelopmentFollowupCoordinator
     void newlyCreatedPrMustBeDraft()
     {
         prepare(local(BASE, false), local(HEAD, false), FULL, true);
-        when(git.inspectPublication(worktree, route)).thenReturn(
-                publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, false))));
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, false))));
         generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).failDevelopmentContinuation(eq(taskId), eq(source.id()), contains("not a draft"));
@@ -887,8 +884,7 @@ class TestDevelopmentFollowupCoordinator
         assertThat(DevelopmentFollowupCoordinator.withoutAttribution("Body.\n\n- one\n- two\n"))
                 .isEqualTo("Body.\n\n- one\n- two");
         // The model name in the trailer must not let it through, and the title is scrubbed too.
-        assertThat(DevelopmentFollowupCoordinator.withoutAttribution(
-                "Clean up nits\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>")).isEqualTo("Clean up nits");
+        assertThat(DevelopmentFollowupCoordinator.withoutAttribution("Clean up nits\nCo-Authored-By: Claude Opus 5 <noreply@anthropic.com>")).isEqualTo("Clean up nits");
     }
 
     @Test
@@ -925,8 +921,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void publicationPromptAsksForNoToolingNotesAndNoSignOff()
     {
-        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)),
-                local(HEAD, false), Optional.empty());
+        String prompt = DevelopmentFollowupCoordinator.publicationPrompt(new DevelopmentBaseline(worktree, route, local(BASE, false)), local(HEAD, false), Optional.empty());
         assertThat(prompt).contains(
                 "Fill relevant sections only", "leave other sections exactly as the template leaves them",
                 "attribution, co-authorship, or generated-with trailer");
@@ -1010,13 +1005,11 @@ class TestDevelopmentFollowupCoordinator
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
         prepare(local(BASE, false), local(HEAD, false), DRAFT_ONLY, true);
         trackedRemote(Optional.empty(), Optional.empty());
-        generated(CREATE_DRAFT_PR, true,
-                () -> coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"));
+        generated(CREATE_DRAFT_PR, true, () -> coordinator.publishDraftPullRequest(taskId.toString(), "Add a thing", "Body"));
 
         advance();
 
-        verify(writes).createPullRequest("token", new RepoRef("upstream", "repo"),
-                "forker:" + route.headBranch(), "release", "Add a thing", "Body", true);
+        verify(writes).createPullRequest("token", new RepoRef("upstream", "repo"), "forker:" + route.headBranch(), "release", "Add a thing", "Body", true);
     }
 
     /**
@@ -1046,8 +1039,7 @@ class TestDevelopmentFollowupCoordinator
                 "upstream", "release", BASE, route.headBranch());
         var baseline = new DevelopmentBaseline(worktree, fork, local(BASE, false));
         String prompt = DevelopmentFollowupCoordinator.publicationPrompt(baseline, local(HEAD, false), Optional.empty());
-        assertThat(prompt).contains(HEAD, "upstream/repo", "'release'", "forker/repo",
-                DevelopmentResultBridge.PUBLISH_TOOL_NAME, "Do not commit", "stop without");
+        assertThat(prompt).contains(HEAD, "upstream/repo", "'release'", "forker/repo", DevelopmentResultBridge.PUBLISH_TOOL_NAME, "Do not commit", "stop without");
         assertThat(prompt).doesNotContain("--force-with-lease", "pr create", "--repo", "--base '");
     }
 
@@ -1085,8 +1077,7 @@ class TestDevelopmentFollowupCoordinator
     @Test
     void forkPublicationContinuesThroughCiSynchronizationAndReadyPromotion()
     {
-        route = new DevelopmentPublicationRoute(route.headRepository(), RepoRef.of("upstream", "repo"), route.pushUrl(),
-                "upstream", "main", BASE, route.headBranch());
+        route = new DevelopmentPublicationRoute(route.headRepository(), RepoRef.of("upstream", "repo"), route.pushUrl(), "upstream", "main", BASE, route.headBranch());
         when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()));
         preparePublished(FULL);
         advance();
@@ -1364,8 +1355,7 @@ class TestDevelopmentFollowupCoordinator
     void acceptedCiSettingControlsGeneratedDraftContinuation(boolean autoCiFix)
     {
         prepare(local(BASE, false), local(HEAD, false), new DevelopmentAutomation(true, true, autoCiFix, Optional.empty()), true);
-        when(git.inspectPublication(worktree, route)).thenReturn(
-                publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
+        when(git.inspectPublication(worktree, route)).thenReturn(publication(Optional.empty(), Optional.empty()), publication(Optional.of(HEAD), Optional.of(pr(HEAD, true))));
         generated(CREATE_DRAFT_PR, true);
         advance();
         verify(turns).startGeneratedTurn(eq(taskId), eq(origin(CREATE_DRAFT_PR)), anyString());

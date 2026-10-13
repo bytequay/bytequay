@@ -47,10 +47,7 @@ class TestAgentSseSubscriber
                 Optional.empty(),
                 root(),
                 Instant.parse("2026-08-16T00:00:00Z"),
-                new AgentEventPayload.AssistantMessage(
-                        MessageKind.ANSWER,
-                        MessagePhase.FINAL,
-                        "done")));
+                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "done")));
         assertThat(subscription.requested).isEqualTo(2);
 
         RecordingSubscription duplicate = new RecordingSubscription();

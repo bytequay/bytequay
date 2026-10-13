@@ -75,10 +75,7 @@ class TestCiMemoryService
         });
         doAnswer(invocation -> taskResources(invocation.getArgument(0))).when(resources).require(any(TaskId.class));
         Files.createDirectories(taskResources(taskId).runtimeDirectory());
-        service = new CiMemoryService(
-                store,
-                new CiMemoryFile(resources),
-                Clock.fixed(NOW.plus(Duration.ofHours(1)), ZoneOffset.UTC));
+        service = new CiMemoryService(store, new CiMemoryFile(resources), Clock.fixed(NOW.plus(Duration.ofHours(1)), ZoneOffset.UTC));
     }
 
     @Test
@@ -86,32 +83,12 @@ class TestCiMemoryService
             throws Exception
     {
         CiAutofixRun run = run();
-        CiAutofixAttempt first = attempt(
-                run,
-                1,
-                HEAD,
-                ImmutableList.of(
-                        failure("compile", "old compiler failure"),
-                        failure("test", "unit test failure")),
-                NOW.plusSeconds(2))
+        CiAutofixAttempt first = attempt(run, 1, HEAD, ImmutableList.of(failure("compile", "old compiler failure"), failure("test", "unit test failure")), NOW.plusSeconds(2))
                 .withAgentNote("root cause\n## Failure injected\nclaimed fix", NOW.plusSeconds(3))
-                .withGitResult(new GitResult(
-                        PUSHED,
-                        "fingerprint-1",
-                        ImmutableList.of("src/Main.java"),
-                        ImmutableList.of("Fix feature")), NOW.plusSeconds(4));
+                .withGitResult(new GitResult(PUSHED, "fingerprint-1", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")), NOW.plusSeconds(4));
         run = run.addAttempt(first, NOW.plusSeconds(4));
-        CiAutofixAttempt second = attempt(
-                run,
-                2,
-                PUSHED,
-                ImmutableList.of(failure("compile", "new compiler failure")),
-                NOW.plusSeconds(5))
-                .withGitResult(new GitResult(
-                        "d".repeat(40),
-                        "fingerprint-2",
-                        ImmutableList.of("pom.xml"),
-                        ImmutableList.of("Fix build")), NOW.plusSeconds(6))
+        CiAutofixAttempt second = attempt(run, 2, PUSHED, ImmutableList.of(failure("compile", "new compiler failure")), NOW.plusSeconds(5))
+                .withGitResult(new GitResult("d".repeat(40), "fingerprint-2", ImmutableList.of("pom.xml"), ImmutableList.of("Fix build")), NOW.plusSeconds(6))
                 .withPushResult(PUSHED, "d".repeat(40), NOW.plusSeconds(7), NOW.plusSeconds(7))
                 .withCiResult(CiResult.FAILED, NOW.plusSeconds(8));
         store.run = run.addAttempt(second, NOW.plusSeconds(8));
@@ -145,12 +122,7 @@ class TestCiMemoryService
             failures.add(failure("signature-" + index, "failure-" + index + " " + "x".repeat(4_000)));
         }
         for (int number = 1; number <= 3; number++) {
-            CiAutofixAttempt attempt = attempt(
-                    run,
-                    number,
-                    Integer.toHexString(number + 9).repeat(40),
-                    failures,
-                    NOW.plusSeconds(number * 10L));
+            CiAutofixAttempt attempt = attempt(run, number, Integer.toHexString(number + 9).repeat(40), failures, NOW.plusSeconds(number * 10L));
             run = run.addAttempt(attempt, NOW.plusSeconds(number * 10L));
         }
         store.run = run;
@@ -170,9 +142,7 @@ class TestCiMemoryService
             throws Exception
     {
         CiAutofixRun run = run();
-        store.run = run.addAttempt(
-                attempt(run, 1, HEAD, ImmutableList.of(failure("compile", "compiler failure")), NOW.plusSeconds(2)),
-                NOW.plusSeconds(2));
+        store.run = run.addAttempt(attempt(run, 1, HEAD, ImmutableList.of(failure("compile", "compiler failure")), NOW.plusSeconds(2)), NOW.plusSeconds(2));
         service.update(store.run.id());
         Path memory = taskResources(taskId).runtimeDirectory().resolve("ci-memory.md");
         String valid = Files.readString(memory);
@@ -228,13 +198,7 @@ class TestCiMemoryService
             List<FailureEvidence> failures,
             Instant now)
     {
-        return CiAutofixAttempt.create(
-                CiAutofixAttemptId.random(),
-                run.id(),
-                number,
-                inputSha,
-                failures,
-                now);
+        return CiAutofixAttempt.create(CiAutofixAttemptId.random(), run.id(), number, inputSha, failures, now);
     }
 
     private static FailureEvidence failure(String signature, String summary)

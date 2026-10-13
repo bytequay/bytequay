@@ -71,14 +71,7 @@ public class AgentProcessLaunchEntity
 
     public AgentProcessLaunch toDomain()
     {
-        return new AgentProcessLaunch(
-                id,
-                ownerKind,
-                ownerId,
-                attempted,
-                executable,
-                argvDigest,
-                updatedAt);
+        return new AgentProcessLaunch(id, ownerKind, ownerId, attempted, executable, argvDigest, updatedAt);
     }
 
     public void markAttempted(Instant at)

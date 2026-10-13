@@ -66,8 +66,7 @@ public record Goal(
     public Goal withText(String newTitle, String newDescription, Instant at)
     {
         boolean changed = !newTitle.equals(title) || !newDescription.equals(description);
-        return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, definition, changed ? revision + 1 : revision, course, paused,
-                createdAt, at);
+        return new Goal(id, workspaceId, newTitle, newDescription, pinned, archived, source, definition, changed ? revision + 1 : revision, course, paused, createdAt, at);
     }
 
     /** The same goal under the name its agent gave it; the revision stays, since a name changes nothing the goal means. */

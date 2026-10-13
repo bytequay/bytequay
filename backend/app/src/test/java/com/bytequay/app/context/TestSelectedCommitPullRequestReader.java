@@ -366,8 +366,7 @@ class TestSelectedCommitPullRequestReader
     @ValueSource(strings = {"repository", "commit", "duplicate"})
     void rejectsMisboundStoredAssociationsBeforeGitOrProviderRead(String mismatch)
     {
-        CommitEnrichment value = stored(mismatch.equals("repository") ? 99 : REPOSITORY_ID,
-                mismatch.equals("commit") ? SECOND : FIRST, Optional.of(9), Optional.of(NOW));
+        CommitEnrichment value = stored(mismatch.equals("repository") ? 99 : REPOSITORY_ID, mismatch.equals("commit") ? SECOND : FIRST, Optional.of(9), Optional.of(NOW));
         when(enrichment.findCommits(REPOSITORY_ID, ImmutableList.of(FIRST)))
                 .thenReturn(mismatch.equals("duplicate") ? snapshot(value, value) : snapshot(value));
 

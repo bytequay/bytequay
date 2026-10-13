@@ -137,8 +137,7 @@ public class TeamService
             // The login leads the message so the dialog can mark which selected person to remove.
             throw new ResponseStatusException(HttpStatus.CONFLICT, selected.login() + " couldn't be verified: the cached contributor no longer matches their GitHub account");
         }
-        return new TeamMember(
-                identity.id(), identity.login(), identity.name().filter(value -> !value.isBlank()).orElse(identity.login()), identity.avatarUrl().orElse(""));
+        return new TeamMember(identity.id(), identity.login(), identity.name().filter(value -> !value.isBlank()).orElse(identity.login()), identity.avatarUrl().orElse(""));
     }
 
     private TeamDirectory change(Account owner, String id, UnaryOperator<TeamCircle> edit)

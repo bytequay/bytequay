@@ -408,12 +408,7 @@ class TestAgentReviewService
     void startCreatesOneTaskAndOneRunningRunDrivenByAByteQuayRequest(boolean children)
     {
         Fixture fixture = new Fixture();
-        when(fixture.driver.capabilities()).thenReturn(new AgentCapabilities(
-                true,
-                true,
-                true,
-                ImmutableSet.of(AgentPermissionPolicy.AUTO),
-                ImmutableSet.of("text/plain")));
+        when(fixture.driver.capabilities()).thenReturn(new AgentCapabilities(true, true, true, ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of("text/plain")));
         when(fixture.driver.reviewChildAgents(idleTask().sessionReference(), idleTask().defaults().model())).thenReturn(children);
 
         AgentReviewProjection projection = fixture.service.start(WORKSPACE, REPO, NUMBER);
@@ -2232,8 +2227,7 @@ class TestAgentReviewService
         assertThat(question.runId()).isNotEqualTo(first.id());
         ArgumentCaptor<StartAgentTurnCommand> started = ArgumentCaptor.forClass(StartAgentTurnCommand.class);
         verify(fixture.turns, times(4)).start(started.capture());
-        assertThat(started.getValue().message()).contains("reviewed head " + HEAD.substring(0, 7),
-                "pending reassessment in the current review scope", "current base and head");
+        assertThat(started.getValue().message()).contains("reviewed head " + HEAD.substring(0, 7), "pending reassessment in the current review scope", "current base and head");
     }
 
     @Test

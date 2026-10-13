@@ -82,9 +82,7 @@ final class AgentFinalResponseReader
         if (source.parentProviderThreadId().isEmpty() || source.providerThreadId().isEmpty()) {
             return;
         }
-        ChildFacts facts = children.computeIfAbsent(
-                source.providerThreadId().orElseThrow(),
-                thread -> new ChildFacts(thread, source.parentProviderThreadId().orElseThrow()));
+        ChildFacts facts = children.computeIfAbsent(source.providerThreadId().orElseThrow(), thread -> new ChildFacts(thread, source.parentProviderThreadId().orElseThrow()));
         source.logicalAgentPath().ifPresent(label -> facts.label = label);
         switch (envelope.payload()) {
             case AgentEventPayload.Lifecycle lifecycle -> {

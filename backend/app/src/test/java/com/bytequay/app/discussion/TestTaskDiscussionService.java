@@ -78,8 +78,7 @@ class TestTaskDiscussionService
     {
         // A worktree is only released once the task is done, which is what makes a finished task's
         // threads read-only rather than merely idle.
-        AgentTask completed = task().complete(
-                new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
+        AgentTask completed = task().complete(new TaskSummary("done", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of()), NOW, NOW.plusSeconds(60));
         when(tasks.getInteractive("w1", TASK)).thenReturn(completed.withWorktreeRemovedAt(NOW.plusSeconds(60)));
 
         assertThatThrownBy(() -> service.open(open("INVALID_TABLE_PROPERTY", 1, "why?")))

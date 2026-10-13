@@ -266,9 +266,7 @@ public class WorkspaceController
     @PutMapping("/{workspaceId}/upstream")
     public WorkspaceSummary setUpstream(@PathVariable String workspaceId, @RequestBody UpstreamRequest request)
     {
-        return WorkspaceSummary.of(workspaces.setUpstream(
-                workspaceId,
-                Optional.ofNullable(request.upstreamRepositoryId())));
+        return WorkspaceSummary.of(workspaces.setUpstream(workspaceId, Optional.ofNullable(request.upstreamRepositoryId())));
     }
 
     @DeleteMapping("/{workspaceId}")
@@ -366,12 +364,7 @@ public class WorkspaceController
             @RequestBody AgentModelRequest request)
     {
         workspaces.getWorkspace(workspaceId);
-        return models.setWorkspaceOverride(
-                workspaceId,
-                type,
-                request.configId(),
-                request.model(),
-                Optional.ofNullable(request.effort()));
+        return models.setWorkspaceOverride(workspaceId, type, request.configId(), request.model(), Optional.ofNullable(request.effort()));
     }
 
     @DeleteMapping("/{workspaceId}/agent-model/{type}")
@@ -400,8 +393,7 @@ public class WorkspaceController
     public Map<String, String> gitHubTokenValue(@PathVariable String workspaceId)
     {
         return ImmutableMap.of("value", credentials.workspaceGitHubTokenValue(workspaceId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatus.NOT_FOUND, "No workspace token is stored.")));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "No workspace token is stored.")));
     }
 
     public record DeleteWorkspaceRequest(boolean confirmed, String repositoryName) {}

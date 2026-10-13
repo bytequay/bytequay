@@ -426,8 +426,7 @@ class TestContextSpecCheckService
     @Test
     void dismissingCanRememberTheUsersRuleForTheFindingsFileInTheDirectory()
     {
-        store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.DONE, ImmutableList.of(candidate("c1", 3, Status.CONFIRMED),
-                candidate("c2", 2, Status.CONFIRMED))));
+        store.save(WORKSPACE, Optional.empty(), check(ContextSpecCheck.State.DONE, ImmutableList.of(candidate("c1", 3, Status.CONFIRMED), candidate("c2", 2, Status.CONFIRMED))));
 
         ContextSpecCheck dismissed = service.dismiss(WORKSPACE, "check-1", "c1", "Not a real gap",
                 Optional.of("The writer keys removes by path on purpose until deletion vectors are enabled."));
@@ -454,8 +453,7 @@ class TestContextSpecCheckService
 
         ContextSpecCheck stopped = check.ended(ContextSpecCheck.State.STOPPED, Optional.of("Stopped"), NOW);
 
-        assertThat(stopped.candidates()).extracting(Candidate::status).containsExactly(Status.CONFIRMED, Status.NOT_REPRODUCED, Status.NOT_REPRODUCED,
-                Status.REFUTED);
+        assertThat(stopped.candidates()).extracting(Candidate::status).containsExactly(Status.CONFIRMED, Status.NOT_REPRODUCED, Status.NOT_REPRODUCED, Status.REFUTED);
         assertThat(stopped.candidate("c3").reason()).contains("The check was stopped before reproducing it");
         assertThat(stopped.kept()).extracting(Candidate::id).containsExactly("c1", "c4");
     }

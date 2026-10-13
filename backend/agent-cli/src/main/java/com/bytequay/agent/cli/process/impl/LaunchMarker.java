@@ -140,8 +140,7 @@ record LaunchMarker(
 
     LaunchMarker withIncompleteDescendantTracking()
     {
-        return copy(phase, pid, startToken, launcherCommand, processGroup, descendantStartTokens, true,
-                workFinished, exitCode, exitReason, treeTermination, recoveryBootSessionId);
+        return copy(phase, pid, startToken, launcherCommand, processGroup, descendantStartTokens, true, workFinished, exitCode, exitReason, treeTermination, recoveryBootSessionId);
     }
 
     LaunchMarker withWorkFinished()

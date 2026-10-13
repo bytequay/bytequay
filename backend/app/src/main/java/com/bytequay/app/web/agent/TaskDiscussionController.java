@@ -49,8 +49,7 @@ public class TaskDiscussionController
     @PostMapping("/agent/tasks/{taskId}/discussions")
     public TaskDiscussionView open(@PathVariable String taskId, @RequestParam String workspaceId, @RequestBody Open request)
     {
-        return discussions.open(new OpenDiscussionCommand(
-                workspaceId, taskId, request.turnId(), request.quote(), request.occurrence(), request.question()));
+        return discussions.open(new OpenDiscussionCommand(workspaceId, taskId, request.turnId(), request.quote(), request.occurrence(), request.question()));
     }
 
     @PostMapping("/agent/tasks/{taskId}/discussions/comments")

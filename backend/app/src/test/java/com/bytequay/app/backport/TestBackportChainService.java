@@ -224,8 +224,7 @@ class TestBackportChainService
     @Test
     void existingContributorPrStartsSiblingBackportsWithoutWaitingForEachOther()
     {
-        when(relationships.list("p2")).thenReturn(ImmutableList.of(
-                new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.FORK, "Direct fork", true)));
+        when(relationships.list("p2")).thenReturn(ImmutableList.of(new WorkspaceRelationships.Relationship("p4", WorkspaceRelationships.Kind.FORK, "Direct fork", true)));
         var pr = identity(4, GitHubPullRequestIdentity.State.OPEN, "contributor-fix");
         remote.put(4, new GitHubPullRequestIdentity(pr.pullRequest(), pr.url(), RepoRef.of("contributor", "fork"), pr.headBranch(),
                 pr.headSha(), pr.baseRepository(), pr.baseBranch(), pr.baseSha(), pr.state(), false, "contributor"));
@@ -556,8 +555,7 @@ class TestBackportChainService
         service.advance(chain.id());
         assertThat(current(chain).sourceMerged()).isTrue();
         var request = new BackportChainService.SelectSource(current(chain).version(), 0, P4_SHA, P4_SHA);
-        when(prs.fetchMergedPullRequest(anyString(), any())).thenReturn(new GitHubPullRequestReadClient.MergedPullRequest(
-                remote.get(4), 4, NOW, P4_SHA, ImmutableList.of(P4_SHA)));
+        when(prs.fetchMergedPullRequest(anyString(), any())).thenReturn(new GitHubPullRequestReadClient.MergedPullRequest(remote.get(4), 4, NOW, P4_SHA, ImmutableList.of(P4_SHA)));
         when(previews.preview(any())).thenReturn(new CherryPickPreview("manual", "p3", workspace(3).monitoredRepository(), RepoRef.of("test", "p4"),
                 "p4", "origin", "main", "origin-main", BASE, P4_SHA, BASE, ImmutableList.of(commit(P4_SHA)), ImmutableList.of(), NOW, NOW.plusSeconds(300)));
         when(git.run(any(), eq("merge-base"), eq("--is-ancestor"), eq(P4_SHA), anyString())).thenReturn(new GitCommandRunner.Result(1, "", false));

@@ -130,13 +130,7 @@ public final class DefaultAgentMetricsService
             throw new AgentStorageException("Turn elapsed time is negative");
         }
         AgentMetrics current = turn.metrics();
-        AgentMetrics finished = new AgentMetrics(
-                current.inputTokens(),
-                current.cachedInputTokens(),
-                current.outputTokens(),
-                current.cost(),
-                elapsed,
-                counters);
+        AgentMetrics finished = new AgentMetrics(current.inputTokens(), current.cachedInputTokens(), current.outputTokens(), current.cost(), elapsed, counters);
         AgentTurn stored = turnStore.update(turn.withMetrics(finished));
         persistTaskTotals(turn.taskId());
         return stored.metrics();
@@ -178,12 +172,7 @@ public final class DefaultAgentMetricsService
             return current;
         }
 
-        return new AgentMetrics(
-                inputTokens,
-                cachedInputTokens,
-                outputTokens,
-                cumulativeCost(baseline, sample),
-                current.elapsed());
+        return new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, cumulativeCost(baseline, sample), current.elapsed());
     }
 
     private static Optional<BigDecimal> cumulativeCost(AgentMetrics baseline, ProviderUsageSample sample)
@@ -292,13 +281,7 @@ public final class DefaultAgentMetricsService
             throw new AgentStorageException("Task usage totals overflowed", e);
         }
         if (turns.isEmpty() || cost.isEmpty()) {
-            return new AgentMetrics(
-                    inputTokens,
-                    cachedInputTokens,
-                    outputTokens,
-                    Optional.empty(),
-                    elapsed,
-                    counters);
+            return new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, Optional.empty(), elapsed, counters);
         }
         return new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, cost, elapsed, counters);
     }

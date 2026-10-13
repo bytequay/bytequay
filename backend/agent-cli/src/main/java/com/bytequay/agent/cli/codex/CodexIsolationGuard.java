@@ -127,11 +127,7 @@ final class CodexIsolationGuard
     {
         JsonNode response;
         try {
-            response = client.request(
-                    "config/read",
-                    new CodexProtocol.ConfigReadParams(cwd.toString(), true),
-                    JsonNode.class,
-                    REQUEST_TIMEOUT);
+            response = client.request("config/read", new CodexProtocol.ConfigReadParams(cwd.toString(), true), JsonNode.class, REQUEST_TIMEOUT);
         }
         catch (RuntimeException failure) {
             throw unavailable("config/read could not be verified: " + failure.getMessage());
@@ -345,11 +341,7 @@ final class CodexIsolationGuard
             cursor.ifPresent(value -> params.put("cursor", value));
             JsonNode response;
             try {
-                response = client.request(
-                        "mcpServerStatus/list",
-                        params.buildOrThrow(),
-                        JsonNode.class,
-                        REQUEST_TIMEOUT);
+                response = client.request("mcpServerStatus/list", params.buildOrThrow(), JsonNode.class, REQUEST_TIMEOUT);
             }
             catch (RuntimeException failure) {
                 throw unavailable("mcpServerStatus/list could not be verified: " + failure.getMessage());

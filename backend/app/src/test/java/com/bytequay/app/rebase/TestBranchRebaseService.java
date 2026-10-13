@@ -114,13 +114,7 @@ class TestBranchRebaseService
         git(created, "config", "user.email", "bytequay@example.com");
         git(created, "remote", "add", "origin", "https://github.com/trinodb/trino.git");
         repository = created.toRealPath();
-        taskWorktree = new TaskWorktree(
-                taskId,
-                "workspace-1",
-                REPOSITORY_ID,
-                repository,
-                workBranch(),
-                "a".repeat(40));
+        taskWorktree = new TaskWorktree(taskId, "workspace-1", REPOSITORY_ID, repository, workBranch(), "a".repeat(40));
         store = new InMemoryStore();
         turns = new FakeTurns();
         driver = new RebaseSequencerDriver(GIT);
@@ -261,10 +255,7 @@ class TestBranchRebaseService
         rebase = service.advance(rebase.id());
         BranchRebase.ActionJournal action = rebase.journal().orElseThrow();
 
-        assertThat(driver.continueRebase(
-                repository,
-                action.expectedHead(),
-                action.stoppedCommitSha().orElseThrow()).kind())
+        assertThat(driver.continueRebase(repository, action.expectedHead(), action.stoppedCommitSha().orElseThrow()).kind())
                 .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
         BranchRebase recovered = service.advance(rebase.id());
 
@@ -285,10 +276,7 @@ class TestBranchRebaseService
         rebase = service.advance(rebase.id());
         BranchRebase.ActionJournal action = rebase.journal().orElseThrow();
 
-        assertThat(driver.skipEmpty(
-                repository,
-                action.expectedHead(),
-                action.stoppedCommitSha().orElseThrow()).kind())
+        assertThat(driver.skipEmpty(repository, action.expectedHead(), action.stoppedCommitSha().orElseThrow()).kind())
                 .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
         BranchRebase recovered = service.advance(rebase.id());
 
@@ -495,14 +483,12 @@ class TestBranchRebaseService
                 .hasMessageContaining("generated task branch");
 
         git(repository, "checkout", "--quiet", workBranch());
-        StartBranchRebaseCommand same = new StartBranchRebaseCommand(
-                taskWorktree, workBranch(), "same-branch");
+        StartBranchRebaseCommand same = new StartBranchRebaseCommand(taskWorktree, workBranch(), "same-branch");
         assertThatThrownBy(() -> service.start(same))
                 .isInstanceOf(BranchRebaseException.class)
                 .hasMessageContaining("same");
 
-        StartBranchRebaseCommand remote = new StartBranchRebaseCommand(
-                taskWorktree, "refs/remotes/origin/main", "remote-ref");
+        StartBranchRebaseCommand remote = new StartBranchRebaseCommand(taskWorktree, "refs/remotes/origin/main", "remote-ref");
         assertThatThrownBy(() -> service.start(remote))
                 .isInstanceOf(BranchRebaseException.class)
                 .hasMessageContaining("valid local branch");
@@ -524,8 +510,7 @@ class TestBranchRebaseService
     {
         cleanDivergence();
         service.start(command("same-request-key"));
-        StartBranchRebaseCommand changed = new StartBranchRebaseCommand(
-                taskWorktree, workBranch(), "same-request-key");
+        StartBranchRebaseCommand changed = new StartBranchRebaseCommand(taskWorktree, workBranch(), "same-request-key");
 
         assertThatThrownBy(() -> service.start(changed))
                 .isInstanceOf(BranchRebaseException.class)
@@ -562,10 +547,7 @@ class TestBranchRebaseService
 
     private StartBranchRebaseCommand command(String key)
     {
-        return new StartBranchRebaseCommand(
-                taskWorktree,
-                "main",
-                key);
+        return new StartBranchRebaseCommand(taskWorktree, "main", key);
     }
 
     private void seed()
@@ -603,12 +585,7 @@ class TestBranchRebaseService
             throw new BranchRebaseException("Worktree is not on the generated task branch");
         }
         String status = git(repository, "status", "--porcelain=v1", "--untracked-files=all");
-        return new WorktreeSnapshot(
-                taskWorktree,
-                head(),
-                !status.isBlank(),
-                false,
-                !status.isBlank());
+        return new WorktreeSnapshot(taskWorktree, head(), !status.isBlank(), false, !status.isBlank());
     }
 
     private String workBranch()
@@ -727,23 +704,14 @@ class TestBranchRebaseService
 
         private static AgentTurnSettings turnSettings()
         {
-            return new AgentTurnSettings(
-                    Optional.empty(),
-                    Optional.empty(),
-                    AgentPermissionPolicy.AUTO,
-                    Duration.ofMinutes(5),
-                    ImmutableList.of());
+            return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
         }
 
         public AgentTurn cancel(TurnId turnId)
         {
             AgentTurn turn = turns.get(turnId);
             if (turn.state().active()) {
-                turn = turn.finish(
-                        TurnState.CANCELLED,
-                        AgentMetrics.empty(),
-                        Optional.of("cancelled"),
-                        NOW);
+                turn = turn.finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("cancelled"), NOW);
                 turns.put(turnId, turn);
             }
             return turn;
@@ -752,21 +720,13 @@ class TestBranchRebaseService
         public void completeCurrent()
         {
             AgentTurn turn = turns.get(current);
-            turns.put(current, turn.finish(
-                    TurnState.COMPLETED,
-                    AgentMetrics.empty(),
-                    Optional.empty(),
-                    NOW));
+            turns.put(current, turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW));
         }
 
         public void failCurrent()
         {
             AgentTurn turn = turns.get(current);
-            turns.put(current, turn.finish(
-                    TurnState.FAILED,
-                    AgentMetrics.empty(),
-                    Optional.of("failed"),
-                    NOW));
+            turns.put(current, turn.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.of("failed"), NOW));
         }
 
         public String lastPrompt()

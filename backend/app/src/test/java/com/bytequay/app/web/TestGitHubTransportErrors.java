@@ -82,7 +82,6 @@ class TestGitHubTransportErrors
 
         assertThat(response.getStatusCode().value()).isEqualTo(503);
         assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().message()).isEqualTo(
-                "GitHub did not respond. Refresh before retrying; a submitted action may already have completed.");
+        assertThat(response.getBody().message()).isEqualTo("GitHub did not respond. Refresh before retrying; a submitted action may already have completed.");
     }
 }

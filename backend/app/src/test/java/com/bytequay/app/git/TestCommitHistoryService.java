@@ -67,12 +67,7 @@ class TestCommitHistoryService
         enrichment = mock(RepositoryEnrichmentService.class);
         refresher = mock(CommitHistoryRefresher.class);
         WebServerApplicationContext applicationContext = mock(WebServerApplicationContext.class);
-        service = new CommitHistoryService(
-                workspaces,
-                git,
-                enrichment,
-                refresher,
-                applicationContext);
+        service = new CommitHistoryService(workspaces, git, enrichment, refresher, applicationContext);
         WebServer server = mock(WebServer.class);
         when(applicationContext.getWebServer()).thenReturn(server);
         when(server.getPort()).thenReturn(41234);
@@ -85,11 +80,9 @@ class TestCommitHistoryService
         ready(linkedSummary());
         Commit commit = commit("abc123", Optional.empty());
         when(git.log(REPOSITORY, "origin/feature", 300)).thenReturn(ImmutableList.of(commit));
-        when(enrichment.findCommits(101, ImmutableList.of("abc123"))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
-                enrichment("abc123"))));
+        when(enrichment.findCommits(101, ImmutableList.of("abc123"))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(enrichment("abc123"))));
 
-        CommitHistorySnapshot snapshot = service.listHistory(
-                WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "feature"), 500);
+        CommitHistorySnapshot snapshot = service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "feature"), 500);
 
         assertThat(snapshot.commits()).containsExactly(new CommitHistoryItem(
                 "abc123",
@@ -119,8 +112,7 @@ class TestCommitHistoryService
         when(enrichment.findCommits(202, ImmutableList.of("def456")))
                 .thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of()));
 
-        CommitHistorySnapshot snapshot = service.listHistory(
-                WORKSPACE_ID, new CommitHistoryRef(Source.UPSTREAM, "main"), 25);
+        CommitHistorySnapshot snapshot = service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.UPSTREAM, "main"), 25);
 
         assertThat(snapshot.commits()).singleElement().satisfies(item -> {
             assertThat(item.sha()).isEqualTo("def456");
@@ -137,23 +129,13 @@ class TestCommitHistoryService
     @Test
     void identifiedCustomRemoteReusesRepositoryEnrichment()
     {
-        ready(
-                linkedSummary(),
-                new RemoteSource(
-                        WORKSPACE_ID,
-                        "oss",
-                        "https://github.com/example-upstream/example-repo.git",
-                        Optional.of(202L),
-                        Optional.of(UPSTREAM)));
+        ready(linkedSummary(), new RemoteSource(WORKSPACE_ID, "oss", "https://github.com/example-upstream/example-repo.git", Optional.of(202L), Optional.of(UPSTREAM)));
         Commit commit = commit("remote123", Optional.empty());
         when(git.log(REPOSITORY, "oss/main", 25)).thenReturn(ImmutableList.of(commit));
         when(enrichment.findCommits(202, ImmutableList.of("remote123")))
                 .thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(enrichment(202, "remote123"))));
 
-        CommitHistorySnapshot snapshot = service.listHistory(
-                WORKSPACE_ID,
-                new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss")),
-                25);
+        CommitHistorySnapshot snapshot = service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss")), 25);
 
         assertThat(snapshot.commits()).singleElement().satisfies(item -> {
             assertThat(item.author()).isEqualTo("percy-r");
@@ -168,8 +150,7 @@ class TestCommitHistoryService
     {
         ready(unlinkedSummary());
 
-        assertThatThrownBy(() -> service.listHistory(
-                WORKSPACE_ID, new CommitHistoryRef(Source.UPSTREAM, "main"), 25))
+        assertThatThrownBy(() -> service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.UPSTREAM, "main"), 25))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("no upstream repository");
         verify(git, never()).log(REPOSITORY, "upstream/main", 25);
@@ -180,14 +161,12 @@ class TestCommitHistoryService
     {
         assertThatThrownBy(() -> new CommitHistoryRef(Source.WORKSPACE, "-invalid"))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> service.listHistory(
-                WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 0))
+        assertThatThrownBy(() -> service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 0))
                 .isInstanceOf(IllegalArgumentException.class);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID))
                 .thenThrow(new IllegalStateException("repository is not ready"));
-        assertThatThrownBy(() -> service.listHistory(
-                WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 25))
+        assertThatThrownBy(() -> service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 25))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("not ready");
         verify(git, never()).log(REPOSITORY, "origin/main", 25);
@@ -199,8 +178,7 @@ class TestCommitHistoryService
         when(workspaces.requireReadyRepository(WORKSPACE_ID))
                 .thenThrow(new IllegalArgumentException("workspace is missing"));
 
-        assertThatThrownBy(() -> service.listHistory(
-                WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 25))
+        assertThatThrownBy(() -> service.listHistory(WORKSPACE_ID, new CommitHistoryRef(Source.WORKSPACE, "main"), 25))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("missing");
         verify(git, never()).log(REPOSITORY, "origin/main", 25);
@@ -273,15 +251,7 @@ class TestCommitHistoryService
 
     private static Commit commit(String sha, Optional<Integer> pullRequestNumber)
     {
-        return new Commit(
-                sha,
-                "Example change",
-                "Example body",
-                "Example Author",
-                "Example Committer",
-                "2026-08-12T01:00:00Z",
-                "2026-08-22T01:00:00Z",
-                pullRequestNumber);
+        return new Commit(sha, "Example change", "Example body", "Example Author", "Example Committer", "2026-08-12T01:00:00Z", "2026-08-22T01:00:00Z", pullRequestNumber);
     }
 
     private static CommitEnrichment enrichment(String sha)

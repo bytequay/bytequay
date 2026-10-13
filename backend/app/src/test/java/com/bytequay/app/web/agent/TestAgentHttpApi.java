@@ -262,17 +262,14 @@ class TestAgentHttpApi
         driver.reset();
         claudeDriver.reset();
         reset(provisioning);
-        when(credentials.resolveGitHubCredential()).thenReturn(
-                new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
         doReturn(new DevelopmentPublicationFacts(Optional.empty(), ImmutableList.of())).when(developmentGit).inspectPublication(any(), any());
         models.refreshCatalogs();
         workspaceId = "agent-http-" + UUID.randomUUID();
         long repositoryId = NEXT_REPOSITORY_ID.incrementAndGet();
         repository = workspacePaths.repository(workspaceId);
         Files.createDirectories(repository);
-        Files.writeString(
-                workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"),
-                workspaceId + "\n" + repositoryId + "\n");
+        Files.writeString(workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"), workspaceId + "\n" + repositoryId + "\n");
         run("git", "init", "-b", "main", repository.toString());
         run("git", "-C", repository.toString(), "config", "user.name", "ByteQuay Test");
         run("git", "-C", repository.toString(), "config", "user.email", "test@bytequay.local");
@@ -316,11 +313,7 @@ class TestAgentHttpApi
 
         HttpHeaders originHeaders = headers();
         originHeaders.setOrigin("https://example.com");
-        ResponseEntity<JsonNode> originResponse = rest.exchange(
-                url("/agent/providers/status"),
-                HttpMethod.GET,
-                new HttpEntity<>(originHeaders),
-                JsonNode.class);
+        ResponseEntity<JsonNode> originResponse = rest.exchange(url("/agent/providers/status"), HttpMethod.GET, new HttpEntity<>(originHeaders), JsonNode.class);
         assertThat(originResponse.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
 
         ResponseEntity<JsonNode> status = get("/agent/providers/status");
@@ -491,10 +484,7 @@ class TestAgentHttpApi
         String path = "/agent/tasks/" + taskId + "/pull-requests?workspaceId=";
         assertThat(get(path + workspaceId).getBody()).isEmpty();
 
-        pullRequests.saveRepositorySyncPage(
-                REPOSITORY,
-                ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")),
-                "seed");
+        pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(482, branch), fetchedPullRequest(483, "feature")), "seed");
 
         JsonNode listed = get(path + workspaceId).getBody();
         assertThat(listed).hasSize(1);
@@ -541,8 +531,7 @@ class TestAgentHttpApi
         pullRequests.saveRepositorySyncPage(REPOSITORY, ImmutableList.of(fetchedPullRequest(488, null)), "search-without-head");
         String path = "/agent/tasks/" + taskId + "/pull-requests";
         assertThat(get(path + "?workspaceId=" + workspaceId).getBody()).isEmpty();
-        when(credentials.resolveGitHubCredential()).thenReturn(
-                new GitHubCredential("pat", new UserProfile("alice", "Alice", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("alice", "Alice", "", "", 0, 0, 0, "", "", "", "")));
         when(gitHub.fetchPullRequestsByHead("pat", RepoRef.of("bytequay", "agent-e2e"), "bytequay:" + branch))
                 .thenReturn(ImmutableList.of(fetchedPullRequest(488, branch)));
 
@@ -590,8 +579,7 @@ class TestAgentHttpApi
         assertThat(cached).hasSize(1);
         assertThat(cached.get(0).get("repo").asText()).isEqualTo("trinodb/trino");
         assertThat(cached.get(0).get("number").asInt()).isEqualTo(31022);
-        when(credentials.resolveGitHubCredential()).thenReturn(
-                new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("pat", new UserProfile("chenjian2664", "Chen", "", "", 0, 0, 0, "", "", "", "")));
         // The user's own fork branch: its pull request is theirs, which a renamed-branch match requires.
         when(gitHub.fetchPullRequestsByHead("pat", upstream, "chenjian2664:" + branch))
                 .thenReturn(ImmutableList.of(fetchedPullRequest(upstream.fullName(), 31023, branch, "chenjian2664")));
@@ -645,25 +633,13 @@ class TestAgentHttpApi
     void rejectsInvalidAndUnavailableTaskRequests()
             throws Exception
     {
-        ResponseEntity<JsonNode> invalid = post(
-                "/agent/tasks",
-                ImmutableMap.of(
-                        "workspaceId", "",
-                        "laneId", "codex",
-                        "message", "Invalid"),
-                null);
+        ResponseEntity<JsonNode> invalid = post("/agent/tasks", ImmutableMap.of("workspaceId", "", "laneId", "codex", "message", "Invalid"), null);
         assertThat(invalid.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
 
-        ResponseEntity<JsonNode> unsupported = post(
-                "/agent/tasks",
-                createTaskBody("missing-lane"),
-                null);
+        ResponseEntity<JsonNode> unsupported = post("/agent/tasks", createTaskBody("missing-lane"), null);
         assertThat(unsupported.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
 
-        ResponseEntity<JsonNode> unknownModel = post(
-                "/agent/tasks",
-                createTaskBody("codex", "unknown-model", "Unknown model"),
-                null);
+        ResponseEntity<JsonNode> unknownModel = post("/agent/tasks", createTaskBody("codex", "unknown-model", "Unknown model"), null);
         assertThat(unknownModel.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(get("/agent/tasks?workspaceId=" + workspaceId).getBody()).isEmpty();
         assertThat(workspacePaths.worktrees(workspaceId)).doesNotExist();
@@ -702,9 +678,7 @@ class TestAgentHttpApi
             ResponseEntity<JsonNode> refused = rest.exchange(
                     url("/agent/tasks/" + taskId + "/defaults?workspaceId=" + workspaceId),
                     HttpMethod.PUT,
-                    new HttpEntity<>(objectMapper.writeValueAsString(ImmutableMap.of(
-                            "expectedVersion", taskVersion(taskId),
-                            "defaults", defaults)), updateHeaders),
+                    new HttpEntity<>(objectMapper.writeValueAsString(ImmutableMap.of("expectedVersion", taskVersion(taskId), "defaults", defaults)), updateHeaders),
                     JsonNode.class);
             assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
             assertThat(get("/agent/tasks/" + taskId + "?workspaceId=" + workspaceId).getBody().required("defaults"))
@@ -724,10 +698,7 @@ class TestAgentHttpApi
                 ImmutableMap.of(
                         "message", "inspect this image",
                         "expectedVersion", taskVersion(taskId),
-                        "attachments", ImmutableList.of(ImmutableMap.of(
-                                "name", "screen.png",
-                                "mediaType", "image/png",
-                                "path", "/tmp/screen.png"))),
+                        "attachments", ImmutableList.of(ImmutableMap.of("name", "screen.png", "mediaType", "image/png", "path", "/tmp/screen.png"))),
                 "attachment-request");
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -741,10 +712,7 @@ class TestAgentHttpApi
         long observedVersion = taskVersion(taskId);
         updateDefaults(taskId, "text-only-model");
 
-        ResponseEntity<JsonNode> stale = post(
-                "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of("message", "stale", "expectedVersion", observedVersion),
-                "stale-defaults-start");
+        ResponseEntity<JsonNode> stale = post("/agent/tasks/" + taskId + "/turns", ImmutableMap.of("message", "stale", "expectedVersion", observedVersion), "stale-defaults-start");
 
         assertThat(stale.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(get("/agent/tasks/" + taskId + "/events?after=0&limit=20").getBody())
@@ -759,15 +727,9 @@ class TestAgentHttpApi
         JsonNode interactive = post("/agent/tasks", createTaskBody("codex"), null).getBody();
         String interactiveTaskId = interactive.required("id").asText();
 
-        ResponseEntity<JsonNode> wrongWorkspace = post(
-                "/agent/tasks/" + interactiveTaskId + "/complete?workspaceId=another-workspace",
-                ImmutableMap.of(),
-                null);
+        ResponseEntity<JsonNode> wrongWorkspace = post("/agent/tasks/" + interactiveTaskId + "/complete?workspaceId=another-workspace", ImmutableMap.of(), null);
         assertThat(wrongWorkspace.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(post(
-                "/agent/tasks/" + interactiveTaskId + "/cleanup?workspaceId=another-workspace",
-                ImmutableMap.of(),
-                null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(post("/agent/tasks/" + interactiveTaskId + "/cleanup?workspaceId=another-workspace", ImmutableMap.of(), null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(get("/agent/tasks/" + interactiveTaskId + "?workspaceId=" + workspaceId)
                 .getBody().required("state").asText()).isEqualTo("OPEN");
 
@@ -781,15 +743,9 @@ class TestAgentHttpApi
                 TaskBranches.generate(workflowTaskId, "user", "Workflow-owned task"),
                 "Workflow-owned task",
                 AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO)));
-        ResponseEntity<JsonNode> nonInteractive = post(
-                "/agent/tasks/" + workflowTaskId + "/complete?workspaceId=" + workspaceId,
-                ImmutableMap.of(),
-                null);
+        ResponseEntity<JsonNode> nonInteractive = post("/agent/tasks/" + workflowTaskId + "/complete?workspaceId=" + workspaceId, ImmutableMap.of(), null);
         assertThat(nonInteractive.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
-        assertThat(post(
-                "/agent/tasks/" + workflowTaskId + "/cleanup?workspaceId=" + workspaceId,
-                ImmutableMap.of(),
-                null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+        assertThat(post("/agent/tasks/" + workflowTaskId + "/cleanup?workspaceId=" + workspaceId, ImmutableMap.of(), null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
         assertThat(tasks.get(workflowTaskId).state().name()).isEqualTo("OPEN");
         assertThat(workflowTask.taskWorktree().orElseThrow().canonicalWorktree()).exists();
         assertThat(get("/agent/tasks/" + workflowTaskId + "?workspaceId=" + workspaceId).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
@@ -858,10 +814,7 @@ class TestAgentHttpApi
                 ImmutableMap.of("reason", "wrong workspace"),
                 null).getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
 
-        ResponseEntity<JsonNode> failed = post(
-                "/agent/tasks/" + cleanTaskId + "/mark-failed?workspaceId=" + workspaceId,
-                ImmutableMap.of("reason", "giving up"),
-                null);
+        ResponseEntity<JsonNode> failed = post("/agent/tasks/" + cleanTaskId + "/mark-failed?workspaceId=" + workspaceId, ImmutableMap.of("reason", "giving up"), null);
 
         assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(failed.getBody().get("state").asText()).isEqualTo("FAILED");
@@ -878,10 +831,7 @@ class TestAgentHttpApi
         Path dirtyWorktree = tasks.get(TaskId.valueOf(dirtyTaskId)).taskWorktree().orElseThrow().canonicalWorktree();
         Files.writeString(dirtyWorktree.resolve("notes.txt"), "half-finished\n");
 
-        JsonNode retained = post(
-                "/agent/tasks/" + dirtyTaskId + "/mark-failed?workspaceId=" + workspaceId,
-                ImmutableMap.of("reason", "giving up"),
-                null).getBody();
+        JsonNode retained = post("/agent/tasks/" + dirtyTaskId + "/mark-failed?workspaceId=" + workspaceId, ImmutableMap.of("reason", "giving up"), null).getBody();
 
         // Dirty work is evidence, not garbage: the task fails but its checkout stays for inspection.
         assertThat(retained.get("state").asText()).isEqualTo("FAILED");
@@ -942,10 +892,7 @@ class TestAgentHttpApi
         assertThat(post(stopPath, ImmutableMap.of("generation", idle.get("generation").asText()), null).getStatusCode())
                 .isEqualTo(HttpStatus.CONFLICT);
 
-        ResponseEntity<JsonNode> stopped = post(
-                stopPath,
-                ImmutableMap.of("generation", afterTurn.get("generation").asText()),
-                null);
+        ResponseEntity<JsonNode> stopped = post(stopPath, ImmutableMap.of("generation", afterTurn.get("generation").asText()), null);
 
         assertThat(stopped.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(stopped.getBody().get("state").asText()).isEqualTo("OPEN");
@@ -964,8 +911,7 @@ class TestAgentHttpApi
         for (int index = 0; index < 2001; index++) {
             latestSequence = events.append(new UnsequencedAgentEvent(
                     EventId.random(), TaskId.valueOf(taskId), Optional.empty(), AgentEventSource.root(),
-                    new AgentEventPayload.AssistantMessage(
-                            MessageKind.ANSWER, MessagePhase.FINAL, "history " + index))).sequence();
+                    new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "history " + index))).sequence();
         }
         String historyPath = "/agent/tasks/" + taskId + "/history";
 
@@ -1274,10 +1220,7 @@ class TestAgentHttpApi
         assertThat(sseEvent).isEqualTo(afterFirst.get(0));
 
         Map<String, String> completionRequest = ImmutableMap.of("notes", "ready for review");
-        ResponseEntity<JsonNode> completion = post(
-                "/agent/tasks/" + taskId + "/complete?workspaceId=" + workspaceId,
-                completionRequest,
-                null);
+        ResponseEntity<JsonNode> completion = post("/agent/tasks/" + taskId + "/complete?workspaceId=" + workspaceId, completionRequest, null);
         assertThat(completion.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(completion.getBody().get("summary").get("finalResponse").asText())
                 .isEqualTo("deterministic: second");
@@ -1289,10 +1232,7 @@ class TestAgentHttpApi
         assertThat(finalTask.get("state").asText()).isEqualTo("COMPLETED");
         assertThat(finalTask.required("summary")).isEqualTo(completion.getBody().required("summary"));
 
-        ResponseEntity<JsonNode> repeatedCleanup = post(
-                "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
-                ImmutableMap.of(),
-                null);
+        ResponseEntity<JsonNode> repeatedCleanup = post("/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId, ImmutableMap.of(), null);
         assertThat(repeatedCleanup.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(repeatedCleanup.getBody().required("state").asText()).isEqualTo("COMPLETED");
         assertThat(repeatedCleanup.getBody().required("checkoutRemovedAt").isTextual()).isTrue();
@@ -1309,19 +1249,13 @@ class TestAgentHttpApi
         Path retained = worktree.resolve("inspect-me.txt");
         Files.writeString(retained, "retained\n");
 
-        ResponseEntity<JsonNode> failed = post(
-                "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
-                ImmutableMap.of(),
-                null);
+        ResponseEntity<JsonNode> failed = post("/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId, ImmutableMap.of(), null);
         assertThat(failed.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(tasks.get(taskId).state().name()).isEqualTo("COMPLETED");
         assertThat(tasks.get(taskId).worktreeRemovedAt()).isEmpty();
 
         Files.delete(retained);
-        ResponseEntity<JsonNode> retried = post(
-                "/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId,
-                ImmutableMap.of(),
-                null);
+        ResponseEntity<JsonNode> retried = post("/agent/tasks/" + taskId + "/cleanup?workspaceId=" + workspaceId, ImmutableMap.of(), null);
 
         assertThat(retried.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(retried.getBody().required("checkoutRemovedAt").isTextual()).isTrue();
@@ -1332,10 +1266,7 @@ class TestAgentHttpApi
     void createsRunsAndReplaysAClaudeTaskWithoutCrossLaneEvents()
             throws Exception
     {
-        ResponseEntity<JsonNode> created = post(
-                "/agent/tasks",
-                createTaskBody("claude", "test-model", "Claude first"),
-                null);
+        ResponseEntity<JsonNode> created = post("/agent/tasks", createTaskBody("claude", "test-model", "Claude first"), null);
 
         assertThat(created.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String claudeTaskId = created.getBody().required("id").asText();
@@ -1348,8 +1279,7 @@ class TestAgentHttpApi
         JsonNode claudeEvents = get("/agent/tasks/" + claudeTaskId + "/events?after=0&limit=20").getBody();
         assertThat(claudeEvents)
                 .extracting(event -> event.required("type").asText())
-                .containsExactly(
-                        "user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle");
+                .containsExactly("user_message", "lifecycle", "lifecycle", "assistant_message", "lifecycle", "lifecycle");
         assertThat(claudeEvents.get(0).required("payload").required("text").asText()).isEqualTo("Claude first");
         assertThat(claudeEvents.get(3).required("payload").required("text").asText()).isEqualTo("deterministic: Claude first");
         String turnId = claudeEvents.get(0).required("turnId").asText();
@@ -1360,10 +1290,7 @@ class TestAgentHttpApi
         assertThat(replay).hasSize(5);
         assertThat(objectMapper.readTree(firstSseData(claudeTaskId, userSequence))).isEqualTo(replay.get(0));
 
-        ResponseEntity<JsonNode> codexCreated = post(
-                "/agent/tasks",
-                createTaskBody("codex", "test-model", "Codex first"),
-                null);
+        ResponseEntity<JsonNode> codexCreated = post("/agent/tasks", createTaskBody("codex", "test-model", "Codex first"), null);
         assertThat(codexCreated.getStatusCode()).isEqualTo(HttpStatus.CREATED);
         String codexTaskId = codexCreated.getBody().required("id").asText();
         awaitCondition(() -> get("/agent/tasks/" + codexTaskId + "?workspaceId=" + workspaceId)
@@ -1410,10 +1337,7 @@ class TestAgentHttpApi
     {
         Map<String, Object> request = createTaskBody("codex");
         long probesBeforeCreation = driver.probeCount();
-        driver.probeReadiness(
-                AgentProviderStatus.Readiness.READY,
-                AgentProviderStatus.Readiness.READY,
-                AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
+        driver.probeReadiness(AgentProviderStatus.Readiness.READY, AgentProviderStatus.Readiness.READY, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
 
         ResponseEntity<JsonNode> created = post("/agent/tasks", request, null);
         ResponseEntity<JsonNode> replay = post("/agent/tasks", request, null);
@@ -1542,10 +1466,7 @@ class TestAgentHttpApi
     private JsonNode startTurn(String taskId, String message, String idempotencyKey)
             throws Exception
     {
-        ResponseEntity<JsonNode> response = post(
-                "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of("message", message, "expectedVersion", taskVersion(taskId)),
-                idempotencyKey);
+        ResponseEntity<JsonNode> response = post("/agent/tasks/" + taskId + "/turns", ImmutableMap.of("message", message, "expectedVersion", taskVersion(taskId)), idempotencyKey);
         assertThat(response.getStatusCode()).as("start response: %s", response.getBody()).isEqualTo(HttpStatus.ACCEPTED);
         return response.getBody();
     }
@@ -1591,10 +1512,7 @@ class TestAgentHttpApi
                 HttpMethod.PUT,
                 new HttpEntity<>(objectMapper.writeValueAsString(ImmutableMap.of(
                         "expectedVersion", taskVersion(taskId),
-                        "defaults", ImmutableMap.of(
-                                "model", model,
-                                "effort", "high",
-                                "permissionPolicy", "AUTO"))), updateHeaders),
+                        "defaults", ImmutableMap.of("model", model, "effort", "high", "permissionPolicy", "AUTO"))), updateHeaders),
                 JsonNode.class);
         assertThat(updated.getStatusCode()).isEqualTo(HttpStatus.OK);
     }
@@ -1619,11 +1537,7 @@ class TestAgentHttpApi
     {
         HttpHeaders requestHeaders = headers();
         requestHeaders.setContentType(MediaType.APPLICATION_JSON);
-        return rest.exchange(
-                url(path),
-                HttpMethod.PATCH,
-                new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders),
-                JsonNode.class);
+        return rest.exchange(url(path), HttpMethod.PATCH, new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders), JsonNode.class);
     }
 
     private ResponseEntity<JsonNode> delete(String path)
@@ -1639,11 +1553,7 @@ class TestAgentHttpApi
         if (idempotencyKey != null) {
             requestHeaders.set("Idempotency-Key", idempotencyKey);
         }
-        ResponseEntity<JsonNode> response = rest.exchange(
-                url(path),
-                HttpMethod.POST,
-                new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders),
-                JsonNode.class);
+        ResponseEntity<JsonNode> response = rest.exchange(url(path), HttpMethod.POST, new HttpEntity<>(objectMapper.writeValueAsString(body), requestHeaders), JsonNode.class);
         JsonNode result = response.getBody();
         // Immediate provider completion still leaves the real Git checker running; later
         // fixture actions require its ownership to settle. Held provider turns remain immediate.
@@ -1767,11 +1677,7 @@ class TestAgentHttpApi
         assertThat(foreignDelete.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
         assertThat(get(ownerQueuePath).getBody()).singleElement().satisfies(input ->
                 assertThat(input.required("id").asText()).isEqualTo(queuedId));
-        rest.exchange(
-                url("/agent/tasks/" + ownerTaskId + "/queue/" + queuedId + "?workspaceId=" + workspaceId),
-                HttpMethod.DELETE,
-                new HttpEntity<>(headers()),
-                JsonNode.class);
+        rest.exchange(url("/agent/tasks/" + ownerTaskId + "/queue/" + queuedId + "?workspaceId=" + workspaceId), HttpMethod.DELETE, new HttpEntity<>(headers()), JsonNode.class);
         driver.completeHeldTurn();
     }
 
@@ -1785,8 +1691,7 @@ class TestAgentHttpApi
         startTurn(taskId, "keep running", "queue-edit-turn");
         String queuePath = "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId;
         String message = "Preserve every line of the queued message\n".repeat(20);
-        String queuedId = post(queuePath,
-                ImmutableMap.of("message", message, "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)), "queue-edit")
+        String queuedId = post(queuePath, ImmutableMap.of("message", message, "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)), "queue-edit")
                 .getBody().required("id").asText();
         String editPath = "/agent/tasks/" + taskId + "/queue/" + queuedId + "/edit?workspaceId=" + workspaceId;
         assertThat(post("/agent/tasks/" + taskId + "/queue/" + queuedId + "/edit?workspaceId=another-workspace", ImmutableMap.of(), null).getStatusCode())
@@ -1892,8 +1797,7 @@ class TestAgentHttpApi
                 ImmutableMap.of("message", "look later", "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)), "queued-image")
                 .getBody().required("id").asText();
         String steerPath = "/agent/tasks/" + taskId + "/queue/" + queuedId + "/steer?workspaceId=" + workspaceId + "&turnId=" + running.required("id").asText();
-        ResponseEntity<JsonNode> refusedQueued = post(steerPath,
-                ImmutableMap.of(), null);
+        ResponseEntity<JsonNode> refusedQueued = post(steerPath, ImmutableMap.of(), null);
         assertThat(refusedQueued.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
         assertThat(get(queuePath).getBody()).hasSize(1);
         rest.exchange(url("/agent/tasks/" + taskId + "/queue/" + queuedId + "?workspaceId=" + workspaceId), HttpMethod.DELETE, new HttpEntity<>(headers()), JsonNode.class);
@@ -1910,10 +1814,7 @@ class TestAgentHttpApi
 
         ResponseEntity<JsonNode> refused = post(
                 "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of(
-                        "message", "look",
-                        "attachments", ImmutableList.of(attachmentId),
-                        "expectedVersion", taskVersion(taskId)),
+                ImmutableMap.of("message", "look", "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)),
                 "unsupported-provider-image");
 
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -1927,10 +1828,7 @@ class TestAgentHttpApi
     {
         String taskId = post("/agent/tasks", createTaskBody("codex"), null).getBody().required("id").asText();
         String attachmentId = uploadImage(taskId, "start.png");
-        Map<String, Object> body = ImmutableMap.of(
-                "message", "look",
-                "attachments", ImmutableList.of(attachmentId),
-                "expectedVersion", taskVersion(taskId));
+        Map<String, Object> body = ImmutableMap.of("message", "look", "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId));
 
         ResponseEntity<JsonNode> first = post("/agent/tasks/" + taskId + "/turns", body, "image-turn-replay");
         assertThat(first.getStatusCode()).isEqualTo(HttpStatus.ACCEPTED);
@@ -1950,35 +1848,18 @@ class TestAgentHttpApi
         String attachmentId = uploadImage(taskId, "running.png");
         driver.holdNextTurn();
         JsonNode running = startTurn(taskId, "hold", "held-for-replay");
-        Map<String, Object> steerBody = ImmutableMap.of(
-                "message", "steer image",
-                "attachments", ImmutableList.of(attachmentId));
-        Map<String, Object> queueBody = ImmutableMap.of(
-                "message", "queue image",
-                "attachments", ImmutableList.of(attachmentId),
-                "expectedVersion", taskVersion(taskId));
+        Map<String, Object> steerBody = ImmutableMap.of("message", "steer image", "attachments", ImmutableList.of(attachmentId));
+        Map<String, Object> queueBody = ImmutableMap.of("message", "queue image", "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId));
 
-        ResponseEntity<JsonNode> firstSteer = post(
-                "/agent/turns/" + running.required("id").asText() + "/steer",
-                steerBody,
-                "steer-image-replay");
-        ResponseEntity<JsonNode> firstQueue = post(
-                "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId,
-                queueBody,
-                "queue-image-replay");
+        ResponseEntity<JsonNode> firstSteer = post("/agent/turns/" + running.required("id").asText() + "/steer", steerBody, "steer-image-replay");
+        ResponseEntity<JsonNode> firstQueue = post("/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId, queueBody, "queue-image-replay");
         assertThat(firstSteer.getBody().required("state").asText()).isEqualTo("DELIVERED");
         assertThat(firstQueue.getBody().required("state").asText()).isEqualTo("QUEUED");
         deleteAttachment(taskId, attachmentId);
         updateDefaults(taskId, "text-only-model");
 
-        ResponseEntity<JsonNode> replaySteer = post(
-                "/agent/turns/" + running.required("id").asText() + "/steer",
-                steerBody,
-                "steer-image-replay");
-        ResponseEntity<JsonNode> replayQueue = post(
-                "/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId,
-                queueBody,
-                "queue-image-replay");
+        ResponseEntity<JsonNode> replaySteer = post("/agent/turns/" + running.required("id").asText() + "/steer", steerBody, "steer-image-replay");
+        ResponseEntity<JsonNode> replayQueue = post("/agent/tasks/" + taskId + "/queue?workspaceId=" + workspaceId, queueBody, "queue-image-replay");
         assertThat(replaySteer.getBody().required("id").asText())
                 .isEqualTo(firstSteer.getBody().required("id").asText());
         assertThat(replayQueue.getBody().required("id").asText())
@@ -2076,10 +1957,7 @@ class TestAgentHttpApi
         // The turn's durable user message names the attachment by the reference the upload returned.
         JsonNode turn = post(
                 "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of(
-                        "message", "What is in this screenshot?",
-                        "attachments", ImmutableList.of(attachmentId),
-                        "expectedVersion", taskVersion(taskId)),
+                ImmutableMap.of("message", "What is in this screenshot?", "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)),
                 "attach-1").getBody();
         assertThat(turn.required("settings").required("attachments").get(0).required("id").asText()).isEqualTo(attachmentId);
         assertThat(turn.required("settings").required("attachments").get(0).fieldNames()).toIterable().containsExactlyInAnyOrder("id", "name", "mediaType");
@@ -2124,10 +2002,7 @@ class TestAgentHttpApi
 
         ResponseEntity<JsonNode> refused = post(
                 "/agent/tasks/" + taskId + "/turns",
-                ImmutableMap.of(
-                        "message", "look",
-                        "attachments", ImmutableList.of(attachmentId),
-                        "expectedVersion", taskVersion(taskId)),
+                ImmutableMap.of("message", "look", "attachments", ImmutableList.of(attachmentId), "expectedVersion", taskVersion(taskId)),
                 "attach-2");
 
         assertThat(refused.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
@@ -2174,8 +2049,7 @@ class TestAgentHttpApi
     private String firstSseData(String taskId, long after)
             throws IOException, InterruptedException
     {
-        HttpRequest request = HttpRequest.newBuilder(URI.create(url(
-                        "/agent/tasks/" + taskId + "/stream?after=" + after)))
+        HttpRequest request = HttpRequest.newBuilder(URI.create(url("/agent/tasks/" + taskId + "/stream?after=" + after)))
                 .header(AgentController.SESSION_HEADER, SESSION_TOKEN)
                 .timeout(Duration.ofSeconds(5))
                 .GET()

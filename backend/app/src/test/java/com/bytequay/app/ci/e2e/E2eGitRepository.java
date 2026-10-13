@@ -74,9 +74,7 @@ final class E2eGitRepository
         Path worktree = root.resolve("repository");
         createDirectory(root);
         String remoteUrl = "https://github.com/" + pullRequest.repoFullName() + ".git";
-        git(root,
-                "clone", "--bare", "--config", "core.logAllRefUpdates=true",
-                template.toString(), bareRemote.toString());
+        git(root, "clone", "--bare", "--config", "core.logAllRefUpdates=true", template.toString(), bareRemote.toString());
         git(root, "clone", "--branch", HEAD_REF, bareRemote.toString(), worktree.toString());
         // The program commits here through its own Git calls, which carry no identity
         // environment, and a clone inherits none. Git only invents one when the host name
@@ -84,20 +82,11 @@ final class E2eGitRepository
         git(worktree, "config", "user.name", DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_NAME"));
         git(worktree, "config", "user.email", DETERMINISTIC_IDENTITY.get("GIT_COMMITTER_EMAIL"));
         git(worktree, "remote", "set-url", "origin", remoteUrl);
-        git(
-                worktree,
-                "config",
-                RoutedGitCommandRunner.ROUTE_CONFIG,
-                RoutedGitCommandRunner.route(bareRemote, remoteUrl));
+        git(worktree, "config", RoutedGitCommandRunner.ROUTE_CONFIG, RoutedGitCommandRunner.route(bareRemote, remoteUrl));
         String baseSha = git(worktree, "rev-parse", "origin/" + BASE_REF);
         String headSha = head(worktree);
         try {
-            return new E2eGitRepository(
-                    pullRequest,
-                    bareRemote.toRealPath(),
-                    worktree.toRealPath(),
-                    baseSha,
-                    headSha);
+            return new E2eGitRepository(pullRequest, bareRemote.toRealPath(), worktree.toRealPath(), baseSha, headSha);
         }
         catch (IOException e) {
             throw new IllegalStateException("Cannot resolve E2E Git repository", e);
@@ -147,12 +136,7 @@ final class E2eGitRepository
 
     List<String> commitSubjects()
     {
-        String output = git(worktree,
-                "--git-dir=" + bareRemote,
-                "log",
-                "--reverse",
-                "--format=%s",
-                baseSha + "..refs/heads/" + HEAD_REF);
+        String output = git(worktree, "--git-dir=" + bareRemote, "log", "--reverse", "--format=%s", baseSha + "..refs/heads/" + HEAD_REF);
         return output.isEmpty() ? ImmutableList.of() : ImmutableList.copyOf(output.lines().collect(toImmutableList()));
     }
 
@@ -172,11 +156,7 @@ final class E2eGitRepository
 
     String mergeBaseWithHead(String ref)
     {
-        return git(worktree,
-                "--git-dir=" + bareRemote,
-                "merge-base",
-                ref,
-                "refs/heads/" + HEAD_REF);
+        return git(worktree, "--git-dir=" + bareRemote, "merge-base", ref, "refs/heads/" + HEAD_REF);
     }
 
     String commitOnHead(String relativePath, String content, String subject)
@@ -285,8 +265,7 @@ final class E2eGitRepository
 
     private static String run(GitCommandRunner runner, Path directory, String... arguments)
     {
-        Result result = runner.run(
-                directory, COMMAND_TIMEOUT, DETERMINISTIC_IDENTITY, ImmutableList.copyOf(arguments));
+        Result result = runner.run(directory, COMMAND_TIMEOUT, DETERMINISTIC_IDENTITY, ImmutableList.copyOf(arguments));
         String command = String.join(" ", arguments);
         checkState(result.successful(), "Git failed: %s%n%s", command, result.output());
         checkState(!result.truncated(), "Git output was truncated: %s", command);

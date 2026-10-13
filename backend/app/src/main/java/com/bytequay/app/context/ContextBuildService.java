@@ -189,8 +189,7 @@ public class ContextBuildService
             models.validateSelection(lane.value(), model.model(), model.effort(), Optional.empty());
             WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
             GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify", baselineSha + "^{commit}");
-            checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"),
-                    "The check's baseline is unavailable");
+            checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"), "The check's baseline is unavailable");
             TaskId id = continued.map(build -> TaskId.valueOf(build.taskId())).orElseGet(TaskId::random);
             String title = (check.isPresent() ? "Check " : harvest.isPresent() ? "Learn from " : "Research for ") + workspace.monitoredRepository().fullName();
             String branch = continued.map(ContextBuild::branch).orElseGet(() -> TaskBranches.generate(id, credentials.resolveGitHubCredential().profile().login(), title));
@@ -372,8 +371,7 @@ public class ContextBuildService
         if (!snapshot.dirty()) {
             return;
         }
-        checkArgument(snapshot.head().equals(baselineSha) && !snapshot.gitOperationInProgress(),
-                "The check's worktree moved off its baseline; it is kept for inspection");
+        checkArgument(snapshot.head().equals(baselineSha) && !snapshot.gitOperationInProgress(), "The check's worktree moved off its baseline; it is kept for inspection");
         Path checkout = worktrees.ownedCheckout(snapshot.worktree());
         GitCommandRunner.Result reset = git.run(checkout, "reset", "--quiet", "--hard", baselineSha);
         GitCommandRunner.Result cleaned = git.run(checkout, "clean", "--quiet", "--force", "-d", buildOutput ? "-x" : "--");

@@ -64,8 +64,7 @@ public class TaskActivityReader
 
     public Map<TaskId, TaskActivity> read(List<AgentTask> tasks)
     {
-        ImmutableListMultimap<TaskId, ApprovalRequest> pending = Multimaps.index(
-                approvals.listPending().stream().map(AgentApproval::request).iterator(), ApprovalRequest::taskId);
+        ImmutableListMultimap<TaskId, ApprovalRequest> pending = Multimaps.index(approvals.listPending().stream().map(AgentApproval::request).iterator(), ApprovalRequest::taskId);
         ImmutableMap.Builder<TaskId, TaskActivity> activity = ImmutableMap.builder();
         for (AgentTask task : tasks) {
             activity.put(task.id(), new TaskActivity(

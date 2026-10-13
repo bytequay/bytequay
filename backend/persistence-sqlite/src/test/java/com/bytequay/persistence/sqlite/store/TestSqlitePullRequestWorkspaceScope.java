@@ -396,8 +396,7 @@ class TestSqlitePullRequestWorkspaceScope
         workspaceStore.createOrGet(workspace);
         PullRequest watched = store.saveRepositorySyncPage("owner/project", ImmutableList.of(
                 pullRequest(1, "owner/project", 1).withOrigin(PullRequest.Origin.OTHER)), "scan").getFirst();
-        store.saveRepositorySyncPage("unwatched/project", ImmutableList.of(
-                pullRequest(2, "unwatched/project", 2).withOrigin(PullRequest.Origin.OTHER)), "scan");
+        store.saveRepositorySyncPage("unwatched/project", ImmutableList.of(pullRequest(2, "unwatched/project", 2).withOrigin(PullRequest.Origin.OTHER)), "scan");
 
         assertThat(store.findAttentionCandidates()).extracting(PullRequest::id).containsExactly(watched.id());
         workspaceStore.setWatched(workspace.id(), false);
@@ -516,9 +515,7 @@ class TestSqlitePullRequestWorkspaceScope
 
         assertThat(store.findPage(0, 50).pullRequests())
                 .extracting(PullRequest::id, PullRequest::origin)
-                .containsExactlyInAnyOrder(
-                        tuple(mine, PullRequest.Origin.AUTHORED),
-                        tuple(someoneElses, PullRequest.Origin.OTHER));
+                .containsExactlyInAnyOrder(tuple(mine, PullRequest.Origin.AUTHORED), tuple(someoneElses, PullRequest.Origin.OTHER));
     }
 
     @Test
@@ -571,10 +568,8 @@ class TestSqlitePullRequestWorkspaceScope
     {
         FetchedPullRequest omitted = pullRequest(111, "owner/project", 111);
         FetchedPullRequest discovered = pullRequest(112, "owner/project", 112);
-        store.saveRepositorySyncPage(
-                "owner/project", ImmutableList.of(omitted, discovered), "first-discovery");
-        store.saveRepositorySyncPage(
-                "owner/project", ImmutableList.of(discovered), "current-discovery");
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(omitted, discovered), "first-discovery");
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(discovered), "current-discovery");
 
         assertThat(store.findRepositoryRowsMissingSync("owner/project", "current-discovery"))
                 .extracting(PullRequest::number)
@@ -584,19 +579,11 @@ class TestSqlitePullRequestWorkspaceScope
     @Test
     void expiresOnlyClosedPullRequestsInactiveBeforeTheCutoff()
     {
-        FetchedPullRequest expired = pullRequest(
-                201, "owner/project", 201, "closed",
-                Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-07-01T00:00:00Z"));
-        FetchedPullRequest recentlyUpdated = pullRequest(
-                202, "owner/project", 202, "closed",
-                Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-08-20T00:00:00Z"));
-        FetchedPullRequest open = pullRequest(
-                203, "owner/project", 203, "open", null, Instant.parse("2026-06-01T00:00:00Z"));
-        FetchedPullRequest merged = pullRequest(
-                204, "owner/project", 204, "merged",
-                Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-07-01T00:00:00Z"));
-        store.saveRepositorySyncPage(
-                "owner/project", ImmutableList.of(expired, recentlyUpdated, open, merged), "retention");
+        FetchedPullRequest expired = pullRequest(201, "owner/project", 201, "closed", Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-07-01T00:00:00Z"));
+        FetchedPullRequest recentlyUpdated = pullRequest(202, "owner/project", 202, "closed", Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-08-20T00:00:00Z"));
+        FetchedPullRequest open = pullRequest(203, "owner/project", 203, "open", null, Instant.parse("2026-06-01T00:00:00Z"));
+        FetchedPullRequest merged = pullRequest(204, "owner/project", 204, "merged", Instant.parse("2026-06-30T00:00:00Z"), Instant.parse("2026-07-01T00:00:00Z"));
+        store.saveRepositorySyncPage("owner/project", ImmutableList.of(expired, recentlyUpdated, open, merged), "retention");
 
         store.completeRepositorySync("owner/project", RETENTION_CUTOFF);
 
@@ -630,8 +617,7 @@ class TestSqlitePullRequestWorkspaceScope
 
     private static FetchedPullRequest pullRequest(long githubId, String repository, int number, String headRef)
     {
-        return pullRequest(
-                githubId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
+        return pullRequest(githubId, repository, number, "open", null, Instant.parse("2026-08-21T00:00:00Z"), headRef);
     }
 
     private static FetchedPullRequest pullRequest(

@@ -77,16 +77,7 @@ public class PrReviewEntity
 
     public PrReviewState toDomain()
     {
-        return new PrReviewState(
-                getGithubId(),
-                getLogin(),
-                getAvatarUrl(),
-                isBot(),
-                getState(),
-                getSubmittedAt(),
-                getBody(),
-                getHtmlUrl(),
-                getCommitId());
+        return new PrReviewState(getGithubId(), getLogin(), getAvatarUrl(), isBot(), getState(), getSubmittedAt(), getBody(), getHtmlUrl(), getCommitId());
     }
 
     public PrReviewEntity updateFrom(long prId, PrReviewState review)

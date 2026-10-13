@@ -96,12 +96,7 @@ class TestJsonGuard
                         ImmutableList.of("/bin/zsh -lc 'gh issue list --repo t/t'"),
                         decisions,
                         taskScope,
-                        new ProviderAgentEventSource(
-                                Optional.of("thread-1"),
-                                Optional.empty(),
-                                Optional.empty(),
-                                Optional.of("turn-1"),
-                                Optional.of("item-1")),
+                        new ProviderAgentEventSource(Optional.of("thread-1"), Optional.empty(), Optional.empty(), Optional.of("turn-1"), Optional.of("item-1")),
                         NOW),
                 NOW);
     }

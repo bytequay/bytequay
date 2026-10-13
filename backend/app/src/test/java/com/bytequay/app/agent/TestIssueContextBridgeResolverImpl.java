@@ -99,8 +99,7 @@ class TestIssueContextBridgeResolverImpl
         when(task.interactive()).thenReturn(true);
         when(task.state()).thenReturn(TaskState.OPEN);
         when(task.workspaceId()).thenReturn(Optional.of("workspace"));
-        when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.of(
-                new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.of("Implement selection"), NOW)));
+        when(sources.findByTaskId(taskId.toString())).thenReturn(Optional.of(new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.of("Implement selection"), NOW)));
         Workspace workspace = mock(Workspace.class, withSettings().mockMaker(MockMakers.INLINE));
         when(workspace.monitoredRepository()).thenReturn(RepoRef.of("upstream", "repo"));
         when(workspace.monitoredRepositoryId()).thenReturn(2L);

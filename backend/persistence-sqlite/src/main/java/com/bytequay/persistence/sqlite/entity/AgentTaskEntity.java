@@ -241,10 +241,7 @@ public class AgentTaskEntity
     {
         Optional<TaskWorktree> storedWorktree = taskWorktree();
         Optional<AgentSessionRef> sessionReference = Optional.ofNullable(sessionLaneId)
-                .map(ignored -> new AgentSessionRef(
-                        new AgentLaneId(sessionLaneId),
-                        sessionContractVersion,
-                        sessionProviderValue));
+                .map(ignored -> new AgentSessionRef(new AgentLaneId(sessionLaneId), sessionContractVersion, sessionProviderValue));
         return new AgentTask(
                 TaskId.valueOf(id),
                 Optional.ofNullable(workspaceId),
@@ -270,13 +267,7 @@ public class AgentTaskEntity
                 Optional.ofNullable(terminalAt),
                 Optional.ofNullable(terminalReason),
                 sessionReference,
-                new AgentMetrics(
-                        inputTokens,
-                        cachedInputTokens,
-                        outputTokens,
-                        Optional.ofNullable(cost),
-                        Duration.ofMillis(elapsedMillis),
-                        counters()),
+                new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, Optional.ofNullable(cost), Duration.ofMillis(elapsedMillis), counters()),
                 Optional.ofNullable(summaryJson).map(json -> AgentTaskSummaryJson.decode(json, storedWorktree)),
                 Optional.ofNullable(worktreeRemovedAt),
                 cleanupState,

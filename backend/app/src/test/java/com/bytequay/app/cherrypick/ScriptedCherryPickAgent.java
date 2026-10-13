@@ -194,15 +194,7 @@ final class ScriptedCherryPickAgent
         if (task != null) {
             throw new AgentConflictException("Task already exists: " + command.taskId());
         }
-        task = AgentTask.created(
-                command.taskId(),
-                false,
-                command.title(),
-                TitleSource.USER,
-                command.laneId(),
-                worktree,
-                command.defaults(),
-                NOW);
+        task = AgentTask.created(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), worktree, command.defaults(), NOW);
         return task;
     }
 
@@ -493,12 +485,7 @@ final class ScriptedCherryPickAgent
                 Optional.empty(),
                 false,
                 Optional.empty(),
-                Optional.of(new AgentTurnSettings(
-                        task.defaults().model(),
-                        task.defaults().effort(),
-                        task.permissionPolicy(),
-                        java.time.Duration.ofMinutes(5),
-                        ImmutableList.of())),
+                Optional.of(new AgentTurnSettings(task.defaults().model(), task.defaults().effort(), task.permissionPolicy(), java.time.Duration.ofMinutes(5), ImmutableList.of())),
                 state == TurnState.COMPLETED
                         ? Optional.empty()
                         : Optional.of("Everything is fine and validation passed."),

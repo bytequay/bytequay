@@ -82,9 +82,7 @@ public class SqliteAgentEventOutboxStore
     {
         requireNonNull(taskId, "taskId is null");
         checkArgument(limit > 0, "limit must be positive");
-        return repository.findByTaskIdAndEventSequenceIsNullOrderByIdAsc(
-                        taskId.toString(),
-                        PageRequest.of(0, limit)).stream()
+        return repository.findByTaskIdAndEventSequenceIsNullOrderByIdAsc(taskId.toString(), PageRequest.of(0, limit)).stream()
                 .map(AgentEventOutboxEntity::toDomain)
                 .collect(toImmutableList());
     }

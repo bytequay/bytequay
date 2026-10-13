@@ -316,8 +316,7 @@ class TestTeamActivityService
         GitHubTeamActivityClient github = mock(GitHubTeamActivityClient.class);
         PullRequestStore pulls = mock(PullRequestStore.class);
         PrDetailStore details = mock(PrDetailStore.class);
-        TeamActivityService service = new TeamActivityService(teams, credentials, workspaces, github, store, settings,
-                mapper(), pulls, details);
+        TeamActivityService service = new TeamActivityService(teams, credentials, workspaces, github, store, settings, mapper(), pulls, details);
         return new Fixture(teams, store, service, credentials, github, settings, workspaces, pulls, details);
     }
 

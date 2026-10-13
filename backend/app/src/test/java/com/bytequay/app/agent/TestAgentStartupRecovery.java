@@ -226,16 +226,11 @@ class TestAgentStartupRecovery
         AgentServingGate servingGate = new AgentServingGate();
         AgentEventOutboxEntry before = event("before");
         AgentEventOutboxEntry after = event("after");
-        when(outboxStore.listPending(100)).thenReturn(
-                ImmutableList.of(before),
-                ImmutableList.of(),
-                ImmutableList.of(after),
-                ImmutableList.of());
+        when(outboxStore.listPending(100)).thenReturn(ImmutableList.of(before), ImmutableList.of(), ImmutableList.of(after), ImmutableList.of());
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
         when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("stale-launch")));
 
-        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
+        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate, launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         InOrder order = inOrder(eventService, turnStore, taskStore, supervisor);
@@ -263,8 +258,7 @@ class TestAgentStartupRecovery
 
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
 
-        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate,
-                launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
+        new AgentStartupRecovery(outboxStore, eventService, maintenance, supervisor, servingGate, launchStore(), taskStore, turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
 
         assertThat(servingGate.isReady()).isFalse();
@@ -324,8 +318,7 @@ class TestAgentStartupRecovery
         // spelling drift between the two enums makes every launch of that kind a marker/row
         // conflict, which leaves the serving gate closed for every task.
         assertThat(Stream.of(ProcessOwner.Kind.values()).map(Enum::name))
-                .containsExactlyInAnyOrderElementsOf(
-                        Stream.of(LaunchOwnerKind.values()).map(Enum::name).toList());
+                .containsExactlyInAnyOrderElementsOf(Stream.of(LaunchOwnerKind.values()).map(Enum::name).toList());
     }
 
     @Test
@@ -364,8 +357,7 @@ class TestAgentStartupRecovery
         AgentServingGate servingGate = new AgentServingGate();
         when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
-        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
-                unverifiable("claude-probe"), unverifiable("title-helper"), unverifiable("model-catalog")));
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiable("claude-probe"), unverifiable("title-helper"), unverifiable("model-catalog")));
 
         new AgentStartupRecovery(
                 outboxStore,
@@ -397,8 +389,7 @@ class TestAgentStartupRecovery
         AgentServingGate servingGate = new AgentServingGate();
         when(outboxStore.listPending(100)).thenReturn(ImmutableList.of());
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
-        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
-                unverifiableForOwner("unknown-catalog", ProcessOwner.Kind.APP_SERVER, "codex-model-catalog-v2")));
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(unverifiableForOwner("unknown-catalog", ProcessOwner.Kind.APP_SERVER, "codex-model-catalog-v2")));
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
@@ -432,9 +423,7 @@ class TestAgentStartupRecovery
                 maintenance(taskStore, turnStore),
                 supervisor,
                 servingGate,
-                launchStore(
-                        appServerLaunch("control-marker", taskId),
-                        launch("task-marker", LaunchOwnerKind.CLI_PROBE, "codex-cli")),
+                launchStore(appServerLaunch("control-marker", taskId), launch("task-marker", LaunchOwnerKind.CLI_PROBE, "codex-cli")),
                 taskStore,
                 turnStore, mock(AgentTurnService.class))
                 .afterSingletonsInstantiated();
@@ -457,8 +446,7 @@ class TestAgentStartupRecovery
         TaskId taskId = TaskId.random();
         when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
-        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(
-                stopped("clean"), unverifiableFor("leaked", taskId.toString())));
+        when(supervisor.recoverOwnedProcesses()).thenReturn(ImmutableList.of(stopped("clean"), unverifiableFor("leaked", taskId.toString())));
 
         new AgentStartupRecovery(
                 outboxStore, eventService, maintenance(taskStore, turnStore), supervisor, servingGate,
@@ -571,12 +559,7 @@ class TestAgentStartupRecovery
                 turnId,
                 taskId,
                 "recovery-turn",
-                new AgentTurnSettings(
-                        Optional.empty(),
-                        Optional.empty(),
-                        AgentPermissionPolicy.AUTO,
-                        Duration.ofMinutes(5),
-                        ImmutableList.of()),
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()),
                 Instant.parse("2026-09-01T00:00:00Z"));
         when(turnStore.find(turnId)).thenReturn(Optional.of(turn));
         when(taskStore.find(taskId)).thenReturn(Optional.of(openTask(taskId)));
@@ -774,8 +757,7 @@ class TestAgentStartupRecovery
         when(taskStore.find(taskId)).thenReturn(Optional.of(blocked));
         ProcessSupervisor supervisor = mock(ProcessSupervisor.class);
         when(supervisor.recoverOwnedProcess("launch-1")).thenReturn(stopped("launch-1"));
-        when(supervisor.recoverOwnedProcess("launch-2")).thenReturn(
-                recoveryForOwner("launch-2", ProcessOwner.Kind.APP_SERVER, TaskId.random().toString(), outcome));
+        when(supervisor.recoverOwnedProcess("launch-2")).thenReturn(recoveryForOwner("launch-2", ProcessOwner.Kind.APP_SERVER, TaskId.random().toString(), outcome));
         AgentStartupRecovery recovery = new AgentStartupRecovery(
                 mock(AgentEventOutboxStore.class),
                 mock(AgentEventService.class),
@@ -856,14 +838,7 @@ class TestAgentStartupRecovery
 
     private static AgentProcessLaunch launch(String launchId, LaunchOwnerKind ownerKind, String ownerId)
     {
-        return new AgentProcessLaunch(
-                launchId,
-                ownerKind,
-                ownerId,
-                true,
-                "/usr/local/bin/codex",
-                "argv-digest",
-                Instant.parse("2026-09-01T00:00:00Z"));
+        return new AgentProcessLaunch(launchId, ownerKind, ownerId, true, "/usr/local/bin/codex", "argv-digest", Instant.parse("2026-09-01T00:00:00Z"));
     }
 
     private static OwnedProcessRecovery unverifiableFor(String launchId, String taskId)
@@ -878,32 +853,17 @@ class TestAgentStartupRecovery
 
     private static OwnedProcessRecovery recoveryForOwner(String launchId, ProcessOwner.Kind ownerKind, String ownerId, OwnedProcessRecovery.Outcome outcome)
     {
-        return new OwnedProcessRecovery(
-                launchId,
-                Optional.of(new ProcessOwner(ownerKind, ownerId)),
-                Optional.empty(),
-                outcome,
-                outcome.name());
+        return new OwnedProcessRecovery(launchId, Optional.of(new ProcessOwner(ownerKind, ownerId)), Optional.empty(), outcome, outcome.name());
     }
 
     private static OwnedProcessRecovery stopped(String launchId)
     {
-        return new OwnedProcessRecovery(
-                launchId,
-                Optional.empty(),
-                Optional.empty(),
-                OwnedProcessRecovery.Outcome.VERIFIED_STOPPED,
-                "stopped");
+        return new OwnedProcessRecovery(launchId, Optional.empty(), Optional.empty(), OwnedProcessRecovery.Outcome.VERIFIED_STOPPED, "stopped");
     }
 
     private static OwnedProcessRecovery unverifiable(String launchId)
     {
-        return new OwnedProcessRecovery(
-                launchId,
-                Optional.empty(),
-                Optional.empty(),
-                OwnedProcessRecovery.Outcome.UNVERIFIABLE,
-                "unverifiable");
+        return new OwnedProcessRecovery(launchId, Optional.empty(), Optional.empty(), OwnedProcessRecovery.Outcome.UNVERIFIABLE, "unverifiable");
     }
 
     private static AgentMaintenance maintenance(AgentTaskStore taskStore, AgentTurnStore turnStore)

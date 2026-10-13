@@ -87,8 +87,7 @@ class TestRelatedWorkspaceContext
         String input = context.append(task, turn, "Investigate the upgrade");
         assertThat(input).startsWith("Investigate the upgrade").contains(repository.toString(), next, "Version in pom.xml", "apache/iceberg", "DEPENDENCY")
                 .doesNotContain("SEARCH/READ");
-        assertThat(context.instructions(task)).contains("NOT the version this project uses", "unknown mappings", "SEARCH/READ", "Memory is current advice",
-                "verify its sources");
+        assertThat(context.instructions(task)).contains("NOT the version this project uses", "unknown mappings", "SEARCH/READ", "Memory is current advice", "verify its sources");
         // A generated follow-up continues the turn that already listed the links.
         AgentTurn followUp = turn.withDevelopmentOrigin(new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, TurnId.random()));
         assertThat(context.append(task, followUp, "Commit the change")).isEqualTo("Commit the change");

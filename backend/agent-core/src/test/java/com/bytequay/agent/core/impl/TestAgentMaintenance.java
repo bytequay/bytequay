@@ -121,8 +121,7 @@ class TestAgentMaintenance
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
-        AgentTurn uncertain = AgentTurn.accepted(
-                        TurnId.random(), taskId, "uncertain", turnSettings(), NOW)
+        AgentTurn uncertain = AgentTurn.accepted(TurnId.random(), taskId, "uncertain", turnSettings(), NOW)
                 .markDeliveryStarted(NOW.plusSeconds(1));
         stores.insert(managedTask(taskId));
         stores.insert(uncertain);
@@ -139,8 +138,7 @@ class TestAgentMaintenance
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
-        AgentTurn running = AgentTurn.accepted(
-                        TurnId.random(), taskId, "delivered", turnSettings(), NOW)
+        AgentTurn running = AgentTurn.accepted(TurnId.random(), taskId, "delivered", turnSettings(), NOW)
                 .markDeliveryStarted(NOW.plusSeconds(1))
                 .running(new ProviderTurnRef("provider-turn"), Optional.empty());
         stores.insert(managedTask(taskId));
@@ -236,10 +234,7 @@ class TestAgentMaintenance
         stores.insert(managedTask(taskId).claimWorktreeMutation(WorktreeMutationClaim.recovery("launch-1", NOW), NOW));
 
         maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10))
-                .settleAfterProcessRecovery(
-                        ImmutableMap.of(taskId, "launch-2"),
-                        ImmutableSet.of("launch-1"),
-                        true);
+                .settleAfterProcessRecovery(ImmutableMap.of(taskId, "launch-2"), ImmutableSet.of("launch-1"), true);
 
         assertThat(stores.find(taskId).orElseThrow().worktreeMutationClaim())
                 .contains(WorktreeMutationClaim.recovery("launch-2", NOW.plusSeconds(10)));
@@ -254,20 +249,12 @@ class TestAgentMaintenance
         stores.insert(blocked);
         AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10));
 
-        AgentTask stillBlocked = maintenance.settleRecoveryClaim(
-                taskId,
-                blocked.version(),
-                "launch-1",
-                Optional.of("launch-2"));
+        AgentTask stillBlocked = maintenance.settleRecoveryClaim(taskId, blocked.version(), "launch-1", Optional.of("launch-2"));
 
         assertThat(stillBlocked.worktreeMutationClaim())
                 .contains(WorktreeMutationClaim.recovery("launch-2", NOW.plusSeconds(10)));
 
-        AgentTask released = maintenance.settleRecoveryClaim(
-                taskId,
-                stillBlocked.version(),
-                "launch-2",
-                Optional.empty());
+        AgentTask released = maintenance.settleRecoveryClaim(taskId, stillBlocked.version(), "launch-2", Optional.empty());
 
         assertThat(released.worktreeMutationClaim()).isEmpty();
     }
@@ -374,15 +361,7 @@ class TestAgentMaintenance
 
     private static QueuedAgentInput queuedInput(TaskId taskId)
     {
-        return QueuedAgentInput.queued(
-                QueuedInputId.random(),
-                taskId,
-                1,
-                "queue-1",
-                new BlobRef("blobs/queue-1", "text/plain; charset=utf-8", 5),
-                "later",
-                turnSettings(),
-                NOW);
+        return QueuedAgentInput.queued(QueuedInputId.random(), taskId, 1, "queue-1", new BlobRef("blobs/queue-1", "text/plain; charset=utf-8", 5), "later", turnSettings(), NOW);
     }
 
     @Test
@@ -390,10 +369,7 @@ class TestAgentMaintenance
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
         TaskId taskId = TaskId.random();
-        WorktreeMutationClaim claim = new WorktreeMutationClaim(
-                WorktreeMutationClaim.Kind.COMPLETION,
-                "completion-1",
-                NOW);
+        WorktreeMutationClaim claim = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, "completion-1", NOW);
         stores.insert(managedTask(taskId).claimWorktreeMutation(claim, NOW));
 
         maintenance(stores, new RecordingApprovals(), new RecordingCompletion(), NOW.plusSeconds(10)).recover();
@@ -483,18 +459,11 @@ class TestAgentMaintenance
     void submitsDueAndRetryPendingTasksForCleanup()
     {
         InMemoryAgentStores stores = new InMemoryAgentStores();
-        AgentTask failed = managedTask(TaskId.random()).fail(
-                "failed",
-                NOW,
-                NOW.plus(Duration.ofDays(7)));
+        AgentTask failed = managedTask(TaskId.random()).fail("failed", NOW, NOW.plus(Duration.ofDays(7)));
         stores.insert(failed);
         RecordingCompletion completion = new RecordingCompletion();
         Instant maintenanceTime = NOW.plus(Duration.ofDays(8));
-        AgentMaintenance maintenance = maintenance(
-                stores,
-                new RecordingApprovals(),
-                completion,
-                maintenanceTime);
+        AgentMaintenance maintenance = maintenance(stores, new RecordingApprovals(), completion, maintenanceTime);
 
         maintenance.cleanupDue(10);
 
@@ -509,10 +478,7 @@ class TestAgentMaintenance
         AgentTask retryPending = managedTask(TaskId.random())
                 .fail("failed", NOW, NOW.plus(Duration.ofDays(7)))
                 .withCleanupState(CleanupState.RETRY_PENDING, Optional.of("still dirty"), maintenanceTime.minusSeconds(30));
-        AgentTask due = managedTask(TaskId.random()).fail(
-                "failed",
-                NOW.plusSeconds(1),
-                NOW.plus(Duration.ofDays(7)).plusSeconds(1));
+        AgentTask due = managedTask(TaskId.random()).fail("failed", NOW.plusSeconds(1), NOW.plus(Duration.ofDays(7)).plusSeconds(1));
         stores.insert(retryPending);
         stores.insert(due);
         RecordingCompletion completion = new RecordingCompletion();
@@ -538,12 +504,7 @@ class TestAgentMaintenance
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(
-                Optional.empty(),
-                Optional.empty(),
-                AgentPermissionPolicy.AUTO,
-                Duration.ofMinutes(5),
-                ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
     }
 
     private static AgentMaintenance maintenance(
@@ -589,15 +550,7 @@ class TestAgentMaintenance
                 WORKTREE.resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(
-                taskId,
-                true,
-                "Archive test",
-                TitleSource.USER,
-                AgentLaneId.CODEX_CLI,
-                worktree,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                NOW);
+        return AgentTask.created(taskId, true, "Archive test", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private static TaskSummary summary()
@@ -614,15 +567,7 @@ class TestAgentMaintenance
                 WORKTREE.resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(
-                taskId,
-                false,
-                "Recovery test",
-                TitleSource.USER,
-                AgentLaneId.CODEX_CLI,
-                worktree,
-                AgentTaskDefaults.forPermission(permissionPolicy),
-                NOW);
+        return AgentTask.created(taskId, false, "Recovery test", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(permissionPolicy), NOW);
     }
 
     private static final class RecordingApprovals

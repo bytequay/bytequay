@@ -153,8 +153,7 @@ class CommitHistoryRefresher
         Instant attempt = clock.instant();
         try {
             synchronize(workspaceId, refs);
-            CommitRefreshMetadata metadata = new CommitRefreshMetadata(
-                    workspaceId, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty());
+            CommitRefreshMetadata metadata = new CommitRefreshMetadata(workspaceId, Optional.of(attempt), Optional.of(clock.instant()), Optional.empty());
             store.saveRefreshMetadata(metadata);
             return status(metadata);
         }
@@ -223,8 +222,7 @@ class CommitHistoryRefresher
                 git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
                 continue;
             }
-            enrich(context, ref, token, now).forEach(value -> updates.merge(
-                    new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryRefresher::merge));
+            enrich(context, ref, token, now).forEach(value -> updates.merge(new EnrichmentKey(value.repositoryId(), value.sha()), value, CommitHistoryRefresher::merge));
         }
         return updates.values();
     }
@@ -238,8 +236,7 @@ class CommitHistoryRefresher
         long repositoryId = ref.repositoryId().orElseThrow();
         RepoRef repository = ref.repository().orElseThrow();
         List<Commit> commits = git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
-        Map<String, CommitEnrichment> existing = enrichment.findCommits(
-                        repositoryId, commits.stream().map(Commit::sha).toList())
+        Map<String, CommitEnrichment> existing = enrichment.findCommits(repositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
         int avatarLimit = avatarScanLimit(commits, existing, now);
@@ -258,13 +255,10 @@ class CommitHistoryRefresher
                 .filter(commit -> RepositoryEnrichmentService.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
                 .toList();
-        PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(
-                repository, dueAssociations, ref.providerRef(), new ArrayList<>());
+        PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(repository, dueAssociations, ref.providerRef(), new ArrayList<>());
         checkState(associationSnapshot.failedShas().isEmpty(), "commit pull-request synchronization failed");
         Map<String, PullRequestAssociation> associations = associationSnapshot.associations().stream()
-                .collect(toImmutableMap(
-                        PullRequestLookupResult.Association::sha,
-                        PullRequestLookupResult.Association::pullRequest));
+                .collect(toImmutableMap(PullRequestLookupResult.Association::sha, PullRequestLookupResult.Association::pullRequest));
         return commits.stream()
                 .map(commit -> enrichment(
                         repositoryId,
@@ -354,8 +348,7 @@ class CommitHistoryRefresher
     private CommitRefreshStatus fail(String workspaceId, Instant attempt, RuntimeException failure)
     {
         String reference = UUID.randomUUID().toString();
-        log.warn("Commit history refresh failed for workspace {} [{}]: {}",
-                workspaceId, reference, failure.getMessage());
+        log.warn("Commit history refresh failed for workspace {} [{}]: {}", workspaceId, reference, failure.getMessage());
         CommitRefreshMetadata current = store.findRefreshMetadata(workspaceId);
         CommitRefreshMetadata failed = new CommitRefreshMetadata(
                 workspaceId,
@@ -366,8 +359,7 @@ class CommitHistoryRefresher
             store.saveRefreshMetadata(failed);
         }
         catch (RuntimeException statusFailure) {
-            log.warn("Could not persist failed commit refresh metadata for workspace {}: {}",
-                    workspaceId, statusFailure.getMessage());
+            log.warn("Could not persist failed commit refresh metadata for workspace {}: {}", workspaceId, statusFailure.getMessage());
         }
         return status(failed);
     }

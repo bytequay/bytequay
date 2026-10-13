@@ -56,9 +56,7 @@ final class DeterministicAgentDriver
             false,
             false,
             true,
-            ImmutableSet.of(
-                    com.bytequay.agent.spi.AgentPermissionPolicy.AUTO,
-                    com.bytequay.agent.spi.AgentPermissionPolicy.AUTO),
+            ImmutableSet.of(com.bytequay.agent.spi.AgentPermissionPolicy.AUTO, com.bytequay.agent.spi.AgentPermissionPolicy.AUTO),
             ImmutableSet.of());
 
     private final AgentLaneId laneId;
@@ -126,8 +124,7 @@ final class DeterministicAgentDriver
     {
         AgentProviderStatus status = probe();
         if (model.isPresent() && model.equals(unsupportedModel)) {
-            return new AgentProviderStatus(laneId, AgentProviderStatus.Readiness.UNSUPPORTED,
-                    status.version(), "model unavailable", CAPABILITIES);
+            return new AgentProviderStatus(laneId, AgentProviderStatus.Readiness.UNSUPPORTED, status.version(), "model unavailable", CAPABILITIES);
         }
         return status;
     }
@@ -141,10 +138,7 @@ final class DeterministicAgentDriver
     public synchronized AgentSession open(AgentSessionContext context, AgentEventSink events)
     {
         openedContexts.add(context);
-        AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
-                laneId,
-                1,
-                "session-" + UUID.randomUUID()));
+        AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(laneId, 1, "session-" + UUID.randomUUID()));
         openedReferences.add(reference);
         RuntimeException sessionFailure = nextSessionReferenceAndCloseFailure;
         nextSessionReferenceAndCloseFailure = null;
@@ -353,10 +347,7 @@ final class DeterministicAgentDriver
                 RuntimeException turnFailure = nextTurnReferenceAndCancelFailure;
                 nextTurnReferenceAndCancelFailure = null;
                 running = new DeterministicRunningTurn(context, events, command, beforeCancel, turnFailure);
-                running.emit(new ProviderAgentEvent.Lifecycle(
-                        Optional.empty(),
-                        ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
-                        "turn started"));
+                running.emit(new ProviderAgentEvent.Lifecycle(Optional.empty(), ProviderAgentEvent.LifecyclePhase.TURN_STARTED, "turn started"));
                 afterStart.run();
                 if (completeNextStart) {
                     completeNextStart = false;
@@ -458,16 +449,8 @@ final class DeterministicAgentDriver
                 return;
             }
             beforeCancel.run();
-            emit(new ProviderAgentEvent.Lifecycle(
-                    Optional.empty(),
-                    ProviderAgentEvent.LifecyclePhase.INTERRUPTED,
-                    "turn cancelled"));
-            completion.complete(new AgentTurnResult(
-                    AgentTurnResult.State.CANCELLED,
-                    Optional.empty(),
-                    Optional.of("cancelled"),
-                    Duration.ZERO,
-                    true));
+            emit(new ProviderAgentEvent.Lifecycle(Optional.empty(), ProviderAgentEvent.LifecyclePhase.INTERRUPTED, "turn cancelled"));
+            completion.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("cancelled"), Duration.ZERO, true));
         }
 
         private void emit(ProviderAgentEvent event)
@@ -485,31 +468,14 @@ final class DeterministicAgentDriver
         private void complete(String response)
         {
             checkState(!completion.isDone(), "deterministic turn is already complete");
-            emit(new ProviderAgentEvent.Message(
-                    Optional.of("message-" + command.turnId()),
-                    ProviderAgentEvent.MessagePhase.FINAL,
-                    response,
-                    ProviderAgentEventSource.root()));
-            emit(new ProviderAgentEvent.Lifecycle(
-                    Optional.empty(),
-                    ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED,
-                    "turn completed"));
-            completion.complete(new AgentTurnResult(
-                    AgentTurnResult.State.COMPLETED,
-                    Optional.of(response),
-                    Optional.empty(),
-                    Duration.ZERO,
-                    true));
+            emit(new ProviderAgentEvent.Message(Optional.of("message-" + command.turnId()), ProviderAgentEvent.MessagePhase.FINAL, response, ProviderAgentEventSource.root()));
+            emit(new ProviderAgentEvent.Lifecycle(Optional.empty(), ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED, "turn completed"));
+            completion.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(response), Optional.empty(), Duration.ZERO, true));
         }
 
         private void interrupt(String reason, boolean providerQuiescent)
         {
-            completion.complete(new AgentTurnResult(
-                    AgentTurnResult.State.INTERRUPTED,
-                    Optional.empty(),
-                    Optional.of(reason),
-                    Duration.ZERO,
-                    providerQuiescent));
+            completion.complete(new AgentTurnResult(AgentTurnResult.State.INTERRUPTED, Optional.empty(), Optional.of(reason), Duration.ZERO, providerQuiescent));
         }
 
         private void completeUnverified(String response)
@@ -526,13 +492,7 @@ final class DeterministicAgentDriver
         private void fail(String reason, AgentTurnFailureKind failureKind)
         {
             checkState(!completion.isDone(), "deterministic turn is already complete");
-            completion.complete(new AgentTurnResult(
-                    AgentTurnResult.State.FAILED,
-                    Optional.empty(),
-                    Optional.of(reason),
-                    Duration.ZERO,
-                    true,
-                    Optional.of(failureKind)));
+            completion.complete(new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of(reason), Duration.ZERO, true, Optional.of(failureKind)));
         }
 
         private void failCompletion(RuntimeException failure)

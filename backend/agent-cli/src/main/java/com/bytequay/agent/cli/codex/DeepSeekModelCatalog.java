@@ -39,8 +39,7 @@ final class DeepSeekModelCatalog
         try {
             verifyHome(path.getParent());
             CodexHome.prepare(path.getParent());
-            temporary = Files.createTempFile(path.getParent(), ".deepseek-models-", ".json",
-                    PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
+            temporary = Files.createTempFile(path.getParent(), ".deepseek-models-", ".json", PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------")));
             Files.write(temporary, contents());
             Files.move(temporary, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         }

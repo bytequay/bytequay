@@ -128,8 +128,7 @@ class TestInteractiveAgentTaskCreator
         when(git.run(any(Path.class), eq("for-each-ref"), eq("--format=%(refname)"), any(String.class), any(String.class), any(String.class)))
                 .thenReturn(new GitCommandRunner.Result(0, "", false));
         CredentialService credentials = mock(CredentialService.class);
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential(
-                "test-token", new UserProfile("Chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("test-token", new UserProfile("Chenjian2664", "", "", "", 0, 0, 0, "", "", "", "")));
         creator = new InteractiveAgentTaskCreator(tasks, turns, drivers, models, workspaces, provisioning, git, settings, progress, names, pullRequests, credentials);
     }
 
@@ -181,10 +180,7 @@ class TestInteractiveAgentTaskCreator
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/origin/main^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
 
-        create(new AgentTaskDefaults(
-                        Optional.of("model-a"),
-                        Optional.of("high"),
-                        AgentPermissionPolicy.AUTO));
+        create(new AgentTaskDefaults(Optional.of("model-a"), Optional.of("high"), AgentPermissionPolicy.AUTO));
 
         ArgumentCaptor<CreateInteractiveAgentTaskCommand> command =
                 ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
@@ -223,10 +219,7 @@ class TestInteractiveAgentTaskCreator
         when(git.run(repository, "rev-parse", "--verify", "refs/remotes/upstream/master^{commit}"))
                 .thenReturn(new GitCommandRunner.Result(0, START_COMMIT + "\n", false));
 
-        create(new AgentTaskDefaults(
-                        Optional.of("model-a"),
-                        Optional.of("high"),
-                        AgentPermissionPolicy.AUTO));
+        create(new AgentTaskDefaults(Optional.of("model-a"), Optional.of("high"), AgentPermissionPolicy.AUTO));
 
         ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(tasks).createInteractive(command.capture());
@@ -345,8 +338,7 @@ class TestInteractiveAgentTaskCreator
     void deepSeekRejectsInvalidSelectedCiLaneBeforeRepositoryWork()
     {
         AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
-        DevelopmentAutomation invalid = new DevelopmentAutomation(true, false, true,
-                Optional.of(new AgentLaneId("unsupported")));
+        DevelopmentAutomation invalid = new DevelopmentAutomation(true, false, true, Optional.of(new AgentLaneId("unsupported")));
         doThrow(new IllegalArgumentException("Agent lane unsupported does not support CI Autofix"))
                 .when(settings).validateDevelopmentAutomation(invalid);
 
@@ -468,12 +460,7 @@ class TestInteractiveAgentTaskCreator
 
     private void ready()
     {
-        AgentProviderStatus ready = new AgentProviderStatus(
-                AgentLaneId.CODEX_CLI,
-                AgentProviderStatus.Readiness.READY,
-                Optional.of("test"),
-                "ready",
-                AgentCapabilities.none());
+        AgentProviderStatus ready = new AgentProviderStatus(AgentLaneId.CODEX_CLI, AgentProviderStatus.Readiness.READY, Optional.of("test"), "ready", AgentCapabilities.none());
         when(driver.probe()).thenReturn(ready);
         when(driver.probe(any())).thenReturn(ready);
     }
@@ -495,10 +482,7 @@ class TestInteractiveAgentTaskCreator
 
     private static AgentTaskDefaults defaults()
     {
-        return new AgentTaskDefaults(
-                Optional.of("model-a"),
-                Optional.of("high"),
-                AgentPermissionPolicy.AUTO);
+        return new AgentTaskDefaults(Optional.of("model-a"), Optional.of("high"), AgentPermissionPolicy.AUTO);
     }
 
     private WorkspaceRepositoryContext workspace(Path repository)

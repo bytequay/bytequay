@@ -373,8 +373,7 @@ public class ReviewCodeService
             throw notFound(path);
         }
         byte[] bytes = shown.output().getBytes(UTF_8);
-        return content(path, bytes, shown.truncated() || bytes.length > MAXIMUM_FILE_BYTES, Optional.of("Historical source is read-only"),
-                Optional.empty(), ImmutableList::of);
+        return content(path, bytes, shown.truncated() || bytes.length > MAXIMUM_FILE_BYTES, Optional.of("Historical source is read-only"), Optional.empty(), ImmutableList::of);
     }
 
     private String historyRevision(Source source, Path root, String revision)

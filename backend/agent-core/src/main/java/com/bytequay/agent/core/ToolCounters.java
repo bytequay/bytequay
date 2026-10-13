@@ -34,9 +34,6 @@ public record ToolCounters(long toolCalls, long exploreActions, long compactions
 
     public ToolCounters plus(ToolCounters other)
     {
-        return new ToolCounters(
-                addExact(toolCalls, other.toolCalls),
-                addExact(exploreActions, other.exploreActions),
-                addExact(compactions, other.compactions));
+        return new ToolCounters(addExact(toolCalls, other.toolCalls), addExact(exploreActions, other.exploreActions), addExact(compactions, other.compactions));
     }
 }

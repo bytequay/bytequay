@@ -39,11 +39,6 @@ public record AgentCapabilities(
 
     public static AgentCapabilities none()
     {
-        return new AgentCapabilities(
-                false,
-                false,
-                false,
-                ImmutableSet.of(AgentPermissionPolicy.AUTO),
-                ImmutableSet.of());
+        return new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of());
     }
 }

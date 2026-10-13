@@ -506,8 +506,7 @@ class TestGitHubActionsClient
     {
         for (HttpStatus status : ImmutableList.of(HttpStatus.NOT_FOUND, HttpStatus.GONE)) {
             Fixture fixture = fixture();
-            fixture.apiServer.expect(requestTo(
-                            "https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
+            fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/jobs/902/logs"))
                     .andRespond(withStatus(status));
 
             BoundedCiLog log = fixture.client.readLog(logQuery(1024));
@@ -751,8 +750,7 @@ class TestGitHubActionsClient
     {
         Fixture fixture = fixture();
         expectFailedWorkflow(fixture);
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/actions/runs/900/rerun-failed-jobs"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/runs/900/rerun-failed-jobs"))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withStatus(HttpStatus.CREATED));
 
@@ -767,8 +765,7 @@ class TestGitHubActionsClient
     {
         Fixture fixture = fixture();
         expectFailedWorkflow(fixture);
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/actions/runs/900/rerun-failed-jobs"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/actions/runs/900/rerun-failed-jobs"))
                 .andExpect(method(HttpMethod.POST))
                 .andRespond(withStatus(HttpStatus.FORBIDDEN)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -813,8 +810,7 @@ class TestGitHubActionsClient
     void readsExistingPrCheckRuns()
     {
         Fixture fixture = fixture();
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         {"total_count":1,"check_runs":[{
                           "id":99,"name":"build","status":"completed","conclusion":"failure",
@@ -824,8 +820,7 @@ class TestGitHubActionsClient
                           "output":{"title":"Tests failed","summary":"One failure"}
                         }]}
                         """, MediaType.APPLICATION_JSON));
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/status"))
                 .andRespond(withSuccess("""
                         {"statuses":[
                           {"id":100,"context":"license","state":"success",
@@ -837,8 +832,7 @@ class TestGitHubActionsClient
                         ]}
                         """, MediaType.APPLICATION_JSON));
 
-        List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns(
-                "pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
+        List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns("pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
         PrCheckRunState check = checks.getFirst();
 
         assertThat(check.githubId()).isEqualTo(99L);
@@ -865,22 +859,18 @@ class TestGitHubActionsClient
                         {"id":%d,"name":"check-%d","status":"completed","conclusion":"success"}
                         """.formatted(index + 1, index + 1))
                 .collect(joining(",", "{\"total_count\":101,\"check_runs\":[", "]}"));
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
                 .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=2"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         {"total_count":101,"check_runs":[
                           {"id":101,"name":"check-101","status":"completed","conclusion":"success"}
                         ]}
                         """, MediaType.APPLICATION_JSON));
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/status"))
                 .andRespond(withSuccess("{\"statuses\":[]}", MediaType.APPLICATION_JSON));
 
-        List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns(
-                "pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
+        List<PrCheckRunState> checks = fixture.client.refreshPrCheckRuns("pat", "owner", "repo", "head", ImmutableList.of(), Optional.empty(), Optional.empty()).checkRuns();
 
         assertThat(checks).hasSize(101);
         assertThat(checks.getLast().name()).isEqualTo("check-101");
@@ -891,12 +881,10 @@ class TestGitHubActionsClient
     void conditionalPrChecksReuseStoredValuesOnNotModified()
     {
         Fixture fixture = fixture();
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"checks-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"checks-1\""));
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/status"))
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"statuses-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"statuses-1\""));
         List<PrCheckRunState> existing = ImmutableList.of(
@@ -922,12 +910,10 @@ class TestGitHubActionsClient
     void conditionalPrChecksUseTheStoredEtagAtExactlyOnePageOfCheckRuns()
     {
         Fixture fixture = fixture();
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"checks-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"checks-1\""));
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/status"))
                 .andRespond(withSuccess("{\"statuses\":[]}", MediaType.APPLICATION_JSON));
 
         GitHubActionsClient.PrCheckRunsFetch result = fixture.client.refreshPrCheckRuns(
@@ -942,16 +928,14 @@ class TestGitHubActionsClient
     void conditionalPrChecksIgnoreTheStoredEtagBeyondOnePageOfCheckRuns()
     {
         Fixture fixture = fixture();
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/check-runs?per_page=100&page=1"))
                 .andExpect(headerDoesNotExist(HttpHeaders.IF_NONE_MATCH))
                 .andRespond(withSuccess("""
                         {"total_count":1,"check_runs":[
                           {"id":1,"name":"build","status":"completed","conclusion":"success"}
                         ]}
                         """, MediaType.APPLICATION_JSON));
-        fixture.apiServer.expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits/head/status"))
+        fixture.apiServer.expect(requestTo("https://api.github.test/repos/owner/repo/commits/head/status"))
                 .andRespond(withSuccess("{\"statuses\":[]}", MediaType.APPLICATION_JSON));
 
         GitHubActionsClient.PrCheckRunsFetch result = fixture.client.refreshPrCheckRuns(

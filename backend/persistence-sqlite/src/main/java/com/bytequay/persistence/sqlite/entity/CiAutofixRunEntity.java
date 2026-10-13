@@ -302,13 +302,7 @@ public class CiAutofixRunEntity
                 baseRef,
                 laneId,
                 Optional.ofNullable(parentTaskId));
-        Authorization authorization = new Authorization(
-                allowFailedJobReruns,
-                allowHistoryRewrites,
-                allowExactLeasePush,
-                maxFixAttempts,
-                authorizedAt,
-                authorizationExpiresAt);
+        Authorization authorization = new Authorization(allowFailedJobReruns, allowHistoryRewrites, allowExactLeasePush, maxFixAttempts, authorizedAt, authorizationExpiresAt);
         return new CiAutofixRun(
                 CiAutofixRunId.valueOf(id),
                 startIdempotencyKey,
@@ -375,13 +369,7 @@ public class CiAutofixRunEntity
     private Optional<PushJournal> pushJournal()
     {
         return Optional.ofNullable(pushAttemptId)
-                .map(attempt -> new PushJournal(
-                        CiAutofixAttemptId.valueOf(attempt),
-                        pushExpectedRemoteSha,
-                        pushLocalHeadSha,
-                        pushLocalFingerprint,
-                        pushStartedAt,
-                        pushRetries));
+                .map(attempt -> new PushJournal(CiAutofixAttemptId.valueOf(attempt), pushExpectedRemoteSha, pushLocalHeadSha, pushLocalFingerprint, pushStartedAt, pushRetries));
     }
 
     private void updateRerunJournal(Optional<RerunJournal> journal)

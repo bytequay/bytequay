@@ -179,12 +179,7 @@ public final class DefaultAgentCompletionService
         if (worktree.uncommitted() || worktree.gitOperationInProgress()) {
             throw new AgentConflictException("Task worktree is not clean: " + task.id());
         }
-        return new TaskSummary(
-                finalResponse.response(),
-                Optional.of(worktree),
-                metrics,
-                notes,
-                finalResponse.children());
+        return new TaskSummary(finalResponse.response(), Optional.of(worktree), metrics, notes, finalResponse.children());
     }
 
     private AgentTask persistCompletion(TaskId taskId, WorktreeMutationClaim claim, TaskSummary summary)
@@ -195,13 +190,7 @@ public final class DefaultAgentCompletionService
         return unitOfWork.execute(() -> {
             AgentTask current = taskStore.require(taskId);
             AgentTask terminal = taskStore.update(current.complete(summary, completedAt, deleteAfter, claim));
-            outboxStore.insert(pendingLifecycle(
-                    eventId,
-                    terminal.id(),
-                    Optional.empty(),
-                    AgentEventPayload.LifecyclePhase.TASK_COMPLETED,
-                    "Task completed",
-                    completedAt));
+            outboxStore.insert(pendingLifecycle(eventId, terminal.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.TASK_COMPLETED, "Task completed", completedAt));
             return terminal;
         });
     }
@@ -425,10 +414,6 @@ public final class DefaultAgentCompletionService
 
     private static TaskCompletion completion(AgentTask task)
     {
-        return new TaskCompletion(
-                task.id(),
-                task.summary().orElseThrow(),
-                task.terminalAt().orElseThrow(),
-                task.deleteAfter().orElseThrow());
+        return new TaskCompletion(task.id(), task.summary().orElseThrow(), task.terminalAt().orElseThrow(), task.deleteAfter().orElseThrow());
     }
 }

@@ -102,8 +102,7 @@ final class CherryPickExecutionMonitorJob
 
     private List<CherryPickExecutionId> finishedWithPendingCleanup()
     {
-        return finishedExecutions(taskStore.listPendingWorktreeCleanup(
-                AgentPermissionPolicy.CHERRY_PICK, retryBefore()));
+        return finishedExecutions(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CHERRY_PICK, retryBefore()));
     }
 
     private List<CherryPickExecutionId> finishedExecutions(List<AgentTask> tasks)

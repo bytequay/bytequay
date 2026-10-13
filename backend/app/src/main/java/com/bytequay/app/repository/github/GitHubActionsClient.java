@@ -122,12 +122,7 @@ public class GitHubActionsClient
             TaskLogStore taskLogStore,
             CiRawLogStore rawLogs)
     {
-        this(
-                gitHubRestClient,
-                logRestClient,
-                credentials::resolveGitHubToken,
-                taskLogStore::writeBlob,
-                rawLogs);
+        this(gitHubRestClient, logRestClient, credentials::resolveGitHubToken, taskLogStore::writeBlob, rawLogs);
     }
 
     GitHubActionsClient(
@@ -411,11 +406,7 @@ public class GitHubActionsClient
         }
         try {
             gitHubRestClient.post()
-                    .uri(
-                            "/repos/{owner}/{repo}/actions/runs/{runId}/rerun-failed-jobs",
-                            command.pullRequest().owner(),
-                            command.pullRequest().repo(),
-                            command.workflowRunId())
+                    .uri("/repos/{owner}/{repo}/actions/runs/{runId}/rerun-failed-jobs", command.pullRequest().owner(), command.pullRequest().repo(), command.workflowRunId())
                     .header("Authorization", authorization(pat))
                     .retrieve()
                     .toBodilessEntity();
@@ -620,11 +611,7 @@ public class GitHubActionsClient
         int attempt = job.runAttempt() <= 0 ? workflowAttempt : job.runAttempt();
         List<CiStep> steps = Optional.ofNullable(job.steps()).orElse(ImmutableList.of()).stream()
                 .filter(step -> step.number() > 0 && step.name() != null && step.status() != null)
-                .map(step -> new CiStep(
-                        step.number(),
-                        step.name(),
-                        step.status(),
-                        Optional.ofNullable(step.conclusion())))
+                .map(step -> new CiStep(step.number(), step.name(), step.status(), Optional.ofNullable(step.conclusion())))
                 .collect(toImmutableList());
         return new CiJob(
                 job.id(),

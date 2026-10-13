@@ -417,12 +417,7 @@ public class ReviewController
         PullRequestRefUtil.parseRef(repo, number);
         requireNotBlank(request.reviewId(), "reviewId must not be blank");
         requireNotBlank(request.findingId(), "findingId must not be blank");
-        return ReviewHttpModels.draft(publications.addFinding(
-                repo,
-                number,
-                required(request.expectedVersion(), "expectedVersion"),
-                request.reviewId(),
-                request.findingId()));
+        return ReviewHttpModels.draft(publications.addFinding(repo, number, required(request.expectedVersion(), "expectedVersion"), request.reviewId(), request.findingId()));
     }
 
     @PutMapping("/drafts/items/{itemId}")

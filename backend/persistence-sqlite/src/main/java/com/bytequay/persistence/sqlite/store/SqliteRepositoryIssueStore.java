@@ -58,11 +58,7 @@ public class SqliteRepositoryIssueStore
     {
         requireNonNull(repositoryRef, "repositoryRef is null");
         RepositoryIssueSyncEntity sync = repository.findById(repositoryId).orElse(null);
-        var rows = issueRows.findByRepositoryId(
-                repositoryId,
-                PageRequest.of(page, pageSize, Sort.by(
-                        Sort.Order.desc("updatedAt"),
-                        Sort.Order.desc("number"))));
+        var rows = issueRows.findByRepositoryId(repositoryId, PageRequest.of(page, pageSize, Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("number"))));
         return new RepositoryIssuePage(
                 repositoryId,
                 repositoryRef,
@@ -88,8 +84,7 @@ public class SqliteRepositoryIssueStore
     {
         List<RepositoryIssue> fresh = ImmutableList.copyOf(requireNonNull(issues, "issues is null"));
         requireNonNull(syncMarker, "syncMarker is null");
-        Map<Long, RepositoryIssueEntity> stored = issueRows.findAllById(
-                        fresh.stream().map(RepositoryIssue::id).toList()).stream()
+        Map<Long, RepositoryIssueEntity> stored = issueRows.findAllById(fresh.stream().map(RepositoryIssue::id).toList()).stream()
                 .collect(toMap(RepositoryIssueEntity::getId, identity()));
         issueRows.saveAll(fresh.stream()
                 .map(issue -> {
@@ -130,10 +125,7 @@ public class SqliteRepositoryIssueStore
     {
         RepositoryIssueEntity issue = issueRows.findByRepositoryIdAndNumber(repositoryId, issueNumber)
                 .orElseThrow(() -> new IllegalArgumentException("issue is not stored: " + issueNumber));
-        issue.updateMetadata(
-                requireNonNull(assignees, "assignees is null"),
-                requireNonNull(labels, "labels is null"),
-                requireNonNull(updatedAt, "updatedAt is null"));
+        issue.updateMetadata(requireNonNull(assignees, "assignees is null"), requireNonNull(labels, "labels is null"), requireNonNull(updatedAt, "updatedAt is null"));
     }
 
     @Override

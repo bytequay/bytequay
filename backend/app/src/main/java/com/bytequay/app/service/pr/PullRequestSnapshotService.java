@@ -83,8 +83,7 @@ public class PullRequestSnapshotService
     Optional<PullRequestDetail> findDetail(String repo, int number, long prId)
     {
         return details.find(prId)
-                .map(stored -> PullRequestDetailMapper.toPullRequestDetail(
-                        prId, repo, number, stored, stored.viewerCanWrite()));
+                .map(stored -> PullRequestDetailMapper.toPullRequestDetail(prId, repo, number, stored, stored.viewerCanWrite()));
     }
 
     Map<Long, String> findAuthorAvatarUrls(Set<Long> prIds)
@@ -132,8 +131,7 @@ public class PullRequestSnapshotService
         int accepted = 0;
         String rejection = "GitHub did not accept the failed-job rerun";
         for (CiWorkflowRun run : failedRuns) {
-            CiRerunResult result = actions.rerunFailedJobs(new RerunFailedJobsCommand(
-                    pullRequest, run.id(), head.headSha(), run.attempt(), true));
+            CiRerunResult result = actions.rerunFailedJobs(new RerunFailedJobsCommand(pullRequest, run.id(), head.headSha(), run.attempt(), true));
             if (result.outcome() == CiRerunResult.Outcome.ACCEPTED) {
                 accepted++;
             }
@@ -369,8 +367,7 @@ public class PullRequestSnapshotService
     private static void validateRange(String baseSha, String headSha)
     {
         if ((baseSha == null) != (headSha == null)) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST, "base and head must be provided together");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "base and head must be provided together");
         }
         if (baseSha != null) {
             requireNotBlank(baseSha, "base");

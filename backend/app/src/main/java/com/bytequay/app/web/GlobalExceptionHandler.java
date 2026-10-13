@@ -162,8 +162,7 @@ public class GlobalExceptionHandler
     public ResponseEntity<ErrorResponse> handleContextStorage(ContextStorageException exception, HttpServletRequest request)
     {
         log.error("Spec check storage failed: {}", request.getRequestURI(), exception);
-        return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                "Saved spec checks could not be read or saved. Reload before retrying.", request.getRequestURI());
+        return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(), "Saved spec checks could not be read or saved. Reload before retrying.", request.getRequestURI());
     }
 
     @ExceptionHandler(AgentProviderUnavailableException.class)
@@ -195,18 +194,14 @@ public class GlobalExceptionHandler
             AgentStorageException exception, HttpServletRequest request)
     {
         log.error("Agent storage request failed: {}", request.getRequestURI(), exception);
-        return errorResponse(
-                HttpStatus.INTERNAL_SERVER_ERROR.value(),
-                INTERNAL_SERVER_ERROR_MESSAGE,
-                request.getRequestURI());
+        return errorResponse(HttpStatus.INTERNAL_SERVER_ERROR.value(), INTERNAL_SERVER_ERROR_MESSAGE, request.getRequestURI());
     }
 
     @ExceptionHandler(WorkspaceException.class)
     public ResponseEntity<WorkspaceErrorResponse> handleWorkspaceException(WorkspaceException exception)
     {
         return ResponseEntity.status(exception.status())
-                .body(new WorkspaceErrorResponse(
-                        exception.code(), exception.getMessage(), exception.retryable()));
+                .body(new WorkspaceErrorResponse(exception.code(), exception.getMessage(), exception.retryable()));
     }
 
     /**

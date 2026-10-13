@@ -40,10 +40,7 @@ public final class ProviderAgentEventAdapter
                 event.providerEventId());
         AgentEventPayload payload = switch (event) {
             case ProviderAgentEvent.DevelopmentResult result -> new AgentEventPayload.DevelopmentResult(result.report());
-            case ProviderAgentEvent.Message message -> new AgentEventPayload.AssistantMessage(
-                    message.messageKind(),
-                    message.phase(),
-                    message.text());
+            case ProviderAgentEvent.Message message -> new AgentEventPayload.AssistantMessage(message.messageKind(), message.phase(), message.text());
             case ProviderAgentEvent.Plan plan -> new AgentEventPayload.PlanUpdated(plan.items());
             case ProviderAgentEvent.Tool tool -> new AgentEventPayload.ToolActivity(
                     tool.name(),
@@ -62,19 +59,10 @@ public final class ProviderAgentEventAdapter
                     command.actions(),
                     command.background(),
                     command.description());
-            case ProviderAgentEvent.FileChange file -> new AgentEventPayload.FileActivity(
-                    ActivityState.COMPLETED,
-                    file.relativePath(),
-                    file.change(),
-                    file.diff());
+            case ProviderAgentEvent.FileChange file -> new AgentEventPayload.FileActivity(ActivityState.COMPLETED, file.relativePath(), file.change(), file.diff());
             case ProviderAgentEvent.Usage usage -> usage(usage.sample());
-            case ProviderAgentEvent.Lifecycle lifecycle -> new AgentEventPayload.Lifecycle(
-                    AgentEventPayload.LifecyclePhase.valueOf(lifecycle.phase().name()),
-                    lifecycle.message());
-            case ProviderAgentEvent.Error error -> new AgentEventPayload.Error(
-                    error.code(),
-                    error.message(),
-                    error.retryable());
+            case ProviderAgentEvent.Lifecycle lifecycle -> new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.valueOf(lifecycle.phase().name()), lifecycle.message());
+            case ProviderAgentEvent.Error error -> new AgentEventPayload.Error(error.code(), error.message(), error.retryable());
         };
         return new CanonicalEvent(source, payload);
     }

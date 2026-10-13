@@ -39,10 +39,7 @@ public class BetterWordsController
     public BetterWordsResponse improve(@RequestBody BetterWordsRequest request)
     {
         checkArgument(request != null, "Request body is required.");
-        return new BetterWordsResponse(betterWords.improve(
-                request.text(),
-                request.repository(),
-                Optional.ofNullable(request.workspaceId()).filter(value -> !value.isBlank())));
+        return new BetterWordsResponse(betterWords.improve(request.text(), request.repository(), Optional.ofNullable(request.workspaceId()).filter(value -> !value.isBlank())));
     }
 
     public record BetterWordsRequest(String text, String repository, String workspaceId) {}

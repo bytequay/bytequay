@@ -56,11 +56,7 @@ class TestProviderAgentEventAdapter
                 Optional.of("/review/tests"),
                 Optional.of("turn-1"),
                 Optional.of("message-1"));
-        ProviderAgentEvent.Message message = new ProviderAgentEvent.Message(
-                Optional.of("event-1"),
-                ProviderAgentEvent.MessagePhase.FINAL,
-                "done",
-                source);
+        ProviderAgentEvent.Message message = new ProviderAgentEvent.Message(Optional.of("event-1"), ProviderAgentEvent.MessagePhase.FINAL, "done", source);
 
         AgentEventSource adapted = ProviderAgentEventAdapter.adapt(message).source();
 

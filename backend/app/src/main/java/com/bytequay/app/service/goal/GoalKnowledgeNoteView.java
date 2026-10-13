@@ -45,7 +45,6 @@ public record GoalKnowledgeNoteView(String id, String topic, String body, List<G
 
     static GoalKnowledgeNoteView of(GoalKnowledgeNote note, boolean stale, Set<String> memories)
     {
-        return new GoalKnowledgeNoteView(note.id(), note.topic(), note.body(), note.sources(), note.taskId(), note.savedAt(), stale,
-                note.memoryId().filter(memories::contains));
+        return new GoalKnowledgeNoteView(note.id(), note.topic(), note.body(), note.sources(), note.taskId(), note.savedAt(), stale, note.memoryId().filter(memories::contains));
     }
 }

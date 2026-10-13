@@ -80,8 +80,7 @@ final class SqliteWorkspacePurge
         // Acquire SQLite's writer lock before checking that no task/workflow was started during filesystem cleanup.
         update("UPDATE watched_repo_workspaces SET watched = watched WHERE id = :workspaceId", parameters);
         checkState(!hasActiveWorkflows(id), "Workspace has an active workflow: %s", id);
-        checkState(!exists("SELECT EXISTS (SELECT 1 FROM agent_task WHERE id IN (" + workspaceTaskIds() + "))", parameters),
-                "Workspace still has agent tasks: %s", id);
+        checkState(!exists("SELECT EXISTS (SELECT 1 FROM agent_task WHERE id IN (" + workspaceTaskIds() + "))", parameters), "Workspace still has agent tasks: %s", id);
 
         List<Workspace> others = entities.createQuery("FROM WorkspaceEntity WHERE id <> :id", WorkspaceEntity.class)
                 .setParameter("id", id).getResultList().stream().map(WorkspaceEntity::toDomain).collect(toImmutableList());
@@ -123,9 +122,7 @@ final class SqliteWorkspacePurge
         // agent type, so an exact list silently leaks every suffix a later type adds.
         for (String prefix : ImmutableList.of("workspace.agentModel." + id, "workspace.commitsTargetBranch." + id, "workspace.memory." + id,
                 "workspace.relationships." + id, "workspace.linked-work." + id, "workspace.memoryHarvest." + id, "workspace.reviewReplays." + id)) {
-            update(
-                    "DELETE FROM app_settings WHERE setting_key = :key OR setting_key LIKE :pattern",
-                    ImmutableMap.of("key", prefix, "pattern", prefix + ".%"));
+            update("DELETE FROM app_settings WHERE setting_key = :key OR setting_key LIKE :pattern", ImmutableMap.of("key", prefix, "pattern", prefix + ".%"));
         }
         update("DELETE FROM app_settings WHERE setting_key LIKE 'linked-work.source.%' AND setting_value = :workspaceId", parameters);
         for (Map.Entry<Long, RepoRef> repository : repositories.entrySet()) {

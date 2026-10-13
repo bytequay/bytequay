@@ -53,8 +53,7 @@ class TestSqliteGoalStore
     void savesItemsAndSourceAndReplacesTheStoredGoal()
     {
         GoalSource source = new GoalSource(GoalItemKind.JIRA, GoalItem.jiraKey("connection", "cloud", "10042"));
-        Goal linked = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), 0,
-                Optional.empty(), false, NOW, NOW);
+        Goal linked = new Goal("goal-1", "workspace-1", "Delta Lake correctness", "", true, false, Optional.of(source), Optional.empty(), 0, Optional.empty(), false, NOW, NOW);
         Instant later = NOW.plusSeconds(1);
         Goal other = new Goal("goal-2", "workspace-1", "Parquet performance", "Cut wasted reads", false, false, Optional.empty(), Optional.empty(), 0,
                 Optional.empty(), false, later, later);

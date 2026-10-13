@@ -200,8 +200,7 @@ public class RecentService
         Map<Long, RecentTouch> newestByPr = new HashMap<>();
         for (RecentTouch touch : window) {
             if (touch.type() == RecentItemType.PULL_REQUEST && touch.prId() != null) {
-                newestByPr.merge(touch.prId(), touch,
-                        (existing, fresh) -> fresh.touchedAt().isAfter(existing.touchedAt()) ? fresh : existing);
+                newestByPr.merge(touch.prId(), touch, (existing, fresh) -> fresh.touchedAt().isAfter(existing.touchedAt()) ? fresh : existing);
             }
         }
         if (newestByPr.isEmpty()) {
@@ -544,11 +543,7 @@ public class RecentService
         boolean ciRed = detail.checkRuns().stream().anyMatch(RecentService::failed)
                 && detail.checkRuns().stream()
                         .anyMatch(run -> run.completedAt() != null && run.completedAt().isAfter(since));
-        return new RecentChange(
-                touch.itemKey(),
-                replies > 0 || commits > 0 || ciRed,
-                wantsYou,
-                summary(replies, commits, ciRed));
+        return new RecentChange(touch.itemKey(), replies > 0 || commits > 0 || ciRed, wantsYou, summary(replies, commits, ciRed));
     }
 
     private static boolean failed(PrCheckRunState run)

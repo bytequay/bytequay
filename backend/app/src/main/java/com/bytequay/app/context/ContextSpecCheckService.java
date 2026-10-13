@@ -172,8 +172,7 @@ public class ContextSpecCheckService
         }
         catch (RuntimeException failure) {
             checks.find(workspaceId, check.id()).filter(saved -> saved.state().active()).ifPresent(saved -> checks.save(workspaceId, Optional.of(saved),
-                    saved.ended(ContextSpecCheck.State.FAILED, Optional.of(ContextText.excerpt("The check could not start: " + message(failure), 1000)),
-                            Instant.now(clock))));
+                    saved.ended(ContextSpecCheck.State.FAILED, Optional.of(ContextText.excerpt("The check could not start: " + message(failure), 1000)), Instant.now(clock))));
             throw failure;
         }
     }
@@ -359,8 +358,7 @@ public class ContextSpecCheckService
                     Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty()));
             saved.add("c" + number);
         }
-        checkArgument(candidates.size() <= ContextSpecCheck.MAX_CANDIDATES, "A check keeps at most %s candidates; save the most severe",
-                ContextSpecCheck.MAX_CANDIDATES);
+        checkArgument(candidates.size() <= ContextSpecCheck.MAX_CANDIDATES, "A check keeps at most %s candidates; save the most severe", ContextSpecCheck.MAX_CANDIDATES);
         ContextSpecCheck updated = checks.save(build.workspaceId(), Optional.of(check), check.withCandidates(candidates, checked.orElse(check.checkedAgainst()),
                 covered.isEmpty() ? check.covered() : covered, next.isEmpty() ? check.next() : next));
         checked.ifPresent(specs -> memories.rememberSpecs(build.workspaceId(), check.directory(), specs, build.taskId()));
@@ -386,12 +384,10 @@ public class ContextSpecCheckService
         test.ifPresent(ran -> {
             if (result.outcome() == Status.CONFIRMED) {
                 checkArgument(ran.exitCode() != 0, "The test passed (exit 0): report REFUTED, or make the test assert what the spec requires");
-                checkArgument(NOT_RUN.stream().noneMatch(ran.output()::contains),
-                        "The command failed before the test ran; fix the test, or report NOT_REPRODUCED with the reason");
+                checkArgument(NOT_RUN.stream().noneMatch(ran.output()::contains), "The command failed before the test ran; fix the test, or report NOT_REPRODUCED with the reason");
             }
             if (result.outcome() == Status.REFUTED) {
-                checkArgument(ran.exitCode() == 0, "The test failed (exit %s): report CONFIRMED when its failure shows the gap, otherwise NOT_REPRODUCED",
-                        ran.exitCode());
+                checkArgument(ran.exitCode() == 0, "The test failed (exit %s): report CONFIRMED when its failure shows the gap, otherwise NOT_REPRODUCED", ran.exitCode());
             }
         });
         Optional<Draft> draft = Optional.empty();
@@ -419,8 +415,7 @@ public class ContextSpecCheckService
         String file = path.substring(path.lastIndexOf('/') + 1);
         String stem = file.contains(".") ? file.substring(0, file.indexOf('.')) : file;
         String directory = path.contains("/") ? path.substring(0, path.lastIndexOf('/')) : "";
-        checkArgument(words.stream().anyMatch(word -> word.contains(stem) || !directory.isEmpty() && word.contains(directory)),
-                "command: it does not name the test in %s", path);
+        checkArgument(words.stream().anyMatch(word -> word.contains(stem) || !directory.isEmpty() && word.contains(directory)), "command: it does not name the test in %s", path);
         AgentEventPayload.CommandActivity ran = logs.findLatest(TaskId.valueOf(build.taskId()), envelope -> ranCommand(envelope, turn, words), MAX_RECORDS)
                 .map(envelope -> (AgentEventPayload.CommandActivity) envelope.payload())
                 .orElseThrow(() -> new IllegalArgumentException("command: this turn ran no such command to completion; run the test, then pass the command "

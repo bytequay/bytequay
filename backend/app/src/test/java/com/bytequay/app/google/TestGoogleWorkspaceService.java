@@ -290,8 +290,7 @@ class TestGoogleWorkspaceService
         google.send(google.status().profile(), "one@example.com, two@example.com", "Hello", "Message", "");
         awaitDone();
         assertThat(google.status().error()).isEmpty();
-        verify(session).call("gmail_send", ImmutableMap.of("to", ImmutableList.of("one@example.com", "two@example.com"),
-                "subject", "Hello", "body", "Message", "isHtml", false));
+        verify(session).call("gmail_send", ImmutableMap.of("to", ImmutableList.of("one@example.com", "two@example.com"), "subject", "Hello", "body", "Message", "isHtml", false));
         google.archive(google.status().profile(), "m1");
         awaitDone();
         assertThat(google.status().error()).isEmpty();

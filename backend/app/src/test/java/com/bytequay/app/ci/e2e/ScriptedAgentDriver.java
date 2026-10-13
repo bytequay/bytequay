@@ -123,12 +123,7 @@ final class ScriptedAgentDriver
             WorktreeAction action)
     {
         AgentScript script = requireScript(pullRequest);
-        script.actions().add(AgentAction.completed(
-                untrustedFinalResponse,
-                action,
-                "worktree-action",
-                Optional.empty(),
-                Optional.empty()));
+        script.actions().add(AgentAction.completed(untrustedFinalResponse, action, "worktree-action", Optional.empty(), Optional.empty()));
     }
 
     synchronized void enqueueCompleted(
@@ -140,12 +135,7 @@ final class ScriptedAgentDriver
             Optional<String> changedPath)
     {
         AgentScript script = requireScript(pullRequest);
-        script.actions().add(AgentAction.completed(
-                untrustedFinalResponse,
-                action,
-                actionName,
-                memoryQuery,
-                changedPath));
+        script.actions().add(AgentAction.completed(untrustedFinalResponse, action, actionName, memoryQuery, changedPath));
     }
 
     synchronized void enqueueFailed(
@@ -186,23 +176,13 @@ final class ScriptedAgentDriver
     @Override
     public AgentCapabilities capabilities()
     {
-        return new AgentCapabilities(
-                false,
-                false,
-                false,
-                ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
-                ImmutableSet.of("text/plain"));
+        return new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX), ImmutableSet.of("text/plain"));
     }
 
     @Override
     public AgentProviderStatus probe()
     {
-        return new AgentProviderStatus(
-                LANE,
-                AgentProviderStatus.Readiness.READY,
-                Optional.of("test"),
-                "ready",
-                capabilities());
+        return new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.READY, Optional.of("test"), "ready", capabilities());
     }
 
     @Override
@@ -216,10 +196,7 @@ final class ScriptedAgentDriver
             script = scripts.get(E2eGitRepository.git(canonical, "config", "--get", "remote.origin.url"));
         }
         checkState(script != null, "No agent script bound to worktree " + canonical);
-        AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(
-                LANE,
-                1,
-                "ci-e2e-" + context.taskId()));
+        AgentSessionRef reference = context.sessionReference().orElseGet(() -> new AgentSessionRef(LANE, 1, "ci-e2e-" + context.taskId()));
         return new ScriptedSession(context, events, script, reference);
     }
 
@@ -231,13 +208,7 @@ final class ScriptedAgentDriver
     {
         checkState(!script.actions().isEmpty(), "No agent turn scripted for " + script.pullRequest().fullName());
         AgentAction action = script.actions().removeFirst();
-        TurnCall call = new TurnCall(
-                script.pullRequest(),
-                worktree,
-                command.turnId(),
-                truncate(command.message(), 4096, "…"),
-                instructions,
-                command.attachments());
+        TurnCall call = new TurnCall(script.pullRequest(), worktree, command.turnId(), truncate(command.message(), 4096, "…"), instructions, command.attachments());
         turns.add(call);
         return new StartedAction(action, call);
     }
@@ -261,8 +232,7 @@ final class ScriptedAgentDriver
     {
         requireNonNull(pullRequest, "pullRequest is null");
         AgentScript script = scripts.get(remoteUrl(pullRequest));
-        checkState(script != null && script.pullRequest().equals(pullRequest),
-                "No agent script bound for " + pullRequest.fullName());
+        checkState(script != null && script.pullRequest().equals(pullRequest), "No agent script bound for " + pullRequest.fullName());
         return script;
     }
 
@@ -334,9 +304,7 @@ final class ScriptedAgentDriver
                     ProviderAgentEvent.LifecyclePhase.TURN_STARTED,
                     "Scripted agent turn started"));
             action.memoryQuery().ifPresent(query -> {
-                CiMemoryView result = memory.read(new ReadCiMemoryCommand(
-                        TaskId.valueOf(context.taskId()),
-                        Optional.of(query)));
+                CiMemoryView result = memory.read(new ReadCiMemoryCommand(TaskId.valueOf(context.taskId()), Optional.of(query)));
                 recordMemoryRead(new MemoryRead(script.pullRequest(), context.taskId(), Optional.of(query), result));
             });
             action.action().run(context.worktree());
@@ -393,10 +361,7 @@ final class ScriptedAgentDriver
                             new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(),
                                     Optional.of("ci-e2e-" + command.turnId()), Optional.of("report-" + command.turnId()))));
                 }
-                events.emit(new ProviderAgentEvent.Lifecycle(
-                        Optional.of("finished-" + command.turnId()),
-                        lifecycle(action.result().state()),
-                        action.result().state().name()));
+                events.emit(new ProviderAgentEvent.Lifecycle(Optional.of("finished-" + command.turnId()), lifecycle(action.result().state()), action.result().state().name()));
             }
             CompletableFuture<AgentTurnResult> completion = action.waitsForCancellation()
                     ? new CompletableFuture<>()
@@ -441,12 +406,7 @@ final class ScriptedAgentDriver
         public void cancel()
         {
             recordCancellation(call);
-            completion.complete(new AgentTurnResult(
-                    AgentTurnResult.State.CANCELLED,
-                    Optional.empty(),
-                    Optional.of("cancelled by test"),
-                    Duration.ZERO,
-                    true));
+            completion.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("cancelled by test"), Duration.ZERO, true));
         }
     }
 
@@ -476,12 +436,7 @@ final class ScriptedAgentDriver
             return new AgentAction(
                     Optional.empty(),
                     ignored -> {},
-                    new AgentTurnResult(
-                            AgentTurnResult.State.CANCELLED,
-                            Optional.empty(),
-                            Optional.of("cancelled by test"),
-                            Duration.ZERO,
-                            true),
+                    new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("cancelled by test"), Duration.ZERO, true),
                     true,
                     "blocked",
                     Optional.empty(),
@@ -498,12 +453,7 @@ final class ScriptedAgentDriver
             return new AgentAction(
                     Optional.of(untrustedFinalResponse),
                     action,
-                    new AgentTurnResult(
-                            AgentTurnResult.State.COMPLETED,
-                            Optional.of(untrustedFinalResponse),
-                            Optional.empty(),
-                            Duration.ZERO,
-                            true),
+                    new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of(untrustedFinalResponse), Optional.empty(), Duration.ZERO, true),
                     false,
                     actionName,
                     memoryQuery,

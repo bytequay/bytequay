@@ -65,9 +65,7 @@ class TestDefaultWorkspaceProvisioningService
         Remote origin = remote("origin");
         Remote upstream = remote("upstream");
         Path commandLog = temporary.resolve("git-commands.log");
-        GitCommandRunner git = routedGit(
-                ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()),
-                commandLog);
+        GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()), commandLog);
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace direct = store.createOrGet(workspace("direct", false));
         Workspace fork = store.createOrGet(workspace("fork", true));
@@ -105,9 +103,7 @@ class TestDefaultWorkspaceProvisioningService
     {
         Remote origin = remote("origin");
         Remote upstream = remote("upstream");
-        GitCommandRunner routed = routedGit(
-                ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()),
-                temporary.resolve("git-commands.log"));
+        GitCommandRunner routed = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("fork", true));
         assertThat(service(store, routed).synchronizeCode(workspace.id()).successful()).isTrue();
@@ -183,9 +179,7 @@ class TestDefaultWorkspaceProvisioningService
             throws IOException
     {
         Remote origin = remote("origin");
-        GitCommandRunner git = routedGit(
-                ImmutableMap.of(ORIGIN_URL, origin.bare()),
-                temporary.resolve("git-commands.log"));
+        GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace unknown = store.createOrGet(workspace("unknown", false));
         Path unexpected = directPath(unknown).resolve("keep.txt");
@@ -215,9 +209,7 @@ class TestDefaultWorkspaceProvisioningService
             throws IOException
     {
         Remote origin = remote("origin");
-        GitCommandRunner git = routedGit(
-                ImmutableMap.of(ORIGIN_URL, origin.bare()),
-                temporary.resolve("git-commands.log"));
+        GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("preserve", false));
         DefaultWorkspaceProvisioningService service = service(store, git);
@@ -250,9 +242,7 @@ class TestDefaultWorkspaceProvisioningService
     {
         Remote origin = remote("origin");
         Remote upstream = remote("upstream");
-        GitCommandRunner git = routedGit(
-                ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()),
-                temporary.resolve("git-commands.log"));
+        GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("preserve-fork", true));
         DefaultWorkspaceProvisioningService service = service(store, git);
@@ -292,11 +282,7 @@ class TestDefaultWorkspaceProvisioningService
             throws IOException
     {
         Remote origin = remote("origin");
-        GitCommandRunner git = routedGit(
-                ImmutableMap.of(
-                        ORIGIN_URL, origin.bare(),
-                        CUSTOM_URL, temporary.resolve("missing-custom.git")),
-                temporary.resolve("git-commands.log"));
+        GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), CUSTOM_URL, temporary.resolve("missing-custom.git")), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         InMemoryRemoteSourceStore remoteSources = new InMemoryRemoteSourceStore();
         Workspace workspace = store.createOrGet(workspace("broken-custom", false));
@@ -320,9 +306,7 @@ class TestDefaultWorkspaceProvisioningService
     {
         String renamedUrl = "https://github.test/new-owner/project.git";
         Remote origin = remote("origin");
-        GitCommandRunner git = routedGit(
-                ImmutableMap.of(ORIGIN_URL, origin.bare(), renamedUrl, origin.bare()),
-                temporary.resolve("git-commands.log"));
+        GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), renamedUrl, origin.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("rename", false));
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
@@ -346,8 +330,7 @@ class TestDefaultWorkspaceProvisioningService
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
 
         assertThatThrownBy(() -> paths.workspace("../outside"))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("REPOSITORY_ROUTING_INVALID"));
+                .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("REPOSITORY_ROUTING_INVALID"));
     }
 
     private DefaultWorkspaceProvisioningService service(
@@ -415,18 +398,7 @@ class TestDefaultWorkspaceProvisioningService
 
     private static UserRepo direct(String owner, String cloneUrl)
     {
-        return new UserRepo(
-                100,
-                owner,
-                "project",
-                owner + "/project",
-                Optional.empty(),
-                false,
-                "private",
-                true,
-                "main",
-                cloneUrl,
-                Optional.empty());
+        return new UserRepo(100, owner, "project", owner + "/project", Optional.empty(), false, "private", true, "main", cloneUrl, Optional.empty());
     }
 
     private static UserRepo fork()
@@ -442,28 +414,12 @@ class TestDefaultWorkspaceProvisioningService
                 true,
                 "main",
                 ORIGIN_URL,
-                Optional.of(new UserRepo.Upstream(
-                        300,
-                        "upstream",
-                        "project",
-                        "main",
-                        UPSTREAM_URL)));
+                Optional.of(new UserRepo.Upstream(300, "upstream", "project", "main", UPSTREAM_URL)));
     }
 
     private static UserRepo upstream()
     {
-        return new UserRepo(
-                300,
-                "upstream",
-                "project",
-                "upstream/project",
-                Optional.empty(),
-                false,
-                "public",
-                false,
-                "main",
-                UPSTREAM_URL,
-                Optional.empty());
+        return new UserRepo(300, "upstream", "project", "upstream/project", Optional.empty(), false, "public", false, "main", UPSTREAM_URL, Optional.empty());
     }
 
     private Remote remote(String name)

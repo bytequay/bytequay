@@ -130,8 +130,7 @@ final class CherryPickJson
                                         path.stages() == null
                                                 ? ImmutableList.of()
                                                 : path.stages().stream()
-                                                        .map(stage -> new IndexStage(
-                                                                stage.stage(), stage.mode(), stage.blobSha()))
+                                                        .map(stage -> new IndexStage(stage.stage(), stage.mode(), stage.blobSha()))
                                                         .collect(toImmutableList())))
                                 .collect(toImmutableList()),
                 value.agentTurnCount());

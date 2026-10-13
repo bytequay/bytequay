@@ -66,8 +66,7 @@ public record FetchedPullRequest(
         requireNonNull(state, "state is null");
         labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
         labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
-        requestedReviewers = ImmutableList.copyOf(
-                requireNonNull(requestedReviewers, "requestedReviewers is null"));
+        requestedReviewers = ImmutableList.copyOf(requireNonNull(requestedReviewers, "requestedReviewers is null"));
     }
 
     public FetchedPullRequest withOrigin(PullRequest.Origin origin)

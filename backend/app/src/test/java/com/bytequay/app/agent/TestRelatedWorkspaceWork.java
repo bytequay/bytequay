@@ -166,8 +166,7 @@ class TestRelatedWorkspaceWork
         var driver = mock(AgentDriver.class);
         when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(AgentCapabilities.none());
-        var ready = new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY,
-                Optional.of("test"), "Ready", AgentCapabilities.none());
+        var ready = new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY, Optional.of("test"), "Ready", AgentCapabilities.none());
         when(driver.probe()).thenReturn(ready);
         when(driver.probe(any())).thenReturn(ready);
         var provisioning = mock(WorkspaceProvisioningService.class);
@@ -207,8 +206,7 @@ class TestRelatedWorkspaceWork
     {
         AgentLaneId sourceAccount = new AgentLaneId("claude-account-source");
         AgentLaneId destinationAccount = new AgentLaneId("claude-account-destination");
-        source = AgentTask.created(source.id(), Optional.of("trino"), true, source.title(), sourceAccount,
-                source.repository(), repository, source.defaults(), Instant.EPOCH)
+        source = AgentTask.created(source.id(), Optional.of("trino"), true, source.title(), sourceAccount, source.repository(), repository, source.defaults(), Instant.EPOCH)
                 .withSessionReference(new AgentSessionRef(sourceAccount, 1, "source-session"), Instant.EPOCH);
         taskData.put(source.id(), source);
         when(models.agentModel(AgentModelType.DEVELOPMENT, Optional.of("iceberg"))).thenReturn(new AgentModelSetting(
@@ -441,8 +439,7 @@ class TestRelatedWorkspaceWork
 
     private RelatedWorkspaceWork.Request request(String key, String commit)
     {
-        return new RelatedWorkspaceWork.Request(key, "iceberg", RelatedWorkspaceWork.Purpose.INVESTIGATE, "Check API behavior",
-                Optional.of(commit), Optional.of("v1"));
+        return new RelatedWorkspaceWork.Request(key, "iceberg", RelatedWorkspaceWork.Purpose.INVESTIGATE, "Check API behavior", Optional.of(commit), Optional.of("v1"));
     }
 
     private AgentTask task(TaskId id, String workspaceId, AgentTaskDefaults defaults)

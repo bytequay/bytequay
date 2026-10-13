@@ -78,9 +78,7 @@ public class CommitHistoryService
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
         Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty()
                 ? ImmutableMap.of()
-                : enrichment.findCommits(
-                        resolved.repositoryId().orElseThrow(),
-                        commits.stream().map(Commit::sha).toList())
+                : enrichment.findCommits(resolved.repositoryId().orElseThrow(), commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
         ImmutableList.Builder<CommitHistoryItem> items = ImmutableList.builderWithExpectedSize(commits.size());

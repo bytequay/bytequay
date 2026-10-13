@@ -151,13 +151,7 @@ final class PullRequestDetailMapper
         return timeline.stream()
                 .sorted(Comparator.comparing(PullRequestDetailMapper::time)
                         .thenComparing(event -> Optional.ofNullable(event.githubId()).orElse(Long.MAX_VALUE)))
-                .map(event -> new PullRequestDetail.ActivityItem(
-                        event.actor(),
-                        event.event(),
-                        event.timestamp(),
-                        event.body(),
-                        event.githubId(),
-                        event.payload()))
+                .map(event -> new PullRequestDetail.ActivityItem(event.actor(), event.event(), event.timestamp(), event.body(), event.githubId(), event.payload()))
                 .collect(toImmutableList());
     }
 
@@ -190,8 +184,7 @@ final class PullRequestDetailMapper
         for (String login : raw.requestedReviewers()) {
             out.put(login, new PullRequestDetail.Reviewer(login, null, "PENDING"));
         }
-        latest.forEach((login, review) -> out.put(login, new PullRequestDetail.Reviewer(
-                login, review.avatarUrl(), review.state())));
+        latest.forEach((login, review) -> out.put(login, new PullRequestDetail.Reviewer(login, review.avatarUrl(), review.state())));
         out.remove(raw.author());
         return ImmutableList.copyOf(out.values());
     }
@@ -201,8 +194,7 @@ final class PullRequestDetailMapper
         Map<String, PrReviewState> latest = new LinkedHashMap<>();
         reviews.stream()
                 .filter(review -> review.login() != null && review.state() != null)
-                .sorted(Comparator.comparing(
-                        review -> Optional.ofNullable(review.submittedAt()).orElse(Instant.EPOCH)))
+                .sorted(Comparator.comparing(review -> Optional.ofNullable(review.submittedAt()).orElse(Instant.EPOCH)))
                 .forEach(review -> latest.put(review.login(), review));
         return latest;
     }

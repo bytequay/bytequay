@@ -406,9 +406,7 @@ class TestCodexEventMapper
     @Test
     void mapsCommandFactsAndBuiltInToolsIntoActivity()
     {
-        CodexEventMapper worktreeMapper = new CodexEventMapper(
-                worktree,
-                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String cwd = worktree.resolve("backend").toString();
         String file = worktree.resolve("backend/App.java").toString();
         List<ProviderAgentEvent> events = worktreeMapper.map(codec.decodeNotification("""
@@ -490,9 +488,7 @@ class TestCodexEventMapper
     @Test
     void mapsCompletedFileChangesInsideTheWorktree()
     {
-        CodexEventMapper worktreeMapper = new CodexEventMapper(
-                worktree,
-                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        CodexEventMapper worktreeMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of()));
         String file = worktree.resolve("src/App.java").toString();
         List<ProviderAgentEvent> events = worktreeMapper.map(codec.decodeNotification("""
                 {"method":"item/completed","params":{"item":{"type":"fileChange",
@@ -519,9 +515,7 @@ class TestCodexEventMapper
     @Test
     void redactsKnownEnvironmentCredentialsFromMappedEvents()
     {
-        CodexEventMapper redactingMapper = new CodexEventMapper(
-                worktree,
-                SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
+        CodexEventMapper redactingMapper = new CodexEventMapper(worktree, SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
         List<ProviderAgentEvent> events = redactingMapper.map(codec.decodeNotification("""
                 {"method":"item/completed","params":{"item":{"type":"commandExecution","cwd":"/tmp/wt","commandActions":[],
                 "id":"exec-1","command":"echo known-secret","status":"completed",

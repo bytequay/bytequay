@@ -157,13 +157,7 @@ class TestSqliteAgentStores
     void roundTripsTaskSummarySessionMetricsAndCleanupFacts()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentMetrics metrics = new AgentMetrics(
-                10,
-                2,
-                5,
-                Optional.of(new BigDecimal("0.1873740")),
-                Duration.ofSeconds(3),
-                new ToolCounters(4, 2, 1));
+        AgentMetrics metrics = new AgentMetrics(10, 2, 5, Optional.of(new BigDecimal("0.1873740")), Duration.ofSeconds(3), new ToolCounters(4, 2, 1));
         TaskId taskId = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(
                 taskId,
@@ -173,18 +167,8 @@ class TestSqliteAgentStores
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
         // Ignored build output leaves a completed worktree dirty without uncommitted work.
-        WorktreeSnapshot snapshot = new WorktreeSnapshot(
-                worktree,
-                "1123456789012345678901234567890123456789",
-                true,
-                false,
-                false);
-        TaskSummary summary = new TaskSummary(
-                "finished",
-                Optional.of(snapshot),
-                metrics,
-                Optional.of("reviewed"),
-                ImmutableList.of());
+        WorktreeSnapshot snapshot = new WorktreeSnapshot(worktree, "1123456789012345678901234567890123456789", true, false, false);
+        TaskSummary summary = new TaskSummary("finished", Optional.of(snapshot), metrics, Optional.of("reviewed"), ImmutableList.of());
         AgentTask task = AgentTask.created(
                         taskId,
                         true,
@@ -323,15 +307,11 @@ class TestSqliteAgentStores
         AgentTask observedBySend = taskStore.find(original.id()).orElseThrow();
         AgentTask observedByCompletion = taskStore.find(original.id()).orElseThrow();
         WorktreeMutationClaim turnClaim = WorktreeMutationClaim.turn(TurnId.random(), now.plusSeconds(1));
-        WorktreeMutationClaim completionClaim = new WorktreeMutationClaim(
-                WorktreeMutationClaim.Kind.COMPLETION,
-                UUID.randomUUID().toString(),
-                now.plusSeconds(1));
+        WorktreeMutationClaim completionClaim = new WorktreeMutationClaim(WorktreeMutationClaim.Kind.COMPLETION, UUID.randomUUID().toString(), now.plusSeconds(1));
 
         taskStore.update(observedBySend.claimWorktreeMutation(turnClaim, now.plusSeconds(1)));
 
-        assertThatThrownBy(() -> taskStore.update(
-                observedByCompletion.claimWorktreeMutation(completionClaim, now.plusSeconds(1))))
+        assertThatThrownBy(() -> taskStore.update(observedByCompletion.claimWorktreeMutation(completionClaim, now.plusSeconds(1))))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("version changed");
         assertThat(taskStore.find(original.id()).orElseThrow().worktreeMutationClaim()).contains(turnClaim);
@@ -341,16 +321,8 @@ class TestSqliteAgentStores
     void readsLegacySummaryWithoutInventingManagedWorktreeFacts()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        TaskSummary summary = new TaskSummary(
-                "finished",
-                Optional.empty(),
-                AgentMetrics.empty(),
-                Optional.empty(),
-                ImmutableList.of());
-        AgentTask task = newTask(now).complete(
-                summary,
-                now.plusSeconds(1),
-                now.plus(Duration.ofDays(7)));
+        TaskSummary summary = new TaskSummary("finished", Optional.empty(), AgentMetrics.empty(), Optional.empty(), ImmutableList.of());
+        AgentTask task = newTask(now).complete(summary, now.plusSeconds(1), now.plus(Duration.ofDays(7)));
         taskStore.insert(task);
         entityManager.clear();
 
@@ -531,8 +503,7 @@ class TestSqliteAgentStores
     void roundTripsRequestedTurnSettings()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
-        AgentTask task = newTask(now).withDefaults(
-                new AgentTaskDefaults(Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.of("priority")), now);
+        AgentTask task = newTask(now).withDefaults(new AgentTaskDefaults(Optional.of("model"), Optional.of("high"), AgentPermissionPolicy.AUTO, Optional.of("priority")), now);
         taskStore.insert(task);
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now);
         turnStore.insert(turn);
@@ -612,8 +583,7 @@ class TestSqliteAgentStores
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask task = newTask(now);
         taskStore.insert(task);
-        AgentTurnSettings settings = new AgentTurnSettings(
-                Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
+        AgentTurnSettings settings = new AgentTurnSettings(Optional.of("model"), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "plan", settings, now);
         turnStore.insert(turn);
         entityManager.clear();
@@ -679,8 +649,7 @@ class TestSqliteAgentStores
         Instant now = Instant.parse("2026-08-16T00:00:00Z");
         AgentTask task = newTask(now);
         taskStore.insert(task);
-        AgentEventOutboxEntry lifecycle = pendingLifecycle(
-                EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.TURN_STARTED, "started", now);
+        AgentEventOutboxEntry lifecycle = pendingLifecycle(EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.TURN_STARTED, "started", now);
         AgentEventOutboxEntry development = AgentEventOutboxEntry.pendingInline(
                 EventId.random(), task.id(), Optional.empty(), root(),
                 new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.empty()), now);
@@ -750,12 +719,7 @@ class TestSqliteAgentStores
         assertThat(turnStore.findActive(task.id())).contains(first);
         assertThat(turnStore.findByIdempotencyKey(task.id(), "request-1")).contains(first);
         assertThat(turnStore.listRecoverable()).containsExactly(first);
-        assertThatThrownBy(() -> turnStore.insert(AgentTurn.accepted(
-                TurnId.random(),
-                task.id(),
-                "request-2",
-                turnSettings(),
-                now.plusSeconds(1))))
+        assertThatThrownBy(() -> turnStore.insert(AgentTurn.accepted(TurnId.random(), task.id(), "request-2", turnSettings(), now.plusSeconds(1))))
                 .isInstanceOf(AgentConflictException.class);
     }
 
@@ -794,19 +758,10 @@ class TestSqliteAgentStores
         AgentTask task = newTask(now);
         taskStore.insert(task);
         AgentTurn terminal = AgentTurn.accepted(TurnId.random(), task.id(), "same-request", turnSettings(), now)
-                .finish(
-                        TurnState.CANCELLED,
-                        AgentMetrics.empty(),
-                        Optional.of("cancelled"),
-                        now.plusSeconds(1));
+                .finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("cancelled"), now.plusSeconds(1));
         turnStore.insert(terminal);
 
-        assertThatThrownBy(() -> turnStore.insert(AgentTurn.accepted(
-                TurnId.random(),
-                task.id(),
-                "same-request",
-                turnSettings(),
-                now.plusSeconds(2))))
+        assertThatThrownBy(() -> turnStore.insert(AgentTurn.accepted(TurnId.random(), task.id(), "same-request", turnSettings(), now.plusSeconds(2))))
                 .isInstanceOf(AgentConflictException.class);
     }
 
@@ -1034,15 +989,7 @@ class TestSqliteAgentStores
                 .containsExactly(QueuedAgentInput.State.PAUSED, QueuedAgentInput.State.PAUSED);
         RecordingDriver restartedDriver = new RecordingDriver();
         DefaultAgentEventService restartedEvents = new DefaultAgentEventService(logs, outboxStore, taskStore, clock);
-        DefaultAgentTurnService afterRestart = turnService(
-                restartedDriver,
-                restartedRuntime,
-                restartedEvents,
-                logs,
-                resources,
-                metrics,
-                approvals,
-                clock);
+        DefaultAgentTurnService afterRestart = turnService(restartedDriver, restartedRuntime, restartedEvents, logs, resources, metrics, approvals, clock);
 
         afterRestart.resumeQueued(task.id());
         restartedDriver.completeCurrent();
@@ -1138,15 +1085,7 @@ class TestSqliteAgentStores
                 Path.of("/tmp/bytequay-worktrees").resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(
-                taskId,
-                false,
-                "Agent task",
-                TitleSource.USER,
-                AgentLaneId.CODEX_CLI,
-                worktree,
-                AgentTaskDefaults.forPermission(permissionPolicy),
-                now);
+        return AgentTask.created(taskId, false, "Agent task", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(permissionPolicy), now);
     }
 
     private static AgentTask newTask(Instant now, Optional<String> workspaceId, boolean interactive)
@@ -1159,10 +1098,7 @@ class TestSqliteAgentStores
                 AgentLaneId.CODEX_CLI,
                 new RepositoryIdentity("bytequay", "sample"),
                 Path.of("/tmp/bytequay-worktree"),
-                new AgentTaskDefaults(
-                        Optional.of("model"),
-                        Optional.of("medium"),
-                        AgentPermissionPolicy.AUTO),
+                new AgentTaskDefaults(Optional.of("model"), Optional.of("medium"), AgentPermissionPolicy.AUTO),
                 now);
     }
 
@@ -1256,12 +1192,7 @@ class TestSqliteAgentStores
                         @Override
                         public void cancel()
                         {
-                            completion.complete(new AgentTurnResult(
-                                    AgentTurnResult.State.CANCELLED,
-                                    Optional.empty(),
-                                    Optional.of("cancelled"),
-                                    Duration.ZERO,
-                                    true));
+                            completion.complete(new AgentTurnResult(AgentTurnResult.State.CANCELLED, Optional.empty(), Optional.of("cancelled"), Duration.ZERO, true));
                         }
                     };
                 }
@@ -1276,12 +1207,7 @@ class TestSqliteAgentStores
             if (current == null) {
                 throw new IllegalStateException("no turn is running");
             }
-            current.complete(new AgentTurnResult(
-                    AgentTurnResult.State.COMPLETED,
-                    Optional.of("done"),
-                    Optional.empty(),
-                    Duration.ZERO,
-                    true));
+            current.complete(new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("done"), Optional.empty(), Duration.ZERO, true));
         }
 
         private synchronized List<AgentTurnCommand> commands()

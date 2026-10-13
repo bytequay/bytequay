@@ -232,9 +232,7 @@ public class GitCommandRunner
      */
     public boolean withoutConflictMarkers(Path worktree, String fromSha, String toSha)
     {
-        return run(worktree,
-                "-c", "core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent",
-                "diff", "--check", fromSha + ".." + toSha)
+        return run(worktree, "-c", "core.whitespace=-trailing-space,-space-before-tab,-indent-with-non-tab,-tab-in-indent", "diff", "--check", fromSha + ".." + toSha)
                 .successful();
     }
 

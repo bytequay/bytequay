@@ -317,16 +317,7 @@ public final class PermissionBroker
             AgentApprovalHandler approvals,
             SecretRedactor redactor)
     {
-        return register(
-                taskId,
-                worktree,
-                runtimeDirectory,
-                providerDirectory,
-                permissionPolicy,
-                SessionAccess.FULL,
-                approvals,
-                redactor,
-                Optional.empty());
+        return register(taskId, worktree, runtimeDirectory, providerDirectory, permissionPolicy, SessionAccess.FULL, approvals, redactor, Optional.empty());
     }
 
     McpRegistration register(
@@ -394,19 +385,13 @@ public final class PermissionBroker
             // Claude's HTTP first-response deadline otherwise expires after 60 seconds, before the approval card.
             String json = objectMapper.writeValueAsString(new McpConfiguration(ImmutableMap.of(
                     "bytequay",
-                    new McpServer(
-                            "http",
-                            uri.toString(),
-                            ImmutableMap.of("Authorization", "Bearer " + token),
-                            APPROVAL_TIMEOUT.plusSeconds(30).toMillis(),
-                            true))));
+                    new McpServer("http", uri.toString(), ImmutableMap.of("Authorization", "Bearer " + token), APPROVAL_TIMEOUT.plusSeconds(30).toMillis(), true))));
             writeOwnerOnly(configFile, json);
             if (childGate.isPresent()) {
                 writeOwnerOnly(childGateFile, childGateScript(context));
                 Files.setPosixFilePermissions(childGateFile, PosixFilePermissions.fromString("rwx------"));
             }
-            writeOwnerOnly(settingsFile, sandboxSettings(
-                    context.scope(), runtimeDirectory.toRealPath(), worktree, environment, childGate));
+            writeOwnerOnly(settingsFile, sandboxSettings(context.scope(), runtimeDirectory.toRealPath(), worktree, environment, childGate));
             List<String> toolNames = exposedTools(context).stream()
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
@@ -523,8 +508,7 @@ public final class PermissionBroker
             return error(null, -32602, "Unknown tool or invalid arguments");
         }
         try {
-            return callTool(new McpRequest("2.0", objectMapper.valueToTree(1), "tools/call",
-                    objectMapper.valueToTree(new ToolCallParams(name, arguments))), context);
+            return callTool(new McpRequest("2.0", objectMapper.valueToTree(1), "tools/call", objectMapper.valueToTree(new ToolCallParams(name, arguments))), context);
         }
         catch (JsonProcessingException | RuntimeException failure) {
             return error(null, -32603, "Task tool failed");
@@ -736,8 +720,7 @@ public final class PermissionBroker
         }
         catch (RuntimeException failure) {
             String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
-            return response(id, new ToolResult(
-                    ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
         }
     }
 
@@ -1027,8 +1010,7 @@ public final class PermissionBroker
         }
         catch (RuntimeException failure) {
             String detail = Optional.ofNullable(failure.getMessage()).orElseGet(() -> failure.getClass().getSimpleName());
-            return response(id, new ToolResult(
-                    ImmutableList.of(new TextContent("text", context.redactor().redact("Publication was refused: " + detail))), true));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Publication was refused: " + detail))), true));
         }
     }
 
@@ -1130,15 +1112,11 @@ public final class PermissionBroker
                         .filter(JsonNode::isBoolean).map(JsonNode::asBoolean).orElse(false);
         if (context.scope().policy() == AgentPermissionPolicy.CHERRY_PICK) {
             PermissionResult decision = sandboxedPermission(arguments, context, unsandboxed);
-            return response(id, new ToolResult(
-                    ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(decision))),
-                    false));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(decision))), false));
         }
         Optional<PermissionResult> allowed = precheckedFileEditPermission(arguments, context);
         if (allowed.isPresent()) {
-            return response(id, new ToolResult(
-                    ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(allowed.orElseThrow()))),
-                    false));
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", objectMapper.writeValueAsString(allowed.orElseThrow()))), false));
         }
         String detail = bounded(context.redactor().redact(objectMapper.writeValueAsString(arguments.input())));
         if (unsandboxed) {
@@ -1315,12 +1293,7 @@ public final class PermissionBroker
 
     private McpHttpResponse error(JsonNode id, int code, String message)
     {
-        return new McpHttpResponse(
-                200,
-                Optional.of(objectMapper.valueToTree(new McpErrorResponse(
-                        "2.0",
-                        id,
-                        new McpError(code, message)))));
+        return new McpHttpResponse(200, Optional.of(objectMapper.valueToTree(new McpErrorResponse("2.0", id, new McpError(code, message)))));
     }
 
     private String protocolVersion(JsonNode params)
@@ -1356,9 +1329,7 @@ public final class PermissionBroker
                 "Ask the ByteQuay user to approve a Claude tool call",
                 ImmutableMap.of(
                         "type", "object",
-                        "properties", ImmutableMap.of(
-                                "tool_name", ImmutableMap.of("type", "string"),
-                                "input", ImmutableMap.of("type", "object")),
+                        "properties", ImmutableMap.of("tool_name", ImmutableMap.of("type", "string"), "input", ImmutableMap.of("type", "object")),
                         "required", ImmutableList.of("tool_name", "input"),
                         "additionalProperties", true));
     }
@@ -1567,11 +1538,7 @@ public final class PermissionBroker
             tools.add(new ToolDefinition(
                     "read_ci_memory",
                     "Read recent or matching CI Autofix history for this task",
-                    ImmutableMap.of(
-                            "type", "object",
-                            "properties", ImmutableMap.of(
-                                    "query", ImmutableMap.of("type", "string", "maxLength", 200)),
-                            "additionalProperties", false)));
+                    ImmutableMap.of("type", "object", "properties", ImmutableMap.of("query", ImmutableMap.of("type", "string", "maxLength", 200)), "additionalProperties", false)));
         }
         return tools.build();
     }
@@ -1623,15 +1590,9 @@ public final class PermissionBroker
                     || (!command.isBlank() && !HISTORY_MUTATION.matcher(command).find())) {
                 return new PermissionResult("allow", Optional.of(arguments.input()), Optional.empty());
             }
-            return new PermissionResult(
-                    "deny",
-                    Optional.empty(),
-                    Optional.of("Cherry-pick tasks allow only the expected fixup-shaped history change"));
+            return new PermissionResult("deny", Optional.empty(), Optional.of("Cherry-pick tasks allow only the expected fixup-shaped history change"));
         }
-        return new PermissionResult(
-                "deny",
-                Optional.empty(),
-                Optional.of("This task permits only sandboxed commands and file edits inside its leased worktree"));
+        return new PermissionResult("deny", Optional.empty(), Optional.of("This task permits only sandboxed commands and file edits inside its leased worktree"));
     }
 
     private static Optional<PermissionResult> precheckedFileEditPermission(PermissionArguments arguments, PermissionContext context)

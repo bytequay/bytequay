@@ -242,8 +242,7 @@ public class GitHubPullRequestSummaryClient
 
     private JsonNode strictGraphQl(String pat, String query, Map<String, Object> variables)
     {
-        JsonNode response = requireBody(translating(() -> graphql(graphQlRestClient, pat, query, variables).body(JsonNode.class)),
-                "GitHub returned no review reply metadata");
+        JsonNode response = requireBody(translating(() -> graphql(graphQlRestClient, pat, query, variables).body(JsonNode.class)), "GitHub returned no review reply metadata");
         if (response.path("errors").size() > 0) {
             throw incomplete("Review reply metadata is unavailable");
         }

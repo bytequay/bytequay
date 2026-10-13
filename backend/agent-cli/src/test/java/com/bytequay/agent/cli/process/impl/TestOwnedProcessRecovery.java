@@ -133,12 +133,7 @@ class TestOwnedProcessRecovery
     {
         Process launcher = spawn("sleep 60");
         Instant startToken = ProcessHandle.of(launcher.pid()).orElseThrow().info().startInstant().orElseThrow();
-        write(marker(
-                LaunchPhase.GATED,
-                Optional.of(launcher.pid()),
-                Optional.of(startToken),
-                Optional.of(launcher.pid()),
-                "/bin/sh"));
+        write(marker(LaunchPhase.GATED, Optional.of(launcher.pid()), Optional.of(startToken), Optional.of(launcher.pid()), "/bin/sh"));
 
         OwnedProcessRecovery result = recover();
 
@@ -207,12 +202,7 @@ class TestOwnedProcessRecovery
     @Test
     void acceptsARecycledProcessGroupWhoseRecordedLeaderIsGone()
     {
-        write(marker(
-                LaunchPhase.RUNNING,
-                Optional.of(ProcessHandle.current().pid()),
-                Optional.of(Instant.EPOCH),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep"));
+        write(marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep"));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
     }
@@ -221,12 +211,7 @@ class TestOwnedProcessRecovery
     void refusesToSignalARecordedPidRunningAnUnrecognizedExecutable()
     {
         ProcessHandle self = ProcessHandle.current();
-        write(marker(
-                LaunchPhase.RUNNING,
-                Optional.of(self.pid()),
-                Optional.of(self.info().startInstant().orElseThrow()),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep"));
+        write(marker(LaunchPhase.RUNNING, Optional.of(self.pid()), Optional.of(self.info().startInstant().orElseThrow()), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep"));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
         assertThat(self.isAlive()).isTrue();
@@ -238,12 +223,7 @@ class TestOwnedProcessRecovery
         // PID 1 reports a start token but no command, which is exactly the shape of an inspection
         // failure. Recovery must decline rather than read it as death.
         ProcessHandle init = ProcessHandle.of(1).orElseThrow();
-        write(marker(
-                LaunchPhase.RUNNING,
-                Optional.of(1L),
-                Optional.of(init.info().startInstant().orElseThrow()),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep"));
+        write(marker(LaunchPhase.RUNNING, Optional.of(1L), Optional.of(init.info().startInstant().orElseThrow()), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep"));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
         assertThat(init.isAlive()).isTrue();
@@ -274,12 +254,7 @@ class TestOwnedProcessRecovery
     {
         // The owner always commits ATTEMPTING before a launcher can exist, so a running marker
         // under a merely prepared intent is an ordering that cannot have happened.
-        new LaunchMarkerStore(launches).write(marker(
-                LaunchPhase.RUNNING,
-                Optional.of(1L),
-                Optional.of(Instant.EPOCH),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep"));
+        new LaunchMarkerStore(launches).write(marker(LaunchPhase.RUNNING, Optional.of(1L), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep"));
         intents.commit("launch-1", false);
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
@@ -288,12 +263,7 @@ class TestOwnedProcessRecovery
     @Test
     void failsClosedForAnOrphanMarkerWithNoCommittedIntent()
     {
-        new LaunchMarkerStore(launches).write(marker(
-                LaunchPhase.RUNNING,
-                Optional.of(1L),
-                Optional.of(Instant.EPOCH),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep"));
+        new LaunchMarkerStore(launches).write(marker(LaunchPhase.RUNNING, Optional.of(1L), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep"));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.UNVERIFIABLE);
     }
@@ -327,12 +297,7 @@ class TestOwnedProcessRecovery
     @Test
     void replaysDurableTerminalReceiptsWithoutReinterpretingThem()
     {
-        LaunchMarker stopped = marker(
-                LaunchPhase.RUNNING,
-                Optional.of(1L),
-                Optional.of(Instant.EPOCH),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep");
+        LaunchMarker stopped = marker(LaunchPhase.RUNNING, Optional.of(1L), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep");
         write(stopped.terminal(exit(ProcessExit.TreeTermination.VERIFIED_STOPPED)));
 
         assertThat(recover().outcome()).isEqualTo(OwnedProcessRecovery.Outcome.VERIFIED_STOPPED);
@@ -370,12 +335,7 @@ class TestOwnedProcessRecovery
             throws Exception
     {
         Process descendant = spawn("exec sleep 60");
-        LaunchMarker finished = marker(
-                LaunchPhase.RUNNING,
-                Optional.of(ProcessHandle.current().pid()),
-                Optional.of(Instant.EPOCH),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep")
+        LaunchMarker finished = marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep")
                 .withIncompleteDescendantTracking()
                 .withDescendant(new ProcessIdentity(descendant.pid(), descendant.info().startInstant().orElseThrow()))
                 .withWorkFinished();
@@ -390,15 +350,8 @@ class TestOwnedProcessRecovery
             throws Exception
     {
         Process descendant = spawn("exec sleep 60");
-        ProcessIdentity identity = new ProcessIdentity(
-                descendant.pid(),
-                descendant.info().startInstant().orElseThrow());
-        LaunchMarker stopped = marker(
-                LaunchPhase.RUNNING,
-                Optional.of(ProcessHandle.current().pid()),
-                Optional.of(Instant.EPOCH),
-                Optional.of(ABSENT_PROCESS_GROUP),
-                "/bin/sleep")
+        ProcessIdentity identity = new ProcessIdentity(descendant.pid(), descendant.info().startInstant().orElseThrow());
+        LaunchMarker stopped = marker(LaunchPhase.RUNNING, Optional.of(ProcessHandle.current().pid()), Optional.of(Instant.EPOCH), Optional.of(ABSENT_PROCESS_GROUP), "/bin/sleep")
                 .withDescendant(identity)
                 .terminal(exit(ProcessExit.TreeTermination.UNVERIFIABLE));
         write(stopped);

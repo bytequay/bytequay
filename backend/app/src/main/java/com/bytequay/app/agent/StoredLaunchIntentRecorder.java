@@ -50,14 +50,7 @@ public class StoredLaunchIntentRecorder
     public void prepared(String launchId, ProcessOwner owner, String executable, String argvDigest)
     {
         requireNonNull(owner, "owner is null");
-        store.insert(new AgentProcessLaunch(
-                launchId,
-                ownerKind(owner.kind()),
-                owner.id(),
-                false,
-                executable,
-                argvDigest,
-                clock.instant()));
+        store.insert(new AgentProcessLaunch(launchId, ownerKind(owner.kind()), owner.id(), false, executable, argvDigest, clock.instant()));
     }
 
     @Override

@@ -33,8 +33,7 @@ public record WorkspaceCodeSyncResult(
     {
         requireNonNull(workspaceId, "workspaceId is null");
         requireNonNull(lastCodeSyncAt, "lastCodeSyncAt is null");
-        failedRemoteSources = ImmutableSet.copyOf(requireNonNull(
-                failedRemoteSources, "failedRemoteSources is null"));
+        failedRemoteSources = ImmutableSet.copyOf(requireNonNull(failedRemoteSources, "failedRemoteSources is null"));
     }
 
     public WorkspaceCodeSyncResult(
@@ -47,13 +46,11 @@ public record WorkspaceCodeSyncResult(
 
     public static WorkspaceCodeSyncResult success(Workspace workspace, Set<String> failedRemoteSources)
     {
-        return new WorkspaceCodeSyncResult(
-                workspace.id(), true, workspace.lastCodeSyncAt(), failedRemoteSources);
+        return new WorkspaceCodeSyncResult(workspace.id(), true, workspace.lastCodeSyncAt(), failedRemoteSources);
     }
 
     public static WorkspaceCodeSyncResult failure(Workspace workspace)
     {
-        return new WorkspaceCodeSyncResult(
-                workspace.id(), false, workspace.lastCodeSyncAt(), ImmutableSet.of());
+        return new WorkspaceCodeSyncResult(workspace.id(), false, workspace.lastCodeSyncAt(), ImmutableSet.of());
     }
 }

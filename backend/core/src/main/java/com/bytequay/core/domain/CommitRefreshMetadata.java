@@ -38,7 +38,6 @@ public record CommitRefreshMetadata(
 
     public static CommitRefreshMetadata empty(String workspaceId)
     {
-        return new CommitRefreshMetadata(
-                workspaceId, Optional.empty(), Optional.empty(), Optional.empty());
+        return new CommitRefreshMetadata(workspaceId, Optional.empty(), Optional.empty(), Optional.empty());
     }
 }

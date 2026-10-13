@@ -86,9 +86,7 @@ public class SqliteCiAutofixStore
     public Optional<CiAutofixRun> find(CiAutofixRunId runId)
     {
         requireNonNull(runId, "runId is null");
-        return read("Cannot read CI Autofix run " + runId,
-                () -> runRepository.findById(runId.toString()).map(this::toProjection),
-                StorageException::new);
+        return read("Cannot read CI Autofix run " + runId, () -> runRepository.findById(runId.toString()).map(this::toProjection), StorageException::new);
     }
 
     @Override
@@ -97,9 +95,7 @@ public class SqliteCiAutofixStore
     {
         requireNonNull(key, "key is null");
         checkArgument(!key.isBlank() && key.length() <= 200, "key must contain between 1 and 200 characters");
-        return read("Cannot read CI Autofix idempotency key",
-                () -> runRepository.findByStartIdempotencyKey(key).map(this::toProjection),
-                StorageException::new);
+        return read("Cannot read CI Autofix idempotency key", () -> runRepository.findByStartIdempotencyKey(key).map(this::toProjection), StorageException::new);
     }
 
     @Override
@@ -108,9 +104,7 @@ public class SqliteCiAutofixStore
     {
         requireNonNull(taskId, "taskId is null");
         checkArgument(!taskId.isBlank() && taskId.length() <= 128, "taskId must contain between 1 and 128 characters");
-        return read("Cannot read CI Autofix agent task",
-                () -> runRepository.findByAgentTaskId(taskId).map(this::toProjection),
-                StorageException::new);
+        return read("Cannot read CI Autofix agent task", () -> runRepository.findByAgentTaskId(taskId).map(this::toProjection), StorageException::new);
     }
 
     @Override
@@ -170,8 +164,7 @@ public class SqliteCiAutofixStore
             throw new CiAutofixConflictException("CI Autofix run version changed: " + run.id());
         }
 
-        List<CiAutofixAttemptEntity> existing = attemptRepository.findByRunIdOrderByAttemptNumberAsc(
-                run.id().toString());
+        List<CiAutofixAttemptEntity> existing = attemptRepository.findByRunIdOrderByAttemptNumberAsc(run.id().toString());
         Set<String> requestedIds = run.attempts().stream()
                 .map(attempt -> attempt.id().toString())
                 .collect(toImmutableSet());

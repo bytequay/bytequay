@@ -131,14 +131,8 @@ class TestAgentTaskLifecycle
         Instant completedAt = CREATED_AT.plusSeconds(4);
         AgentTask completed = newTask().complete(summary(), completedAt, completedAt.plus(7, ChronoUnit.DAYS));
 
-        AgentTask retry = completed.withCleanupState(
-                CleanupState.RETRY_PENDING,
-                Optional.of("disk busy"),
-                completedAt.plus(7, ChronoUnit.DAYS).plusSeconds(1));
-        AgentTask deleted = retry.withCleanupState(
-                CleanupState.DELETED,
-                Optional.empty(),
-                completedAt.plus(7, ChronoUnit.DAYS).plusSeconds(2));
+        AgentTask retry = completed.withCleanupState(CleanupState.RETRY_PENDING, Optional.of("disk busy"), completedAt.plus(7, ChronoUnit.DAYS).plusSeconds(1));
+        AgentTask deleted = retry.withCleanupState(CleanupState.DELETED, Optional.empty(), completedAt.plus(7, ChronoUnit.DAYS).plusSeconds(2));
 
         assertThat(deleted.state()).isEqualTo(TaskState.COMPLETED);
         assertThat(deleted.summary()).isEqualTo(completed.summary());
@@ -171,12 +165,7 @@ class TestAgentTaskLifecycle
                 "0123456789012345678901234567890123456789");
         return new TaskSummary(
                 "Implemented the requested change.",
-                Optional.of(new WorktreeSnapshot(
-                        worktree,
-                        "1123456789012345678901234567890123456789",
-                        true,
-                        false,
-                        true)),
+                Optional.of(new WorktreeSnapshot(worktree, "1123456789012345678901234567890123456789", true, false, true)),
                 AgentMetrics.empty(),
                 Optional.empty(),
                 ImmutableList.of());

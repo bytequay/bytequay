@@ -238,8 +238,7 @@ class TestDeepSeekAgentDriver
         AgentDriver codex = mock(AgentDriver.class);
         when(codex.id()).thenReturn(LANE);
         when(codex.capabilities()).thenReturn(AgentCapabilities.none());
-        when(codex.probe()).thenReturn(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.READY,
-                Optional.of("0.156.1"), "Codex ready", AgentCapabilities.none()));
+        when(codex.probe()).thenReturn(new AgentProviderStatus(LANE, AgentProviderStatus.Readiness.READY, Optional.of("0.156.1"), "Codex ready", AgentCapabilities.none()));
 
         HttpClient client = mock(HttpClient.class);
         @SuppressWarnings("unchecked")

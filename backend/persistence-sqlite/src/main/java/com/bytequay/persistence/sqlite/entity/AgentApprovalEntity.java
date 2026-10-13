@@ -93,13 +93,7 @@ public class AgentApprovalEntity
     {
         ApprovalRequest request = AGENT.read(requestJson, ApprovalRequest.class, "approval request");
         Optional<ApprovalDecision> approvalDecision = Optional.ofNullable(decision)
-                .map(value -> new ApprovalDecision(
-                        request.id(),
-                        value,
-                        Optional.ofNullable(scopedPermission),
-                        Boolean.TRUE.equals(forTask),
-                        resolvedAt,
-                        timedOut));
+                .map(value -> new ApprovalDecision(request.id(), value, Optional.ofNullable(scopedPermission), Boolean.TRUE.equals(forTask), resolvedAt, timedOut));
         return new AgentApproval(request, approvalDecision, Optional.ofNullable(outcome));
     }
 

@@ -129,48 +129,40 @@ final class DeepSeekAgentDriver
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 401 || response.statusCode() == 403) {
-                return status(local, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
-                        "DeepSeek rejected this API key. Replace it in Models settings.");
+                return status(local, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED, "DeepSeek rejected this API key. Replace it in Models settings.");
             }
             if (response.statusCode() == 402) {
                 return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
                         "DeepSeek account has insufficient balance. Check the account balance before retrying.");
             }
             if (response.statusCode() != 200) {
-                return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        "DeepSeek model check failed (HTTP " + response.statusCode() + "). Try again later.");
+                return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, "DeepSeek model check failed (HTTP " + response.statusCode() + "). Try again later.");
             }
             JsonNode data = mapper.readTree(response.body()).path("data");
             if (!data.isArray()) {
-                return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        "DeepSeek returned an unreadable model list. Try again later.");
+                return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, "DeepSeek returned an unreadable model list. Try again later.");
             }
             Set<String> listed = StreamSupport.stream(data.spliterator(), false)
                     .map(entry -> entry.path("id").asText(""))
                     .filter(SUPPORTED_MODELS::contains)
                     .collect(java.util.stream.Collectors.toSet());
             if (listed.isEmpty()) {
-                return status(local, AgentProviderStatus.Readiness.UNSUPPORTED,
-                        "This DeepSeek key lists none of ByteQuay's supported models.");
+                return status(local, AgentProviderStatus.Readiness.UNSUPPORTED, "This DeepSeek key lists none of ByteQuay's supported models.");
             }
             if (model.isPresent() && !listed.contains(model.orElseThrow())) {
-                return status(local, AgentProviderStatus.Readiness.UNSUPPORTED,
-                        "This DeepSeek key does not list the selected model " + model.orElseThrow() + ".");
+                return status(local, AgentProviderStatus.Readiness.UNSUPPORTED, "This DeepSeek key does not list the selected model " + model.orElseThrow() + ".");
             }
             return status(local, AgentProviderStatus.Readiness.READY, "DeepSeek API key and model are available");
         }
         catch (IOException failure) {
-            return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                    "Cannot reach DeepSeek to check the API key. Try again later.");
+            return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, "Cannot reach DeepSeek to check the API key. Try again later.");
         }
         catch (IllegalArgumentException failure) {
-            return status(local, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
-                    "The saved DeepSeek API key is malformed. Replace it in Models settings.");
+            return status(local, AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED, "The saved DeepSeek API key is malformed. Replace it in Models settings.");
         }
         catch (InterruptedException failure) {
             Thread.currentThread().interrupt();
-            return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                    "DeepSeek model check was interrupted. Try again.");
+            return status(local, AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, "DeepSeek model check was interrupted. Try again.");
         }
     }
 

@@ -136,8 +136,7 @@ class TestDevelopmentCiOwnership
         TaskId id = TaskId.random();
         TaskWorktree worktree = new TaskWorktree(id, "workspace", new RepositoryIdentity(repository.owner(), repository.repo()),
                 Path.of("/tmp/ci-ownership").resolve(id.toString()), "bytequay/task/" + id, HEAD);
-        return AgentTask.created(id, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
+        return AgentTask.created(id, true, "Development", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private static CiAutofixRun run(AgentTask source, RepoRef headRepository, Optional<String> parent)
@@ -158,8 +157,7 @@ class TestDevelopmentCiOwnership
         when(turns.list(parent.id())).thenReturn(ImmutableList.of(turn));
         AgentEventEnvelope input = new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), 1, parent.id(), Optional.of(id), root(), NOW,
                 new AgentEventPayload.UserMessage("Fix the requested code", ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
-        when(events.readHistory(eq(parent.id()), any(), any())).thenReturn(
-                new AgentHistoryPage(ImmutableList.of(input), OptionalLong.empty(), OptionalLong.empty(), 1));
+        when(events.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(input), OptionalLong.empty(), OptionalLong.empty(), 1));
         synchronized (runtimes.taskLock(parent.id())) {
             ReflectionTestUtils.invokeMethod(runtimes, "reserveDevelopmentOwner", parent.id(), id);
         }

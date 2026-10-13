@@ -207,8 +207,7 @@ class TestReviewPublicationService
             assertThat(item.findingId()).contains(FINDING_ID);
             assertThat(item.findingRevision()).hasValue(1);
         });
-        ReviewFinding revised = finding.revised(finding.title(), "New claim after acceptance", finding.severity(), finding.anchor(),
-                finding.evidence(), REVIEWED_HEAD, NOW);
+        ReviewFinding revised = finding.revised(finding.title(), "New claim after acceptance", finding.severity(), finding.anchor(), finding.evidence(), REVIEWED_HEAD, NOW);
         reviews.put(revised);
         ReviewDraft cleared = service.removeItem(REPO, NUMBER, draft.version(), lastItemId(draft));
         assertThatThrownBy(() -> service.addFinding(REPO, NUMBER, cleared.version(), REVIEW_ID, FINDING_ID))
@@ -252,8 +251,7 @@ class TestReviewPublicationService
         ReviewFinding original = finding(FINDING_ID, 1, "src/Service.java", 118, 131, "Original finding");
         reviews.put(original);
         reviews.setRun(acceptedReport(original, true, true));
-        ReviewFinding revised = original.revised(original.title(), "Clarified after discussion", original.severity(), original.anchor(),
-                original.evidence(), REVIEWED_HEAD, NOW);
+        ReviewFinding revised = original.revised(original.title(), "Clarified after discussion", original.severity(), original.anchor(), original.evidence(), REVIEWED_HEAD, NOW);
         reviews.put(revised);
 
         ReviewDraft promoted = service.addFinding(REPO, NUMBER, 0, REVIEW_ID, FINDING_ID);

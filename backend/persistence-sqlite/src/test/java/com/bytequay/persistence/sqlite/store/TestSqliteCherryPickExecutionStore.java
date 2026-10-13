@@ -99,21 +99,10 @@ class TestSqliteCherryPickExecutionStore
     {
         CherryPickExecution created = store.createOrGet(execution("detail", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
         CherryPickExecution updated = store.save(created
-                .withJournal(
-                        new ActionJournal(
-                                ActionType.COMMIT_CONFLICT_SNAPSHOT,
-                                Optional.of(sha(1)),
-                                TARGET,
-                                2,
-                                "action-key",
-                                NOW),
-                        NOW.plusSeconds(1))
+                .withJournal(new ActionJournal(ActionType.COMMIT_CONFLICT_SNAPSHOT, Optional.of(sha(1)), TARGET, 2, "action-key", NOW), NOW.plusSeconds(1))
                 .recordConflict(
                         sha(1),
-                        ImmutableList.of(new ConflictPath(
-                                "core/trino-main/src/Main.java",
-                                ConflictType.MODIFY_DELETE,
-                                Optional.of("core/trino-main"), ImmutableList.of())),
+                        ImmutableList.of(new ConflictPath("core/trino-main/src/Main.java", ConflictType.MODIFY_DELETE, Optional.of("core/trino-main"), ImmutableList.of())),
                         NOW.plusSeconds(2))
                 .withStep(Step.RESOLVING, NOW.plusSeconds(3)));
 
@@ -142,8 +131,7 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void findsExecutionByAgentTask()
     {
-        CherryPickExecution created = store.createOrGet(execution(
-                "agent-task", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution created = store.createOrGet(execution("agent-task", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
         String taskId = UUID.randomUUID().toString();
         CherryPickExecution linked = store.save(created.withAgentTask(taskId, NOW.plusSeconds(1)));
 
@@ -201,9 +189,7 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void keepsAppliedTargetShasThroughAReload()
     {
-        CherryPickExecution created = store.createOrGet(execution(
-                "applied",
-                ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK), planned(2, Disposition.TO_CHERRY_PICK))));
+        CherryPickExecution created = store.createOrGet(execution("applied", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK), planned(2, Disposition.TO_CHERRY_PICK))));
         CherryPickExecution first = store.save(created.recordApplied(sha(1), created(1), NOW.plusSeconds(1)));
         store.save(first.recordApplied(sha(2), created(2), NOW.plusSeconds(2)));
 
@@ -218,10 +204,8 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void keepsAConflictTargetAndItsFixupTipThroughAReload()
     {
-        CherryPickExecution created = store.createOrGet(execution(
-                "conflict-pair", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
-        store.save(created.recordAppliedWithFixup(
-                sha(1), created(1), created(2), NOW.plusSeconds(1)));
+        CherryPickExecution created = store.createOrGet(execution("conflict-pair", ImmutableList.of(planned(1, Disposition.TO_CHERRY_PICK))));
+        store.save(created.recordAppliedWithFixup(sha(1), created(1), created(2), NOW.plusSeconds(1)));
 
         CherryPickExecution loaded = store.find(created.id()).orElseThrow();
         assertThat(loaded.items().getFirst().targetSha()).contains(created(1));
@@ -231,14 +215,10 @@ class TestSqliteCherryPickExecutionStore
     @Test
     void roundTripsPushAndProviderPullRequestIdentity()
     {
-        CherryPickExecution created = store.createOrGet(execution(
-                "delivery", ImmutableList.of(planned(1, Disposition.USER_SKIPPED))));
-        CherryPickExecution finished = store.save(created.finish(
-                FinishReason.COMPLETED, "nothing to apply", NOW.plusSeconds(1)));
-        CherryPickExecution pushed = store.save(finished.recordPush(
-                "origin", "bump-delivery", TARGET, NOW.plusSeconds(2)));
-        store.save(pushed.recordPullRequest(
-                900, 12, "https://github.com/trinodb/trino/pull/12", NOW.plusSeconds(3)));
+        CherryPickExecution created = store.createOrGet(execution("delivery", ImmutableList.of(planned(1, Disposition.USER_SKIPPED))));
+        CherryPickExecution finished = store.save(created.finish(FinishReason.COMPLETED, "nothing to apply", NOW.plusSeconds(1)));
+        CherryPickExecution pushed = store.save(finished.recordPush("origin", "bump-delivery", TARGET, NOW.plusSeconds(2)));
+        store.save(pushed.recordPullRequest(900, 12, "https://github.com/trinodb/trino/pull/12", NOW.plusSeconds(3)));
 
         CherryPickExecution loaded = store.find(created.id()).orElseThrow();
         assertThat(loaded.delivery()).hasValueSatisfying(delivery -> {
@@ -288,10 +268,7 @@ class TestSqliteCherryPickExecutionStore
                 sha(position),
                 parent(position),
                 "Commit " + position,
-                Optional.of(new PullRequestRefView(
-                        1000 + position,
-                        "Pull request " + position,
-                        "https://github.com/trinodb/trino/pull/" + (1000 + position))),
+                Optional.of(new PullRequestRefView(1000 + position, "Pull request " + position, "https://github.com/trinodb/trino/pull/" + (1000 + position))),
                 disposition);
     }
 

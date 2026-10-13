@@ -195,8 +195,7 @@ public class MemoryHarvestService
                     threadNotes.add(note(++key, note));
                 }
                 notes += threadNotes.size();
-                kept.add(new HarvestThread(thread.id(), discussion.number(), MemorySource.Part.REVIEW_COMMENT, thread.path(), thread.resolved(), thread.outdated(),
-                        threadNotes));
+                kept.add(new HarvestThread(thread.id(), discussion.number(), MemorySource.Part.REVIEW_COMMENT, thread.path(), thread.resolved(), thread.outdated(), threadNotes));
             }
             List<Note> standalone = Stream.concat(discussion.reviews().stream(), discussion.comments().stream())
                     .filter(note -> !note.bot() && note.maintainer() && !note.body().isBlank() && !read.contains(note.id()))

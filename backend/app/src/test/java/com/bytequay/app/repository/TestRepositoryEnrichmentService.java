@@ -95,16 +95,9 @@ class TestRepositoryEnrichmentService
     void reusesWatchedSelectedAndUpstreamIdentitiesAndPersistsThem()
     {
         Workspace selected = directWorkspace("selected", 101, RepoRef.of("trinodb", "trino"));
-        Workspace linked = linkedWorkspace(
-                "linked",
-                202,
-                RepoRef.of("contributor", "iceberg"),
-                303,
-                RepoRef.of("apache", "iceberg"));
-        RemoteSource selectedRemote = new RemoteSource(
-                "target", "oss", "https://github.com/TRINODB/trino.git");
-        RemoteSource upstreamRemote = new RemoteSource(
-                "target", "iceberg", "https://github.com/apache/iceberg");
+        Workspace linked = linkedWorkspace("linked", 202, RepoRef.of("contributor", "iceberg"), 303, RepoRef.of("apache", "iceberg"));
+        RemoteSource selectedRemote = new RemoteSource("target", "oss", "https://github.com/TRINODB/trino.git");
+        RemoteSource upstreamRemote = new RemoteSource("target", "iceberg", "https://github.com/apache/iceberg");
         when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(selected, linked));
         when(remoteSources.findByWorkspace("target"))
                 .thenReturn(ImmutableList.of(selectedRemote, upstreamRemote));
@@ -113,21 +106,16 @@ class TestRepositoryEnrichmentService
                 selectedRemote.withRepositoryIdentity(101, RepoRef.of("trinodb", "trino")),
                 upstreamRemote.withRepositoryIdentity(303, RepoRef.of("apache", "iceberg")));
 
-        verify(remoteSources).save(
-                selectedRemote.withRepositoryIdentity(101, RepoRef.of("trinodb", "trino")));
-        verify(remoteSources).save(
-                upstreamRemote.withRepositoryIdentity(303, RepoRef.of("apache", "iceberg")));
+        verify(remoteSources).save(selectedRemote.withRepositoryIdentity(101, RepoRef.of("trinodb", "trino")));
+        verify(remoteSources).save(upstreamRemote.withRepositoryIdentity(303, RepoRef.of("apache", "iceberg")));
     }
 
     @Test
     void leavesUnmatchedAndNonGitHubRemotesWithoutProviderIdentity()
     {
-        RemoteSource unmatched = new RemoteSource(
-                "target", "unknown", "https://github.com/unknown/project.git");
-        RemoteSource nonGitHub = new RemoteSource(
-                "target", "internal", "https://git.example.com/team/project.git");
-        when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(
-                directWorkspace("selected", 101, RepoRef.of("trinodb", "trino"))));
+        RemoteSource unmatched = new RemoteSource("target", "unknown", "https://github.com/unknown/project.git");
+        RemoteSource nonGitHub = new RemoteSource("target", "internal", "https://git.example.com/team/project.git");
+        when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(directWorkspace("selected", 101, RepoRef.of("trinodb", "trino"))));
         when(remoteSources.findByWorkspace("target"))
                 .thenReturn(ImmutableList.of(unmatched, nonGitHub));
 
@@ -138,19 +126,15 @@ class TestRepositoryEnrichmentService
     @Test
     void keepsRememberedStableIdentityAndOnlyRefreshesItsCoordinates()
     {
-        RemoteSource remembered = new RemoteSource(
-                "target", "remembered", "https://github.com/current/project.git")
+        RemoteSource remembered = new RemoteSource("target", "remembered", "https://github.com/current/project.git")
                 .withRepositoryIdentity(101, RepoRef.of("previous", "project"));
-        RemoteSource renamed = new RemoteSource(
-                "target", "renamed", "https://github.com/old/name.git")
+        RemoteSource renamed = new RemoteSource("target", "renamed", "https://github.com/old/name.git")
                 .withRepositoryIdentity(202, RepoRef.of("old", "name"));
         RepoRef current = RepoRef.of("current", "project");
         when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(directWorkspace("current", 202, current)));
         when(remoteSources.findByWorkspace("target")).thenReturn(ImmutableList.of(remembered, renamed));
 
-        assertThat(service.enrichRemoteSources("target")).containsExactly(
-                remembered,
-                renamed.withRepositoryIdentity(202, current));
+        assertThat(service.enrichRemoteSources("target")).containsExactly(remembered, renamed.withRepositoryIdentity(202, current));
 
         verify(remoteSources).save(renamed.withRepositoryIdentity(202, current));
     }

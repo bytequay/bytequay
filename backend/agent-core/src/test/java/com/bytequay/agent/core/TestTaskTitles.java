@@ -23,8 +23,7 @@ class TestTaskTitles
     @Test
     void keepsACompactFallbackFromTheFirstMessage()
     {
-        assertThat(TaskTitles.provisional(
-                "Investigate the flaky cherry-pick preview test and fix the root cause.\nThen open a PR."))
+        assertThat(TaskTitles.provisional("Investigate the flaky cherry-pick preview test and fix the root cause.\nThen open a PR."))
                 .isEqualTo("Investigate the flaky cherry-pick…");
         assertThat(TaskTitles.provisional("Why? Because the test flakes.")).isEqualTo("Why? Because the test flakes.");
         assertThat(TaskTitles.provisional("### Heading\n\nbody")).isEqualTo("Heading");

@@ -1911,8 +1911,7 @@ public class ReviewTools
                         + "or complete historical discussion. cacheUpdatedAt may reflect a status-only update.");
         freshness.putPOJO("unavailableSections", read.detail().unavailableSections());
         if (call.review().number().stream().anyMatch(value -> value == number)) {
-            read.observedHeadSha().ifPresentOrElse(head -> freshness.put("matchesReviewedHead", head.equals(call.run().headSha())),
-                    () -> freshness.putNull("matchesReviewedHead"));
+            read.observedHeadSha().ifPresentOrElse(head -> freshness.put("matchesReviewedHead", head.equals(call.run().headSha())), () -> freshness.putNull("matchesReviewedHead"));
         }
         ObjectNode node = objectMapper.createObjectNode().put("repository", call.review().repo()).put("number", number)
                 .put("pullRequest", true).put("source", "selected-pull-request");

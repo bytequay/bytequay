@@ -227,9 +227,7 @@ public final class DefaultAgentTurnService
         TurnAcceptance acceptance;
         synchronized (runtimeRegistry.taskLock(command.taskId())) {
             drainPending(outboxStore, eventService, command.taskId());
-            Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(
-                    command.taskId(),
-                    command.idempotencyKey());
+            Optional<AgentTurn> repeated = turnStore.findByIdempotencyKey(command.taskId(), command.idempotencyKey());
             if (repeated.isPresent()) {
                 return repeated.orElseThrow();
             }
@@ -359,8 +357,7 @@ public final class DefaultAgentTurnService
                     .collect(toImmutableList());
             completion = runtimeRegistry.registerDevelopmentTurn(taskId, origin);
             try {
-                acceptance = acceptTurnLocked(task, "development:" + origin.parentUserTurnId() + ":" + origin.kind(),
-                        message, attachments, settings, Optional.of(origin));
+                acceptance = acceptTurnLocked(task, "development:" + origin.parentUserTurnId() + ":" + origin.kind(), message, attachments, settings, Optional.of(origin));
             }
             catch (RuntimeException failure) {
                 completion.completeExceptionally(failure);
@@ -389,8 +386,7 @@ public final class DefaultAgentTurnService
             if (head.isEmpty()) {
                 return false;
             }
-            AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId)),
-                    head.orElseThrow().settings().model());
+            AgentTask task = requireReady(requireStartableTaskWithoutReadiness(taskId, Optional.of(sourceTurnId)), head.orElseThrow().settings().model());
             // The queued turn's claim is stored before releasing this owner. Send never sees an
             // unclaimed gap, including while the next turn captures its baseline outside the lock.
             acceptance = acceptQueuedLocked(task.withDevelopmentContinuation(false, Instant.now(clock)), head.orElseThrow());
@@ -417,8 +413,7 @@ public final class DefaultAgentTurnService
         Instant now = Instant.now(clock);
         return unitOfWork.execute(() -> {
             AgentTask updated = taskStore.update(task.withDevelopmentContinuation(unfinished, now));
-            outboxStore.insert(pendingLifecycle(EventId.random(), task.id(), Optional.empty(),
-                    AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
+            outboxStore.insert(pendingLifecycle(EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
             return updated;
         });
     }
@@ -513,8 +508,7 @@ public final class DefaultAgentTurnService
                     }
                 }
                 AgentTask updated = taskStore.update(task.withDevelopmentContinuation(false, now));
-                outboxStore.insert(pendingLifecycle(EventId.random(), taskId, Optional.empty(),
-                        AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
+                outboxStore.insert(pendingLifecycle(EventId.random(), taskId, Optional.empty(), AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, message, now));
                 return updated;
             });
             runtimeRegistry.developmentOwner(taskId).ifPresent(owner -> runtimeRegistry.releaseDevelopmentOwner(taskId, owner));
@@ -853,8 +847,7 @@ public final class DefaultAgentTurnService
             List<AgentAttachment> attachments = input.settings().attachments().stream()
                     .map(reference -> resourceService.readAttachment(taskId, reference.id()).input())
                     .collect(toImmutableList());
-            return acceptSteerLocked(task, turn,
-                    new SteerAgentTurnCommand(turnId, readUtf8(taskId, input.textBlob()), attachments, idempotencyKey), Optional.of(input));
+            return acceptSteerLocked(task, turn, new SteerAgentTurnCommand(turnId, readUtf8(taskId, input.textBlob()), attachments, idempotencyKey), Optional.of(input));
         });
     }
 
@@ -876,10 +869,7 @@ public final class DefaultAgentTurnService
                         throw new AgentConflictException("Steer idempotency key belongs to another turn: " + existing.turnId());
                     }
                     if (existing.state() == AgentInputDelivery.State.SENDING) {
-                        return settleSteer(
-                                existing,
-                                AgentInputDelivery.State.UNKNOWN,
-                                Optional.of("Previous steer attempt ended without a recorded provider response"));
+                        return settleSteer(existing, AgentInputDelivery.State.UNKNOWN, Optional.of("Previous steer attempt ended without a recorded provider response"));
                     }
                     if (existing.state() != AgentInputDelivery.State.ACCEPTED) {
                         return existing;
@@ -942,14 +932,10 @@ public final class DefaultAgentTurnService
     private SteerAcceptance acceptSteerLocked(AgentTask task, AgentTurn turn, SteerAgentTurnCommand command, Optional<QueuedAgentInput> queued)
     {
         Instant acceptedAt = Instant.now(clock);
-        BlobRef messageBlob = logStore.writeBlob(
-                task.id(),
-                ByteBuffer.wrap(command.message().getBytes(UTF_8)),
-                "text/plain; charset=utf-8");
+        BlobRef messageBlob = logStore.writeBlob(task.id(), ByteBuffer.wrap(command.message().getBytes(UTF_8)), "text/plain; charset=utf-8");
         InputDeliveryId deliveryId = InputDeliveryId.random();
         EventId messageEventId = EventId.steerMessage(deliveryId);
-        AgentInputDelivery delivery = AgentInputDelivery.accepted(
-                deliveryId, task.id(), turn.id(), command.idempotencyKey(), acceptedAt);
+        AgentInputDelivery delivery = AgentInputDelivery.accepted(deliveryId, task.id(), turn.id(), command.idempotencyKey(), acceptedAt);
         unitOfWork.execute(() -> {
             steerStore.insert(delivery);
             queued.ifPresent(input -> {
@@ -962,10 +948,7 @@ public final class DefaultAgentTurnService
                     task.id(),
                     Optional.of(turn.id()),
                     root(),
-                    new AgentEventOutboxPayload.UserMessageBlob(
-                            messageBlob,
-                            references(command.attachments()),
-                            AgentEventPayload.DeliveryKind.STEER),
+                    new AgentEventOutboxPayload.UserMessageBlob(messageBlob, references(command.attachments()), AgentEventPayload.DeliveryKind.STEER),
                     acceptedAt,
                     Optional.empty()));
             return null;
@@ -1062,10 +1045,7 @@ public final class DefaultAgentTurnService
                         : "Task has no active turn to queue behind: " + task.id());
             }
             Instant queuedAt = Instant.now(clock);
-            BlobRef textBlob = logStore.writeBlob(
-                    task.id(),
-                    ByteBuffer.wrap(command.message().getBytes(UTF_8)),
-                    "text/plain; charset=utf-8");
+            BlobRef textBlob = logStore.writeBlob(task.id(), ByteBuffer.wrap(command.message().getBytes(UTF_8)), "text/plain; charset=utf-8");
             long position = queueStore.listQueued(task.id()).stream().mapToLong(QueuedAgentInput::position).max().orElse(0) + 1;
             QueuedAgentInput input = QueuedAgentInput.queued(
                     QueuedInputId.random(),
@@ -1078,13 +1058,7 @@ public final class DefaultAgentTurnService
                             .withRepositoryContext(command.useRepositoryContext().orElse(true)),
                     queuedAt);
             return eventCommitter.commit(
-                    pendingLifecycle(
-                            EventId.random(),
-                            task.id(),
-                            Optional.empty(),
-                            AgentEventPayload.LifecyclePhase.QUEUE_CHANGED,
-                            "Queued input added",
-                            queuedAt),
+                    pendingLifecycle(EventId.random(), task.id(), Optional.empty(), AgentEventPayload.LifecyclePhase.QUEUE_CHANGED, "Queued input added", queuedAt),
                     () -> {
                         // The version write is what serializes this against Complete.
                         taskStore.update(task.withUpdatedAt(queuedAt));
@@ -1265,13 +1239,7 @@ public final class DefaultAgentTurnService
     {
         Instant pausedAt = Instant.now(clock);
         eventCommitter.commit(
-                pendingLifecycle(
-                        EventId.random(),
-                        input.taskId(),
-                        Optional.empty(),
-                        AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
-                        reason,
-                        pausedAt),
+                pendingLifecycle(EventId.random(), input.taskId(), Optional.empty(), AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED, reason, pausedAt),
                 () -> queueStore.update(input.paused(reason, pausedAt)));
     }
 
@@ -1302,10 +1270,7 @@ public final class DefaultAgentTurnService
                         task.id(),
                         Optional.of(turnId),
                         root(),
-                        new AgentEventOutboxPayload.UserMessageBlob(
-                                head.textBlob(),
-                                settings.attachments(),
-                                AgentEventPayload.DeliveryKind.QUEUED),
+                        new AgentEventOutboxPayload.UserMessageBlob(head.textBlob(), settings.attachments(), AgentEventPayload.DeliveryKind.QUEUED),
                         acceptedAt,
                         Optional.empty()));
             }
@@ -1361,8 +1326,7 @@ public final class DefaultAgentTurnService
                     && command.expectedTaskVersion().getAsLong() == 0
                     && turnStore.list(task.id()).isEmpty();
             if (!trustedInitialTurn) {
-                throw new InvalidAgentRequestException(
-                        "Task-creation readiness applies only to a fresh interactive task");
+                throw new InvalidAgentRequestException("Task-creation readiness applies only to a fresh interactive task");
             }
             return task;
         }
@@ -1448,17 +1412,9 @@ public final class DefaultAgentTurnService
     {
         TurnId turnId = TurnId.random();
         Instant acceptedAt = Instant.now(clock);
-        AgentTurn accepted = AgentTurn.accepted(
-                turnId,
-                task.id(),
-                idempotencyKey,
-                settings,
-                acceptedAt);
+        AgentTurn accepted = AgentTurn.accepted(turnId, task.id(), idempotencyKey, settings, acceptedAt);
         AgentTurn turn = origin.map(accepted::withDevelopmentOrigin).orElse(accepted);
-        BlobRef messageBlob = logStore.writeBlob(
-                task.id(),
-                ByteBuffer.wrap(message.getBytes(UTF_8)),
-                "text/plain; charset=utf-8");
+        BlobRef messageBlob = logStore.writeBlob(task.id(), ByteBuffer.wrap(message.getBytes(UTF_8)), "text/plain; charset=utf-8");
         EventId messageEventId = EventId.random();
         unitOfWork.execute(() -> {
             taskStore.update(claimAcceptedTurn(task, turn));
@@ -1468,10 +1424,7 @@ public final class DefaultAgentTurnService
                     turn.taskId(),
                     Optional.of(turn.id()),
                     root(),
-                    new AgentEventOutboxPayload.UserMessageBlob(
-                            messageBlob,
-                            settings.attachments(),
-                            AgentEventPayload.DeliveryKind.TURN),
+                    new AgentEventOutboxPayload.UserMessageBlob(messageBlob, settings.attachments(), AgentEventPayload.DeliveryKind.TURN),
                     acceptedAt,
                     Optional.empty()));
             return null;
@@ -1498,9 +1451,7 @@ public final class DefaultAgentTurnService
                 .findFirst();
         Optional<EventId> queueEventId = queuedInput.map(input -> EventId.random());
         AgentTurn running = unitOfWork.execute(() -> {
-            AgentTurn updated = turnStore.update(turnStore.require(accepted.id()).running(
-                    providerTurnReference,
-                    Optional.empty()));
+            AgentTurn updated = turnStore.update(turnStore.require(accepted.id()).running(providerTurnReference, Optional.empty()));
             // The thread reference is persisted only now that a turn has run on it. A thread that
             // was opened but never turned has no rollout, so resuming it after a restart fails
             // forever; forgetting it means the next turn starts a fresh thread instead.
@@ -1537,13 +1488,7 @@ public final class DefaultAgentTurnService
     {
         Instant startedAt = Instant.now(clock);
         eventCommitter.commit(
-                pendingLifecycle(
-                        EventId.random(),
-                        accepted.taskId(),
-                        Optional.of(accepted.id()),
-                        AgentEventPayload.LifecyclePhase.TURN_STARTED,
-                        "Turn started",
-                        startedAt),
+                pendingLifecycle(EventId.random(), accepted.taskId(), Optional.of(accepted.id()), AgentEventPayload.LifecyclePhase.TURN_STARTED, "Turn started", startedAt),
                 () -> turnStore.update(turnStore.require(accepted.id()).markDeliveryStarted(startedAt).withReference(reference.guidelines(), reference.memories())));
     }
 
@@ -1615,11 +1560,7 @@ public final class DefaultAgentTurnService
         synchronized (runtimeRegistry.taskLock(taskId)) {
             AgentTask task = taskStore.require(taskId);
             Optional<AgentTurn> active = turnStore.findActive(taskId);
-            return new AgentRuntimeStopImpact(
-                    taskId,
-                    generation(task, active),
-                    active.map(AgentTurn::id),
-                    runtimeRegistry.session(taskId).isPresent());
+            return new AgentRuntimeStopImpact(taskId, generation(task, active), active.map(AgentTurn::id), runtimeRegistry.session(taskId).isPresent());
         }
     }
 
@@ -1704,11 +1645,7 @@ public final class DefaultAgentTurnService
             synchronized (runtimeRegistry.taskLock(turn.taskId())) {
                 AgentTurn current = turnStore.require(turn.id());
                 if (current.state().active()) {
-                    persistTerminalTurn(
-                            current,
-                            TurnState.INTERRUPTED,
-                            Optional.of("Provider process stopped before the turn was acknowledged"),
-                            true);
+                    persistTerminalTurn(current, TurnState.INTERRUPTED, Optional.of("Provider process stopped before the turn was acknowledged"), true);
                 }
             }
             drainPending(outboxStore, eventService, turn.taskId());
@@ -1956,12 +1893,7 @@ public final class DefaultAgentTurnService
             if (turn.cancellationRequestedAt().isPresent()) {
                 throw new AgentConflictException("Task turn is being cancelled: " + turn.id());
             }
-            ApprovalRequest approval = new ApprovalRequest(
-                    ApprovalId.random(),
-                    taskId,
-                    turn.id(),
-                    request,
-                    Instant.now(clock));
+            ApprovalRequest approval = new ApprovalRequest(ApprovalId.random(), taskId, turn.id(), request, Instant.now(clock));
             CompletableFuture<ProviderApprovalDecision> decision = approvalService.request(approval, timeout)
                     .thenApply(DefaultAgentTurnService::toProviderDecision)
                     .toCompletableFuture();
@@ -2229,11 +2161,7 @@ public final class DefaultAgentTurnService
             if (updated != task) {
                 taskStore.update(updated);
             }
-            settleQueue(
-                    terminal,
-                    providerQuiescent,
-                    lifecycleMessage(terminalState, reason),
-                    endedAt);
+            settleQueue(terminal, providerQuiescent, lifecycleMessage(terminalState, reason), endedAt);
             settleSteersForTerminalTurn(terminal.id(), endedAt);
             outboxStore.insert(pendingLifecycle(
                     eventId,
@@ -2260,10 +2188,7 @@ public final class DefaultAgentTurnService
                     settled.taskId(),
                     Optional.of(settled.turnId()),
                     root(),
-                    new AgentEventPayload.Error(
-                            "STEER_FAILED",
-                            settled.failure().orElseThrow(),
-                            false),
+                    new AgentEventPayload.Error("STEER_FAILED", settled.failure().orElseThrow(), false),
                     endedAt));
         }
     }

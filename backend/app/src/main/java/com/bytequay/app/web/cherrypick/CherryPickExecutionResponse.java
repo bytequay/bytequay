@@ -122,13 +122,7 @@ public record CherryPickExecutionResponse(
 
         private static DeliveryResponse of(CherryPickExecution.Delivery delivery)
         {
-            return new DeliveryResponse(
-                    delivery.pushRemote(),
-                    delivery.head(),
-                    delivery.sha(),
-                    delivery.pullRequestId(),
-                    delivery.pullRequestNumber(),
-                    delivery.pullRequestUrl());
+            return new DeliveryResponse(delivery.pushRemote(), delivery.head(), delivery.sha(), delivery.pullRequestId(), delivery.pullRequestNumber(), delivery.pullRequestUrl());
         }
     }
 

@@ -86,10 +86,7 @@ final class ClaudeEventMapper
             case ClaudeProtocol.RateLimitMessage rateLimit ->
                 rateLimit.rateLimitInfo().status().toLowerCase(Locale.ROOT).startsWith("allowed")
                         ? ImmutableList.of()
-                        : ImmutableList.of(lifecycle(
-                                rateLimit.uuid(),
-                                ProviderAgentEvent.LifecyclePhase.RATE_LIMITED,
-                                "Claude rate limit: " + rateLimit.rateLimitInfo().status()));
+                        : ImmutableList.of(lifecycle(rateLimit.uuid(), ProviderAgentEvent.LifecyclePhase.RATE_LIMITED, "Claude rate limit: " + rateLimit.rateLimitInfo().status()));
             case ClaudeProtocol.ResultMessage result -> mapResult(result);
             case ClaudeProtocol.CommandLifecycleMessage ignored -> ImmutableList.of();
             case ClaudeProtocol.UnknownMessage ignored -> ImmutableList.of();
@@ -187,9 +184,7 @@ final class ClaudeEventMapper
                 && content.delta() instanceof ClaudeProtocol.TextDelta text
                 && !text.text().isEmpty()) {
             TextStreamKey key = new TextStreamKey(message.parentToolUseId(), content.index());
-            TextStream stream = textStreams.computeIfAbsent(
-                    key,
-                    ignored -> new TextStream(message.uuid().orElseGet(() -> "claude-message-" + UUID.randomUUID())));
+            TextStream stream = textStreams.computeIfAbsent(key, ignored -> new TextStream(message.uuid().orElseGet(() -> "claude-message-" + UUID.randomUUID())));
             stream.append(text.text());
             // A credential split across deltas is still replaced; text that may begin one waits for the next delta.
             SecretRedactor.Chunk chunk = redactor.redactChunk(stream.held, text.text());
@@ -285,11 +280,7 @@ final class ClaudeEventMapper
                             message.parentToolUseId());
                 }
                 activeTools.remove(result.toolUseId());
-                events.add(completedTool(
-                        eventId(message.uuid(), "tool-result", index),
-                        result,
-                        call,
-                        message.toolUseResult()));
+                events.add(completedTool(eventId(message.uuid(), "tool-result", index), result, call, message.toolUseResult()));
                 completeInvocation(message, result, call, events);
                 if (call.name().equals("TodoWrite")) {
                     tools.remove(result.toolUseId());
@@ -366,18 +357,12 @@ final class ClaudeEventMapper
         events.add(new ProviderAgentEvent.Usage(new ProviderUsageSample(
                 result.uuid(),
                 ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
-                Math.addExact(
-                        usage.inputTokens(),
-                        Math.addExact(usage.cacheCreationInputTokens(), usage.cacheReadInputTokens())),
+                Math.addExact(usage.inputTokens(), Math.addExact(usage.cacheCreationInputTokens(), usage.cacheReadInputTokens())),
                 usage.cacheReadInputTokens(),
                 usage.outputTokens(),
                 result.totalCostUsd())));
         if (!result.successful()) {
-            events.add(new ProviderAgentEvent.Error(
-                    eventId(result.uuid(), "error", 0),
-                    "claude_result",
-                    bounded(result.errorMessage()),
-                    false));
+            events.add(new ProviderAgentEvent.Error(eventId(result.uuid(), "error", 0), "claude_result", bounded(result.errorMessage()), false));
         }
         List<ProviderAgentEvent> mapped = events.build();
         latestRootTextItemId = Optional.empty();
@@ -534,12 +519,7 @@ final class ClaudeEventMapper
                 .or(() -> message.stdout())
                 .or(() -> message.stderr())
                 .orElse(name);
-        return new ProviderAgentEvent.Tool(
-                message.uuid(),
-                "hook/" + name,
-                state,
-                bounded(summary),
-                ProviderAgentEventSource.item(id));
+        return new ProviderAgentEvent.Tool(message.uuid(), "hook/" + name, state, bounded(summary), ProviderAgentEventSource.item(id));
     }
 
     private void startAgent(
@@ -708,12 +688,7 @@ final class ClaudeEventMapper
                 .orElseGet(() -> toolId.map(tools::get)
                         .map(call -> source(call.parentToolUseId(), Optional.of(id)))
                         .orElseGet(() -> ProviderAgentEventSource.item(id)));
-        events.add(new ProviderAgentEvent.Tool(
-                message.uuid(),
-                "Task",
-                state,
-                bounded(summary),
-                eventSource));
+        events.add(new ProviderAgentEvent.Tool(message.uuid(), "Task", state, bounded(summary), eventSource));
         if (finished && agent.isPresent()) {
             finishAgent(toolId.orElseThrow(), state, summary, message.uuid(), events);
         }

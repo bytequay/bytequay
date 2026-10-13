@@ -55,24 +55,21 @@ class TestGitHubClientAggregation
     @Test
     void testExtractGitHubErrorMessageUsesTopLevelMessage()
     {
-        assertThat(GitHubApiSupport.extractGitHubErrorMessage(
-                "{\"message\":\"Validation Failed\"}"))
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage("{\"message\":\"Validation Failed\"}"))
                 .isEqualTo("Validation Failed");
     }
 
     @Test
     void testExtractGitHubErrorMessageIncludesFirstDetailedError()
     {
-        assertThat(GitHubApiSupport.extractGitHubErrorMessage(
-                "{\"message\":\"Validation Failed\",\"errors\":[{\"message\":\"Can not approve your own pull request\"}]}"))
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage("{\"message\":\"Validation Failed\",\"errors\":[{\"message\":\"Can not approve your own pull request\"}]}"))
                 .isEqualTo("Validation Failed: Can not approve your own pull request");
     }
 
     @Test
     void testExtractGitHubErrorMessageIncludesFirstTextualError()
     {
-        assertThat(GitHubApiSupport.extractGitHubErrorMessage(
-                "{\"message\":\"Unprocessable Entity\",\"errors\":[\"Path could not be resolved\"]}"))
+        assertThat(GitHubApiSupport.extractGitHubErrorMessage("{\"message\":\"Unprocessable Entity\",\"errors\":[\"Path could not be resolved\"]}"))
                 .isEqualTo("Unprocessable Entity: Path could not be resolved");
     }
 
@@ -100,8 +97,7 @@ class TestGitHubClientAggregation
     {
         // Search reports a merged PR as state=closed. Dropping merged_at made
         // every downstream renderer call it "Closed" instead of "Merged".
-        assertThat(GitHubPullRequestReadClient.toPullRequest(
-                searchItem(Instant.parse("2026-08-03T03:37:02Z")), AUTHORED).mergedAt())
+        assertThat(GitHubPullRequestReadClient.toPullRequest(searchItem(Instant.parse("2026-08-03T03:37:02Z")), AUTHORED).mergedAt())
                 .isEqualTo(Instant.parse("2026-08-03T03:37:02Z"));
     }
 

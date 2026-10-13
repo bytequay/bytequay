@@ -203,13 +203,7 @@ class TestCiAutofixService
         credentials = mock(CredentialService.class);
         taskId = TaskId.random();
         worktree = Files.createDirectory(temporaryDirectory.resolve(taskId.toString())).toRealPath();
-        taskWorktree = new TaskWorktree(
-                taskId,
-                "workspace-1",
-                REPOSITORY,
-                worktree,
-                "bytequay/task/" + taskId,
-                HEAD);
+        taskWorktree = new TaskWorktree(taskId, "workspace-1", REPOSITORY, worktree, "bytequay/task/" + taskId, HEAD);
         turnId = TurnId.random();
         openTask = AgentTask.created(
                 taskId,
@@ -226,40 +220,21 @@ class TestCiAutofixService
         Path runtime = Files.createDirectories(temporaryDirectory.resolve("runtime").resolve(taskId.toString()));
         Path blobs = Files.createDirectory(runtime.resolve("blobs"));
         Path log = Files.writeString(blobs.resolve("ci.log"), "compile failed");
-        resources = new TaskResources(
-                runtime,
-                runtime.resolve("events.jsonl"),
-                blobs,
-                Files.createDirectory(runtime.resolve("provider")));
+        resources = new TaskResources(runtime, runtime.resolve("events.jsonl"), blobs, Files.createDirectory(runtime.resolve("provider")));
 
         when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(credentials.resolveGitHubCredential()).thenReturn(
-                new CredentialService.GitHubCredential("token", profile("author")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("token", profile("author")));
         AgentDriver driver = mock(AgentDriver.class);
-        AgentCapabilities capabilities = new AgentCapabilities(
-                false,
-                false,
-                false,
-                Set.of(AgentPermissionPolicy.CI_AUTOFIX),
-                Set.of());
-        AgentProviderStatus providerStatus = new AgentProviderStatus(
-                AgentLaneId.CLAUDE_CLI,
-                AgentProviderStatus.Readiness.READY,
-                Optional.of("test"),
-                "ready",
-                capabilities);
+        AgentCapabilities capabilities = new AgentCapabilities(false, false, false, Set.of(AgentPermissionPolicy.CI_AUTOFIX), Set.of());
+        AgentProviderStatus providerStatus = new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY, Optional.of("test"), "ready", capabilities);
         when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
         when(driver.capabilities()).thenReturn(capabilities);
         when(driver.probe()).thenReturn(providerStatus);
         when(workspaces.requireReadyRepository("workspace-1")).thenReturn(workspaceContext());
-        when(provisioning.synchronizeCode("workspace-1")).thenReturn(
-                new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(NOW)));
+        when(provisioning.synchronizeCode("workspace-1")).thenReturn(new WorkspaceCodeSyncResult("workspace-1", true, Optional.of(NOW)));
         when(gitHub.inspect(any())).thenReturn(snapshot);
         when(gitHub.readLog(any())).thenReturn(new BoundedCiLog(
-                Optional.of(new com.bytequay.agent.core.BlobRef(
-                        runtime.relativize(log).toString(),
-                        "text/plain",
-                        Files.size(log))),
+                Optional.of(new com.bytequay.agent.core.BlobRef(runtime.relativize(log).toString(), "text/plain", Files.size(log))),
                 toIntExact(Files.size(log)),
                 false,
                 false,
@@ -419,11 +394,7 @@ class TestCiAutofixService
         verify(turnService, never()).start(any());
 
         when(rebaseService.get(rebase.id())).thenReturn(rebase);
-        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
-                BranchRebase.FinishReason.COMPLETED,
-                "Base prepared",
-                Optional.of(HEAD),
-                NOW.plusSeconds(1)));
+        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(BranchRebase.FinishReason.COMPLETED, "Base prepared", Optional.of(HEAD), NOW.plusSeconds(1)));
 
         run = service.advance(run.id());
         assertThat(run.currentRebaseId()).isEmpty();
@@ -453,11 +424,7 @@ class TestCiAutofixService
         assertThat(run.taskStartCommit()).isEqualTo(HEAD);
         BranchRebase rebase = firstRebase.get();
         when(rebaseService.get(rebase.id())).thenReturn(rebase);
-        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
-                BranchRebase.FinishReason.COMPLETED,
-                "Base prepared",
-                Optional.of(HEAD),
-                NOW.plusSeconds(1)));
+        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(BranchRebase.FinishReason.COMPLETED, "Base prepared", Optional.of(HEAD), NOW.plusSeconds(1)));
         run = service.advance(run.id());
         assertThat(run.attempts().getFirst().inputSha()).isEqualTo(HEAD);
 
@@ -486,10 +453,7 @@ class TestCiAutofixService
             return rebase;
         }).when(rebaseService).start(any());
         CiAutofixRun run = service.start(startCommand("paused-rebase"));
-        BranchRebase pausedRebase = started.get().pause(
-                BranchRebase.PauseReason.UNSAFE_GIT_STATE,
-                "Resolve the worktree state",
-                NOW.plusSeconds(1));
+        BranchRebase pausedRebase = started.get().pause(BranchRebase.PauseReason.UNSAFE_GIT_STATE, "Resolve the worktree state", NOW.plusSeconds(1));
         when(rebaseService.get(pausedRebase.id())).thenReturn(pausedRebase);
 
         run = service.advance(run.id());
@@ -499,10 +463,7 @@ class TestCiAutofixService
 
         when(rebaseService.sendMessage(pausedRebase.id(), "Continue the rebase"))
                 .thenReturn(pausedRebase.resume(NOW.plusSeconds(2)));
-        SendCiAutofixMessageCommand message = new SendCiAutofixMessageCommand(
-                run.id(),
-                "Continue the rebase",
-                "resume-rebase", Optional.empty());
+        SendCiAutofixMessageCommand message = new SendCiAutofixMessageCommand(run.id(), "Continue the rebase", "resume-rebase", Optional.empty());
         CiAutofixRun resumed = service.sendMessage(message);
 
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
@@ -570,11 +531,7 @@ class TestCiAutofixService
         CiAutofixRun run = service.start(startCommand("publish-program-rebase"));
         BranchRebase rebase = firstRebase.get();
         when(rebaseService.get(rebase.id())).thenReturn(rebase);
-        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(
-                BranchRebase.FinishReason.COMPLETED,
-                "Base prepared",
-                Optional.of(FIXED_HEAD),
-                NOW.plusSeconds(1)));
+        when(rebaseService.advance(rebase.id())).thenReturn(rebase.finish(BranchRebase.FinishReason.COMPLETED, "Base prepared", Optional.of(FIXED_HEAD), NOW.plusSeconds(1)));
         when(worktreeService.inspect(taskWorktree)).thenReturn(worktree(false, FIXED_HEAD));
 
         run = service.advance(run.id());
@@ -601,28 +558,12 @@ class TestCiAutofixService
     @Test
     void rejectsMissingConsentAndInvalidAttemptLimitsBeforeReadingGitHub()
     {
-        StartCiAutofixCommand missingConsent = new StartCiAutofixCommand(
-                "workspace-1",
-                PULL_REQUEST.number(),
-                AgentLaneId.CLAUDE_CLI,
-                3,
-                true,
-                false,
-                true,
-                "missing-consent");
+        StartCiAutofixCommand missingConsent = new StartCiAutofixCommand("workspace-1", PULL_REQUEST.number(), AgentLaneId.CLAUDE_CLI, 3, true, false, true, "missing-consent");
 
         assertThatThrownBy(() -> service.start(missingConsent))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("consent");
-        assertThatThrownBy(() -> service.start(new StartCiAutofixCommand(
-                "workspace-1",
-                PULL_REQUEST.number(),
-                AgentLaneId.CLAUDE_CLI,
-                4,
-                true,
-                true,
-                true,
-                "too-many")))
+        assertThatThrownBy(() -> service.start(new StartCiAutofixCommand("workspace-1", PULL_REQUEST.number(), AgentLaneId.CLAUDE_CLI, 4, true, true, true, "too-many")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("between 1 and 3");
         verify(gitHub, never()).inspect(any());
@@ -691,8 +632,7 @@ class TestCiAutofixService
         assertThat(run.scope().physicalRepository()).isEqualTo(FORK);
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
-                FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         when(gitService.push(any())).thenReturn(CiPushResult.pushed(FIXED_HEAD));
 
@@ -725,8 +665,7 @@ class TestCiAutofixService
         CiAutofixRun run = service.start(startCommand("fork-changed-before-push"));
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
-                FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         assertThat(run.pushJournal()).isPresent();
         when(gitHub.inspect(any())).thenReturn(changedScopeSnapshot(baseRetarget));
@@ -908,10 +847,7 @@ class TestCiAutofixService
         assertThatThrownBy(() -> service.start(startCommand("paused-start-crash")))
                 .isInstanceOf(AssertionError.class);
         CiAutofixRun persisted = store.listRecent(10).getFirst();
-        CiAutofixRun paused = store.update(persisted.pause(
-                PauseReason.ERROR,
-                "Task provisioning was interrupted",
-                NOW));
+        CiAutofixRun paused = store.update(persisted.pause(PauseReason.ERROR, "Task provisioning was interrupted", NOW));
 
         doAnswer(invocation -> task(invocation.getArgument(0))).when(taskService).create(any());
         CiAutofixRun recovered = service.advance(paused.id());
@@ -972,8 +908,7 @@ class TestCiAutofixService
                 .isInstanceOf(AssertionError.class);
         CiAutofixRun persisted = store.listRecent(10).getFirst();
         reset(taskService);
-        when(taskService.get(any())).thenThrow(new AgentTaskNotFoundException(
-                TaskId.valueOf(persisted.agentTaskId().orElseThrow())));
+        when(taskService.get(any())).thenThrow(new AgentTaskNotFoundException(TaskId.valueOf(persisted.agentTaskId().orElseThrow())));
         when(workspaces.requireReadyRepository("workspace-1"))
                 .thenReturn(workspaceContext(new RepositoryIdentity("bytequay", "other")));
 
@@ -1032,15 +967,7 @@ class TestCiAutofixService
     void rejectsARepeatedStartKeyFromAnotherWorkspace()
     {
         service.start(startCommand("workspace-key"));
-        StartCiAutofixCommand wrongWorkspace = new StartCiAutofixCommand(
-                "workspace-2",
-                PULL_REQUEST.number(),
-                AgentLaneId.CLAUDE_CLI,
-                3,
-                true,
-                true,
-                true,
-                "workspace-key");
+        StartCiAutofixCommand wrongWorkspace = new StartCiAutofixCommand("workspace-2", PULL_REQUEST.number(), AgentLaneId.CLAUDE_CLI, 3, true, true, true, "workspace-key");
 
         assertThatThrownBy(() -> service.start(wrongWorkspace))
                 .isInstanceOf(CiAutofixConflictException.class)
@@ -1075,9 +1002,7 @@ class TestCiAutofixService
     {
         doAnswer(invocation -> {
             CiAutofixRun current = store.find(invocation.getArgument(0)).orElseThrow();
-            store.update(current.addWarning(
-                    new Warning("CI_MEMORY_UPDATE_FAILED", "memory unavailable", NOW),
-                    NOW));
+            store.update(current.addWarning(new Warning("CI_MEMORY_UPDATE_FAILED", "memory unavailable", NOW), NOW));
             return null;
         }).when(memoryService).update(any());
 
@@ -1129,9 +1054,7 @@ class TestCiAutofixService
         snapshot = snapshot(
                 HEAD,
                 BASE,
-                ImmutableList.of(
-                        workflow(100, 1, "Compile", HEAD, "completed", Optional.of("failure")),
-                        workflow(101, 1, "Slow tests", HEAD, "in_progress", Optional.empty())));
+                ImmutableList.of(workflow(100, 1, "Compile", HEAD, "completed", Optional.of("failure")), workflow(101, 1, "Slow tests", HEAD, "in_progress", Optional.empty())));
         when(gitHub.inspect(any())).thenReturn(snapshot);
 
         CiAutofixRun run = service.start(startCommand("early-failure"));
@@ -1391,9 +1314,7 @@ class TestCiAutofixService
         run = service.advance(run.id());
         assertThat(run.rerunJournal()).isPresent();
 
-        CiAutofixService restarted = service(
-                store,
-                Clock.fixed(NOW.plus(Duration.ofMinutes(3)), ZoneOffset.UTC));
+        CiAutofixService restarted = service(store, Clock.fixed(NOW.plus(Duration.ofMinutes(3)), ZoneOffset.UTC));
         CiAutofixRun paused = restarted.advance(run.id());
 
         assertThat(paused.status()).isEqualTo(Status.PAUSED);
@@ -1515,13 +1436,7 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
         CiAutofixAttempt attempt = run.attempts().getLast();
-        run = store.update(run.recordRerunJournal(new RerunJournal(
-                attempt.id(),
-                100,
-                HEAD,
-                1,
-                NOW,
-                Optional.empty()), NOW));
+        run = store.update(run.recordRerunJournal(new RerunJournal(attempt.id(), 100, HEAD, 1, NOW, Optional.empty()), NOW));
 
         CiAutofixRun cancelled = service.cancel(run.id());
         assertThat(service.advance(run.id())).isEqualTo(cancelled);
@@ -1532,9 +1447,7 @@ class TestCiAutofixService
     void stopsAnActiveTurnWhenAuthorizationExpiresOrTheRemoteHeadChanges()
     {
         CiAutofixRun expiring = service.start(startCommand("expire-active"));
-        CiAutofixRun expired = service(
-                store,
-                Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC)).advance(expiring.id());
+        CiAutofixRun expired = service(store, Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC)).advance(expiring.id());
         assertThat(expired.finishReason()).contains(FinishReason.AUTHORIZATION_EXPIRED);
         verify(turnService).cancel(turnId);
         verify(gitHub, times(1)).inspect(any());
@@ -1630,11 +1543,7 @@ class TestCiAutofixService
             inspecting.countDown();
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             active.decrementAndGet();
-            return CiGitInspection.ready(
-                    FIXED_HEAD,
-                    "fingerprint",
-                    ImmutableList.of("src/Main.java"),
-                    ImmutableList.of("Fix feature"));
+            return CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature"));
         }).when(gitService).inspectAgentResult(any());
         doAnswer(invocation -> {
             maximum.accumulateAndGet(active.incrementAndGet(), Math::max);
@@ -1820,10 +1729,7 @@ class TestCiAutofixService
         when(turnService.get(recoveryId)).thenReturn(recovery);
         when(worktreeService.inspect(taskWorktree)).thenReturn(worktree(true, "c".repeat(40)));
 
-        SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(
-                paused.id(),
-                "Please finish resolving the conflict",
-                "message-key", Optional.empty());
+        SendCiAutofixMessageCommand command = new SendCiAutofixMessageCommand(paused.id(), "Please finish resolving the conflict", "message-key", Optional.empty());
         CiAutofixRun resumed = service.sendMessage(command);
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
         assertThat(resumed.currentTurnId()).contains(recoveryId.toString());
@@ -1843,10 +1749,7 @@ class TestCiAutofixService
     void authenticationExpiryPausesWithoutConsumingAnotherFixAttempt()
     {
         CiAutofixRun initial = service.start(startCommand("auth-expired"));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(
-                TurnState.FAILED,
-                Optional.of("Claude sign-in required"),
-                Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED)));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("Claude sign-in required"), Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED)));
 
         CiAutofixRun paused = service.advance(initial.id());
 
@@ -1859,10 +1762,7 @@ class TestCiAutofixService
         AgentTurn retry = runningTurn(retryId, "provider-retry", "auth-retry-key");
         when(turnService.start(any())).thenReturn(retry);
         when(turnService.get(retryId)).thenReturn(retry);
-        CiAutofixRun resumed = service.sendMessage(new SendCiAutofixMessageCommand(
-                paused.id(),
-                "Retry after provider login",
-                "auth-retry-key", Optional.empty()));
+        CiAutofixRun resumed = service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "Retry after provider login", "auth-retry-key", Optional.empty()));
 
         assertThat(resumed.status()).isEqualTo(Status.ACTIVE);
         assertThat(resumed.currentTurnId()).contains(retryId.toString());
@@ -1878,13 +1778,9 @@ class TestCiAutofixService
         AgentDriver driver = drivers.require(AgentLaneId.CLAUDE_CLI);
         AgentCapabilities capabilities = driver.capabilities();
         when(drivers.require(lane)).thenReturn(driver);
-        when(driver.probe(Optional.empty())).thenReturn(new AgentProviderStatus(lane, AgentProviderStatus.Readiness.READY,
-                Optional.of("0.156.1"), "ready", capabilities));
+        when(driver.probe(Optional.empty())).thenReturn(new AgentProviderStatus(lane, AgentProviderStatus.Readiness.READY, Optional.of("0.156.1"), "ready", capabilities));
         CiAutofixRun initial = service.start(startCommand("deepseek-auth", lane));
-        when(turnService.get(turnId)).thenReturn(terminalTurn(
-                TurnState.FAILED,
-                Optional.of("DeepSeek key removed"),
-                Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED)));
+        when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("DeepSeek key removed"), Optional.of(AgentTurnFailureKind.AUTHENTICATION_REQUIRED)));
 
         CiAutofixRun paused = service.advance(initial.id());
 
@@ -1897,20 +1793,14 @@ class TestCiAutofixService
     void rejectsMessagesForActiveStaleOrOversizedRuns()
     {
         CiAutofixRun active = service.start(startCommand("message-reject"));
-        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(
-                active.id(),
-                "retry",
-                "different-key", Optional.empty())))
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(active.id(), "retry", "different-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("paused");
 
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
         CiAutofixRun paused = service.advance(active.id());
         when(gitHub.inspect(any())).thenReturn(snapshot(true, "author", true, "c".repeat(40), true));
-        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(
-                paused.id(),
-                "retry",
-                "stale-key", Optional.empty())))
+        assertThatThrownBy(() -> service.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "retry", "stale-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("head or base branch changed");
 
@@ -1929,13 +1819,8 @@ class TestCiAutofixService
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.FAILED, Optional.of("failed")));
         CiAutofixRun paused = service.advance(active.id());
 
-        CiAutofixService expiredService = service(
-                store,
-                Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC));
-        CiAutofixRun expired = expiredService.sendMessage(new SendCiAutofixMessageCommand(
-                paused.id(),
-                "retry",
-                "expired-key", Optional.empty()));
+        CiAutofixService expiredService = service(store, Clock.fixed(NOW.plus(Duration.ofHours(9)), ZoneOffset.UTC));
+        CiAutofixRun expired = expiredService.sendMessage(new SendCiAutofixMessageCommand(paused.id(), "retry", "expired-key", Optional.empty()));
         assertThat(expired.finishReason()).contains(FinishReason.AUTHORIZATION_EXPIRED);
         verify(turnService, times(1)).start(any());
 
@@ -1947,10 +1832,7 @@ class TestCiAutofixService
         CiAutofixRun pausedRun = closedService.advance(openRun.id());
         when(taskService.get(taskId)).thenReturn(openTask.fail("task failed", NOW, NOW.plus(Duration.ofDays(7))));
 
-        assertThatThrownBy(() -> closedService.sendMessage(new SendCiAutofixMessageCommand(
-                pausedRun.id(),
-                "retry",
-                "closed-key", Optional.empty())))
+        assertThatThrownBy(() -> closedService.sendMessage(new SendCiAutofixMessageCommand(pausedRun.id(), "retry", "closed-key", Optional.empty())))
                 .isInstanceOf(CiAutofixConflictException.class)
                 .hasMessageContaining("not open");
     }
@@ -2043,8 +1925,7 @@ class TestCiAutofixService
     {
         AgentTask parent = developmentParent();
         TurnId source = reserveParent(parent);
-        when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(
-                new AgentHistoryPage(ImmutableList.of(), OptionalLong.empty(), OptionalLong.empty(), 0));
+        when(eventService.readHistory(eq(parent.id()), any(), any())).thenReturn(new AgentHistoryPage(ImmutableList.of(), OptionalLong.empty(), OptionalLong.empty(), 0));
         assertThatThrownBy(() -> service.startDevelopment(startCommand("missing-scope"), parent.id(), source, publishedPr(), NOW))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("Development user inputs are missing");
 
@@ -2101,8 +1982,7 @@ class TestCiAutofixService
         CiAutofixRun run = service.startDevelopment(startCommand("owned-push"), parent.id(), source, publishedPr(), NOW);
         when(turnService.get(turnId)).thenReturn(terminalTurn(TurnState.COMPLETED, Optional.empty()));
         run = service.advance(run.id());
-        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(
-                FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
+        when(gitService.inspectAgentResult(any())).thenReturn(CiGitInspection.ready(FIXED_HEAD, "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")));
         run = service.advance(run.id());
         CiAutofixRun pending = run;
         assertThat(pending.pushJournal()).isPresent();
@@ -2382,11 +2262,7 @@ class TestCiAutofixService
     {
         BranchRebase running = runningRebase(command);
         WorktreeSnapshot workspace = worktreeService.inspect(command.taskWorktree());
-        return running.finish(
-                BranchRebase.FinishReason.COMPLETED,
-                "Base prepared",
-                Optional.of(workspace.head()),
-                NOW);
+        return running.finish(BranchRebase.FinishReason.COMPLETED, "Base prepared", Optional.of(workspace.head()), NOW);
     }
 
     private BranchRebase runningRebase(StartBranchRebaseCommand command)
@@ -2413,15 +2289,7 @@ class TestCiAutofixService
 
     private StartCiAutofixCommand startCommand(String key, AgentLaneId lane)
     {
-        return new StartCiAutofixCommand(
-                "workspace-1",
-                PULL_REQUEST.number(),
-                lane,
-                3,
-                true,
-                true,
-                true,
-                key);
+        return new StartCiAutofixCommand("workspace-1", PULL_REQUEST.number(), lane, 3, true, true, true, key);
     }
 
     private WorktreeSnapshot worktree(boolean dirty, String head)
@@ -2488,22 +2356,8 @@ class TestCiAutofixService
         catch (IOException failure) {
             throw new AssertionError(failure);
         }
-        taskWorktree = new TaskWorktree(
-                taskId,
-                command.workspaceId(),
-                command.physicalRepository(),
-                worktree,
-                command.generatedBranch(),
-                command.startCommit());
-        openTask = AgentTask.created(
-                taskId,
-                false,
-                command.title(),
-                TitleSource.USER,
-                command.laneId(),
-                taskWorktree,
-                command.defaults(),
-                NOW);
+        taskWorktree = new TaskWorktree(taskId, command.workspaceId(), command.physicalRepository(), worktree, command.generatedBranch(), command.startCommit());
+        openTask = AgentTask.created(taskId, false, command.title(), TitleSource.USER, command.laneId(), taskWorktree, command.defaults(), NOW);
         runningTurn = runningTurn(turnId, "provider-turn", "ignored");
         return openTask;
     }
@@ -2515,12 +2369,7 @@ class TestCiAutofixService
 
     private AgentTask completedTask(String head)
     {
-        TaskSummary summary = new TaskSummary(
-                "completed",
-                summaryWorktree(head),
-                AgentMetrics.empty(),
-                Optional.empty(),
-                ImmutableList.of());
+        TaskSummary summary = new TaskSummary("completed", summaryWorktree(head), AgentMetrics.empty(), Optional.empty(), ImmutableList.of());
         return openTask.complete(summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
 
@@ -2533,12 +2382,7 @@ class TestCiAutofixService
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(
-                Optional.empty(),
-                Optional.empty(),
-                AgentPermissionPolicy.AUTO,
-                Duration.ofMinutes(5),
-                ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
     }
 
     private AgentTurn terminalTurn(TurnState state, Optional<String> reason)
@@ -2577,19 +2421,12 @@ class TestCiAutofixService
                 Optional.of(turnId),
                 root(),
                 NOW,
-                new AgentEventPayload.AssistantMessage(
-                        MessageKind.ANSWER,
-                        MessagePhase.FINAL,
-                        text));
+                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, text));
     }
 
     private CiHeadSnapshot snapshot(boolean open, String author, boolean sameRepository, String head, boolean failed)
     {
-        CiStep step = new CiStep(
-                1,
-                "Compile",
-                "completed",
-                Optional.of(failed ? "failure" : "success"));
+        CiStep step = new CiStep(1, "Compile", "completed", Optional.of(failed ? "failure" : "success"));
         CiJob job = new CiJob(
                 200,
                 100,
@@ -2624,44 +2461,17 @@ class TestCiAutofixService
 
     private CiHeadSnapshot failedSnapshot(String head, String base, int workflowAttempt)
     {
-        return snapshot(
-                head,
-                base,
-                ImmutableList.of(workflow(
-                        100,
-                        workflowAttempt,
-                        "Build",
-                        head,
-                        "completed",
-                        Optional.of("failure"))));
+        return snapshot(head, base, ImmutableList.of(workflow(100, workflowAttempt, "Build", head, "completed", Optional.of("failure"))));
     }
 
     private CiHeadSnapshot greenSnapshot(String head, String base)
     {
-        return snapshot(
-                head,
-                base,
-                ImmutableList.of(workflow(
-                        100,
-                        1,
-                        "Build",
-                        head,
-                        "completed",
-                        Optional.of("success"))));
+        return snapshot(head, base, ImmutableList.of(workflow(100, 1, "Build", head, "completed", Optional.of("success"))));
     }
 
     private CiHeadSnapshot pendingSnapshot(String head, String base)
     {
-        return snapshot(
-                head,
-                base,
-                ImmutableList.of(workflow(
-                        100,
-                        1,
-                        "Build",
-                        head,
-                        "in_progress",
-                        Optional.empty())));
+        return snapshot(head, base, ImmutableList.of(workflow(100, 1, "Build", head, "in_progress", Optional.empty())));
     }
 
     private CiHeadSnapshot snapshot(String head, String base, List<CiWorkflowRun> workflows)
@@ -2687,11 +2497,7 @@ class TestCiAutofixService
             String status,
             Optional<String> conclusion)
     {
-        CiStep step = new CiStep(
-                1,
-                name,
-                status,
-                conclusion);
+        CiStep step = new CiStep(1, name, status, conclusion);
         CiJob job = new CiJob(
                 id * 2,
                 id,
@@ -2701,26 +2507,12 @@ class TestCiAutofixService
                 conclusion,
                 "https://github.com/bytequay/sample/actions/runs/" + id + "/job/" + id * 2,
                 ImmutableList.of(step));
-        return new CiWorkflowRun(
-                id,
-                id + 1000,
-                name,
-                attempt,
-                status,
-                conclusion,
-                head,
-                "https://github.com/bytequay/sample/actions/runs/" + id,
-                ImmutableList.of(job));
+        return new CiWorkflowRun(id, id + 1000, name, attempt, status, conclusion, head, "https://github.com/bytequay/sample/actions/runs/" + id, ImmutableList.of(job));
     }
 
     private TaskCompletion completion(String head)
     {
-        TaskSummary summary = new TaskSummary(
-                "untrusted agent response",
-                summaryWorktree(head),
-                AgentMetrics.empty(),
-                Optional.of("verified"),
-                ImmutableList.of());
+        TaskSummary summary = new TaskSummary("untrusted agent response", summaryWorktree(head), AgentMetrics.empty(), Optional.of("verified"), ImmutableList.of());
         return new TaskCompletion(taskId, summary, NOW, NOW.plus(Duration.ofDays(7)));
     }
 

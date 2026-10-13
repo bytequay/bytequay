@@ -82,14 +82,7 @@ public class GitHubPullRequestWriteClient
             String content,
             Boolean viewerHasReacted)
     {
-        return setReaction(
-                pat,
-                "/repos/{owner}/{repo}/issues/{number}/reactions",
-                content,
-                viewerHasReacted,
-                pr.owner(),
-                pr.repo(),
-                pr.number());
+        return setReaction(pat, "/repos/{owner}/{repo}/issues/{number}/reactions", content, viewerHasReacted, pr.owner(), pr.repo(), pr.number());
     }
 
     public boolean toggleIssueCommentReaction(
@@ -99,14 +92,7 @@ public class GitHubPullRequestWriteClient
             String content,
             Boolean viewerHasReacted)
     {
-        return setReaction(
-                pat,
-                "/repos/{owner}/{repo}/issues/comments/{commentId}/reactions",
-                content,
-                viewerHasReacted,
-                pr.owner(),
-                pr.repo(),
-                commentId);
+        return setReaction(pat, "/repos/{owner}/{repo}/issues/comments/{commentId}/reactions", content, viewerHasReacted, pr.owner(), pr.repo(), commentId);
     }
 
     public boolean toggleReviewCommentReaction(
@@ -116,14 +102,7 @@ public class GitHubPullRequestWriteClient
             String content,
             Boolean viewerHasReacted)
     {
-        return setReaction(
-                pat,
-                "/repos/{owner}/{repo}/pulls/comments/{commentId}/reactions",
-                content,
-                viewerHasReacted,
-                pr.owner(),
-                pr.repo(),
-                commentId);
+        return setReaction(pat, "/repos/{owner}/{repo}/pulls/comments/{commentId}/reactions", content, viewerHasReacted, pr.owner(), pr.repo(), commentId);
     }
 
     private boolean setReaction(
@@ -402,9 +381,7 @@ public class GitHubPullRequestWriteClient
         ReviewThreadMutationResponse response = requireBody(translating(() -> graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("threadId", threadId))
                 .body(ReviewThreadMutationResponse.class)), "Empty response from GitHub when updating review thread");
         if (response.errors() != null && !response.errors().isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502),
-                    "GitHub review thread update failed: " + response.errors().getFirst().message());
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub review thread update failed: " + response.errors().getFirst().message());
         }
     }
 

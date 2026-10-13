@@ -78,8 +78,7 @@ public record Workspace(
             checkArgument(upstreamDefaultBranch.isEmpty(), "unlinked workspace has an upstream default branch");
             checkArgument(upstreamCloneUrl.isEmpty(), "unlinked workspace has an upstream clone URL");
             checkArgument(monitoredRepositoryId == selectedRepositoryId, "unlinked workspace does not monitor itself");
-            checkArgument(monitoredRepository.equals(selectedRepository),
-                    "unlinked workspace monitored coordinates differ from selected coordinates");
+            checkArgument(monitoredRepository.equals(selectedRepository), "unlinked workspace monitored coordinates differ from selected coordinates");
         }
         else {
             checkArgument(upstreamRepositoryId.orElseThrow() > 0, "linked workspace upstream ID is not positive");
@@ -87,10 +86,8 @@ public record Workspace(
             checkArgument(upstreamRepository.isPresent(), "linked workspace has no upstream repository");
             checkArgument(upstreamDefaultBranch.isPresent(), "linked workspace has no upstream default branch");
             checkArgument(upstreamCloneUrl.isPresent(), "linked workspace has no upstream clone URL");
-            checkArgument(monitoredRepositoryId == upstreamRepositoryId.orElseThrow(),
-                    "linked workspace does not monitor its upstream ID");
-            checkArgument(monitoredRepository.equals(upstreamRepository.orElseThrow()),
-                    "linked workspace monitored coordinates differ from upstream coordinates");
+            checkArgument(monitoredRepositoryId == upstreamRepositoryId.orElseThrow(), "linked workspace does not monitor its upstream ID");
+            checkArgument(monitoredRepository.equals(upstreamRepository.orElseThrow()), "linked workspace monitored coordinates differ from upstream coordinates");
         }
     }
 

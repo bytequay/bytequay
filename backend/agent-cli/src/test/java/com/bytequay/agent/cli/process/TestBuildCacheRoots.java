@@ -42,8 +42,7 @@ class TestBuildCacheRoots
     void createsOnlyFixedBuildDirectoriesUnderHome()
             throws IOException
     {
-        assertThat(resolve()).containsExactly(
-                home.resolve(".m2"), home.resolve(".gradle"), home.resolve(".npm"));
+        assertThat(resolve()).containsExactly(home.resolve(".m2"), home.resolve(".gradle"), home.resolve(".npm"));
         assertThat(Files.exists(home.resolve(".m2/settings.xml"))).isFalse();
         assertThat(BuildCacheRoots.writableRoots(ImmutableMap.of())).isEmpty();
         assertThat(BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", "relative/home"))).isEmpty();

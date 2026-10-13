@@ -43,9 +43,7 @@ class TestGitHubAccountClientEvents
                 null,
                 null,
                 null,
-                ImmutableList.of(
-                        new GitHubEventItem.CommitPayload("fix: inbox ack\n\nLong body"),
-                        new GitHubEventItem.CommitPayload("test: ack behavior"))));
+                ImmutableList.of(new GitHubEventItem.CommitPayload("fix: inbox ack\n\nLong body"), new GitHubEventItem.CommitPayload("test: ack behavior"))));
 
         RecentEvent mapped = GitHubAccountClient.toRecentEvent(event);
 

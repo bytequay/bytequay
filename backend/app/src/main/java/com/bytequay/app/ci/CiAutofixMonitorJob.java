@@ -99,8 +99,7 @@ final class CiAutofixMonitorJob
 
     private List<CiAutofixRunId> finishedWithPendingCleanup()
     {
-        return finishedRuns(taskStore.listPendingWorktreeCleanup(
-                AgentPermissionPolicy.CI_AUTOFIX, retryBefore()));
+        return finishedRuns(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, retryBefore()));
     }
 
     private List<CiAutofixRunId> finishedRuns(List<AgentTask> tasks)

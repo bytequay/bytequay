@@ -70,8 +70,7 @@ class CherryPickConflictScout
         }
         Path worktree = repository.resolve(".git")
                 .resolve("bytequay-preview-" + UUID.randomUUID());
-        Result created = git.run(repository, "worktree", "add", "--detach", "--quiet",
-                worktree.toString(), targetSha);
+        Result created = git.run(repository, "worktree", "add", "--detach", "--quiet", worktree.toString(), targetSha);
         if (!created.successful()) {
             log.debug("Cherry-pick conflict preview unavailable: {}", created.output());
             return notAnalyzed(plannedSourceShas);

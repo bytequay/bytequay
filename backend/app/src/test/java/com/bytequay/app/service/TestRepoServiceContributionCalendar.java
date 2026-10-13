@@ -48,10 +48,6 @@ class TestRepoServiceContributionCalendar
 
     private static RepoService service(GitHubAccountClient gitHub, CredentialService credentialService)
     {
-        return new RepoService(
-                mock(GitHubPullRequestReadClient.class),
-                gitHub,
-                mock(GitHubRepoClient.class),
-                credentialService);
+        return new RepoService(mock(GitHubPullRequestReadClient.class), gitHub, mock(GitHubRepoClient.class), credentialService);
     }
 }

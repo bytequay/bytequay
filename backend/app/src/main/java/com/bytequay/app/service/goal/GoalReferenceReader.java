@@ -199,8 +199,7 @@ public class GoalReferenceReader
 
     public static WorkItemLink taskLink(AgentTask task)
     {
-        return new WorkItemLink(WorkItemLink.taskIdentity(task.id().toString()),
-                new GoalItem(GoalItemKind.TASK, task.id().toString(), "Task", task.title(), task.createdAt()));
+        return new WorkItemLink(WorkItemLink.taskIdentity(task.id().toString()), new GoalItem(GoalItemKind.TASK, task.id().toString(), "Task", task.title(), task.createdAt()));
     }
 
     public static WorkItemLink issueLink(GitHubIssueSource source, Instant at)

@@ -122,11 +122,7 @@ class TestDefaultAgentApprovalService
         CompletableFuture<ApprovalDecision> future = service.request(request, Duration.ofMinutes(1))
                 .toCompletableFuture();
         assertThat(stores.find(request.id())).contains(AgentApproval.pending(request));
-        ResolveApprovalCommand command = new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                false);
+        ResolveApprovalCommand command = new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false);
 
         ApprovalDecision decision = service.resolve(command);
 
@@ -154,11 +150,7 @@ class TestDefaultAgentApprovalService
                     assertThat(resolution.approvalId()).isEqualTo(request.id().toString());
                     assertThat(resolution.outcome()).isEqualTo(AgentEventPayload.ApprovalOutcome.ALLOWED);
                 });
-        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.DENY,
-                Optional.empty(),
-                false)))
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.DENY, Optional.empty(), false)))
                 .isInstanceOf(AgentConflictException.class);
     }
 
@@ -234,11 +226,7 @@ class TestDefaultAgentApprovalService
                 AgentEventPayload.ApprovalResolved.class,
                 resolution -> assertThat(resolution.outcome())
                         .isEqualTo(AgentEventPayload.ApprovalOutcome.EXPIRED));
-        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                false)))
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false)))
                 .isInstanceOf(AgentConflictException.class);
     }
 
@@ -259,28 +247,18 @@ class TestDefaultAgentApprovalService
     @Test
     void exposesAndAcceptsOnlyProviderOfferedProductDecisions()
     {
-        ApprovalRequest request = request(
-                TurnId.random(),
-                ImmutableList.of(DENY));
+        ApprovalRequest request = request(TurnId.random(), ImmutableList.of(DENY));
         service.request(request, Duration.ofMinutes(1));
 
         assertThat(eventService.events.getFirst().payload()).isInstanceOfSatisfying(
                 AgentEventPayload.ApprovalRequested.class,
                 approval -> assertThat(approval.availableDecisions())
                         .containsExactly(AgentEventPayload.ApprovalOption.DENY));
-        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                false)))
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false)))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("not offered");
 
-        assertThat(service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.DENY,
-                Optional.empty(),
-                false)).decision())
+        assertThat(service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.DENY, Optional.empty(), false)).decision())
                 .isEqualTo(ApprovalDecision.Decision.DENY);
     }
 
@@ -297,11 +275,7 @@ class TestDefaultAgentApprovalService
                         AgentEventPayload.ApprovalOption.ALLOW_FOR_TASK,
                         AgentEventPayload.ApprovalOption.DENY));
 
-        ApprovalDecision decision = service.resolve(new ResolveApprovalCommand(
-                first.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                true));
+        ApprovalDecision decision = service.resolve(new ResolveApprovalCommand(first.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), true));
         assertThat(decision.forTask()).isTrue();
         assertThat(eventService.events.getLast().payload()).isEqualTo(new AgentEventPayload.ApprovalResolved(
                 first.id().toString(),
@@ -332,11 +306,7 @@ class TestDefaultAgentApprovalService
         ApprovalRequest request = request(TurnId.random());
         service.request(request, Duration.ofMinutes(1));
 
-        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                true)))
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), true)))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("not offered");
         service.denyPending(request.turnId());
@@ -348,11 +318,7 @@ class TestDefaultAgentApprovalService
         ApprovalRequest request = request(TurnId.random());
         service.request(request, Duration.ofMinutes(1));
 
-        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.of("session"),
-                false)))
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.of("session"), false)))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("Scoped approval");
         service.denyPending(request.turnId());
@@ -367,11 +333,7 @@ class TestDefaultAgentApprovalService
         AgentTurn turn = stores.find(request.turnId()).orElseThrow();
         stores.update(turn.requestCancellation(NOW));
 
-        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                false)))
+        assertThatThrownBy(() -> service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false)))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("no longer accepts decisions");
 
@@ -468,11 +430,7 @@ class TestDefaultAgentApprovalService
         eventService.blockResolutionAppend();
 
         CompletableFuture<ApprovalDecision> resolving = CompletableFuture.supplyAsync(() -> service.resolve(
-                new ResolveApprovalCommand(
-                        request.id(),
-                        ApprovalDecision.Decision.ALLOW,
-                        Optional.empty(),
-                        false)));
+                new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false)));
 
         eventService.awaitResolutionAppend();
         assertThat(stores.find(request.id()).orElseThrow().decision())
@@ -519,11 +477,7 @@ class TestDefaultAgentApprovalService
         ApprovalRequest request = request(TurnId.random());
         CompletableFuture<ApprovalDecision> provider = service.request(request, Duration.ofMinutes(1))
                 .toCompletableFuture();
-        ResolveApprovalCommand command = new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                false);
+        ResolveApprovalCommand command = new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false);
         eventService.failNextResolutionDrain();
 
         assertThatThrownBy(() -> service.resolve(command))
@@ -561,11 +515,7 @@ class TestDefaultAgentApprovalService
                 .toCompletableFuture();
         stores.failApprovalFindAfterResolve(new AgentStorageException("blocked approval readback"));
 
-        ApprovalDecision decision = service.resolve(new ResolveApprovalCommand(
-                request.id(),
-                ApprovalDecision.Decision.ALLOW,
-                Optional.empty(),
-                false));
+        ApprovalDecision decision = service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false));
 
         assertThat(provider).isCompletedWithValue(decision);
         stores.clearApprovalFindFailure();
@@ -583,9 +533,7 @@ class TestDefaultAgentApprovalService
 
         assertThat(eventService.events)
                 .extracting(event -> event.payload().kind())
-                .containsExactly(
-                        AgentEventPayload.Kind.APPROVAL_REQUESTED,
-                        AgentEventPayload.Kind.APPROVAL_RESOLVED);
+                .containsExactly(AgentEventPayload.Kind.APPROVAL_REQUESTED, AgentEventPayload.Kind.APPROVAL_RESOLVED);
         assertThat(eventService.events.getLast().payload()).isInstanceOfSatisfying(
                 AgentEventPayload.ApprovalResolved.class,
                 resolution -> assertThat(resolution.outcome())
@@ -599,11 +547,7 @@ class TestDefaultAgentApprovalService
         scheduler.shutdownNow();
         eventService.onApprovalRequest(() -> {
             assertThat(stores.find(request.id())).contains(AgentApproval.pending(request));
-            service.resolve(new ResolveApprovalCommand(
-                    request.id(),
-                    ApprovalDecision.Decision.ALLOW,
-                    Optional.empty(),
-                    false));
+            service.resolve(new ResolveApprovalCommand(request.id(), ApprovalDecision.Decision.ALLOW, Optional.empty(), false));
         });
 
         ApprovalDecision decision = service.request(request, Duration.ofMinutes(1))
@@ -620,11 +564,7 @@ class TestDefaultAgentApprovalService
 
     private ApprovalRequest request(TurnId turnId)
     {
-        return request(
-                turnId,
-                ImmutableList.of(
-                        ALLOW_ONCE,
-                        DENY));
+        return request(turnId, ImmutableList.of(ALLOW_ONCE, DENY));
     }
 
     private ApprovalRequest request(
@@ -665,12 +605,7 @@ class TestDefaultAgentApprovalService
                     turnId,
                     taskId,
                     "approval-" + request.id(),
-                    new AgentTurnSettings(
-                            Optional.empty(),
-                            Optional.empty(),
-                            AgentPermissionPolicy.AUTO,
-                            Duration.ofMinutes(1),
-                            ImmutableList.of()),
+                    new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(1), ImmutableList.of()),
                     NOW));
         }
         return request;
@@ -723,12 +658,7 @@ class TestDefaultAgentApprovalService
             if (entry.sequence().isEmpty()) {
                 stores.markAppended(eventId, sequence);
             }
-            UnsequencedAgentEvent event = new UnsequencedAgentEvent(
-                    entry.eventId(),
-                    entry.taskId(),
-                    entry.turnId(),
-                    entry.source(),
-                    payload);
+            UnsequencedAgentEvent event = new UnsequencedAgentEvent(entry.eventId(), entry.taskId(), entry.turnId(), entry.source(), payload);
             if (events.stream().noneMatch(existing -> existing.eventId().equals(eventId))) {
                 return record(event, sequence, entry.occurredAt());
             }

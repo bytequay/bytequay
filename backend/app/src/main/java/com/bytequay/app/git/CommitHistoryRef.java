@@ -33,8 +33,7 @@ public record CommitHistoryRef(Source source, String branch, Optional<String> re
         checkArgument(!branch.startsWith("-"), "branch must not be a Git option");
         checkArgument(branch.length() <= 512, "branch is too long");
         requireNonNull(remote, "remote is null");
-        checkArgument((source == Source.REMOTE) == remote.isPresent(),
-                "remote is required for REMOTE and forbidden otherwise");
+        checkArgument((source == Source.REMOTE) == remote.isPresent(), "remote is required for REMOTE and forbidden otherwise");
         remote.ifPresent(name -> {
             checkArgument(!name.isBlank(), "remote is blank");
             checkArgument(!name.startsWith("-"), "remote must not be a Git option");

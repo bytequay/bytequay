@@ -210,12 +210,6 @@ public class BranchRebaseEntity
         if (actionType == null) {
             return Optional.empty();
         }
-        return Optional.of(new ActionJournal(
-                actionType,
-                Optional.ofNullable(actionStoppedCommitSha),
-                actionExpectedHead,
-                actionAttempt,
-                actionIdempotencyKey,
-                actionStartedAt));
+        return Optional.of(new ActionJournal(actionType, Optional.ofNullable(actionStoppedCommitSha), actionExpectedHead, actionAttempt, actionIdempotencyKey, actionStartedAt));
     }
 }

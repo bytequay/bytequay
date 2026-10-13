@@ -125,11 +125,7 @@ class TestCodexAppServerClient
                 1024,
                 Duration.ofMinutes(1),
                 Duration.ZERO);
-        CodexAppServerClient client = new CodexAppServerClient(
-                supervisor,
-                spec,
-                objectMapper,
-                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        CodexAppServerClient client = new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()));
         client.start();
         assertThat(acknowledged).isEmpty();
         if (exitBeforeStop) {
@@ -186,8 +182,7 @@ class TestCodexAppServerClient
                 JsonNode message = objectMapper.readTree(StandardCharsets.UTF_8.decode(bytes.duplicate()).toString());
                 if (message.path("method").asText().equals("initialize")) {
                     long id = message.path("id").asLong();
-                    output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(
-                            "{\"id\":" + id + ",\"result\":{\"codexHome\":\"/codex-home\"}}\n"));
+                    output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode("{\"id\":" + id + ",\"result\":{\"codexHome\":\"/codex-home\"}}\n"));
                 }
                 return CompletableFuture.completedFuture(null);
             }
@@ -208,13 +203,7 @@ class TestCodexAppServerClient
         @Override
         public void cancel()
         {
-            exit.complete(new ProcessExit(
-                    0,
-                    ProcessExit.Reason.EXITED,
-                    ProcessExit.TreeTermination.UNVERIFIABLE,
-                    Duration.ZERO,
-                    false,
-                    false));
+            exit.complete(new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.UNVERIFIABLE, Duration.ZERO, false, false));
         }
 
         @Override

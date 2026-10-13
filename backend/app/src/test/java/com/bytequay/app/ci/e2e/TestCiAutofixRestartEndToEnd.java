@@ -113,9 +113,7 @@ class TestCiAutofixRestartEndToEnd
                 "create",
                 Optional.empty(),
                 true)) {
-            scripts = new Scripts(
-                    first.getBean(ScriptedGitHubActionsClient.class),
-                    first.getBean(ScriptedAgentDriver.class));
+            scripts = new Scripts(first.getBean(ScriptedGitHubActionsClient.class), first.getBean(ScriptedAgentDriver.class));
             CiAutofixE2eHarness harness = harness(first, scripts);
             fixture = harness.createFixture("restart");
             E2eGitRepository repository = fixture.repository();
@@ -319,11 +317,7 @@ class TestCiAutofixRestartEndToEnd
         @Override
         public void initialize(GenericApplicationContext context)
         {
-            context.registerBean(
-                    "restartGitCommandRunner",
-                    GitCommandRunner.class,
-                    RoutedGitCommandRunner::new,
-                    bean -> bean.setPrimary(true));
+            context.registerBean("restartGitCommandRunner", GitCommandRunner.class, RoutedGitCommandRunner::new, bean -> bean.setPrimary(true));
             context.registerBean(
                     ScriptedGitHubActionsClient.class,
                     () -> scripts.map(Scripts::gitHub)
@@ -378,10 +372,7 @@ class TestCiAutofixRestartEndToEnd
                     bean -> bean.setPrimary(true));
             context.registerBean(CiAutofixMonitorTestDriver.class);
             if (losePushResult) {
-                context.registerBean(
-                        LostPushCiGitService.class,
-                        () -> new LostPushCiGitService(context.getBean(CiGitOperations.class)),
-                        bean -> bean.setPrimary(true));
+                context.registerBean(LostPushCiGitService.class, () -> new LostPushCiGitService(context.getBean(CiGitOperations.class)), bean -> bean.setPrimary(true));
             }
         }
     }
@@ -421,11 +412,7 @@ class TestCiAutofixRestartEndToEnd
             pushCalls++;
             CiPushResult result = delegate.push(command);
             checkState(result.outcome() == CiPushResult.Outcome.PUSHED, "test push did not succeed: %s", result);
-            String remoteHead = E2eGitRepository.routedGit(
-                    command.worktree(),
-                    "ls-remote",
-                    command.remote(),
-                    "refs/heads/" + command.remoteHeadRef()).split("\\s+", 2)[0];
+            String remoteHead = E2eGitRepository.routedGit(command.worktree(), "ls-remote", command.remote(), "refs/heads/" + command.remoteHeadRef()).split("\\s+", 2)[0];
             checkState(remoteHead.equals(command.journal().localHeadSha()), "remote did not receive the journaled SHA");
             return pushCalls == 1
                     ? CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "test discarded the successful push result")

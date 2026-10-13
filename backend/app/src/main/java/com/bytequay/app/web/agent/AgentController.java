@@ -516,8 +516,7 @@ public class AgentController
                 .filter(mediaType -> !supported.contains(mediaType))
                 .findFirst()
                 .ifPresent(mediaType -> {
-                    throw new InvalidAgentRequestException(
-                            "Provider " + laneId + " does not accept " + mediaType + " attachments");
+                    throw new InvalidAgentRequestException("Provider " + laneId + " does not accept " + mediaType + " attachments");
                 });
     }
 
@@ -532,8 +531,7 @@ public class AgentController
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
         requireNotBlank(name, "X-Attachment-Name must not be blank");
-        StoredAgentAttachment stored = resourceService.storeAttachment(
-                new StoreAgentAttachmentCommand(id, name, mediaType, bytes));
+        StoredAgentAttachment stored = resourceService.storeAttachment(new StoreAgentAttachmentCommand(id, name, mediaType, bytes));
         return ResponseEntity.status(HttpStatus.CREATED).body(AgentHttpModels.attachment(stored));
     }
 
@@ -642,10 +640,7 @@ public class AgentController
     {
         List<AgentAttachment> attachments = resolveAttachments(turn.taskId(), attachmentIds);
         if (!attachments.isEmpty()) {
-            requireImageInput(
-                    taskService.get(turn.taskId()),
-                    turn.settings().flatMap(settings -> settings.model()),
-                    attachments);
+            requireImageInput(taskService.get(turn.taskId()), turn.settings().flatMap(settings -> settings.model()), attachments);
         }
         return attachments;
     }
@@ -672,11 +667,7 @@ public class AgentController
         List<AgentAttachment> attachments = repeated.isPresent()
                 ? ImmutableList.of()
                 : attachments(turnService.get(id), request.attachments());
-        AgentInputDelivery delivery = turnService.steer(new SteerAgentTurnCommand(
-                id,
-                request.message(),
-                attachments,
-                idempotencyKey));
+        AgentInputDelivery delivery = turnService.steer(new SteerAgentTurnCommand(id, request.message(), attachments, idempotencyKey));
         TaskId taskId = delivery.taskId();
         if (repeated.isEmpty()) {
             recordPrompt(taskId.toString(), idempotencyKey, request.message());
@@ -870,9 +861,7 @@ public class AgentController
     {
         TaskId id = TaskId.valueOf(taskId);
         taskService.getInteractive(workspaceId, id);
-        var completion = completionService.complete(new CompleteAgentTaskCommand(
-                id,
-                request == null ? Optional.empty() : Optional.ofNullable(request.notes())));
+        var completion = completionService.complete(new CompleteAgentTaskCommand(id, request == null ? Optional.empty() : Optional.ofNullable(request.notes())));
         try {
             completionService.cleanupWorktree(id);
         }

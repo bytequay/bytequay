@@ -55,8 +55,7 @@ public record CiGitInspection(
 
     public static CiGitInspection noChange()
     {
-        return new CiGitInspection(
-                Outcome.NO_CHANGE, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), "");
+        return new CiGitInspection(Outcome.NO_CHANGE, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), "");
     }
 
     public static CiGitInspection ready(
@@ -65,19 +64,12 @@ public record CiGitInspection(
             List<String> changedPaths,
             List<String> commitSubjects)
     {
-        return new CiGitInspection(
-                Outcome.READY,
-                Optional.of(localHead),
-                Optional.of(fingerprint),
-                changedPaths,
-                commitSubjects,
-                "");
+        return new CiGitInspection(Outcome.READY, Optional.of(localHead), Optional.of(fingerprint), changedPaths, commitSubjects, "");
     }
 
     public static CiGitInspection invalid(String diagnostics)
     {
-        return new CiGitInspection(
-                Outcome.INVALID, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), diagnostics);
+        return new CiGitInspection(Outcome.INVALID, Optional.empty(), Optional.empty(), ImmutableList.of(), ImmutableList.of(), diagnostics);
     }
 
     public enum Outcome

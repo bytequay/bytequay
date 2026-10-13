@@ -182,12 +182,7 @@ class TestDefaultAgentTurnService
         driver = new DeterministicAgentDriver();
         Path worktree = temporaryDirectory.resolve("worktree").toAbsolutePath();
         worktrees = new FixedWorktreeService(worktree);
-        taskService = new DefaultAgentTaskService(
-                stores,
-                worktrees,
-                resources,
-                new StaticAgentDriverRegistry(ImmutableList.of(driver)),
-                CLOCK);
+        taskService = new DefaultAgentTaskService(stores, worktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)), CLOCK);
         TaskId taskId = TaskId.random();
         task = taskService.create(new CreateAgentTaskCommand(
                 taskId,
@@ -197,10 +192,7 @@ class TestDefaultAgentTurnService
                 "0123456789012345678901234567890123456789",
                 TaskBranches.generate(taskId, "user", "Lifecycle test"),
                 "Lifecycle test",
-                new AgentTaskDefaults(
-                        Optional.of("model-a"),
-                        Optional.of("low"),
-                        AgentPermissionPolicy.AUTO)));
+                new AgentTaskDefaults(Optional.of("model-a"), Optional.of("low"), AgentPermissionPolicy.AUTO)));
         logs = new FileTaskLogStore(resources);
         events = new DefaultAgentEventService(logs, stores, stores, CLOCK);
         metrics = new DefaultAgentMetricsService(stores, stores, logs, CLOCK);
@@ -297,21 +289,13 @@ class TestDefaultAgentTurnService
         int probesAfterCreation = driver.probeCount();
         driver.readiness(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
 
-        AgentTurn first = service.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
-                interactive.id(),
-                "First request",
-                ImmutableList.of(),
-                "create-key"));
+        AgentTurn first = service.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(interactive.id(), "First request", ImmutableList.of(), "create-key"));
 
         assertThat(first.state()).isEqualTo(TurnState.RUNNING);
         assertThat(driver.probeCount()).isEqualTo(probesAfterCreation);
         driver.complete("done");
 
-        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(
-                interactive.id(),
-                "Later request",
-                ImmutableList.of(),
-                "later-key")))
+        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(interactive.id(), "Later request", ImmutableList.of(), "later-key")))
                 .isInstanceOf(AgentProviderUnavailableException.class);
         assertThat(driver.probeCount()).isEqualTo(probesAfterCreation + 1);
     }
@@ -321,11 +305,7 @@ class TestDefaultAgentTurnService
     {
         int probesBeforeStart = driver.probeCount();
 
-        assertThatThrownBy(() -> service.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(
-                task.id(),
-                "First request",
-                ImmutableList.of(),
-                "create-key")))
+        assertThatThrownBy(() -> service.start(StartAgentTurnCommand.trustedInitialInteractiveTurn(task.id(), "First request", ImmutableList.of(), "create-key")))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("fresh interactive task");
 
@@ -423,9 +403,7 @@ class TestDefaultAgentTurnService
     {
         AgentLaneId lane = new AgentLaneId("deepseek-key-11111111-1111-1111-1111-111111111111");
         driver = new DeterministicAgentDriver(lane);
-        taskService = new DefaultAgentTaskService(
-                stores, worktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)),
-                CLOCK);
+        taskService = new DefaultAgentTaskService(stores, worktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)), CLOCK);
         service = service(driver, runtimeRegistry);
         TaskId taskId = TaskId.random();
         AgentTask deepSeek = taskService.createInteractive(new CreateInteractiveAgentTaskCommand(
@@ -793,10 +771,7 @@ class TestDefaultAgentTurnService
                 "0123456789012345678901234567890123456789",
                 TaskBranches.generate(taskId, "user", firstMessage),
                 firstMessage,
-                new AgentTaskDefaults(
-                        Optional.of("model-a"),
-                        Optional.of("low"),
-                        AgentPermissionPolicy.AUTO),
+                new AgentTaskDefaults(Optional.of("model-a"), Optional.of("low"), AgentPermissionPolicy.AUTO),
                 "test-creation-fingerprint", Optional.empty()));
     }
 
@@ -909,8 +884,7 @@ class TestDefaultAgentTurnService
         assertThat(events.readAfter(task.id(), 0, 100)).filteredOn(event -> event.type() == AgentEventPayload.Kind.PLAN_UPDATED)
                 .anySatisfy(event -> assertThat(event.source().parentProviderThreadId()).contains("root-thread"));
 
-        ProviderAgentEventSource stale = new ProviderAgentEventSource(
-                Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.empty());
+        ProviderAgentEventSource stale = new ProviderAgentEventSource(Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.empty());
         assertThatThrownBy(() -> driver.emit(new ProviderAgentEvent.Plan(Optional.empty(), childItems, stale)))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another provider turn");
         assertThat(stores.find(running.id()).orElseThrow().plan()).contains(rootItems);
@@ -959,8 +933,7 @@ class TestDefaultAgentTurnService
         ProviderAgentEvent.DevelopmentResult stale = new ProviderAgentEvent.DevelopmentResult(
                 Optional.empty(),
                 ready,
-                new ProviderAgentEventSource(
-                        Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.of("report-1")));
+                new ProviderAgentEventSource(Optional.of("root-thread"), Optional.empty(), Optional.of("/"), Optional.of("older-turn"), Optional.of("report-1")));
         assertThatThrownBy(() -> driver.emit(stale)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("another provider turn");
         assertThat(stores.find(running.id()).orElseThrow().developmentResult()).isEmpty();
         driver.complete("Finished");
@@ -970,8 +943,7 @@ class TestDefaultAgentTurnService
     void ordinaryTurnsCannotAcquireReadinessFromProviderEvents()
     {
         AgentTurn running = service.start(command("Discuss the code", "ordinary"));
-        ProviderAgentEvent.DevelopmentResult report = developmentReport(
-                running, "report-1", new DevelopmentResultReport(true, Optional.empty()), Optional.empty());
+        ProviderAgentEvent.DevelopmentResult report = developmentReport(running, "report-1", new DevelopmentResultReport(true, Optional.empty()), Optional.empty());
         assertThatThrownBy(() -> driver.emit(report)).isInstanceOf(IllegalArgumentException.class).hasMessageContaining("not enabled");
         assertThat(stores.find(running.id()).orElseThrow().developmentResult()).isEmpty();
         driver.complete("Finished");
@@ -1142,8 +1114,7 @@ class TestDefaultAgentTurnService
         assertThat(Files.readString(file)).isEqualTo("Uncommitted work");
         assertThat(worktrees.cleanupCalls).isZero();
         assertThat(events.readAfter(task.id(), 0, 100)).extracting(AgentEventEnvelope::payload)
-                .contains(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED,
-                        "Automation stopped. Request could not finish"));
+                .contains(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.DEVELOPMENT_AUTOMATION_UPDATED, "Automation stopped. Request could not finish"));
         assertThat(service.start(command("Do not replay", "failed-development")).id()).isEqualTo(source.id());
         assertThat(completed).hasSize(1);
         assertThat(driver.commands()).hasSize(1);
@@ -1389,8 +1360,7 @@ class TestDefaultAgentTurnService
         };
         AgentTurn first = service.start(command("First", "context-first"));
         service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Second", ImmutableList.of(), "context-second"));
-        QueuedAgentInput third = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "Third", ImmutableList.of(), "context-third"));
+        QueuedAgentInput third = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Third", ImmutableList.of(), "context-third"));
         assertThat(prepared).containsExactly(first.id());
 
         driver.complete("First finished");
@@ -1568,8 +1538,7 @@ class TestDefaultAgentTurnService
         assertThat(driver.commands().getLast().model()).isEqualTo(source.settings().orElseThrow().model());
         assertThat(driver.commands().getLast().effort()).isEqualTo(source.settings().orElseThrow().effort());
         assertThat(driver.openedContexts().getLast().permissionPolicy()).isEqualTo(source.settings().orElseThrow().permissionPolicy());
-        driver.emit(developmentReport(followup, "commit-question",
-                new DevelopmentResultReport(false, Optional.of("Which change should be committed?")), Optional.empty()));
+        driver.emit(developmentReport(followup, "commit-question", new DevelopmentResultReport(false, Optional.of("Which change should be committed?")), Optional.empty()));
         driver.complete("Choose a change");
 
         assertThat(generated.toCompletableFuture().join().turn().developmentResult().orElseThrow().readyForDelivery()).isFalse();
@@ -1667,17 +1636,14 @@ class TestDefaultAgentTurnService
     {
         enableDevelopment(ignored -> {});
         DevelopmentAutomation commitOnly = new DevelopmentAutomation(true, false, false, Optional.empty());
-        task = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), task.version(),
-                task.defaults().withDevelopmentAutomation(commitOnly)));
+        task = taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), task.version(), task.defaults().withDevelopmentAutomation(commitOnly)));
         AgentTurn source = service.start(command("Commit my changes locally", "disabled-publish-source"));
         reportReady(source);
         driver.complete("Ready to publish");
         AgentTask current = taskService.get(task.id());
-        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), current.version(),
-                current.defaults().withDevelopmentAutomation(DevelopmentAutomation.DEFAULT)));
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), current.version(), current.defaults().withDevelopmentAutomation(DevelopmentAutomation.DEFAULT)));
 
-        assertThatThrownBy(() -> service.startGeneratedTurn(
-                task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, source.id()), "Publish"))
+        assertThatThrownBy(() -> service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, source.id()), "Publish"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("accepted automation settings");
 
         assertThat(stores.list(task.id())).extracting(AgentTurn::id).containsExactly(source.id());
@@ -1911,8 +1877,7 @@ class TestDefaultAgentTurnService
 
         assertThat(service.cancel(source.id()).state()).isEqualTo(TurnState.COMPLETED);
 
-        assertThatThrownBy(() -> service.startGeneratedTurn(
-                task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit"))
+        assertThatThrownBy(() -> service.startGeneratedTurn(task.id(), new DevelopmentTurnOrigin(DevelopmentTurnOrigin.Kind.AUTO_COMMIT, source.id()), "Commit"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("cancelled");
         service.failDevelopmentContinuation(task.id(), source.id(), "Cancelled");
     }
@@ -2129,13 +2094,7 @@ class TestDefaultAgentTurnService
     void recordsUsageWithoutProviderIdentity()
     {
         AgentTurn running = service.start(command("first", "key-1"));
-        ProviderUsageSample sample = new ProviderUsageSample(
-                Optional.empty(),
-                ProviderUsageSample.Semantics.DELTA,
-                4,
-                1,
-                2,
-                Optional.empty());
+        ProviderUsageSample sample = new ProviderUsageSample(Optional.empty(), ProviderUsageSample.Semantics.DELTA, 4, 1, 2, Optional.empty());
 
         driver.emitUsage(sample);
         driver.emitUsage(sample);
@@ -2183,9 +2142,7 @@ class TestDefaultAgentTurnService
         AgentTurn running = service.start(command("first", "key-1"));
         AgentTask taskBefore = stores.find(task.id()).orElseThrow();
         AgentTurn turnBefore = stores.find(running.id()).orElseThrow();
-        stores.failOutboxInsert(
-                AgentEventPayload.Kind.LIFECYCLE,
-                new AgentStorageException("blocked terminal outbox"));
+        stores.failOutboxInsert(AgentEventPayload.Kind.LIFECYCLE, new AgentStorageException("blocked terminal outbox"));
 
         driver.complete("done");
 
@@ -2349,8 +2306,7 @@ class TestDefaultAgentTurnService
     @Test
     void retainsTheClaimWhenAKnownUnsentSessionCannotBeVerifiedClosed()
     {
-        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(
-                events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED);
+        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED);
         service = service(driver, runtimeRegistry, failingEvents);
         driver.failNextCloseVerification();
 
@@ -2632,12 +2588,7 @@ class TestDefaultAgentTurnService
         ApprovalId approvalId = ApprovalId.random();
         driver.beforeStart(() -> {
             AgentTurn accepted = stores.findActive(task.id()).orElseThrow();
-            durableApprovals.request(new ApprovalRequest(
-                    approvalId,
-                    task.id(),
-                    accepted.id(),
-                    approvalRequest("start-approval"),
-                    NOW), Duration.ofMinutes(1));
+            durableApprovals.request(new ApprovalRequest(approvalId, task.id(), accepted.id(), approvalRequest("start-approval"), NOW), Duration.ofMinutes(1));
             stores.failApprovalResolve(new AgentStorageException("blocked approval resolution"));
             // A provider that already asked for approval may have started the turn.
             throw new AgentDeliveryUncertainException("start failed after approval", null);
@@ -2665,9 +2616,7 @@ class TestDefaultAgentTurnService
                 "Run command",
                 "Run tests",
                 ImmutableList.of("command:run"),
-                ImmutableList.of(
-                        ALLOW_ONCE,
-                        DENY),
+                ImmutableList.of(ALLOW_ONCE, DENY),
                 root(),
                 NOW);
 
@@ -2866,11 +2815,7 @@ class TestDefaultAgentTurnService
     void preservesEachTurnsEffectiveSettingsAndOpaqueAttachmentReferences()
     {
         Path attachmentPath = temporaryDirectory.resolve("image.png").toAbsolutePath();
-        AgentTurn first = service.start(new StartAgentTurnCommand(
-                task.id(),
-                "first",
-                ImmutableList.of(new AgentAttachment("image.png", "image/png", attachmentPath)),
-                "key-1"));
+        AgentTurn first = service.start(new StartAgentTurnCommand(task.id(), "first", ImmutableList.of(new AgentAttachment("image.png", "image/png", attachmentPath)), "key-1"));
         AgentTurnSettings firstSettings = first.settings().orElseThrow();
         assertThat(firstSettings.model()).contains("model-a");
         assertThat(firstSettings.effort()).contains("low");
@@ -2893,10 +2838,7 @@ class TestDefaultAgentTurnService
         taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(
                 task.id(),
                 current.version(),
-                new AgentTaskDefaults(
-                        Optional.of("model-b"),
-                        Optional.of("high"),
-                        AgentPermissionPolicy.AUTO)));
+                new AgentTaskDefaults(Optional.of("model-b"), Optional.of("high"), AgentPermissionPolicy.AUTO)));
         AgentTurn second = service.start(command("second", "key-2"));
         driver.complete("second response");
 
@@ -3011,16 +2953,14 @@ class TestDefaultAgentTurnService
     void refusesQueuedSteeringForAnotherTaskRemovedInputOrStaleTurn()
     {
         AgentTurn first = service.start(command("first", "key-1"));
-        QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "later", ImmutableList.of(), "queue-1"));
+        QueuedAgentInput input = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "later", ImmutableList.of(), "queue-1"));
         assertThatThrownBy(() -> service.steerQueued(TaskId.random(), first.id(), input.id())).isInstanceOf(AgentConflictException.class);
         assertThat(service.queued(task.id())).hasSize(1);
         service.removeQueued(task.id(), input.id());
         assertThatThrownBy(() -> service.steerQueued(task.id(), first.id(), input.id())).isInstanceOf(AgentConflictException.class);
         driver.complete("done");
         AgentTurn second = service.start(command("second", "key-2"));
-        QueuedAgentInput later = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "later again", ImmutableList.of(), "queue-2"));
+        QueuedAgentInput later = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "later again", ImmutableList.of(), "queue-2"));
         assertThatThrownBy(() -> service.steerQueued(task.id(), first.id(), later.id())).isInstanceOf(AgentConflictException.class).hasMessageContaining("not running");
         assertThat(service.queued(task.id())).extracting(QueuedAgentInput::id).containsExactly(later.id());
         assertThat(driver.steers()).isEmpty();
@@ -3031,10 +2971,8 @@ class TestDefaultAgentTurnService
     void findsAcceptedRequestsBeforeACallerRevalidatesMutableInput()
     {
         AgentTurn turn = service.start(command("first", "key-1"));
-        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "later", ImmutableList.of(), "queue-1"));
-        AgentInputDelivery steer = service.steer(new SteerAgentTurnCommand(
-                turn.id(), "more", ImmutableList.of(), "steer-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "later", ImmutableList.of(), "queue-1"));
+        AgentInputDelivery steer = service.steer(new SteerAgentTurnCommand(turn.id(), "more", ImmutableList.of(), "steer-1"));
 
         assertThat(service.findTurnByIdempotencyKey(task.id(), "key-1")).contains(turn);
         assertThat(service.findQueuedByIdempotencyKey(task.id(), "queue-1")).contains(queued);
@@ -3058,11 +2996,7 @@ class TestDefaultAgentTurnService
                 "original.png",
                 "image/png",
                 Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")));
-        SteerAgentTurnCommand steer = new SteerAgentTurnCommand(
-                first.id(),
-                "also this",
-                ImmutableList.of(originalAttachment.input()),
-                "steer-1");
+        SteerAgentTurnCommand steer = new SteerAgentTurnCommand(first.id(), "also this", ImmutableList.of(originalAttachment.input()), "steer-1");
 
         assertThatThrownBy(() -> service.steer(steer))
                 .isInstanceOf(AgentStorageException.class)
@@ -3098,8 +3032,7 @@ class TestDefaultAgentTurnService
         failingEvents.failNextDrain();
         service = service(driver, sharedRuntime, failingEvents);
 
-        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(
-                first.id(), "never sent", ImmutableList.of(), "steer-1")))
+        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(first.id(), "never sent", ImmutableList.of(), "steer-1")))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessage("blocked event log");
         assertThat(stores.steers()).singleElement().satisfies(delivery ->
@@ -3121,14 +3054,12 @@ class TestDefaultAgentTurnService
     void treatsAStrandedSendingSteerAsUnknownWithoutResending()
     {
         AgentTurn first = service.start(command("first", "key-1"));
-        AgentInputDelivery stranded = AgentInputDelivery.accepted(
-                        InputDeliveryId.random(), task.id(), first.id(), "steer-1", NOW)
+        AgentInputDelivery stranded = AgentInputDelivery.accepted(InputDeliveryId.random(), task.id(), first.id(), "steer-1", NOW)
                 .sending(NOW);
         stores.insert(stranded);
         assertThat(service.findSteerByIdempotencyKey(first.id(), "steer-1")).contains(stranded);
 
-        AgentInputDelivery recovered = service.steer(new SteerAgentTurnCommand(
-                first.id(), "must not resend", ImmutableList.of(), "steer-1"));
+        AgentInputDelivery recovered = service.steer(new SteerAgentTurnCommand(first.id(), "must not resend", ImmutableList.of(), "steer-1"));
 
         assertThat(recovered.state()).isEqualTo(AgentInputDelivery.State.UNKNOWN);
         assertThat(driver.steers()).isEmpty();
@@ -3146,8 +3077,7 @@ class TestDefaultAgentTurnService
         driver.complete("first done");
         AgentTurn second = service.start(command("second", "key-2"));
 
-        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(
-                second.id(), "two", ImmutableList.of(), "steer-1")))
+        assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(second.id(), "two", ImmutableList.of(), "steer-1")))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("belongs to another turn");
         assertThatThrownBy(() -> service.findSteerByIdempotencyKey(second.id(), "steer-1"))
@@ -3169,8 +3099,7 @@ class TestDefaultAgentTurnService
             }
         });
 
-        AgentInputDelivery delivery = service.steer(new SteerAgentTurnCommand(
-                first.id(), "too late", ImmutableList.of(), "steer-1"));
+        AgentInputDelivery delivery = service.steer(new SteerAgentTurnCommand(first.id(), "too late", ImmutableList.of(), "steer-1"));
 
         assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.FAILED);
         assertThat(service.get(first.id()).state()).isEqualTo(TurnState.COMPLETED);
@@ -3291,12 +3220,10 @@ class TestDefaultAgentTurnService
     @Test
     void keepsAnAcknowledgedQueuedTurnRunningWhenItsRefreshEventCannotDrain()
     {
-        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(
-                events, stores, AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED);
+        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED);
         service = service(driver, runtimeRegistry, failingEvents);
         service.start(command("first", "key-1"));
-        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
 
         driver.complete("first response");
 
@@ -3366,8 +3293,7 @@ class TestDefaultAgentTurnService
     void publishesARefreshAfterBackgroundAutoStartPausesTheQueue()
     {
         service.start(command("first", "key-1"));
-        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
         driver.unavailable();
 
         driver.complete("first response");
@@ -3399,8 +3325,7 @@ class TestDefaultAgentTurnService
             command.run();
         });
         service.start(command("first", "key-1"));
-        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
 
         driver.complete("first response");
 
@@ -3440,8 +3365,7 @@ class TestDefaultAgentTurnService
     void refusesToEditClaimedInputOrLoseUnreadableInput()
     {
         service.start(command("first", "key-1"));
-        QueuedAgentInput waiting = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "waiting", ImmutableList.of(), "queue-edit"));
+        QueuedAgentInput waiting = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "waiting", ImmutableList.of(), "queue-edit"));
         QueuedAgentInput claimed = waiting.starting(TurnId.random(), EventId.random(), NOW);
         for (QueuedAgentInput input : ImmutableList.of(claimed, claimed.uncertain("unknown delivery", NOW), claimed.paused("retry", NOW))) {
             QueuedAgentInput stored = stores.update(input.withVersion(stores.find(input.id()).orElseThrow().version()));
@@ -3545,11 +3469,9 @@ class TestDefaultAgentTurnService
         AgentTask claimed = stores.find(task.id()).orElseThrow();
         WorktreeMutationClaim actualClaim = claimed.worktreeMutationClaim().orElseThrow();
         AgentTask released = stores.update(claimed.releaseWorktreeMutation(actualClaim, NOW));
-        AgentTask mismatched = stores.update(released.claimWorktreeMutation(
-                WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW));
+        AgentTask mismatched = stores.update(released.claimWorktreeMutation(WorktreeMutationClaim.turn(TurnId.random(), NOW), NOW));
 
-        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(
-                task.id(), mismatched.version(), "must not queue", ImmutableList.of(), "queue-1")))
+        assertThatThrownBy(() -> service.enqueue(new QueueAgentInputCommand(task.id(), mismatched.version(), "must not queue", ImmutableList.of(), "queue-1")))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("claimed by TURN");
         assertThat(service.queued(task.id())).isEmpty();
@@ -3561,12 +3483,7 @@ class TestDefaultAgentTurnService
         long validatedVersion = taskService.get(task.id()).version();
         taskService.rename(new RenameAgentTaskCommand(task.id(), validatedVersion, "Changed task"));
 
-        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(
-                task.id(),
-                validatedVersion,
-                "image prompt",
-                ImmutableList.of(),
-                "key-1")))
+        assertThatThrownBy(() -> service.start(new StartAgentTurnCommand(task.id(), validatedVersion, "image prompt", ImmutableList.of(), "key-1")))
                 .isInstanceOf(AgentConflictException.class)
                 .hasMessageContaining("version changed");
         assertThat(driver.commands()).isEmpty();
@@ -3646,12 +3563,10 @@ class TestDefaultAgentTurnService
     @Test
     void keepsAQueuedInputRetryableWhenItsStartedLifecycleCannotPublish()
     {
-        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(
-                events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED, false);
+        FailLifecycleDrainEventService failingEvents = new FailLifecycleDrainEventService(events, stores, AgentEventPayload.LifecyclePhase.TURN_STARTED, false);
         service = service(driver, runtimeRegistry, failingEvents);
         service.start(command("first", "key-1"));
-        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(
-                task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
+        QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "second", ImmutableList.of(), "queue-1"));
         failingEvents.failNextDrain();
 
         driver.complete("first response");
@@ -3807,15 +3722,7 @@ class TestDefaultAgentTurnService
 
     private DefaultAgentApprovalService durableApprovals(AgentRuntimeRegistry runtimeRegistry)
     {
-        return new DefaultAgentApprovalService(
-                stores,
-                stores,
-                stores,
-                stores,
-                events,
-                scheduler,
-                CLOCK,
-                runtimeRegistry);
+        return new DefaultAgentApprovalService(stores, stores, stores, stores, events, scheduler, CLOCK, runtimeRegistry);
     }
 
     @Test
@@ -3850,11 +3757,7 @@ class TestDefaultAgentTurnService
 
     private StartAgentTurnCommand command(String message, String idempotencyKey)
     {
-        return new StartAgentTurnCommand(
-                task.id(),
-                message,
-                ImmutableList.<AgentAttachment>of(),
-                idempotencyKey);
+        return new StartAgentTurnCommand(task.id(), message, ImmutableList.<AgentAttachment>of(), idempotencyKey);
     }
 
     private void awaitTaskLock(AgentRuntimeRegistry runtimeRegistry)
@@ -3868,13 +3771,7 @@ class TestDefaultAgentTurnService
 
     private static ProviderUsageSample usage(String eventId, long input, long cached, long output)
     {
-        return new ProviderUsageSample(
-                Optional.of(eventId),
-                ProviderUsageSample.Semantics.DELTA,
-                input,
-                cached,
-                output,
-                Optional.<BigDecimal>empty());
+        return new ProviderUsageSample(Optional.of(eventId), ProviderUsageSample.Semantics.DELTA, input, cached, output, Optional.<BigDecimal>empty());
     }
 
     private static ProviderApprovalRequest approvalRequest(String requestId)
@@ -3913,13 +3810,7 @@ class TestDefaultAgentTurnService
         public CompletionStage<ApprovalDecision> request(ApprovalRequest request, Duration timeout)
         {
             requests.add(request);
-            return CompletableFuture.completedFuture(new ApprovalDecision(
-                    request.id(),
-                    ApprovalDecision.Decision.ALLOW,
-                    Optional.of("command:run"),
-                    false,
-                    NOW,
-                    false));
+            return CompletableFuture.completedFuture(new ApprovalDecision(request.id(), ApprovalDecision.Decision.ALLOW, Optional.of("command:run"), false, NOW, false));
         }
 
         @Override

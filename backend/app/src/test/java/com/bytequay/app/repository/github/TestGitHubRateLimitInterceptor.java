@@ -99,8 +99,7 @@ class TestGitHubRateLimitInterceptor
         assertThat(interceptor.snapshot("pat").rateLimitedResponses()).isEqualTo(1);
         assertThat(interceptor.snapshot("pat").inFlight()).isZero();
         now.set(NOW.plusSeconds(60));
-        assertThatThrownBy(() -> call(interceptor, "/graphql", "pat", response(HttpStatus.OK,
-                "{\"errors\":[{\"message\":\"You have exceeded a secondary rate limit\"}]}")))
+        assertThatThrownBy(() -> call(interceptor, "/graphql", "pat", response(HttpStatus.OK, "{\"errors\":[{\"message\":\"You have exceeded a secondary rate limit\"}]}")))
                 .isInstanceOfSatisfying(GitHubRateLimitException.class, failure -> assertThat(failure.retryAt()).isEqualTo(NOW.plusSeconds(180)));
     }
 

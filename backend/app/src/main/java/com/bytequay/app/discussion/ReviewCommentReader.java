@@ -110,8 +110,7 @@ public final class ReviewCommentReader
                 ObjectNode snapshot = snapshot("review", event.actor());
                 put(snapshot, "state", payload.state());
                 put(snapshot, "commit", commits.get(event.githubId()));
-                comments.add(comment("review:" + event.githubId(), event.actor(), payload.actorBot(), event.timestamp(),
-                        withBody(snapshot, payload.htmlUrl(), event.body())));
+                comments.add(comment("review:" + event.githubId(), event.actor(), payload.actorBot(), event.timestamp(), withBody(snapshot, payload.htmlUrl(), event.body())));
             }
             else if (kind.equals("commented") && event.githubId() != null) {
                 comments.add(comment("issue_comment:" + event.githubId(), event.actor(), payload.actorBot(), event.timestamp(),

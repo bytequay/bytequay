@@ -87,10 +87,7 @@ class TestBackendServerConfiguration
 
     private ServletWebServerApplicationContext start(int port)
     {
-        SpringApplication application = new SpringApplication(
-                BackendServerConfiguration.class,
-                ServletWebServerFactoryAutoConfiguration.class,
-                TestServletConfiguration.class);
+        SpringApplication application = new SpringApplication(BackendServerConfiguration.class, ServletWebServerFactoryAutoConfiguration.class, TestServletConfiguration.class);
         application.setRegisterShutdownHook(false);
         return (ServletWebServerApplicationContext) application.run(
                 "--spring.config.location=optional:file:" + temporaryDirectory.resolve("unused.properties"),

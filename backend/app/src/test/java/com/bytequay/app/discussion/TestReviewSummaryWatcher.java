@@ -178,11 +178,7 @@ class TestReviewSummaryWatcher
                 Path.of("/managed/worktrees", unplaced.toString()), defaults(true), CREATED);
         TaskId background = TaskId.random();
         AgentTask nonInteractive = AgentTask.created(background, false, "Task", TitleSource.USER, AgentLaneId.CLAUDE_CLI, worktree(background), defaults(true), CREATED);
-        when(tasks.listLive()).thenReturn(ImmutableList.of(
-                task(true).withArchived(true, CREATED),
-                released,
-                noWorktree,
-                nonInteractive));
+        when(tasks.listLive()).thenReturn(ImmutableList.of(task(true).withArchived(true, CREATED), released, noWorktree, nonInteractive));
         when(ownership.shownPullRequest(any())).thenReturn(Optional.of(pullRequest(12, "open")));
         when(comments.read(REPO, 12)).thenReturn(ImmutableList.of(item("review:1", "alice", false, CREATED.plusSeconds(10))));
 

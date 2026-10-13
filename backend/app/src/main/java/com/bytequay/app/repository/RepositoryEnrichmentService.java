@@ -117,10 +117,8 @@ public class RepositoryEnrichmentService
     {
         List<KnownRepository> repositories = new ArrayList<>();
         for (Workspace workspace : workspaces.findAllRetained()) {
-            repositories.add(new KnownRepository(
-                    workspace.selectedRepositoryId(), workspace.selectedRepository()));
-            workspace.upstreamRepositoryId().ifPresent(repositoryId -> repositories.add(new KnownRepository(
-                    repositoryId, workspace.upstreamRepository().orElseThrow())));
+            repositories.add(new KnownRepository(workspace.selectedRepositoryId(), workspace.selectedRepository()));
+            workspace.upstreamRepositoryId().ifPresent(repositoryId -> repositories.add(new KnownRepository(repositoryId, workspace.upstreamRepository().orElseThrow())));
         }
         return repositories;
     }

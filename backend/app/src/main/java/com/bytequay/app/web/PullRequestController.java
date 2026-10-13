@@ -77,8 +77,7 @@ public class PullRequestController
     public List<AttentionPullRequest> attention()
     {
         List<PullRequest> candidates = pullRequests.listAttentionCandidates();
-        Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(
-                candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
+        Map<Long, String> avatars = pullRequests.findCachedAuthorAvatarUrls(candidates.stream().map(PullRequest::id).collect(toImmutableSet()));
         Map<Long, PrActivitySummary> activities = pullRequests.findCachedLatestActivities(candidates);
         Map<Long, List<PrCommitLine>> commits = pullRequests.findCachedCommitsSinceReview(candidates);
         Map<Long, List<String>> failingChecks = pullRequests.findCachedFailingChecks(candidates);
@@ -240,8 +239,7 @@ public class PullRequestController
             @RequestParam(value = "base", required = false) String baseSha,
             @RequestParam(value = "head", required = false) String headSha)
     {
-        return refreshService.refreshDiffFileContent(
-                repo, number, path, baseSha, headSha);
+        return refreshService.refreshDiffFileContent(repo, number, path, baseSha, headSha);
     }
 
     @GetMapping("/prs/merge-mode")
@@ -341,13 +339,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody ReactionRequest request)
     {
-        return new ReactionResponse(pullRequests.toggleReaction(
-                repo,
-                number,
-                request.target(),
-                request.commentId(),
-                request.content(),
-                request.viewerHasReacted()));
+        return new ReactionResponse(pullRequests.toggleReaction(repo, number, request.target(), request.commentId(), request.content(), request.viewerHasReacted()));
     }
 
     @PostMapping("/prs/close")

@@ -81,8 +81,7 @@ class TestGoalDeliveries
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "merged:trinodb/trino#31260", "Pull request #31260 merged: Key actions by path and deletion vector");
-        verify(conversation).tell("workspace", "goal-1", "merged:trinodb/trino#31260:work-1",
-                "Pull request #31260 for \"Fix #31252\" merged. The user can now accept the result.");
+        verify(conversation).tell("workspace", "goal-1", "merged:trinodb/trino#31260:work-1", "Pull request #31260 for \"Fix #31252\" merged. The user can now accept the result.");
 
         WorkItemEvent recorded = new WorkItemEvent("merged:trinodb/trino#31260", "", "RECEIPT", "Pull request #31260 merged", NOW);
         when(work.list("workspace")).thenReturn(ImmutableList.of(item(Optional.of("goal-1"), WorkItem.State.WORKING, ImmutableList.of(recorded),
@@ -104,11 +103,9 @@ class TestGoalDeliveries
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "opened:trinodb/trino#31260", "Pull request #31260 opened: Key actions by path and deletion vector");
-        verify(conversation).report("workspace", "goal-1", "opened:trinodb/trino#31260:work-1", "work-1",
-                "Pull request #31260 for \"Fix #31252\" is open and waits for review.");
+        verify(conversation).report("workspace", "goal-1", "opened:trinodb/trino#31260:work-1", "work-1", "Pull request #31260 for \"Fix #31252\" is open and waits for review.");
         verify(work).receipt("workspace", "work-1", "changes:3", "@bob requested changes on #31260: Add a test for deletion vectors");
-        verify(conversation).tell("workspace", "goal-1", "changes:3:work-1",
-                "@bob requested changes on pull request #31260 for \"Fix #31252\": Add a test for deletion vectors");
+        verify(conversation).tell("workspace", "goal-1", "changes:3:work-1", "@bob requested changes on pull request #31260 for \"Fix #31252\": Add a test for deletion vectors");
         verify(work, never()).receipt(anyString(), anyString(), eq("changes:1"), anyString());
         verify(work).receipt("workspace", "work-1", "approved:2", "@alice approved #31260");
         verify(conversation).tell("workspace", "goal-1", "approved:2:work-1", "@alice approved pull request #31260 for \"Fix #31252\".");
@@ -137,8 +134,7 @@ class TestGoalDeliveries
 
         deliveries.detailRefreshed(new PullRequestDetailRefreshed("trinodb/trino", 31260, Optional.empty()));
         verify(work).receipt("workspace", "work-1", "checks:trinodb/trino#31260@abc123", "Checks failed on #31260: build");
-        verify(conversation).tell("workspace", "goal-1", "checks:trinodb/trino#31260@abc123:work-1",
-                "Checks failed on pull request #31260 for \"Fix #31252\": build.");
+        verify(conversation).tell("workspace", "goal-1", "checks:trinodb/trino#31260@abc123:work-1", "Checks failed on pull request #31260 for \"Fix #31252\": build.");
         verify(work, times(1)).receipt(anyString(), anyString(), anyString(), anyString());
     }
 

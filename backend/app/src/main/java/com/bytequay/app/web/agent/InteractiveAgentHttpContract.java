@@ -250,10 +250,7 @@ final class InteractiveAgentHttpContract
 
     private static AttachmentReference attachment(AgentAttachmentReference attachment)
     {
-        return new AttachmentReference(
-                attachment.id(),
-                attachment.name(),
-                attachment.mediaType());
+        return new AttachmentReference(attachment.id(), attachment.name(), attachment.mediaType());
     }
 
     /** The first message creates the task and supplies its provisional title; there is no title field. */

@@ -189,8 +189,7 @@ public record GoalExchange(
             checkArgument(changes.stream().map(WorkChange::workItemId).distinct().count() == changes.size(), "a plan change names each work item once");
             requireNonNull(order, "order is null");
             order = order.map(ImmutableList::copyOf);
-            order.ifPresent(ids -> checkArgument(ids.size() <= MAX_CHANGES && ids.stream().distinct().count() == ids.size(),
-                    "a plan change orders each work item once"));
+            order.ifPresent(ids -> checkArgument(ids.size() <= MAX_CHANGES && ids.stream().distinct().count() == ids.size(), "a plan change orders each work item once"));
             checkArgument(!changes.isEmpty() || order.isPresent(), "a plan change changes something");
             checkText(reason, "plan change reason", 300);
         }
@@ -213,8 +212,7 @@ public record GoalExchange(
             requireNonNull(waitsOn, "waitsOn is null");
             waitsOn = waitsOn.map(ImmutableList::copyOf);
             checkOptionalText(acceptanceCriteria, "acceptanceCriteria", MAX_CRITERIA);
-            checkArgument(priority.isPresent() || waitsOn.isPresent() || acceptanceCriteria.isPresent(),
-                    "a work change sets a priority, what the work waits on or its criteria");
+            checkArgument(priority.isPresent() || waitsOn.isPresent() || acceptanceCriteria.isPresent(), "a work change sets a priority, what the work waits on or its criteria");
             waitsOn.ifPresent(ids -> checkArgument(ids.size() <= PlanChange.MAX_CHANGES && ids.stream().distinct().count() == ids.size() && !ids.contains(workItemId),
                     "work waits on other work, each once"));
         }

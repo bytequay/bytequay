@@ -133,16 +133,7 @@ public final class DefaultAgentTaskService
                 command.physicalRepository(),
                 command.startCommit(),
                 command.generatedBranch()));
-        return createManaged(
-                command.taskId(),
-                false,
-                command.title(),
-                TitleSource.USER,
-                command.laneId(),
-                command.defaults(),
-                Optional.empty(),
-                worktree,
-                taskStore::insert);
+        return createManaged(command.taskId(), false, command.title(), TitleSource.USER, command.laneId(), command.defaults(), Optional.empty(), worktree, taskStore::insert);
     }
 
     @Override
@@ -173,8 +164,7 @@ public final class DefaultAgentTaskService
         }
         AgentDriver driver = driverRegistry.require(task.laneId());
         if (!driver.capabilities().permissionPolicies().contains(command.defaults().permissionPolicy())) {
-            throw new AgentUnavailableException(
-                    "Agent lane " + task.laneId() + " cannot enforce " + command.defaults().permissionPolicy());
+            throw new AgentUnavailableException("Agent lane " + task.laneId() + " cannot enforce " + command.defaults().permissionPolicy());
         }
         return taskStore.update(task.withDefaults(command.defaults(), Instant.now(clock)));
     }
@@ -279,16 +269,7 @@ public final class DefaultAgentTaskService
         AgentTask task;
         try {
             resourceService.allocate(taskId);
-            task = AgentTask.created(
-                    taskId,
-                    interactive,
-                    creationFingerprint,
-                    title,
-                    titleSource,
-                    laneId,
-                    worktree,
-                    defaults,
-                    Instant.now(clock));
+            task = AgentTask.created(taskId, interactive, creationFingerprint, title, titleSource, laneId, worktree, defaults, Instant.now(clock));
             persistTask.accept(task);
         }
         catch (RuntimeException failure) {

@@ -88,9 +88,7 @@ class TestDefaultAgentMetricsService
                 .running(new ProviderTurnRef("previous"), Optional.empty())
                 .finish(TurnState.COMPLETED, previousMetrics, Optional.empty(), NOW.plusSeconds(1));
         stores.insert(previous);
-        stores.put(task.withMetrics(
-                new AgentMetrics(100, 10, 20, previousMetrics.cost(), Duration.ZERO),
-                NOW));
+        stores.put(task.withMetrics(new AgentMetrics(100, 10, 20, previousMetrics.cost(), Duration.ZERO), NOW));
         AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "current", turnSettings(), NOW.plusSeconds(2));
         stores.insert(current);
 
@@ -149,20 +147,8 @@ class TestDefaultAgentMetricsService
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request", turnSettings(), NOW);
         stores.insert(turn);
 
-        service.record(task.id(), turn.id(), sample(
-                "delta",
-                ProviderUsageSample.Semantics.DELTA,
-                4,
-                1,
-                2,
-                "0.10"));
-        AgentMetrics result = service.record(task.id(), turn.id(), sample(
-                "final",
-                ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION,
-                6,
-                0,
-                3,
-                "0.20"));
+        service.record(task.id(), turn.id(), sample("delta", ProviderUsageSample.Semantics.DELTA, 4, 1, 2, "0.10"));
+        AgentMetrics result = service.record(task.id(), turn.id(), sample("final", ProviderUsageSample.Semantics.FINAL_FOR_INVOCATION, 6, 0, 3, "0.20"));
 
         assertThat(result).isEqualTo(metrics(10, 1, 5, "0.30"));
     }
@@ -215,12 +201,7 @@ class TestDefaultAgentMetricsService
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(
-                Optional.empty(),
-                Optional.empty(),
-                AgentPermissionPolicy.AUTO,
-                Duration.ofMinutes(5),
-                ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
     }
 
     private static ProviderUsageSample cumulative(
@@ -230,13 +211,7 @@ class TestDefaultAgentMetricsService
             long outputTokens,
             String cost)
     {
-        return sample(
-                eventId,
-                ProviderUsageSample.Semantics.CUMULATIVE,
-                inputTokens,
-                cachedInputTokens,
-                outputTokens,
-                cost);
+        return sample(eventId, ProviderUsageSample.Semantics.CUMULATIVE, inputTokens, cachedInputTokens, outputTokens, cost);
     }
 
     private static ProviderUsageSample invocationUsage(String eventId, long inputTokens, long cachedInputTokens, long outputTokens)
@@ -258,23 +233,12 @@ class TestDefaultAgentMetricsService
             long outputTokens,
             String cost)
     {
-        return new ProviderUsageSample(
-                Optional.of(eventId),
-                semantics,
-                inputTokens,
-                cachedInputTokens,
-                outputTokens,
-                Optional.of(new BigDecimal(cost)));
+        return new ProviderUsageSample(Optional.of(eventId), semantics, inputTokens, cachedInputTokens, outputTokens, Optional.of(new BigDecimal(cost)));
     }
 
     private static AgentMetrics metrics(long inputTokens, long cachedInputTokens, long outputTokens, String cost)
     {
-        return new AgentMetrics(
-                inputTokens,
-                cachedInputTokens,
-                outputTokens,
-                Optional.of(new BigDecimal(cost)),
-                Duration.ZERO);
+        return new AgentMetrics(inputTokens, cachedInputTokens, outputTokens, Optional.of(new BigDecimal(cost)), Duration.ZERO);
     }
 
     @Test
@@ -311,8 +275,7 @@ class TestDefaultAgentMetricsService
     void countsOnlyTheTasksOwnContextCompactions()
     {
         TurnId turn = TurnId.random();
-        AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty());
+        AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         List<AgentEventEnvelope> events = ImmutableList.of(
                 event(1, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.STARTED, "", Optional.empty())),
                 event(2, turn, new AgentEventPayload.ToolActivity("Context compaction", ActivityState.COMPLETED, "", Optional.empty())),
@@ -324,15 +287,7 @@ class TestDefaultAgentMetricsService
 
     private AgentEventEnvelope event(long sequence, TurnId turnId, AgentEventPayload payload)
     {
-        return new AgentEventEnvelope(
-                AgentEventEnvelope.CURRENT_SCHEMA_VERSION,
-                EventId.random(),
-                sequence,
-                task.id(),
-                Optional.of(turnId),
-                AgentEventSource.root(),
-                NOW,
-                payload);
+        return new AgentEventEnvelope(AgentEventEnvelope.CURRENT_SCHEMA_VERSION, EventId.random(), sequence, task.id(), Optional.of(turnId), AgentEventSource.root(), NOW, payload);
     }
 
     private static final class MutableClock

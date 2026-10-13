@@ -61,14 +61,8 @@ public class PullRequestTimelineService
         requireNonNull(timestamp, "timestamp is null");
         checkSha(expectedRemoteSha, "expectedRemoteSha");
         checkSha(pushedSha, "pushedSha");
-        String body = body(
-                expectedRemoteSha,
-                pushedSha,
-                checkBounded(commitSubjects, "commitSubjects"),
-                checkBounded(changedPaths, "changedPaths"));
-        store.recordLocalTimelineEvent(
-                pullRequest,
-                new PrTimelineEvent(null, "ci_autofix", actor, timestamp, body, Optional.of(eventKey)));
+        String body = body(expectedRemoteSha, pushedSha, checkBounded(commitSubjects, "commitSubjects"), checkBounded(changedPaths, "changedPaths"));
+        store.recordLocalTimelineEvent(pullRequest, new PrTimelineEvent(null, "ci_autofix", actor, timestamp, body, Optional.of(eventKey)));
     }
 
     private static String body(

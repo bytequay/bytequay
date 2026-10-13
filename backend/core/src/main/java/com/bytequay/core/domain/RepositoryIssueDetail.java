@@ -42,14 +42,12 @@ public record RepositoryIssueDetail(
 
     public static RepositoryIssueDetail empty(long repositoryId, int issueNumber)
     {
-        return new RepositoryIssueDetail(
-                repositoryId, issueNumber, ImmutableList.of(), null, ImmutableList.of(), Optional.empty());
+        return new RepositoryIssueDetail(repositoryId, issueNumber, ImmutableList.of(), null, ImmutableList.of(), Optional.empty());
     }
 
     public RepositoryIssueDetail withType(String type)
     {
-        return new RepositoryIssueDetail(
-                repositoryId, issueNumber, timeline, type, availableTypes, refreshedAt);
+        return new RepositoryIssueDetail(repositoryId, issueNumber, timeline, type, availableTypes, refreshedAt);
     }
 
     public RepositoryIssueDetail append(PrTimelineEvent event)

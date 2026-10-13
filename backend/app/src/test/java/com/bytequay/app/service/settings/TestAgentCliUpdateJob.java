@@ -40,9 +40,7 @@ class TestAgentCliUpdateJob
     void updatesAvailableProvidersAndRefreshesCatalogsAfterwards()
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        when(drivers.statuses()).thenReturn(ImmutableList.of(
-                status(CLAUDE, Readiness.READY),
-                status(CODEX, Readiness.READY)));
+        when(drivers.statuses()).thenReturn(ImmutableList.of(status(CLAUDE, Readiness.READY), status(CODEX, Readiness.READY)));
         AgentDriver claude = mock(AgentDriver.class);
         when(claude.update()).thenReturn(Optional.of("Updated to 2.2.0"));
         when(drivers.require(CLAUDE)).thenReturn(claude);
@@ -64,9 +62,7 @@ class TestAgentCliUpdateJob
     void updateFailureStillRefreshesCatalogs()
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        when(drivers.statuses()).thenReturn(ImmutableList.of(
-                status(CLAUDE, Readiness.READY),
-                status(CODEX, Readiness.READY)));
+        when(drivers.statuses()).thenReturn(ImmutableList.of(status(CLAUDE, Readiness.READY), status(CODEX, Readiness.READY)));
         AgentDriver claude = mock(AgentDriver.class);
         when(claude.update()).thenThrow(new AgentUnavailableException("update failed"));
         when(drivers.require(CLAUDE)).thenReturn(claude);
@@ -84,9 +80,7 @@ class TestAgentCliUpdateJob
     void updatesDetectedInstalledProvidersThatAreNotReady()
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        when(drivers.statuses()).thenReturn(ImmutableList.of(
-                status(CLAUDE, Readiness.AUTHENTICATION_REQUIRED),
-                status(CODEX, Readiness.UNSUPPORTED)));
+        when(drivers.statuses()).thenReturn(ImmutableList.of(status(CLAUDE, Readiness.AUTHENTICATION_REQUIRED), status(CODEX, Readiness.UNSUPPORTED)));
         AgentDriver claude = mock(AgentDriver.class);
         AgentDriver codex = mock(AgentDriver.class);
         when(drivers.require(CLAUDE)).thenReturn(claude);
@@ -104,12 +98,7 @@ class TestAgentCliUpdateJob
     void skipsProvidersWithoutADetectedInstallation()
     {
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
-        AgentProviderStatus missing = new AgentProviderStatus(
-                CODEX,
-                Readiness.CLI_MISSING,
-                Optional.empty(),
-                "not installed",
-                AgentCapabilities.none());
+        AgentProviderStatus missing = new AgentProviderStatus(CODEX, Readiness.CLI_MISSING, Optional.empty(), "not installed", AgentCapabilities.none());
         when(drivers.statuses()).thenReturn(ImmutableList.of(missing));
         ModelSettingsService models = mock(ModelSettingsService.class);
 
@@ -136,7 +125,6 @@ class TestAgentCliUpdateJob
 
     private static AgentProviderStatus status(AgentLaneId lane, Readiness readiness)
     {
-        return new AgentProviderStatus(
-                lane, readiness, Optional.of("1.0.0"), "ready", AgentCapabilities.none());
+        return new AgentProviderStatus(lane, readiness, Optional.of("1.0.0"), "ready", AgentCapabilities.none());
     }
 }

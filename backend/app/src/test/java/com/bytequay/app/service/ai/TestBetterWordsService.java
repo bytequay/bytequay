@@ -86,11 +86,7 @@ class TestBetterWordsService
         Path runtime = temporaryDirectory.resolve("runtime");
         Path provider = runtime.resolve("provider/scratch");
         Files.createDirectories(provider);
-        when(resources.allocate(any())).thenReturn(new TaskResources(
-                runtime,
-                runtime.resolve("events.jsonl"),
-                runtime.resolve("blobs"),
-                provider));
+        when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), provider));
 
         AgentDriver driver = mock(AgentDriver.class);
         AgentSession session = mock(AgentSession.class);
@@ -257,11 +253,7 @@ class TestBetterWordsService
         Path runtime = temporaryDirectory.resolve("retained-runtime");
         Path provider = runtime.resolve("provider/scratch");
         Files.createDirectories(provider);
-        when(resources.allocate(any())).thenReturn(new TaskResources(
-                runtime,
-                runtime.resolve("events.jsonl"),
-                runtime.resolve("blobs"),
-                provider));
+        when(resources.allocate(any())).thenReturn(new TaskResources(runtime, runtime.resolve("events.jsonl"), runtime.resolve("blobs"), provider));
 
         AgentDriver driver = mock(AgentDriver.class);
         AgentSession session = mock(AgentSession.class);
@@ -334,19 +326,14 @@ class TestBetterWordsService
         when(resources.allocate(any())).thenThrow(new IllegalStateException("reached the provider"));
         BetterWordsService service = service(
                 settings,
-                linkedWorkspaceStore(
-                        "fork-workspace",
-                        RepoRef.of("user", "fork"),
-                        RepoRef.of("owner", "repo")),
+                linkedWorkspaceStore("fork-workspace", RepoRef.of("user", "fork"), RepoRef.of("owner", "repo")),
                 mock(AgentDriverRegistry.class),
                 resources);
 
-        assertThatThrownBy(() -> service.improve(
-                "Please clarify this.", "OWNER/REPO", Optional.of("fork-workspace")))
+        assertThatThrownBy(() -> service.improve("Please clarify this.", "OWNER/REPO", Optional.of("fork-workspace")))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("reached the provider");
-        assertThatThrownBy(() -> service.improve(
-                "Please clarify this.", "user/fork", Optional.of("fork-workspace")))
+        assertThatThrownBy(() -> service.improve("Please clarify this.", "user/fork", Optional.of("fork-workspace")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not belong");
     }

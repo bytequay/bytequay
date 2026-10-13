@@ -142,29 +142,12 @@ class TestCherryPickExecutionService
         when(remoteSources.list(WORKSPACE_ID)).thenReturn(ImmutableList.of(
                 new WorkspaceRemote("origin", "https://github.com/trinodb/trino.git", Role.ORIGIN),
                 new WorkspaceRemote("cork", "https://github.com/cork/trino.git", Role.CUSTOM)));
-        previews = new CherryPickPreviewService(
-                GIT,
-                new CherryPickConflictScout(GIT),
-                mock(RepositoryEnrichmentService.class),
-                credentials,
-                remoteSources,
-                CLOCK,
-                relationships);
+        previews = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(RepositoryEnrichmentService.class), credentials, remoteSources, CLOCK, relationships);
         agent = new ScriptedCherryPickAgent(new TestWorktreeService(clone, worktreeParent));
-        AgentCapabilities capabilities = new AgentCapabilities(
-                false,
-                false,
-                false,
-                ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK),
-                ImmutableSet.of());
+        AgentCapabilities capabilities = new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK), ImmutableSet.of());
         driver = mock(AgentDriver.class);
         when(driver.capabilities()).thenReturn(capabilities);
-        when(driver.probe()).thenReturn(new AgentProviderStatus(
-                new AgentLaneId("claude"),
-                AgentProviderStatus.Readiness.READY,
-                Optional.of("test"),
-                "ready",
-                capabilities));
+        when(driver.probe()).thenReturn(new AgentProviderStatus(new AgentLaneId("claude"), AgentProviderStatus.Readiness.READY, Optional.of("test"), "ready", capabilities));
         AgentDriverRegistry drivers = mock(AgentDriverRegistry.class);
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(driver);
         workspaceRepositories = mock(WorkspaceRepositoryService.class);
@@ -224,8 +207,7 @@ class TestCherryPickExecutionService
         assertThat(finished.workspace().workBranch()).isEqualTo("chenjian2664/bytequay/cherry-pick-main-" + finished.agentTaskId().orElseThrow().substring(0, 8));
 
         assertThat(finished.workspace().worktree()).doesNotExist();
-        assertThat(git(clone, "rev-list", "--count",
-                finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("4");
         assertThat(git(clone, "branch", "--list", finished.workspace().workBranch()))
                 .contains(finished.workspace().workBranch());
@@ -311,15 +293,10 @@ class TestCherryPickExecutionService
         CherryPickItem skipped = item(finished, skippedSha);
         assertThat(skipped.result()).isEqualTo(Result.USER_SKIPPED);
         assertThat(skipped.targetSha()).isEmpty();
-        assertThat(git(clone, "rev-list", "--count",
-                finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
                 .as("only the kept commit lands")
                 .isEqualTo("1");
-        assertThat(GIT.run(
-                clone,
-                "cat-file",
-                "-e",
-                finished.workspace().workBranch() + ":skipped.txt").successful()).isFalse();
+        assertThat(GIT.run(clone, "cat-file", "-e", finished.workspace().workBranch() + ":skipped.txt").successful()).isFalse();
     }
 
     @Test
@@ -480,11 +457,7 @@ class TestCherryPickExecutionService
         CherryPickPreview preview = preview(base);
         StartCherryPickExecutionCommand command = command(preview, ImmutableList.of(), "concurrent-key");
         AtomicReference<CherryPickExecution> concurrent = new AtomicReference<>();
-        agent.beforeTaskCreate(() -> concurrent.set(service.start(
-                command,
-                WORKSPACE_ID,
-                clone,
-                PHYSICAL_REPOSITORY)));
+        agent.beforeTaskCreate(() -> concurrent.set(service.start(command, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY)));
 
         CherryPickExecution started = service.start(command, WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
 
@@ -510,11 +483,7 @@ class TestCherryPickExecutionService
                 "login required",
                 capabilities));
 
-        assertThatThrownBy(() -> service.start(
-                command(preview, ImmutableList.of(), "unavailable"),
-                WORKSPACE_ID,
-                clone,
-                PHYSICAL_REPOSITORY))
+        assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of(), "unavailable"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("login required");
         assertThat(Files.list(worktreeParent)).isEmpty();
@@ -530,20 +499,12 @@ class TestCherryPickExecutionService
         commit(upstream, "Upstream change");
         CherryPickPreview preview = preview(base);
 
-        assertThatThrownBy(() -> service.start(
-                command(preview, ImmutableList.of(), "wrong-workspace"),
-                "another-workspace",
-                clone,
-                PHYSICAL_REPOSITORY))
+        assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of(), "wrong-workspace"), "another-workspace", clone, PHYSICAL_REPOSITORY))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("does not belong");
         assertThat(Files.list(worktreeParent)).isEmpty();
 
-        CherryPickExecution started = service.start(
-                command(preview, ImmutableList.of(), "right-workspace"),
-                WORKSPACE_ID,
-                clone,
-                PHYSICAL_REPOSITORY);
+        CherryPickExecution started = service.start(command(preview, ImmutableList.of(), "right-workspace"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
         assertThatThrownBy(() -> service.cancel(started.id(), "another-workspace"))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("does not belong");
@@ -576,11 +537,7 @@ class TestCherryPickExecutionService
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("stale");
 
-        assertThatThrownBy(() -> service.start(
-                command(preview, ImmutableList.of("0".repeat(40)), "ineligible-key"),
-                WORKSPACE_ID,
-                clone,
-                PHYSICAL_REPOSITORY))
+        assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of("0".repeat(40)), "ineligible-key"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("not an eligible commit");
     }
@@ -597,8 +554,7 @@ class TestCherryPickExecutionService
         write(fork, "target-moved.txt", "new target\n");
         commit(fork, "Target moved");
 
-        assertThatThrownBy(() -> service.start(
-                command(preview, ImmutableList.of(), "moved-target"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
+        assertThatThrownBy(() -> service.start(command(preview, ImmutableList.of(), "moved-target"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
                 .isInstanceOf(CherryPickInvalidRequestException.class)
                 .hasMessageContaining("stale");
         assertThat(store.listRecent(10)).isEmpty();
@@ -612,12 +568,9 @@ class TestCherryPickExecutionService
         write(upstream, "file.txt", "content\n");
         commit(upstream, "Upstream change");
 
-        service.start(command(preview(base), ImmutableList.of(), "first-key"),
-                WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
+        service.start(command(preview(base), ImmutableList.of(), "first-key"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
 
-        assertThatThrownBy(() -> service.start(
-                command(preview(base), ImmutableList.of(), "second-key"),
-                WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
+        assertThatThrownBy(() -> service.start(command(preview(base), ImmutableList.of(), "second-key"), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY))
                 .isInstanceOf(CherryPickConflictException.class)
                 .hasMessageContaining("already running");
     }
@@ -699,18 +652,15 @@ class TestCherryPickExecutionService
                 .extracting(CherryPickItem.IndexStage::stage)
                 .containsExactly(1, 2, 3);
 
-        String message = git(clone, "log", "-1", "--format=%B",
-                item(finished, conflicting).targetSha().orElseThrow());
+        String message = git(clone, "log", "-1", "--format=%B", item(finished, conflicting).targetSha().orElseThrow());
         assertThat(message)
                 .as("the -x line survives the agent's resolution")
                 .contains("(cherry picked from commit " + conflicting + ")");
         String fixup = git(clone, "rev-parse", finished.workspace().workBranch());
-        assertThat(git(clone, "rev-parse", fixup + "^")).isEqualTo(
-                item(finished, conflicting).targetSha().orElseThrow());
+        assertThat(git(clone, "rev-parse", fixup + "^")).isEqualTo(item(finished, conflicting).targetSha().orElseThrow());
         assertThat(git(clone, "log", "-1", "--format=%s", fixup))
                 .isEqualTo("fixup! Conflicting change");
-        assertThat(git(clone, "rev-list", "--count",
-                finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
                 .as("a conflicted source keeps its target and attributed fixup")
                 .isEqualTo("2");
     }
@@ -782,8 +732,7 @@ class TestCherryPickExecutionService
         assertThat(item(finished, conflicting).result()).isEqualTo(Result.APPLIED);
         assertThat(item(finished, conflicting).targetSha()).isPresent();
         assertThat(agent.turnsStarted()).as("a tree-neutral resolution needs no second turn").isEqualTo(1);
-        assertThat(git(clone, "rev-list", "--count",
-                started.currentTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.currentTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("3");
     }
 
@@ -834,8 +783,7 @@ class TestCherryPickExecutionService
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
         assertThat(item(finished, conflicting).result()).isEqualTo(Result.APPLIED);
         assertThat(agent.turnsStarted()).isEqualTo(1);
-        assertThat(git(clone, "rev-list", "--count",
-                finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", finished.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("2");
     }
 
@@ -851,11 +799,7 @@ class TestCherryPickExecutionService
 
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
-        agent.then(() -> resolveAndFixup(
-                        worktree,
-                        "seed.txt",
-                        "<<<<<<< target\nfork edit\n=======\nupstream edit\n>>>>>>> source\n"),
-                TurnState.COMPLETED);
+        agent.then(() -> resolveAndFixup(worktree, "seed.txt", "<<<<<<< target\nfork edit\n=======\nupstream edit\n>>>>>>> source\n"), TurnState.COMPLETED);
         agent.then(() -> amendFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
 
         CherryPickExecution finished = runToCompletion(started);
@@ -866,8 +810,7 @@ class TestCherryPickExecutionService
         assertThat(agent.prompts().getLast())
                 .contains("Fixup commit to repair")
                 .contains("git commit --amend --no-edit");
-        assertThat(git(clone, "rev-list", "--count",
-                started.currentTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.currentTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("2");
     }
 
@@ -913,8 +856,7 @@ class TestCherryPickExecutionService
         assertThat(git(clone, "rev-parse", finished.workspace().workBranch()))
                 .as("a repeated advance creates nothing")
                 .isEqualTo(tip);
-        assertThat(git(clone, "rev-list", "--count",
-                started.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.range().initialTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("3");
     }
 
@@ -937,8 +879,7 @@ class TestCherryPickExecutionService
 
         assertThat(recovered.status()).isEqualTo(Status.FINISHED);
         assertThat(item(recovered, source).result()).isEqualTo(Result.APPLIED);
-        assertThat(git(clone, "rev-list", "--count",
-                started.range().initialTargetSha() + ".." + recovered.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.range().initialTargetSha() + ".." + recovered.workspace().workBranch()))
                 .as("the pre-crash commit is adopted, not duplicated")
                 .isEqualTo("1");
     }
@@ -953,18 +894,11 @@ class TestCherryPickExecutionService
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
         GitSequencerDriver driver = new GitSequencerDriver(GIT);
-        com.bytequay.app.git.SequenceState empty = driver.beginCherryPick(
-                worktree, started.currentTargetSha(), source);
+        com.bytequay.app.git.SequenceState empty = driver.beginCherryPick(worktree, started.currentTargetSha(), source);
         assertThat(empty.kind()).isEqualTo(com.bytequay.app.git.SequenceState.Kind.STOPPED_EMPTY);
         CherryPickExecution journalled = store.save(started
                 .withStep(Step.APPLYING, CLOCK.instant())
-                .withJournal(new ActionJournal(
-                        ActionType.SKIP_EMPTY,
-                        Optional.of(source),
-                        started.currentTargetSha(),
-                        1,
-                        "skip",
-                        CLOCK.instant()), CLOCK.instant()));
+                .withJournal(new ActionJournal(ActionType.SKIP_EMPTY, Optional.of(source), started.currentTargetSha(), 1, "skip", CLOCK.instant()), CLOCK.instant()));
 
         assertThat(driver.skipEmpty(worktree, started.currentTargetSha(), source).kind())
                 .isEqualTo(com.bytequay.app.git.SequenceState.Kind.COMPLETED);
@@ -991,8 +925,7 @@ class TestCherryPickExecutionService
         CherryPickExecution started = start(base, ImmutableList.of());
         Path worktree = started.workspace().worktree();
         GitSequencerDriver driver = new GitSequencerDriver(GIT);
-        com.bytequay.app.git.SequenceState conflict = driver.beginCherryPick(
-                worktree, started.currentTargetSha(), source);
+        com.bytequay.app.git.SequenceState conflict = driver.beginCherryPick(worktree, started.currentTargetSha(), source);
         CherryPickExecution journalled = store.save(started
                 .recordConflict(source, conflictPaths(conflict), CLOCK.instant())
                 .withStep(Step.RESOLVING, CLOCK.instant())
@@ -1004,8 +937,7 @@ class TestCherryPickExecutionService
                         "snapshot",
                         CLOCK.instant()), CLOCK.instant()));
 
-        String conflictCommit = driver.commitConflictSnapshot(
-                worktree, started.currentTargetSha(), source, conflict.conflicts()).head();
+        String conflictCommit = driver.commitConflictSnapshot(worktree, started.currentTargetSha(), source, conflict.conflicts()).head();
         agent.then(() -> resolveAndFixup(worktree, "seed.txt", "resolved\n"), TurnState.COMPLETED);
 
         CherryPickExecution finished = runToCompletion(journalled);
@@ -1015,8 +947,7 @@ class TestCherryPickExecutionService
         assertThat(item(finished, source).targetSha()).contains(conflictCommit);
         assertThat(git(clone, "rev-parse", finished.workspace().workBranch() + "^"))
                 .isEqualTo(conflictCommit);
-        assertThat(git(clone, "rev-list", "--count",
-                started.currentTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.currentTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("2");
     }
 
@@ -1042,8 +973,7 @@ class TestCherryPickExecutionService
         assertThat(finished.status()).isEqualTo(Status.FINISHED);
         assertThat(item(finished, source).result()).isEqualTo(Result.APPLIED);
         assertThat(agent.turnsStarted()).isZero();
-        assertThat(git(clone, "rev-list", "--count",
-                started.currentTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.currentTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("2");
     }
 
@@ -1094,8 +1024,7 @@ class TestCherryPickExecutionService
         assertThat(item(finished, source).targetSha()).contains(conflictCommit);
         assertThat(finished.currentTargetSha()).isEqualTo(fixup);
         assertThat(git(clone, "rev-parse", finished.workspace().workBranch())).isEqualTo(fixup);
-        assertThat(git(clone, "rev-list", "--count",
-                started.currentTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.currentTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("2");
     }
 
@@ -1124,8 +1053,7 @@ class TestCherryPickExecutionService
         assertThat(finished.currentTargetSha()).isEqualTo(fixup);
         assertThat(git(clone, "rev-parse", fixup + "^{tree}"))
                 .isEqualTo(git(clone, "rev-parse", started.currentTargetSha() + "^{tree}"));
-        assertThat(git(clone, "rev-list", "--count",
-                started.currentTargetSha() + ".." + finished.workspace().workBranch()))
+        assertThat(git(clone, "rev-list", "--count", started.currentTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("2");
     }
 
@@ -1302,29 +1230,19 @@ class TestCherryPickExecutionService
                         },
                         Optional.empty(),
                         conflict.stages().stream()
-                                .map(stage -> new CherryPickItem.IndexStage(
-                                        stage.stage(), stage.mode(), stage.blobSha()))
+                                .map(stage -> new CherryPickItem.IndexStage(stage.stage(), stage.mode(), stage.blobSha()))
                                 .collect(toImmutableList())))
                 .collect(toImmutableList());
     }
 
     private CherryPickExecution start(String baseRef, List<String> skipped)
     {
-        return service.start(command(preview(baseRef), skipped, "key-" + skipped.size() + "-" + baseRef),
-                WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
+        return service.start(command(preview(baseRef), skipped, "key-" + skipped.size() + "-" + baseRef), WORKSPACE_ID, clone, PHYSICAL_REPOSITORY);
     }
 
     private CherryPickPreview preview(String baseRef)
     {
-        return previews.preview(new PreviewCherryPickRangeCommand(
-                clone,
-                WORKSPACE_ID,
-                OptionalLong.empty(),
-                "origin",
-                baseRef,
-                "origin/main",
-                "cork",
-                "main"));
+        return previews.preview(new PreviewCherryPickRangeCommand(clone, WORKSPACE_ID, OptionalLong.empty(), "origin", baseRef, "origin/main", "cork", "main"));
     }
 
     private static StartCherryPickExecutionCommand command(
@@ -1442,13 +1360,7 @@ class TestCherryPickExecutionService
             }
             git(repository, "worktree", "add", "--quiet", "-b", branch, path.toString(), command.startCommit());
             try {
-                return new TaskWorktree(
-                        command.taskId(),
-                        command.workspaceId(),
-                        command.physicalRepository(),
-                        path.toRealPath(),
-                        branch,
-                        command.startCommit());
+                return new TaskWorktree(command.taskId(), command.workspaceId(), command.physicalRepository(), path.toRealPath(), branch, command.startCommit());
             }
             catch (IOException failure) {
                 throw new AssertionError(failure);
@@ -1458,18 +1370,12 @@ class TestCherryPickExecutionService
         @Override
         public WorktreeSnapshot inspect(TaskWorktree worktree)
         {
-            GitCommandRunner.Result branch = GIT.run(
-                    worktree.canonicalWorktree(), "symbolic-ref", "--quiet", "--short", "HEAD");
+            GitCommandRunner.Result branch = GIT.run(worktree.canonicalWorktree(), "symbolic-ref", "--quiet", "--short", "HEAD");
             if (!branch.successful() || !branch.output().strip().equals(worktree.generatedBranch())) {
                 throw new AgentConflictException("Task worktree is on another branch");
             }
             String head = git(worktree.canonicalWorktree(), "rev-parse", "--verify", "HEAD^{commit}");
-            boolean dirty = !git(
-                    worktree.canonicalWorktree(),
-                    "status",
-                    "--porcelain=v1",
-                    "--untracked-files=all",
-                    "--ignored=matching").isEmpty();
+            boolean dirty = !git(worktree.canonicalWorktree(), "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching").isEmpty();
             boolean operationInProgress = GIT_OPERATION_PATHS.stream()
                     .map(name -> git(worktree.canonicalWorktree(), "rev-parse", "--git-path", name))
                     .map(Path::of)
@@ -1487,12 +1393,7 @@ class TestCherryPickExecutionService
         public void cleanup(TaskWorktree worktree)
         {
             if (Files.notExists(worktree.canonicalWorktree())) {
-                assertThat(GIT.run(
-                        repository,
-                        "show-ref",
-                        "--verify",
-                        "--quiet",
-                        "refs/heads/" + worktree.generatedBranch()).successful()).isTrue();
+                assertThat(GIT.run(repository, "show-ref", "--verify", "--quiet", "refs/heads/" + worktree.generatedBranch()).successful()).isTrue();
                 return;
             }
             WorktreeSnapshot snapshot = inspect(worktree);

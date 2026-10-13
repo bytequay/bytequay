@@ -159,8 +159,7 @@ public class SqliteAgentTaskStore
         checkArgument(!workspaceId.isBlank(), "workspaceId is blank");
         requireNonNull(repositoryIdentity, "repositoryIdentity is null");
         checkLimit(limit);
-        return repository.findRecentCompletedInteractive(
-                        workspaceId, repositoryIdentity.owner(), repositoryIdentity.name(), TaskState.COMPLETED, PageRequest.of(0, limit)).stream()
+        return repository.findRecentCompletedInteractive(workspaceId, repositoryIdentity.owner(), repositoryIdentity.name(), TaskState.COMPLETED, PageRequest.of(0, limit)).stream()
                 .map(AgentTaskEntity::toDomain)
                 .collect(toImmutableList());
     }
@@ -191,11 +190,7 @@ public class SqliteAgentTaskStore
     {
         requireNonNull(permissionPolicy, "permissionPolicy is null");
         requireNonNull(retryBefore, "retryBefore is null");
-        return repository.findPendingWorktreeCleanup(
-                        TERMINAL_STATES,
-                        permissionPolicy,
-                        CleanupState.DELETED,
-                        retryBefore).stream()
+        return repository.findPendingWorktreeCleanup(TERMINAL_STATES, permissionPolicy, CleanupState.DELETED, retryBefore).stream()
                 .map(AgentTaskEntity::toDomain)
                 .collect(toImmutableList());
     }
@@ -207,14 +202,7 @@ public class SqliteAgentTaskStore
         requireNonNull(now, "now is null");
         requireNonNull(retryBefore, "retryBefore is null");
         checkLimit(limit);
-        return repository.findCleanupDue(
-                        TERMINAL_STATES,
-                        CleanupState.DELETED,
-                        CleanupState.RETRY_PENDING,
-                        WORKFLOW_POLICIES,
-                        now,
-                        retryBefore,
-                        PageRequest.of(0, limit)).stream()
+        return repository.findCleanupDue(TERMINAL_STATES, CleanupState.DELETED, CleanupState.RETRY_PENDING, WORKFLOW_POLICIES, now, retryBefore, PageRequest.of(0, limit)).stream()
                 .map(AgentTaskEntity::toDomain)
                 .collect(toImmutableList());
     }

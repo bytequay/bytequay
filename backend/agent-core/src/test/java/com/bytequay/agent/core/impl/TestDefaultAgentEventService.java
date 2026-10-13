@@ -101,11 +101,7 @@ class TestDefaultAgentEventService
 
         UnsequencedAgentEvent firstEvent = event("first");
         AgentEventEnvelope first = service.append(firstEvent);
-        DefaultAgentEventService restarted = new DefaultAgentEventService(
-                logStore,
-                outboxStore,
-                taskStore,
-                Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC));
+        DefaultAgentEventService restarted = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC));
         AgentEventEnvelope second = restarted.append(event("second"));
 
         assertThat(first.sequence()).isEqualTo(1);
@@ -331,9 +327,7 @@ class TestDefaultAgentEventService
     void waitsForTerminalOutboxBeforeClosingSubscriber()
     {
         AgentEventOutboxEntry terminalEntry = outbox(new AgentEventOutboxPayload.Inline(
-                new AgentEventPayload.Lifecycle(
-                        AgentEventPayload.LifecyclePhase.TASK_FAILED,
-                        "Task failed")));
+                new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TASK_FAILED, "Task failed")));
         outboxStore.insert(terminalEntry);
         taskStore.put(failedTask());
 
@@ -354,20 +348,13 @@ class TestDefaultAgentEventService
     void closesAfterRemainingOutboxDrainsWhenTerminalEventWasAlreadyPersisted()
     {
         AgentEventOutboxEntry earlier = inlineOutbox("earlier");
-        AgentEventOutboxEntry terminal = outbox(new AgentEventOutboxPayload.Inline(
-                new AgentEventPayload.Lifecycle(
-                        AgentEventPayload.LifecyclePhase.TASK_FAILED,
-                        "Task failed")));
+        AgentEventOutboxEntry terminal = outbox(new AgentEventOutboxPayload.Inline(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TASK_FAILED, "Task failed")));
         outboxStore.insert(earlier);
         outboxStore.insert(terminal);
         taskStore.put(failedTask());
 
         AgentEventEnvelope persistedTerminal = service.drain(terminal.eventId());
-        DefaultAgentEventService restarted = new DefaultAgentEventService(
-                logStore,
-                outboxStore,
-                taskStore,
-                Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC));
+        DefaultAgentEventService restarted = new DefaultAgentEventService(logStore, outboxStore, taskStore, Clock.fixed(NOW.plusSeconds(1), ZoneOffset.UTC));
         TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
         restarted.subscribe(task.id(), 0).subscribe(subscriber);
         subscriber.request(Long.MAX_VALUE);
@@ -413,14 +400,8 @@ class TestDefaultAgentEventService
         subscriber.request(Long.MAX_VALUE);
 
         AgentEventOutboxEntry first = inlineOutbox("first");
-        BlobRef message = logStore.writeBlob(
-                task.id(),
-                ByteBuffer.wrap("second".getBytes(StandardCharsets.UTF_8)),
-                "text/plain; charset=utf-8");
-        AgentEventOutboxEntry second = outbox(new AgentEventOutboxPayload.UserMessageBlob(
-                message,
-                ImmutableList.of(),
-                AgentEventPayload.DeliveryKind.TURN));
+        BlobRef message = logStore.writeBlob(task.id(), ByteBuffer.wrap("second".getBytes(StandardCharsets.UTF_8)), "text/plain; charset=utf-8");
+        AgentEventOutboxEntry second = outbox(new AgentEventOutboxPayload.UserMessageBlob(message, ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
         outboxStore.insert(first);
         outboxStore.insert(second);
 
@@ -430,10 +411,7 @@ class TestDefaultAgentEventService
         assertThat(firstEnvelope.sequence()).isEqualTo(1);
         assertThat(secondEnvelope.sequence()).isEqualTo(2);
         assertThat(secondEnvelope.occurredAt()).isEqualTo(second.occurredAt());
-        assertThat(secondEnvelope.payload()).isEqualTo(new AgentEventPayload.UserMessage(
-                "second",
-                ImmutableList.of(),
-                AgentEventPayload.DeliveryKind.TURN));
+        assertThat(secondEnvelope.payload()).isEqualTo(new AgentEventPayload.UserMessage("second", ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN));
         assertThat(subscriber.events()).containsExactly(firstEnvelope, secondEnvelope);
         assertThat(subscriber.observedUnpersistedEvent()).isFalse();
         assertThat(subscriber.observedUnmarkedOutboxEvent()).isFalse();
@@ -509,9 +487,7 @@ class TestDefaultAgentEventService
     void completesSubscribersOnRetryWhenTheCloseCheckFails()
     {
         AgentEventOutboxEntry terminalEntry = outbox(new AgentEventOutboxPayload.Inline(
-                new AgentEventPayload.Lifecycle(
-                        AgentEventPayload.LifecyclePhase.TASK_FAILED,
-                        "Task failed")));
+                new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TASK_FAILED, "Task failed")));
         outboxStore.insert(terminalEntry);
         taskStore.put(failedTask());
         TestSubscriber subscriber = new TestSubscriber(logStore, outboxStore);
@@ -573,38 +549,22 @@ class TestDefaultAgentEventService
                 task.id(),
                 Optional.empty(),
                 root(),
-                new AgentEventPayload.AssistantMessage(
-                        MessageKind.ANSWER,
-                        MessagePhase.FINAL,
-                        text));
+                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, text));
     }
 
     private AgentEventOutboxEntry inlineOutbox(String text)
     {
-        return outbox(new AgentEventOutboxPayload.Inline(new AgentEventPayload.AssistantMessage(
-                MessageKind.ANSWER,
-                MessagePhase.FINAL,
-                text)));
+        return outbox(new AgentEventOutboxPayload.Inline(new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, text)));
     }
 
     private AgentEventOutboxEntry outbox(AgentEventOutboxPayload payload)
     {
-        return new AgentEventOutboxEntry(
-                EventId.random(),
-                task.id(),
-                Optional.empty(),
-                root(),
-                payload,
-                NOW.plusSeconds(outboxStore.size() + 1L),
-                Optional.empty());
+        return new AgentEventOutboxEntry(EventId.random(), task.id(), Optional.empty(), root(), payload, NOW.plusSeconds(outboxStore.size() + 1L), Optional.empty());
     }
 
     private AgentTask failedTask()
     {
-        return task.fail(
-                "failed",
-                NOW.plusSeconds(2),
-                NOW.plusSeconds(3));
+        return task.fail("failed", NOW.plusSeconds(2), NOW.plusSeconds(3));
     }
 
     private static void await(CountDownLatch latch)

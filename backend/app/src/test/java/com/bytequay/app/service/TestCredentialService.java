@@ -97,11 +97,7 @@ class TestCredentialService
         when(store.source()).thenReturn(Optional.empty());
         when(store.getSecret()).thenReturn(Optional.of("token"));
         when(accounts.fetchUserProfile("token")).thenReturn(profile("octocat"));
-        CredentialService service = new CredentialService(
-                store,
-                new InMemoryWorkspaceCredentialStore(),
-                mock(GhCliService.class),
-                accounts);
+        CredentialService service = new CredentialService(store, new InMemoryWorkspaceCredentialStore(), mock(GhCliService.class), accounts);
 
         GitHubCredential first = service.resolveGitHubCredential();
         GitHubCredential second = service.resolveGitHubCredential();
@@ -117,21 +113,13 @@ class TestCredentialService
         CredentialStore store = mock(CredentialStore.class);
         InMemoryWorkspaceCredentialStore workspaceStore = new InMemoryWorkspaceCredentialStore();
         workspaceStore.save("workspace-id", "workspace-token", "octocat");
-        CredentialService service = new CredentialService(
-                store,
-                workspaceStore,
-                mock(GhCliService.class),
-                mock(GitHubAccountClient.class));
+        CredentialService service = new CredentialService(store, workspaceStore, mock(GhCliService.class), mock(GitHubAccountClient.class));
 
         Map<String, String> environment = service.gitAuthenticationEnvironment(
                 "workspace-id",
-                ImmutableList.of(
-                        "https://github.com/example/source.git",
-                        "https://github.com/example/target.git",
-                        "https://git.example.com/example/other.git"));
+                ImmutableList.of("https://github.com/example/source.git", "https://github.com/example/target.git", "https://git.example.com/example/other.git"));
 
-        String expectedHeader = "Authorization: Basic " + Base64.getEncoder().encodeToString(
-                "x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
+        String expectedHeader = "Authorization: Basic " + Base64.getEncoder().encodeToString("x-access-token:workspace-token".getBytes(StandardCharsets.UTF_8));
         assertThat(environment).containsExactlyInAnyOrderEntriesOf(ImmutableMap.<String, String>builder()
                 .put("GIT_CONFIG_COUNT", "2")
                 .put("GIT_CONFIG_KEY_0", "http.https://github.com/.extraHeader")

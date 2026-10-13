@@ -245,13 +245,11 @@ public class DevelopmentFollowupCoordinator
                             "Remote history belongs to neither the current nor the starting task revision");
                 }
                 action = "Create draft PR";
-                PendingPublication window = new PendingPublication(
-                        completion.turn().id(), baseline, local.headSha(), publication.remoteHeadSha(), currentPr);
+                PendingPublication window = new PendingPublication(completion.turn().id(), baseline, local.headSha(), publication.remoteHeadSha(), currentPr);
                 publications.put(completion.task().id(), window);
                 DevelopmentTurnCompletion published;
                 try {
-                    published = followup(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR,
-                            publicationPrompt(baseline, local, currentPr));
+                    published = followup(completion, DevelopmentTurnOrigin.Kind.CREATE_DRAFT_PR, publicationPrompt(baseline, local, currentPr));
                 }
                 finally {
                     // The window authorizes exactly this follow-up; a later turn must not publish.
@@ -503,15 +501,13 @@ public class DevelopmentFollowupCoordinator
             return false;
         }
         // A push or PR creation can publish finished work without changing the local checkout.
-        checkState(current.remoteHeadSha().filter(baseline.local().headSha()::equals).isPresent(),
-                "The published revision does not match the clean task revision");
+        checkState(current.remoteHeadSha().filter(baseline.local().headSha()::equals).isPresent(), "The published revision does not match the clean task revision");
         return true;
     }
 
     private static void requireSuccessful(DevelopmentTurnCompletion completion)
     {
-        checkState(completion.turn().state() == TurnState.COMPLETED, "%s",
-                completion.turn().terminalReason().orElse("Development turn did not complete successfully"));
+        checkState(completion.turn().state() == TurnState.COMPLETED, "%s", completion.turn().terminalReason().orElse("Development turn did not complete successfully"));
         checkState(completion.turn().cancellationRequestedAt().isEmpty(), "Development was stopped before delivery");
         checkState(completion.providerQuiescent(), "Provider shutdown could not be verified");
         checkState(completion.failure().isEmpty(), "Development turn cleanup failed: %s", completion.failure().orElse(""));
@@ -672,21 +668,18 @@ public class DevelopmentFollowupCoordinator
         DevelopmentPublicationRoute route = window.baseline().route();
         TaskWorktree worktree = window.baseline().worktree();
         DevelopmentLocalFacts local = git.inspectLocal(worktree, route);
-        checkState(local.headSha().equals(window.localHead()) && local.uncommittedFileCount() == 0,
-                "The verified local revision changed; publication was not attempted");
+        checkState(local.headSha().equals(window.localHead()) && local.uncommittedFileCount() == 0, "The verified local revision changed; publication was not attempted");
         DevelopmentPublicationFacts facts = git.inspectPublication(worktree, route);
         if (facts.remoteHeadSha().filter(window.localHead()::equals).isEmpty()) {
             checkState(facts.remoteHeadSha().equals(window.expectedRemoteSha()), "The remote branch changed; publication was not attempted");
             git.pushDevelopmentHead(worktree, route, window.localHead(), window.expectedRemoteSha());
             facts = git.inspectPublication(worktree, route);
         }
-        checkState(facts.remoteHeadSha().filter(window.localHead()::equals).isPresent(),
-                "The pushed revision was not verified on the remote branch");
+        checkState(facts.remoteHeadSha().filter(window.localHead()::equals).isPresent(), "The pushed revision was not verified on the remote branch");
         Optional<GitHubPullRequestIdentity> existing = matchingPr(route, facts);
         if (existing.isPresent()) {
             GitHubPullRequestIdentity pullRequest = existing.orElseThrow();
-            window.existingPr().ifPresent(original -> checkState(pullRequest.pullRequest().equals(original.pullRequest()),
-                    "Publication replaced the task's pull request"));
+            window.existingPr().ifPresent(original -> checkState(pullRequest.pullRequest().equals(original.pullRequest()), "Publication replaced the task's pull request"));
             return "Pushed " + window.localHead() + "; pull request " + pullRequest.url() + " already tracks this branch.";
         }
         String head = route.headRepository().equals(route.baseRepository())

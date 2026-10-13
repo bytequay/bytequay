@@ -209,8 +209,7 @@ public final class DefaultAgentEventService
 
     private TaskChannel channel(TaskId taskId)
     {
-        return channels.computeIfAbsent(taskId, id -> new TaskChannel(
-                logStore.readHistory(id, OptionalLong.empty(), OptionalLong.empty()).latestSequence()));
+        return channels.computeIfAbsent(taskId, id -> new TaskChannel(logStore.readHistory(id, OptionalLong.empty(), OptionalLong.empty()).latestSequence()));
     }
 
     /** Reading a task must not scan old history; only a writer needs full validation and the deduplication index. */
@@ -338,8 +337,7 @@ public final class DefaultAgentEventService
     private static void validateCursor(long afterSequence, int limit)
     {
         if (afterSequence < 0 || limit <= 0) {
-            throw new InvalidAgentRequestException(
-                    "afterSequence must be non-negative and limit must be positive");
+            throw new InvalidAgentRequestException("afterSequence must be non-negative and limit must be positive");
         }
     }
 

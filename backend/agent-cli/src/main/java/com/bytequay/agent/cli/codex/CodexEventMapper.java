@@ -176,13 +176,11 @@ final class CodexEventMapper
                                 unlabelled.source()), finished);
             }
             case CodexProtocol.ItemStartedNotification started ->
-                mapItem(started.params().item(), true, rootThread,
-                        source(started, Optional.of(started.params().item().id()), lineage));
+                mapItem(started.params().item(), true, rootThread, source(started, Optional.of(started.params().item().id()), lineage));
             case CodexProtocol.ItemCompletedNotification completed -> {
                 // The completed item carries the whole text, redacted; nothing held back for its stream is still needed.
                 heldStreams.remove(completed.params().item().id());
-                yield mapItem(completed.params().item(), false, rootThread,
-                        source(completed, Optional.of(completed.params().item().id()), lineage));
+                yield mapItem(completed.params().item(), false, rootThread, source(completed, Optional.of(completed.params().item().id()), lineage));
             }
             case CodexProtocol.AutoApprovalReviewStartedNotification started ->
                 ImmutableList.of(autoApprovalReview(started, started.params(), lineage));
@@ -340,15 +338,7 @@ final class CodexEventMapper
             // collaboration tools are activity like any other.
             case CodexProtocol.CollabAgentToolCallItem tool -> tool.tool().equals("spawnAgent")
                     ? ImmutableList.of()
-                    : ImmutableList.of(tool(
-                            tool.tool(),
-                            tool.status(),
-                            eventId,
-                            started,
-                            source,
-                            Optional.empty(),
-                            Optional.empty(),
-                            Optional.empty()));
+                    : ImmutableList.of(tool(tool.tool(), tool.status(), eventId, started, source, Optional.empty(), Optional.empty(), Optional.empty()));
             case CodexProtocol.ReasoningItem reasoning -> {
                 // Only the readable summary is mapped; the hidden reasoning text was never decoded.
                 List<String> summary = reasoning.summary().orElse(ImmutableList.of());
@@ -369,12 +359,9 @@ final class CodexEventMapper
                             ProviderAgentEvent.MessagePhase.FINAL,
                             redactor.redact(plan.text()),
                             source));
-            case CodexProtocol.WebSearchItem search -> ImmutableList.of(builtIn(
-                    "Web search", webStep(search), eventId, started, source));
-            case CodexProtocol.ImageViewItem view -> ImmutableList.of(builtIn(
-                    "Image view", displayPath(view.path()), eventId, started, source));
-            case CodexProtocol.ContextCompactionItem ignored -> ImmutableList.of(builtIn(
-                    ProviderAgentEvent.Tool.CONTEXT_COMPACTION, "", eventId, started, source));
+            case CodexProtocol.WebSearchItem search -> ImmutableList.of(builtIn("Web search", webStep(search), eventId, started, source));
+            case CodexProtocol.ImageViewItem view -> ImmutableList.of(builtIn("Image view", displayPath(view.path()), eventId, started, source));
+            case CodexProtocol.ContextCompactionItem ignored -> ImmutableList.of(builtIn(ProviderAgentEvent.Tool.CONTEXT_COMPACTION, "", eventId, started, source));
             case CodexProtocol.SubAgentActivityItem ignored -> ImmutableList.of();
             case CodexProtocol.UnknownThreadItem ignored -> ImmutableList.of();
         };
@@ -569,10 +556,7 @@ final class CodexEventMapper
         if (!params.plan().isEmpty() && plan.isEmpty()) {
             return ImmutableList.of();
         }
-        return ImmutableList.of(new ProviderAgentEvent.Plan(
-                Optional.of(params.turnId() + ":plan"),
-                plan,
-                source));
+        return ImmutableList.of(new ProviderAgentEvent.Plan(Optional.of(params.turnId() + ":plan"), plan, source));
     }
 
     private static List<ProviderAgentEvent> mapUsage(
@@ -605,12 +589,7 @@ final class CodexEventMapper
             ThreadLineage lineage)
     {
         String threadId = notification.threadId();
-        return new ProviderAgentEventSource(
-                Optional.of(threadId),
-                lineage.parentOf(threadId),
-                lineage.labelOf(threadId),
-                notification.turnId(),
-                providerItemId);
+        return new ProviderAgentEventSource(Optional.of(threadId), lineage.parentOf(threadId), lineage.labelOf(threadId), notification.turnId(), providerItemId);
     }
 
     private static ProviderAgentEvent.ActivityState activityState(CodexProtocol.ActivityStatus status)

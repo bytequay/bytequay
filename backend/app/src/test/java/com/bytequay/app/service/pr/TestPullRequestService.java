@@ -579,8 +579,7 @@ class TestPullRequestService
         ArgumentCaptor<FetchedPullRequest> saved = ArgumentCaptor.forClass(FetchedPullRequest.class);
         verify(store, times(57)).saveObserved(saved.capture());
         assertThat(saved.getAllValues().subList(0, 31)).containsExactlyElementsOf(rows);
-        assertThat(saved.getAllValues().subList(31, 57)).containsExactlyElementsOf(
-                rows.stream().filter(row -> row.number() < 6 || row.number() > 10).collect(toImmutableList()));
+        assertThat(saved.getAllValues().subList(31, 57)).containsExactlyElementsOf(rows.stream().filter(row -> row.number() < 6 || row.number() > 10).collect(toImmutableList()));
         ArgumentCaptor<List<PullRequestRef>> summarized = ArgumentCaptor.forClass(List.class);
         verify(summaries, times(7)).fetchSummaries(eq("pat"), summarized.capture(), eq("me"));
         assertThat(summarized.getAllValues()).extracting(List::size).containsExactly(5, 5, 5, 5, 5, 5, 1);
@@ -865,8 +864,7 @@ class TestPullRequestService
     @Test
     void notificationIssuesUseTheirCardProjectionWithoutFetchingPullRequestDetails()
     {
-        GitHubNotificationRef notification = new GitHubNotificationRef("issue-1", PullRequestRef.of("owner", "repo", 7), false,
-                "Issue", "mention", REVIEWED_AT, Optional.empty());
+        GitHubNotificationRef notification = new GitHubNotificationRef("issue-1", PullRequestRef.of("owner", "repo", 7), false, "Issue", "mention", REVIEWED_AT, Optional.empty());
         doAnswer(invocation -> {
             invocation.<Consumer<GitHubNotificationRef>>getArgument(2).accept(notification);
             return null;
@@ -938,14 +936,9 @@ class TestPullRequestService
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
 
-        service.updateMetadata(
-                "owner/repo", 7, ImmutableList.of(" alice "), ImmutableList.of("bug"));
+        service.updateMetadata("owner/repo", 7, ImmutableList.of(" alice "), ImmutableList.of("bug"));
 
-        verify(writes).updateIssueMetadata(
-                "pat",
-                PullRequestRef.of("owner", "repo", 7),
-                ImmutableList.of("alice"),
-                ImmutableList.of("bug"));
+        verify(writes).updateIssueMetadata("pat", PullRequestRef.of("owner", "repo", 7), ImmutableList.of("alice"), ImmutableList.of("bug"));
         verify(detailStore).updateEtag(12L, Optional.empty());
         verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
@@ -958,8 +951,7 @@ class TestPullRequestService
 
         service.updateReviewerRequest("owner/repo", 7, " alice ", true);
 
-        verify(writes).updateReviewerRequest(
-                "pat", PullRequestRef.of("owner", "repo", 7), "alice", true);
+        verify(writes).updateReviewerRequest("pat", PullRequestRef.of("owner", "repo", 7), "alice", true);
         verify(detailStore).updateEtag(12L, Optional.empty());
         verify(detailStore, never()).deleteByPrIds(any());
         verify(diffStore, never()).deleteByPrIds(any());
@@ -984,9 +976,7 @@ class TestPullRequestService
 
         assertThat(service.listRepositoryUsers("owner/repo", "workspace"))
                 .extracting(user -> user.login() + ":" + user.avatarUrl() + ":" + user.bot())
-                .containsExactly(
-                        "alice:http://127.0.0.1:41234/api/avatars/avatar-key:false",
-                        "robot[bot]:null:true");
+                .containsExactly("alice:http://127.0.0.1:41234/api/avatars/avatar-key:false", "robot[bot]:null:true");
         verify(gitHub, never()).fetchAssignableUsers(anyString(), any());
     }
 
@@ -1022,10 +1012,8 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         String headSha = "1111111111111111111111111111111111111111";
-        CiJob failed = new CiJob(301, 101, "test", 3, "completed", Optional.of("failure"),
-                "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
-        CiJob passing = new CiJob(302, 101, "build", 3, "completed", Optional.of("success"),
-                "https://github.com/owner/repo/actions/runs/101/job/302", ImmutableList.of());
+        CiJob failed = new CiJob(301, 101, "test", 3, "completed", Optional.of("failure"), "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
+        CiJob passing = new CiJob(302, 101, "build", 3, "completed", Optional.of("success"), "https://github.com/owner/repo/actions/runs/101/job/302", ImmutableList.of());
         CiWorkflowRun run = new CiWorkflowRun(101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failed, passing));
         when(actions.inspect(ref)).thenReturn(new CiHeadSnapshot(
@@ -1049,9 +1037,7 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         String headSha = "1111111111111111111111111111111111111111";
-        CiJob failedJob = new CiJob(
-                301, 101, "test", 3, "completed", Optional.of("failure"),
-                "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
+        CiJob failedJob = new CiJob(301, 101, "test", 3, "completed", Optional.of("failure"), "https://github.com/owner/repo/actions/runs/101/job/301", ImmutableList.of());
         CiWorkflowRun failedRun = new CiWorkflowRun(
                 101, 201, "CI", 3, "completed", Optional.of("failure"), headSha,
                 "https://github.com/owner/repo/actions/runs/101", ImmutableList.of(failedJob));
@@ -1137,10 +1123,7 @@ class TestPullRequestService
 
         service.observeWorkspacePullRequest(repository, 7);
 
-        verify(store).saveRepositorySyncPage(
-                eq("owner/repo"),
-                eq(ImmutableList.of(fetched.withViewerOrigin("me"))),
-                anyString());
+        verify(store).saveRepositorySyncPage(eq("owner/repo"), eq(ImmutableList.of(fetched.withViewerOrigin("me"))), anyString());
         verify(gitHub, never()).searchPullRequestsPaged(anyString(), anyString(), anyInt(), anyInt());
     }
 
@@ -1173,8 +1156,7 @@ class TestPullRequestService
         List<DiffFile> files = ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));
         StoredPrDiff stored = new StoredPrDiff(
                 files, ImmutableList.of(), ImmutableMap.of("a.txt", new DiffFileContent("old", "new")), Optional.of("base"), Optional.of("head"), Optional.of(REVIEWED_AT));
-        List<DiffCommit> commits = ImmutableList.of(
-                new DiffCommit("sha1", null, "reworded", "me", Instant.parse("2026-08-27T00:00:00Z")));
+        List<DiffCommit> commits = ImmutableList.of(new DiffCommit("sha1", null, "reworded", "me", Instant.parse("2026-08-27T00:00:00Z")));
         when(diffStore.find(12L, null, null)).thenReturn(Optional.of(stored));
         when(diffStore.findDefaultEtags(12L))
                 .thenReturn(new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-1\"")));
@@ -1188,8 +1170,7 @@ class TestPullRequestService
         snapshots.refreshDefaultDiff("pat", ref, 12L);
 
         ArgumentCaptor<StoredPrDiff> saved = ArgumentCaptor.forClass(StoredPrDiff.class);
-        verify(diffStore).saveDefault(eq(12L), saved.capture(), eq(
-                new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-2\""))));
+        verify(diffStore).saveDefault(eq(12L), saved.capture(), eq(new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-2\""))));
         assertThat(saved.getValue().files()).isEqualTo(files);
         assertThat(saved.getValue().commits()).isEqualTo(commits);
         assertThat(saved.getValue().fileContents()).containsKey("a.txt");
@@ -1276,10 +1257,8 @@ class TestPullRequestService
     void fullDetailRefreshPreservesStoredIdentityAndNotificationReviewRequests(boolean backgroundWarm, boolean reviewRequested)
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
-        FetchedPullRequest pullRequest = pullRequest(
-                99, "open", Instant.parse("2026-08-21T00:00:00Z"), null);
-        List<DiffFile> files = ImmutableList.of(
-                new DiffFile("a.txt", "modified", 1, 0, "+line"));
+        FetchedPullRequest pullRequest = pullRequest(99, "open", Instant.parse("2026-08-21T00:00:00Z"), null);
+        List<DiffFile> files = ImmutableList.of(new DiffFile("a.txt", "modified", 1, 0, "+line"));
         cacheDetail(null, PrDetailFreshness.unknown());
         when(diffStore.find(12L, null, null)).thenReturn(Optional.empty());
         // the store resolves the row on repo and number and hands back the stored row
@@ -1326,8 +1305,7 @@ class TestPullRequestService
         verify(detailStore).saveDiscussion(eq(12L), detail.capture(), any());
         assertThat(detail.getValue().viewerCanWrite()).isTrue();
         verify(detailStore).updateEtag(12L, Optional.of("\"etag-1\""));
-        verify(diffStore).saveDefault(eq(12L), any(StoredPrDiff.class), eq(
-                new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-1\""))));
+        verify(diffStore).saveDefault(eq(12L), any(StoredPrDiff.class), eq(new PrDiffEtags(Optional.of("\"files-1\""), Optional.of("\"commits-1\""))));
     }
 
     @Test
@@ -1468,18 +1446,10 @@ class TestPullRequestService
     @Test
     void postsInlineCommentAndReturnsPatchedCachedTimeline()
     {
-        InlineReviewComment comment = new InlineReviewComment(
-                "src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head", OptionalLong.empty());
-        PrTimelineEvent posted = new PrTimelineEvent(
-                99L, "review_thread", "me", Instant.now(), null, Optional.empty());
+        InlineReviewComment comment = new InlineReviewComment("src/Main.java", "Please simplify this", 18, "RIGHT", 16, "RIGHT", "head", OptionalLong.empty());
+        PrTimelineEvent posted = new PrTimelineEvent(99L, "review_thread", "me", Instant.now(), null, Optional.empty());
         StoredPrDetail cached = stored();
-        cached = new StoredPrDetail(
-                cached.raw(),
-                cached.reviews(),
-                ImmutableList.of(posted),
-                cached.checkRuns(),
-                cached.unavailableSections(),
-                cached.viewerCanWrite());
+        cached = new StoredPrDetail(cached.raw(), cached.reviews(), ImmutableList.of(posted), cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite());
         when(writes.createReviewComment("pat", PullRequestRef.of("owner", "repo", 7), comment))
                 .thenReturn(posted);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
@@ -1521,8 +1491,7 @@ class TestPullRequestService
         when(writes.toggleIssueCommentReaction("pat", ref, 41, "heart", false)).thenReturn(false);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
 
-        assertThat(service.toggleReaction(
-                "owner/repo", 7, "issue_comment", 41L, "heart", false)).isFalse();
+        assertThat(service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", false)).isFalse();
 
         verify(writes).toggleIssueCommentReaction("pat", ref, 41, "heart", false);
         verify(detailStore).updateEtag(12L, Optional.empty());
@@ -1538,8 +1507,7 @@ class TestPullRequestService
                 .thenThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
 
-        assertThatThrownBy(() -> service.toggleReaction(
-                "owner/repo", 7, "issue_comment", 41L, "heart", false))
+        assertThatThrownBy(() -> service.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", false))
                 .isInstanceOf(ResponseStatusException.class);
 
         verify(detailStore).updateEtag(12L, Optional.empty());
@@ -1813,12 +1781,10 @@ class TestPullRequestService
     void submitsReviewVerdictsAndPatchesTheCachedDetail()
     {
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(writes.submitReview(
-                "pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this", ImmutableList.of()))
+        when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "REQUEST_CHANGES", "Please fix this", ImmutableList.of()))
                 .thenReturn(review(501L, "REQUEST_CHANGES", "Please fix this"));
 
-        PullRequestDetail detail = service.submitReview(
-                "owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of());
+        PullRequestDetail detail = service.submitReview("owner/repo", 7, 12L, "request_changes", "Please fix this", ImmutableList.of());
 
         verify(viewStateStore).markReviewed(eq(12L), eq(HandledAction.CHANGES_REQUESTED), eq("head"), any(Instant.class));
         // The submitted review is spliced into the cache, so nothing is thrown away
@@ -1848,8 +1814,7 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         InlineReviewComment comment = new InlineReviewComment("a.txt", "note", 4, "RIGHT", null, null, "head", OptionalLong.empty());
-        PrTimelineEvent thread = new PrTimelineEvent(
-                901L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
+        PrTimelineEvent thread = new PrTimelineEvent(901L, "review_thread", "me", REVIEWED_AT, null, Optional.empty());
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
         when(writes.submitReview("pat", ref, "COMMENT", "", ImmutableList.of(comment)))
                 .thenReturn(review(502L, "COMMENTED", ""));
@@ -1888,8 +1853,7 @@ class TestPullRequestService
     void marksACommentReviewAsHandled()
     {
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(writes.submitReview(
-                "pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note", ImmutableList.of()))
+        when(writes.submitReview("pat", PullRequestRef.of("owner", "repo", 7), "COMMENT", "Looks good with one note", ImmutableList.of()))
                 .thenReturn(review(503L, "COMMENTED", "Looks good with one note"));
 
         service.submitReview("owner/repo", 7, 12L, "comment", "Looks good with one note", ImmutableList.of());
@@ -1948,8 +1912,7 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(merges.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
-                .thenThrow(new ResponseStatusException(
-                        HttpStatus.METHOD_NOT_ALLOWED, "Merge queue is required"));
+                .thenThrow(new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "Merge queue is required"));
         when(merges.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
         when(merges.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
 
@@ -2032,8 +1995,7 @@ class TestPullRequestService
                 new PrReviewState(null, "me", null, false, "DISMISSED", null, null, null, null),
                 new PrReviewState(null, "me", null, false, "CHANGES_REQUESTED", null, null, null, null)), "me"))
                 .isEqualTo(HandledAction.CHANGES_REQUESTED);
-        assertThat(PullRequestService.deriveHandledActionFromReviews(
-                ImmutableList.of(new PrReviewState(null, "me", null, false, "COMMENTED", null, null, null, null)), "me"))
+        assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(new PrReviewState(null, "me", null, false, "COMMENTED", null, null, null, null)), "me"))
                 .isEqualTo(HandledAction.COMMENTED);
         assertThat(PullRequestService.deriveHandledActionFromReviews(ImmutableList.of(
                 new PrReviewState(null, "ME", null, false, "APPROVED", null, null, null, null),
@@ -2052,12 +2014,7 @@ class TestPullRequestService
     @Test
     void requiresAnotherReviewWhenTheHeadChanges()
     {
-        PrViewState reviewed = new PrViewState(
-                12L,
-                Instant.parse("2026-08-20T09:00:00Z"),
-                Instant.parse("2026-08-20T10:00:00Z"),
-                HandledAction.APPROVED,
-                "previous-head");
+        PrViewState reviewed = new PrViewState(12L, Instant.parse("2026-08-20T09:00:00Z"), Instant.parse("2026-08-20T10:00:00Z"), HandledAction.APPROVED, "previous-head");
 
         assertThat(PullRequestService.needsReviewAgain(storedPullRequest(), stored(), "me", reviewed)).isTrue();
     }
@@ -2336,9 +2293,7 @@ class TestPullRequestService
                 0,
                 ImmutableMap.of(),
                 ImmutableList.of(),
-                ImmutableList.of(
-                        new RepositoryPickerUser(2, "alice", Optional.of("avatar-key"), false),
-                        new RepositoryPickerUser(3, "robot[bot]", Optional.empty(), true)),
+                ImmutableList.of(new RepositoryPickerUser(2, "alice", Optional.of("avatar-key"), false), new RepositoryPickerUser(3, "robot[bot]", Optional.empty(), true)),
                 ImmutableList.of(),
                 ImmutableList.of(),
                 Optional.empty(),

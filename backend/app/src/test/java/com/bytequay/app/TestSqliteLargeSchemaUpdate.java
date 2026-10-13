@@ -46,17 +46,13 @@ class TestSqliteLargeSchemaUpdate
         registry.add("spring.datasource.url", () -> "jdbc:sqlite:" + DATABASE_PATH + "?foreign_keys=ON");
         registry.add("spring.jpa.hibernate.ddl-auto", () -> "update");
         // src/test/resources/application.properties shadows the production resource.
-        registry.add(
-                "spring.jpa.properties.hibernate.hbm2ddl.jdbc_metadata_extraction_strategy",
-                () -> "individually");
+        registry.add("spring.jpa.properties.hibernate.hbm2ddl.jdbc_metadata_extraction_strategy", () -> "individually");
     }
 
     @Test
     void updatesSchemaBeyondSqliteCompoundSelectLimit()
     {
-        assertThat(jdbc.queryForObject(
-                "SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'pull_requests'",
-                Integer.class)).isOne();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM sqlite_schema WHERE type = 'table' AND name = 'pull_requests'", Integer.class)).isOne();
     }
 
     private static void createWideTable()

@@ -178,8 +178,7 @@ class TestMemoryDelivery
         assertThat(delivery.reference(task, turn(true))).isEqualTo(Reference.NONE);
 
         // The block is sent again once it changes or a compaction may have summarized it away.
-        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered.withMetrics(new AgentMetrics(0, 0, 0, Optional.empty(), Duration.ZERO,
-                new ToolCounters(0, 0, 1)))));
+        when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered.withMetrics(new AgentMetrics(0, 0, 0, Optional.empty(), Duration.ZERO, new ToolCounters(0, 0, 1)))));
         assertThat(delivery.reference(task, turn(true))).isEqualTo(block);
         when(turns.list(taskId)).thenReturn(ImmutableList.of(delivered));
         store.save(rule("m2", "workspace", "Run the module's tests before committing.", ImmutableList.of()));
@@ -243,8 +242,7 @@ class TestMemoryDelivery
     private AgentTask task(String startCommit)
     {
         TaskWorktree worktree = new TaskWorktree(taskId, "workspace", new RepositoryIdentity("trinodb", "trino"), repository, "bytequay/task/" + taskId, startCommit);
-        return AgentTask.created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                NOW);
+        return AgentTask.created(taskId, true, "Development", TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private AgentTurn turn(boolean memoryOn)

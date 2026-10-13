@@ -76,15 +76,10 @@ class TestSqlitePrDiffStore
     {
         long prId = 42;
         DiffFile allFile = new DiffFile("all.txt", "modified", 1, 0, "+all");
-        DiffCommit commit = new DiffCommit(
-                "b".repeat(40), "a".repeat(40), "change", "alice", Instant.parse("2026-08-24T00:00:00Z"));
+        DiffCommit commit = new DiffCommit("b".repeat(40), "a".repeat(40), "change", "alice", Instant.parse("2026-08-24T00:00:00Z"));
         DiffFile rangeFile = new DiffFile("range.txt", "added", 2, 0, "+range");
         store.save(prId, null, null, new StoredPrDiff(ImmutableList.of(allFile), ImmutableList.of(commit)));
-        store.save(
-                prId,
-                "a".repeat(40),
-                "b".repeat(40),
-                new StoredPrDiff(ImmutableList.of(rangeFile), ImmutableList.of()));
+        store.save(prId, "a".repeat(40), "b".repeat(40), new StoredPrDiff(ImmutableList.of(rangeFile), ImmutableList.of()));
 
         DiffFileContent content = new DiffFileContent("old", "new");
         store.saveFileContent(prId, null, null, "all.txt", content);

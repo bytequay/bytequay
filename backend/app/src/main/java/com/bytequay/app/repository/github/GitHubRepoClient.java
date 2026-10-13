@@ -69,12 +69,7 @@ public class GitHubRepoClient
 
     public List<RepositoryContributor> fetchContributors(String pat, RepoRef repo)
     {
-        return paginator.paginate(
-                        pat,
-                        "/repos/{owner}/{repo}/contributors",
-                        new ParameterizedTypeReference<List<ContributorResponse>>() {},
-                        repo.owner(),
-                        repo.repo()).stream()
+        return paginator.paginate(pat, "/repos/{owner}/{repo}/contributors", new ParameterizedTypeReference<List<ContributorResponse>>() {}, repo.owner(), repo.repo()).stream()
                 .filter(value -> value.id() > 0)
                 .filter(value -> value.login() != null && !value.login().isBlank())
                 .map(value -> new RepositoryContributor(
@@ -133,16 +128,10 @@ public class GitHubRepoClient
 
     public List<RepositoryLabel> fetchLabels(String pat, RepoRef repo)
     {
-        return paginator.paginate(
-                        pat,
-                        "/repos/{owner}/{repo}/labels",
-                        new ParameterizedTypeReference<List<LabelResponse>>() {},
-                        repo.owner(),
-                        repo.repo()).stream()
+        return paginator.paginate(pat, "/repos/{owner}/{repo}/labels", new ParameterizedTypeReference<List<LabelResponse>>() {}, repo.owner(), repo.repo()).stream()
                 .filter(value -> value.id() > 0)
                 .filter(value -> value.name() != null && !value.name().isBlank())
-                .map(value -> new RepositoryLabel(
-                        value.id(), value.name(), Optional.ofNullable(value.color()).orElse("")))
+                .map(value -> new RepositoryLabel(value.id(), value.name(), Optional.ofNullable(value.color()).orElse("")))
                 .collect(toImmutableList());
     }
 
@@ -346,8 +335,7 @@ public class GitHubRepoClient
         checkArgument(pat != null && !pat.isBlank(), "GitHub credential is required");
         requireNonNull(repo, "repo is null");
         requireNonNull(plainTerms, "plainTerms is null");
-        checkArgument(plainTerms.getBytes(UTF_8).length <= 200 && plainTerms.matches("[\\p{L}\\p{N} _./-]*"),
-                "Search query must contain at most 200 UTF-8 bytes of plain words");
+        checkArgument(plainTerms.getBytes(UTF_8).length <= 200 && plainTerms.matches("[\\p{L}\\p{N} _./-]*"), "Search query must contain at most 200 UTF-8 bytes of plain words");
         String words = Arrays.stream(plainTerms.strip().split(" +")).filter(word -> !word.isEmpty()).map(word -> "\"" + word + "\"").collect(joining(" "));
         String query = "repo:" + repo.fullName() + " in:title,body" + (words.isEmpty() ? "" : " " + words);
         return translating(() -> requireBody(get(gitHubRestClient, pat, uri -> uri.path("/search/issues").queryParam("q", "{query}")

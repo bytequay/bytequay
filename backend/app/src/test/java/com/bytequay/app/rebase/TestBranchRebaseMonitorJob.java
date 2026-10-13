@@ -127,11 +127,7 @@ class TestBranchRebaseMonitorJob
             if (rebaseId.equals(running.getFirst().id())) {
                 throw new BranchRebaseException("broken");
             }
-            return Optional.of(running.get(1).finish(
-                    BranchRebase.FinishReason.CANCELLED,
-                    "already finished",
-                    Optional.empty(),
-                    Instant.parse("2026-08-20T00:00:01Z")));
+            return Optional.of(running.get(1).finish(BranchRebase.FinishReason.CANCELLED, "already finished", Optional.empty(), Instant.parse("2026-08-20T00:00:01Z")));
         }
 
         @Override

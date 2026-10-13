@@ -169,8 +169,7 @@ class TestCherryPickPullRequestLookup
         CherryPickPullRequestLookup lookup = lookup(builder);
         List<String> warnings = new ArrayList<>();
         lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
-        assertThat(association(
-                lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings), SHA).number())
+        assertThat(association(lookup.lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings), SHA).number())
                 .isEqualTo(5);
         server.verify();
     }

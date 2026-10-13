@@ -281,12 +281,7 @@ class TestDefaultAgentCompletionService
     @Test
     void rejectsAnActiveTurn()
     {
-        stores.insert(AgentTurn.accepted(
-                TurnId.random(),
-                taskId,
-                "request-1",
-                turnSettings(),
-                NOW));
+        stores.insert(AgentTurn.accepted(TurnId.random(), taskId, "request-1", turnSettings(), NOW));
         DefaultAgentCompletionService service = service(Clock.fixed(NOW, ZoneOffset.UTC));
 
         assertThatThrownBy(() -> service.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
@@ -518,12 +513,7 @@ class TestDefaultAgentCompletionService
 
     private static AgentTurnSettings turnSettings()
     {
-        return new AgentTurnSettings(
-                Optional.empty(),
-                Optional.empty(),
-                AgentPermissionPolicy.AUTO,
-                Duration.ofMinutes(5),
-                ImmutableList.of());
+        return new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of());
     }
 
     @Test
@@ -544,8 +534,7 @@ class TestDefaultAgentCompletionService
                 .complete(new CompleteAgentTaskCommand(taskId, Optional.empty()));
         AgentTask completed = stores.find(taskId).orElseThrow();
         resources.failDeletion = true;
-        DefaultAgentCompletionService dueService = service(
-                Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC));
+        DefaultAgentCompletionService dueService = service(Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC));
 
         assertThat(cleanup(dueService)).isEqualTo(CleanupState.RETRY_PENDING);
         AgentTask retry = stores.find(taskId).orElseThrow();
@@ -605,9 +594,7 @@ class TestDefaultAgentCompletionService
         assertThatThrownBy(() -> completion.complete(new CompleteAgentTaskCommand(taskId, Optional.empty())))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessageContaining("task log unavailable");
-        DefaultAgentCompletionService due = service(
-                Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC),
-                log);
+        DefaultAgentCompletionService due = service(Clock.fixed(NOW.plus(Duration.ofDays(8)), ZoneOffset.UTC), log);
 
         assertThat(cleanup(due)).isEqualTo(CleanupState.RETRY_PENDING);
         assertThat(worktrees.cleaned).isEmpty();
@@ -757,10 +744,7 @@ class TestDefaultAgentCompletionService
                     Optional.empty(),
                     root(),
                     NOW,
-                    new AgentEventPayload.AssistantMessage(
-                            MessageKind.ANSWER,
-                            phase,
-                            text));
+                    new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, phase, text));
         }
     }
 
@@ -773,15 +757,7 @@ class TestDefaultAgentCompletionService
                 WORKTREE.resolve(taskId.toString()),
                 "bytequay/task/" + taskId,
                 "0123456789012345678901234567890123456789");
-        return AgentTask.created(
-                taskId,
-                false,
-                title,
-                TitleSource.USER,
-                AgentLaneId.CODEX_CLI,
-                worktree,
-                AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO),
-                NOW);
+        return AgentTask.created(taskId, false, title, TitleSource.USER, AgentLaneId.CODEX_CLI, worktree, AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
     }
 
     private static final class RecordingWorktreeService
@@ -810,12 +786,7 @@ class TestDefaultAgentCompletionService
         @Override
         public WorktreeSnapshot inspect(TaskWorktree worktree)
         {
-            WorktreeSnapshot snapshot = new WorktreeSnapshot(
-                    worktree,
-                    "1123456789012345678901234567890123456789",
-                    ignoredFiles || uncommitted,
-                    false,
-                    uncommitted);
+            WorktreeSnapshot snapshot = new WorktreeSnapshot(worktree, "1123456789012345678901234567890123456789", ignoredFiles || uncommitted, false, uncommitted);
             inspected.add(snapshot);
             return snapshot;
         }

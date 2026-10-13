@@ -51,8 +51,7 @@ class TestCodexLaunchProfile
         CodexLaunchProfile.DeepSeekProfile deepSeek = new CodexLaunchProfile.DeepSeekProfile(catalog, proxy);
         List<String> arguments = CodexLaunchProfile.arguments(
                 "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false, Optional.of(deepSeek));
-        List<String> codexArguments = CodexLaunchProfile.arguments(
-                "codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false);
+        List<String> codexArguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.V1, Optional.empty(), false, ImmutableList.of(), true, false);
         assertThat(arguments).containsSequence("-c", "model_provider=\"deepseek\"");
         assertThat(arguments).containsSequence("-c", "model_providers.deepseek.base_url=\"" + proxy + "\"");
         assertThat(arguments).containsSequence("-c", "model_providers.deepseek.request_max_retries=0");
@@ -62,10 +61,8 @@ class TestCodexLaunchProfile
                 || value.contains("experimental_bearer_token") || value.contains("chatgpt") || value.contains("default_permissions"));
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("DEEPSEEK_API_KEY", "OPENAI_API_KEY", "CODEX_HOME");
-        var threadConfig = CodexLaunchProfile.threadConfig(
-                CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false, Optional.of(deepSeek));
-        var codexThreadConfig = CodexLaunchProfile.threadConfig(
-                CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false);
+        var threadConfig = CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false, Optional.of(deepSeek));
+        var codexThreadConfig = CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.V1, false, false, ImmutableList.of(), true, false);
         assertThat(threadConfig)
                 .containsEntry("model_provider", "deepseek")
                 .containsEntry("model_catalog_json", catalog.toString())
@@ -143,10 +140,8 @@ class TestCodexLaunchProfile
         List<String> roots = ImmutableList.of("/task", "/repo/.git/worktrees/task", "/repo/.git/refs/heads/task.lock");
         CodexLaunchProfile.DeepSeekProfile profile = new CodexLaunchProfile.DeepSeekProfile(
                 temporary.resolve("deepseek-models.json"), URI.create("http://127.0.0.1:12345/responses/"));
-        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
-                Optional.empty(), false, roots, false, false, Optional.of(profile));
-        List<String> codexArguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
-                Optional.empty(), false, roots, false, false);
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots, false, false, Optional.of(profile));
+        List<String> codexArguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, roots, false, false);
         assertThat(arguments).containsSequence("-c", "approval_policy=\"on-request\"");
         assertThat(arguments.subList(arguments.indexOf("web_search=\"disabled\"") - 1, arguments.size()))
                 .containsExactlyElementsOf(codexArguments.subList(codexArguments.indexOf("web_search=\"disabled\"") - 1, codexArguments.size()));
@@ -260,8 +255,7 @@ class TestCodexLaunchProfile
     {
         List<String> tools = ImmutableList.of("repository_context_read", "repository_context_prepare");
         CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(URI.create("http://127.0.0.1:9000/mcp"), "Learn", tools);
-        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch),
-                false, ImmutableList.of(), false, false);
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch), false, ImmutableList.of(), false, false);
         assertThat(arguments).containsSequence("-c", "mcp_servers.bytequay.tools={"
                 + "\"repository_context_read\"={approval_mode=\"approve\"},\"repository_context_prepare\"={approval_mode=\"approve\"}}");
         assertThat(arguments).contains("mcp_servers.bytequay.default_tools_approval_mode=\"approve\"");
@@ -275,8 +269,7 @@ class TestCodexLaunchProfile
     {
         CodexLaunchProfile.ManagedToolsLaunch launch = new CodexLaunchProfile.ManagedToolsLaunch(
                 URI.create("http://127.0.0.1:9000/mcp"), "Learn", ImmutableList.of("review_\".other\\tool"));
-        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch),
-                false, ImmutableList.of(), false, false))
+        assertThat(CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.of(launch), false, ImmutableList.of(), false, false))
                 .contains("mcp_servers.bytequay.tools={\"review_\\\".other\\\\tool\"={approval_mode=\"approve\"}}");
     }
 
@@ -331,18 +324,15 @@ class TestCodexLaunchProfile
     @Test
     void privateReviewKeepsCredentialsOutOfTheShell()
     {
-        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE,
-                Optional.empty(), false, ImmutableList.of(), false, true);
+        List<String> arguments = CodexLaunchProfile.arguments("codex", CodexLaunchProfile.ChildProfile.NONE, Optional.empty(), false, ImmutableList.of(), false, true);
         assertThat(arguments).containsSequence("-c", "approvals_reviewer=\"auto_review\"");
         assertThat(arguments).containsSequence("--enable", "guardian_approval");
-        assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"",
-                "shell_environment_policy.ignore_default_excludes=false");
+        assertThat(arguments).contains("shell_environment_policy.inherit=\"core\"", "shell_environment_policy.ignore_default_excludes=false");
         assertThat(CodexLaunchProfile.expectedShellEnvironmentIncludeOnly())
                 .doesNotContain("GH_HOST", "GH_CONFIG_DIR", "SSH_AUTH_SOCK", "XDG_CONFIG_HOME",
                         "GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN",
                         "OPENAI_API_KEY", "CODEX_HOME", "BYTEQUAY_TOOL_TOKEN");
-        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false,
-                ImmutableList.of(), false, true))
+        assertThat(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, false, ImmutableList.of(), false, true))
                 .containsEntry("shell_environment_policy", CodexLaunchProfile.expectedShellEnvironmentPolicy())
                 .containsEntry("features", CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
         assertThat(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true))

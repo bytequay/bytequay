@@ -169,8 +169,7 @@ public class GitHubAccountClient
                 // NOT_FOUND for renamed/deleted logins.
                 List<ContributionGqlError> errors = response == null ? null : response.errors();
                 if (errors != null && !errors.isEmpty()) {
-                    throw new IllegalStateException(
-                            "GitHub contribution calendar returned errors: " + errors);
+                    throw new IllegalStateException("GitHub contribution calendar returned errors: " + errors);
                 }
                 throw new IllegalStateException("GitHub contribution calendar returned no data");
             }
@@ -297,12 +296,7 @@ public class GitHubAccountClient
                 // Bad timestamp from GitHub is non-fatal — list still renders.
             }
         }
-        return new UserCommitSummary(
-                item.sha() == null ? "" : item.sha(),
-                repoFullName,
-                shortMessage,
-                item.htmlUrl() == null ? "" : item.htmlUrl(),
-                authoredAt);
+        return new UserCommitSummary(item.sha() == null ? "" : item.sha(), repoFullName, shortMessage, item.htmlUrl() == null ? "" : item.htmlUrl(), authoredAt);
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -348,13 +342,9 @@ public class GitHubAccountClient
                                                             // company repos never appear
                                                             // in the list regardless of
                                                             // the token's scope.
-                                                            .queryParam(
-                                                                    "affiliation",
-                                                                    "owner,collaborator,organization_member")
-                                                            .queryParam(
-                                                                    "per_page", perPage)
-                                                            .queryParam(
-                                                                    "page", currentPage)
+                                                            .queryParam("affiliation", "owner,collaborator,organization_member")
+                                                            .queryParam("per_page", perPage)
+                                                            .queryParam("page", currentPage)
                                                             .build())
                                             .retrieve()
                                             .body(new ParameterizedTypeReference<>() {}));

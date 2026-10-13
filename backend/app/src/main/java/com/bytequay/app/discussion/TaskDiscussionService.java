@@ -258,8 +258,7 @@ public class TaskDiscussionService
         if (discussion.version() != expectedVersion) {
             throw new AgentConflictException("This discussion changed while you were reading it");
         }
-        TaskDiscussion updated = store.update(discussion.update(
-                resolved, discussion.messages(), discussion.sessionReference(), clock.instant()));
+        TaskDiscussion updated = store.update(discussion.update(resolved, discussion.messages(), discussion.sessionReference(), clock.instant()));
         return TaskDiscussionView.of(updated, pending(updated));
     }
 

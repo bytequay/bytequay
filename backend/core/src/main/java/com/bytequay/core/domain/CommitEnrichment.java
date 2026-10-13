@@ -56,9 +56,7 @@ public record CommitEnrichment(
         pullRequestNumber.ifPresent(value -> checkArgument(value > 0, "pullRequestNumber must be positive"));
         pullRequestTitle.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestTitle is blank"));
         pullRequestUrl.ifPresent(value -> checkArgument(!value.isBlank(), "pullRequestUrl is blank"));
-        checkArgument(pullRequestNumber.isPresent() || pullRequestTitle.isEmpty(),
-                "pullRequestTitle requires pullRequestNumber");
-        checkArgument(pullRequestNumber.isPresent() || pullRequestUrl.isEmpty(),
-                "pullRequestUrl requires pullRequestNumber");
+        checkArgument(pullRequestNumber.isPresent() || pullRequestTitle.isEmpty(), "pullRequestTitle requires pullRequestNumber");
+        checkArgument(pullRequestNumber.isPresent() || pullRequestUrl.isEmpty(), "pullRequestUrl requires pullRequestNumber");
     }
 }

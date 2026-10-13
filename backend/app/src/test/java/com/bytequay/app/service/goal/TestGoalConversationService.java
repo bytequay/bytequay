@@ -314,8 +314,7 @@ class TestGoalConversationService
         String added = revised.course().orElseThrow().parts().get(1).lessons().getFirst();
         assertThat(revised.course().orElseThrow().parts()).extracting(GoalCourse.Part::lessons)
                 .containsExactly(ImmutableList.of(lessons.get(0)), ImmutableList.of(added, lessons.get(2)));
-        verify(work).create("workspace", added, Optional.of(goal.id()), "Read deletes", WorkItem.Kind.LEARN, "Explain position deletes",
-                WorkItem.CompletionRule.ACCEPTED_RESULT);
+        verify(work).create("workspace", added, Optional.of(goal.id()), "Read deletes", WorkItem.Kind.LEARN, "Explain position deletes", WorkItem.CompletionRule.ACCEPTED_RESULT);
         verify(work).change(eq("workspace"), eq(lessons.get(1)), argThat(command -> command.action() == WorkItemCommand.Action.DROP
                 && command.detail().equals("Left out of the revised course: You know snapshots.")));
         verify(work, never()).change(eq("workspace"), eq(lessons.get(0)), any());

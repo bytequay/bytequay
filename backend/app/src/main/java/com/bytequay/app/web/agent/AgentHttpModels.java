@@ -96,13 +96,7 @@ public final class AgentHttpModels
 
     public static ProviderStatusResponse providerStatus(AgentProviderStatus status)
     {
-        return new ProviderStatusResponse(
-                status.laneId().toString(),
-                status.readiness(),
-                status.version(),
-                status.diagnostic(),
-                status.capabilities(),
-                status.signInCommand());
+        return new ProviderStatusResponse(status.laneId().toString(), status.readiness(), status.version(), status.diagnostic(), status.capabilities(), status.signInCommand());
     }
 
     public static CompletionResponse completion(TaskCompletion completion)
@@ -116,11 +110,7 @@ public final class AgentHttpModels
 
     public static RuntimeStopImpactResponse stopImpact(AgentRuntimeStopImpact impact)
     {
-        return new RuntimeStopImpactResponse(
-                impact.taskId().toString(),
-                impact.generation(),
-                impact.activeTurnId().map(Object::toString),
-                impact.liveProcess());
+        return new RuntimeStopImpactResponse(impact.taskId().toString(), impact.generation(), impact.activeTurnId().map(Object::toString), impact.liveProcess());
     }
 
     /** A stored attachment's facts; the blob itself is read through its own endpoint. */
@@ -128,8 +118,7 @@ public final class AgentHttpModels
 
     public static AttachmentResponse attachment(StoredAgentAttachment stored)
     {
-        return new AttachmentResponse(
-                stored.id(), stored.name(), stored.mediaType(), stored.byteSize(), stored.width(), stored.height());
+        return new AttachmentResponse(stored.id(), stored.name(), stored.mediaType(), stored.byteSize(), stored.width(), stored.height());
     }
 
     public record EventResponse(

@@ -51,9 +51,7 @@ public class SqliteRemoteSourceStore
     {
         requireNonNull(remoteSource, "remoteSource is null");
         repository.findById(RemoteSourceEntity.idOf(remoteSource.workspaceId(), remoteSource.name()))
-                .ifPresentOrElse(
-                        existing -> existing.update(remoteSource),
-                        () -> repository.save(RemoteSourceEntity.fromDomain(remoteSource)));
+                .ifPresentOrElse(existing -> existing.update(remoteSource), () -> repository.save(RemoteSourceEntity.fromDomain(remoteSource)));
     }
 
     @Override

@@ -38,8 +38,7 @@ public record RemoteSource(
         checkText(url, "url");
         requireNonNull(repositoryId, "repositoryId is null");
         requireNonNull(repository, "repository is null");
-        checkArgument(repositoryId.isPresent() == repository.isPresent(),
-                "repository ID and coordinates must both be present or absent");
+        checkArgument(repositoryId.isPresent() == repository.isPresent(), "repository ID and coordinates must both be present or absent");
         repositoryId.ifPresent(value -> checkArgument(value > 0, "repositoryId must be positive"));
     }
 
@@ -50,11 +49,6 @@ public record RemoteSource(
 
     public RemoteSource withRepositoryIdentity(long nextRepositoryId, RepoRef nextRepository)
     {
-        return new RemoteSource(
-                workspaceId,
-                name,
-                url,
-                Optional.of(nextRepositoryId),
-                Optional.of(requireNonNull(nextRepository, "nextRepository is null")));
+        return new RemoteSource(workspaceId, name, url, Optional.of(nextRepositoryId), Optional.of(requireNonNull(nextRepository, "nextRepository is null")));
     }
 }

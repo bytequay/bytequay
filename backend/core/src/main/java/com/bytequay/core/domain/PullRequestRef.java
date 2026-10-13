@@ -73,8 +73,7 @@ public record PullRequestRef(String owner, String repo, int number)
         if (number <= 0) {
             return Optional.empty();
         }
-        return Optional.of(new PullRequestRef(
-                repoFull.substring(0, slash), repoFull.substring(slash + 1), number));
+        return Optional.of(new PullRequestRef(repoFull.substring(0, slash), repoFull.substring(slash + 1), number));
     }
 
     /** Returns the canonical {@code "owner/repo"} repository string. */

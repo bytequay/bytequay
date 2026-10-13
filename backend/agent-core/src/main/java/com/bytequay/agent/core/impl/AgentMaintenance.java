@@ -126,11 +126,7 @@ public final class AgentMaintenance
                         AgentMetrics metrics = metricsService.finishTurn(current.id(), TurnState.INTERRUPTED, ToolCounters.ZERO);
                         Instant interruptedAt = Instant.now(clock);
                         AgentTask claimedTask = taskStore.find(current.taskId()).orElseThrow();
-                        turnStore.update(turnStore.find(current.id()).orElseThrow().finish(
-                                TurnState.INTERRUPTED,
-                                metrics,
-                                Optional.of(INTERRUPTION_REASON),
-                                interruptedAt));
+                        turnStore.update(turnStore.find(current.id()).orElseThrow().finish(TurnState.INTERRUPTED, metrics, Optional.of(INTERRUPTION_REASON), interruptedAt));
                         taskStore.update(claimedTask.releaseWorktreeMutation(claim, interruptedAt));
                         outboxStore.insert(pendingLifecycle(
                                 eventId,
@@ -350,26 +346,14 @@ public final class AgentMaintenance
             AgentMetrics metrics = metricsService.finishTurn(turn.id(), TurnState.INTERRUPTED, counters);
             Instant interruptedAt = Instant.now(clock);
             AgentTask current = taskStore.find(task.id()).orElseThrow();
-            turnStore.update(turnStore.find(turn.id()).orElseThrow().finish(
-                    TurnState.INTERRUPTED,
-                    metrics,
-                    Optional.of(reason),
-                    interruptedAt));
+            turnStore.update(turnStore.find(turn.id()).orElseThrow().finish(TurnState.INTERRUPTED, metrics, Optional.of(reason), interruptedAt));
             AgentTask released = current.worktreeMutationClaim().equals(Optional.of(claim))
                     ? current.releaseWorktreeMutation(claim, interruptedAt)
                     : current;
             taskStore.update(unverifiableLaunch
-                    .map(launchId -> released.claimWorktreeMutation(
-                            WorktreeMutationClaim.recovery(launchId, interruptedAt),
-                            interruptedAt))
+                    .map(launchId -> released.claimWorktreeMutation(WorktreeMutationClaim.recovery(launchId, interruptedAt), interruptedAt))
                     .orElse(released));
-            outboxStore.insert(pendingLifecycle(
-                    eventId,
-                    task.id(),
-                    Optional.of(turn.id()),
-                    AgentEventPayload.LifecyclePhase.INTERRUPTED,
-                    reason,
-                    interruptedAt));
+            outboxStore.insert(pendingLifecycle(eventId, task.id(), Optional.of(turn.id()), AgentEventPayload.LifecyclePhase.INTERRUPTED, reason, interruptedAt));
             return null;
         });
     }

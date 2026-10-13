@@ -111,13 +111,6 @@ class TestSqliteAgentProcessLaunchStore
 
     private static AgentProcessLaunch prepared(String launchId)
     {
-        return new AgentProcessLaunch(
-                launchId,
-                LaunchOwnerKind.CLAUDE_TURN,
-                "turn-1",
-                false,
-                "/usr/local/bin/claude",
-                "digest",
-                NOW);
+        return new AgentProcessLaunch(launchId, LaunchOwnerKind.CLAUDE_TURN, "turn-1", false, "/usr/local/bin/claude", "digest", NOW);
     }
 }

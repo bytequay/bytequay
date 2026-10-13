@@ -51,8 +51,7 @@ public record StartCherryPickExecutionCommand(
         requireNonNull(expectedSourceBaseSha, "expectedSourceBaseSha is null");
         requireNonNull(expectedSourceTipSha, "expectedSourceTipSha is null");
         requireNonNull(expectedTargetSha, "expectedTargetSha is null");
-        userSkippedSourceShas = ImmutableList.copyOf(
-                requireNonNull(userSkippedSourceShas, "userSkippedSourceShas is null"));
+        userSkippedSourceShas = ImmutableList.copyOf(requireNonNull(userSkippedSourceShas, "userSkippedSourceShas is null"));
         if (userSkippedSourceShas.size() > MAX_SKIPPED) {
             throw new CherryPickInvalidRequestException("userSkippedSourceShas exceeds " + MAX_SKIPPED + " values");
         }

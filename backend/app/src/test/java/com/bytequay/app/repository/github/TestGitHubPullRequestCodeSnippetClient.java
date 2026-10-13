@@ -35,14 +35,12 @@ class TestGitHubPullRequestCodeSnippetClient
     void encodesRepositoryPathsAndReturnsOnlyRequestedLines()
     {
         Fixture fixture = fixture();
-        fixture.server.expect(requestTo(
-                        "https://api.github.test/repos/trinodb/trino/contents/src/%7Bgenerated%7D.ts?ref=" + COMMIT))
+        fixture.server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/%7Bgenerated%7D.ts?ref=" + COMMIT))
                 .andExpect(header(HttpHeaders.AUTHORIZATION, "Bearer pat"))
                 .andExpect(header(HttpHeaders.ACCEPT, "application/vnd.github.raw+json"))
                 .andRespond(withSuccess("first\r\nsecond\nthird\nfourth\n", MediaType.TEXT_PLAIN));
 
-        assertThat(fixture.client.fetchRepositoryFileLines(
-                "pat", RepoRef.of("trinodb", "trino"), "src/{generated}.ts", COMMIT, 2, 3))
+        assertThat(fixture.client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/{generated}.ts", COMMIT, 2, 3))
                 .hasValue(java.util.List.of("second", "third"));
         fixture.server.verify();
     }
@@ -53,8 +51,7 @@ class TestGitHubPullRequestCodeSnippetClient
         Fixture fixture = fixture();
         expectSource(fixture, "first\n" + "x".repeat(1024 * 1024 + 1));
 
-        assertThat(fixture.client.fetchRepositoryFileLines(
-                "pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
+        assertThat(fixture.client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
                 .hasValue(java.util.List.of("first"));
         fixture.server.verify();
     }
@@ -65,8 +62,7 @@ class TestGitHubPullRequestCodeSnippetClient
         Fixture fixture = fixture();
         expectSource(fixture, "x".repeat(1024 * 1024 + 1));
 
-        assertThatThrownBy(() -> fixture.client.fetchRepositoryFileLines(
-                "pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
+        assertThatThrownBy(() -> fixture.client.fetchRepositoryFileLines("pat", RepoRef.of("trinodb", "trino"), "src/Main.java", COMMIT, 1, 1))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("snippet read limit");
         fixture.server.verify();
@@ -74,8 +70,7 @@ class TestGitHubPullRequestCodeSnippetClient
 
     private static void expectSource(Fixture fixture, String source)
     {
-        fixture.server.expect(requestTo(
-                        "https://api.github.test/repos/trinodb/trino/contents/src/Main.java?ref=" + COMMIT))
+        fixture.server.expect(requestTo("https://api.github.test/repos/trinodb/trino/contents/src/Main.java?ref=" + COMMIT))
                 .andRespond(withSuccess(source, MediaType.TEXT_PLAIN));
     }
 
@@ -83,9 +78,7 @@ class TestGitHubPullRequestCodeSnippetClient
     {
         RestClient.Builder api = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(api).build();
-        GitHubPullRequestReadClient client = new GitHubPullRequestReadClient(
-                api.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubPullRequestReadClient client = new GitHubPullRequestReadClient(api.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         return new Fixture(client, server);
     }
 

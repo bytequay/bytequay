@@ -68,8 +68,7 @@ public final class CiAutofixHttpModels
                 run.finishReason().map(Enum::name),
                 run.summary(),
                 metrics,
-                run.warnings().stream().map(warning -> new WarningResponse(
-                        warning.code(), warning.message(), warning.occurredAt())).collect(toImmutableList()),
+                run.warnings().stream().map(warning -> new WarningResponse(warning.code(), warning.message(), warning.occurredAt())).collect(toImmutableList()),
                 run.pushJournal().map(journal -> new PushJournalResponse(
                         journal.attemptId().toString(),
                         journal.expectedRemoteSha(),
@@ -83,8 +82,7 @@ public final class CiAutofixHttpModels
                         journal.previousAttempt(),
                         journal.observedAttempt(),
                         journal.startedAt())),
-                run.finalFixupCheck().map(check -> new FinalCheckResponse(
-                        check.headSha(), check.result().name(), check.diagnostics(), check.checkedAt())),
+                run.finalFixupCheck().map(check -> new FinalCheckResponse(check.headSha(), check.result().name(), check.diagnostics(), check.checkedAt())),
                 run.attempts().stream().map(CiAutofixHttpModels::attempt).collect(toImmutableList()),
                 run.scope().parentTaskId(),
                 canMessage);

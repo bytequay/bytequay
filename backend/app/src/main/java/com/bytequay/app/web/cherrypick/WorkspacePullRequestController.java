@@ -63,8 +63,7 @@ public final class WorkspacePullRequestController
             @PathVariable String executionId,
             @RequestBody WorkspaceDeliveryRequest request)
     {
-        return pullRequests.createPullRequest(
-                new PullRequestCommand(workspaceId, executionId(executionId), request.confirmed()));
+        return pullRequests.createPullRequest(new PullRequestCommand(workspaceId, executionId(executionId), request.confirmed()));
     }
 
     private static CherryPickExecutionId executionId(String value)

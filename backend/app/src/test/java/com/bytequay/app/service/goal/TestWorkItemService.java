@@ -97,8 +97,7 @@ class TestWorkItemService
     {
         String id = UUID.randomUUID().toString();
         String body = "Reproduction and acceptance criteria\n" + "evidence\n".repeat(4000);
-        WorkItemView created = service.create("workspace", id, Optional.empty(), "Private investigation", WorkItem.Kind.DEVELOP, body,
-                WorkItem.CompletionRule.MERGED_DELIVERY);
+        WorkItemView created = service.create("workspace", id, Optional.empty(), "Private investigation", WorkItem.Kind.DEVELOP, body, WorkItem.CompletionRule.MERGED_DELIVERY);
         assertThat(created.acceptanceCriteria()).isEqualTo(body);
         assertThat(created.links()).isEmpty();
         assertThatThrownBy(() -> service.beginPublication("workspace", id, 9, "publish-1", "GITHUB:org/repo")).hasMessageContaining("changed");
@@ -144,8 +143,7 @@ class TestWorkItemService
         WorkItemLink issue = link(GoalItemKind.ISSUE, "org/repo#31252", "ISSUE:github.com:42");
         when(references.requireLink("workspace", GoalItemKind.ISSUE, "org/repo#31252")).thenReturn(issue);
         String id = UUID.randomUUID().toString();
-        WorkItemView adopted = service.adopt("workspace", "goal", id, "Fix #31252", "Key checkpoint actions by path and deletion vector", GoalItemKind.ISSUE,
-                "org/repo#31252");
+        WorkItemView adopted = service.adopt("workspace", "goal", id, "Fix #31252", "Key checkpoint actions by path and deletion vector", GoalItemKind.ISSUE, "org/repo#31252");
         assertThat(adopted.id()).isEqualTo(id);
         assertThat(adopted.goalId()).contains("goal");
         assertThat(adopted.kind()).isEqualTo(WorkItem.Kind.DEVELOP);
@@ -156,8 +154,7 @@ class TestWorkItemService
                 .as("the source's work is found again, never duplicated").isEqualTo(adopted);
         assertThat(service.list("workspace")).hasSize(1);
 
-        goals.save(new Goal("goal-2", "workspace", "Another objective", "", false, false, Optional.empty(), Optional.empty(), 0, Optional.empty(), false,
-                NOW, NOW));
+        goals.save(new Goal("goal-2", "workspace", "Another objective", "", false, false, Optional.empty(), Optional.empty(), 0, Optional.empty(), false, NOW, NOW));
         assertThatThrownBy(() -> service.adopt("workspace", "goal-2", UUID.randomUUID().toString(), "Fix #31252", "Fix it", GoalItemKind.ISSUE, "org/repo#31252"))
                 .hasMessageContaining("another Goal");
         service.change("workspace", id, decision(adopted, WorkItemCommand.Action.DROP, "Not now"));

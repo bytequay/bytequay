@@ -281,8 +281,7 @@ class TestReviewToolBroker
         for (String command : experimentCommands) {
             JsonNode request = objectMapper.valueToTree(ImmutableMap.of(
                     "jsonrpc", "2.0", "id", 3, "method", "tools/call",
-                    "params", ImmutableMap.of("name", "permission_prompt",
-                            "arguments", ImmutableMap.of("tool_name", "Bash", "input", ImmutableMap.of("command", command)))));
+                    "params", ImmutableMap.of("name", "permission_prompt", "arguments", ImmutableMap.of("tool_name", "Bash", "input", ImmutableMap.of("command", command)))));
             JsonNode allowed = broker.handle(registration.token(), request).body().orElseThrow();
             assertThat(objectMapper.readTree(allowed.at("/result/content/0/text").asText()).get("behavior").asText()).as(command).isEqualTo("allow");
         }

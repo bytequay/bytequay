@@ -77,8 +77,7 @@ public record ContextSpecModule(String directory, Optional<String> page, int sec
         Map<String, Map<String, Integer>> links = new HashMap<>();
         Map<String, Map<String, Set<String>>> sections = new HashMap<>();
         GitCommandRunner.Result found = git.runLocalBoundedStdout(workspace.repository(), SCAN_TIMEOUT, SCAN_BYTES,
-                ImmutableList.of("grep", "--no-color", "-I", "-o", "-E", "-e", ContextSpecSource.LINK, baseline.sha(), "--",
-                        ":(exclude,glob)**/*.xml", ":(exclude,glob)**/*.xsd"));
+                ImmutableList.of("grep", "--no-color", "-I", "-o", "-E", "-e", ContextSpecSource.LINK, baseline.sha(), "--", ":(exclude,glob)**/*.xml", ":(exclude,glob)**/*.xsd"));
         if ((found.successful() || found.exitCode() == 1) && !found.truncated()) {
             String prefix = baseline.sha() + ":";
             for (String line : found.output().split("\n")) {

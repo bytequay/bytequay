@@ -65,8 +65,7 @@ class TestWorkspaceCommitsSettingsController
         when(settings.save("workspace", "release/next")).thenReturn(new WorkspaceCommitsTarget("upstream", "release/next", true));
         ModelSettingsService models = mock(ModelSettingsService.class);
         for (AgentModelType type : AgentModelType.values()) {
-            when(models.agentModel(type, Optional.of("workspace"))).thenReturn(new AgentModelSetting(
-                    type, false, "claude", "Claude", "opus", "Opus", Optional.of("High")));
+            when(models.agentModel(type, Optional.of("workspace"))).thenReturn(new AgentModelSetting(type, false, "claude", "Claude", "opus", "Opus", Optional.of("High")));
         }
         WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);

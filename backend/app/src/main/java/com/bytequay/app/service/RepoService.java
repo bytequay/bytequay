@@ -71,10 +71,7 @@ public class RepoService
             return accounts.fetchContributionCalendar(credentialService.resolveGitHubToken(), login);
         }
         catch (IllegalStateException e) {
-            throw new ResponseStatusException(
-                    HttpStatus.SERVICE_UNAVAILABLE,
-                    "Contribution graph temporarily unavailable",
-                    e);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "Contribution graph temporarily unavailable", e);
         }
     }
 
@@ -132,13 +129,7 @@ public class RepoService
                 || (long) endLine - startLine + 1 > MAX_CODE_SNIPPET_LINES) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid code line range");
         }
-        List<String> lines = pullRequests.fetchRepositoryFileLines(
-                        credentialService.resolveGitHubToken(),
-                        RepoRef.of(owner, repo),
-                        path,
-                        commit,
-                        startLine,
-                        endLine)
+        List<String> lines = pullRequests.fetchRepositoryFileLines(credentialService.resolveGitHubToken(), RepoRef.of(owner, repo), path, commit, startLine, endLine)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "repository file not found"));
         if (lines.size() != (long) endLine - startLine + 1) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "code line range not found");

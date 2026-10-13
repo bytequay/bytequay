@@ -49,8 +49,7 @@ class TestStaticAgentDriverRegistry
     @Test
     void rejectsDuplicateLaneIdentifiers()
     {
-        assertThatThrownBy(() -> new StaticAgentDriverRegistry(
-                ImmutableList.of(new DeterministicAgentDriver(), new DeterministicAgentDriver())))
+        assertThatThrownBy(() -> new StaticAgentDriverRegistry(ImmutableList.of(new DeterministicAgentDriver(), new DeterministicAgentDriver())))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 }

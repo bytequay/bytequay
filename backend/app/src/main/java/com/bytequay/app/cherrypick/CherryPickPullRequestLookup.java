@@ -109,8 +109,7 @@ public class CherryPickPullRequestLookup
             for (PendingLookup pending : futures) {
                 try {
                     Lookup lookup = pending.future().get();
-                    lookup.association().ifPresent(association -> associations.add(
-                            new PullRequestLookupResult.Association(lookup.sha(), association)));
+                    lookup.association().ifPresent(association -> associations.add(new PullRequestLookupResult.Association(lookup.sha(), association)));
                 }
                 catch (InterruptedException e) {
                     Thread.currentThread().interrupt();

@@ -129,8 +129,7 @@ class TestDocumentationHttpReader
         assertThat(result.links()).containsExactly(
                 new DocumentationHttpReader.Link("https://docs.example.com/manual/other.html", Optional.of("other.html")),
                 new DocumentationHttpReader.Link("https://docs.example.com/manual/deep/page.html", Optional.of("deep/page.html")));
-        assertThat(result.suggestedExpansionUrls()).containsExactly(
-                "https://docs.example.com/outside.html", "https://other.example.com/guide.html");
+        assertThat(result.suggestedExpansionUrls()).containsExactly("https://docs.example.com/outside.html", "https://other.example.com/guide.html");
         assertThat(result.linksTruncated()).isFalse();
     }
 

@@ -293,8 +293,7 @@ class TestPullRequestRefreshControllers
     void servesDetailForARowIdSoTheAttentionListCanOpenIt()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(
-                pullRequests, mock(PullRequestRefreshService.class));
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
         when(pullRequests.openPullRequestDetail(50L)).thenReturn(detail());
 
         assertThat(controller.detail(50L)).isEqualTo(detail());
@@ -307,10 +306,8 @@ class TestPullRequestRefreshControllers
             throws Exception
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(
-                pullRequests, mock(PullRequestRefreshService.class));
-        when(pullRequests.toggleReaction(
-                "owner/repo", 7, "issue_comment", 41L, "heart", null)).thenReturn(true);
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
+        when(pullRequests.toggleReaction("owner/repo", 7, "issue_comment", 41L, "heart", null)).thenReturn(true);
 
         standaloneSetup(controller).build().perform(post("/prs/reactions")
                         .queryParam("repo", "owner/repo")
@@ -330,8 +327,7 @@ class TestPullRequestRefreshControllers
             throws Exception
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(
-                pullRequests, mock(PullRequestRefreshService.class));
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
 
         standaloneSetup(controller).build().perform(post("/prs/reactions")
                         .queryParam("repo", "owner/repo")
@@ -351,8 +347,7 @@ class TestPullRequestRefreshControllers
             throws Exception
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(
-                pullRequests, mock(PullRequestRefreshService.class));
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
 
         standaloneSetup(controller).build().perform(patch("/prs/description")
                         .queryParam("repo", "owner/repo")
@@ -421,16 +416,13 @@ class TestPullRequestRefreshControllers
     void returnsTheDetailProducedByCommentWrites()
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(
-                pullRequests, mock(PullRequestRefreshService.class));
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
         PullRequestDetail detail = detail();
-        InlineReviewComment inline = new InlineReviewComment(
-                "src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty());
+        InlineReviewComment inline = new InlineReviewComment("src/Main.java", "Please simplify this", 18, "RIGHT", null, null, "head-sha", OptionalLong.empty());
         when(pullRequests.commentOnPullRequest("owner/repo", 7, "hello")).thenReturn(detail);
         when(pullRequests.createReviewComment("owner/repo", 7, inline)).thenReturn(detail);
 
-        assertThat(controller.comment(
-                "owner/repo", 7, new PullRequestController.CommentRequest("hello"))).isSameAs(detail);
+        assertThat(controller.comment("owner/repo", 7, new PullRequestController.CommentRequest("hello"))).isSameAs(detail);
         assertThat(controller.reviewComment("owner/repo", 7, inline)).isSameAs(detail);
     }
 
@@ -439,8 +431,7 @@ class TestPullRequestRefreshControllers
             throws Exception
     {
         PullRequestService pullRequests = mock(PullRequestService.class);
-        PullRequestController controller = new PullRequestController(
-                pullRequests, mock(PullRequestRefreshService.class));
+        PullRequestController controller = new PullRequestController(pullRequests, mock(PullRequestRefreshService.class));
         doThrow(new ResourceAccessException("Operation timed out"))
                 .when(pullRequests).createReviewComment(any(), anyInt(), any());
 
@@ -461,8 +452,7 @@ class TestPullRequestRefreshControllers
                                 }
                                 """))
                 .andExpect(status().isServiceUnavailable())
-                .andExpect(jsonPath("$.message").value(
-                        "GitHub did not respond. Refresh before retrying; a submitted action may already have completed."));
+                .andExpect(jsonPath("$.message").value("GitHub did not respond. Refresh before retrying; a submitted action may already have completed."));
     }
 
     @Test

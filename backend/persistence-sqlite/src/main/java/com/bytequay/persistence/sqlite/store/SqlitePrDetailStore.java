@@ -300,13 +300,7 @@ public class SqlitePrDetailStore
         long prId = pullRequestRepo.findByRepoIgnoreCaseAndNumber(pullRequest.repoFullName(), pullRequest.number())
                 .map(PullRequestEntity::getId)
                 .orElseThrow(() -> new IllegalArgumentException("Pull request is not stored: " + pullRequest.fullName()));
-        timelineRepo.insertLocalEvent(
-                prId,
-                event.event(),
-                event.actor(),
-                event.timestamp().toString(),
-                event.body(),
-                eventKey);
+        timelineRepo.insertLocalEvent(prId, event.event(), event.actor(), event.timestamp().toString(), event.body(), eventKey);
         return timelineRepo.findByPrIdAndLocalEventKey(prId, eventKey)
                 .map(PrTimelineEntity::toDomain)
                 .orElseThrow(() -> new IllegalStateException("Local timeline event was not stored"));
@@ -376,8 +370,7 @@ public class SqlitePrDetailStore
         entity.setLabelColors(raw.labelColors() != null ? raw.labelColors() : ImmutableMap.of());
         entity.setAssignees(raw.assignees() != null ? raw.assignees() : ImmutableList.of());
         entity.setMilestone(raw.milestone());
-        entity.setUnavailableSections(
-                detail.unavailableSections() != null ? detail.unavailableSections() : ImmutableList.of());
+        entity.setUnavailableSections(detail.unavailableSections() != null ? detail.unavailableSections() : ImmutableList.of());
         entity.setDraft(raw.draft());
         entity.setMergeable(raw.mergeable());
         entity.setMergeableState(raw.mergeableState());

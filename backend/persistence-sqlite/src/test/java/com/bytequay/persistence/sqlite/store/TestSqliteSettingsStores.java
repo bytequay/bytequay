@@ -94,8 +94,7 @@ class TestSqliteSettingsStores
         remoteSources.save(updated);
         assertThat(remoteSources.findByWorkspace("ws-identity")).containsExactly(updated);
 
-        RemoteSource cleared = new RemoteSource(
-                "ws-identity", "oss", "https://git.example.com/team/project.git");
+        RemoteSource cleared = new RemoteSource("ws-identity", "oss", "https://git.example.com/team/project.git");
         remoteSources.save(cleared);
         assertThat(remoteSources.findByWorkspace("ws-identity")).containsExactly(cleared);
     }

@@ -118,13 +118,7 @@ final class CodexLaunchProfile
         checkArgument(!review || (!textOnly && !ci), "Restricted Codex profiles cannot run private review");
         checkArgument(!reviewChildren || codeQueries.flatMap(ManagedToolsLaunch::reviewGate).isPresent(), "Review children require the ByteQuay hook gate");
         ImmutableList.Builder<String> arguments = ImmutableList.<String>builder().add(executable);
-        arguments.add(
-                "app-server",
-                "--listen",
-                "stdio://",
-                "--strict-config",
-                "--enable",
-                "skip_host_skill_discovery");
+        arguments.add("app-server", "--listen", "stdio://", "--strict-config", "--enable", "skip_host_skill_discovery");
         if (deepSeek.isPresent()) {
             arguments.add(
                     "-c", "cli_auth_credentials_store=\"ephemeral\"",
@@ -286,11 +280,7 @@ final class CodexLaunchProfile
 
     static Map<String, Object> ciSandboxConfig(List<String> writableRoots)
     {
-        return ImmutableMap.of(
-                "writable_roots", ImmutableList.copyOf(writableRoots),
-                "network_access", true,
-                "exclude_tmpdir_env_var", true,
-                "exclude_slash_tmp", true);
+        return ImmutableMap.of("writable_roots", ImmutableList.copyOf(writableRoots), "network_access", true, "exclude_tmpdir_env_var", true, "exclude_slash_tmp", true);
     }
 
     static Map<String, Object> deepSeekProviderConfig(URI baseUrl)

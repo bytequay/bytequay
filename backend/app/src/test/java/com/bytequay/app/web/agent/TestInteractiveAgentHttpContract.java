@@ -109,10 +109,7 @@ class TestInteractiveAgentHttpContract
                 "workspace-1",
                 "Review the pull request",
                 "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(
-                        Optional.of("gpt-5.6-codex"),
-                        Optional.of("high"),
-                        "AUTO"),
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.of("high"), "AUTO"),
                 "create-key"));
 
         assertThat(request.fieldNames()).toIterable()
@@ -130,8 +127,7 @@ class TestInteractiveAgentHttpContract
     {
         GitHubIssueSource source = new GitHubIssueSource("github.com", 70, "owner/repo", 7, "https://github.com/owner/repo/issues/7",
                 "Fix selection", "Accepted Markdown description", Instant.parse("2026-09-16T00:00:00Z"));
-        JsonNode json = objectMapper.valueToTree(new InteractiveAgentHttpContract.IssueSourceResponse(source,
-                Optional.of("initial-turn"), "Implement using the existing model"));
+        JsonNode json = objectMapper.valueToTree(new InteractiveAgentHttpContract.IssueSourceResponse(source, Optional.of("initial-turn"), "Implement using the existing model"));
         assertThat(json.path("title").asText()).isEqualTo("Fix selection");
         assertThat(json.path("initialTurnId").asText()).isEqualTo("initial-turn");
         assertThat(json.path("instructions").asText()).isEqualTo("Implement using the existing model");
@@ -154,8 +150,7 @@ class TestInteractiveAgentHttpContract
                 TaskId.random().toString(), "workspace", "Implement", "codex",
                 new InteractiveAgentHttpContract.TaskDefaults(Optional.of("model"), Optional.empty(), "AUTO"), "key", Optional.empty(),
                 Optional.of(new IssueSourceInput(7, 7, Instant.EPOCH, Optional.empty())),
-                Optional.of(new JiraSourceInput("connection", "cloud", "10001", "APP-7", source.title(), source.body(), Instant.EPOCH,
-                        Optional.empty()))))
+                Optional.of(new JiraSourceInput("connection", "cloud", "10001", "APP-7", source.title(), source.body(), Instant.EPOCH, Optional.empty()))))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("only one issue source");
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.CreateTaskRequest(
                 TaskId.random().toString(), "workspace", "Implement", "codex",
@@ -172,10 +167,7 @@ class TestInteractiveAgentHttpContract
                 "workspace-1",
                 "Task",
                 "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(
-                        Optional.empty(),
-                        Optional.empty(),
-                        "AUTO"),
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.empty(), Optional.empty(), "AUTO"),
                 "create-key"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("model");
@@ -184,10 +176,7 @@ class TestInteractiveAgentHttpContract
                 "workspace-1",
                 "Task",
                 "codex",
-                new InteractiveAgentHttpContract.TaskDefaults(
-                        Optional.of("gpt-5.6-codex"),
-                        Optional.empty(),
-                        "CI_AUTOFIX"),
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.empty(), "CI_AUTOFIX"),
                 "create-key"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AUTO");
@@ -196,10 +185,7 @@ class TestInteractiveAgentHttpContract
     @Test
     void guardsDefaultsUpdatesWithAVersionAndTheSamePermissionRule()
     {
-        InteractiveAgentHttpContract.TaskDefaults defaults = new InteractiveAgentHttpContract.TaskDefaults(
-                Optional.of("gpt-5.6-codex"),
-                Optional.of("high"),
-                "AUTO");
+        InteractiveAgentHttpContract.TaskDefaults defaults = new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.of("high"), "AUTO");
 
         // Without a version a stale screen could overwrite a change it never saw.
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.UpdateDefaultsRequest(-1, defaults))
@@ -209,10 +195,7 @@ class TestInteractiveAgentHttpContract
         // An update must not be a way around the rule creation enforces.
         assertThatThrownBy(() -> new InteractiveAgentHttpContract.UpdateDefaultsRequest(
                 0,
-                new InteractiveAgentHttpContract.TaskDefaults(
-                        Optional.of("gpt-5.6-codex"),
-                        Optional.empty(),
-                        "CI_AUTOFIX")))
+                new InteractiveAgentHttpContract.TaskDefaults(Optional.of("gpt-5.6-codex"), Optional.empty(), "CI_AUTOFIX")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("AUTO");
     }

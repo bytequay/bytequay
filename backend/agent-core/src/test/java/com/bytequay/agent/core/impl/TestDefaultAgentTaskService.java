@@ -83,16 +83,10 @@ class TestDefaultAgentTaskService
     void setUp()
     {
         stores = new InMemoryAgentStores();
-        managedWorktrees = new RecordingWorktreeService(
-                temporaryDirectory.resolve("managed").toAbsolutePath());
+        managedWorktrees = new RecordingWorktreeService(temporaryDirectory.resolve("managed").toAbsolutePath());
         resources = new RecordingResourceService(temporaryDirectory.resolve("runtime").toAbsolutePath());
         driver = new DeterministicAgentDriver();
-        service = new DefaultAgentTaskService(
-                stores,
-                managedWorktrees,
-                resources,
-                new StaticAgentDriverRegistry(ImmutableList.of(driver)),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        service = new DefaultAgentTaskService(stores, managedWorktrees, resources, new StaticAgentDriverRegistry(ImmutableList.of(driver)), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -318,15 +312,9 @@ class TestDefaultAgentTaskService
     void updatesDefaultsWithTheObservedTaskVersion()
     {
         AgentTask created = service.create(command());
-        AgentTaskDefaults defaults = new AgentTaskDefaults(
-                Optional.of("model-a"),
-                Optional.of("high"),
-                AgentPermissionPolicy.AUTO);
+        AgentTaskDefaults defaults = new AgentTaskDefaults(Optional.of("model-a"), Optional.of("high"), AgentPermissionPolicy.AUTO);
 
-        AgentTask updated = service.updateDefaults(new UpdateAgentTaskDefaultsCommand(
-                created.id(),
-                created.version(),
-                defaults));
+        AgentTask updated = service.updateDefaults(new UpdateAgentTaskDefaultsCommand(created.id(), created.version(), defaults));
 
         assertThat(updated.defaults()).isEqualTo(defaults);
         assertThat(updated.version()).isEqualTo(created.version() + 1);
@@ -602,11 +590,7 @@ class TestDefaultAgentTaskService
         private TaskResources resources(TaskId taskId)
         {
             Path taskRoot = root.resolve(taskId.toString());
-            return new TaskResources(
-                    taskRoot,
-                    taskRoot.resolve("events.jsonl"),
-                    taskRoot.resolve("blobs"),
-                    taskRoot.resolve("provider/scratch"));
+            return new TaskResources(taskRoot, taskRoot.resolve("events.jsonl"), taskRoot.resolve("blobs"), taskRoot.resolve("provider/scratch"));
         }
     }
 }

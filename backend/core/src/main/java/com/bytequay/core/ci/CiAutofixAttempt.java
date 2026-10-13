@@ -117,16 +117,7 @@ public record CiAutofixAttempt(
         checkText(turnId, "turnId", 128);
         requireUpdateTime(now);
         checkState(agentTurnId.isEmpty() || agentTurnId.orElseThrow().equals(turnId), "attempt already owns another agent turn");
-        return copy(
-                Optional.of(turnId),
-                untrustedAgentNote,
-                gitResult,
-                expectedRemoteSha,
-                pushedSha,
-                pushedAt,
-                observedCiResult,
-                timelineEventKey,
-                now);
+        return copy(Optional.of(turnId), untrustedAgentNote, gitResult, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, now);
     }
 
     public CiAutofixAttempt withPreparedInput(String preparedInputSha, Instant now)
@@ -175,32 +166,14 @@ public record CiAutofixAttempt(
     {
         checkText(note, "note", 16 * 1024);
         requireUpdateTime(now);
-        return copy(
-                agentTurnId,
-                Optional.of(note),
-                gitResult,
-                expectedRemoteSha,
-                pushedSha,
-                pushedAt,
-                observedCiResult,
-                timelineEventKey,
-                now);
+        return copy(agentTurnId, Optional.of(note), gitResult, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, now);
     }
 
     public CiAutofixAttempt withGitResult(GitResult result, Instant now)
     {
         requireNonNull(result, "result is null");
         requireUpdateTime(now);
-        return copy(
-                agentTurnId,
-                untrustedAgentNote,
-                Optional.of(result),
-                expectedRemoteSha,
-                pushedSha,
-                pushedAt,
-                observedCiResult,
-                timelineEventKey,
-                now);
+        return copy(agentTurnId, untrustedAgentNote, Optional.of(result), expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, now);
     }
 
     public CiAutofixAttempt withPushResult(String expectedSha, String actualSha, Instant pushedAt, Instant now)
@@ -209,48 +182,21 @@ public record CiAutofixAttempt(
         checkSha(actualSha, "actualSha");
         requireNonNull(pushedAt, "pushedAt is null");
         requireUpdateTime(now);
-        return copy(
-                agentTurnId,
-                untrustedAgentNote,
-                gitResult,
-                Optional.of(expectedSha),
-                Optional.of(actualSha),
-                Optional.of(pushedAt),
-                observedCiResult,
-                timelineEventKey,
-                now);
+        return copy(agentTurnId, untrustedAgentNote, gitResult, Optional.of(expectedSha), Optional.of(actualSha), Optional.of(pushedAt), observedCiResult, timelineEventKey, now);
     }
 
     public CiAutofixAttempt withCiResult(CiResult result, Instant now)
     {
         requireNonNull(result, "result is null");
         requireUpdateTime(now);
-        return copy(
-                agentTurnId,
-                untrustedAgentNote,
-                gitResult,
-                expectedRemoteSha,
-                pushedSha,
-                pushedAt,
-                result,
-                timelineEventKey,
-                now);
+        return copy(agentTurnId, untrustedAgentNote, gitResult, expectedRemoteSha, pushedSha, pushedAt, result, timelineEventKey, now);
     }
 
     public CiAutofixAttempt withTimelineEvent(String eventKey, Instant now)
     {
         checkText(eventKey, "eventKey", 200);
         requireUpdateTime(now);
-        return copy(
-                agentTurnId,
-                untrustedAgentNote,
-                gitResult,
-                expectedRemoteSha,
-                pushedSha,
-                pushedAt,
-                observedCiResult,
-                Optional.of(eventKey),
-                now);
+        return copy(agentTurnId, untrustedAgentNote, gitResult, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, Optional.of(eventKey), now);
     }
 
     private CiAutofixAttempt copy(

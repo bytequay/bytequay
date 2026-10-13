@@ -101,8 +101,7 @@ public record AgentTurn(
         checkArgument(providerTurnReference.isEmpty() || startedAt.isPresent(), "a provider reference requires delivery start time");
         checkArgument(state != TurnState.RUNNING || providerTurnReference.isPresent(), "a running turn requires a provider reference");
         checkArgument(state != TurnState.ACCEPTED || providerTurnReference.isEmpty(), "an accepted turn cannot have a provider reference");
-        checkArgument(!knownUnsent || (state == TurnState.FAILED && providerTurnReference.isEmpty()),
-                "known-unsent delivery requires an unacknowledged failed turn");
+        checkArgument(!knownUnsent || (state == TurnState.FAILED && providerTurnReference.isEmpty()), "known-unsent delivery requires an unacknowledged failed turn");
         checkArgument(state.active() != endedAt.isPresent(), "endedAt and turn state disagree");
         checkArgument((state != TurnState.COMPLETED && state.terminal()) == terminalReason.isPresent(), "terminalReason and turn state disagree");
         checkArgument(failureKind.isEmpty() || state == TurnState.FAILED, "a typed failure requires a failed turn");
@@ -146,9 +145,7 @@ public record AgentTurn(
         checkOptionalText(providerModel, "providerModel");
         checkState(startedAt.isPresent(), "provider delivery has not started");
         checkState(settings.isPresent(), "accepted turn has no settings snapshot");
-        checkArgument(
-                providerModel.isEmpty() || settings.orElseThrow().model().equals(providerModel),
-                "provider model does not match the accepted turn settings");
+        checkArgument(providerModel.isEmpty() || settings.orElseThrow().model().equals(providerModel), "provider model does not match the accepted turn settings");
         return copy(
                 TurnState.RUNNING,
                 version,
@@ -169,8 +166,7 @@ public record AgentTurn(
         requireNonNull(now, "now is null");
         checkState(startedAt.isEmpty(), "provider delivery already started");
         checkArgument(!now.isBefore(createdAt), "delivery start is before turn acceptance");
-        return copy(state, version, Optional.of(now), endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
+        return copy(state, version, Optional.of(now), endedAt, cancellationRequestedAt, providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
     /** The repository guideline files and memories that go with this turn's provider input, recorded when its delivery starts. */
@@ -192,8 +188,7 @@ public record AgentTurn(
             return this;
         }
         checkArgument(!now.isBefore(startedAt.orElse(createdAt)), "cancellation time is before turn start");
-        return copy(state, version, startedAt, endedAt, Optional.of(now), providerTurnReference,
-                knownUnsent, model, terminalReason, failureKind, metrics);
+        return copy(state, version, startedAt, endedAt, Optional.of(now), providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
     public AgentTurn finish(
@@ -242,8 +237,7 @@ public record AgentTurn(
         }
         checkState(state != TurnState.ACCEPTED || terminalState != TurnState.COMPLETED, "an accepted turn cannot complete before running");
         checkArgument((terminalState != TurnState.COMPLETED) == reason.isPresent(), "reason and terminalState disagree");
-        checkArgument(updatedFailureKind.isEmpty() || terminalState == TurnState.FAILED,
-                "a typed failure requires a failed turn");
+        checkArgument(updatedFailureKind.isEmpty() || terminalState == TurnState.FAILED, "a typed failure requires a failed turn");
         return copy(terminalState, version, startedAt, Optional.of(now), cancellationRequestedAt,
                 providerTurnReference, updatedKnownUnsent, model, reason, updatedFailureKind, finalMetrics);
     }
@@ -288,14 +282,12 @@ public record AgentTurn(
     public AgentTurn withMetrics(AgentMetrics updatedMetrics)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
-        return copy(state, version, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, terminalReason, failureKind, updatedMetrics);
+        return copy(state, version, startedAt, endedAt, cancellationRequestedAt, providerTurnReference, knownUnsent, model, terminalReason, failureKind, updatedMetrics);
     }
 
     public AgentTurn withVersion(long updatedVersion)
     {
-        return copy(state, updatedVersion, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
+        return copy(state, updatedVersion, startedAt, endedAt, cancellationRequestedAt, providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
     }
 
     private AgentTurn copy(

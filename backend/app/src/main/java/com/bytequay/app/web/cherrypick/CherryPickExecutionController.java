@@ -70,9 +70,7 @@ public class CherryPickExecutionController
                         optionalText(request.model()),
                         optionalText(request.effort()),
                         text(request.idempotencyKey(), "idempotencyKey"),
-                        new PullRequestDraft(
-                                text(request.pullRequestTitle(), "pullRequestTitle"),
-                                request.pullRequestBody())),
+                        new PullRequestDraft(text(request.pullRequestTitle(), "pullRequestTitle"), request.pullRequestBody())),
                 workspaceId,
                 context.repository(),
                 RepositoryIdentity.valueOf(context.selectedRepository().fullName())));
@@ -97,8 +95,7 @@ public class CherryPickExecutionController
             @PathVariable String executionId,
             @RequestBody CherryPickMessageRequest request)
     {
-        return CherryPickExecutionResponse.of(executions.sendMessage(
-                executionId(executionId), text(request.message(), "message")));
+        return CherryPickExecutionResponse.of(executions.sendMessage(executionId(executionId), text(request.message(), "message")));
     }
 
     @PostMapping("/api/workspaces/{workspaceId}/cherry-pick/executions/{executionId}/cancel")

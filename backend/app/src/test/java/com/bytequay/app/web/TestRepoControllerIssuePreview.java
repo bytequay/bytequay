@@ -41,11 +41,7 @@ class TestRepoControllerIssuePreview
     private final CredentialService credentials = mock(CredentialService.class);
     private final WorkspaceRepositoryService workspaces = mock(WorkspaceRepositoryService.class);
     private final RepoController controller = new RepoController(
-            new RepoService(
-                    mock(GitHubPullRequestReadClient.class),
-                    mock(GitHubAccountClient.class),
-                    gitHub,
-                    credentials),
+            new RepoService(mock(GitHubPullRequestReadClient.class), mock(GitHubAccountClient.class), gitHub, credentials),
             workspaces);
 
     @Test

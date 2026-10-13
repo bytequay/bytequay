@@ -127,10 +127,8 @@ public class PullRequestRefreshService
             String baseSha,
             String headSha)
     {
-        pullRequests.refreshPullRequestDiffFileContentFromGitHub(
-                repo, number, path, baseSha, headSha);
-        return pullRequests.getPullRequestDiffFileContent(
-                repo, number, path, baseSha, headSha);
+        pullRequests.refreshPullRequestDiffFileContentFromGitHub(repo, number, path, baseSha, headSha);
+        return pullRequests.getPullRequestDiffFileContent(repo, number, path, baseSha, headSha);
     }
 
     /** Reuses a recent or in-flight dashboard refresh instead of queuing the same GitHub scan again. */
@@ -160,9 +158,7 @@ public class PullRequestRefreshService
     public void refreshDashboardRows()
     {
         if (!refreshLock.tryLock()) {
-            throw new ResponseStatusException(
-                    HttpStatus.CONFLICT,
-                    "A pull request refresh is already in progress; try again shortly");
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "A pull request refresh is already in progress; try again shortly");
         }
         try {
             pullRequests.syncFromGitHub();

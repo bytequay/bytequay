@@ -89,18 +89,9 @@ class TestFileTaskLogStore
                         "review this",
                         ImmutableList.of(new AgentAttachmentReference("attachment-1", "diagram.png", "image/png")),
                         AgentEventPayload.DeliveryKind.TURN),
-                new AgentEventPayload.AssistantMessage(
-                        MessageKind.ANSWER,
-                        MessagePhase.FINAL,
-                        "done"),
-                new AgentEventPayload.PlanUpdated(ImmutableList.of(new PlanItem(
-                        "verify",
-                        PlanItemState.IN_PROGRESS))),
-                new AgentEventPayload.ToolActivity(
-                        "Read",
-                        ActivityState.COMPLETED,
-                        "read a file",
-                        Optional.empty()),
+                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "done"),
+                new AgentEventPayload.PlanUpdated(ImmutableList.of(new PlanItem("verify", PlanItemState.IN_PROGRESS))),
+                new AgentEventPayload.ToolActivity("Read", ActivityState.COMPLETED, "read a file", Optional.empty()),
                 new AgentEventPayload.ToolActivity(
                         "bytequay/review_get_context",
                         ActivityState.COMPLETED,
@@ -118,11 +109,7 @@ class TestFileTaskLogStore
                         ImmutableList.of(),
                         false,
                         Optional.empty()),
-                new AgentEventPayload.FileActivity(
-                        ActivityState.COMPLETED,
-                        "README.md",
-                        ChangeKind.MODIFIED,
-                        Optional.of("diff")),
+                new AgentEventPayload.FileActivity(ActivityState.COMPLETED, "README.md", ChangeKind.MODIFIED, Optional.of("diff")),
                 new AgentEventPayload.ApprovalRequested(
                         "request-1",
                         AgentEventPayload.ApprovalKind.COMMAND,
@@ -131,24 +118,11 @@ class TestFileTaskLogStore
                         ImmutableList.of("run: mvn verify"),
                         true,
                         ImmutableList.of(AgentEventPayload.ApprovalOption.ALLOW_ONCE, AgentEventPayload.ApprovalOption.DENY)),
-                new AgentEventPayload.ApprovalResolved(
-                        "request-1",
-                        AgentEventPayload.ApprovalOutcome.ALLOWED,
-                        false),
-                new AgentEventPayload.UsageUpdated(
-                        AgentEventPayload.UsageSemantics.FINAL_FOR_INVOCATION,
-                        10,
-                        2,
-                        4,
-                        Optional.empty()),
-                new AgentEventPayload.Lifecycle(
-                        AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
-                        "complete"),
+                new AgentEventPayload.ApprovalResolved("request-1", AgentEventPayload.ApprovalOutcome.ALLOWED, false),
+                new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.FINAL_FOR_INVOCATION, 10, 2, 4, Optional.empty()),
+                new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, "complete"),
                 new AgentEventPayload.DevelopmentResult(false, Optional.of("Which implementation should I use?"), Optional.empty()),
-                new AgentEventPayload.Error(
-                        "failed",
-                        "failure",
-                        false));
+                new AgentEventPayload.Error("failed", "failure", false));
         ImmutableList.Builder<AgentEventEnvelope> expected = ImmutableList.builder();
         long sequence = 0;
         for (AgentEventPayload payload : payloads) {
@@ -178,11 +152,7 @@ class TestFileTaskLogStore
                 false,
                 Optional.empty(),
                 Optional.empty(),
-                ImmutableList.of(new CommandAction(
-                        CommandActionKind.READ,
-                        Optional.of("OpenAI Docs skill"),
-                        Optional.empty(),
-                        Optional.empty())),
+                ImmutableList.of(new CommandAction(CommandActionKind.READ, Optional.of("OpenAI Docs skill"), Optional.empty(), Optional.empty())),
                 false,
                 Optional.empty()));
         store.append(named);
@@ -200,10 +170,7 @@ class TestFileTaskLogStore
     {
         AgentEventEnvelope first = envelope(1, message("complete"));
         store.append(first);
-        Files.writeString(
-                resources.require(taskId).eventsFile(),
-                "{partial",
-                StandardOpenOption.APPEND);
+        Files.writeString(resources.require(taskId).eventsFile(), "{partial", StandardOpenOption.APPEND);
 
         assertThat(store.readAfter(taskId, 0, 10)).containsExactly(first);
 
@@ -219,29 +186,11 @@ class TestFileTaskLogStore
     void roundTripsPartialFinalAndCumulativeUsage()
     {
         List<AgentEventPayload> payloads = ImmutableList.of(
-                new AgentEventPayload.AssistantMessage(
-                        MessageKind.ANSWER,
-                        MessagePhase.PARTIAL,
-                        "hello from"),
-                new AgentEventPayload.AssistantMessage(
-                        MessageKind.ANSWER,
-                        MessagePhase.FINAL,
-                        "hello from ByteQuay Codex"),
-                new AgentEventPayload.UsageUpdated(
-                        AgentEventPayload.UsageSemantics.CUMULATIVE,
-                        16_286,
-                        9_984,
-                        11,
-                        Optional.empty()),
-                new AgentEventPayload.UsageUpdated(
-                        AgentEventPayload.UsageSemantics.CUMULATIVE_FOR_INVOCATION,
-                        20_759,
-                        20_224,
-                        73,
-                        Optional.empty()),
-                new AgentEventPayload.Lifecycle(
-                        AgentEventPayload.LifecyclePhase.TURN_COMPLETED,
-                        "completed"));
+                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.PARTIAL, "hello from"),
+                new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, "hello from ByteQuay Codex"),
+                new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.CUMULATIVE, 16_286, 9_984, 11, Optional.empty()),
+                new AgentEventPayload.UsageUpdated(AgentEventPayload.UsageSemantics.CUMULATIVE_FOR_INVOCATION, 20_759, 20_224, 73, Optional.empty()),
+                new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_COMPLETED, "completed"));
         ImmutableList.Builder<AgentEventEnvelope> expected = ImmutableList.builder();
         long sequence = 0;
         for (AgentEventPayload payload : payloads) {
@@ -277,10 +226,7 @@ class TestFileTaskLogStore
         Path eventsFile = resources.require(taskId).eventsFile();
         String stored = Files.readString(eventsFile);
         assertThat(stored).contains("\"schemaVersion\":2");
-        Files.writeString(
-                eventsFile,
-                stored.replace("\"schemaVersion\":2", "\"schemaVersion\":3"),
-                StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(eventsFile, stored.replace("\"schemaVersion\":2", "\"schemaVersion\":3"), StandardOpenOption.TRUNCATE_EXISTING);
 
         assertThatThrownBy(() -> store.readAfter(taskId, 0, 10))
                 .isInstanceOf(AgentStorageException.class)
@@ -303,10 +249,7 @@ class TestFileTaskLogStore
                 StandardOpenOption.TRUNCATE_EXISTING);
         assertThat(store.readAfter(taskId, 0, 10)).containsExactly(expected);
 
-        Files.writeString(
-                eventsFile,
-                stored.replace("\"type\":\"assistant_message\"", "\"type\":\"future_event\""),
-                StandardOpenOption.TRUNCATE_EXISTING);
+        Files.writeString(eventsFile, stored.replace("\"type\":\"assistant_message\"", "\"type\":\"future_event\""), StandardOpenOption.TRUNCATE_EXISTING);
         assertThatThrownBy(() -> store.readAfter(taskId, 0, 10))
                 .isInstanceOf(AgentStorageException.class)
                 .hasRootCauseInstanceOf(IllegalArgumentException.class);
@@ -584,9 +527,6 @@ class TestFileTaskLogStore
 
     private static AgentEventPayload message(String text)
     {
-        return new AgentEventPayload.AssistantMessage(
-                MessageKind.ANSWER,
-                MessagePhase.FINAL,
-                text);
+        return new AgentEventPayload.AssistantMessage(MessageKind.ANSWER, MessagePhase.FINAL, text);
     }
 }

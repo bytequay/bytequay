@@ -44,8 +44,7 @@ public record CherryPickExecutionRequest(
         requireNonNull(expectedSourceBaseSha, "expectedSourceBaseSha is null");
         requireNonNull(expectedSourceTipSha, "expectedSourceTipSha is null");
         requireNonNull(expectedTargetSha, "expectedTargetSha is null");
-        userSkippedSourceShas = ImmutableList.copyOf(requireNonNull(
-                userSkippedSourceShas, "userSkippedSourceShas is null"));
+        userSkippedSourceShas = ImmutableList.copyOf(requireNonNull(userSkippedSourceShas, "userSkippedSourceShas is null"));
         requireNonNull(laneId, "laneId is null");
         requireNonNull(idempotencyKey, "idempotencyKey is null");
         requireNonNull(pullRequestTitle, "pullRequestTitle is null");

@@ -80,8 +80,7 @@ class TestGhCliService
     {
         GitCommandRunner runner = mock(GitCommandRunner.class);
         when(runner.runCommand(any(), any(), any(), eq(8192)))
-                .thenReturn(new GitCommandRunner.Result(
-                        1, "To get started with GitHub CLI, please run: gh auth login", false));
+                .thenReturn(new GitCommandRunner.Result(1, "To get started with GitHub CLI, please run: gh auth login", false));
 
         assertThatThrownBy(() -> new GhCliService(runner).readToken("/fake/gh"))
                 .isInstanceOf(ResponseStatusException.class)

@@ -196,8 +196,7 @@ public class SqlitePullRequestStore
         requireNonNull(syncMarker, "syncMarker is null");
         requireNonNull(currentLogin, "currentLogin is null");
         jpaRepository.demoteAuthoredByOthers(currentLogin);
-        jpaRepository.hideStaleDashboardRows(
-                syncMarker, Instant.now().minus(HANDLED_RETENTION_DAYS, ChronoUnit.DAYS));
+        jpaRepository.hideStaleDashboardRows(syncMarker, Instant.now().minus(HANDLED_RETENTION_DAYS, ChronoUnit.DAYS));
         return deleteInvisibleRows();
     }
 
@@ -318,9 +317,7 @@ public class SqlitePullRequestStore
 
     private static PageRequest pageRequest(int page, int pageSize)
     {
-        return PageRequest.of(page, pageSize, Sort.by(
-                Sort.Order.desc("updatedAt"),
-                Sort.Order.desc("id")));
+        return PageRequest.of(page, pageSize, Sort.by(Sort.Order.desc("updatedAt"), Sort.Order.desc("id")));
     }
 
     private static String normalizeSearch(String search)

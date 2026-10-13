@@ -33,9 +33,7 @@ class TestGitHubAccountClientRepositoryRouting
     {
         RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
-        GitHubAccountClient client = new GitHubAccountClient(
-                apiBuilder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubAccountClient client = new GitHubAccountClient(apiBuilder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/users/octocat"))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
@@ -66,9 +64,7 @@ class TestGitHubAccountClientRepositoryRouting
     {
         RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
-        GitHubAccountClient client = new GitHubAccountClient(
-                apiBuilder.build(),
-                RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        GitHubAccountClient client = new GitHubAccountClient(apiBuilder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
         server.expect(requestTo("https://api.github.test/repositories/42"))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
@@ -104,8 +100,7 @@ class TestGitHubAccountClientRepositoryRouting
 
         assertThat(repository.visibility()).isEqualTo("private");
         assertThat(repository.viewerCanPush()).isTrue();
-        assertThat(repository.upstream()).contains(new UserRepo.Upstream(
-                40, "canonical", "project", "main", "https://github.com/canonical/project.git"));
+        assertThat(repository.upstream()).contains(new UserRepo.Upstream(40, "canonical", "project", "main", "https://github.com/canonical/project.git"));
         server.verify();
     }
 }

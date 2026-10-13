@@ -80,8 +80,7 @@ public class CommitHistorySyncJob
                 commits.refreshIfDue(workspace.id(), refs(workspace), staleBefore);
             }
             catch (RuntimeException failure) {
-                log.warn("Could not refresh commits for workspace {}: {}",
-                        workspace.id(), failure.getMessage());
+                log.warn("Could not refresh commits for workspace {}: {}", workspace.id(), failure.getMessage());
             }
         }
     }
@@ -98,8 +97,7 @@ public class CommitHistorySyncJob
         List<CommitHistoryRef> refs = new ArrayList<>();
         refs.add(new CommitHistoryRef(Source.WORKSPACE, workspace.defaultBranch()));
         if (workspace.upstreamRepositoryId() != null) {
-            refs.add(new CommitHistoryRef(Source.UPSTREAM, requireNonNull(
-                    workspace.upstreamDefaultBranch(), "linked upstream default branch is null")));
+            refs.add(new CommitHistoryRef(Source.UPSTREAM, requireNonNull(workspace.upstreamDefaultBranch(), "linked upstream default branch is null")));
         }
         return ImmutableList.copyOf(refs);
     }

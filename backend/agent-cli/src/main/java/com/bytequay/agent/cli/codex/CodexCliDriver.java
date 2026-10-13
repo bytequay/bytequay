@@ -263,8 +263,7 @@ public final class CodexCliDriver
             PermissionBroker permissions,
             Duration quiescenceTimeout)
     {
-        this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, quiescenceTimeout,
-                LANE_ID, "Codex", Optional.empty());
+        this(executable, minimumVersion, objectMapper, supervisor, environment, codexHome, permissions, quiescenceTimeout, LANE_ID, "Codex", Optional.empty());
     }
 
     private CodexCliDriver(
@@ -450,10 +449,7 @@ public final class CodexCliDriver
         try {
             ProviderCli.Result versionResult = run(executable, "--version");
             if (versionResult.exitCode() != 0) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.empty(),
-                        "codex --version failed: " + versionResult.combinedOutput());
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), "codex --version failed: " + versionResult.combinedOutput());
             }
             String version = versionResult.combinedOutput().lines()
                     .filter(line -> line.startsWith("codex-cli "))
@@ -465,10 +461,7 @@ public final class CodexCliDriver
                             .findFirst()
                             .orElse(""));
             if (version.isBlank()) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.empty(),
-                        "Unable to read Codex CLI version");
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), "Unable to read Codex CLI version");
             }
             detectedVersion = version;
             OptionalInt comparison = compareVersion(version);
@@ -825,8 +818,7 @@ public final class CodexCliDriver
 
     private Map<String, String> launchEnvironment()
     {
-        return GitCliEnvironment.withoutCredentials(
-                Maps.filterKeys(environment, name -> !name.equals("OPENAI_API_KEY")));
+        return GitCliEnvironment.withoutCredentials(Maps.filterKeys(environment, name -> !name.equals("OPENAI_API_KEY")));
     }
 
     private record ClientLaunch(
@@ -856,8 +848,7 @@ public final class CodexCliDriver
                 case DISABLED -> CodexLaunchProfile.ChildProfile.NONE;
                 case V1 -> CodexLaunchProfile.ChildProfile.V1;
                 case V2 -> CodexLaunchProfile.ChildProfile.V2;
-                case UNKNOWN -> throw new AgentUnavailableException(
-                        "Codex model " + selected.id() + " advertises an unknown multi-agent version");
+                case UNKNOWN -> throw new AgentUnavailableException("Codex model " + selected.id() + " advertises an unknown multi-agent version");
             };
             return new ModelProfile(selected.id(), childProfile, selected.serviceTiers().orElse(ImmutableList.of()));
         }
@@ -1171,11 +1162,7 @@ public final class CodexCliDriver
             rememberAppServerVersion();
             CodexProtocol.TurnStartResponse response;
             try {
-                response = client.request(
-                        "turn/start",
-                        params,
-                        CodexProtocol.TurnStartResponse.class,
-                        REQUEST_TIMEOUT);
+                response = client.request("turn/start", params, CodexProtocol.TurnStartResponse.class, REQUEST_TIMEOUT);
             }
             catch (CodexAppServerClient.RequestNotSent | CodexAppServerClient.RequestRefused definite) {
                 throw appServerFailure("turn/start", definite);
@@ -1208,9 +1195,7 @@ public final class CodexCliDriver
         private Map<String, Object> sandboxPolicy(Path worktree)
         {
             if (context.restricted()) {
-                return ImmutableMap.of(
-                        "type", "readOnly",
-                        "networkAccess", false);
+                return ImmutableMap.of("type", "readOnly", "networkAccess", false);
             }
             return ImmutableMap.of(
                     "type", "workspaceWrite",
@@ -1478,10 +1463,7 @@ public final class CodexCliDriver
                 CodexProtocol.HistoryThread thread = started.params().thread();
                 // A missing parent is not evidence that this is a direct child of the root. Keep
                 // observing the thread, but do not publish it until an explicit edge arrives.
-                thread.parentThreadId().ifPresent(parent -> register(
-                        thread.id(),
-                        parent,
-                        thread.agentNickname().or(thread::agentRole)));
+                thread.parentThreadId().ifPresent(parent -> register(thread.id(), parent, thread.agentNickname().or(thread::agentRole)));
                 return;
             }
             if (notification instanceof CodexProtocol.ItemStartedNotification started) {
@@ -1524,11 +1506,7 @@ public final class CodexCliDriver
             if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
                 boolean edge = childProfile == CodexLaunchProfile.ChildProfile.V2
                         && activity.kind() == CodexProtocol.SubAgentActivityKind.STARTED;
-                String agentPath = validateV2AgentPath(
-                        activity.agentThreadId(),
-                        namingThread,
-                        activity.agentPath(),
-                        edge);
+                String agentPath = validateV2AgentPath(activity.agentThreadId(), namingThread, activity.agentPath(), edge);
                 Optional<String> label = Optional.of(agentPath);
                 if (!edge) {
                     requireKnownGraphIdentity(activity.agentThreadId());
@@ -1643,19 +1621,13 @@ public final class CodexCliDriver
             observedThreads.add(threadId);
             children.compute(threadId, (thread, existing) -> {
                 if (existing == null) {
-                    return new ChildFacts(
-                            parentThreadId,
-                            resolvedChildLabel(threadId, label, "Agent " + (children.size() + 1)),
-                            purpose);
+                    return new ChildFacts(parentThreadId, resolvedChildLabel(threadId, label, "Agent " + (children.size() + 1)), purpose);
                 }
                 if (!existing.parent().equals(parentThreadId)) {
                     throw new AgentUnavailableException("Codex reported contradictory parents for a subagent");
                 }
                 // A nickname or prompt that arrives after discovery fills it in; a parent never changes.
-                return new ChildFacts(
-                        existing.parent(),
-                        resolvedChildLabel(threadId, label, existing.label()),
-                        purpose.or(existing::purpose));
+                return new ChildFacts(existing.parent(), resolvedChildLabel(threadId, label, existing.label()), purpose.or(existing::purpose));
             });
         }
 
@@ -1727,12 +1699,7 @@ public final class CodexCliDriver
 
         private ProviderAgentEventSource childSource(String threadId)
         {
-            return new ProviderAgentEventSource(
-                    Optional.of(threadId),
-                    lineage.parentOf(threadId),
-                    lineage.labelOf(threadId),
-                    Optional.empty(),
-                    Optional.empty());
+            return new ProviderAgentEventSource(Optional.of(threadId), lineage.parentOf(threadId), lineage.labelOf(threadId), Optional.empty(), Optional.empty());
         }
 
         /**
@@ -2000,11 +1967,7 @@ public final class CodexCliDriver
         private void interruptAgent(String thread, String turnId)
         {
             try {
-                client.request(
-                        "turn/interrupt",
-                        new CodexProtocol.TurnParams(thread, turnId),
-                        CodexProtocol.EmptyResponse.class,
-                        REQUEST_TIMEOUT);
+                client.request("turn/interrupt", new CodexProtocol.TurnParams(thread, turnId), CodexProtocol.EmptyResponse.class, REQUEST_TIMEOUT);
             }
             catch (RuntimeException failure) {
                 // Still reported as unfinished, so the bound on stopping decides the outcome.
@@ -2070,34 +2033,29 @@ public final class CodexCliDriver
             CodexRunningTurn expectedTurn;
             synchronized (this) {
                 if (closed || running == null) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex request does not belong to the active turn"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex request does not belong to the active turn"));
                 }
                 if (serverRequest.threadId().isBlank()) {
                     // A legacy request names a conversation rather than a thread, so it cannot be
                     // attributed to this task's turn at all.
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex request has no active thread"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex request has no active thread"));
                 }
                 // A subagent asks on its own thread and turn. It runs inside this task's process,
                 // so its approval belongs to the turn that spawned it.
                 if (serverRequest.threadId().equals(reference.providerValue())
                         && (serverRequest.turnId().isEmpty()
                                 || !serverRequest.turnId().orElseThrow().equals(running.reference().value()))) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex request does not belong to the active turn"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex request does not belong to the active turn"));
                 }
                 if (!serverRequest.threadId().equals(reference.providerValue())
                         && !routableThread(serverRequest.threadId())) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex approval thread is not in the active agent graph"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex approval thread is not in the active agent graph"));
                 }
                 expectedTurn = running;
             }
             if (expectedTurn.cancellationRequested()
                     || expectedTurn.completion().toCompletableFuture().isDone()) {
-                return CompletableFuture.failedFuture(
-                        new AgentUnavailableException("Codex request does not belong to the active turn"));
+                return CompletableFuture.failedFuture(new AgentUnavailableException("Codex request does not belong to the active turn"));
             }
             if (serverRequest instanceof CodexProtocol.DynamicToolCallRequest dynamic) {
                 if (codeQueries.isEmpty()) {
@@ -2129,8 +2087,7 @@ public final class CodexCliDriver
                             return;
                         }
                     }
-                    JsonNode body = permissions.callCodexRootTool(codeQueries.orElseThrow().token(),
-                            request.params().tool(), request.params().arguments()).body().orElseThrow();
+                    JsonNode body = permissions.callCodexRootTool(codeQueries.orElseThrow().token(), request.params().tool(), request.params().arguments()).body().orElseThrow();
                     JsonNode tool = body.path("result");
                     boolean success = !tool.isMissingNode() && !tool.path("isError").asBoolean(false);
                     String message = success || !tool.isMissingNode()
@@ -2147,8 +2104,7 @@ public final class CodexCliDriver
 
         private static CodexProtocol.DynamicToolCallResponse reviewToolResponse(String text, boolean success)
         {
-            return new CodexProtocol.DynamicToolCallResponse(
-                    ImmutableList.of(new CodexProtocol.DynamicToolTextContent("inputText", text)), success);
+            return new CodexProtocol.DynamicToolCallResponse(ImmutableList.of(new CodexProtocol.DynamicToolTextContent("inputText", text)), success);
         }
 
         private CompletionStage<?> registerApproval(
@@ -2163,13 +2119,11 @@ public final class CodexCliDriver
             long startedAtMs;
             if (serverRequest instanceof CodexProtocol.CommandApprovalRequest approval) {
                 if (approval.params().kind().filter(commandKind -> !commandKind.equals("command")).isPresent()) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Unsupported Codex command approval kind"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Unsupported Codex command approval kind"));
                 }
                 Optional<String> command = approval.params().command().filter(value -> !value.isBlank());
                 if (command.isEmpty()) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex command approval has no displayable command"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex command approval has no displayable command"));
                 }
                 kind = ProviderApprovalRequest.Kind.COMMAND;
                 title = "Allow Codex command";
@@ -2178,8 +2132,7 @@ public final class CodexCliDriver
                         && ReviewBridge.deniedReason(rawCommand).isPresent()) {
                     // A review session's remote-write guard answers before any card exists.
                     try {
-                        return CompletableFuture.completedFuture(
-                                approvalResponse(serverRequest, ProviderApprovalDecision.deny(), expectedTurn));
+                        return CompletableFuture.completedFuture(approvalResponse(serverRequest, ProviderApprovalDecision.deny(), expectedTurn));
                     }
                     catch (AgentUnavailableException failure) {
                         return CompletableFuture.failedFuture(failure);
@@ -2197,15 +2150,13 @@ public final class CodexCliDriver
             }
             else if (serverRequest instanceof CodexProtocol.FileChangeApprovalRequest approval) {
                 if (approval.params().grantRoot().filter(String::isBlank).isPresent()) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex file approval has a blank write root"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex file approval has a blank write root"));
                 }
                 if (approval.params().grantRoot().isPresent()) {
                     try {
                         Path requested = Path.of(approval.params().grantRoot().orElseThrow());
                         if (AgentPermissionManager.allowsFileWrite(requested, context.worktree(), environment, permissionScope)) {
-                            return CompletableFuture.completedFuture(
-                                    approvalResponse(serverRequest, ProviderApprovalDecision.allow(Optional.empty()), expectedTurn));
+                            return CompletableFuture.completedFuture(approvalResponse(serverRequest, ProviderApprovalDecision.allow(Optional.empty()), expectedTurn));
                         }
                     }
                     catch (InvalidPathException ignored) {
@@ -2225,15 +2176,12 @@ public final class CodexCliDriver
                 }
                 detail = sessionRedactor.redact(detail);
                 itemId = approval.params().itemId();
-                availableDecisions = ImmutableList.of(
-                        ALLOW_ONCE,
-                        DENY);
+                availableDecisions = ImmutableList.of(ALLOW_ONCE, DENY);
                 startedAtMs = approval.params().startedAtMs();
             }
             else if (serverRequest instanceof CodexProtocol.PermissionsApprovalRequest approval) {
                 if (!approval.params().permissions().isObject()) {
-                    return CompletableFuture.failedFuture(
-                            new AgentUnavailableException("Codex requested permissions have an unsupported shape"));
+                    return CompletableFuture.failedFuture(new AgentUnavailableException("Codex requested permissions have an unsupported shape"));
                 }
                 kind = ProviderApprovalRequest.Kind.OTHER;
                 title = "Allow Codex requested permissions";
@@ -2245,8 +2193,7 @@ public final class CodexCliDriver
                 startedAtMs = approval.params().startedAtMs();
             }
             else {
-                return CompletableFuture.failedFuture(
-                        new AgentUnavailableException("Unsupported Codex request"));
+                return CompletableFuture.failedFuture(new AgentUnavailableException("Unsupported Codex request"));
             }
 
             ProviderApprovalRequest approvalRequest = new ProviderApprovalRequest(
@@ -2391,8 +2338,7 @@ public final class CodexCliDriver
                     // Only an allow has to be offered; a decline is always legal and widens nothing.
                     if (allow && command.params().availableDecisions().isPresent()
                             && !command.params().availableDecisions().orElseThrow().contains(wireDecision)) {
-                        throw new AgentUnavailableException(
-                                "Codex command approval did not offer decision " + wireDecision.textValue());
+                        throw new AgentUnavailableException("Codex command approval did not offer decision " + wireDecision.textValue());
                     }
                     return new CodexProtocol.CommandApprovalResponse(wireDecision);
                 }
@@ -2465,10 +2411,7 @@ public final class CodexCliDriver
             if (completion.isDone()) {
                 throw new AgentUnavailableException("Codex turn " + reference + " has already ended");
             }
-            CodexProtocol.TurnSteerParams params = new CodexProtocol.TurnSteerParams(
-                    threadId,
-                    reference.value(),
-                    userInput.apply(input.message(), input.attachments()));
+            CodexProtocol.TurnSteerParams params = new CodexProtocol.TurnSteerParams(threadId, reference.value(), userInput.apply(input.message(), input.attachments()));
             CodexProtocol.TurnSteerResponse response;
             try {
                 response = client.request("turn/steer", params, CodexProtocol.TurnSteerResponse.class, REQUEST_TIMEOUT);
@@ -2484,8 +2427,7 @@ public final class CodexCliDriver
                 throw new AgentDeliveryUncertainException(appServerFailure("turn/steer", failure).getMessage(), failure);
             }
             if (!response.turnId().equals(reference.value())) {
-                throw new AgentDeliveryUncertainException(
-                        "Codex CLI " + rememberAppServerVersion() + " steered turn " + response.turnId() + " instead of " + reference, null);
+                throw new AgentDeliveryUncertainException("Codex CLI " + rememberAppServerVersion() + " steered turn " + response.turnId() + " instead of " + reference, null);
             }
         }
 
@@ -2498,11 +2440,7 @@ public final class CodexCliDriver
             }
             Thread.ofVirtual().name("bytequay-codex-cancel").start(() -> {
                 try {
-                    client.request(
-                            "turn/interrupt",
-                            new CodexProtocol.TurnParams(threadId, reference.value()),
-                            CodexProtocol.EmptyResponse.class,
-                            Duration.ofSeconds(10));
+                    client.request("turn/interrupt", new CodexProtocol.TurnParams(threadId, reference.value()), CodexProtocol.EmptyResponse.class, Duration.ofSeconds(10));
                 }
                 catch (CodexAppServerClient.RequestRefused refused) {
                     // App Server answered that no turn is running: the root finished first, and its completion settles the turn.

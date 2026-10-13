@@ -60,10 +60,7 @@ public class GitBrowseService
         String currentBranch = require(repository, "rev-parse", "--abbrev-ref", "HEAD").strip();
         List<String> branches = lines(require(repository, "for-each-ref", "--format=%(refname:short)", "refs/heads"));
         List<Remote> remotes = lines(require(repository, "remote")).stream()
-                .map(name -> new Remote(
-                        name,
-                        require(repository, "config", "--get", "remote." + name + ".url").strip(),
-                        remoteHeadBranch(repository, name)))
+                .map(name -> new Remote(name, require(repository, "config", "--get", "remote." + name + ".url").strip(), remoteHeadBranch(repository, name)))
                 .collect(toImmutableList());
         return new RepoOverview(currentBranch, branches, remotes);
     }
@@ -97,14 +94,7 @@ public class GitBrowseService
     {
         checkArgument(!ref.isBlank(), "ref is blank");
         checkArgument(limit > 0, "limit is not positive");
-        String output = require(
-                repository,
-                "log",
-                "--no-show-signature",
-                LOG_FORMAT,
-                "-n", String.valueOf(limit),
-                ref,
-                "--");
+        String output = require(repository, "log", "--no-show-signature", LOG_FORMAT, "-n", String.valueOf(limit), ref, "--");
         return parseCommits(output);
     }
 
@@ -250,15 +240,8 @@ public class GitBrowseService
         String[] author = require(repository, "log", "-1", "--format=%an" + FIELD + "%ae" + FIELD + "%aI", tipSha)
                 .strip()
                 .split(String.valueOf(FIELD), 3);
-        Map<String, String> environment = ImmutableMap.of(
-                "GIT_AUTHOR_NAME", author[0],
-                "GIT_AUTHOR_EMAIL", author[1],
-                "GIT_AUTHOR_DATE", author[2]);
-        Result created = git.run(
-                repository,
-                Duration.ofSeconds(60),
-                environment,
-                ImmutableList.of("commit-tree", tipSha + "^{tree}", "-p", baseSha + "^", "-m", message));
+        Map<String, String> environment = ImmutableMap.of("GIT_AUTHOR_NAME", author[0], "GIT_AUTHOR_EMAIL", author[1], "GIT_AUTHOR_DATE", author[2]);
+        Result created = git.run(repository, Duration.ofSeconds(60), environment, ImmutableList.of("commit-tree", tipSha + "^{tree}", "-p", baseSha + "^", "-m", message));
         if (!created.successful()) {
             throw new IllegalArgumentException("Git failed: " + created.output().strip());
         }

@@ -206,11 +206,9 @@ class TestRecentService
         RecentWordHit hit = service.words("prompt", 10).getFirst();
         assertThat(hit.itemKey()).isEqualTo(itemKey);
         assertThat(hit.workspaceId()).isEqualTo("ws-1");
-        assertThat(service.stream(
-                new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-1", false, null), null).rows())
+        assertThat(service.stream(new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-1", false, null), null).rows())
                 .extracting(RecentRow::itemKey).containsExactly(itemKey);
-        assertThat(service.stream(
-                new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-2", false, null), null).rows()).isEmpty();
+        assertThat(service.stream(new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-2", false, null), null).rows()).isEmpty();
     }
 
     @Test
@@ -303,8 +301,7 @@ class TestRecentService
         store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.COMMENTED, 0));
         when(viewStates.findByPrIds(anySet()))
                 .thenReturn(ImmutableMap.of(11L, new PrViewState(11L, NOW, null, null, null)));
-        when(details.find(11L)).thenReturn(Optional.of(detailWith(
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
+        when(details.find(11L)).thenReturn(Optional.of(detailWith(ImmutableList.of(), ImmutableList.of(), ImmutableList.of())));
 
         assertThat(service.changes()).isEmpty();
     }
@@ -315,9 +312,7 @@ class TestRecentService
         store.put(touch("pr:o/r#1", TODAY, NOW, RecentReason.READ, 1));
 
         assertThat(service.windowStart()).isEqualTo(TODAY.minusDays(13));
-        service.stream(
-                new RecentFilter(TODAY.minusDays(400), TODAY, ImmutableSet.of(), null, null, false, null),
-                null);
+        service.stream(new RecentFilter(TODAY.minusDays(400), TODAY, ImmutableSet.of(), null, null, false, null), null);
         assertThat(store.lastFrom).isEqualTo(TODAY.minusDays(13));
     }
 
@@ -328,9 +323,7 @@ class TestRecentService
 
         // Days are stored as ISO text, so LocalDate.MAX would sort below every
         // real date and the window would come back empty.
-        RecentDayPage page = service.stream(
-                new RecentFilter(TODAY.minusDays(13), LocalDate.MAX, ImmutableSet.of(), null, null, false, null),
-                null);
+        RecentDayPage page = service.stream(new RecentFilter(TODAY.minusDays(13), LocalDate.MAX, ImmutableSet.of(), null, null, false, null), null);
         assertThat(store.lastTo).isEqualTo(TODAY);
         assertThat(page.rows()).hasSize(1);
     }
@@ -344,9 +337,7 @@ class TestRecentService
         store.put(elsewhere("pr:other/repo#9", TODAY, NOW.minusSeconds(60)));
         when(workspaces.findById("ws-1")).thenReturn(Optional.of(workspace("ws-1", "o", "r")));
 
-        RecentDayPage page = service.stream(
-                new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-1", false, null),
-                null);
+        RecentDayPage page = service.stream(new RecentFilter(TODAY.minusDays(13), TODAY, ImmutableSet.of(), null, "ws-1", false, null), null);
         assertThat(page.rows()).extracting(RecentRow::itemKey).containsExactly("pr:o/r#1");
     }
 
@@ -373,8 +364,7 @@ class TestRecentService
     @Test
     void recordsAndFindsTicketsByStableIdentityKeyAndWorkspace()
     {
-        RecentTouchRecorder writer = new RecentTouchRecorder(store, mock(PullRequestStore.class), details,
-                mock(RepositoryIssueStore.class), workspaces, credentials, CLOCK);
+        RecentTouchRecorder writer = new RecentTouchRecorder(store, mock(PullRequestStore.class), details, mock(RepositoryIssueStore.class), workspaces, credentials, CLOCK);
         JiraIssue ticket = jiraTicket("cloud-one", Optional.of(new JiraDtos.WorkspaceLink("ws-1", "Workspace")));
         writer.jiraRead(ticket, 19);
         assertThat(service.stream(everything(), null).rows()).isEmpty();
@@ -483,9 +473,7 @@ class TestRecentService
 
     private static RecentText text(String id, String body, Instant writtenAt)
     {
-        return new RecentText(
-                id, RecentItemType.PULL_REQUEST, "pr:o/r#1", RecentTextKind.COMMENT, body, writtenAt,
-                1, "o/r", "Support sorted by nested fields", null);
+        return new RecentText(id, RecentItemType.PULL_REQUEST, "pr:o/r#1", RecentTextKind.COMMENT, body, writtenAt, 1, "o/r", "Support sorted by nested fields", null);
     }
 
     private static RecentTouch taskTouch(String itemKey)
@@ -504,9 +492,7 @@ class TestRecentService
 
     private static RecentText taskText(String itemKey)
     {
-        return new RecentText(
-                itemKey + ":prompt:turn", RecentItemType.TASK, itemKey, RecentTextKind.TASK_PROMPT, "task prompt", NOW,
-                null, "personal/repo", "task prompt", null);
+        return new RecentText(itemKey + ":prompt:turn", RecentItemType.TASK, itemKey, RecentTextKind.TASK_PROMPT, "task prompt", NOW, null, "personal/repo", "task prompt", null);
     }
 
     private static Workspace workspace(String id, String owner, String repo)

@@ -127,8 +127,7 @@ class TestMergedPullRequestResolver
                 WORKSPACE, clone, 2, RepoRef.of("internal", "p2"), OptionalLong.empty(), RepoRef.of("internal", "p2"),
                 "origin", "origin", "main", ImmutableList.of(new RemoteSource(WORKSPACE, "source", SOURCE_URL).withRepositoryIdentity(3, RepoRef.of("internal", "p3")))));
         remotes = mock(WorkspaceRemoteSourceService.class);
-        when(remotes.list(WORKSPACE)).thenReturn(ImmutableList.of(
-                new WorkspaceRemote("source", SOURCE_URL, Role.CUSTOM), new WorkspaceRemote("origin", TARGET_URL, Role.ORIGIN)));
+        when(remotes.list(WORKSPACE)).thenReturn(ImmutableList.of(new WorkspaceRemote("source", SOURCE_URL, Role.CUSTOM), new WorkspaceRemote("origin", TARGET_URL, Role.ORIGIN)));
         credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken(WORKSPACE)).thenReturn("workspace-token");
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenReturn(ImmutableMap.of());
@@ -243,8 +242,7 @@ class TestMergedPullRequestResolver
         when(driver.probe()).thenReturn(new AgentProviderStatus(AgentLaneId.CLAUDE_CLI, AgentProviderStatus.Readiness.READY, Optional.of("fixture"), "Ready", capabilities));
         var drivers = mock(AgentDriverRegistry.class);
         when(drivers.require(AgentLaneId.CLAUDE_CLI)).thenReturn(driver);
-        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential(
-                "fixture", new UserProfile("test", "", "", "", 0, 0, 0, "", "", "", "")));
+        when(credentials.resolveGitHubCredential()).thenReturn(new CredentialService.GitHubCredential("fixture", new UserProfile("test", "", "", "", 0, 0, 0, "", "", "", "")));
         var store = new InMemoryCherryPickExecutionStore();
         var service = new CherryPickExecutionService(previews, store, new GitSequencerDriver(GIT), GIT, agent, agent, agent, drivers,
                 credentials, workspaces, paths, Clock.systemUTC());

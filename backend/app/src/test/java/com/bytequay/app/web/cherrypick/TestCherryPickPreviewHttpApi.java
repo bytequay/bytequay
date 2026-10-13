@@ -80,8 +80,7 @@ class TestCherryPickPreviewHttpApi
     void setUp()
     {
         workspaces = mock(WorkspaceRepositoryService.class);
-        when(workspaces.requireReadyRepository("workspace-id")).thenReturn(context(
-                "workspace-id", Path.of("/managed/workspace-id/repository"), Topology.FORK, "upstream"));
+        when(workspaces.requireReadyRepository("workspace-id")).thenReturn(context("workspace-id", Path.of("/managed/workspace-id/repository"), Topology.FORK, "upstream"));
         previewService = mock(CherryPickPreviewService.class);
         AgentProperties properties = new AgentProperties(
                 Path.of("/tmp/agent-runtime"),
@@ -143,8 +142,7 @@ class TestCherryPickPreviewHttpApi
     void derivesLinkedRoutingAndRejectsCherryPickWithoutAnUpstream()
             throws Exception
     {
-        when(workspaces.requireReadyRepository("direct-id")).thenReturn(context(
-                "direct-id", Path.of("/managed/direct-id/repository"), Topology.DIRECT, "origin"));
+        when(workspaces.requireReadyRepository("direct-id")).thenReturn(context("direct-id", Path.of("/managed/direct-id/repository"), Topology.DIRECT, "origin"));
         doThrow(new CherryPickInvalidRequestException("stop after capture"))
                 .when(previewService).preview(any());
 

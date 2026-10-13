@@ -31,10 +31,8 @@ public record CiBaseSynchronization(
         checkOptionalText(localBaseBranch, "localBaseBranch", 255);
         requireNonNull(diagnostics, "diagnostics is null");
         checkArgument(diagnostics.length() <= 8 * 1024, "diagnostics is too long");
-        checkArgument((outcome == Outcome.READY) == localBaseBranch.isPresent(),
-                "only a ready synchronization has a local base branch");
-        checkArgument(outcome == Outcome.READY ? diagnostics.isEmpty() : !diagnostics.isBlank(),
-                "synchronization diagnostics disagree with the outcome");
+        checkArgument((outcome == Outcome.READY) == localBaseBranch.isPresent(), "only a ready synchronization has a local base branch");
+        checkArgument(outcome == Outcome.READY ? diagnostics.isEmpty() : !diagnostics.isBlank(), "synchronization diagnostics disagree with the outcome");
     }
 
     public static CiBaseSynchronization ready(String localBaseBranch)

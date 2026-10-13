@@ -32,8 +32,7 @@ public sealed interface AgentEventOutboxPayload
         public Inline
         {
             requireNonNull(payload, "payload is null");
-            checkArgument(payload.kind() != AgentEventPayload.Kind.USER_MESSAGE,
-                    "user messages must use a blob-backed outbox payload");
+            checkArgument(payload.kind() != AgentEventPayload.Kind.USER_MESSAGE, "user messages must use a blob-backed outbox payload");
         }
 
         @Override

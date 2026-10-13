@@ -181,8 +181,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
-        List<String> writableRoots = Stream.concat(
-                Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
+        List<String> writableRoots = Stream.concat(Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
                 .map(Path::toString).toList();
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
@@ -252,8 +251,7 @@ class TestCodexCliDriver
         assertThat(events).anySatisfy(event -> {
             assertThat(event).isInstanceOf(ProviderAgentEvent.Usage.class);
             ProviderAgentEvent.Usage usage = (ProviderAgentEvent.Usage) event;
-            assertThat(usage.sample().semantics()).isEqualTo(
-                    com.bytequay.agent.spi.ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION);
+            assertThat(usage.sample().semantics()).isEqualTo(com.bytequay.agent.spi.ProviderUsageSample.Semantics.CUMULATIVE_FOR_INVOCATION);
             assertThat(usage.sample().inputTokens()).isEqualTo(80);
             assertThat(usage.sample().outputTokens()).isEqualTo(20);
         });
@@ -273,8 +271,7 @@ class TestCodexCliDriver
                 .allSatisfy(server -> assertThat(server.sandboxes()).containsExactly("workspace-write"));
         // Declared for thread/backgroundTerminals/list, which is experimental and is the only
         // inventory that can prove a thread owns no live process.
-        assertThat(supervisor.servers()).allSatisfy(
-                server -> assertThat(server.experimentalApi()).containsExactly(true));
+        assertThat(supervisor.servers()).allSatisfy(server -> assertThat(server.experimentalApi()).containsExactly(true));
     }
 
     @Test
@@ -433,8 +430,7 @@ class TestCodexCliDriver
             assertCiDriftRejected(override.getValue(), override.getKey());
         }
         for (String field : ImmutableList.of("network_access", "exclude_tmpdir_env_var", "exclude_slash_tmp")) {
-            ObjectNode sandbox = objectMapper.valueToTree(CodexLaunchProfile.ciSandboxConfig(
-                    ciWritableRoots(ciContext(Optional.empty()).worktree())));
+            ObjectNode sandbox = objectMapper.valueToTree(CodexLaunchProfile.ciSandboxConfig(ciWritableRoots(ciContext(Optional.empty()).worktree())));
             sandbox.put(field, false);
             assertCiDriftRejected(objectMapper.createObjectNode().set("sandbox_workspace_write", sandbox).toString(), field);
         }
@@ -576,9 +572,7 @@ class TestCodexCliDriver
                 .hasMessageContaining("text-only worktree escapes runtimeDirectory");
 
         ScriptedProcessSupervisor poisoned = new ScriptedProcessSupervisor(objectMapper);
-        ObjectNode config = objectMapper.valueToTree(
-                CodexLaunchProfile.threadConfig(
-                        CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
+        ObjectNode config = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
         ((ObjectNode) config.path("features")).put("shell_tool", true);
         poisoned.configBody = config.toString();
         assertThatThrownBy(() -> driver(poisoned).open(textOnly, event -> {}))
@@ -586,9 +580,7 @@ class TestCodexCliDriver
                 .hasMessageContaining("shell_tool");
 
         ScriptedProcessSupervisor proxyEnabled = new ScriptedProcessSupervisor(objectMapper);
-        ObjectNode proxyConfig = objectMapper.valueToTree(
-                CodexLaunchProfile.threadConfig(
-                        CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
+        ObjectNode proxyConfig = objectMapper.valueToTree(CodexLaunchProfile.threadConfig(CodexLaunchProfile.ChildProfile.NONE, false, true, ImmutableList.of(), false, false));
         ((ObjectNode) proxyConfig.path("features")).putObject("network_proxy").put("enabled", true);
         proxyEnabled.configBody = proxyConfig.toString();
         assertThatThrownBy(() -> driver(proxyEnabled).open(textOnly, event -> {}))
@@ -688,19 +680,11 @@ class TestCodexCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexAppServerClient client = appServerClient(supervisor);
 
-        assertThatThrownBy(() -> client.request(
-                "turn/steer",
-                new CodexProtocol.EmptyParams(),
-                CodexProtocol.EmptyResponse.class,
-                Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> client.request("turn/steer", new CodexProtocol.EmptyParams(), CodexProtocol.EmptyResponse.class, Duration.ofSeconds(1)))
                 .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
         assertThat(supervisor.servers()).isEmpty();
         client.close();
-        assertThatThrownBy(() -> client.request(
-                "turn/steer",
-                new CodexProtocol.EmptyParams(),
-                CodexProtocol.EmptyResponse.class,
-                Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> client.request("turn/steer", new CodexProtocol.EmptyParams(), CodexProtocol.EmptyResponse.class, Duration.ofSeconds(1)))
                 .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
     }
 
@@ -711,11 +695,7 @@ class TestCodexCliDriver
         CodexAppServerClient client = appServerClient(supervisor);
         client.start();
 
-        assertThatThrownBy(() -> client.request(
-                "turn/steer",
-                new UnencodableParams(),
-                CodexProtocol.EmptyResponse.class,
-                Duration.ofSeconds(1)))
+        assertThatThrownBy(() -> client.request("turn/steer", new UnencodableParams(), CodexProtocol.EmptyResponse.class, Duration.ofSeconds(1)))
                 .isInstanceOf(CodexAppServerClient.RequestNotSent.class);
         assertThat(supervisor.server().steerRequests()).isEmpty();
         client.close();
@@ -728,16 +708,9 @@ class TestCodexCliDriver
         CodexAppServerClient client = appServerClient(supervisor);
         client.start();
         supervisor.server().ignoreSteer();
-        CodexProtocol.TurnSteerParams timedOut = new CodexProtocol.TurnSteerParams(
-                "thread-1",
-                "turn-timeout",
-                ImmutableList.of(new CodexProtocol.TextInput("text", "late")));
+        CodexProtocol.TurnSteerParams timedOut = new CodexProtocol.TurnSteerParams("thread-1", "turn-timeout", ImmutableList.of(new CodexProtocol.TextInput("text", "late")));
 
-        assertThatThrownBy(() -> client.request(
-                "turn/steer",
-                timedOut,
-                CodexProtocol.TurnSteerResponse.class,
-                Duration.ofMillis(20)))
+        assertThatThrownBy(() -> client.request("turn/steer", timedOut, CodexProtocol.TurnSteerResponse.class, Duration.ofMillis(20)))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("Timed out");
         assertThat(client.pendingRequestCount()).isZero();
@@ -745,10 +718,7 @@ class TestCodexCliDriver
         supervisor.server().respondToIgnoredSteer();
         CodexProtocol.TurnSteerResponse response = client.request(
                 "turn/steer",
-                new CodexProtocol.TurnSteerParams(
-                        "thread-1",
-                        "turn-next",
-                        ImmutableList.of(new CodexProtocol.TextInput("text", "next"))),
+                new CodexProtocol.TurnSteerParams("thread-1", "turn-next", ImmutableList.of(new CodexProtocol.TextInput("text", "next"))),
                 CodexProtocol.TurnSteerResponse.class,
                 Duration.ofSeconds(1));
         assertThat(response.turnId()).isEqualTo("turn-next");
@@ -1057,8 +1027,7 @@ class TestCodexCliDriver
         CodexCliDriver missingDriver = driver(missing);
         assertThatThrownBy(() -> missingDriver.open(context(
                 Optional.empty(),
-                (request, timeout) -> CompletableFuture.completedFuture(
-                        ProviderApprovalDecision.allow(Optional.empty())),
+                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.allow(Optional.empty())),
                 Optional.of("not-in-catalog"),
                 Optional.<String>empty()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
@@ -1236,8 +1205,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor(objectMapper);
         CodexCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(Optional.empty(),
-                (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.expired())), event -> {});
+        AgentSession session = driver.open(context(Optional.empty(), (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.expired())), event -> {});
         RunningTurn turn = session.start(command("approval-timeout"));
         AppServerProcess server = supervisor.server();
         server.emit("""
@@ -1484,9 +1452,7 @@ class TestCodexCliDriver
         awaitCondition(() -> server.result(98) != null);
         assertThat(server.result(98).path("decision").asText()).isEqualTo("decline");
         assertThat(approval.get().availableDecisions())
-                .containsExactly(
-                        ProviderApprovalRequest.Decision.ALLOW_ONCE,
-                        ProviderApprovalRequest.Decision.DENY);
+                .containsExactly(ProviderApprovalRequest.Decision.ALLOW_ONCE, ProviderApprovalRequest.Decision.DENY);
         assertThat(approval.get().taskScope()).isEmpty();
 
         // Native review decides whether even a read needs approval; ByteQuay does not classify the shell again.
@@ -1513,9 +1479,7 @@ class TestCodexCliDriver
 
         AgentSession first = driver.open(context(Optional.empty(), new AtomicReference<>()), event -> {});
         first.start(command("first"));
-        AgentSession other = driver.open(
-                context("task-2", second, Optional.empty(), (request, timeout) -> new CompletableFuture<>()),
-                event -> {});
+        AgentSession other = driver.open(context("task-2", second, Optional.empty(), (request, timeout) -> new CompletableFuture<>()), event -> {});
 
         // One App Server process per task, each rooted in its own worktree. That working directory
         // is the sandbox root, which is what confines a turn without a separate execution
@@ -1539,29 +1503,24 @@ class TestCodexCliDriver
     void refusesATurnWhenAnInheritedCapabilityCannotBeProvenAbsent()
     {
         // Managed policy applies, so an exec rule could be inherited without ByteQuay seeing it.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements(
-                "{\"requirements\":{\"allowLoginShell\":true}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements("{\"requirements\":{\"allowLoginShell\":true}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("managed requirements apply");
 
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements(
-                "{\"requirements\":{\"allowedLoginMethods\":[\"chatgpt\"]}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements("{\"requirements\":{\"allowedLoginMethods\":[\"chatgpt\"]}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("managed requirements apply");
 
         // An unknown sibling field means a policy dimension exists that this release cannot read.
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements(
-                "{\"requirements\":null,\"futurePolicy\":{}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportManagedRequirements("{\"requirements\":null,\"futurePolicy\":{}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("unknown managed-policy field");
 
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount(
-                "{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"apiKey\"}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount("{\"requiresOpenaiAuth\":true,\"account\":{\"type\":\"apiKey\"}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("isolated ChatGPT account");
 
-        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount(
-                "{\"requiresOpenaiAuth\":false,\"account\":{\"type\":\"chatgpt\"}}")))
+        assertThatThrownBy(() -> startTurnWith(supervisor -> supervisor.reportAccount("{\"requiresOpenaiAuth\":false,\"account\":{\"type\":\"chatgpt\"}}")))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("isolated ChatGPT account");
 
@@ -1576,9 +1535,7 @@ class TestCodexCliDriver
     {
         ScriptedProcessSupervisor noLayers = new ScriptedProcessSupervisor(objectMapper);
         noLayers.configLayers = "[]";
-        assertThatThrownBy(() -> driver(noLayers).open(
-                context(Optional.empty(), new AtomicReference<>()),
-                event -> {}))
+        assertThatThrownBy(() -> driver(noLayers).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("exactly one isolated user layer");
         assertThat(noLayers.server().threadRequests()).isEmpty();
@@ -1586,17 +1543,14 @@ class TestCodexCliDriver
         for (String mode : ImmutableList.of("disabled", "cached", "enabled")) {
             ScriptedProcessSupervisor wrongEffectiveProfile = new ScriptedProcessSupervisor(objectMapper);
             wrongEffectiveProfile.configBody = "{\"web_search\":\"" + mode + "\"}";
-            assertThatThrownBy(() -> driver(wrongEffectiveProfile).open(
-                    context(Optional.empty(), new AtomicReference<>()),
-                    event -> {}))
+            assertThatThrownBy(() -> driver(wrongEffectiveProfile).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                     .isInstanceOf(AgentUnavailableException.class)
                     .hasMessageContaining("web_search");
             assertThat(wrongEffectiveProfile.server().threadRequests()).isEmpty();
         }
 
         ScriptedProcessSupervisor disabledNativeReviewer = new ScriptedProcessSupervisor(objectMapper);
-        ObjectNode disabledFeatures = objectMapper.valueToTree(
-                CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.V1, false));
+        ObjectNode disabledFeatures = objectMapper.valueToTree(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.V1, false));
         disabledFeatures.put("guardian_approval", false);
         disabledNativeReviewer.configBody = objectMapper.createObjectNode().set("features", disabledFeatures).toString();
         assertThatThrownBy(() -> driver(disabledNativeReviewer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
@@ -1615,9 +1569,7 @@ class TestCodexCliDriver
         sessionLayer.putObject("name").put("type", "sessionFlags");
         sessionLayer.set("config", objectMapper.createObjectNode());
         wrongSessionFlags.configLayers = layers.toString();
-        assertThatThrownBy(() -> driver(wrongSessionFlags).open(
-                context(Optional.empty(), new AtomicReference<>()),
-                event -> {}))
+        assertThatThrownBy(() -> driver(wrongSessionFlags).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("web_search");
         assertThat(wrongSessionFlags.server().threadRequests()).isEmpty();
@@ -1625,9 +1577,7 @@ class TestCodexCliDriver
         ScriptedProcessSupervisor inheritedThreadServer = new ScriptedProcessSupervisor(objectMapper);
         inheritedThreadServer.mcpStatuses = "{\"data\":[{\"name\":\"ambient\",\"pluginId\":null}],"
                 + "\"nextCursor\":null}";
-        assertThatThrownBy(() -> driver(inheritedThreadServer).open(
-                context(Optional.empty(), new AtomicReference<>()),
-                event -> {}))
+        assertThatThrownBy(() -> driver(inheritedThreadServer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("thread inherited an MCP server");
         assertThat(inheritedThreadServer.server().threadRequests()).hasSize(1);
@@ -2576,10 +2526,7 @@ class TestCodexCliDriver
                         event -> event.source().logicalAgentPath().orElseThrow())
                 .containsExactlyInAnyOrder(
                         org.assertj.core.groups.Tuple.tuple("v2-child", "thread-1", "/root/reviewer"),
-                        org.assertj.core.groups.Tuple.tuple(
-                                "v2-grandchild",
-                                "v2-child",
-                                "/root/reviewer/researcher"));
+                        org.assertj.core.groups.Tuple.tuple("v2-grandchild", "v2-child", "/root/reviewer/researcher"));
     }
 
     @Test
@@ -2610,12 +2557,8 @@ class TestCodexCliDriver
     void rejectsUnknownIdentitiesFromBothNonselectedSupplementaryFormats()
             throws Exception
     {
-        AgentTurnResult v1UnderV2 = runUnknownSupplement(
-                Optional.of("v2"),
-                ScriptedProcessSupervisor::reportUnknownV1Supplement);
-        AgentTurnResult v2UnderV1 = runUnknownSupplement(
-                Optional.of("v1"),
-                ScriptedProcessSupervisor::reportUnknownV2Supplement);
+        AgentTurnResult v1UnderV2 = runUnknownSupplement(Optional.of("v2"), ScriptedProcessSupervisor::reportUnknownV1Supplement);
+        AgentTurnResult v2UnderV1 = runUnknownSupplement(Optional.of("v1"), ScriptedProcessSupervisor::reportUnknownV2Supplement);
 
         assertThat(ImmutableList.of(v1UnderV2, v2UnderV1)).allSatisfy(result -> {
             assertThat(result.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
@@ -2688,9 +2631,7 @@ class TestCodexCliDriver
         // about the second.
         supervisor.reportHooks("[{\"name\":\"stop\"}]");
 
-        assertThatThrownBy(() -> driver.open(
-                context(Optional.of(session.reference()), new AtomicReference<>()),
-                event -> {}))
+        assertThatThrownBy(() -> driver.open(context(Optional.of(session.reference()), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
     }
@@ -2731,9 +2672,7 @@ class TestCodexCliDriver
 
         supervisor.reportOnlyPriorRootHistory();
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
-        AgentSession resumed = driver.open(
-                context(Optional.of(firstSession.reference()), new AtomicReference<>()),
-                events::add);
+        AgentSession resumed = driver.open(context(Optional.of(firstSession.reference()), new AtomicReference<>()), events::add);
         RunningTurn current = resumed.start(command("current process"));
         supervisor.servers().getLast().completeTurn();
         AgentTurnResult result = current.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
@@ -2755,9 +2694,7 @@ class TestCodexCliDriver
         // A hook can appear while a task is unloaded, so a resumed thread proves nothing about the
         // process now serving it.
         supervisor.reportHooks("[{\"name\":\"stop\"}]");
-        assertThatThrownBy(() -> driver.open(
-                context(Optional.of(reference), new AtomicReference<>()),
-                event -> {}))
+        assertThatThrownBy(() -> driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("lifecycle hooks apply");
     }
@@ -2814,11 +2751,7 @@ class TestCodexCliDriver
                 1024,
                 Duration.ofMinutes(1),
                 Duration.ZERO);
-        return new CodexAppServerClient(
-                supervisor,
-                spec,
-                objectMapper,
-                SecretRedactor.fromEnvironment(ImmutableMap.of()));
+        return new CodexAppServerClient(supervisor, spec, objectMapper, SecretRedactor.fromEnvironment(ImmutableMap.of()));
     }
 
     private CodexCliDriver driver(ProcessSupervisor supervisor, Duration quiescenceTimeout)
@@ -2985,11 +2918,9 @@ class TestCodexCliDriver
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
         CodexHome.prepare(codexHome());
-        List<String> writableRoots = Stream.concat(
-                Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
+        List<String> writableRoots = Stream.concat(Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
                 .map(Path::toString).toList();
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString(), "GH_TOKEN", "github-sentinel",
@@ -3032,8 +2963,7 @@ class TestCodexCliDriver
                         .hasMessageContaining("default_tools_approval_mode");
                 assertThat(server.turnRequests()).isEmpty();
                 ObjectNode wrongScope = (ObjectNode) objectMapper.readTree(admittedConfig);
-                ObjectNode wrongFeatures = objectMapper.valueToTree(
-                        CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
+                ObjectNode wrongFeatures = objectMapper.valueToTree(CodexLaunchProfile.expectedFeatures(CodexLaunchProfile.ChildProfile.NONE, false, true));
                 wrongFeatures.put("guardian_approval", false);
                 wrongScope.set("features", wrongFeatures);
                 supervisor.configBody = wrongScope.toString();
@@ -3101,8 +3031,7 @@ class TestCodexCliDriver
         ReviewBridge review = new ReviewBridge(ImmutableList.of(
                 new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "context", true),
                 new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "finished")), "Review privately");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -3448,8 +3377,7 @@ class TestCodexCliDriver
         ReviewBridge review = new ReviewBridge(names.stream()
                 .map(name -> new ReviewTool(name, "Fixed task tool", ImmutableMap.of("type", "object"), arguments -> "captured"))
                 .collect(ImmutableList.toImmutableList()), "Check the selected specs");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -3681,10 +3609,7 @@ class TestCodexCliDriver
             Optional<AgentSessionRef> reference,
             AtomicReference<ProviderApprovalRequest> approval)
     {
-        return context(
-                reference,
-                approval,
-                new AtomicReference<>(ProviderApprovalDecision.allow(Optional.empty())));
+        return context(reference, approval, new AtomicReference<>(ProviderApprovalDecision.allow(Optional.empty())));
     }
 
     private AgentSessionContext context(
@@ -3841,16 +3766,8 @@ class TestCodexCliDriver
 
         private void scriptRecursiveV1Activity()
         {
-            scriptedItems.put("thread-1", v1SpawnItems(
-                    "spawn-child",
-                    "thread-1",
-                    "child-history",
-                    "inspect the child"));
-            scriptedItems.put("child-history", v1SpawnItems(
-                    "spawn-grandchild",
-                    "child-history",
-                    "grandchild-history",
-                    "inspect the grandchild"));
+            scriptedItems.put("thread-1", v1SpawnItems("spawn-child", "thread-1", "child-history", "inspect the child"));
+            scriptedItems.put("child-history", v1SpawnItems("spawn-grandchild", "child-history", "grandchild-history", "inspect the grandchild"));
             scriptedItems.put("grandchild-history", "{\"data\":[{\"turnId\":\"grandchild-turn\",\"item\":{"
                     + "\"type\":\"agentMessage\",\"id\":\"grandchild-message\","
                     + "\"text\":\"nested result\",\"phase\":\"final_answer\"}}],\"nextCursor\":null}");
@@ -3858,11 +3775,7 @@ class TestCodexCliDriver
 
         private void reportDuplicateChildItemIdsAcrossTurns()
         {
-            scriptedItems.put("thread-1", v1SpawnItems(
-                    "spawn-duplicate-child",
-                    "thread-1",
-                    "duplicate-child",
-                    "compare two turns"));
+            scriptedItems.put("thread-1", v1SpawnItems("spawn-duplicate-child", "thread-1", "duplicate-child", "compare two turns"));
             scriptedItems.put("duplicate-child", "{\"data\":["
                     + "{\"turnId\":\"child-turn-1\",\"item\":{\"type\":\"agentMessage\","
                     + "\"id\":\"same-item\",\"text\":\"first child turn\",\"phase\":\"final_answer\"}},"
@@ -3934,11 +3847,7 @@ class TestCodexCliDriver
 
         private void reportUnknownV1Supplement()
         {
-            scriptedItems.put("thread-1", v1SpawnItems(
-                    "nonselected-v1",
-                    "thread-1",
-                    "unknown-v1-child",
-                    "must already exist"));
+            scriptedItems.put("thread-1", v1SpawnItems("nonselected-v1", "thread-1", "unknown-v1-child", "must already exist"));
         }
 
         private void reportUnknownV2Supplement()
@@ -4090,9 +3999,7 @@ class TestCodexCliDriver
                 throw new AgentUnavailableException("Unable to start process: /fake/codex", new IOException("missing"));
             }
             if (spec.argv().contains("--version")) {
-                output.onOutput(
-                        ProcessStream.STDOUT,
-                        StandardCharsets.UTF_8.encode(versionOutput + "\n"));
+                output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(versionOutput + "\n"));
                 return ImmediateProcess.success(probeTermination);
             }
             if (spec.argv().contains("update") || spec.argv().contains("install")) {
@@ -4394,8 +4301,7 @@ class TestCodexCliDriver
             boolean review = hasArguments("--enable", "hooks")
                     || (!textOnlyProfile() && hasArguments("--disable", "guardian_approval"));
             ObjectNode config = objectMapper.valueToTree(
-                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(),
-                            allowsGitHubCommands() && !review, review));
+                    CodexLaunchProfile.threadConfig(childProfile(), false, textOnlyProfile(), ciWritableRoots(), allowsGitHubCommands() && !review, review));
             for (String argument : argv) {
                 for (String key : ImmutableList.of("approval_policy", "approvals_reviewer")) {
                     String prefix = key + "=";
@@ -5010,8 +4916,7 @@ class TestCodexCliDriver
 
         private static ImmediateProcess exited(int exitCode, ProcessExit.TreeTermination termination)
         {
-            return new ImmediateProcess(CompletableFuture.completedFuture(
-                    new ProcessExit(exitCode, ProcessExit.Reason.EXITED, termination, Duration.ZERO, false, false)));
+            return new ImmediateProcess(CompletableFuture.completedFuture(new ProcessExit(exitCode, ProcessExit.Reason.EXITED, termination, Duration.ZERO, false, false)));
         }
 
         @Override

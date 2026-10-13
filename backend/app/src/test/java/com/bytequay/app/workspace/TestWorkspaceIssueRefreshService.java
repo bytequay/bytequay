@@ -81,21 +81,12 @@ class TestWorkspaceIssueRefreshService
     void setUp()
     {
         when(credentials.resolveGitHubToken()).thenReturn("token");
-        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token",
-                new UserProfile("alice", null, "", "", 0, 0, 0, null, null, null, null)));
+        when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("alice", null, "", "", 0, 0, 0, null, null, null, null)));
         when(credentials.cachedLogin()).thenReturn(Optional.of("alice"));
         when(workspaceStore.findAll()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
-        service = new WorkspaceIssueRefreshService(
-                workspaceStore,
-                issueStore,
-                detailStore,
-                gitHub,
-                issueReads,
-                credentials,
-                Clock.fixed(NOW, ZoneOffset.UTC),
-                settings);
+        service = new WorkspaceIssueRefreshService(workspaceStore, issueStore, detailStore, gitHub, issueReads, credentials, Clock.fixed(NOW, ZoneOffset.UTC), settings);
     }
 
     @Test
@@ -133,22 +124,15 @@ class TestWorkspaceIssueRefreshService
     void refreshesTheMonitoredRepositoryAndReturnsThePersistedPage()
     {
         Workspace fork = workspace("fork", 300, UPSTREAM, Topology.FORK);
-        RepositoryIssuePage persisted = new RepositoryIssuePage(
-                300, UPSTREAM, ImmutableList.of(issue(1)), 0, 50, 1, false, Optional.of(NOW));
+        RepositoryIssuePage persisted = new RepositoryIssuePage(300, UPSTREAM, ImmutableList.of(issue(1)), 0, 50, 1, false, Optional.of(NOW));
         workspaces.put("fork", fork);
         when(gitHub.fetchOpenIssuesPage("token", UPSTREAM, 1))
                 .thenReturn(new GitHubRepoClient.IssuePage(ImmutableList.of(issue(1)), false));
         when(issueStore.findPage(300, UPSTREAM, 0, 50)).thenReturn(persisted);
 
         assertThat(service.refreshIssues("fork")).isSameAs(persisted);
-        verify(issueStore).saveSyncPage(
-                org.mockito.ArgumentMatchers.eq(300L),
-                org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))),
-                anyString());
-        verify(issueStore).completeSync(
-                org.mockito.ArgumentMatchers.eq(300L),
-                anyString(),
-                org.mockito.ArgumentMatchers.eq(NOW));
+        verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(300L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))), anyString());
+        verify(issueStore).completeSync(org.mockito.ArgumentMatchers.eq(300L), anyString(), org.mockito.ArgumentMatchers.eq(NOW));
     }
 
     @Test
@@ -164,15 +148,9 @@ class TestWorkspaceIssueRefreshService
 
         var order = inOrder(gitHub, issueStore);
         order.verify(gitHub).fetchOpenIssuesPage("token", DIRECT, 1);
-        order.verify(issueStore).saveSyncPage(
-                org.mockito.ArgumentMatchers.eq(100L),
-                org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))),
-                anyString());
+        order.verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(1))), anyString());
         order.verify(gitHub).fetchOpenIssuesPage("token", DIRECT, 2);
-        order.verify(issueStore).saveSyncPage(
-                org.mockito.ArgumentMatchers.eq(100L),
-                org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(2))),
-                anyString());
+        order.verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(2))), anyString());
     }
 
     @Test
@@ -183,12 +161,8 @@ class TestWorkspaceIssueRefreshService
                 .thenThrow(new IllegalStateException("provider down"));
 
         assertThatThrownBy(() -> service.refreshIssues("direct"))
-                .isInstanceOfSatisfying(WorkspaceException.class,
-                        failure -> assertThat(failure.code()).isEqualTo("ISSUE_SYNC_FAILED"));
-        verify(issueStore, never()).completeSync(
-                org.mockito.ArgumentMatchers.anyLong(),
-                anyString(),
-                org.mockito.ArgumentMatchers.any());
+                .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("ISSUE_SYNC_FAILED"));
+        verify(issueStore, never()).completeSync(org.mockito.ArgumentMatchers.anyLong(), anyString(), org.mockito.ArgumentMatchers.any());
     }
 
     @Test
@@ -209,13 +183,7 @@ class TestWorkspaceIssueRefreshService
         PrTimelineEvent assigned = event(1, "assigned", NOW.minusSeconds(20));
         PrTimelineEvent duplicateComment = event(2, "commented", NOW.minusSeconds(10));
         PrTimelineEvent comment = event(2, "commented", NOW.minusSeconds(10));
-        RepositoryIssueDetail expected = new RepositoryIssueDetail(
-                100,
-                7,
-                ImmutableList.of(assigned, comment),
-                "Task",
-                ImmutableList.of("Task", "Bug"),
-                Optional.of(NOW));
+        RepositoryIssueDetail expected = new RepositoryIssueDetail(100, 7, ImmutableList.of(assigned, comment), "Task", ImmutableList.of("Task", "Bug"), Optional.of(NOW));
         when(issueReads.fetchPrTimeline("token", ref))
                 .thenReturn(ImmutableList.of(assigned, duplicateComment));
         when(issueReads.fetchPrIssueComments("token", ref)).thenReturn(ImmutableList.of(comment));

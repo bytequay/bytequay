@@ -597,8 +597,7 @@ public class WorkItemService
             WorkItem item = findOwner(workspaceId, links).orElseGet(() -> newLinked(workspaceId, requested));
             requireItemWorkspace(item, workspaceId);
             Optional<String> movedFrom = item.epicId().filter(other -> !other.equals(epicId));
-            return new EpicJoin(view(saveLinks(item, item.goalId(), Optional.of(epicId), links, movedFrom.isPresent() ? "Moved to another Epic" : "Added to Epic")),
-                    movedFrom);
+            return new EpicJoin(view(saveLinks(item, item.goalId(), Optional.of(epicId), links, movedFrom.isPresent() ? "Moved to another Epic" : "Added to Epic")), movedFrom);
         });
     }
 

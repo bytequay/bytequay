@@ -40,8 +40,7 @@ public record CommitRefreshStatus(
 
     public static CommitRefreshStatus idle(String workspaceId)
     {
-        return new CommitRefreshStatus(
-                workspaceId, State.IDLE, Optional.empty(), Optional.empty(), Optional.empty());
+        return new CommitRefreshStatus(workspaceId, State.IDLE, Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public enum State

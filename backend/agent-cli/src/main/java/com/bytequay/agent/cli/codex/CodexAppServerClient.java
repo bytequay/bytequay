@@ -150,8 +150,7 @@ final class CodexAppServerClient
         requireNonNull(timeout, "timeout is null");
         // The reader is the only thread that can deliver this response, so waiting for one here
         // would be waiting on itself. Fail loudly instead of stalling until the timeout.
-        checkState(Thread.currentThread() != readerThread,
-                "Codex request %s was issued from the App Server reader thread", method);
+        checkState(Thread.currentThread() != readerThread, "Codex request %s was issued from the App Server reader thread", method);
         // These guards run before request bytes exist, so delivery-sensitive callers can safely
         // distinguish them from a failed write or a missing response.
         if (closed || disconnected.get()) {
@@ -161,10 +160,7 @@ final class CodexAppServerClient
             throw new RequestNotSent("Codex App Server has not been started");
         }
         CodexProtocol.JsonRpcEnvelope response = awaitRequest(method, params, timeout);
-        return codec.decodeResult(
-                response.result().orElseThrow(() -> new AgentUnavailableException(
-                        "Codex response has no result: " + method)),
-                responseType);
+        return codec.decodeResult(response.result().orElseThrow(() -> new AgentUnavailableException("Codex response has no result: " + method)), responseType);
     }
 
     /**
@@ -403,8 +399,7 @@ final class CodexAppServerClient
             return;
         }
         if (envelope.error().isPresent()) {
-            response.completeExceptionally(new RequestRefused(
-                    "Codex request failed: " + redactor.redact(envelope.error().orElseThrow().message())));
+            response.completeExceptionally(new RequestRefused("Codex request failed: " + redactor.redact(envelope.error().orElseThrow().message())));
         }
         else {
             response.complete(envelope);
@@ -431,9 +426,7 @@ final class CodexAppServerClient
 
     private void sendError(Object id, Throwable failure)
     {
-        send(new CodexProtocol.JsonRpcFailure(
-                id,
-                new CodexProtocol.JsonRpcError(-32603, failureMessage(failure))));
+        send(new CodexProtocol.JsonRpcFailure(id, new CodexProtocol.JsonRpcError(-32603, failureMessage(failure))));
     }
 
     private void disconnect(AgentUnavailableException failure)

@@ -121,8 +121,7 @@ public class SelectedCommitPullRequestReader
     private Optional<String> committedAt(WorkspaceRepositoryContext workspace, String sha)
     {
         try {
-            GitCommandRunner.Result result = git.run(workspace.repository(), METADATA_TIMEOUT,
-                    ImmutableList.of("log", "--no-show-signature", "--format=%H%n%cI", "-1", sha, "--"));
+            GitCommandRunner.Result result = git.run(workspace.repository(), METADATA_TIMEOUT, ImmutableList.of("log", "--no-show-signature", "--format=%H%n%cI", "-1", sha, "--"));
             if (!result.successful() || result.truncated() || bytes(result.output()) > MAX_METADATA_BYTES) {
                 return Optional.empty();
             }

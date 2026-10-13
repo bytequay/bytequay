@@ -74,8 +74,7 @@ public class GoalDeliveries
     public GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<GoalConversationService> conversations,
             ObjectProvider<PullRequestRefreshService> refresh, PullRequestStore pullRequests, PrDetailStore details)
     {
-        this(workspaces, work, conversations, refresh, pullRequests, details,
-                Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
+        this(workspaces, work, conversations, refresh, pullRequests, details, Executors.newSingleThreadExecutor(Thread.ofVirtual().name("goal-deliveries-", 0).factory()));
     }
 
     GoalDeliveries(WorkspaceStore workspaces, ObjectProvider<WorkItemService> work, ObjectProvider<GoalConversationService> conversations,

@@ -143,9 +143,7 @@ final class LaunchMarkerStore
     Optional<LaunchMarker> read(String launchId)
     {
         try {
-            return Optional.of(objectMapper.readValue(
-                    Files.readAllBytes(directory.resolve(launchId + MARKER_SUFFIX)),
-                    LaunchMarker.class));
+            return Optional.of(objectMapper.readValue(Files.readAllBytes(directory.resolve(launchId + MARKER_SUFFIX)), LaunchMarker.class));
         }
         catch (IOException | RuntimeException e) {
             return Optional.empty();

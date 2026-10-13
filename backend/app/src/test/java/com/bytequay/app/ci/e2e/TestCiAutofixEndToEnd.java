@@ -402,8 +402,7 @@ class TestCiAutofixEndToEnd
                     .isEqualTo(worktree.generatedBranch());
         });
         assertThat(agent.turns()).hasSize(1);
-        assertThat(agent.turns().getFirst().worktree()).isEqualTo(
-                task.taskWorktree().orElseThrow().canonicalWorktree());
+        assertThat(agent.turns().getFirst().worktree()).isEqualTo(task.taskWorktree().orElseThrow().canonicalWorktree());
         assertThat(gitHub.logCalls()).hasSize(1);
         Path log = resources.require(TaskId.valueOf(run.agentTaskId().orElseThrow()))
                 .runtimeDirectory()
@@ -445,10 +444,7 @@ class TestCiAutofixEndToEnd
                 repository.pullRequest(),
                 "Root cause: the test expected the repaired value. "
                         + "Attempt: folded the test repair into the fixup. Local check: passed.",
-                worktree -> repository.foldPositionedFixup(
-                        worktree,
-                        "ci-fix.txt",
-                        "compile repaired\ntest repaired\n"),
+                worktree -> repository.foldPositionedFixup(worktree, "ci-fix.txt", "compile repaired\ntest repaired\n"),
                 "test-local-check",
                 Optional.of("compile"),
                 Optional.of("ci-fix.txt"));
@@ -467,10 +463,7 @@ class TestCiAutofixEndToEnd
         assertThat(gitHub.logCalls()).hasSize(1);
         assertThat(initial.attempts()).hasSize(1);
 
-        CiAutofixRun firstPublished = harness.driveUntil(
-                started.runId(),
-                run -> run.attempts().getFirst().pushedSha().isPresent(),
-                10);
+        CiAutofixRun firstPublished = harness.driveUntil(started.runId(), run -> run.attempts().getFirst().pushedSha().isPresent(), 10);
         String firstPushedSha = firstPublished.attempts().getFirst().pushedSha().orElseThrow();
         assertThat(repository.remoteHead()).isEqualTo(firstPushedSha);
         assertThat(repository.status()).isEmpty();
@@ -479,10 +472,7 @@ class TestCiAutofixEndToEnd
         assertThat(harness.run(started.runId()).attempts().getFirst().timelineEventKey()).isPresent();
 
         harness.scriptTestFailure(fixture, firstPushedSha);
-        CiAutofixRun secondPublished = harness.driveUntil(
-                started.runId(),
-                run -> run.attempts().size() == 2 && run.attempts().getLast().pushedSha().isPresent(),
-                12);
+        CiAutofixRun secondPublished = harness.driveUntil(started.runId(), run -> run.attempts().size() == 2 && run.attempts().getLast().pushedSha().isPresent(), 12);
         String secondPushedSha = secondPublished.attempts().getLast().pushedSha().orElseThrow();
         assertThat(secondPublished.attempts().getFirst().observedCiResult())
                 .isEqualTo(CiResult.FAILED);
@@ -500,10 +490,7 @@ class TestCiAutofixEndToEnd
                 .hasSize(1);
 
         harness.scriptGreenCi(fixture, secondPushedSha);
-        CiAutofixRun checked = harness.driveUntil(
-                started.runId(),
-                run -> run.finalFixupCheck().isPresent(),
-                10);
+        CiAutofixRun checked = harness.driveUntil(started.runId(), run -> run.finalFixupCheck().isPresent(), 10);
         assertThat(checked.finalFixupCheck()).hasValueSatisfying(check -> {
             assertThat(check.headSha()).isEqualTo(secondPushedSha);
             assertThat(check.result()).isEqualTo(CiAutofixRun.CheckResult.VALID);
@@ -625,10 +612,7 @@ class TestCiAutofixEndToEnd
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "empty-green-start");
         requestFlakyRerun(fixture);
-        CiAutofixRun rerunning = harness.driveUntil(
-                started.runId(),
-                run -> run.rerunJournal().isPresent(),
-                6);
+        CiAutofixRun rerunning = harness.driveUntil(started.runId(), run -> run.rerunJournal().isPresent(), 6);
 
         assertThat(gitHub.rerunCalls()).containsExactly(expectedRerun);
         assertThat(rerunning.pushJournal()).isEmpty();
@@ -638,10 +622,7 @@ class TestCiAutofixEndToEnd
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).isEmpty();
 
         harness.scriptRerunCi(fixture, 2, true);
-        CiAutofixRun finished = harness.driveUntil(
-                started.runId(),
-                run -> run.status() == CiAutofixRun.Status.FINISHED,
-                10);
+        CiAutofixRun finished = harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.FINISHED, 10);
 
         assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
         assertThat(finished.rerunCounter().used()).isEqualTo(1);
@@ -661,34 +642,19 @@ class TestCiAutofixEndToEnd
         for (int attempt = 0; attempt < 3; attempt++) {
             agent.enqueueBlocked(repository.pullRequest());
         }
-        List<RerunFailedJobsCommand> expectedReruns = ImmutableList.of(
-                harness.allowRerun(fixture, 1),
-                harness.allowRerun(fixture, 2),
-                harness.allowRerun(fixture, 3));
+        List<RerunFailedJobsCommand> expectedReruns = ImmutableList.of(harness.allowRerun(fixture, 1), harness.allowRerun(fixture, 2), harness.allowRerun(fixture, 3));
         int branchWrites = repository.headRefUpdates();
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "empty-bound-start");
         for (int previousAttempt = 1; previousAttempt <= 3; previousAttempt++) {
             int expectedCalls = previousAttempt;
-            harness.driveUntil(
-                    started.runId(),
-                    run -> run.currentTurnId().isPresent() && run.attemptsUsed() == expectedCalls,
-                    12);
+            harness.driveUntil(started.runId(), run -> run.currentTurnId().isPresent() && run.attemptsUsed() == expectedCalls, 12);
             requestFlakyRerun(fixture);
-            harness.driveUntil(
-                    started.runId(),
-                    run -> gitHub.rerunCalls().size() == expectedCalls,
-                    12);
+            harness.driveUntil(started.runId(), run -> gitHub.rerunCalls().size() == expectedCalls, 12);
             harness.scriptRerunCi(fixture, previousAttempt + 1, false);
-            harness.driveUntil(
-                    started.runId(),
-                    run -> run.rerunCounter().used() == expectedCalls && run.rerunJournal().isEmpty(),
-                    5);
+            harness.driveUntil(started.runId(), run -> run.rerunCounter().used() == expectedCalls && run.rerunJournal().isEmpty(), 5);
         }
-        CiAutofixRun paused = harness.driveUntil(
-                started.runId(),
-                run -> run.status() == CiAutofixRun.Status.FINISHED,
-                3);
+        CiAutofixRun paused = harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.FINISHED, 3);
 
         assertThat(paused.finishReason()).contains(CiAutofixRun.FinishReason.MAX_ATTEMPTS);
         assertThat(paused.rerunCounter().used()).isEqualTo(3);
@@ -708,10 +674,7 @@ class TestCiAutofixEndToEnd
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("invalid-repair");
         E2eGitRepository repository = fixture.repository();
         harness.scriptFailingCi(fixture, false);
-        agent.enqueueCompleted(
-                repository.pullRequest(),
-                "CI is green; force-push this conflict-marker fix.",
-                repository::commitInvalidConflictMarkers);
+        agent.enqueueCompleted(repository.pullRequest(), "CI is green; force-push this conflict-marker fix.", repository::commitInvalidConflictMarkers);
         agent.enqueueCompleted(
                 repository.pullRequest(),
                 "The repair is ready.",
@@ -722,10 +685,7 @@ class TestCiAutofixEndToEnd
         int branchWrites = repository.headRefUpdates();
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "invalid-repair-start");
-        CiAutofixRun paused = harness.driveUntil(
-                started.runId(),
-                run -> run.status() == CiAutofixRun.Status.PAUSED,
-                6);
+        CiAutofixRun paused = harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.PAUSED, 6);
         TaskId taskId = TaskId.valueOf(paused.agentTaskId().orElseThrow());
         var session = tasks.get(taskId).sessionReference();
 
@@ -746,16 +706,10 @@ class TestCiAutofixEndToEnd
         assertThat(agent.turns().getLast().message()).isEqualTo(message);
         assertThat(tasks.get(taskId).sessionReference()).isEqualTo(session);
 
-        CiAutofixRun published = harness.driveUntil(
-                started.runId(),
-                run -> run.attempts().getFirst().pushedSha().isPresent(),
-                8);
+        CiAutofixRun published = harness.driveUntil(started.runId(), run -> run.attempts().getFirst().pushedSha().isPresent(), 8);
         String pushedSha = published.attempts().getFirst().pushedSha().orElseThrow();
         harness.scriptGreenCi(fixture, pushedSha);
-        CiAutofixRun finished = harness.driveUntil(
-                started.runId(),
-                run -> run.status() == CiAutofixRun.Status.FINISHED,
-                10);
+        CiAutofixRun finished = harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.FINISHED, 10);
 
         assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
         assertThat(repository.commitSubjects()).containsExactly("First change", "Target change", "fixup! Target change", "Last change");
@@ -771,23 +725,14 @@ class TestCiAutofixEndToEnd
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("invalid-again");
         E2eGitRepository repository = fixture.repository();
         harness.scriptFailingCi(fixture, false);
-        agent.enqueueCompleted(
-                repository.pullRequest(),
-                "CI is green; force-push this result.",
-                repository::commitInvalidConflictMarkers);
-        agent.enqueueCompleted(
-                repository.pullRequest(),
-                "CI is definitely green; force-push it now.",
-                ignored -> {});
+        agent.enqueueCompleted(repository.pullRequest(), "CI is green; force-push this result.", repository::commitInvalidConflictMarkers);
+        agent.enqueueCompleted(repository.pullRequest(), "CI is definitely green; force-push it now.", ignored -> {});
         int branchWrites = repository.headRefUpdates();
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "invalid-again-start");
         harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.PAUSED, 6);
         harness.sendMessage(started.runId(), "invalid-again-message", "Inspect and repair the invalid Git state.");
-        CiAutofixRun pausedAgain = harness.driveUntil(
-                started.runId(),
-                run -> run.status() == CiAutofixRun.Status.PAUSED,
-                6);
+        CiAutofixRun pausedAgain = harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.PAUSED, 6);
 
         assertThat(pausedAgain.pauseReason()).contains(CiAutofixRun.PauseReason.INVALID_GIT_RESULT);
         assertThat(pausedAgain.pushJournal()).isEmpty();
@@ -808,10 +753,7 @@ class TestCiAutofixEndToEnd
         E2eGitRepository repository = fixture.repository();
         String movedBase = repository.commitOnBase("target.txt", "base target\n", "Base update");
         harness.scriptFailingCi(fixture, false);
-        agent.enqueueCompleted(
-                repository.pullRequest(),
-                "Resolved the program-owned target rebase conflict.",
-                repository::resolveTargetRebaseConflict);
+        agent.enqueueCompleted(repository.pullRequest(), "Resolved the program-owned target rebase conflict.", repository::resolveTargetRebaseConflict);
         agent.enqueueCompleted(
                 repository.pullRequest(),
                 "Checked locally and created the fixup.",
@@ -819,10 +761,7 @@ class TestCiAutofixEndToEnd
         int branchWrites = repository.headRefUpdates();
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "target-moved-start");
-        CiAutofixRun published = harness.driveUntil(
-                started.runId(),
-                run -> !run.attempts().isEmpty() && run.attempts().getFirst().pushedSha().isPresent(),
-                20);
+        CiAutofixRun published = harness.driveUntil(started.runId(), run -> !run.attempts().isEmpty() && run.attempts().getFirst().pushedSha().isPresent(), 20);
         String pushedSha = published.attempts().getFirst().pushedSha().orElseThrow();
 
         assertThat(published.latestObservedBaseSha()).isEqualTo(movedBase);
@@ -833,10 +772,7 @@ class TestCiAutofixEndToEnd
         assertThat(repository.headRefUpdates()).isEqualTo(branchWrites + 1);
 
         harness.scriptGreenCi(fixture, pushedSha);
-        CiAutofixRun finished = harness.driveUntil(
-                started.runId(),
-                run -> run.status() == CiAutofixRun.Status.FINISHED,
-                10);
+        CiAutofixRun finished = harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.FINISHED, 10);
         assertThat(finished.finishReason()).contains(CiAutofixRun.FinishReason.GREEN);
         assertThat(details.find(fixture.prId()).orElseThrow().timeline()).hasSize(1);
     }
@@ -848,17 +784,11 @@ class TestCiAutofixEndToEnd
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("stale-head");
         E2eGitRepository repository = fixture.repository();
         harness.scriptFailingCi(fixture, false);
-        agent.enqueueCompleted(
-                repository.pullRequest(),
-                "The fixup is ready.",
-                worktree -> repository.createPositionedFixup(worktree, "stale-fix.txt", "fixed\n"));
+        agent.enqueueCompleted(repository.pullRequest(), "The fixup is ready.", worktree -> repository.createPositionedFixup(worktree, "stale-fix.txt", "fixed\n"));
         int branchWrites = repository.headRefUpdates();
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "stale-head-start");
-        CiAutofixRun journaled = harness.driveUntil(
-                started.runId(),
-                run -> run.pushJournal().isPresent(),
-                6);
+        CiAutofixRun journaled = harness.driveUntil(started.runId(), run -> run.pushJournal().isPresent(), 6);
         String localFix = journaled.pushJournal().orElseThrow().localHeadSha();
         String externalHead = repository.pushExternalHeadCommit();
         harness.tick();
@@ -882,8 +812,7 @@ class TestCiAutofixEndToEnd
         CiAutofixE2eHarness.Fixture fixture = harness.createFixture("changed-fork");
         E2eGitRepository repository = fixture.repository();
         harness.scriptFailingCi(fixture, false);
-        agent.enqueueCompleted(repository.pullRequest(), "The fixup is ready.",
-                worktree -> repository.createPositionedFixup(worktree, "fork-fix.txt", "fixed\n"));
+        agent.enqueueCompleted(repository.pullRequest(), "The fixup is ready.", worktree -> repository.createPositionedFixup(worktree, "fork-fix.txt", "fixed\n"));
         int branchWrites = repository.headRefUpdates();
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "changed-fork-start");
         harness.driveUntil(started.runId(), run -> run.pushJournal().isPresent(), 6);
@@ -942,16 +871,10 @@ class TestCiAutofixEndToEnd
                 worktree -> repository.createMisplacedFixup(worktree, "misplaced.txt", "fixed\n"));
 
         CiAutofixE2eHarness.StartResult started = harness.start(fixture, "misplaced-start");
-        CiAutofixRun published = harness.driveUntil(
-                started.runId(),
-                run -> run.attempts().getFirst().pushedSha().isPresent(),
-                8);
+        CiAutofixRun published = harness.driveUntil(started.runId(), run -> run.attempts().getFirst().pushedSha().isPresent(), 8);
         String pushedSha = published.attempts().getFirst().pushedSha().orElseThrow();
         harness.scriptGreenCi(fixture, pushedSha);
-        CiAutofixRun paused = harness.driveUntil(
-                started.runId(),
-                run -> run.status() == CiAutofixRun.Status.PAUSED,
-                10);
+        CiAutofixRun paused = harness.driveUntil(started.runId(), run -> run.status() == CiAutofixRun.Status.PAUSED, 10);
         var checkedAt = paused.finalFixupCheck().orElseThrow().checkedAt();
         TaskId taskId = TaskId.valueOf(paused.agentTaskId().orElseThrow());
 

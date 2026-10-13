@@ -99,16 +99,6 @@ public class RecentTextEntity
 
     public RecentText toDomain()
     {
-        return new RecentText(
-                id,
-                RecentItemType.valueOf(itemType),
-                itemKey,
-                RecentTextKind.valueOf(kind),
-                body,
-                writtenAt,
-                itemNumber,
-                repo,
-                title,
-                htmlUrl);
+        return new RecentText(id, RecentItemType.valueOf(itemType), itemKey, RecentTextKind.valueOf(kind), body, writtenAt, itemNumber, repo, title, htmlUrl);
     }
 }

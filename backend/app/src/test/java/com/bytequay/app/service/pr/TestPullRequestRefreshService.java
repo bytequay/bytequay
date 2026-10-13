@@ -95,10 +95,8 @@ class TestPullRequestRefreshService
                 .containsExactly(file);
 
         InOrder order = inOrder(pullRequests);
-        order.verify(pullRequests).refreshPullRequestDiffFromGitHub(
-                "owner/repo", 7, "base", "head");
-        order.verify(pullRequests).getPullRequestDiffFiles(
-                "owner/repo", 7, "base", "head");
+        order.verify(pullRequests).refreshPullRequestDiffFromGitHub("owner/repo", 7, "base", "head");
+        order.verify(pullRequests).getPullRequestDiffFiles("owner/repo", 7, "base", "head");
     }
 
     @Test
@@ -255,8 +253,7 @@ class TestPullRequestRefreshService
                 assertThatThrownBy(service::refreshDashboardRows)
                         .isInstanceOfSatisfying(ResponseStatusException.class, failure -> {
                             assertThat(failure.getStatusCode().value()).isEqualTo(409);
-                            assertThat(failure.getReason()).isEqualTo(
-                                    "A pull request refresh is already in progress; try again shortly");
+                            assertThat(failure.getReason()).isEqualTo("A pull request refresh is already in progress; try again shortly");
                         });
             }
             finally {
@@ -331,8 +328,7 @@ class TestPullRequestRefreshService
         GitHubCredential secondCredential = credential("token-b", "bob");
         AtomicReference<GitHubCredential> current = new AtomicReference<>(firstCredential);
         when(credentials.resolveGitHubCredential()).thenAnswer(invocation -> current.get());
-        PullRequestRefreshService service = new PullRequestRefreshService(
-                pullRequests, credentials, noWorkspaces(), event -> {});
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials, noWorkspaces(), event -> {});
 
         service.refreshDashboard();
         current.set(secondCredential);
@@ -358,8 +354,7 @@ class TestPullRequestRefreshService
             assertThat(release.await(5, TimeUnit.SECONDS)).isTrue();
             return null;
         }).when(pullRequests).syncFromGitHub();
-        PullRequestRefreshService service = new PullRequestRefreshService(
-                pullRequests, credentials, noWorkspaces(), event -> {});
+        PullRequestRefreshService service = new PullRequestRefreshService(pullRequests, credentials, noWorkspaces(), event -> {});
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             var first = executor.submit(service::refreshDashboard);
@@ -512,8 +507,7 @@ class TestPullRequestRefreshService
             PullRequestService pullRequests,
             WorkspaceStore workspaces)
     {
-        return new PullRequestRefreshService(
-                pullRequests, credentials(credential("token-a", "alice")), workspaces, event -> {});
+        return new PullRequestRefreshService(pullRequests, credentials(credential("token-a", "alice")), workspaces, event -> {});
     }
 
     private static WorkspaceStore noWorkspaces()
@@ -557,8 +551,6 @@ class TestPullRequestRefreshService
 
     private static GitHubCredential credential(String token, String login)
     {
-        return new GitHubCredential(
-                token,
-                new UserProfile(login, login, "", "", 0, 0, 0, "", "", "", ""));
+        return new GitHubCredential(token, new UserProfile(login, login, "", "", 0, 0, 0, "", "", "", ""));
     }
 }

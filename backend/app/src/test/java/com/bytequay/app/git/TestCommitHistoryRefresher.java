@@ -104,10 +104,7 @@ class TestCommitHistoryRefresher
         provisioning = mock(WorkspaceProvisioningService.class);
         git = mock(GitBrowseService.class);
         store = new RecordingStore();
-        enrichment = new RepositoryEnrichmentService(
-                store,
-                mock(RemoteSourceStore.class),
-                mock(WorkspaceStore.class));
+        enrichment = new RepositoryEnrichmentService(store, mock(RemoteSourceStore.class), mock(WorkspaceStore.class));
         credentials = mock(CredentialService.class);
         gitHub = mock(GitHubRepoClient.class);
         pullRequests = mock(CherryPickPullRequestLookup.class);
@@ -149,17 +146,11 @@ class TestCommitHistoryRefresher
                                 Optional.of("https://avatars.example.invalid/ezra-b.png"))), true));
         when(avatars.cache("https://avatars.example.invalid/percy-r.png")).thenReturn(Optional.of(AVATAR_KEY));
         when(avatars.cache("https://avatars.example.invalid/ezra-b.png")).thenReturn(Optional.of(COMMITTER_AVATAR_KEY));
-        PullRequestAssociation pullRequest = new PullRequestAssociation(
-                42,
-                "Example pull request",
-                "https://example.invalid/pull/42",
-                "main",
-                "2026-08-22T00:00:00Z");
+        PullRequestAssociation pullRequest = new PullRequestAssociation(42, "Example pull request", "https://example.invalid/pull/42", "main", "2026-08-22T00:00:00Z");
         when(pullRequests.lookUpResult(eq(SELECTED), eq(ImmutableList.of(commit.sha())), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(new Association(commit.sha(), pullRequest)), ImmutableSet.of()));
 
-        CommitRefreshStatus refreshed = service.refresh(
-                WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+        CommitRefreshStatus refreshed = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
 
         assertThat(refreshed.state()).isEqualTo(IDLE);
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(IDLE);
@@ -272,16 +263,9 @@ class TestCommitHistoryRefresher
     @Test
     void conditionalRefreshRechecksFreshnessAfterAcquiringTheWorkspaceLock()
     {
-        store.saveRefreshMetadata(new CommitRefreshMetadata(
-                WORKSPACE_ID,
-                Optional.of(NOW),
-                Optional.of(NOW),
-                Optional.empty()));
+        store.saveRefreshMetadata(new CommitRefreshMetadata(WORKSPACE_ID, Optional.of(NOW), Optional.of(NOW), Optional.empty()));
 
-        CommitRefreshStatus current = service.refreshIfDue(
-                WORKSPACE_ID,
-                ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")),
-                NOW.minusSeconds(300));
+        CommitRefreshStatus current = service.refreshIfDue(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), NOW.minusSeconds(300));
 
         assertThat(current.lastSucceededAt()).contains(NOW);
         verify(provisioning, never()).synchronizeCode(WORKSPACE_ID);
@@ -294,18 +278,13 @@ class TestCommitHistoryRefresher
         Instant previousSuccess = NOW.minusSeconds(300);
         CommitEnrichment previous = negative("abc123", NOW.minusSeconds(86_400), NOW.minusSeconds(60));
         store.upsertEnrichment(ImmutableList.of(previous));
-        store.saveRefreshMetadata(new CommitRefreshMetadata(
-                WORKSPACE_ID,
-                Optional.of(previousSuccess),
-                Optional.of(previousSuccess),
-                Optional.empty()));
+        store.saveRefreshMetadata(new CommitRefreshMetadata(WORKSPACE_ID, Optional.of(previousSuccess), Optional.of(previousSuccess), Optional.empty()));
         Commit commit = commit(previous.sha(), NOW.minusSeconds(60));
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(ImmutableList.of(commit));
         when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, commit.sha(), 1))
                 .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), false));
 
-        CommitRefreshStatus status = service.refresh(
-                WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
+        CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
 
         assertThat(status.state()).isEqualTo(FAILED);
         assertThat(store.findRefreshMetadata(WORKSPACE_ID).lastSucceededAt()).contains(previousSuccess);
@@ -332,15 +311,9 @@ class TestCommitHistoryRefresher
     void selectedCustomRemoteFetchFailureMarksRefreshFailed()
     {
         readyWorkspace(unidentifiedRemote("oss"));
-        when(provisioning.synchronizeCode(WORKSPACE_ID)).thenReturn(new WorkspaceCodeSyncResult(
-                WORKSPACE_ID,
-                true,
-                Optional.of(NOW),
-                ImmutableSet.of("oss")));
+        when(provisioning.synchronizeCode(WORKSPACE_ID)).thenReturn(new WorkspaceCodeSyncResult(WORKSPACE_ID, true, Optional.of(NOW), ImmutableSet.of("oss")));
 
-        service.refresh(
-                WORKSPACE_ID,
-                ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
+        service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
 
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(FAILED);
         verify(git, never()).log(REPOSITORY, "oss/main", 300);
@@ -352,9 +325,7 @@ class TestCommitHistoryRefresher
         readyWorkspace(unidentifiedRemote("oss"));
         when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of());
 
-        service.refresh(
-                WORKSPACE_ID,
-                ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
+        service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
 
         assertThat(service.getRefreshStatus(WORKSPACE_ID).state()).isEqualTo(IDLE);
         verify(git).log(REPOSITORY, "oss/main", 300);
@@ -365,12 +336,7 @@ class TestCommitHistoryRefresher
     void identifiedCustomRemoteRefreshesAndReusesProviderEnrichment()
     {
         RepoRef repository = RepoRef.of("trinodb", "trino");
-        readyWorkspace(new RemoteSource(
-                WORKSPACE_ID,
-                "oss",
-                "https://github.com/trinodb/trino.git",
-                Optional.of(202L),
-                Optional.of(repository)));
+        readyWorkspace(new RemoteSource(WORKSPACE_ID, "oss", "https://github.com/trinodb/trino.git", Optional.of(202L), Optional.of(repository)));
         Commit commit = commit("remote123", NOW.minusSeconds(60));
         store.upsertEnrichment(ImmutableList.of(positive(202, commit.sha(), NOW.minusSeconds(86_400))));
         when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of(commit));
@@ -387,9 +353,7 @@ class TestCommitHistoryRefresher
         when(pullRequests.lookUpResult(eq(repository), eq(ImmutableList.of()), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
 
-        CommitRefreshStatus status = service.refresh(
-                WORKSPACE_ID,
-                ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
+        CommitRefreshStatus status = service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.REMOTE, "main", Optional.of("oss"))));
 
         assertThat(status.state()).isEqualTo(IDLE);
         assertThat(store.values()).singleElement().satisfies(value -> {
@@ -418,14 +382,12 @@ class TestCommitHistoryRefresher
         when(git.log(REPOSITORY, "origin/main", 300)).thenReturn(commits);
         when(gitHub.fetchCommitAvatarSnapshot("test-token", SELECTED, positive.sha(), 4))
                 .thenReturn(new CommitAvatarSnapshot(ImmutableList.of(), true));
-        when(pullRequests.lookUpResult(
-                eq(SELECTED), eq(ImmutableList.of(dueNegative.sha())), eq("main"), anyList()))
+        when(pullRequests.lookUpResult(eq(SELECTED), eq(ImmutableList.of(dueNegative.sha())), eq("main"), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
 
         service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")));
 
-        verify(pullRequests).lookUpResult(
-                eq(SELECTED), eq(ImmutableList.of(dueNegative.sha())), eq("main"), anyList());
+        verify(pullRequests).lookUpResult(eq(SELECTED), eq(ImmutableList.of(dueNegative.sha())), eq("main"), anyList());
     }
 
     private void successfulEmptyBranch(String branch)
@@ -437,17 +399,7 @@ class TestCommitHistoryRefresher
 
     private CommitHistoryRefresher newRefresher()
     {
-        return new CommitHistoryRefresher(
-                workspaces,
-                provisioning,
-                git,
-                store,
-                enrichment,
-                credentials,
-                gitHub,
-                pullRequests,
-                avatars,
-                clock);
+        return new CommitHistoryRefresher(workspaces, provisioning, git, store, enrichment, credentials, gitHub, pullRequests, avatars, clock);
     }
 
     private void readyWorkspace(RemoteSource... extraRemotes)
@@ -472,15 +424,7 @@ class TestCommitHistoryRefresher
 
     private static Commit commit(String sha, Instant committedAt)
     {
-        return new Commit(
-                sha,
-                "Example change",
-                "Example body",
-                "Example Author",
-                "Example Committer",
-                committedAt.toString(),
-                committedAt.toString(),
-                Optional.empty());
+        return new Commit(sha, "Example change", "Example body", "Example Author", "Example Committer", committedAt.toString(), committedAt.toString(), Optional.empty());
     }
 
     private static CommitEnrichment positive(String sha)

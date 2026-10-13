@@ -62,8 +62,7 @@ public record PullRequestDetail(
         reviewers = ImmutableList.copyOf(requireNonNull(reviewers, "reviewers is null"));
         recentActivity = ImmutableList.copyOf(requireNonNull(recentActivity, "recentActivity is null"));
         checkRuns = ImmutableList.copyOf(requireNonNull(checkRuns, "checkRuns is null"));
-        unavailableSections = ImmutableList.copyOf(
-                requireNonNull(unavailableSections, "unavailableSections is null"));
+        unavailableSections = ImmutableList.copyOf(requireNonNull(unavailableSections, "unavailableSections is null"));
     }
 
     public enum CiStatus

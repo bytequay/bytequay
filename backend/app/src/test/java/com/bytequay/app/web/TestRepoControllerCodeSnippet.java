@@ -33,9 +33,7 @@ class TestRepoControllerCodeSnippet
             throws Exception
     {
         RepoService repos = mock(RepoService.class);
-        RepoController controller = new RepoController(
-                repos,
-                mock(WorkspaceRepositoryService.class));
+        RepoController controller = new RepoController(repos, mock(WorkspaceRepositoryService.class));
         String commit = "4bfd15e6e1cd4b4a5c838c6065d22151d7d044aa";
         when(repos.getCodeSnippet("trinodb", "trino", commit, "src/Main.java", 796, 797))
                 .thenReturn(ImmutableList.of("try (writer) {", "}"));

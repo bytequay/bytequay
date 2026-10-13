@@ -125,38 +125,14 @@ class TestSqliteCiAutofixStore
                 .withAgentNote("Untrusted explanation", NOW.plusSeconds(5))
                 .withDescriptionChange(new CiDescriptionChange("Fixes #1.", "- Fixes #1.", 80, 900,
                         Optional.of(NOW.plusSeconds(5)), Optional.of(NOW.plusSeconds(5))), NOW.plusSeconds(5))
-                .withGitResult(
-                        new GitResult(
-                                FIXED_HEAD,
-                                "fingerprint-1",
-                                ImmutableList.of("src/Main.java"),
-                                ImmutableList.of("Fix feature")),
-                        NOW.plusSeconds(6))
+                .withGitResult(new GitResult(FIXED_HEAD, "fingerprint-1", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature")), NOW.plusSeconds(6))
                 .withPushResult(HEAD, FIXED_HEAD, NOW.plusSeconds(7), NOW.plusSeconds(7))
                 .withCiResult(CiResult.PASSED, NOW.plusSeconds(8))
                 .withTimelineEvent("ci-autofix:push:1", NOW.plusSeconds(9));
         run = run.updateAttempt(completed, NOW.plusSeconds(9))
-                .recordPushJournal(
-                        new PushJournal(
-                                attempt.id(),
-                                HEAD,
-                                FIXED_HEAD,
-                                "fingerprint-1",
-                                NOW.plusSeconds(10),
-                                1),
-                        NOW.plusSeconds(10))
-                .recordRerunJournal(
-                        new RerunJournal(
-                                attempt.id(),
-                                100,
-                                HEAD,
-                                1,
-                                NOW.plusSeconds(11),
-                                Optional.of(2)),
-                        NOW.plusSeconds(11))
-                .withFinalFixupCheck(
-                        new FinalFixupCheck(FIXED_HEAD, CheckResult.VALID, "", NOW.plusSeconds(12)),
-                        NOW.plusSeconds(12))
+                .recordPushJournal(new PushJournal(attempt.id(), HEAD, FIXED_HEAD, "fingerprint-1", NOW.plusSeconds(10), 1), NOW.plusSeconds(10))
+                .recordRerunJournal(new RerunJournal(attempt.id(), 100, HEAD, 1, NOW.plusSeconds(11), Optional.of(2)), NOW.plusSeconds(11))
+                .withFinalFixupCheck(new FinalFixupCheck(FIXED_HEAD, CheckResult.VALID, "", NOW.plusSeconds(12)), NOW.plusSeconds(12))
                 .addWarning(new Warning("MEMORY", "memory unavailable", NOW.plusSeconds(13)), NOW.plusSeconds(13))
                 .pause(PauseReason.RERUN_UNAVAILABLE, "waiting for user", NOW.plusSeconds(14));
 
@@ -288,10 +264,8 @@ class TestSqliteCiAutofixStore
     @Test
     void allowsSamePullRequestNumberAndBranchInDifferentRepositories()
     {
-        CiAutofixRun first = newRun(
-                "repository-1", "same-feature", PullRequestRef.of("owner-1", "sample", 2234), NOW);
-        CiAutofixRun second = newRun(
-                "repository-2", "same-feature", PullRequestRef.of("owner-2", "sample", 2234), NOW);
+        CiAutofixRun first = newRun("repository-1", "same-feature", PullRequestRef.of("owner-1", "sample", 2234), NOW);
+        CiAutofixRun second = newRun("repository-2", "same-feature", PullRequestRef.of("owner-2", "sample", 2234), NOW);
 
         store.insert(first);
         store.insert(second);
@@ -321,8 +295,7 @@ class TestSqliteCiAutofixStore
         store.insert(run.addAttempt(first, NOW.plusSeconds(1)));
         CiAutofixAttempt duplicateNumber = newAttempt(run, 1, NOW.plusSeconds(2));
 
-        assertThatThrownBy(() -> attemptRepository.saveAndFlush(
-                CiAutofixAttemptEntity.fromDomain(duplicateNumber)))
+        assertThatThrownBy(() -> attemptRepository.saveAndFlush(CiAutofixAttemptEntity.fromDomain(duplicateNumber)))
                 .isInstanceOf(RuntimeException.class)
                 .hasMessageContaining("UNIQUE constraint failed");
     }
@@ -389,15 +362,7 @@ class TestSqliteCiAutofixStore
         return CiAutofixRun.create(
                 CiAutofixRunId.random(),
                 key,
-                new Scope(
-                        pullRequest,
-                        headRepository,
-                        "workspace-" + key,
-                        RepoRef.of("bytequay", "physical"),
-                        "author",
-                        headRef,
-                        "main",
-                        "codex", Optional.empty()),
+                new Scope(pullRequest, headRepository, "workspace-" + key, RepoRef.of("bytequay", "physical"), "author", headRef, "main", "codex", Optional.empty()),
                 HEAD,
                 HEAD,
                 BASE,

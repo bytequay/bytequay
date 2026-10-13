@@ -193,8 +193,7 @@ public sealed interface AgentEventPayload
             scope = ImmutableList.copyOf(scope);
             availableDecisions = ImmutableList.copyOf(availableDecisions);
             checkArgument(scope.stream().noneMatch(String::isBlank), "scope contains a blank value");
-            checkArgument(actionable == !availableDecisions.isEmpty(),
-                    "availableDecisions must be non-empty exactly when actionable");
+            checkArgument(actionable == !availableDecisions.isEmpty(), "availableDecisions must be non-empty exactly when actionable");
         }
     }
 

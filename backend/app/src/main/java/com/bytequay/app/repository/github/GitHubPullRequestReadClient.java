@@ -189,8 +189,7 @@ public class GitHubPullRequestReadClient
         checkSha(before.mergeCommitSha(), "GitHub merge commit");
         checkState(before.base().repo().id() > 0, "GitHub omitted the base repository ID");
         // GitHub's PR commits endpoint is capped at 250, including when pagination succeeds.
-        checkState(before.commits() != null && before.commits() > 0 && before.commits() <= 250,
-                "The complete pull-request commit list is unavailable (supported limit: 250)");
+        checkState(before.commits() != null && before.commits() > 0 && before.commits() <= 250, "The complete pull-request commit list is unavailable (supported limit: 250)");
         ImmutableList.Builder<String> commits = ImmutableList.builder();
         for (int offset = 0; offset < before.commits(); offset += GitHubPaginator.PAGE_SIZE) {
             List<GitHubPullRequestCommit> page = paginator.fetchPage(pat, "/repos/{owner}/{repo}/pulls/{number}/commits",
@@ -346,8 +345,7 @@ public class GitHubPullRequestReadClient
                   }}
                 }
                 """;
-        Map<String, Object> variables = new LinkedHashMap<>(ImmutableMap.of(
-                "owner", pullRequest.owner(), "name", pullRequest.repo(), "number", pullRequest.number()));
+        Map<String, Object> variables = new LinkedHashMap<>(ImmutableMap.of("owner", pullRequest.owner(), "name", pullRequest.repo(), "number", pullRequest.number()));
         cursor.ifPresent(value -> variables.put("cursor", value));
         JsonNode response = translating(() -> graphql(graphQlRestClient, pat, query, variables)
                 .body(JsonNode.class));
@@ -584,20 +582,11 @@ public class GitHubPullRequestReadClient
     public List<GitHubRepositoryUser> fetchAssignableRepositoryUsers(String pat, RepoRef repo)
     {
         requirePat(pat);
-        return paginator.paginate(
-                        pat,
-                        "/repos/{owner}/{repo}/assignees",
-                        new ParameterizedTypeReference<List<GitHubAssignableUser>>() {},
-                        repo.owner(),
-                        repo.repo()).stream()
+        return paginator.paginate(pat, "/repos/{owner}/{repo}/assignees", new ParameterizedTypeReference<List<GitHubAssignableUser>>() {}, repo.owner(), repo.repo()).stream()
                 .filter(user -> user.id() > 0
                         && user.login() != null && !user.login().isBlank()
                         && user.avatarUrl() != null && !user.avatarUrl().isBlank())
-                .map(user -> new GitHubRepositoryUser(
-                        user.id(),
-                        user.login(),
-                        user.avatarUrl(),
-                        "Bot".equalsIgnoreCase(user.type()) || user.login().endsWith("[bot]")))
+                .map(user -> new GitHubRepositoryUser(user.id(), user.login(), user.avatarUrl(), "Bot".equalsIgnoreCase(user.type()) || user.login().endsWith("[bot]")))
                 .collect(toImmutableList());
     }
 
@@ -648,10 +637,7 @@ public class GitHubPullRequestReadClient
                         .collect(toImmutableList());
         Map<String, String> labelColors = Optional.ofNullable(r.labels()).orElse(ImmutableList.of()).stream()
                 .filter(label -> label.name() != null && label.color() != null)
-                .collect(toImmutableMap(
-                        GitHubPullRequestDetailResponse.Label::name,
-                        GitHubPullRequestDetailResponse.Label::color,
-                        (left, right) -> left));
+                .collect(toImmutableMap(GitHubPullRequestDetailResponse.Label::name, GitHubPullRequestDetailResponse.Label::color, (left, right) -> left));
         List<String> assignees = Optional.ofNullable(r.assignees()).orElse(ImmutableList.of()).stream()
                 .map(GitHubPullRequestDetailResponse.Assignee::login)
                 .filter(Objects::nonNull)
@@ -755,9 +741,7 @@ public class GitHubPullRequestReadClient
             }
             matcher = SHORT_ISSUE_REFERENCE.matcher(body);
             while (matcher.find() && references.size() < 50) {
-                references.putIfAbsent(
-                        matcher.group(),
-                        "https://github.com/%s/%s/issues/%s".formatted(pr.owner(), pr.repo(), matcher.group(1)));
+                references.putIfAbsent(matcher.group(), "https://github.com/%s/%s/issues/%s".formatted(pr.owner(), pr.repo(), matcher.group(1)));
             }
         }
         if (references.isEmpty()) {
@@ -867,9 +851,7 @@ public class GitHubPullRequestReadClient
         if (response == null || toReactions(response.reactions(), null).isEmpty()) {
             return ImmutableList.of();
         }
-        Map<String, Set<String>> viewerReactions = fetchViewerReactions(
-                pat,
-                Optional.ofNullable(response.nodeId()).stream().toList());
+        Map<String, Set<String>> viewerReactions = fetchViewerReactions(pat, Optional.ofNullable(response.nodeId()).stream().toList());
         return toReactions(response.reactions(), viewerReactions.get(response.nodeId()));
     }
 
@@ -969,9 +951,7 @@ public class GitHubPullRequestReadClient
     {
         requirePat(pat);
         requireNotBlank(path, "path must not be blank");
-        return new DiffFileContent(
-                fetchRepositoryFile(pat, pr, path, baseSha),
-                fetchRepositoryFile(pat, pr, path, headSha));
+        return new DiffFileContent(fetchRepositoryFile(pat, pr, path, baseSha), fetchRepositoryFile(pat, pr, path, headSha));
     }
 
     private String fetchRepositoryFile(String pat, PullRequestRef pr, String path, String ref)
@@ -1035,9 +1015,7 @@ public class GitHubPullRequestReadClient
                         return Optional.empty();
                     }
                     if (!response.getStatusCode().is2xxSuccessful()) {
-                        throw new ResponseStatusException(
-                                response.getStatusCode(),
-                                "GitHub repository file request failed");
+                        throw new ResponseStatusException(response.getStatusCode(), "GitHub repository file request failed");
                     }
                     return Optional.of(readCodeLines(response.getBody(), startLine, endLine));
                 });
@@ -1048,11 +1026,7 @@ public class GitHubPullRequestReadClient
     {
         byte[] bytes = input.readNBytes(MAX_CODE_SNIPPET_BYTES + 1);
         boolean truncated = bytes.length > MAX_CODE_SNIPPET_BYTES;
-        String content = new String(
-                bytes,
-                0,
-                Math.min(bytes.length, MAX_CODE_SNIPPET_BYTES),
-                StandardCharsets.UTF_8);
+        String content = new String(bytes, 0, Math.min(bytes.length, MAX_CODE_SNIPPET_BYTES), StandardCharsets.UTF_8);
         if (content.indexOf('\0') >= 0) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "repository file is not text");
         }
@@ -1069,9 +1043,7 @@ public class GitHubPullRequestReadClient
             return lines;
         }
         if (truncated) {
-            throw new ResponseStatusException(
-                    HttpStatus.PAYLOAD_TOO_LARGE,
-                    "code line range exceeds the snippet read limit");
+            throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "code line range exceeds the snippet read limit");
         }
         return ImmutableList.of();
     }
@@ -1091,13 +1063,7 @@ public class GitHubPullRequestReadClient
         // continued weeks beyond the first page. Walk pages until we get a
         // short page or hit the safety cap.
         List<PrTimelineEvent> timeline = paginator
-                .paginate(
-                        pat,
-                        "/repos/{owner}/{repo}/issues/{number}/timeline",
-                        new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {},
-                        pr.owner(),
-                        pr.repo(),
-                        pr.number())
+                .paginate(pat, "/repos/{owner}/{repo}/issues/{number}/timeline", new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {}, pr.owner(), pr.repo(), pr.number())
                 .stream()
                 .map(event -> toTimelineEvent(event, pr.owner()))
                 .collect(toImmutableList());
@@ -1149,10 +1115,7 @@ public class GitHubPullRequestReadClient
                 }
                 List<PrReaction> counts = Optional.ofNullable(review.reactionGroups()).orElse(ImmutableList.of()).stream()
                         .filter(group -> group.users() != null && group.users().totalCount() > 0)
-                        .map(group -> new PrReaction(
-                                reactionContent(group.content()),
-                                group.users().totalCount(),
-                                group.viewerHasReacted()))
+                        .map(group -> new PrReaction(reactionContent(group.content()), group.users().totalCount(), group.viewerHasReacted()))
                         .collect(toImmutableList());
                 if (!counts.isEmpty()) {
                     out.put(review.databaseId(), counts);
@@ -1479,10 +1442,7 @@ public class GitHubPullRequestReadClient
                     grouped.computeIfAbsent(rootId, ignored -> new ArrayList<>()).add(comment);
                 });
         return grouped.values().stream()
-                .map(thread -> toReviewThreadEvent(
-                        thread,
-                        threadsByRoot.get(thread.getFirst().id()),
-                        viewerReactions))
+                .map(thread -> toReviewThreadEvent(thread, threadsByRoot.get(thread.getFirst().id()), viewerReactions))
                 .sorted(Comparator.comparing(event -> Optional.ofNullable(event.timestamp()).orElse(Instant.EPOCH)))
                 .collect(toImmutableList());
     }
@@ -1538,8 +1498,7 @@ public class GitHubPullRequestReadClient
     {
         GitHubReviewThreadsResponse.Thread thread = fetchReviewThreadsByRoot(pat, pr).get(rootCommentId);
         if (thread == null || thread.id() == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.NOT_FOUND, "GitHub review thread was not found");
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "GitHub review thread was not found");
         }
         return thread.id();
     }
@@ -1620,10 +1579,7 @@ public class GitHubPullRequestReadClient
         counts.put("eyes", reactions.eyes());
         return counts.entrySet().stream()
                 .filter(entry -> entry.getValue() > 0)
-                .map(entry -> new PrReaction(
-                        entry.getKey(),
-                        entry.getValue(),
-                        viewerReactions == null ? null : viewerReactions.contains(entry.getKey())))
+                .map(entry -> new PrReaction(entry.getKey(), entry.getValue(), viewerReactions == null ? null : viewerReactions.contains(entry.getKey())))
                 .collect(toImmutableList());
     }
 
@@ -1696,11 +1652,7 @@ public class GitHubPullRequestReadClient
         Map<String, String> labelColors =
                 rawLabels.stream()
                         .filter(l -> l.name() != null && l.color() != null)
-                        .collect(
-                                toImmutableMap(
-                                        GitHubRepoPullRequestItem.Label::name,
-                                        GitHubRepoPullRequestItem.Label::color,
-                                        (a, b) -> a));
+                        .collect(toImmutableMap(GitHubRepoPullRequestItem.Label::name, GitHubRepoPullRequestItem.Label::color, (a, b) -> a));
         List<String> reviewers =
                 Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
                         .map(GitHubRepoPullRequestItem.RequestedReviewer::login)
@@ -1752,11 +1704,7 @@ public class GitHubPullRequestReadClient
         Map<String, String> labelColors =
                 rawLabels.stream()
                         .filter(l -> l.name() != null && l.color() != null)
-                        .collect(
-                                toImmutableMap(
-                                        GitHubSearchResponse.Label::name,
-                                        GitHubSearchResponse.Label::color,
-                                        (a, b) -> a));
+                        .collect(toImmutableMap(GitHubSearchResponse.Label::name, GitHubSearchResponse.Label::color, (a, b) -> a));
         String author =
                 Optional.ofNullable(item.user()).map(GitHubSearchResponse.User::login).orElse(null);
         return new FetchedPullRequest(

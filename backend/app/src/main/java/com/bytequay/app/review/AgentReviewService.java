@@ -938,8 +938,7 @@ public class AgentReviewService
         String remote = workspace.selectedRepository().equals(workspace.monitoredRepository()) ? "origin" : workspace.sourceRemote();
         String headRef = "refs/bytequay/review/" + review.number().orElseThrow();
         ImmutableList.Builder<String> fetch = ImmutableList.<String>builder()
-                .add("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote,
-                        "+refs/pull/" + review.number().orElseThrow() + "/head:" + headRef);
+                .add("fetch", "--no-tags", "--no-recurse-submodules", "--no-write-fetch-head", remote, "+refs/pull/" + review.number().orElseThrow() + "/head:" + headRef);
         pullRequests.findPullRequestDetail(review.repo(), review.number().orElseThrow()).map(PullRequestDetail::baseRef)
                 .ifPresent(base -> fetch.add("+refs/heads/" + base + ":refs/remotes/" + remote + "/" + base));
         GitCommandRunner.Result fetched = git.run(workspace.repository(), fetch.build());

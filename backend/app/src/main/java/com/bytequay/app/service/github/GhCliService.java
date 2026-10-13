@@ -146,8 +146,7 @@ public class GhCliService
         try {
             // gh resolves its config from HOME; the home dir is also a working
             // dir that always exists, unlike any repo path.
-            result = processRunner.runCommand(
-                    Path.of(System.getProperty("user.home")), argv, TIMEOUT, MAX_OUTPUT_BYTES);
+            result = processRunner.runCommand(Path.of(System.getProperty("user.home")), argv, TIMEOUT, MAX_OUTPUT_BYTES);
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -162,14 +161,10 @@ public class GhCliService
             // guidance ("To get started with GitHub CLI, please run: gh auth login").
             String detail = !output.isEmpty() ? output : "exit code " + result.exitCode();
             log.warn("gh {} failed: {}", argv.subList(1, argv.size()), detail);
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502),
-                    "The GitHub CLI couldn't provide a token: " + detail);
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "The GitHub CLI couldn't provide a token: " + detail);
         }
         if (output.isEmpty()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502),
-                    "The GitHub CLI returned nothing for `gh " + String.join(" ", argv.subList(1, argv.size())) + "`.");
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "The GitHub CLI returned nothing for `gh " + String.join(" ", argv.subList(1, argv.size())) + "`.");
         }
         return output;
     }

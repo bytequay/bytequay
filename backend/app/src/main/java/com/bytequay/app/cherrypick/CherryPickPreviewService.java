@@ -128,10 +128,7 @@ public class CherryPickPreviewService
         Path repository = command.repository();
         requireRepository(repository);
         requireFullClone(repository);
-        Map<String, String> environment = authenticationEnvironment(
-                repository,
-                command.workspaceId(),
-                ImmutableList.of(command.sourceRemote(), command.targetRemote()));
+        Map<String, String> environment = authenticationEnvironment(repository, command.workspaceId(), ImmutableList.of(command.sourceRemote(), command.targetRemote()));
         relationships.requireTransferAllowed(readRepository(repository, command.sourceRemote()), readRepository(repository, command.targetRemote()));
         synchronizeTarget(repository, command, environment);
 
@@ -142,8 +139,7 @@ public class CherryPickPreviewService
             throw new CherryPickInvalidRequestException("Source range is empty: base and tip are the same commit");
         }
         if (!isAncestor(repository, baseSha, tipSha)) {
-            throw new CherryPickInvalidRequestException(
-                    "Source base " + shortSha(baseSha) + " is not an ancestor of tip " + shortSha(tipSha));
+            throw new CherryPickInvalidRequestException("Source base " + shortSha(baseSha) + " is not an ancestor of tip " + shortSha(tipSha));
         }
 
         List<RangeCommit> range = readRange(repository, baseSha, tipSha);
@@ -238,9 +234,7 @@ public class CherryPickPreviewService
             return ImmutableMap.of();
         }
         Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
-        enrichment.findCommits(
-                        repositoryId.orElseThrow(),
-                        range.stream().map(RangeCommit::sha).collect(toImmutableList()))
+        enrichment.findCommits(repositoryId.orElseThrow(), range.stream().map(RangeCommit::sha).collect(toImmutableList()))
                 .commits().stream()
                 .filter(value -> value.pullRequestNumber().isPresent())
                 .forEach(value -> associations.put(value.sha(), association(value)));
@@ -255,12 +249,7 @@ public class CherryPickPreviewService
     private static PullRequestAssociation association(CommitEnrichment enrichment)
     {
         int number = enrichment.pullRequestNumber().orElseThrow();
-        return new PullRequestAssociation(
-                number,
-                enrichment.pullRequestTitle().orElse("PR #" + number),
-                enrichment.pullRequestUrl().orElse(""),
-                "",
-                "");
+        return new PullRequestAssociation(number, enrichment.pullRequestTitle().orElse("PR #" + number), enrichment.pullRequestUrl().orElse(""), "", "");
     }
 
     /**
@@ -288,10 +277,7 @@ public class CherryPickPreviewService
             throw new CherryPickInvalidRequestException("Repository routing changed; preview again");
         }
         relationships.requireTransferAllowed(preview.sourceRepository(), preview.repository());
-        Map<String, String> environment = authenticationEnvironment(
-                repository,
-                preview.workspaceId(),
-                ImmutableList.of(preview.targetRemote()));
+        Map<String, String> environment = authenticationEnvironment(repository, preview.workspaceId(), ImmutableList.of(preview.targetRemote()));
         synchronizeTarget(
                 repository,
                 preview.targetRemote(),
@@ -300,8 +286,7 @@ public class CherryPickPreviewService
                 "refs/remotes/" + preview.targetRemote() + "/" + preview.targetBranch(),
                 environment);
         if (!resolve(repository, preview.localTargetBranch()).equals(preview.targetSha())) {
-            throw new CherryPickInvalidRequestException(
-                    "Preview is stale; the synchronized target moved, so review a refreshed preview");
+            throw new CherryPickInvalidRequestException("Preview is stale; the synchronized target moved, so review a refreshed preview");
         }
     }
 
@@ -329,8 +314,7 @@ public class CherryPickPreviewService
         // Range enumeration, ancestry, and merge-base all read wrong on a shallow
         // clone, and they fail quietly rather than loudly.
         if (required(repository, "rev-parse", "--is-shallow-repository").equals("true")) {
-            throw new CherryPickInvalidRequestException(
-                    "Repository is a shallow clone; run 'git fetch --unshallow' before previewing a range");
+            throw new CherryPickInvalidRequestException("Repository is a shallow clone; run 'git fetch --unshallow' before previewing a range");
         }
     }
 
@@ -339,22 +323,11 @@ public class CherryPickPreviewService
             PreviewCherryPickRangeCommand command,
             Map<String, String> environment)
     {
-        Result source = git.run(
-                repository,
-                FETCH_TIMEOUT,
-                environment,
-                ImmutableList.of("fetch", "--quiet", command.sourceRemote()));
+        Result source = git.run(repository, FETCH_TIMEOUT, environment, ImmutableList.of("fetch", "--quiet", command.sourceRemote()));
         if (!source.successful()) {
-            throw new CherryPickConflictException(
-                    "Cannot fetch source remote " + command.sourceRemote() + ": " + source.output().strip());
+            throw new CherryPickConflictException("Cannot fetch source remote " + command.sourceRemote() + ": " + source.output().strip());
         }
-        synchronizeTarget(
-                repository,
-                command.targetRemote(),
-                command.targetBranch(),
-                command.localTargetBranch(),
-                command.remoteTrackingRef(),
-                environment);
+        synchronizeTarget(repository, command.targetRemote(), command.targetBranch(), command.localTargetBranch(), command.remoteTrackingRef(), environment);
     }
 
     private void synchronizeTarget(
@@ -372,11 +345,7 @@ public class CherryPickPreviewService
                             + "; Git cannot synchronize a checked-out branch");
         }
 
-        Result target = git.run(
-                repository,
-                FETCH_TIMEOUT,
-                environment,
-                ImmutableList.of("fetch", "--quiet", targetRemote, targetBranch + ":" + localBranch));
+        Result target = git.run(repository, FETCH_TIMEOUT, environment, ImmutableList.of("fetch", "--quiet", targetRemote, targetBranch + ":" + localBranch));
 
         // Neither the exit code nor the message decides this. A rejected
         // non-fast-forward still advances the remote-tracking ref, and --quiet
@@ -384,8 +353,7 @@ public class CherryPickPreviewService
         // the local branch actually moved.
         Optional<String> remote = tryResolve(repository, remoteTrackingRef);
         if (remote.isEmpty()) {
-            throw new CherryPickConflictException(
-                    "Cannot fetch target branch " + remoteTrackingRef + ": " + target.output().strip());
+            throw new CherryPickConflictException("Cannot fetch target branch " + remoteTrackingRef + ": " + target.output().strip());
         }
         Optional<String> local = tryResolve(repository, localBranch);
         if (local.isEmpty()) {
@@ -442,19 +410,12 @@ public class CherryPickPreviewService
                                 + "; merge commits are not supported");
             }
             if (parents.length == 0) {
-                throw new CherryPickInvalidRequestException(
-                        "Source range contains root commit " + shortSha(fields[0]));
+                throw new CherryPickInvalidRequestException("Source range contains root commit " + shortSha(fields[0]));
             }
             if (++count > MAX_RANGE_COMMITS) {
                 throw new CherryPickInvalidRequestException("Source range exceeds " + MAX_RANGE_COMMITS + " commits");
             }
-            commits.add(new RangeCommit(
-                    fields[0],
-                    parents[0],
-                    fields[2],
-                    fields[3],
-                    Instant.parse(fields[4]),
-                    paths(fields[5])));
+            commits.add(new RangeCommit(fields[0], parents[0], fields[2], fields[3], Instant.parse(fields[4]), paths(fields[5])));
         }
         if (count == 0) {
             throw new CherryPickInvalidRequestException("Source range contains no commits");
@@ -497,13 +458,7 @@ public class CherryPickPreviewService
     /** Maps origin lines found in the newest bounded portion of target history. */
     private Map<String, String> readOriginLines(Path repository, String targetSha, String baseSha)
     {
-        String output = requiredRaw(
-                repository,
-                "log",
-                "--max-count=" + MAX_ORIGIN_SCAN_COMMITS,
-                "--format=" + RECORD + "%H" + FIELD + "%B",
-                targetSha,
-                "^" + baseSha);
+        String output = requiredRaw(repository, "log", "--max-count=" + MAX_ORIGIN_SCAN_COMMITS, "--format=" + RECORD + "%H" + FIELD + "%B", targetSha, "^" + baseSha);
         Map<String, String> origins = new LinkedHashMap<>();
         for (String record : output.split(RECORD)) {
             if (record.isBlank()) {
@@ -589,11 +544,9 @@ public class CherryPickPreviewService
         List<String> urls = remotes.stream()
                 .map(remote -> {
                     String expected = Optional.ofNullable(configured.get(remote))
-                            .orElseThrow(() -> new CherryPickInvalidRequestException(
-                                    "Remote " + remote + " is not persisted for this workspace"));
+                            .orElseThrow(() -> new CherryPickInvalidRequestException("Remote " + remote + " is not persisted for this workspace"));
                     if (!remoteUrl(repository, remote).equals(expected)) {
-                        throw new CherryPickInvalidRequestException(
-                                "Remote " + remote + " does not match persisted workspace routing");
+                        throw new CherryPickInvalidRequestException("Remote " + remote + " does not match persisted workspace routing");
                     }
                     return expected;
                 })

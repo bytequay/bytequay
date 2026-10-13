@@ -613,9 +613,7 @@ class TestReviewCodeService
                 -a
                 +b
                 """;
-        assertThat(ReviewCodeService.lineChanges(diff, "A B.java")).containsExactly(
-                new LineChange(LineChange.Kind.DELETED, 0, 2),
-                new LineChange(LineChange.Kind.MODIFIED, 7, 2));
+        assertThat(ReviewCodeService.lineChanges(diff, "A B.java")).containsExactly(new LineChange(LineChange.Kind.DELETED, 0, 2), new LineChange(LineChange.Kind.MODIFIED, 7, 2));
         assertThat(ReviewCodeService.lineChanges(diff, "Gone.java")).isEmpty();
         assertThat(ReviewCodeService.lineChanges(diff, "Q\"uote\tX.java")).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 4, 1));
         assertThat(ReviewCodeService.unquote("\"b/\\303\\251t\\\\\\\"é\"")).isEqualTo("b/ét\\\"é");
@@ -873,9 +871,7 @@ class TestReviewCodeService
         git(checkout, "commit", "-am", "Task change");
         write(checkout, MAIN_PATH, "a\nB\nc\nlocal\n");
 
-        assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).containsExactly(
-                new LineChange(LineChange.Kind.MODIFIED, 2, 1),
-                new LineChange(LineChange.Kind.ADDED, 4, 1));
+        assertThat(service.file(taskHost(), MAIN_PATH).lineChanges()).containsExactly(new LineChange(LineChange.Kind.MODIFIED, 2, 1), new LineChange(LineChange.Kind.ADDED, 4, 1));
 
         // Without a fetched PR base, the visible baseline remains the task's starting commit.
         when(pullRequests.findPullRequestDetail(REPOSITORY.fullName(), 7)).thenReturn(Optional.empty());

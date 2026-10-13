@@ -32,9 +32,7 @@ class TestGitHubClientContributionCalendar
         RestClient.Builder graphBuilder = RestClient.builder()
                 .baseUrl("https://api.github.test/graphql");
         MockRestServiceServer server = MockRestServiceServer.bindTo(graphBuilder).build();
-        GitHubAccountClient client = new GitHubAccountClient(
-                RestClient.builder().baseUrl("https://api.github.test").build(),
-                graphBuilder.build());
+        GitHubAccountClient client = new GitHubAccountClient(RestClient.builder().baseUrl("https://api.github.test").build(), graphBuilder.build());
 
         server.expect(requestTo("https://api.github.test/graphql"))
                 .andExpect(method(HttpMethod.POST))

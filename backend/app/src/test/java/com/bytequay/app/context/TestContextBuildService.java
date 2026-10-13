@@ -329,8 +329,7 @@ class TestContextBuildService
         ContextBuild.Harvest harvest = new ContextBuild.Harvest("harvest-1", "Learn from my PRs", true,
                 ImmutableList.of(new ContextBuild.HarvestPull(31201, "Add a property", "https://github.com/owner/repository/pull/31201", true, NOW)),
                 ImmutableList.of(new ContextBuild.HarvestThread("thread-1", 31201, MemorySource.Part.REVIEW_COMMENT, Optional.empty(), true, false,
-                        ImmutableList.of(new ContextBuild.HarvestNote("c1", "note-1", "bo", true, "Please document it.", "https://github.com/owner/repository/pull/31201",
-                                NOW)))));
+                        ImmutableList.of(new ContextBuild.HarvestNote("c1", "note-1", "bo", true, "Please document it.", "https://github.com/owner/repository/pull/31201", NOW)))));
         ContextBuildService.View view = service.harvest(WORKSPACE, new ContextBuildService.Request("learn", 0), SHA, harvest);
 
         assertThat(view.build().orElseThrow().kind()).isEqualTo("HARVEST");

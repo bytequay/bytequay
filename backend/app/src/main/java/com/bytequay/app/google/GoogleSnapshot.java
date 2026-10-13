@@ -45,14 +45,12 @@ public record GoogleSnapshot(
 
     public static GoogleSnapshot empty(String accountId, String email, String name)
     {
-        return new GoogleSnapshot(accountId, email, name, false, ImmutableList.of(), "in:inbox", "", "",
-                ImmutableList.of(), ImmutableList.of(), "primary", "", "", "");
+        return new GoogleSnapshot(accountId, email, name, false, ImmutableList.of(), "in:inbox", "", "", ImmutableList.of(), ImmutableList.of(), "primary", "", "", "");
     }
 
     public GoogleSnapshot withAgentAccess(boolean allowed)
     {
-        return new GoogleSnapshot(accountId, email, name, allowed, mail, query, nextPageToken, mailSavedAt,
-                calendars, events, calendarId, timeMin, timeMax, calendarSavedAt);
+        return new GoogleSnapshot(accountId, email, name, allowed, mail, query, nextPageToken, mailSavedAt, calendars, events, calendarId, timeMin, timeMax, calendarSavedAt);
     }
 
     public record Mail(String id, String threadId, String subject, String from, String to, String date, String snippet, String body, boolean unread) {}

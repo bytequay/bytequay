@@ -71,8 +71,7 @@ class TestFileAgentResourceService
         TaskId taskId = TaskId.random();
         service.allocate(taskId);
 
-        StoredAgentAttachment stored = service.storeAttachment(
-                new StoreAgentAttachmentCommand(taskId, "../shots/failing test.png", "image/png", png(12, 7)));
+        StoredAgentAttachment stored = service.storeAttachment(new StoreAgentAttachmentCommand(taskId, "../shots/failing test.png", "image/png", png(12, 7)));
 
         assertThat(stored.name()).isEqualTo("failing test.png");
         assertThat(stored.mediaType()).isEqualTo("image/png");

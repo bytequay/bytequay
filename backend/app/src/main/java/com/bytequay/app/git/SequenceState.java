@@ -46,12 +46,8 @@ public record SequenceState(
         conflicts = ImmutableList.copyOf(requireNonNull(conflicts, "conflicts is null"));
         requireNonNull(diagnostics, "diagnostics is null");
         checkArgument(conflicts.size() <= MAX_PATHS, "conflicts exceeds " + MAX_PATHS + " values");
-        checkArgument(
-                diagnostics.length() <= MAX_DIAGNOSTIC_CHARACTERS,
-                "diagnostics exceeds " + MAX_DIAGNOSTIC_CHARACTERS + " characters");
-        checkArgument(
-                kind == Kind.COMPLETED || kind == Kind.UNSAFE || stoppedCommit.isPresent(),
-                "a stopped sequence must name the commit it stopped on");
+        checkArgument(diagnostics.length() <= MAX_DIAGNOSTIC_CHARACTERS, "diagnostics exceeds " + MAX_DIAGNOSTIC_CHARACTERS + " characters");
+        checkArgument(kind == Kind.COMPLETED || kind == Kind.UNSAFE || stoppedCommit.isPresent(), "a stopped sequence must name the commit it stopped on");
     }
 
     public enum Kind

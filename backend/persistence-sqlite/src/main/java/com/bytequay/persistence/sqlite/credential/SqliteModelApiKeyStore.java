@@ -84,8 +84,7 @@ public class SqliteModelApiKeyStore
         checkArgument(!trimmed.isEmpty(), "secret must not be blank");
         checkArgument(!jpaRepository.existsById(key.alias()), "alias already exists");
         checkArgument(jpaRepository.findByKeyId(key.id()).isEmpty(), "key ID already exists");
-        jpaRepository.save(new ModelApiKeyEntity(
-                key.id(), key.alias(), key.provider(), cipher.encrypt(trimmed), key.maskedHint(), key.createdAt()));
+        jpaRepository.save(new ModelApiKeyEntity(key.id(), key.alias(), key.provider(), cipher.encrypt(trimmed), key.maskedHint(), key.createdAt()));
     }
 
     @Override

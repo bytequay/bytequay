@@ -79,9 +79,7 @@ class TestCommitHistoryRefreshController
     void returnsTheCompletedRefreshResult()
             throws Exception
     {
-        List<CommitHistoryRef> refs = ImmutableList.of(
-                new CommitHistoryRef(Source.WORKSPACE, "feature"),
-                new CommitHistoryRef(Source.UPSTREAM, "main"));
+        List<CommitHistoryRef> refs = ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "feature"), new CommitHistoryRef(Source.UPSTREAM, "main"));
         CommitRefreshStatus completed = new CommitRefreshStatus(
                 "workspace-id",
                 IDLE,

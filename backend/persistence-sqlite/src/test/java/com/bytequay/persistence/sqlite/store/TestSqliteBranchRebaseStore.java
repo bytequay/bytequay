@@ -58,13 +58,7 @@ class TestSqliteBranchRebaseStore
     void roundTripsConflictAndActionJournal()
     {
         BranchRebase created = store.createOrGet(rebase("round-trip"));
-        ActionJournal journal = new ActionJournal(
-                ActionType.AGENT_TURN,
-                Optional.of(STOPPED),
-                ORIGINAL,
-                1,
-                "turn-1",
-                NOW.plusSeconds(1));
+        ActionJournal journal = new ActionJournal(ActionType.AGENT_TURN, Optional.of(STOPPED), ORIGINAL, 1, "turn-1", NOW.plusSeconds(1));
         BranchRebase saved = store.save(created
                 .resolving(STOPPED, NOW.plusSeconds(1))
                 .recordTurnStarted(NOW.plusSeconds(2))
@@ -104,10 +98,7 @@ class TestSqliteBranchRebaseStore
         BranchRebase older = store.createOrGet(rebase("older"));
         BranchRebase paused = store.createOrGet(rebase("paused"));
         BranchRebase newer = store.createOrGet(rebase("newer"));
-        store.save(paused.pause(
-                PauseReason.UNSAFE_GIT_STATE,
-                "inspect",
-                NOW.plusSeconds(1)));
+        store.save(paused.pause(PauseReason.UNSAFE_GIT_STATE, "inspect", NOW.plusSeconds(1)));
         store.save(newer.replaying(NOW.plusSeconds(2)));
 
         assertThat(store.listRunning(10).stream().map(BranchRebase::id))

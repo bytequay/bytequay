@@ -60,8 +60,7 @@ public record PrRawDetail(
         author = author == null ? FetchedPullRequest.GHOST_AUTHOR : author;
         labels = ImmutableList.copyOf(requireNonNull(labels, "labels is null"));
         assignees = ImmutableList.copyOf(requireNonNull(assignees, "assignees is null"));
-        requestedReviewers = ImmutableList.copyOf(
-                requireNonNull(requestedReviewers, "requestedReviewers is null"));
+        requestedReviewers = ImmutableList.copyOf(requireNonNull(requestedReviewers, "requestedReviewers is null"));
         labelColors = labelColors == null ? ImmutableMap.of() : ImmutableMap.copyOf(labelColors);
     }
 

@@ -49,11 +49,7 @@ class TestCommitHistorySyncJob
     {
         workspaces = mock(WorkspaceRepositoryService.class);
         commits = mock(CommitHistoryService.class);
-        job = new CommitHistorySyncJob(
-                workspaces,
-                commits,
-                mock(AppSettingsService.class),
-                Clock.fixed(NOW, ZoneOffset.UTC));
+        job = new CommitHistorySyncJob(workspaces, commits, mock(AppSettingsService.class), Clock.fixed(NOW, ZoneOffset.UTC));
     }
 
     @Test
@@ -78,14 +74,10 @@ class TestCommitHistorySyncJob
         verify(commits).refreshIfDue("linked", ImmutableList.of(
                 new CommitHistoryRef(Source.WORKSPACE, "main"),
                 new CommitHistoryRef(Source.UPSTREAM, "upstream-main")), staleBefore);
-        verify(commits).refreshIfDue(
-                "direct", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
-        verify(commits, never()).refreshIfDue(
-                "fresh", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
-        verify(commits, never()).refreshIfDue(
-                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
-        verify(commits).refreshIfDue(
-                "unsynced", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits).refreshIfDue("direct", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits, never()).refreshIfDue("fresh", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits, never()).refreshIfDue("recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits).refreshIfDue("unsynced", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
     }
 
     @Test
@@ -101,10 +93,8 @@ class TestCommitHistorySyncJob
         job.refreshDue();
 
         Instant staleBefore = NOW.minusSeconds(300);
-        verify(commits).refreshIfDue(
-                "due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
-        verify(commits, never()).refreshIfDue(
-                "recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits).refreshIfDue("due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
+        verify(commits, never()).refreshIfDue("recent-failure", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), staleBefore);
     }
 
     @Test
@@ -118,16 +108,12 @@ class TestCommitHistorySyncJob
 
         job.refreshDue();
 
-        verify(commits).refreshIfDue(
-                "due",
-                ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")),
-                NOW.minusSeconds(300));
+        verify(commits).refreshIfDue("due", ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")), NOW.minusSeconds(300));
     }
 
     private static CommitRefreshStatus success(String workspaceId, Instant succeededAt)
     {
-        return new CommitRefreshStatus(
-                workspaceId, IDLE, Optional.of(succeededAt), Optional.of(succeededAt), Optional.empty());
+        return new CommitRefreshStatus(workspaceId, IDLE, Optional.of(succeededAt), Optional.of(succeededAt), Optional.empty());
     }
 
     private static CommitRefreshStatus failedAttempt(String workspaceId, Instant attemptedAt)

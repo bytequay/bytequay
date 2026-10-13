@@ -53,8 +53,7 @@ public final class ClaudePermissionController
         if (authorization == null || !authorization.startsWith(BEARER_PREFIX)) {
             return ResponseEntity.status(401).build();
         }
-        McpHttpResponse response = permissions.handle(
-                authorization.substring(BEARER_PREFIX.length()), body);
+        McpHttpResponse response = permissions.handle(authorization.substring(BEARER_PREFIX.length()), body);
         return response.body()
                 .map(value -> ResponseEntity.status(response.status()).body(value))
                 .orElseGet(() -> ResponseEntity.status(response.status()).build());

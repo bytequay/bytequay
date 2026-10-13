@@ -67,12 +67,8 @@ class TestModelSettingsService
     {
         drivers = mock(AgentDriverRegistry.class);
         when(drivers.statuses()).thenReturn(ImmutableList.of(
-                new AgentProviderStatus(
-                        new AgentLaneId("claude"), Readiness.READY,
-                        Optional.of("2.1.4"), "ready", AgentCapabilities.none()),
-                new AgentProviderStatus(
-                        CODEX, Readiness.READY,
-                        Optional.of("0.145.0"), "ready", AgentCapabilities.none())));
+                new AgentProviderStatus(new AgentLaneId("claude"), Readiness.READY, Optional.of("2.1.4"), "ready", AgentCapabilities.none()),
+                new AgentProviderStatus(CODEX, Readiness.READY, Optional.of("0.145.0"), "ready", AgentCapabilities.none())));
         // The claude driver cannot enumerate models; the mock's empty default
         // list stands in for that. Codex reports a live catalog.
         when(drivers.require(new AgentLaneId("claude"))).thenReturn(mock(AgentDriver.class));
@@ -92,13 +88,7 @@ class TestModelSettingsService
         apiKeys = new InMemoryModelApiKeyStore();
         clock = mock(Clock.class);
         when(clock.instant()).thenReturn(Instant.parse("2026-08-23T10:00:00Z"));
-        service = new ModelSettingsService(
-                drivers,
-                apiKeys,
-                new ClaudeAccounts(settingsStore, new ObjectMapper()),
-                settingsStore,
-                new ObjectMapper(),
-                clock);
+        service = new ModelSettingsService(drivers, apiKeys, new ClaudeAccounts(settingsStore, new ObjectMapper()), settingsStore, new ObjectMapper(), clock);
         service.seedCatalogs();
         service.refreshCatalogs();
     }
@@ -163,8 +153,7 @@ class TestModelSettingsService
         AgentDriver driver = mock(AgentDriver.class);
         when(driver.label()).thenReturn("Claude · Work");
         when(drivers.require(work.laneId())).thenReturn(driver);
-        service.refreshMissingCatalogs(ImmutableList.of(new AgentProviderStatus(work.laneId(), Readiness.READY,
-                Optional.empty(), "Ready", AgentCapabilities.none())));
+        service.refreshMissingCatalogs(ImmutableList.of(new AgentProviderStatus(work.laneId(), Readiness.READY, Optional.empty(), "Ready", AgentCapabilities.none())));
         service.setAgentModel(AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.empty());
         service.setWorkspaceOverride("repo-a", AgentModelType.DEVELOPMENT, work.laneId().value(), "opus", Optional.empty());
         accounts.remove(work.id());
@@ -242,12 +231,7 @@ class TestModelSettingsService
                 true,
                 ImmutableSet.of(AgentPermissionPolicy.AUTO, AgentPermissionPolicy.CI_AUTOFIX),
                 ImmutableSet.of("image/png", "image/jpeg"));
-        when(drivers.statuses()).thenReturn(ImmutableList.of(new AgentProviderStatus(
-                new AgentLaneId("claude"),
-                Readiness.READY,
-                Optional.of("2.1.259"),
-                "ready",
-                capabilities)));
+        when(drivers.statuses()).thenReturn(ImmutableList.of(new AgentProviderStatus(new AgentLaneId("claude"), Readiness.READY, Optional.of("2.1.259"), "ready", capabilities)));
 
         service.refreshMissingCatalogs(drivers.statuses());
         var provider = service.get().providers().getFirst();
@@ -305,8 +289,7 @@ class TestModelSettingsService
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-1")).label()).isEqualTo("DeepSeek · personal-deepseek");
         assertThat(service.agentModel(AgentModelType.REVIEW, Optional.of("ws-1")).configId()).isEqualTo(lane.value());
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT, Optional.of("ws-2")).configId()).isEqualTo("claude");
-        assertThatThrownBy(() -> service.setWorkspaceOverride(
-                "ws-1", AgentModelType.REVIEW, "key:personal-deepseek", "deepseek-flash", Optional.empty()))
+        assertThatThrownBy(() -> service.setWorkspaceOverride("ws-1", AgentModelType.REVIEW, "key:personal-deepseek", "deepseek-flash", Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
@@ -436,12 +419,8 @@ class TestModelSettingsService
     void theDefaultSkipsAProviderThatIsNotSignedIn()
     {
         when(drivers.statuses()).thenReturn(ImmutableList.of(
-                new AgentProviderStatus(
-                        new AgentLaneId("claude"), Readiness.AUTHENTICATION_REQUIRED,
-                        Optional.of("2.1.4"), "sign in required", AgentCapabilities.none()),
-                new AgentProviderStatus(
-                        CODEX, Readiness.READY,
-                        Optional.of("0.145.0"), "ready", AgentCapabilities.none())));
+                new AgentProviderStatus(new AgentLaneId("claude"), Readiness.AUTHENTICATION_REQUIRED, Optional.of("2.1.4"), "sign in required", AgentCapabilities.none()),
+                new AgentProviderStatus(CODEX, Readiness.READY, Optional.of("0.145.0"), "ready", AgentCapabilities.none())));
 
         service.refreshMissingCatalogs(drivers.statuses());
         assertThat(service.get().agents()).allSatisfy(agent -> {
@@ -455,12 +434,8 @@ class TestModelSettingsService
     void theDefaultFallsBackToTheSeededLaneWhenNothingIsSignedIn()
     {
         when(drivers.statuses()).thenReturn(ImmutableList.of(
-                new AgentProviderStatus(
-                        new AgentLaneId("claude"), Readiness.AUTHENTICATION_REQUIRED,
-                        Optional.of("2.1.4"), "sign in required", AgentCapabilities.none()),
-                new AgentProviderStatus(
-                        CODEX, Readiness.CLI_MISSING,
-                        Optional.empty(), "not installed", AgentCapabilities.none())));
+                new AgentProviderStatus(new AgentLaneId("claude"), Readiness.AUTHENTICATION_REQUIRED, Optional.of("2.1.4"), "sign in required", AgentCapabilities.none()),
+                new AgentProviderStatus(CODEX, Readiness.CLI_MISSING, Optional.empty(), "not installed", AgentCapabilities.none())));
 
         service.refreshMissingCatalogs(drivers.statuses());
         assertThat(service.agentModel(AgentModelType.DEVELOPMENT).configId()).isEqualTo("claude");
@@ -490,8 +465,7 @@ class TestModelSettingsService
 
         when(clock.instant()).thenReturn(Instant.parse("2026-08-23T10:06:00Z"));
         when(codexDriver.models()).thenReturn(ImmutableList.of(
-                new ProviderModel("gpt-6.1-sol", "GPT-6.1 Sol", "", ImmutableList.of("high"), Optional.of("high"), true,
-                        ImmutableList.of("text", "image"), ImmutableList.of())));
+                new ProviderModel("gpt-6.1-sol", "GPT-6.1 Sol", "", ImmutableList.of("high"), Optional.of("high"), true, ImmutableList.of("text", "image"), ImmutableList.of())));
         service.refreshCatalogs(false);
 
         verify(drivers).statuses();

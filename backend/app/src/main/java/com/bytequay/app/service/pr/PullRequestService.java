@@ -231,8 +231,7 @@ public class PullRequestService
     {
         Set<Long> ids = pullRequests.stream().map(PullRequest::id).collect(toImmutableSet());
         Map<Long, PrActivitySummary> activities = new HashMap<>(snapshots.findLatestActivities(ids));
-        store.findActivities(ids).forEach((id, activity) -> activities.merge(id, activity,
-                (cached, card) -> cached.timestamp().isAfter(card.timestamp()) ? cached : card));
+        store.findActivities(ids).forEach((id, activity) -> activities.merge(id, activity, (cached, card) -> cached.timestamp().isAfter(card.timestamp()) ? cached : card));
         ImmutableMap.Builder<Long, PrActivitySummary> latest = ImmutableMap.builder();
         for (PullRequest pullRequest : pullRequests) {
             // GitHub can update a PR without a timeline event; an older actor cannot explain that update.
@@ -324,8 +323,7 @@ public class PullRequestService
         PullRequestRef ref = PullRequestRef.of(repository.owner(), repository.repo(), number);
         FetchedPullRequest pullRequest = gitHub.getPullRequest(credential.token(), ref)
                 .withViewerOrigin(credential.profile().login());
-        store.saveRepositorySyncPage(
-                repository.fullName(), ImmutableList.of(pullRequest), UUID.randomUUID().toString());
+        store.saveRepositorySyncPage(repository.fullName(), ImmutableList.of(pullRequest), UUID.randomUUID().toString());
     }
 
     /** Discovers repository updates independently of the bounded full-detail warm set. */
@@ -378,10 +376,7 @@ public class PullRequestService
                             && snapshot.repository().repo().equalsIgnoreCase(ref.repo()),
                     "workspace repository does not match requested repository");
             return snapshot.pickerUsers().stream()
-                    .map(user -> new RepoUser(
-                            user.login(),
-                            user.avatarKey().map(avatarBaseUrl::concat).orElse(null),
-                            user.bot()))
+                    .map(user -> new RepoUser(user.login(), user.avatarKey().map(avatarBaseUrl::concat).orElse(null), user.bot()))
                     .collect(toImmutableList());
         }
         String pat = credentialService.resolveGitHubToken();
@@ -929,8 +924,7 @@ public class PullRequestService
             String repo, int number, String baseSha, String headSha)
     {
         parseRef(repo, number);
-        return snapshots.getDiffFiles(
-                storedPullRequestId(repo, number), baseSha, headSha);
+        return snapshots.getDiffFiles(storedPullRequestId(repo, number), baseSha, headSha);
     }
 
     public List<DiffCommit> getPullRequestDiffCommits(String repo, int number)
@@ -944,8 +938,7 @@ public class PullRequestService
             String repo, int number, String path, String baseSha, String headSha)
     {
         parseRef(repo, number);
-        return snapshots.getFileContent(
-                storedPullRequestId(repo, number), path, baseSha, headSha);
+        return snapshots.getFileContent(storedPullRequestId(repo, number), path, baseSha, headSha);
     }
 
     void refreshPullRequestDiffFromGitHub(
@@ -953,8 +946,7 @@ public class PullRequestService
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
-        snapshots.refreshDiff(
-                pat, ref, storedPullRequestId(repo, number), baseSha, headSha);
+        snapshots.refreshDiff(pat, ref, storedPullRequestId(repo, number), baseSha, headSha);
     }
 
     void refreshPullRequestDiffFileContentFromGitHub(
@@ -966,8 +958,7 @@ public class PullRequestService
     {
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, number);
-        snapshots.refreshFileContent(
-                pat, ref, storedPullRequestId(repo, number), path, baseSha, headSha);
+        snapshots.refreshFileContent(pat, ref, storedPullRequestId(repo, number), path, baseSha, headSha);
     }
 
     public PullRequestDetail createReviewComment(String repo, int number, InlineReviewComment comment)
@@ -1057,18 +1048,14 @@ public class PullRequestService
 
     public void updateDescription(String repo, int number, String description)
     {
-        pullRequestWrites.updatePullRequestDescription(
-                credentialService.resolveGitHubToken(),
-                parseRef(repo, number),
-                requireNonNull(description, "description is null"));
+        pullRequestWrites.updatePullRequestDescription(credentialService.resolveGitHubToken(), parseRef(repo, number), requireNonNull(description, "description is null"));
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestDetail(repo, number);
     }
 
     public void closePullRequest(String repo, int number)
     {
-        pullRequestWrites.closePullRequest(
-                credentialService.resolveGitHubToken(), parseRef(repo, number));
+        pullRequestWrites.closePullRequest(credentialService.resolveGitHubToken(), parseRef(repo, number));
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestCaches(repo, number);
     }
@@ -1102,8 +1089,7 @@ public class PullRequestService
     public void updateReviewerRequest(String repo, int number, String login, boolean requested)
     {
         requireNotBlank(login, "reviewer login must not be blank");
-        pullRequestWrites.updateReviewerRequest(
-                credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
+        pullRequestWrites.updateReviewerRequest(credentialService.resolveGitHubToken(), parseRef(repo, number), login.trim(), requested);
         recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         invalidatePullRequestDetail(repo, number);
     }
@@ -1291,17 +1277,10 @@ public class PullRequestService
                         && thread.event().equals(event.event()));
                 timeline.add(thread);
             }
-            return new StoredPrDetail(
-                    cached.raw(),
-                    reviews,
-                    timeline,
-                    cached.checkRuns(),
-                    cached.unavailableSections(),
-                    cached.viewerCanWrite());
+            return new StoredPrDetail(cached.raw(), reviews, timeline, cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite());
         });
         return patched
-                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(
-                        prId, repo, number, detail, detail.viewerCanWrite()))
+                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(prId, repo, number, detail, detail.viewerCanWrite()))
                 .orElseGet(() -> getPullRequestDetail(repo, number));
     }
 
@@ -1346,12 +1325,7 @@ public class PullRequestService
             default -> RecentReason.COMMENTED;
         };
         recent.pullRequestAction(repo, number, reason, 0);
-        recent.wroteOnPullRequest(
-                repo,
-                number,
-                RecentTextKind.REVIEW_BODY,
-                "review:" + Objects.toString(created == null ? null : created.githubId(), "latest"),
-                body);
+        recent.wroteOnPullRequest(repo, number, RecentTextKind.REVIEW_BODY, "review:" + Objects.toString(created == null ? null : created.githubId(), "latest"), body);
     }
 
     /** Stable id for one written body, so re-posting cannot pile up duplicates. */
@@ -1566,18 +1540,14 @@ public class PullRequestService
     private boolean syncDiffQuietly(String pat, PullRequest pullRequest)
     {
         try {
-            snapshots.refreshDefaultDiff(
-                    pat,
-                    parseRef(pullRequest.repo(), pullRequest.number()),
-                    pullRequest.id());
+            snapshots.refreshDefaultDiff(pat, parseRef(pullRequest.repo(), pullRequest.number()), pullRequest.id());
             return true;
         }
         catch (RuntimeException failure) {
             if (isRateLimit(failure)) {
                 throw failure;
             }
-            log.warn("Failed to sync diff for PR {}/{}: {}",
-                    pullRequest.repo(), pullRequest.number(), failure.getMessage());
+            log.warn("Failed to sync diff for PR {}/{}: {}", pullRequest.repo(), pullRequest.number(), failure.getMessage());
             return false;
         }
     }
@@ -1767,17 +1737,10 @@ public class PullRequestService
                     && created.githubId().equals(event.githubId())
                     && created.event().equals(event.event()));
             timeline.add(created);
-            return new StoredPrDetail(
-                    cached.raw(),
-                    cached.reviews(),
-                    timeline,
-                    cached.checkRuns(),
-                    cached.unavailableSections(),
-                    cached.viewerCanWrite());
+            return new StoredPrDetail(cached.raw(), cached.reviews(), timeline, cached.checkRuns(), cached.unavailableSections(), cached.viewerCanWrite());
         }));
         return patched
-                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(
-                        prId.orElseThrow(), repo, number, detail, detail.viewerCanWrite()))
+                .map(detail -> PullRequestDetailMapper.toPullRequestDetail(prId.orElseThrow(), repo, number, detail, detail.viewerCanWrite()))
                 .orElseGet(() -> getPullRequestDetail(repo, number));
     }
 

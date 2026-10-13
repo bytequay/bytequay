@@ -64,12 +64,6 @@ public class RepositoryIssueDetailEntity
 
     public RepositoryIssueDetail toDomain()
     {
-        return new RepositoryIssueDetail(
-                repositoryId,
-                issueNumber,
-                timeline,
-                currentType,
-                availableTypes,
-                Optional.ofNullable(refreshedAt));
+        return new RepositoryIssueDetail(repositoryId, issueNumber, timeline, currentType, availableTypes, Optional.ofNullable(refreshedAt));
     }
 }

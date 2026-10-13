@@ -304,8 +304,7 @@ public final class ClaudeCliDriver
         try {
             ProviderCli.Result result = run(UPDATE_TIMEOUT, executable, "--bare", "update");
             if (result.exitCode() != 0) {
-                throw new AgentUnavailableException(
-                        "Claude CLI update failed: " + redactor.redact(result.combinedOutput()));
+                throw new AgentUnavailableException("Claude CLI update failed: " + redactor.redact(result.combinedOutput()));
             }
             return Optional.of(redactor.redact(result.combinedOutput()));
         }
@@ -339,23 +338,14 @@ public final class ClaudeCliDriver
         try {
             ProviderCli.Result versionResult = run(executable, "--version");
             if (versionResult.truncated()) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.empty(),
-                        "Claude CLI version output was truncated");
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), "Claude CLI version output was truncated");
             }
             if (versionResult.exitCode() != 0) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.empty(),
-                        versionResult.combinedOutput());
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), versionResult.combinedOutput());
             }
             Optional<Version> parsed = parseVersion(versionResult.stdout());
             if (parsed.isEmpty()) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.empty(),
-                        "Unable to read Claude CLI version");
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), "Unable to read Claude CLI version");
             }
             Version version = parsed.orElseThrow();
             if (version.compareTo(MINIMUM_VERSION) < 0) {
@@ -367,31 +357,19 @@ public final class ClaudeCliDriver
 
             ProviderCli.Result help = run(executable, "--help");
             if (help.truncated()) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.of(version.toString()),
-                        "Claude CLI help output was truncated");
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.of(version.toString()), "Claude CLI help output was truncated");
             }
             if (help.exitCode() != 0) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.of(version.toString()),
-                        "claude --help failed: " + help.combinedOutput());
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.of(version.toString()), "claude --help failed: " + help.combinedOutput());
             }
             Optional<String> missing = REQUIRED_FLAGS.stream()
                     .filter(flag -> !help.stdout().contains(flag))
                     .findFirst();
             if (missing.isPresent()) {
-                return status(
-                        AgentProviderStatus.Readiness.UNSUPPORTED,
-                        Optional.of(version.toString()),
-                        "Claude CLI does not support " + missing.orElseThrow());
+                return status(AgentProviderStatus.Readiness.UNSUPPORTED, Optional.of(version.toString()), "Claude CLI does not support " + missing.orElseThrow());
             }
             if (!help.stdout().contains("\"auto\"")) {
-                return status(
-                        AgentProviderStatus.Readiness.UNSUPPORTED,
-                        Optional.of(version.toString()),
-                        "Claude CLI does not support auto permission mode");
+                return status(AgentProviderStatus.Readiness.UNSUPPORTED, Optional.of(version.toString()), "Claude CLI does not support auto permission mode");
             }
             forwardSubagentText = version.compareTo(SUBAGENT_TEXT_VERSION) >= 0
                     && help.stdout().contains("--forward-subagent-text");
@@ -400,16 +378,10 @@ public final class ClaudeCliDriver
             steering = version.compareTo(STEERING_VERSION) >= 0 && help.stdout().contains("--input-format");
             ProviderCli.Result defaults = run(executable, "auto-mode", "defaults");
             if (defaults.timedOut()) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.of(version.toString()),
-                        "Claude auto-mode defaults timed out");
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.of(version.toString()), "Claude auto-mode defaults timed out");
             }
             if (defaults.truncated()) {
-                return status(
-                        AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                        Optional.of(version.toString()),
-                        "Claude auto-mode defaults output was truncated");
+                return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.of(version.toString()), "Claude auto-mode defaults output was truncated");
             }
             if (defaults.exitCode() != 0) {
                 return status(
@@ -418,10 +390,7 @@ public final class ClaudeCliDriver
                         "claude auto-mode defaults failed: " + defaults.combinedOutput());
             }
             if (!supportsAutoModeHardDeny(defaults.stdout())) {
-                return status(
-                        AgentProviderStatus.Readiness.UNSUPPORTED,
-                        Optional.of(version.toString()),
-                        "Claude CLI does not support auto-mode hard-deny rules");
+                return status(AgentProviderStatus.Readiness.UNSUPPORTED, Optional.of(version.toString()), "Claude CLI does not support auto-mode hard-deny rules");
             }
             AuthenticationProbe authentication = probeAuthentication();
             if (authentication.readiness() != AgentProviderStatus.Readiness.READY) {
@@ -436,19 +405,13 @@ public final class ClaudeCliDriver
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return status(
-                    AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE,
-                    Optional.empty(),
-                    "Claude CLI probe was interrupted");
+            return status(AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE, Optional.empty(), "Claude CLI probe was interrupted");
         }
         catch (RuntimeException e) {
             AgentProviderStatus.Readiness readiness = e.getCause() instanceof IOException
                     ? AgentProviderStatus.Readiness.CLI_MISSING
                     : AgentProviderStatus.Readiness.TEMPORARILY_UNAVAILABLE;
-            return status(
-                    readiness,
-                    Optional.empty(),
-                    "Claude CLI is not available: " + e.getMessage());
+            return status(readiness, Optional.empty(), "Claude CLI is not available: " + e.getMessage());
         }
     }
 
@@ -469,11 +432,7 @@ public final class ClaudeCliDriver
         }
         String sessionId = existing.map(AgentSessionRef::providerValue)
                 .orElseGet(() -> UUID.randomUUID().toString());
-        ClaudeSession session = new ClaudeSession(
-                new AgentSessionRef(laneId, CONTRACT_VERSION, sessionId),
-                context,
-                events,
-                existing.isPresent());
+        ClaudeSession session = new ClaudeSession(new AgentSessionRef(laneId, CONTRACT_VERSION, sessionId), context, events, existing.isPresent());
         sessions.add(session);
         return session;
     }
@@ -498,13 +457,7 @@ public final class ClaudeCliDriver
     {
         ImmutableList.Builder<String> argv = ImmutableList.builder();
         ImmutableList.Builder<String> allowedTools = ImmutableList.builder();
-        argv.add(
-                executable,
-                "--print",
-                "--output-format", "stream-json",
-                "--verbose",
-                "--include-partial-messages",
-                "--include-hook-events");
+        argv.add(executable, "--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages", "--include-hook-events");
         if (streamingInput) {
             argv.add("--input-format", "stream-json");
         }
@@ -514,15 +467,9 @@ public final class ClaudeCliDriver
         model.ifPresent(value -> argv.add("--model", value));
         effort.map(ClaudeCliDriver::effortArgument)
                 .ifPresent(value -> argv.add("--effort", value));
-        argv.add(
-                "--strict-mcp-config",
-                "--setting-sources=",
-                "--settings", registration.settingsFile().orElseThrow().toString());
+        argv.add("--strict-mcp-config", "--setting-sources=", "--settings", registration.settingsFile().orElseThrow().toString());
         if (permissionScope.access() == SessionAccess.TEXT_ONLY) {
-            argv.add(
-                    "--tools=",
-                    "--disable-slash-commands",
-                    "--no-session-persistence");
+            argv.add("--tools=", "--disable-slash-commands", "--no-session-persistence");
         }
         else if (permissionScope.access() == SessionAccess.READ_ONLY) {
             // A read-only session reads the checkout and never edits it. Session persistence
@@ -637,9 +584,7 @@ public final class ClaudeCliDriver
             return AuthenticationProbe.unavailable("Claude returned an invalid authentication status");
         }
         if (!status.orElseThrow().path("loggedIn").booleanValue()) {
-            return new AuthenticationProbe(
-                    AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED,
-                    loginEmail.map(email -> "Sign in as " + email).orElse("Claude sign-in required"));
+            return new AuthenticationProbe(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED, loginEmail.map(email -> "Sign in as " + email).orElse("Claude sign-in required"));
         }
         if (result.exitCode() != 0) {
             return AuthenticationProbe.unavailable("Claude authentication status failed");
@@ -973,9 +918,7 @@ public final class ClaudeCliDriver
             streamingInput = steering && !session.context.restricted();
             List<AgentAttachment> attachments = attachments(session.context, command.attachments());
             ProcessSpec spec = processSpec(
-                    new ProcessOwner(
-                            ownerKind(session.context.access()),
-                            session.context.restricted() ? session.context.taskId() : command.turnId()),
+                    new ProcessOwner(ownerKind(session.context.access()), session.context.restricted() ? session.context.taskId() : command.turnId()),
                     argv(
                             session.registration,
                             session.permissionScope,
@@ -1154,8 +1097,7 @@ public final class ClaudeCliDriver
             cancelled.set(true);
             ManagedProcess current = process;
             if (current == null) {
-                return CompletableFuture.failedFuture(
-                        new AgentUnavailableException("Claude process was not retained for shutdown verification"));
+                return CompletableFuture.failedFuture(new AgentUnavailableException("Claude process was not retained for shutdown verification"));
             }
             return current.stopAndVerify();
         }
@@ -1211,19 +1153,14 @@ public final class ClaudeCliDriver
                         cancelProcess();
                     }
                 }
-                session.events.emit(new ProviderAgentEvent.Error(
-                        Optional.empty(),
-                        "claude_stream",
-                        session.redactor.redact(failureMessage(failure)),
-                        true));
+                session.events.emit(new ProviderAgentEvent.Error(Optional.empty(), "claude_stream", session.redactor.redact(failureMessage(failure)), true));
             }
         }
 
         private void diagnostic(String line)
         {
             String value = session.redactor.redact(line);
-            log.debug("Claude CLI diagnostics for task {} turn {}: {}",
-                    session.context.taskId(), reference.value(), value);
+            log.debug("Claude CLI diagnostics for task {} turn {}: {}", session.context.taskId(), reference.value(), value);
             synchronized (lastDiagnostic) {
                 lastDiagnostic.setLength(0);
                 lastDiagnostic.append(value);
@@ -1295,8 +1232,7 @@ public final class ClaudeCliDriver
                     removeEmptyClaudeScratch(session.context.worktree());
                 }
                 catch (IOException | RuntimeException cleanupFailure) {
-                    log.warn("Unable to remove Claude scratch directory for task {} turn {}",
-                            session.context.taskId(), reference.value(), cleanupFailure);
+                    log.warn("Unable to remove Claude scratch directory for task {} turn {}", session.context.taskId(), reference.value(), cleanupFailure);
                     scratchCleanupFailure = Optional.of(
                             "ByteQuay could not remove Claude's empty .claude/.cc-writes scratch directory; "
                                     + "check the worktree permissions before retrying. The worktree was retained");
@@ -1305,11 +1241,7 @@ public final class ClaudeCliDriver
 
             AgentTurnResult turnResult;
             if (scratchCleanupFailure.isPresent()) {
-                turnResult = failedResult(
-                        AgentTurnResult.State.FAILED,
-                        scratchCleanupFailure.orElseThrow(),
-                        exit.duration(),
-                        providerQuiescent);
+                turnResult = failedResult(AgentTurnResult.State.FAILED, scratchCleanupFailure.orElseThrow(), exit.duration(), providerQuiescent);
             }
             else if (interruptionReason != null) {
                 turnResult = failedResult(
@@ -1319,46 +1251,22 @@ public final class ClaudeCliDriver
                         providerQuiescent);
             }
             else if (protocolFailure != null) {
-                turnResult = failedResult(
-                        AgentTurnResult.State.FAILED,
-                        protocolFailure,
-                        exit.duration(),
-                        providerQuiescent);
+                turnResult = failedResult(AgentTurnResult.State.FAILED, protocolFailure, exit.duration(), providerQuiescent);
             }
             else if (exit.reason() == ProcessExit.Reason.TIMED_OUT) {
-                turnResult = failedResult(
-                        AgentTurnResult.State.INTERRUPTED,
-                        "Claude turn timed out",
-                        exit.duration(),
-                        providerQuiescent);
+                turnResult = failedResult(AgentTurnResult.State.INTERRUPTED, "Claude turn timed out", exit.duration(), providerQuiescent);
             }
             else if (exit.reason() == ProcessExit.Reason.CANCELLED) {
-                turnResult = failedResult(
-                        AgentTurnResult.State.CANCELLED,
-                        "Claude turn was cancelled",
-                        exit.duration(),
-                        providerQuiescent);
+                turnResult = failedResult(AgentTurnResult.State.CANCELLED, "Claude turn was cancelled", exit.duration(), providerQuiescent);
             }
             else if (stdoutTruncated || exit.stdoutTruncated()) {
-                turnResult = failedResult(
-                        AgentTurnResult.State.FAILED,
-                        "Claude protocol output was truncated",
-                        exit.duration(),
-                        providerQuiescent);
+                turnResult = failedResult(AgentTurnResult.State.FAILED, "Claude protocol output was truncated", exit.duration(), providerQuiescent);
             }
             else if (result == null) {
-                turnResult = failedResult(
-                        AgentTurnResult.State.FAILED,
-                        exitReason(exit),
-                        exit.duration(),
-                        providerQuiescent);
+                turnResult = failedResult(AgentTurnResult.State.FAILED, exitReason(exit), exit.duration(), providerQuiescent);
             }
             else if (!result.successful() || exit.exitCode() != 0) {
-                turnResult = failedResult(
-                        AgentTurnResult.State.FAILED,
-                        session.redactor.redact(result.errorMessage()),
-                        Duration.ofMillis(result.durationMs()),
-                        providerQuiescent);
+                turnResult = failedResult(AgentTurnResult.State.FAILED, session.redactor.redact(result.errorMessage()), Duration.ofMillis(result.durationMs()), providerQuiescent);
             }
             else {
                 turnResult = new AgentTurnResult(
@@ -1385,10 +1293,7 @@ public final class ClaudeCliDriver
                 case INTERRUPTED -> "Claude turn interrupted";
             };
             try {
-                session.events.emit(new ProviderAgentEvent.Lifecycle(
-                        result == null ? Optional.empty() : result.uuid().map(value -> value + ":completed"),
-                        phase,
-                        message));
+                session.events.emit(new ProviderAgentEvent.Lifecycle(result == null ? Optional.empty() : result.uuid().map(value -> value + ":completed"), phase, message));
             }
             catch (RuntimeException eventFailure) {
                 turnResult = failedResult(
@@ -1440,10 +1345,8 @@ public final class ClaudeCliDriver
                 return turnResult;
             }
 
-            String diagnostic = session.redactor.redact(
-                    turnResult.terminalReason().orElse("Claude turn failed"));
-            log.warn("Claude authentication required for task {} turn {}: {}",
-                    session.context.taskId(), reference.value(), diagnostic);
+            String diagnostic = session.redactor.redact(turnResult.terminalReason().orElse("Claude turn failed"));
+            log.warn("Claude authentication required for task {} turn {}: {}", session.context.taskId(), reference.value(), diagnostic);
             return new AgentTurnResult(
                     AgentTurnResult.State.FAILED,
                     Optional.empty(),
@@ -1471,8 +1374,7 @@ public final class ClaudeCliDriver
                         authenticationRequired ? "AUTHENTICATION_REQUIRED" : "claude_result",
                         authenticationRequired
                                 ? "Claude sign-in required"
-                                : session.redactor.redact(
-                                        turnResult.terminalReason().orElse("Claude turn failed")),
+                                : session.redactor.redact(turnResult.terminalReason().orElse("Claude turn failed")),
                         false));
                 return turnResult;
             }
@@ -1491,12 +1393,7 @@ public final class ClaudeCliDriver
                 Duration duration,
                 boolean providerQuiescent)
         {
-            return new AgentTurnResult(
-                    state,
-                    Optional.empty(),
-                    Optional.of(reason),
-                    duration,
-                    providerQuiescent);
+            return new AgentTurnResult(state, Optional.empty(), Optional.of(reason), duration, providerQuiescent);
         }
 
         private String exitReason(ProcessExit exit)
@@ -1549,10 +1446,7 @@ public final class ClaudeCliDriver
             throws IOException
     {
         try {
-            BasicFileAttributes attributes = Files.readAttributes(
-                    path,
-                    BasicFileAttributes.class,
-                    LinkOption.NOFOLLOW_LINKS);
+            BasicFileAttributes attributes = Files.readAttributes(path, BasicFileAttributes.class, LinkOption.NOFOLLOW_LINKS);
             return attributes.isDirectory() && !attributes.isSymbolicLink();
         }
         catch (NoSuchFileException ignored) {
@@ -1573,8 +1467,7 @@ public final class ClaudeCliDriver
             for (AgentAttachment attachment : requested) {
                 String mediaType = attachment.mediaType().toLowerCase(Locale.ROOT);
                 if (!mediaType.equals("text/plain") && !mediaType.startsWith("text/plain;")) {
-                    throw new AgentUnavailableException(
-                            "Claude does not support attachment type " + attachment.mediaType());
+                    throw new AgentUnavailableException("Claude does not support attachment type " + attachment.mediaType());
                 }
                 Path path = attachment.path().toRealPath();
                 if (!Files.isRegularFile(path) || !path.startsWith(taskRoot)) {

@@ -41,21 +41,11 @@ public record ProviderAgentEventSource(
 
     public static ProviderAgentEventSource root()
     {
-        return new ProviderAgentEventSource(
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty());
+        return new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
     }
 
     public static ProviderAgentEventSource item(String providerItemId)
     {
-        return new ProviderAgentEventSource(
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.empty(),
-                Optional.of(providerItemId));
+        return new ProviderAgentEventSource(Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.of(providerItemId));
     }
 }

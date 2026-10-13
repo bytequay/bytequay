@@ -62,8 +62,7 @@ class TestCiAutofixLogReader
         CiAutofixLogReader reader = new CiAutofixLogReader(mock(GitHubActionsClient.class), events);
         TaskId taskId = TaskId.random();
         TurnId turnId = TurnId.random();
-        AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(),
-                Optional.empty());
+        AgentEventSource child = new AgentEventSource(Optional.of("child"), Optional.of("root"), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
         // The newest page holds a subagent's answer; the task's own answer is on the older page.
         when(events.readHistory(taskId, OptionalLong.empty(), OptionalLong.empty())).thenReturn(new AgentHistoryPage(
                 ImmutableList.of(answer(taskId, 3, turnId, child, "Child: tests pass")), OptionalLong.of(3), OptionalLong.empty(), 3));
@@ -199,10 +198,7 @@ class TestCiAutofixLogReader
 
         String first = CiAutofixLogReader.failureSignature(workflow, job, firstLog);
         String second = CiAutofixLogReader.failureSignature(workflow, job, sameLog);
-        String changed = CiAutofixLogReader.failureSignature(
-                workflow,
-                job,
-                errorLog(ImmutableList.of("error: incompatible types", "build failed")));
+        String changed = CiAutofixLogReader.failureSignature(workflow, job, errorLog(ImmutableList.of("error: incompatible types", "build failed")));
 
         assertThat(first).isEqualTo(second);
         assertThat(first).isEqualTo("ci-d92f27942a14baa8c53c3021492e7eb7ab62d7ed5d69d24e7d0671fe99a0a06b");
@@ -213,16 +209,7 @@ class TestCiAutofixLogReader
 
     private static CiWorkflowRun failedWorkflow(CiJob job)
     {
-        return new CiWorkflowRun(
-                900,
-                80,
-                "Build",
-                2,
-                "completed",
-                Optional.of("failure"),
-                HEAD_SHA,
-                "https://github.com/actions/runs/900",
-                ImmutableList.of(job));
+        return new CiWorkflowRun(900, 80, "Build", 2, "completed", Optional.of("failure"), HEAD_SHA, "https://github.com/actions/runs/900", ImmutableList.of(job));
     }
 
     private static CiJob failedJob()
@@ -240,13 +227,6 @@ class TestCiAutofixLogReader
 
     private static BoundedCiLog errorLog(List<String> errors)
     {
-        return new BoundedCiLog(
-                Optional.of(new BlobRef("blobs/log", "text/plain", 10)),
-                10,
-                false,
-                false,
-                false,
-                errors,
-                Optional.empty(), Optional.empty(), true);
+        return new BoundedCiLog(Optional.of(new BlobRef("blobs/log", "text/plain", 10)), 10, false, false, false, errors, Optional.empty(), Optional.empty(), true);
     }
 }

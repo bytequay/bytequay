@@ -206,8 +206,7 @@ public class WorkspaceIssueRefreshService
         lock.lock();
         try {
             refreshIssueRows(workspace);
-            return issues.findPage(
-                    workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 50);
+            return issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, 50);
         }
         catch (RuntimeException failure) {
             throw refreshFailure(workspaceId, failure);
@@ -254,18 +253,14 @@ public class WorkspaceIssueRefreshService
         String token = credentials.resolveGitHubToken();
         String syncMarker = UUID.randomUUID().toString();
         for (int page = 1; ; page++) {
-            GitHubRepoClient.IssuePage fetched = gitHub.fetchOpenIssuesPage(
-                    token, workspace.monitoredRepository(), page);
+            GitHubRepoClient.IssuePage fetched = gitHub.fetchOpenIssuesPage(token, workspace.monitoredRepository(), page);
             issues.saveSyncPage(workspace.monitoredRepositoryId(), fetched.issues(), syncMarker);
             if (!fetched.hasNext()) {
                 break;
             }
             checkState(page != MAX_SYNC_PAGES, "GitHub issue refresh exceeded 5000 rows");
         }
-        issues.completeSync(
-                workspace.monitoredRepositoryId(),
-                syncMarker,
-                clock.instant());
+        issues.completeSync(workspace.monitoredRepositoryId(), syncMarker, clock.instant());
     }
 
     private List<PrTimelineEvent> fetchTimeline(String token, PullRequestRef issue)
@@ -274,9 +269,7 @@ public class WorkspaceIssueRefreshService
                         issueReads.fetchPrTimeline(token, issue).stream()
                                 .filter(event -> !"commented".equals(event.event())),
                         issueReads.fetchPrIssueComments(token, issue).stream())
-                .sorted(Comparator.comparing(
-                        PrTimelineEvent::timestamp,
-                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .sorted(Comparator.comparing(PrTimelineEvent::timestamp, Comparator.nullsLast(Comparator.naturalOrder())))
                 .collect(toImmutableList());
     }
 
@@ -292,7 +285,6 @@ public class WorkspaceIssueRefreshService
 
     private static PullRequestRef issueRef(Workspace workspace, int issueNumber)
     {
-        return PullRequestRef.of(
-                workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), issueNumber);
+        return PullRequestRef.of(workspace.monitoredRepository().owner(), workspace.monitoredRepository().repo(), issueNumber);
     }
 }

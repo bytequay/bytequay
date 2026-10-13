@@ -218,9 +218,7 @@ public class ModelSettingsService
                     .findFirst()
                     .orElse(models.getFirst())
                     .id();
-            writeJson(
-                    CATALOG_PREFIX + id,
-                    new StoredCatalog(status.version().orElse(""), defaultModelId, options));
+            writeJson(CATALOG_PREFIX + id, new StoredCatalog(status.version().orElse(""), defaultModelId, options));
         }
     }
 
@@ -283,14 +281,7 @@ public class ModelSettingsService
         }
         if (type == AgentModelType.REVIEW) {
             AgentModelSetting development = agentModel(AgentModelType.DEVELOPMENT);
-            return new AgentModelSetting(
-                    type,
-                    false,
-                    development.configId(),
-                    development.label(),
-                    development.model(),
-                    development.modelLabel(),
-                    development.effort());
+            return new AgentModelSetting(type, false, development.configId(), development.label(), development.model(), development.modelLabel(), development.effort());
         }
         return catalogDefault(type);
     }
@@ -336,8 +327,7 @@ public class ModelSettingsService
         }
         String trimmedAlias = requireNonNull(alias, "alias is null").trim();
         if (!ALIAS.matcher(trimmedAlias).matches()) {
-            throw new IllegalArgumentException(
-                    "Aliases use letters, digits, dots, dashes, or underscores.");
+            throw new IllegalArgumentException("Aliases use letters, digits, dots, dashes, or underscores.");
         }
         if (apiKeys.findAll().stream().anyMatch(key -> key.alias().equals(trimmedAlias))) {
             throw new IllegalArgumentException("An API key named " + trimmedAlias + " already exists.");
@@ -410,8 +400,7 @@ public class ModelSettingsService
         }).orElseGet(() -> {
             AgentModelSetting workspace = agentModel(AgentModelType.DEVELOPMENT, Optional.of(workspaceId));
             validateWorkspaceAccess(workspace.configId(), Optional.of(workspaceId));
-            return new AgentModelSetting(workspace.type(), false, workspace.configId(), workspace.label(), workspace.model(), workspace.modelLabel(),
-                    workspace.effort());
+            return new AgentModelSetting(workspace.type(), false, workspace.configId(), workspace.label(), workspace.model(), workspace.modelLabel(), workspace.effort());
         });
     }
 
@@ -454,14 +443,7 @@ public class ModelSettingsService
         String laneId = defaultLaneId();
         Catalog catalog = cliCatalog(laneId).orElseGet(() -> new Catalog(laneLabel(laneId), ImmutableList.of(), ""));
         Selection selection = defaultSelection(catalog);
-        return new AgentModelSetting(
-                type,
-                false,
-                laneId,
-                catalog.label(),
-                selection.model(),
-                catalog.modelLabel(selection.model()),
-                Optional.ofNullable(selection.effort()));
+        return new AgentModelSetting(type, false, laneId, catalog.label(), selection.model(), catalog.modelLabel(selection.model()), Optional.ofNullable(selection.effort()));
     }
 
     /**
@@ -513,8 +495,7 @@ public class ModelSettingsService
     {
         requireSelection(configId, model, effort);
         if (configId.startsWith(API_KEY_ID_PREFIX)) {
-            throw new IllegalArgumentException(
-                    "Choose a provider with an agent execution driver.");
+            throw new IllegalArgumentException("Choose a provider with an agent execution driver.");
         }
     }
 
@@ -543,21 +524,12 @@ public class ModelSettingsService
         String id = API_KEY_ID_PREFIX + key.alias();
         List<String> models = KEY_PROVIDER_MODELS.getOrDefault(key.provider(), ImmutableList.of());
         Selection selection = defaultSelection(catalog(id).orElseThrow());
-        return new ApiKey(
-                id,
-                key.alias(),
-                key.provider(),
-                key.maskedHint(),
-                key.createdAt(),
-                models,
-                selection.model());
+        return new ApiKey(id, key.alias(), key.provider(), key.maskedHint(), key.createdAt(), models, selection.model());
     }
 
     private static Selection defaultSelection(Catalog catalog)
     {
-        return new Selection(
-                catalog.defaultModelId(),
-                catalog.model(catalog.defaultModelId()).map(ModelOption::defaultEffort).orElse(null));
+        return new Selection(catalog.defaultModelId(), catalog.model(catalog.defaultModelId()).map(ModelOption::defaultEffort).orElse(null));
     }
 
     private Catalog requireCatalog(String configId)
@@ -595,10 +567,7 @@ public class ModelSettingsService
                             .getOrDefault(key.provider(), ImmutableList.<String>of()).stream()
                             .map(name -> new ModelOption(name, name, "", ImmutableList.of(), null))
                             .collect(toImmutableList());
-                    return new Catalog(
-                            key.provider() + " · " + key.alias(),
-                            models,
-                            models.isEmpty() ? "" : models.getFirst().id());
+                    return new Catalog(key.provider() + " · " + key.alias(), models, models.isEmpty() ? "" : models.getFirst().id());
                 });
     }
 

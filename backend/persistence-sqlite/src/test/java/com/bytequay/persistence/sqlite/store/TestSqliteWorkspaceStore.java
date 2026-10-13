@@ -295,8 +295,7 @@ class TestSqliteWorkspaceStore
     {
         Workspace removed = store.createOrGet(fork("removed", 200, 300, 0));
         Workspace retained = store.createOrGet(direct("retained", 100, 1));
-        jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES ('remote', ?, 'extra', 'git@github.com:contributor/project.git')",
-                retained.id());
+        jdbc.update("INSERT INTO workspace_remote_sources (id, workspace_id, name, url) VALUES ('remote', ?, 'extra', 'git@github.com:contributor/project.git')", retained.id());
         jdbc.update("INSERT INTO repository_issue_sync (repository_id, synced_at) VALUES (200, ?)", NOW.toString());
 
         store.delete(removed.id());
@@ -457,9 +456,7 @@ class TestSqliteWorkspaceStore
     private static Workspace direct(String id, long selectedId, int displayOrder)
     {
         RepoRef repository = RepoRef.of("owner", "project");
-        return workspace(
-                id, selectedId, repository, Optional.empty(), Optional.empty(), selectedId,
-                repository, Topology.DIRECT, Optional.empty(), displayOrder);
+        return workspace(id, selectedId, repository, Optional.empty(), Optional.empty(), selectedId, repository, Topology.DIRECT, Optional.empty(), displayOrder);
     }
 
     private static void createLegacyWorkspaceTable()

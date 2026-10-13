@@ -122,10 +122,8 @@ public class BranchRebaseService
             throw new BranchRebaseException("Work branch and base branch are the same");
         }
         String originalTip = snapshot.head();
-        String baseSha = required(worktree,
-                "rev-parse", "--verify", "refs/heads/" + command.baseBranch() + "^{commit}");
-        String workRef = required(worktree,
-                "rev-parse", "--verify", "refs/heads/" + workBranch + "^{commit}");
+        String baseSha = required(worktree, "rev-parse", "--verify", "refs/heads/" + command.baseBranch() + "^{commit}");
+        String workRef = required(worktree, "rev-parse", "--verify", "refs/heads/" + workBranch + "^{commit}");
         if (!workRef.equals(originalTip)) {
             throw new BranchRebaseException("Checked-out work branch does not point at HEAD");
         }
@@ -140,9 +138,7 @@ public class BranchRebaseService
                 BranchRebaseId.random(),
                 command.idempotencyKey(),
                 taskWorktree.taskId().toString(),
-                RepoRef.of(
-                        taskWorktree.physicalRepository().owner(),
-                        taskWorktree.physicalRepository().name()),
+                RepoRef.of(taskWorktree.physicalRepository().owner(), taskWorktree.physicalRepository().name()),
                 worktree,
                 workBranch,
                 command.baseBranch(),
@@ -150,11 +146,7 @@ public class BranchRebaseService
                 baseSha,
                 clock.instant());
         if (isAncestor(worktree, baseSha, originalTip)) {
-            return store.createOrGet(proposed.finish(
-                    FinishReason.COMPLETED,
-                    "Work branch already contains the base",
-                    Optional.of(originalTip),
-                    clock.instant()));
+            return store.createOrGet(proposed.finish(FinishReason.COMPLETED, "Work branch already contains the base", Optional.of(originalTip), clock.instant()));
         }
         ActionJournal start = journal(proposed, ActionType.START, Optional.empty(), originalTip, 0);
         return store.createOrGet(proposed.withJournal(start, clock.instant()));
@@ -203,8 +195,7 @@ public class BranchRebaseService
     {
         requireNonNull(message, "message is null");
         if (message.isBlank() || message.length() > MAX_MESSAGE_CHARACTERS) {
-            throw new BranchRebaseException(
-                    "message must contain between 1 and " + MAX_MESSAGE_CHARACTERS + " characters");
+            throw new BranchRebaseException("message must contain between 1 and " + MAX_MESSAGE_CHARACTERS + " characters");
         }
         Lock lock = advanceLocks.get(rebaseId.toString());
         lock.lock();
@@ -236,12 +227,7 @@ public class BranchRebaseService
             if (rebase.status() == Status.FINISHED) {
                 return rebase;
             }
-            ActionJournal abort = journal(
-                    rebase,
-                    ActionType.ABORT,
-                    rebase.conflictCommitSha(),
-                    head(rebase.worktree()),
-                    rebase.attemptCount());
+            ActionJournal abort = journal(rebase, ActionType.ABORT, rebase.conflictCommitSha(), head(rebase.worktree()), rebase.attemptCount());
             BranchRebase requested = store.save(rebase.requestAbort(abort, clock.instant()));
             requested.currentTurnId().ifPresent(turnId -> turns.cancel(TurnId.valueOf(turnId)));
             return requested.currentTurnId().isPresent() ? requested : recoverAbort(requested);
@@ -314,8 +300,7 @@ public class BranchRebaseService
         SequenceState state = sequencer.observe(rebase.worktree());
         if (sameStop(state, action, SequenceState.Kind.STOPPED_RESOLVED)) {
             ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
-            state = sequencer.continueRebase(
-                    rebase.worktree(), action.expectedHead(), action.stoppedCommitSha().orElseThrow());
+            state = sequencer.continueRebase(rebase.worktree(), action.expectedHead(), action.stoppedCommitSha().orElseThrow());
         }
         return recordState(rebase, state, Optional.empty());
     }
@@ -326,8 +311,7 @@ public class BranchRebaseService
         SequenceState state = sequencer.observe(rebase.worktree());
         if (sameStop(state, action, SequenceState.Kind.STOPPED_EMPTY)) {
             ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
-            state = sequencer.skipEmpty(
-                    rebase.worktree(), action.expectedHead(), action.stoppedCommitSha().orElseThrow());
+            state = sequencer.skipEmpty(rebase.worktree(), action.expectedHead(), action.stoppedCommitSha().orElseThrow());
         }
         return recordState(rebase, state, Optional.empty());
     }
@@ -338,11 +322,9 @@ public class BranchRebaseService
         SequenceState state = sequencer.abort(rebase.worktree(), rebase.originalWorkTip());
         if (state.kind() != SequenceState.Kind.COMPLETED
                 || !state.head().equals(rebase.originalWorkTip())) {
-            return pause(rebase, PauseReason.UNSAFE_GIT_STATE,
-                    state.diagnostics().isBlank() ? "Rebase could not be aborted safely" : state.diagnostics());
+            return pause(rebase, PauseReason.UNSAFE_GIT_STATE, state.diagnostics().isBlank() ? "Rebase could not be aborted safely" : state.diagnostics());
         }
-        return store.save(rebase.finish(
-                FinishReason.CANCELLED, "Rebase cancelled", Optional.empty(), clock.instant()));
+        return store.save(rebase.finish(FinishReason.CANCELLED, "Rebase cancelled", Optional.empty(), clock.instant()));
     }
 
     private BranchRebase recordState(
@@ -355,16 +337,9 @@ public class BranchRebaseService
             case STOPPED_CONFLICT -> prepareAgentTurn(rebase, state, userNote);
             case STOPPED_EMPTY -> store.save(rebase
                     .replaying(clock.instant())
-                    .withJournal(journal(
-                            rebase,
-                            ActionType.SKIP,
-                            state.stoppedCommit(),
-                            state.head(),
-                            rebase.attemptCount()), clock.instant()));
-            case STOPPED_RESOLVED -> pause(rebase, PauseReason.RECONCILIATION_MISMATCH,
-                    "A rebase resolution was staged outside the expected agent turn");
-            case UNSAFE -> pause(rebase, PauseReason.UNSAFE_GIT_STATE,
-                    state.diagnostics().isBlank() ? "Unexpected Git state" : state.diagnostics());
+                    .withJournal(journal(rebase, ActionType.SKIP, state.stoppedCommit(), state.head(), rebase.attemptCount()), clock.instant()));
+            case STOPPED_RESOLVED -> pause(rebase, PauseReason.RECONCILIATION_MISMATCH, "A rebase resolution was staged outside the expected agent turn");
+            case UNSAFE -> pause(rebase, PauseReason.UNSAFE_GIT_STATE, state.diagnostics().isBlank() ? "Unexpected Git state" : state.diagnostics());
         };
     }
 
@@ -381,12 +356,7 @@ public class BranchRebaseService
                             + BranchRebase.MAX_AGENT_TURNS + " attempts");
         }
         BranchRebase counted = resolving.recordTurnStarted(clock.instant());
-        ActionJournal action = journal(
-                counted,
-                ActionType.AGENT_TURN,
-                Optional.of(stopped),
-                state.head(),
-                counted.attemptCount());
+        ActionJournal action = journal(counted, ActionType.AGENT_TURN, Optional.of(stopped), state.head(), counted.attemptCount());
         BranchRebase prepared = store.save(counted.withJournal(action, clock.instant()));
         return userNote.isPresent() ? startAgentTurn(prepared, userNote) : prepared;
     }
@@ -396,8 +366,7 @@ public class BranchRebaseService
         ActionJournal action = rebase.journal().orElseThrow();
         SequenceState state = sequencer.observe(rebase.worktree());
         if (!sameStop(state, action, SequenceState.Kind.STOPPED_CONFLICT)) {
-            return pause(rebase, PauseReason.RECONCILIATION_MISMATCH,
-                    "Rebase moved before the conflict-resolution turn started");
+            return pause(rebase, PauseReason.RECONCILIATION_MISMATCH, "Rebase moved before the conflict-resolution turn started");
         }
         try {
             ownership.requireTask(TaskId.valueOf(rebase.agentTaskId()));
@@ -409,8 +378,7 @@ public class BranchRebaseService
             return store.save(rebase.withTurn(turn.id().toString(), clock.instant()));
         }
         catch (RuntimeException failure) {
-            return pause(rebase, PauseReason.AGENT_TURN_FAILED,
-                    "Cannot start an agent turn: " + failure.getMessage());
+            return pause(rebase, PauseReason.AGENT_TURN_FAILED, "Cannot start an agent turn: " + failure.getMessage());
         }
     }
 
@@ -422,8 +390,7 @@ public class BranchRebaseService
         }
         catch (RuntimeException failure) {
             BranchRebase cleared = rebase.withoutTurn(clock.instant()).withoutJournal(clock.instant());
-            return pause(cleared, PauseReason.AGENT_TURN_FAILED,
-                    "Cannot read the agent turn: " + failure.getMessage());
+            return pause(cleared, PauseReason.AGENT_TURN_FAILED, "Cannot read the agent turn: " + failure.getMessage());
         }
         if (turn.state().active()) {
             return rebase;
@@ -433,8 +400,7 @@ public class BranchRebaseService
         }
         if (turn.state() != TurnState.COMPLETED) {
             BranchRebase cleared = rebase.withoutTurn(clock.instant()).withoutJournal(clock.instant());
-            return pause(cleared, PauseReason.AGENT_TURN_FAILED,
-                    "Agent turn ended " + turn.state() + "; the rebase remains open");
+            return pause(cleared, PauseReason.AGENT_TURN_FAILED, "Agent turn ended " + turn.state() + "; the rebase remains open");
         }
         BranchRebase cleared = rebase.withoutTurn(clock.instant());
         return inspectAgentResult(cleared);
@@ -446,31 +412,18 @@ public class BranchRebaseService
         SequenceState state = sequencer.observe(rebase.worktree());
         if (!state.head().equals(action.expectedHead())
                 || !state.stoppedCommit().equals(action.stoppedCommitSha())) {
-            return pause(rebase, PauseReason.RECONCILIATION_MISMATCH,
-                    "Agent advanced or changed the rebase sequence");
+            return pause(rebase, PauseReason.RECONCILIATION_MISMATCH, "Agent advanced or changed the rebase sequence");
         }
         return switch (state.kind()) {
             case STOPPED_CONFLICT -> prepareAgentTurn(rebase, state, Optional.empty());
             case STOPPED_RESOLVED -> store.save(rebase
                     .replaying(clock.instant())
-                    .withJournal(journal(
-                            rebase,
-                            ActionType.CONTINUE,
-                            state.stoppedCommit(),
-                            state.head(),
-                            action.attempt()), clock.instant()));
+                    .withJournal(journal(rebase, ActionType.CONTINUE, state.stoppedCommit(), state.head(), action.attempt()), clock.instant()));
             case STOPPED_EMPTY -> store.save(rebase
                     .replaying(clock.instant())
-                    .withJournal(journal(
-                            rebase,
-                            ActionType.SKIP,
-                            state.stoppedCommit(),
-                            state.head(),
-                            action.attempt()), clock.instant()));
-            case COMPLETED -> pause(rebase, PauseReason.RECONCILIATION_MISMATCH,
-                    "Agent closed the rebase operation");
-            case UNSAFE -> pause(rebase, PauseReason.UNSAFE_GIT_STATE,
-                    state.diagnostics().isBlank() ? "Agent left an unsafe Git state" : state.diagnostics());
+                    .withJournal(journal(rebase, ActionType.SKIP, state.stoppedCommit(), state.head(), action.attempt()), clock.instant()));
+            case COMPLETED -> pause(rebase, PauseReason.RECONCILIATION_MISMATCH, "Agent closed the rebase operation");
+            case UNSAFE -> pause(rebase, PauseReason.UNSAFE_GIT_STATE, state.diagnostics().isBlank() ? "Agent left an unsafe Git state" : state.diagnostics());
         };
     }
 
@@ -481,14 +434,9 @@ public class BranchRebaseService
                 || !originalHeadMatches(rebase)
                 || !isAncestor(rebase.worktree(), rebase.baseSha(), state.head())
                 || !git.withoutConflictMarkers(rebase.worktree(), rebase.baseSha(), state.head())) {
-            return pause(rebase, PauseReason.RECONCILIATION_MISMATCH,
-                    "Final work branch is not a clean descendant of the frozen base");
+            return pause(rebase, PauseReason.RECONCILIATION_MISMATCH, "Final work branch is not a clean descendant of the frozen base");
         }
-        return store.save(rebase.finish(
-                FinishReason.COMPLETED,
-                "Rebased " + rebase.workBranch() + " onto " + rebase.baseBranch(),
-                Optional.of(state.head()),
-                clock.instant()));
+        return store.save(rebase.finish(FinishReason.COMPLETED, "Rebased " + rebase.workBranch() + " onto " + rebase.baseBranch(), Optional.of(state.head()), clock.instant()));
     }
 
     private WorktreeSnapshot requireCallerScope(StartBranchRebaseCommand command)
@@ -528,8 +476,7 @@ public class BranchRebaseService
 
     private boolean ownsBranch(BranchRebase rebase)
     {
-        GitCommandRunner.Result branch = git.run(
-                rebase.worktree(), "symbolic-ref", "--quiet", "--short", "HEAD");
+        GitCommandRunner.Result branch = git.run(rebase.worktree(), "symbolic-ref", "--quiet", "--short", "HEAD");
         if (branch.successful() && branch.output().strip().equals(rebase.workBranch())) {
             return true;
         }
@@ -568,8 +515,7 @@ public class BranchRebaseService
 
     private boolean originalHeadMatches(BranchRebase rebase)
     {
-        GitCommandRunner.Result original = git.run(
-                rebase.worktree(), "rev-parse", "--verify", "ORIG_HEAD");
+        GitCommandRunner.Result original = git.run(rebase.worktree(), "rev-parse", "--verify", "ORIG_HEAD");
         return original.successful() && original.output().strip().equals(rebase.originalWorkTip());
     }
 
@@ -577,8 +523,7 @@ public class BranchRebaseService
     {
         GitCommandRunner.Result result = git.run(worktree, arguments);
         if (!result.successful()) {
-            throw new BranchRebaseException(
-                    "Git " + arguments[0] + " failed: " + result.output().strip());
+            throw new BranchRebaseException("Git " + arguments[0] + " failed: " + result.output().strip());
         }
         return result.output().strip();
     }

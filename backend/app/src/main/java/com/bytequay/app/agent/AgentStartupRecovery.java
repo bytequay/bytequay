@@ -205,19 +205,14 @@ public final class AgentStartupRecovery
         Optional<OwnedProcessRecovery> blocking = recoveries.stream()
                 .filter(recovery -> recovery.outcome() == OwnedProcessRecovery.Outcome.UNVERIFIABLE)
                 .findFirst();
-        AgentTask settled = maintenance.settleRecoveryClaim(
-                taskId,
-                task.version(),
-                claim.ownerId(),
-                blocking.map(OwnedProcessRecovery::launchId));
+        AgentTask settled = maintenance.settleRecoveryClaim(taskId, task.version(), claim.ownerId(), blocking.map(OwnedProcessRecovery::launchId));
         recoveries.stream()
                 .filter(recovery -> recovery.outcome() != OwnedProcessRecovery.Outcome.UNVERIFIABLE)
                 .map(OwnedProcessRecovery::launchId)
                 .forEach(supervisor::acknowledge);
         if (blocking.isPresent()) {
             OwnedProcessRecovery unresolved = blocking.orElseThrow();
-            throw new AgentUnavailableException(
-                    "Provider process " + unresolved.launchId() + " could not be verified stopped: " + unresolved.detail());
+            throw new AgentUnavailableException("Provider process " + unresolved.launchId() + " could not be verified stopped: " + unresolved.detail());
         }
         return settled;
     }
@@ -263,16 +258,14 @@ public final class AgentStartupRecovery
                 continue;
             }
             if (recovery.outcome() != OwnedProcessRecovery.Outcome.UNVERIFIABLE) {
-                log.info("Owned provider process {} recovered as {}: {}",
-                        recovery.launchId(), recovery.outcome(), recovery.detail());
+                log.info("Owned provider process {} recovered as {}: {}", recovery.launchId(), recovery.outcome(), recovery.detail());
                 resolved.add(recovery.launchId());
                 continue;
             }
             if (knownControlOnly(recovery.owner(), launch) && recovery.owner().isEmpty()) {
                 // Without a marker there is no process identity left to check, so no later startup
                 // could ever resolve it, and the launch never had a task worktree to protect.
-                log.warn("Owned control-only provider process {} has no usable launch marker; its launch record is dropped: {}",
-                        recovery.launchId(), recovery.detail());
+                log.warn("Owned control-only provider process {} has no usable launch marker; its launch record is dropped: {}", recovery.launchId(), recovery.detail());
                 dropped.add(recovery.launchId());
                 continue;
             }
@@ -290,15 +283,11 @@ public final class AgentStartupRecovery
                 attributable = false;
                 continue;
             }
-            log.error("Owned provider process {} is unverifiable; task {} keeps its worktree: {}",
-                    recovery.launchId(), owner.orElseThrow(), recovery.detail());
+            log.error("Owned provider process {} is unverifiable; task {} keeps its worktree: {}", recovery.launchId(), owner.orElseThrow(), recovery.detail());
             blockedTasks.putIfAbsent(owner.orElseThrow(), recovery.launchId());
         }
 
-        maintenance.settleAfterProcessRecovery(
-                ImmutableMap.copyOf(blockedTasks),
-                ImmutableSet.copyOf(resolved),
-                attributable);
+        maintenance.settleAfterProcessRecovery(ImmutableMap.copyOf(blockedTasks), ImmutableSet.copyOf(resolved), attributable);
         resolved.forEach(supervisor::acknowledge);
         dropped.forEach(supervisor::acknowledge);
         return attributable;

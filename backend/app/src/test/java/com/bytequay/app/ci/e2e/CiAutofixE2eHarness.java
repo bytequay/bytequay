@@ -134,13 +134,8 @@ final class CiAutofixE2eHarness
         String suffix = UUID.randomUUID().toString().substring(0, 8);
         String workspaceId = "ci-e2e-" + name + "-" + suffix;
         long number = NEXT_PR_ID.incrementAndGet();
-        PullRequestRef pullRequest = PullRequestRef.of(
-                "bytequay",
-                name + "-" + suffix,
-                toIntExact(number));
-        E2eGitRepository repository = E2eGitRepository.create(
-                workspacePaths.workspace(workspaceId),
-                pullRequest);
+        PullRequestRef pullRequest = PullRequestRef.of("bytequay", name + "-" + suffix, toIntExact(number));
+        E2eGitRepository repository = E2eGitRepository.create(workspacePaths.workspace(workspaceId), pullRequest);
         seedWorkspace(workspaceId, name, number, repository);
         long prId = seedPullRequest(repository);
         return new Fixture(workspaceId, prId, repository, number * 10 + 1, number * 10 + 2);
@@ -166,22 +161,8 @@ final class CiAutofixE2eHarness
 
     void scriptPrimaryJourney(Fixture fixture)
     {
-        gitHub.setSnapshot(failingSnapshot(
-                fixture,
-                fixture.repository().initialHeadSha(),
-                fixture.workflowRunId(),
-                fixture.jobId(),
-                "Backend compile",
-                "Compile",
-                true));
-        gitHub.setLog(
-                fixture.repository().pullRequest(),
-                fixture.workflowRunId(),
-                1,
-                fixture.jobId(),
-                1,
-                RAW_COMPILE_LOG,
-                ImmutableList.of("cannot find symbol GeneratedValue"));
+        gitHub.setSnapshot(failingSnapshot(fixture, fixture.repository().initialHeadSha(), fixture.workflowRunId(), fixture.jobId(), "Backend compile", "Compile", true));
+        gitHub.setLog(fixture.repository().pullRequest(), fixture.workflowRunId(), 1, fixture.jobId(), 1, RAW_COMPILE_LOG, ImmutableList.of("cannot find symbol GeneratedValue"));
         agent.bind(fixture.repository().pullRequest());
     }
 
@@ -229,22 +210,8 @@ final class CiAutofixE2eHarness
 
     void scriptTestFailure(Fixture fixture, String headSha, String headRef)
     {
-        gitHub.setSnapshot(withHeadRef(failingSnapshot(
-                fixture,
-                headSha,
-                fixture.workflowRunId() + 100,
-                fixture.jobId() + 100,
-                "Backend tests",
-                "Unit tests",
-                false), headRef));
-        gitHub.setLog(
-                fixture.repository().pullRequest(),
-                fixture.workflowRunId() + 100,
-                1,
-                fixture.jobId() + 100,
-                1,
-                RAW_TEST_LOG,
-                ImmutableList.of("expected repaired value"));
+        gitHub.setSnapshot(withHeadRef(failingSnapshot(fixture, headSha, fixture.workflowRunId() + 100, fixture.jobId() + 100, "Backend tests", "Unit tests", false), headRef));
+        gitHub.setLog(fixture.repository().pullRequest(), fixture.workflowRunId() + 100, 1, fixture.jobId() + 100, 1, RAW_TEST_LOG, ImmutableList.of("expected repaired value"));
     }
 
     void scriptGreenCi(Fixture fixture, String headSha)
@@ -291,11 +258,7 @@ final class CiAutofixE2eHarness
                         .header(AgentController.SESSION_HEADER, SESSION)
                         .header("Idempotency-Key", idempotencyKey)
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(startBody(
-                                fixture,
-                                allowFailedJobReruns,
-                                allowHistoryRewrites,
-                                allowExactLeasePush)))
+                        .content(startBody(fixture, allowFailedJobReruns, allowHistoryRewrites, allowExactLeasePush)))
                 .andReturn()
                 .getResponse()
                 .getStatus();
@@ -379,11 +342,7 @@ final class CiAutofixE2eHarness
         Path worktree = task.flatMap(AgentTask::taskWorktree)
                 .orElseThrow(() -> new IllegalStateException("CI Autofix run has no task worktree"))
                 .canonicalWorktree();
-        String remoteHead = E2eGitRepository.routedGit(
-                worktree,
-                "ls-remote",
-                "origin",
-                "refs/heads/" + run.scope().headRef()).split("\\s+", 2)[0];
+        String remoteHead = E2eGitRepository.routedGit(worktree, "ls-remote", "origin", "refs/heads/" + run.scope().headRef()).split("\\s+", 2)[0];
         return new Snapshot(
                 run,
                 task.map(value -> value.state().name()),
@@ -399,16 +358,9 @@ final class CiAutofixE2eHarness
                         .map(event -> event.type().name())
                         .collect(toImmutableList())).orElse(ImmutableList.of()),
                 taskId.map(this::runtimeFiles).orElse(ImmutableList.of()),
-                E2eGitRepository.git(
-                        worktree,
-                        "rev-parse",
-                        "HEAD"),
+                E2eGitRepository.git(worktree, "rev-parse", "HEAD"),
                 remoteHead,
-                E2eGitRepository.git(
-                        worktree,
-                        "status",
-                        "--porcelain=v1",
-                        "--untracked-files=all"));
+                E2eGitRepository.git(worktree, "status", "--porcelain=v1", "--untracked-files=all"));
     }
 
     @Override
@@ -495,9 +447,7 @@ final class CiAutofixE2eHarness
             E2eGitRepository repository)
     {
         Instant now = clock.instant();
-        RepoRef repo = RepoRef.of(
-                repository.pullRequest().owner(),
-                repository.pullRequest().repo());
+        RepoRef repo = RepoRef.of(repository.pullRequest().owner(), repository.pullRequest().repo());
         Workspace workspace = new Workspace(
                 workspaceId,
                 name,
@@ -520,9 +470,7 @@ final class CiAutofixE2eHarness
                 now);
         workspaces.createOrGet(workspace);
         try {
-            Files.writeString(
-                    workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"),
-                    workspaceId + "\n" + repositoryId + "\n");
+            Files.writeString(workspacePaths.workspace(workspaceId).resolve(".bytequay-workspace"), workspaceId + "\n" + repositoryId + "\n");
         }
         catch (IOException e) {
             throw new IllegalStateException("Cannot create E2E workspace ownership marker", e);
@@ -531,14 +479,7 @@ final class CiAutofixE2eHarness
 
     private static CiHeadSnapshot failingSnapshot(Fixture fixture)
     {
-        return failingSnapshot(
-                fixture,
-                fixture.repository().initialHeadSha(),
-                fixture.workflowRunId(),
-                fixture.jobId(),
-                "Backend compile",
-                "Compile",
-                false);
+        return failingSnapshot(fixture, fixture.repository().initialHeadSha(), fixture.workflowRunId(), fixture.jobId(), "Backend compile", "Compile", false);
     }
 
     private static CiHeadSnapshot failingSnapshot(

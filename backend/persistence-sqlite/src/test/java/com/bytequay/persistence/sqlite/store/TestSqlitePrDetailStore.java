@@ -155,14 +155,12 @@ class TestSqlitePrDetailStore
                 Optional.empty(), Optional.of("stale-ignore"), Optional.empty(), Optional.empty(), Optional.empty(), OptionalInt.empty());
         store.save(prId, detail(ImmutableList.of(
                 remote(1, NOW),
-                new PrTimelineEvent(2L, "labeled", "maintainer", NOW.plusSeconds(1), null,
-                        PrTimelinePayload.builder().label("stale-ignore").build(), Optional.empty()),
+                new PrTimelineEvent(2L, "labeled", "maintainer", NOW.plusSeconds(1), null, PrTimelinePayload.builder().label("stale-ignore").build(), Optional.empty()),
                 new PrTimelineEvent(3L, "mentioned", "viewer", NOW.plusSeconds(2), null, Optional.empty()),
                 new PrTimelineEvent(4L, "subscribed", "viewer", NOW.plusSeconds(3), null, Optional.empty()),
                 new PrTimelineEvent(5L, "unsubscribed", "viewer", NOW.plusSeconds(4), null, Optional.empty()),
                 remote(6, null))));
-        store.recordLocalTimelineEvent(PULL_REQUEST, new PrTimelineEvent(
-                null, "ci_autofix", "viewer", NOW.plusSeconds(5), "local work", Optional.of("local:activity")));
+        store.recordLocalTimelineEvent(PULL_REQUEST, new PrTimelineEvent(null, "ci_autofix", "viewer", NOW.plusSeconds(5), "local work", Optional.of("local:activity")));
         store.save(prId + 100, detail(remote(7, NOW.plusSeconds(6))));
 
         assertThat(store.findLatestActivities(ImmutableSet.of(prId, prId + 200)))
@@ -230,8 +228,7 @@ class TestSqlitePrDetailStore
     @Test
     void keepsReviewVerdictsAndRequestRecipientsWithTheirOwnEvents()
     {
-        store.save(prId, detail(new PrTimelineEvent(1L, "reviewed", "reviewer", NOW, null,
-                PrTimelinePayload.builder().state("APPROVED").build(), Optional.empty())));
+        store.save(prId, detail(new PrTimelineEvent(1L, "reviewed", "reviewer", NOW, null, PrTimelinePayload.builder().state("APPROVED").build(), Optional.empty())));
         store.save(prId + 1, detail(new PrTimelineEvent(2L, "review_requested", "maintainer", NOW, null,
                 PrTimelinePayload.builder().requestedReviewer("viewer").build(), Optional.empty())));
 
@@ -264,13 +261,7 @@ class TestSqlitePrDetailStore
     void recordsOneLocalEventAndPreservesItAcrossFullRefreshes()
     {
         store.save(prId, detail(remote(1, NOW.plusSeconds(2))));
-        PrTimelineEvent local = new PrTimelineEvent(
-                null,
-                "ci_autofix",
-                "author",
-                NOW.plusSeconds(1),
-                "verified push facts",
-                Optional.of("ci-autofix:run:attempt:sha"));
+        PrTimelineEvent local = new PrTimelineEvent(null, "ci_autofix", "author", NOW.plusSeconds(1), "verified push facts", Optional.of("ci-autofix:run:attempt:sha"));
 
         assertThat(store.recordLocalTimelineEvent(PULL_REQUEST, local)).isEqualTo(local);
         assertThat(store.recordLocalTimelineEvent(PULL_REQUEST, local)).isEqualTo(local);
@@ -280,9 +271,7 @@ class TestSqlitePrDetailStore
 
         assertThat(store.find(prId).orElseThrow().timeline())
                 .extracting(PrTimelineEvent::localEventKey)
-                .containsExactly(
-                        Optional.of("ci-autofix:run:attempt:sha"),
-                        Optional.empty());
+                .containsExactly(Optional.of("ci-autofix:run:attempt:sha"), Optional.empty());
     }
 
     @Test
@@ -290,13 +279,7 @@ class TestSqlitePrDetailStore
     {
         PrTimelineEvent first = remote(1, NOW);
         store.save(prId, detail(first));
-        PrTimelineEvent local = new PrTimelineEvent(
-                null,
-                "ci_autofix",
-                "author",
-                NOW.plusSeconds(1),
-                "verified push facts",
-                Optional.of("ci-autofix:patch:sha"));
+        PrTimelineEvent local = new PrTimelineEvent(null, "ci_autofix", "author", NOW.plusSeconds(1), "verified push facts", Optional.of("ci-autofix:patch:sha"));
         store.recordLocalTimelineEvent(PULL_REQUEST, local);
 
         StoredPrDetail cached = store.find(prId).orElseThrow();
@@ -380,8 +363,7 @@ class TestSqlitePrDetailStore
                 ImmutableList.of(new PrCheckRunState(1L, "build", "completed", "success", null, "check_run", null, null)),
                 ImmutableList.of());
         store.save(prId, original);
-        PrCheckRunState completedCheck = new PrCheckRunState(
-                2L, "test", "completed", "failure", null, "check_run", NOW.plusSeconds(10), NOW.plusSeconds(30));
+        PrCheckRunState completedCheck = new PrCheckRunState(2L, "test", "completed", "failure", null, "check_run", NOW.plusSeconds(10), NOW.plusSeconds(30));
         StoredPrDetail status = new StoredPrDetail(
                 original.raw().withMergeability(false, "dirty"),
                 ImmutableList.of(),
@@ -587,8 +569,7 @@ class TestSqlitePrDetailStore
 
     private static PrTimelineEvent commit(long githubId, String sha, String message, Instant timestamp)
     {
-        return new PrTimelineEvent(githubId, "committed", "author", timestamp, null,
-                PrTimelinePayload.builder().commitSha(sha).commitMessage(message).build(), Optional.empty());
+        return new PrTimelineEvent(githubId, "committed", "author", timestamp, null, PrTimelinePayload.builder().commitSha(sha).commitMessage(message).build(), Optional.empty());
     }
 
     private static PrTimelineEvent remote(long githubId, Instant timestamp)

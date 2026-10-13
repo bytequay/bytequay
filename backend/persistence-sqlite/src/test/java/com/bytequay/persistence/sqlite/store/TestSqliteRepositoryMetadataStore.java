@@ -61,44 +61,20 @@ class TestSqliteRepositoryMetadataStore
     @Test
     void upsertsProviderIdsWithoutDuplicatingTheRepositoryProjection()
     {
-        store.upsertOverview(
-                100,
-                REPOSITORY,
-                "Description",
-                7,
-                ImmutableList.of("java"),
-                ImmutableMap.of("Java", 100L),
-                NOW);
+        store.upsertOverview(100, REPOSITORY, "Description", 7, ImmutableList.of("java"), ImmutableMap.of("Java", 100L), NOW);
+        store.upsertContributors(100, REPOSITORY, ImmutableList.of(new RepositoryContributor(1, "alice", "old-avatar", false)), NOW.minusSeconds(1));
         store.upsertContributors(
                 100,
                 REPOSITORY,
-                ImmutableList.of(new RepositoryContributor(1, "alice", "old-avatar", false)),
-                NOW.minusSeconds(1));
-        store.upsertContributors(
-                100,
-                REPOSITORY,
-                ImmutableList.of(
-                        new RepositoryContributor(1, "alice", "new-avatar", false),
-                        new RepositoryContributor(2, "bob", "bob-avatar", false)),
+                ImmutableList.of(new RepositoryContributor(1, "alice", "new-avatar", false), new RepositoryContributor(2, "bob", "bob-avatar", false)),
                 NOW);
-        store.upsertLabelsAndTopics(
-                100,
-                REPOSITORY,
-                ImmutableList.of(new RepositoryLabel(10, "bug", "ff0000")),
-                ImmutableList.of("java"),
-                NOW);
+        store.upsertLabelsAndTopics(100, REPOSITORY, ImmutableList.of(new RepositoryLabel(10, "bug", "ff0000")), ImmutableList.of("java"), NOW);
         store.replacePickerUsers(
                 100,
                 REPOSITORY,
-                ImmutableList.of(
-                        new RepositoryPickerUser(1, "alice", Optional.of("alice-avatar"), false),
-                        new RepositoryPickerUser(2, "bot", Optional.empty(), true)),
+                ImmutableList.of(new RepositoryPickerUser(1, "alice", Optional.of("alice-avatar"), false), new RepositoryPickerUser(2, "bot", Optional.empty(), true)),
                 NOW.minusSeconds(1));
-        store.replacePickerUsers(
-                100,
-                REPOSITORY,
-                ImmutableList.of(new RepositoryPickerUser(2, "renamed-bot", Optional.of("bot-avatar"), true)),
-                NOW);
+        store.replacePickerUsers(100, REPOSITORY, ImmutableList.of(new RepositoryPickerUser(2, "renamed-bot", Optional.of("bot-avatar"), true)), NOW);
 
         var snapshot = store.find(100).orElseThrow();
         assertThat(repository.count()).isEqualTo(1);

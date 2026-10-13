@@ -160,8 +160,7 @@ public class JiraConnections
         URI base = broker(saved.authUrl());
         JsonNode result;
         try {
-            result = http.request(base.resolve("/v1/connections/" + segment(id) + "/reconnect"), "POST",
-                    Optional.of(saved.credential()), Optional.of(ImmutableMap.of()));
+            result = http.request(base.resolve("/v1/connections/" + segment(id) + "/reconnect"), "POST", Optional.of(saved.credential()), Optional.of(ImmutableMap.of()));
         }
         catch (ResponseStatusException failure) {
             if (failure.getStatusCode().value() == 401 || failure.getStatusCode().value() == 404

@@ -92,8 +92,7 @@ public final class FileAgentResourceService
             Files.write(blob, bytes);
             setPermissions(blob, FILE_PERMISSIONS);
             Path facts = directory.resolve(id + ".json");
-            Files.writeString(facts, MAPPER.writeValueAsString(new AttachmentFacts(
-                    name, image.mediaType(), bytes.length, image.width(), image.height())));
+            Files.writeString(facts, MAPPER.writeValueAsString(new AttachmentFacts(name, image.mediaType(), bytes.length, image.width(), image.height())));
             setPermissions(facts, FILE_PERMISSIONS);
             return new StoredAgentAttachment(id, name, image.mediaType(), bytes.length, image.width(), image.height(), blob);
         }
@@ -121,8 +120,7 @@ public final class FileAgentResourceService
         ImageFacts image = readImageFacts(bytes);
         String claimed = command.mediaType().toLowerCase(Locale.ROOT).split(";")[0].trim();
         if (!claimed.equals(image.mediaType())) {
-            throw new InvalidAgentRequestException(
-                    "Attachment claims " + claimed + " but its bytes are " + image.mediaType());
+            throw new InvalidAgentRequestException("Attachment claims " + claimed + " but its bytes are " + image.mediaType());
         }
         if ((long) image.width() * image.height() > maxAttachmentPixels) {
             throw new InvalidAgentRequestException("Attachment exceeds " + maxAttachmentPixels + " pixels");
@@ -149,8 +147,7 @@ public final class FileAgentResourceService
         }
         try {
             AttachmentFacts stored = MAPPER.readValue(Files.readString(facts), AttachmentFacts.class);
-            return new StoredAgentAttachment(
-                    attachmentId, stored.name(), stored.mediaType(), stored.byteSize(), stored.width(), stored.height(), blob);
+            return new StoredAgentAttachment(attachmentId, stored.name(), stored.mediaType(), stored.byteSize(), stored.width(), stored.height(), blob);
         }
         catch (IOException e) {
             throw new AgentStorageException("Cannot read attachment " + attachmentId + " of task " + taskId, e);
@@ -286,8 +283,7 @@ public final class FileAgentResourceService
             if (!Files.notExists(taskDirectory, NOFOLLOW_LINKS)) {
                 requireDirectory(taskDirectory);
             }
-            return new TaskResources(taskDirectory, taskDirectory.resolve("events.jsonl"), taskDirectory.resolve("blobs"),
-                    taskDirectory.resolve("provider").resolve("scratch"));
+            return new TaskResources(taskDirectory, taskDirectory.resolve("events.jsonl"), taskDirectory.resolve("blobs"), taskDirectory.resolve("provider").resolve("scratch"));
         }
         catch (IOException e) {
             throw new AgentStorageException("Cannot resolve resources for task deletion " + taskId, e);

@@ -147,9 +147,7 @@ class TestSqliteAgentEventOutboxStore
                 taskId,
                 Optional.empty(),
                 AgentEventSource.root(),
-                new AgentEventOutboxPayload.Inline(new AgentEventPayload.Lifecycle(
-                        AgentEventPayload.LifecyclePhase.SESSION_OPENED,
-                        "Task created")),
+                new AgentEventOutboxPayload.Inline(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.SESSION_OPENED, "Task created")),
                 NOW,
                 Optional.empty());
 
@@ -185,22 +183,14 @@ class TestSqliteAgentEventOutboxStore
                 turnId,
                 taskId,
                 "request-1",
-                new AgentTurnSettings(
-                        Optional.empty(),
-                        Optional.empty(),
-                        AgentPermissionPolicy.AUTO,
-                        Duration.ofMinutes(5),
-                        ImmutableList.of()),
+                new AgentTurnSettings(Optional.empty(), Optional.empty(), AgentPermissionPolicy.AUTO, Duration.ofMinutes(5), ImmutableList.of()),
                 NOW);
         AgentEventOutboxEntry event = new AgentEventOutboxEntry(
                 EventId.random(),
                 taskId,
                 Optional.of(turnId),
                 AgentEventSource.root(),
-                new AgentEventOutboxPayload.UserMessageBlob(
-                        new BlobRef("blobs/message.txt", "text/plain", 7),
-                        ImmutableList.of(),
-                        AgentEventPayload.DeliveryKind.TURN),
+                new AgentEventOutboxPayload.UserMessageBlob(new BlobRef("blobs/message.txt", "text/plain", 7), ImmutableList.of(), AgentEventPayload.DeliveryKind.TURN),
                 NOW,
                 Optional.empty());
 
@@ -286,10 +276,7 @@ class TestSqliteAgentEventOutboxStore
                 Optional.empty(),
                 AgentEventSource.root(),
                 new AgentEventOutboxPayload.UserMessageBlob(
-                        new BlobRef(
-                                "blobs/events/oversized-message.txt",
-                                "text/plain",
-                                AgentEventEnvelope.MAX_SERIALIZED_BYTES),
+                        new BlobRef("blobs/events/oversized-message.txt", "text/plain", AgentEventEnvelope.MAX_SERIALIZED_BYTES),
                         ImmutableList.of(),
                         AgentEventPayload.DeliveryKind.TURN),
                 NOW,
@@ -314,9 +301,7 @@ class TestSqliteAgentEventOutboxStore
                 TaskId.random(),
                 Optional.of(TurnId.random()),
                 AgentEventSource.root(),
-                new AgentEventOutboxPayload.Inline(new AgentEventPayload.Lifecycle(
-                        AgentEventPayload.LifecyclePhase.TURN_STARTED,
-                        "Turn started")),
+                new AgentEventOutboxPayload.Inline(new AgentEventPayload.Lifecycle(AgentEventPayload.LifecyclePhase.TURN_STARTED, "Turn started")),
                 NOW,
                 Optional.empty());
     }

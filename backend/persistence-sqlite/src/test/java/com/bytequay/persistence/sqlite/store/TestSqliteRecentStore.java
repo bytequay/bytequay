@@ -76,8 +76,7 @@ class TestSqliteRecentStore
     @Test
     void findsTheUsersOwnWordsCaseInsensitively()
     {
-        store.saveText(text("pr:trinodb/trino#3:comment:1",
-                "The metadata cache invalidation still Races with a concurrent snapshot commit."));
+        store.saveText(text("pr:trinodb/trino#3:comment:1", "The metadata cache invalidation still Races with a concurrent snapshot commit."));
         store.saveText(text("pr:trinodb/trino#4:comment:2", "Looks good, shipping it."));
 
         assertThat(store.findTextContaining("race", 10)).extracting(RecentText::id)
@@ -175,9 +174,7 @@ class TestSqliteRecentStore
 
     private static RecentText dated(String id, String body, Instant writtenAt)
     {
-        return new RecentText(
-                id, RecentItemType.PULL_REQUEST, "pr:trinodb/trino#9", RecentTextKind.COMMENT, body,
-                writtenAt, 9, "trinodb/trino", "Some pull request", null);
+        return new RecentText(id, RecentItemType.PULL_REQUEST, "pr:trinodb/trino#9", RecentTextKind.COMMENT, body, writtenAt, 9, "trinodb/trino", "Some pull request", null);
     }
 
     private static RecentText text(String id, String body)

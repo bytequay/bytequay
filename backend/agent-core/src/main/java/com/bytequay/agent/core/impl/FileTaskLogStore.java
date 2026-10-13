@@ -150,8 +150,7 @@ public final class FileTaskLogStore
             lastSequences.putIfAbsent(taskId, lastSequence);
             for (AgentEventEnvelope envelope : envelopes) {
                 if (envelope.sequence() != lastSequence + 1) {
-                    throw new AgentStorageException(
-                            "Expected event sequence " + (lastSequence + 1) + " but received " + envelope.sequence());
+                    throw new AgentStorageException("Expected event sequence " + (lastSequence + 1) + " but received " + envelope.sequence());
                 }
                 lastSequence = envelope.sequence();
             }
@@ -638,9 +637,7 @@ public final class FileTaskLogStore
         root.put("eventId", envelope.eventId().toString());
         root.put("sequence", envelope.sequence());
         root.put("taskId", envelope.taskId().toString());
-        envelope.turnId().ifPresentOrElse(
-                turnId -> root.put("turnId", turnId.toString()),
-                () -> root.putNull("turnId"));
+        envelope.turnId().ifPresentOrElse(turnId -> root.put("turnId", turnId.toString()), () -> root.putNull("turnId"));
         root.set("source", objectMapper.valueToTree(envelope.source()));
         root.put("occurredAt", envelope.occurredAt().toString());
         root.put("type", envelope.type().name().toLowerCase(Locale.ROOT));
@@ -671,8 +668,7 @@ public final class FileTaskLogStore
     private AgentEventEnvelope deserializeV2(JsonNode root)
             throws JsonProcessingException
     {
-        AgentEventPayload.Kind kind = AgentEventPayload.Kind.valueOf(
-                root.required("type").textValue().toUpperCase(Locale.ROOT));
+        AgentEventPayload.Kind kind = AgentEventPayload.Kind.valueOf(root.required("type").textValue().toUpperCase(Locale.ROOT));
         AgentEventPayload payload = objectMapper.treeToValue(root.required("payload"), kind.type());
         return new AgentEventEnvelope(
                 AgentEventEnvelope.CURRENT_SCHEMA_VERSION,

@@ -41,10 +41,7 @@ class TestIssueSyncJob
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);
-        when(workspaces.findAll()).thenReturn(ImmutableList.of(
-                workspace("first", 1),
-                workspace("second", 1),
-                workspace("third", 2)));
+        when(workspaces.findAll()).thenReturn(ImmutableList.of(workspace("first", 1), workspace("second", 1), workspace("third", 2)));
 
         new IssueSyncJob(issues, workspaces, credentials, mock(AppSettingsService.class)).tick();
 

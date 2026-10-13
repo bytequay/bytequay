@@ -39,14 +39,8 @@ class TestAgentTurnLifecycle
     void turnRunsAndCompletesOnce()
     {
         AgentTurn accepted = newTurn();
-        AgentTurn running = accepted.markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
-                new ProviderTurnRef("provider-turn-1"),
-                Optional.of("model-1"));
-        AgentTurn completed = running.finish(
-                TurnState.COMPLETED,
-                AgentMetrics.empty(),
-                Optional.empty(),
-                ACCEPTED_AT.plusSeconds(2));
+        AgentTurn running = accepted.markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(new ProviderTurnRef("provider-turn-1"), Optional.of("model-1"));
+        AgentTurn completed = running.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), ACCEPTED_AT.plusSeconds(2));
 
         assertThat(completed.state()).isEqualTo(TurnState.COMPLETED);
         assertThat(completed.startedAt()).contains(ACCEPTED_AT.plusSeconds(1));
@@ -54,20 +48,14 @@ class TestAgentTurnLifecycle
         assertThat(completed.model()).contains("model-1");
         assertThat(completed.settings()).contains(SETTINGS);
         assertThat(completed.terminalReason()).isEmpty();
-        assertThat(completed.finish(
-                TurnState.COMPLETED,
-                AgentMetrics.empty(),
-                Optional.empty(),
-                ACCEPTED_AT.plusSeconds(3)))
+        assertThat(completed.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), ACCEPTED_AT.plusSeconds(3)))
                 .isSameAs(completed);
     }
 
     @Test
     void rejectsAProviderModelThatDiffersFromTheAcceptedSnapshot()
     {
-        assertThatThrownBy(() -> newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
-                new ProviderTurnRef("provider-turn-1"),
-                Optional.of("another-model")))
+        assertThatThrownBy(() -> newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(new ProviderTurnRef("provider-turn-1"), Optional.of("another-model")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("does not match");
     }
@@ -75,9 +63,7 @@ class TestAgentTurnLifecycle
     @Test
     void providerCannotRunBeforeDeliveryStartIsDurable()
     {
-        assertThatThrownBy(() -> newTurn().running(
-                new ProviderTurnRef("provider-turn-1"),
-                Optional.empty()))
+        assertThatThrownBy(() -> newTurn().running(new ProviderTurnRef("provider-turn-1"), Optional.empty()))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("delivery has not started");
     }
@@ -85,10 +71,7 @@ class TestAgentTurnLifecycle
     @Test
     void effortRequiresAnExplicitModel()
     {
-        assertThatThrownBy(() -> new AgentTaskDefaults(
-                Optional.empty(),
-                Optional.of("high"),
-                AgentPermissionPolicy.AUTO))
+        assertThatThrownBy(() -> new AgentTaskDefaults(Optional.empty(), Optional.of("high"), AgentPermissionPolicy.AUTO))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("effort requires a model");
     }
@@ -96,11 +79,7 @@ class TestAgentTurnLifecycle
     @Test
     void acceptedTurnCannotReportCompletionBeforeItRuns()
     {
-        assertThatThrownBy(() -> newTurn().finish(
-                TurnState.COMPLETED,
-                AgentMetrics.empty(),
-                Optional.empty(),
-                ACCEPTED_AT.plusSeconds(1)))
+        assertThatThrownBy(() -> newTurn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), ACCEPTED_AT.plusSeconds(1)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("before running");
     }
@@ -108,34 +87,22 @@ class TestAgentTurnLifecycle
     @Test
     void cancellationRequestIsIdempotentUntilTheProviderExits()
     {
-        AgentTurn running = newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
-                new ProviderTurnRef("provider-turn-1"),
-                Optional.empty());
+        AgentTurn running = newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(new ProviderTurnRef("provider-turn-1"), Optional.empty());
         AgentTurn requested = running.requestCancellation(ACCEPTED_AT.plusSeconds(2));
 
         assertThat(requested.state()).isEqualTo(TurnState.RUNNING);
         assertThat(requested.requestCancellation(ACCEPTED_AT.plusSeconds(3))).isSameAs(requested);
 
-        AgentTurn cancelled = requested.finish(
-                TurnState.CANCELLED,
-                AgentMetrics.empty(),
-                Optional.of("cancelled by user"),
-                ACCEPTED_AT.plusSeconds(4));
+        AgentTurn cancelled = requested.finish(TurnState.CANCELLED, AgentMetrics.empty(), Optional.of("cancelled by user"), ACCEPTED_AT.plusSeconds(4));
         assertThat(cancelled.state()).isEqualTo(TurnState.CANCELLED);
     }
 
     @Test
     void nonCompletedTerminalTurnRequiresAReason()
     {
-        AgentTurn running = newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(
-                new ProviderTurnRef("provider-turn-1"),
-                Optional.empty());
+        AgentTurn running = newTurn().markDeliveryStarted(ACCEPTED_AT.plusSeconds(1)).running(new ProviderTurnRef("provider-turn-1"), Optional.empty());
 
-        assertThatThrownBy(() -> running.finish(
-                TurnState.FAILED,
-                AgentMetrics.empty(),
-                Optional.empty(),
-                ACCEPTED_AT.plusSeconds(2)))
+        assertThatThrownBy(() -> running.finish(TurnState.FAILED, AgentMetrics.empty(), Optional.empty(), ACCEPTED_AT.plusSeconds(2)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("disagree");
     }

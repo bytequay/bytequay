@@ -72,8 +72,7 @@ public class RecentController
         // The service clamps both ends to the retention window; MAX just means
         // "no upper bound the caller cares about".
         LocalDate end = day(to, "to").orElse(LocalDate.MAX);
-        RecentFilter filter = new RecentFilter(
-                start, end, itemTypes(types), reason(action), blankToNull(workspace), changedSinceRead, text);
+        RecentFilter filter = new RecentFilter(start, end, itemTypes(types), reason(action), blankToNull(workspace), changedSinceRead, text);
         return recent.stream(filter, day(cursor, "cursor").orElse(null));
     }
 

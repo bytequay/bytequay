@@ -482,9 +482,7 @@ class TestDefaultProcessSupervisor
             throws Exception
     {
         ManagedProcess process = supervisor
-                .prepare(spec(
-                        new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "codex-model-catalog"),
-                        "i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait"))
+                .prepare(spec(new ProcessOwner(ProcessOwner.Kind.APP_SERVER, "codex-model-catalog"), "i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait"))
                 .start((stream, bytes) -> {});
 
         ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);
@@ -498,9 +496,7 @@ class TestDefaultProcessSupervisor
             throws Exception
     {
         ManagedProcess process = supervisor
-                .prepare(spec(
-                        new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-title"),
-                        "i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait"))
+                .prepare(spec(new ProcessOwner(ProcessOwner.Kind.CLI_PROBE, "task-title"), "i=0; while [ $i -lt 256 ]; do /usr/bin/true & i=$((i + 1)); done; wait"))
                 .start((stream, bytes) -> {});
 
         ProcessExit exit = process.exit().toCompletableFuture().get(15, TimeUnit.SECONDS);

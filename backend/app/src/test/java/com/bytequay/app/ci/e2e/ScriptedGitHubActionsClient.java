@@ -79,9 +79,7 @@ final class ScriptedGitHubActionsClient
             List<String> terminalErrorLines)
     {
         requireNonNull(content, "content is null");
-        jobLogs.put(
-                new LogKey(pullRequest, workflowRunId, workflowAttempt, jobId, jobAttempt),
-                new ScriptedLog(content.getBytes(StandardCharsets.UTF_8), terminalErrorLines));
+        jobLogs.put(new LogKey(pullRequest, workflowRunId, workflowAttempt, jobId, jobAttempt), new ScriptedLog(content.getBytes(StandardCharsets.UTF_8), terminalErrorLines));
     }
 
     synchronized void enqueueRerun(RerunFailedJobsCommand command, CiRerunResult result)
@@ -129,10 +127,7 @@ final class ScriptedGitHubActionsClient
         ScriptedLog scripted = jobLogs.get(key);
         checkState(scripted != null, "No GitHub Actions log scripted for " + key.identity());
         int length = Math.min(scripted.content().length, query.maximumBytes());
-        BlobRef blob = logs.writeBlob(
-                query.taskId(),
-                ByteBuffer.wrap(Arrays.copyOf(scripted.content(), length)),
-                "text/plain");
+        BlobRef blob = logs.writeBlob(query.taskId(), ByteBuffer.wrap(Arrays.copyOf(scripted.content(), length)), "text/plain");
         return new BoundedCiLog(
                 Optional.of(blob),
                 length,
@@ -171,12 +166,7 @@ final class ScriptedGitHubActionsClient
     {
         private static LogKey from(ReadCiLogQuery query)
         {
-            return new LogKey(
-                    query.pullRequest(),
-                    query.workflowRun().id(),
-                    query.workflowRun().attempt(),
-                    query.job().id(),
-                    query.job().attempt());
+            return new LogKey(query.pullRequest(), query.workflowRun().id(), query.workflowRun().attempt(), query.job().id(), query.job().attempt());
         }
 
         private String identity()
@@ -195,12 +185,7 @@ final class ScriptedGitHubActionsClient
     {
         private static RerunKey from(RerunFailedJobsCommand command)
         {
-            return new RerunKey(
-                    command.pullRequest(),
-                    command.workflowRunId(),
-                    command.headSha(),
-                    command.previousAttempt(),
-                    command.authorized());
+            return new RerunKey(command.pullRequest(), command.workflowRunId(), command.headSha(), command.previousAttempt(), command.authorized());
         }
 
         private String identity()

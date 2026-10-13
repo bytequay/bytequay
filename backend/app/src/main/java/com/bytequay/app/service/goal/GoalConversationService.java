@@ -564,8 +564,7 @@ public class GoalConversationService
                 }
             }
             if (change.priority().filter(priority -> priority != item.priority()).isPresent()) {
-                decide(workspaceId, item.id(), revisions, step + item.id() + ":priority", WorkItemCommand.Action.PRIORITIZE, Optional.empty(), change.priority(),
-                        Optional.empty());
+                decide(workspaceId, item.id(), revisions, step + item.id() + ":priority", WorkItemCommand.Action.PRIORITIZE, Optional.empty(), change.priority(), Optional.empty());
             }
             if (change.acceptanceCriteria().filter(criteria -> !criteria.strip().equals(item.acceptanceCriteria())).isPresent()) {
                 decide(workspaceId, item.id(), revisions, step + item.id() + ":criteria", WorkItemCommand.Action.EDIT, change.acceptanceCriteria(), Optional.empty(),

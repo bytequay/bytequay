@@ -63,15 +63,7 @@ public record StartAgentTurnCommand(
             List<AgentAttachment> attachments,
             String idempotencyKey)
     {
-        return new StartAgentTurnCommand(
-                taskId,
-                OptionalLong.of(0),
-                message,
-                attachments,
-                idempotencyKey,
-                true,
-                Optional.empty(),
-                Optional.empty());
+        return new StartAgentTurnCommand(taskId, OptionalLong.of(0), message, attachments, idempotencyKey, true, Optional.empty(), Optional.empty());
     }
 
     public StartAgentTurnCommand withDevelopmentAutomation(Optional<DevelopmentAutomation> automation)

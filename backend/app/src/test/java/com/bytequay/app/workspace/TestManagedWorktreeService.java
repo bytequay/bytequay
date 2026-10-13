@@ -74,9 +74,7 @@ class TestManagedWorktreeService
         paths = new WorkspacePaths(temporaryDirectory.resolve("managed").toString());
         repository = paths.repository(WORKSPACE_ID);
         Files.createDirectories(repository);
-        Files.writeString(
-                paths.workspace(WORKSPACE_ID).resolve(ManagedWorkspaceGit.OWNERSHIP_FILE),
-                WORKSPACE_ID + "\n1\n");
+        Files.writeString(paths.workspace(WORKSPACE_ID).resolve(ManagedWorkspaceGit.OWNERSHIP_FILE), WORKSPACE_ID + "\n1\n");
         git = new RecordingGitCommandRunner();
         run(repository, "init", "--initial-branch=main");
         run(repository, "config", "user.name", "ByteQuay Test");
@@ -141,8 +139,7 @@ class TestManagedWorktreeService
     void recordedUuidBranchesStillInspectAndCleanUp()
     {
         TaskId taskId = TaskId.random();
-        TaskWorktree existing = service.provision(new ProvisionWorktreeCommand(
-                taskId, WORKSPACE_ID, REPOSITORY, startCommit, "bytequay/task/" + taskId));
+        TaskWorktree existing = service.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, REPOSITORY, startCommit, "bytequay/task/" + taskId));
 
         assertThat(service.inspect(existing).head()).isEqualTo(startCommit);
         service.cleanup(existing);
@@ -198,10 +195,7 @@ class TestManagedWorktreeService
         assertThat(run(repository, "rev-parse", "refs/heads/" + worktree.generatedBranch()).output().strip())
                 .isEqualTo(startCommit);
         assertThat(repository).isDirectory();
-        assertThat(git.arguments()).contains(List.of(
-                "worktree",
-                "remove",
-                worktree.canonicalWorktree().toString()));
+        assertThat(git.arguments()).contains(List.of("worktree", "remove", worktree.canonicalWorktree().toString()));
         assertThat(git.arguments()).noneMatch(arguments -> arguments.contains("--force")
                 || arguments.equals(List.of("worktree", "prune"))
                 || arguments.equals(List.of("branch", "-D", worktree.generatedBranch())));
@@ -228,8 +222,7 @@ class TestManagedWorktreeService
         when(remoteSources.findByWorkspace(WORKSPACE_ID)).thenReturn(List.of());
         ManagedWorkspaceGit workspaceGit = new ManagedWorkspaceGit(paths, git, credentials, remoteSources);
 
-        assertThatThrownBy(() -> workspaceGit.pushBranch(
-                workspace(), worktree.generatedBranch(), startCommit))
+        assertThatThrownBy(() -> workspaceGit.pushBranch(workspace(), worktree.generatedBranch(), startCommit))
                 .isInstanceOf(ManagedWorkspaceGit.Failure.class)
                 .hasMessageContaining("Generated branch does not match");
         workspaceGit.pushBranch(workspace(), worktree.generatedBranch(), expectedSha);
@@ -385,8 +378,7 @@ class TestManagedWorktreeService
         String tagObject = run(repository, "rev-parse", "refs/tags/start-tag").output().strip();
         TaskId taskId = TaskId.random();
 
-        assertThatThrownBy(() -> service.provision(
-                new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, REPOSITORY, tagObject, command(taskId).generatedBranch())))
+        assertThatThrownBy(() -> service.provision(new ProvisionWorktreeCommand(taskId, WORKSPACE_ID, REPOSITORY, tagObject, command(taskId).generatedBranch())))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("exact start commit");
 
@@ -445,9 +437,7 @@ class TestManagedWorktreeService
         WorkspacePaths linkedPaths = new WorkspacePaths(temporaryDirectory.resolve("linked-managed").toString());
         Path linkedRepository = linkedPaths.repository(linkedWorkspaceId);
         Files.createDirectories(linkedRepository.getParent());
-        Files.writeString(
-                linkedPaths.workspace(linkedWorkspaceId).resolve(ManagedWorkspaceGit.OWNERSHIP_FILE),
-                linkedWorkspaceId + "\n1\n");
+        Files.writeString(linkedPaths.workspace(linkedWorkspaceId).resolve(ManagedWorkspaceGit.OWNERSHIP_FILE), linkedWorkspaceId + "\n1\n");
         run(repository, "worktree", "add", "--detach", linkedRepository.toString(), startCommit);
         WorkspaceStore linkedWorkspaces = mock(WorkspaceStore.class);
         when(linkedWorkspaces.findById(linkedWorkspaceId))
@@ -455,12 +445,7 @@ class TestManagedWorktreeService
         ManagedWorktreeService linkedService = new ManagedWorktreeService(linkedPaths, linkedWorkspaces, git, mock(IdeRuntimeService.class));
 
         TaskId taskId = TaskId.random();
-        assertThatThrownBy(() -> linkedService.provision(new ProvisionWorktreeCommand(
-                taskId,
-                linkedWorkspaceId,
-                REPOSITORY,
-                startCommit,
-                command(taskId).generatedBranch())))
+        assertThatThrownBy(() -> linkedService.provision(new ProvisionWorktreeCommand(taskId, linkedWorkspaceId, REPOSITORY, startCommit, command(taskId).generatedBranch())))
                 .isInstanceOf(InvalidAgentRequestException.class)
                 .hasMessageContaining("primary checkout");
     }

@@ -131,8 +131,7 @@ class TestCiRawLogStore
     private static ReadCiLogQuery query(TaskId taskId, int attempt)
     {
         CiJob job = new CiJob(902, 900, "Tests", attempt, "completed", Optional.of("failure"), "https://github.com/job/902", ImmutableList.of());
-        CiWorkflowRun run = new CiWorkflowRun(900, 80, "Build", attempt, "completed", Optional.of("failure"), "a".repeat(40),
-                "https://github.com/run/900", ImmutableList.of(job));
+        CiWorkflowRun run = new CiWorkflowRun(900, 80, "Build", attempt, "completed", Optional.of("failure"), "a".repeat(40), "https://github.com/run/900", ImmutableList.of(job));
         return new ReadCiLogQuery(taskId, PullRequestRef.of("owner", "repo", 7), run, job, 1024 * 1024);
     }
 }

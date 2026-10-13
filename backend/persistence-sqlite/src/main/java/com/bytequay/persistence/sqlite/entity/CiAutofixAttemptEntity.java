@@ -166,11 +166,7 @@ public class CiAutofixAttemptEntity
     public CiAutofixAttempt toDomain()
     {
         Optional<GitResult> gitResult = Optional.ofNullable(inspectedLocalHead)
-                .map(head -> new GitResult(
-                        head,
-                        localFingerprint,
-                        changedPaths,
-                        commitSubjects == null ? ImmutableList.of() : commitSubjects));
+                .map(head -> new GitResult(head, localFingerprint, changedPaths, commitSubjects == null ? ImmutableList.of() : commitSubjects));
         return new CiAutofixAttempt(
                 CiAutofixAttemptId.valueOf(id),
                 CiAutofixRunId.valueOf(runId),

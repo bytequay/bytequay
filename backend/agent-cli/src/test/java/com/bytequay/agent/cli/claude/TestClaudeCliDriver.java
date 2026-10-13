@@ -485,9 +485,7 @@ class TestClaudeCliDriver
                 projectedMessages.put(itemId, message.text());
             }
         });
-        assertThat(projectedMessages).containsExactly(Map.entry(
-                messages.getFirst().source().providerItemId().orElseThrow(),
-                "authoritative [REDACTED]"));
+        assertThat(projectedMessages).containsExactly(Map.entry(messages.getFirst().source().providerItemId().orElseThrow(), "authoritative [REDACTED]"));
         ProcessSpec firstSpec = supervisor.turns().getFirst().spec();
         assertThat(firstSpec.environment()).containsEntry("ANTHROPIC_API_KEY", "known-secret")
                 .doesNotContainKeys("GH_TOKEN", "GITHUB_TOKEN", "GH_CONFIG_DIR", "SSH_AUTH_SOCK");
@@ -537,10 +535,7 @@ class TestClaudeCliDriver
         Files.createDirectories(log.getParent());
         Files.writeString(log, "failure");
         Path realLog = log.toRealPath();
-        AgentAttachment attachment = new AgentAttachment(
-                "github-actions.log",
-                "text/plain; charset=utf-8",
-                log);
+        AgentAttachment attachment = new AgentAttachment("github-actions.log", "text/plain; charset=utf-8", log);
         assertThat(await(ciSession.start(command("ci-fix", ImmutableList.of(attachment)))).state())
                 .isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec ciSpec = supervisor.turns().getLast().spec();
@@ -607,9 +602,7 @@ class TestClaudeCliDriver
         textSession.close();
         assertThat(settingsFile).doesNotExist();
 
-        AgentSession readOnlySession = driver.open(context(
-                Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty(), SessionAccess.READ_ONLY),
-                events::add);
+        AgentSession readOnlySession = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO, Optional.empty(), Optional.empty(), SessionAccess.READ_ONLY), events::add);
         assertThat(await(readOnlySession.start(command("explain"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         ProcessSpec readOnlySpec = supervisor.turns().getLast().spec();
         // Attributable to its task, unlike a text-only probe, because it reaches a real worktree.
@@ -752,27 +745,10 @@ class TestClaudeCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         ClaudeCliDriver driver = driver(supervisor);
-        AgentSession session = driver.open(context(
-                Optional.empty(),
-                AgentPermissionPolicy.AUTO,
-                Optional.of("opus"),
-                Optional.of("High"),
-                SessionAccess.FULL), ignored -> {});
+        AgentSession session = driver.open(context(Optional.empty(), AgentPermissionPolicy.AUTO, Optional.of("opus"), Optional.of("High"), SessionAccess.FULL), ignored -> {});
 
-        await(session.start(new AgentTurnCommand(
-                "turn-first",
-                "first",
-                ImmutableList.of(),
-                Duration.ofMinutes(1),
-                Optional.of("sonnet"),
-                Optional.of("Low"))));
-        await(session.start(new AgentTurnCommand(
-                "turn-second",
-                "second",
-                ImmutableList.of(),
-                Duration.ofMinutes(1),
-                Optional.of("haiku"),
-                Optional.of("Extra"))));
+        await(session.start(new AgentTurnCommand("turn-first", "first", ImmutableList.of(), Duration.ofMinutes(1), Optional.of("sonnet"), Optional.of("Low"))));
+        await(session.start(new AgentTurnCommand("turn-second", "second", ImmutableList.of(), Duration.ofMinutes(1), Optional.of("haiku"), Optional.of("Extra"))));
 
         assertThat(supervisor.turns().getFirst().spec().argv())
                 .containsSequence("--model", "sonnet")
@@ -894,10 +870,7 @@ class TestClaudeCliDriver
     void usesTypedAuthenticationStatusWithoutParsingStderr()
     {
         ScriptedProcessSupervisor loggedIn = new ScriptedProcessSupervisor();
-        loggedIn.authentication(
-                "{\"loggedIn\":true,\"authMethod\":\"oauth\",\"apiProvider\":\"firstParty\",\"email\":\"work@example.com\"}",
-                "ignored diagnostic",
-                0);
+        loggedIn.authentication("{\"loggedIn\":true,\"authMethod\":\"oauth\",\"apiProvider\":\"firstParty\",\"email\":\"work@example.com\"}", "ignored diagnostic", 0);
         ClaudeCliDriver loggedInDriver = driver(loggedIn);
         AgentProviderStatus ready = loggedInDriver.probe();
         assertThat(ready.readiness()).isEqualTo(AgentProviderStatus.Readiness.READY);
@@ -905,10 +878,7 @@ class TestClaudeCliDriver
         loggedInDriver.close();
 
         ScriptedProcessSupervisor loggedOut = new ScriptedProcessSupervisor();
-        loggedOut.authentication(
-                "{\"loggedIn\":false,\"authMethod\":\"none\",\"projectsDirectory\":\"/secret/path\"}",
-                "{\"loggedIn\":true}",
-                1);
+        loggedOut.authentication("{\"loggedIn\":false,\"authMethod\":\"none\",\"projectsDirectory\":\"/secret/path\"}", "{\"loggedIn\":true}", 1);
         ClaudeCliDriver loggedOutDriver = driver(loggedOut);
 
         AgentProviderStatus status = loggedOutDriver.probe();
@@ -976,8 +946,7 @@ class TestClaudeCliDriver
         String executable = worktree.resolve("Claude CLI's bin/claude").toString();
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.authentication("{\"loggedIn\":false}", "", 1);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
         try (ClaudeCliDriver driver = new ClaudeCliDriver(executable, objectMapper, broker, supervisor, profile,
                 ImmutableMap.of("HOME", worktree.resolve("ambient-home").toString(), "CLAUDE_CONFIG_DIR", worktree.resolve("ambient-config").toString()))) {
             AgentProviderStatus status = driver.probe();
@@ -1007,8 +976,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor personalSupervisor = new ScriptedProcessSupervisor();
         workSupervisor.authentication("{\"loggedIn\":false}", "", 1);
         personalSupervisor.authentication("{\"loggedIn\":true,\"email\":\"personal@example.com\"}", "", 0);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
         Map<String, String> ambient = ImmutableMap.of(
                 "HOME", buildHome.toString(), "JAVA_HOME", System.getProperty("java.home"), "CLAUDE_CONFIG_DIR", "/ambient", "ANTHROPIC_API_KEY", "wrong-key",
                 "ANTHROPIC_AUTH_TOKEN", "wrong-token", "CLAUDE_CODE_OAUTH_TOKEN", "wrong-login", "ANTHROPIC_BASE_URL", "https://wrong.example");
@@ -1092,8 +1060,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.authentication("{\"loggedIn\":false}", "", 1);
         Path profile = worktree.resolve("Work account's profile");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
         try (ClaudeCliDriver driver = new ClaudeCliDriver(executable.toString(), objectMapper, broker, supervisor, profile,
                 new AgentLaneId("claude-account-work"), "Claude · Work", Optional.of("o'connor+work@example.com"), ImmutableMap.of())) {
             ProcessBuilder shell = new ProcessBuilder("/bin/sh", "-c", driver.probe().signInCommand().orElseThrow());
@@ -1832,14 +1799,12 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         AgentSessionContext plain = context(Optional.empty());
         AgentSessionContext context = new AgentSessionContext(
                 plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(), plain.permissionPolicy(),
-                plain.sessionReference(), (request, timeout) -> CompletableFuture.completedFuture(
-                        timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.deny()),
+                plain.sessionReference(), (request, timeout) -> CompletableFuture.completedFuture(timedOut ? ProviderApprovalDecision.expired() : ProviderApprovalDecision.deny()),
                 Optional.empty(), Optional.empty(), SessionAccess.FULL, Optional.empty(), "");
         AgentSession session = driver.open(context, event -> {});
         RunningTurn turn = session.start(command("cancel"));
@@ -1877,8 +1842,7 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
         CountDownLatch requested = new CountDownLatch(1);
@@ -2215,12 +2179,7 @@ class TestClaudeCliDriver
                 output.onOutput(ProcessStream.STDERR, StandardCharsets.UTF_8.encode(updateStderr));
                 return ImmediateProcess.exited(updateExitCode);
             }
-            ScriptedTurn turn = new ScriptedTurn(
-                    spec,
-                    output,
-                    failNextPromptWrite,
-                    failNextPromptClose,
-                    runtimeSecret);
+            ScriptedTurn turn = new ScriptedTurn(spec, output, failNextPromptWrite, failNextPromptClose, runtimeSecret);
             failNextPromptWrite = false;
             failNextPromptClose = false;
             turns.add(turn);
@@ -2578,13 +2537,7 @@ class TestClaudeCliDriver
                     : nextStopVerification;
             nextStopVerification = null;
             if (terminal == null) {
-                exit.complete(new ProcessExit(
-                        143,
-                        ProcessExit.Reason.CANCELLED,
-                        verification,
-                        Duration.ofMillis(5),
-                        false,
-                        false));
+                exit.complete(new ProcessExit(143, ProcessExit.Reason.CANCELLED, verification, Duration.ofMillis(5), false, false));
             }
             return CompletableFuture.completedFuture(verification);
         }
@@ -2610,13 +2563,7 @@ class TestClaudeCliDriver
                 boolean stderrTruncated)
         {
             exit = CompletableFuture.completedFuture(
-                    new ProcessExit(
-                            exitCode,
-                            reason,
-                            ProcessExit.TreeTermination.VERIFIED_STOPPED,
-                            Duration.ZERO,
-                            stdoutTruncated,
-                            stderrTruncated));
+                    new ProcessExit(exitCode, reason, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ZERO, stdoutTruncated, stderrTruncated));
         }
 
         private static ImmediateProcess success()
@@ -2627,13 +2574,7 @@ class TestClaudeCliDriver
         private static ImmediateProcess unverifiable()
         {
             return new ImmediateProcess(CompletableFuture.completedFuture(
-                    new ProcessExit(
-                            0,
-                            ProcessExit.Reason.EXITED,
-                            ProcessExit.TreeTermination.UNVERIFIABLE,
-                            Duration.ZERO,
-                            false,
-                            false)));
+                    new ProcessExit(0, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.UNVERIFIABLE, Duration.ZERO, false, false)));
         }
 
         private static ImmediateProcess exited(int exitCode)

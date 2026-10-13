@@ -64,10 +64,7 @@ class TestCherryPickExecution
     @Test
     void recordsOneAppliedSourceCommit()
     {
-        CherryPickExecution execution = execution(
-                planned(1, Disposition.TO_CHERRY_PICK),
-                planned(2, Disposition.TO_CHERRY_PICK),
-                planned(3, Disposition.TO_CHERRY_PICK));
+        CherryPickExecution execution = execution(planned(1, Disposition.TO_CHERRY_PICK), planned(2, Disposition.TO_CHERRY_PICK), planned(3, Disposition.TO_CHERRY_PICK));
 
         CherryPickExecution applied = execution.recordApplied(sha(1), created(1), NOW.plusSeconds(1));
 
@@ -82,8 +79,7 @@ class TestCherryPickExecution
     {
         CherryPickExecution execution = execution(planned(1, Disposition.TO_CHERRY_PICK));
 
-        CherryPickExecution applied = execution.recordAppliedWithFixup(
-                sha(1), created(1), created(2), NOW.plusSeconds(1));
+        CherryPickExecution applied = execution.recordAppliedWithFixup(sha(1), created(1), created(2), NOW.plusSeconds(1));
 
         assertThat(applied.items().getFirst().result()).isEqualTo(Result.APPLIED);
         assertThat(applied.items().getFirst().targetSha()).contains(created(1));
@@ -104,9 +100,7 @@ class TestCherryPickExecution
     @Test
     void keepsConfirmedDispositionsOutOfGitDecisions()
     {
-        CherryPickExecution execution = execution(
-                planned(1, Disposition.ALREADY_ON_TARGET),
-                planned(2, Disposition.USER_SKIPPED));
+        CherryPickExecution execution = execution(planned(1, Disposition.ALREADY_ON_TARGET), planned(2, Disposition.USER_SKIPPED));
 
         assertThat(execution.items().get(0).result()).isEqualTo(Result.ALREADY_ON_TARGET);
         assertThat(execution.items().get(1).result()).isEqualTo(Result.USER_SKIPPED);
@@ -146,9 +140,7 @@ class TestCherryPickExecution
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("one-based");
 
-        assertThatThrownBy(() -> execution(
-                planned(1, Disposition.TO_CHERRY_PICK),
-                planned(1, Disposition.TO_CHERRY_PICK)))
+        assertThatThrownBy(() -> execution(planned(1, Disposition.TO_CHERRY_PICK), planned(1, Disposition.TO_CHERRY_PICK)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("not increasing");
 
@@ -208,9 +200,7 @@ class TestCherryPickExecution
     @Test
     void refusesToCompleteWhileItemsRemainPending()
     {
-        CherryPickExecution execution = execution(
-                planned(1, Disposition.TO_CHERRY_PICK),
-                planned(2, Disposition.TO_CHERRY_PICK))
+        CherryPickExecution execution = execution(planned(1, Disposition.TO_CHERRY_PICK), planned(2, Disposition.TO_CHERRY_PICK))
                 .recordApplied(sha(1), created(1), NOW.plusSeconds(1));
 
         assertThatThrownBy(() -> execution.finish(FinishReason.COMPLETED, "done", NOW.plusSeconds(2)))
@@ -290,13 +280,7 @@ class TestCherryPickExecution
 
     private static ActionJournal journal()
     {
-        return new ActionJournal(
-                ActionType.BEGIN_SEQUENCE,
-                Optional.of(sha(1)),
-                TARGET,
-                1,
-                "action-key",
-                NOW);
+        return new ActionJournal(ActionType.BEGIN_SEQUENCE, Optional.of(sha(1)), TARGET, 1, "action-key", NOW);
     }
 
     private static CherryPickItem planned(int position, Disposition disposition)
@@ -306,10 +290,7 @@ class TestCherryPickExecution
                 sha(position),
                 parent(position),
                 "Commit " + position,
-                Optional.of(new CherryPickItem.PullRequestRefView(
-                        1000 + position,
-                        "Pull request " + position,
-                        "https://github.com/trinodb/trino/pull/" + (1000 + position))),
+                Optional.of(new CherryPickItem.PullRequestRefView(1000 + position, "Pull request " + position, "https://github.com/trinodb/trino/pull/" + (1000 + position))),
                 disposition);
     }
 

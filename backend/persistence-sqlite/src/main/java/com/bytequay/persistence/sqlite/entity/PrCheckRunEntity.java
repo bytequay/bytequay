@@ -68,15 +68,7 @@ public class PrCheckRunEntity
 
     public PrCheckRunState toDomain()
     {
-        return new PrCheckRunState(
-                getGithubId(),
-                getName(),
-                getStatus(),
-                getConclusion(),
-                getDetailsUrl(),
-                getSource(),
-                getStartedAt(),
-                getCompletedAt());
+        return new PrCheckRunState(getGithubId(), getName(), getStatus(), getConclusion(), getDetailsUrl(), getSource(), getStartedAt(), getCompletedAt());
     }
 
     public PrCheckRunEntity updateFrom(long prId, PrCheckRunState check)

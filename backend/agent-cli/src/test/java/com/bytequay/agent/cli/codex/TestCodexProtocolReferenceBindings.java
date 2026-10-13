@@ -139,9 +139,7 @@ class TestCodexProtocolReferenceBindings
                     defaultValues.add(field.getName());
                     continue;
                 }
-                JsonProperty property = requireNonNull(
-                        field.getAnnotation(JsonProperty.class),
-                        () -> javaType + "." + field.getName() + " has no wire name");
+                JsonProperty property = requireNonNull(field.getAnnotation(JsonProperty.class), () -> javaType + "." + field.getName() + " has no wire name");
                 actualWireValues.add(property.value());
             }
             assertThat(actualWireValues.build()).as(javaType).containsExactlyInAnyOrderElementsOf(expectedWireValues);
@@ -164,16 +162,10 @@ class TestCodexProtocolReferenceBindings
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new CodexProtocol.FileChangeApprovalResponse(NullNode.instance))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> new CodexProtocol.PermissionsApprovalResponse(
-                NullNode.instance,
-                Optional.empty(),
-                Optional.empty()))
+        assertThatThrownBy(() -> new CodexProtocol.PermissionsApprovalResponse(NullNode.instance, Optional.empty(), Optional.empty()))
                 .isInstanceOf(IllegalArgumentException.class);
 
-        JsonNode encoded = objectMapper.readTree(codec.encode(new CodexProtocol.PermissionsApprovalResponse(
-                objectMapper.createObjectNode(),
-                Optional.empty(),
-                Optional.empty())));
+        JsonNode encoded = objectMapper.readTree(codec.encode(new CodexProtocol.PermissionsApprovalResponse(objectMapper.createObjectNode(), Optional.empty(), Optional.empty())));
         assertThat(encoded.has("scope")).isFalse();
     }
 
@@ -181,9 +173,7 @@ class TestCodexProtocolReferenceBindings
     void omitsAbsentThreadReadOption()
             throws Exception
     {
-        JsonNode encoded = objectMapper.readTree(codec.encode(new CodexProtocol.ThreadReadParams(
-                "thread-1",
-                Optional.empty())));
+        JsonNode encoded = objectMapper.readTree(codec.encode(new CodexProtocol.ThreadReadParams("thread-1", Optional.empty())));
         assertThat(encoded.has("includeTurns")).isFalse();
     }
 

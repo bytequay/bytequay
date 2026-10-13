@@ -99,8 +99,7 @@ public record TaskDiscussion(
     /** Restates the stored version after a read, which the entity owns rather than the payload. */
     public TaskDiscussion withVersion(long value)
     {
-        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, sessionReference,
-                messages, resolved, createdAt, updatedAt, value);
+        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, sessionReference, messages, resolved, createdAt, updatedAt, value);
     }
 
     /** Replaces the mutable half of the aggregate: its messages, its resolution and its session. */
@@ -110,7 +109,6 @@ public record TaskDiscussion(
             Optional<DiscussionSession> nextSession,
             Instant now)
     {
-        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, nextSession,
-                nextMessages, nextResolved, createdAt, now, version);
+        return new TaskDiscussion(id, taskId, anchor, comment, seed, providerLane, providerModel, nextSession, nextMessages, nextResolved, createdAt, now, version);
     }
 }

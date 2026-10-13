@@ -98,9 +98,7 @@ class TestCherryPickExecutionMonitorJob
                 .fail("finished", NOW, NOW.plus(Duration.ofDays(7)));
         CherryPickExecutionId executionId = CherryPickExecutionId.random();
         CherryPickExecution execution = finishedExecution(executionId, taskId);
-        when(taskStore.listPendingWorktreeCleanup(
-                AgentPermissionPolicy.CHERRY_PICK,
-                NOW.plus(Duration.ofMinutes(1))))
+        when(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CHERRY_PICK, NOW.plus(Duration.ofMinutes(1))))
                 .thenReturn(ImmutableList.of(orphanedTask, task));
         when(store.findByAgentTaskId(orphanedTaskId.toString())).thenReturn(Optional.empty());
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(execution));

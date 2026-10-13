@@ -45,12 +45,7 @@ class TestAgentSpiValues
     {
         Set<String> mediaTypes = Sets.newHashSet("text/plain");
         Set<AgentPermissionPolicy> permissionPolicies = Sets.newHashSet(AgentPermissionPolicy.AUTO);
-        AgentCapabilities capabilities = new AgentCapabilities(
-                true,
-                true,
-                false,
-                permissionPolicies,
-                mediaTypes);
+        AgentCapabilities capabilities = new AgentCapabilities(true, true, false, permissionPolicies, mediaTypes);
 
         mediaTypes.add("image/png");
         permissionPolicies.add(AgentPermissionPolicy.CI_AUTOFIX);
@@ -65,22 +60,10 @@ class TestAgentSpiValues
     @Test
     void costIsOptionalAndNeverNegative()
     {
-        ProviderUsageSample sample = new ProviderUsageSample(
-                Optional.of("usage-1"),
-                ProviderUsageSample.Semantics.CUMULATIVE,
-                10,
-                2,
-                4,
-                Optional.empty());
+        ProviderUsageSample sample = new ProviderUsageSample(Optional.of("usage-1"), ProviderUsageSample.Semantics.CUMULATIVE, 10, 2, 4, Optional.empty());
 
         assertThat(sample.cost()).isEmpty();
-        assertThatThrownBy(() -> new ProviderUsageSample(
-                Optional.empty(),
-                ProviderUsageSample.Semantics.DELTA,
-                0,
-                0,
-                0,
-                Optional.of(new BigDecimal("-0.01"))))
+        assertThatThrownBy(() -> new ProviderUsageSample(Optional.empty(), ProviderUsageSample.Semantics.DELTA, 0, 0, 0, Optional.of(new BigDecimal("-0.01"))))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("cost must not be negative");
     }
@@ -116,12 +99,7 @@ class TestAgentSpiValues
     @Test
     void failedProviderResultsRequireAReason()
     {
-        assertThatThrownBy(() -> new AgentTurnResult(
-                AgentTurnResult.State.FAILED,
-                Optional.empty(),
-                Optional.empty(),
-                Duration.ZERO,
-                true))
+        assertThatThrownBy(() -> new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.empty(), Duration.ZERO, true))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("requires");
     }

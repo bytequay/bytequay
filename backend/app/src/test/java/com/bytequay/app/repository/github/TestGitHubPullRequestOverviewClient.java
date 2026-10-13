@@ -191,11 +191,9 @@ class TestGitHubPullRequestOverviewClient
                         {"id":%d,"login":"user%d","avatar_url":"https://avatars/user%d","type":"User"}
                         """.formatted(index + 1, index, index))
                 .collect(joining(",", "[", "]"));
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/assignees?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/assignees?per_page=100&page=1"))
                 .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/assignees?per_page=100&page=2"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/assignees?per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         [{"id":101,"login":"copilot[bot]","avatar_url":"https://avatars/copilot","type":"Bot"}]
                         """, MediaType.APPLICATION_JSON));
@@ -278,11 +276,9 @@ class TestGitHubPullRequestOverviewClient
                          "user":{"login":"reviewer%d","type":"User"}}
                         """.formatted(index + 1, index))
                 .collect(joining(",", "[", "]"));
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
                 .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=2"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         [{"id":101,"state":"APPROVED","submitted_at":"2026-08-20T11:00:00Z",
                           "user":{"login":"last","type":"User"}}]
@@ -299,8 +295,7 @@ class TestGitHubPullRequestOverviewClient
     void failedReviewFetchThrowsInsteadOfReportingNoReviews()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/reviews?per_page=100&page=1"))
                 .andRespond(withStatus(HttpStatus.BAD_GATEWAY));
 
         // An empty list would read as "no reviews" and sweep the cached rows.
@@ -353,15 +348,13 @@ class TestGitHubPullRequestOverviewClient
     void datesCommitEventsByCommitterTime()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"event":"committed","sha":"abc","message":"Fix it",
                           "author":{"name":"Alice","date":"2026-08-20T09:00:00Z"},
                           "committer":{"name":"Alice","date":"2026-08-20T10:00:00Z"}}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/pulls/42/commits?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/commits?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"sha":"abc","commit":{"message":"Fix it",
                           "author":{"name":"Alice","date":"2026-08-20T09:00:00Z"},
@@ -382,8 +375,7 @@ class TestGitHubPullRequestOverviewClient
     void mapsRequestedPeopleAndTeamsFromTimelineEvents()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"event":"review_requested","created_at":"2026-08-20T10:00:00Z",
                           "actor":{"login":"alice"},"requested_reviewer":{"login":"bob"}},
@@ -409,8 +401,7 @@ class TestGitHubPullRequestOverviewClient
     void mapsAssigneesFromTimelineEvents()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"event":"assigned","created_at":"2026-08-20T10:00:00Z",
                           "actor":{"login":"alice"},"assignee":{"login":"bob"}},
@@ -428,8 +419,7 @@ class TestGitHubPullRequestOverviewClient
     void addsGraphQlReactionsToReviewTimelineEvents()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/timeline?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":5,"event":"reviewed","state":"commented","body":"LGTM",
                           "submitted_at":"2026-08-20T10:00:00Z",
@@ -462,8 +452,7 @@ class TestGitHubPullRequestOverviewClient
     void enrichesIssueCommentsWithViewerReactionState()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/issues/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":21,"node_id":"IC_21","body":"Looks good",
                           "created_at":"2026-08-20T10:00:00Z",
@@ -510,8 +499,7 @@ class TestGitHubPullRequestOverviewClient
     void groupsReviewCommentsAndEnrichesEveryTimelineBody()
     {
         Fixture fixture = fixture();
-        fixture.api().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42/comments?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [
                           {"id":11,"node_id":"RC_11","pull_request_review_id":5,"path":"src/App.java","line":12,
@@ -550,15 +538,8 @@ class TestGitHubPullRequestOverviewClient
                         """, MediaType.APPLICATION_JSON));
 
         List<PrTimelineEvent> threads = fixture.client().fetchPrReviewThreads("pat", PULL_REQUEST);
-        PrTimelineEvent issueComment = new PrTimelineEvent(
-                99L,
-                "commented",
-                "eve",
-                Instant.parse("2026-08-20T10:10:00Z"),
-                "See #8",
-                Optional.empty());
-        List<PrTimelineEvent> enriched = fixture.client().enrichTimelineReferences(
-                "pat", PULL_REQUEST, ImmutableList.of(issueComment, threads.getFirst()));
+        PrTimelineEvent issueComment = new PrTimelineEvent(99L, "commented", "eve", Instant.parse("2026-08-20T10:10:00Z"), "See #8", Optional.empty());
+        List<PrTimelineEvent> enriched = fixture.client().enrichTimelineReferences("pat", PULL_REQUEST, ImmutableList.of(issueComment, threads.getFirst()));
 
         assertThat(threads).singleElement().satisfies(thread -> {
             assertThat(thread.event()).isEqualTo("review_thread");
@@ -575,9 +556,7 @@ class TestGitHubPullRequestOverviewClient
                 .isEqualTo("See [Linked pull #8](https://github.com/owner/repo/pull/8)");
         assertThat(enriched.getLast().payload().comments())
                 .extracting(comment -> comment.body())
-                .containsExactly(
-                        "Please verify [Linked pull #8](https://github.com/owner/repo/pull/8)",
-                        "Done [Linked pull #8](https://github.com/owner/repo/pull/8)");
+                .containsExactly("Please verify [Linked pull #8](https://github.com/owner/repo/pull/8)", "Done [Linked pull #8](https://github.com/owner/repo/pull/8)");
         fixture.verify();
     }
 
@@ -714,11 +693,7 @@ class TestGitHubPullRequestOverviewClient
                 .andExpect(header(HttpHeaders.IF_NONE_MATCH, "\"files-1\""))
                 .andRespond(withStatus(HttpStatus.NOT_MODIFIED).header(HttpHeaders.ETAG, "\"files-1\""));
 
-        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles(
-                "pat",
-                PullRequestRef.of("owner", "repo", 7),
-                storedFiles(1),
-                Optional.of("\"files-1\""));
+        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7), storedFiles(1), Optional.of("\"files-1\""));
 
         assertThat(result.unchanged()).isTrue();
         assertThat(result.etag()).contains("\"files-1\"");
@@ -736,11 +711,7 @@ class TestGitHubPullRequestOverviewClient
                         [{"filename":"a.txt","status":"modified","additions":1,"deletions":0,"patch":"+line"}]
                         """, MediaType.APPLICATION_JSON));
 
-        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles(
-                "pat",
-                PullRequestRef.of("owner", "repo", 7),
-                storedFiles(101),
-                Optional.of("\"files-1\""));
+        ConditionalList<DiffFile> result = fixture.client.fetchPrDiffFiles("pat", PullRequestRef.of("owner", "repo", 7), storedFiles(101), Optional.of("\"files-1\""));
 
         assertThat(result.unchanged()).isFalse();
         assertThat(result.orElse(ImmutableList.of())).extracting(DiffFile::filename).containsExactly("a.txt");
@@ -760,10 +731,7 @@ class TestGitHubPullRequestOverviewClient
         MockRestServiceServer api = MockRestServiceServer.bindTo(apiBuilder).build();
         RestClient.Builder graphQlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
         MockRestServiceServer graphQl = MockRestServiceServer.bindTo(graphQlBuilder).build();
-        return new Fixture(
-                new GitHubPullRequestReadClient(apiBuilder.build(), graphQlBuilder.build()),
-                api,
-                graphQl);
+        return new Fixture(new GitHubPullRequestReadClient(apiBuilder.build(), graphQlBuilder.build()), api, graphQl);
     }
 
     private record Fixture(

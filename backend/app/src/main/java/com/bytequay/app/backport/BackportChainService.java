@@ -184,8 +184,7 @@ public class BackportChainService
     private BackportChain saveAccepted(String taskId, TurnId turnId, Request request)
     {
         AgentTask owner = requireTurn(taskId, turnId);
-        String id = request.chainId().orElseGet(() -> UUID.nameUUIDFromBytes(
-                (taskId + ":" + request.operationKey()).getBytes(StandardCharsets.UTF_8)).toString());
+        String id = request.chainId().orElseGet(() -> UUID.nameUUIDFromBytes((taskId + ":" + request.operationKey()).getBytes(StandardCharsets.UTF_8)).toString());
         checkArgument(chains.list().stream().filter(chain -> chain.requestingTaskId().equals(taskId))
                         .filter(chain -> chain.acceptances().stream().anyMatch(acceptance -> acceptance.operationKey().equals(request.operationKey())))
                         .allMatch(chain -> chain.id().equals(id)),
@@ -235,8 +234,7 @@ public class BackportChainService
                     .orElseGet(() -> resolveDestination(request.sourcePullRequest().orElseThrow().workspaceId())));
             Optional<PullRequestRef> sourcePr = request.sourcePullRequest().map(value -> PullRequestRef.of(
                     sourceRoute.repository().owner(), sourceRoute.repository().repo(), value.number()));
-            Optional<GitHubPullRequestIdentity> identity = sourcePr.map(pr -> pullRequests.fetchPullRequestIdentity(
-                    credentials.resolveGitHubToken(sourceRoute.workspaceId()), pr));
+            Optional<GitHubPullRequestIdentity> identity = sourcePr.map(pr -> pullRequests.fetchPullRequestIdentity(credentials.resolveGitHubToken(sourceRoute.workspaceId()), pr));
             identity.ifPresent(pr -> {
                 checkArgument(pr.pullRequest().equals(sourcePr.orElseThrow()) && pr.baseRepository().equals(sourceRoute.repository())
                         && pr.baseBranch().equals(sourceRoute.branch()), "Source PR does not match the selected workspace and branch");
@@ -335,8 +333,7 @@ public class BackportChainService
             var sourcePr = chain.sourcePr(index);
             if (sourcePr.isPresent()) {
                 var fresh = pullRequests.fetchMergedPullRequest(credentials.resolveGitHubToken(source.workspaceId()), sourcePr.orElseThrow());
-                checkState(fresh.identity().baseRepository().equals(source.repository()) && fresh.identity().baseBranch().equals(source.branch()),
-                        "Source PR routing changed");
+                checkState(fresh.identity().baseRepository().equals(source.repository()) && fresh.identity().baseBranch().equals(source.branch()), "Source PR routing changed");
             }
             else {
                 checkState(hop.sourceHop() >= 0 && chain.hops().get(hop.sourceHop()).noOp(), "Wait for the source PR to merge");
@@ -626,8 +623,7 @@ public class BackportChainService
         var task = related.eligible(taskId).orElseThrow(() -> new IllegalArgumentException("Requesting conversation is unavailable"));
         var turn = turns.findActive(task.id()).filter(value -> value.id().equals(turnId) && value.cancellationRequestedAt().isEmpty())
                 .orElseThrow(() -> new IllegalArgumentException("The requesting turn is no longer active"));
-        checkArgument(turn.developmentOrigin().isEmpty() && !turn.idempotencyKey().equals("related-work:" + taskId),
-                "An automated turn cannot authorize a chain");
+        checkArgument(turn.developmentOrigin().isEmpty() && !turn.idempotencyKey().equals("related-work:" + taskId), "An automated turn cannot authorize a chain");
         return task;
     }
 

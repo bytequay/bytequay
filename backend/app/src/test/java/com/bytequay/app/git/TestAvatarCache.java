@@ -107,8 +107,7 @@ class TestAvatarCache
     {
         HttpResponse<java.io.InputStream> response = mock(HttpResponse.class);
         when(response.statusCode()).thenReturn(status);
-        when(response.headers()).thenReturn(HttpHeaders.of(
-                ImmutableMap.of("Content-Type", ImmutableList.of(contentType)), (name, value) -> true));
+        when(response.headers()).thenReturn(HttpHeaders.of(ImmutableMap.of("Content-Type", ImmutableList.of(contentType)), (name, value) -> true));
         when(response.body()).thenReturn(new ByteArrayInputStream(body));
         doReturn(response).when(client).send(any(), any(HttpResponse.BodyHandler.class));
     }

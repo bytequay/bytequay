@@ -1837,8 +1837,7 @@ class TestReviewTools
     @Test
     void relatedDiffKeepsUnavailableAndEmptyPatchArtifactsDistinct()
     {
-        SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(
-                new DiffFile("unavailable", "modified", 1, 1, null), new DiffFile("empty", "renamed", 0, 0, "")));
+        SelectedPullRequestDiffReader.Read read = relatedDiff(ImmutableList.of(new DiffFile("unavailable", "modified", 1, 1, null), new DiffFile("empty", "renamed", 0, 0, "")));
         when(selectedPullRequestDiffs.read(REPO, 19, Optional.of(DIFF_VERSION), false)).thenReturn(read);
         JsonNode unavailable = call("review_get_context", ImmutableMap.of("kind", "diff", "number", 19, "path", "unavailable", "diffVersion", DIFF_VERSION));
         assertThat(unavailable.path("patchAvailable").asBoolean()).isFalse();
@@ -2024,8 +2023,7 @@ class TestReviewTools
         assertThat(call("review_finish", finish("missing-candidate", ImmutableList.of())).at("/error/field").asText()).isEqualTo("validations");
         assertThat(call("review_finish", finish("unmapped-finding", ImmutableList.of(assessment(1, "REJECTED"))))
                 .at("/error/field").asText()).isEqualTo("validations");
-        List<Map<String, Object>> validations = ImmutableList.of(
-                supported(1, findingId, 1));
+        List<Map<String, Object>> validations = ImmutableList.of(supported(1, findingId, 1));
         assertThat(call("review_finish", finish("finished", validations)).path("status").asText()).isEqualTo("accepted");
         assertThat(store.findRun(RUN_ID).orElseThrow().coverage().orElseThrow().complete()).isTrue();
         assertThat(store.findRun(RUN_ID).orElseThrow().investigation().orElseThrow().validations().getFirst().findingId()).contains(findingId);
@@ -2102,8 +2100,7 @@ class TestReviewTools
         store.updateRun(run(RUN_ID, 1, PATCH, false));
         readSource();
         int writes = store.runUpdates();
-        Map<String, Object> candidates = ImmutableMap.of("operationKey", "no-map", "candidates", ImmutableList.of(candidateInput(CANDIDATE)),
-                "perspectives", ImmutableList.of());
+        Map<String, Object> candidates = ImmutableMap.of("operationKey", "no-map", "candidates", ImmutableList.of(candidateInput(CANDIDATE)), "perspectives", ImmutableList.of());
         assertThat(call("review_record_discovery", candidates).at("/error/field").asText()).isEqualTo("changeMap");
         assertThat(call("review_record_discovery", with(candidates, "no-refs", "changeMap", "Input ownership")).at("/error/field").asText())
                 .isEqualTo("changeMap");
@@ -2221,8 +2218,7 @@ class TestReviewTools
         assertThat(call("review_record_discovery", ImmutableMap.of("operationKey", "map", "changeMap", "Input ownership",
                 "contextEvidenceRefs", ImmutableList.of("E1"), "candidates", ImmutableList.of(), "perspectives", ImmutableList.of()))
                 .path("status").asText()).isEqualTo("accepted");
-        Map<String, Object> input = ImmutableMap.of("operationKey", "first-batch", "candidates", ImmutableList.of(candidateInput(CANDIDATE)),
-                "perspectives", ImmutableList.of());
+        Map<String, Object> input = ImmutableMap.of("operationKey", "first-batch", "candidates", ImmutableList.of(candidateInput(CANDIDATE)), "perspectives", ImmutableList.of());
         JsonNode recorded = call("review_record_discovery", input);
         assertThat(recorded.path("status").asText()).isEqualTo("accepted");
         assertThat(call("review_record_discovery", input)).isEqualTo(recorded);

@@ -49,13 +49,7 @@ class TestBranchRebase
     @Test
     void preservesAJournalAcrossPauseAndResume()
     {
-        ActionJournal journal = new ActionJournal(
-                ActionType.CONTINUE,
-                Optional.of(STOPPED),
-                ORIGINAL,
-                1,
-                "continue-1",
-                NOW);
+        ActionJournal journal = new ActionJournal(ActionType.CONTINUE, Optional.of(STOPPED), ORIGINAL, 1, "continue-1", NOW);
         BranchRebase paused = rebase()
                 .resolving(STOPPED, NOW.plusSeconds(1))
                 .withJournal(journal, NOW.plusSeconds(2))
@@ -69,16 +63,8 @@ class TestBranchRebase
     @Test
     void completedAndCancelledResultsHaveDifferentTipRules()
     {
-        BranchRebase completed = rebase().finish(
-                FinishReason.COMPLETED,
-                "Rebased",
-                Optional.of("d".repeat(40)),
-                NOW.plusSeconds(1));
-        BranchRebase cancelled = rebase().finish(
-                FinishReason.CANCELLED,
-                "Cancelled",
-                Optional.empty(),
-                NOW.plusSeconds(1));
+        BranchRebase completed = rebase().finish(FinishReason.COMPLETED, "Rebased", Optional.of("d".repeat(40)), NOW.plusSeconds(1));
+        BranchRebase cancelled = rebase().finish(FinishReason.CANCELLED, "Cancelled", Optional.empty(), NOW.plusSeconds(1));
 
         assertThat(completed.resultWorkTip()).contains("d".repeat(40));
         assertThat(cancelled.resultWorkTip()).isEmpty();
@@ -89,11 +75,7 @@ class TestBranchRebase
     @Test
     void rejectsACompletedResultWithoutATip()
     {
-        assertThatThrownBy(() -> rebase().finish(
-                FinishReason.COMPLETED,
-                "missing",
-                Optional.empty(),
-                NOW.plusSeconds(1)))
+        assertThatThrownBy(() -> rebase().finish(FinishReason.COMPLETED, "missing", Optional.empty(), NOW.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
     }
 

@@ -124,8 +124,7 @@ public class RecentTouchRecorder
     {
         guard(() -> {
             String itemKey = RecentItemType.TASK.prefix() + ":" + taskId;
-            Item item = new Item(
-                    RecentItemType.TASK, itemKey, null, firstLine(prompt), repo, null, null, true, null, lane);
+            Item item = new Item(RecentItemType.TASK, itemKey, null, firstLine(prompt), repo, null, null, true, null, lane);
             save(item, RecentReason.PROMPTED, 0);
             // The prompt is the user's own words, so it belongs in Words mode
             // beside their comments. Keyed per turn, not per task.
@@ -141,17 +140,7 @@ public class RecentTouchRecorder
                     .map(workspace -> workspace.monitoredRepository().fullName())
                     .orElse(null);
             String itemKey = RecentItemType.COMMIT.prefix() + ":" + repo + "@" + sha;
-            Item item = new Item(
-                    RecentItemType.COMMIT,
-                    itemKey,
-                    null,
-                    summary,
-                    repo,
-                    workspaceId,
-                    null,
-                    true,
-                    null,
-                    sha.length() > 7 ? sha.substring(0, 7) : sha);
+            Item item = new Item(RecentItemType.COMMIT, itemKey, null, summary, repo, workspaceId, null, true, null, sha.length() > 7 ? sha.substring(0, 7) : sha);
             save(item, RecentReason.PUSHED, 0);
         });
     }

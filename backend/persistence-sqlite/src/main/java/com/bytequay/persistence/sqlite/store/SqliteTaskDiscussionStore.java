@@ -68,8 +68,7 @@ public class SqliteTaskDiscussionStore
                 repository,
                 discussion.id(),
                 "Discussion",
-                () -> repository.findByTaskIdAndTurnIdAndQuoteHash(
-                        discussion.taskId(), discussion.anchor().turnId(), discussion.anchor().quoteHash()),
+                () -> repository.findByTaskIdAndTurnIdAndQuoteHash(discussion.taskId(), discussion.anchor().turnId(), discussion.anchor().quoteHash()),
                 () -> TaskDiscussionEntity.fromDomain(discussion),
                 AGENT).toDomain();
     }

@@ -224,8 +224,7 @@ class TestGitSequencerDriver
         String target = head();
 
         SequenceState conflict = driver.beginCherryPick(repository, target, source);
-        SequenceState snapshot = driver.commitConflictSnapshot(
-                repository, target, source, conflict.conflicts());
+        SequenceState snapshot = driver.commitConflictSnapshot(repository, target, source, conflict.conflicts());
         assertThat(snapshot.kind()).isEqualTo(Kind.COMPLETED);
         assertThat(git(repository, "log", "-1", "--format=%B"))
                 .contains("(cherry picked from commit " + source + ")");

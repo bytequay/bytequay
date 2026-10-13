@@ -202,8 +202,7 @@ class TestPullRequestCiBridgeResolverImpl
     void repositoryCapitalizationDoesNotHideTheTasksForkPullRequest()
             throws Exception
     {
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(
-                PR, true, "alice", new RepoRef("ALIce", "TriNo"), BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns()));
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", new RepoRef("ALIce", "TriNo"), BRANCH, HEAD, "master", BASE, url(PR), failing.workflowRuns()));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.empty());
 
@@ -316,8 +315,7 @@ class TestPullRequestCiBridgeResolverImpl
     {
         CiWorkflowRun current = new CiWorkflowRun(100, 10, "Build", 2, "completed", Optional.of("failure"), HEAD,
                 "https://github.com/trinodb/trino/actions/runs/100", failing.jobs());
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(
-                PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current)));
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), ImmutableList.of(current)));
 
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
 
@@ -432,8 +430,7 @@ class TestPullRequestCiBridgeResolverImpl
             return new CiWorkflowRun(id, id, "\u0001".repeat(400), 1, "completed", Optional.of("failure"), HEAD,
                     "https://github.com/trinodb/trino/actions/runs/" + id, ImmutableList.of(job));
         }).collect(ImmutableList.toImmutableList());
-        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(
-                PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), workflows));
+        when(actions.inspect(PR)).thenReturn(new CiHeadSnapshot(PR, true, "alice", FORK, BRANCH, HEAD, "master", BASE, url(PR), workflows));
 
         String output = resolver.resolve(taskId.toString()).orElseThrow().read().apply(Optional.empty());
         JsonNode result = mapper.readTree(output);
@@ -531,8 +528,7 @@ class TestPullRequestCiBridgeResolverImpl
         String id = "a".repeat(64);
         String source = "original beginning\n" + "downloaded artifact\n".repeat(4000) + "command exited\n";
         BlobRef blob = new BlobRef("ci/excerpt.log", "text/plain", 0);
-        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), 0, false, false, true,
-                ImmutableList.of(), Optional.empty(), Optional.of(id), false));
+        when(actions.readLog(any())).thenReturn(new BoundedCiLog(Optional.of(blob), 0, false, false, true, ImmutableList.of(), Optional.empty(), Optional.of(id), false));
         when(rawLogs.read(taskId, id)).thenReturn(source);
         JsonNode result = read(resolver.resolve(taskId.toString()).orElseThrow(), Optional.of(201L));
         assertThat(result.at("/log/diagnosticsMatched").asBoolean()).isFalse();

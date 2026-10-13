@@ -45,7 +45,6 @@ public record SynchronizeCiBaseCommand(
         checkText(baseRef, "baseRef", 255);
         checkSha(expectedBaseSha, "expectedBaseSha");
         checkText(localBaseBranch, "localBaseBranch", 255);
-        checkArgument(localBaseBranch.startsWith("bytequay/ci-base/"),
-                "localBaseBranch is outside the ByteQuay namespace");
+        checkArgument(localBaseBranch.startsWith("bytequay/ci-base/"), "localBaseBranch is outside the ByteQuay namespace");
     }
 }

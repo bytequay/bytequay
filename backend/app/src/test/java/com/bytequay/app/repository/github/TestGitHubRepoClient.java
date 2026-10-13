@@ -86,13 +86,11 @@ class TestGitHubRepoClient
     void fetchesContributorLabelAndOverviewProjections()
     {
         Fixture fixture = fixture();
-        fixture.server().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/contributors?per_page=100&page=1"))
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/contributors?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":1,"login":"alice","avatar_url":"avatar","type":"User"}]
                         """, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/labels?per_page=100&page=1"))
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/labels?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":2,"name":"bug","color":"ff0000"}]
                         """, MediaType.APPLICATION_JSON));
@@ -125,8 +123,7 @@ class TestGitHubRepoClient
     void fetchesOpenIssuesAndExcludesPullRequestsFromGitHubIssuesEndpoint()
     {
         Fixture fixture = fixture();
-        fixture.server().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/issues?per_page=100&page=1"))
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/issues?per_page=100&page=1"))
                 .andRespond(withSuccess("""
                         [{"id":10,"number":7,"title":"Issue","body":"Details",
                           "user":{"login":"alice","avatar_url":"avatar"},
@@ -257,8 +254,7 @@ class TestGitHubRepoClient
                 .andRespond(withStatus(HttpStatus.NOT_FOUND));
 
         assertThatThrownBy(() -> fixture.client().fetchIssuePreview("pat", REPOSITORY, 7))
-                .isInstanceOfSatisfying(ResponseStatusException.class,
-                        exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND));
         fixture.server().verify();
     }
 
@@ -270,8 +266,7 @@ class TestGitHubRepoClient
                 .andRespond(withSuccess("{}", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> fixture.client().fetchIssuePreview("pat", REPOSITORY, 7))
-                .isInstanceOfSatisfying(ResponseStatusException.class,
-                        exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
+                .isInstanceOfSatisfying(ResponseStatusException.class, exception -> assertThat(exception.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
         fixture.server().verify();
     }
 
@@ -279,8 +274,7 @@ class TestGitHubRepoClient
     void fetchesCommitAvatarsBySha()
     {
         Fixture fixture = fixture();
-        fixture.server().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=2&page=1"))
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/commits?sha=main&per_page=2&page=1"))
                 .andRespond(withSuccess("""
                         [{"sha":"abc",
                           "author":{"login":"percy-r","avatar_url":"https://avatars/percy-r"},
@@ -288,8 +282,7 @@ class TestGitHubRepoClient
                          {"sha":"def","author":null,"committer":null}]
                         """, MediaType.APPLICATION_JSON));
 
-        CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot(
-                "pat", REPOSITORY, "main", 2);
+        CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot("pat", REPOSITORY, "main", 2);
 
         assertThat(snapshot.succeeded()).isTrue();
         assertThat(snapshot.avatars()).containsExactly(
@@ -306,12 +299,10 @@ class TestGitHubRepoClient
     void reportsCommitAvatarProviderFailure()
     {
         Fixture fixture = fixture();
-        fixture.server().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=2&page=1"))
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/commits?sha=main&per_page=2&page=1"))
                 .andRespond(withServerError());
 
-        CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot(
-                "pat", REPOSITORY, "main", 2);
+        CommitAvatarSnapshot snapshot = fixture.client().fetchCommitAvatarSnapshot("pat", REPOSITORY, "main", 2);
 
         assertThat(snapshot.succeeded()).isFalse();
         assertThat(snapshot.avatars()).isEmpty();
@@ -325,11 +316,9 @@ class TestGitHubRepoClient
         String firstPage = IntStream.rangeClosed(1, 100)
                 .mapToObj(index -> "{\"sha\":\"commit-" + index + "\",\"author\":{\"login\":\"alice\"}}")
                 .collect(joining(",", "[", "]"));
-        fixture.server().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=100&page=1"))
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/commits?sha=main&per_page=100&page=1"))
                 .andRespond(withSuccess(firstPage, MediaType.APPLICATION_JSON));
-        fixture.server().expect(requestTo(
-                        "https://api.github.test/repos/owner/repo/commits?sha=main&per_page=100&page=2"))
+        fixture.server().expect(requestTo("https://api.github.test/repos/owner/repo/commits?sha=main&per_page=100&page=2"))
                 .andRespond(withSuccess("""
                         [{"sha":"commit-101","author":{"login":"alice"}},
                          {"sha":"commit-102","author":{"login":"alice"}}]

@@ -95,15 +95,7 @@ class TestReviewDiffAnchors
     @Test
     void parsesHunkHeadersWithAndWithoutCountsAndIgnoresNoNewlineMarkers()
     {
-        DiffFile headers = file(
-                "src/Headers.java",
-                "@@ -1 +1 @@",
-                "-old",
-                "+new",
-                "\\ No newline at end of file",
-                "@@ -10,7 +12,9 @@ class Thing",
-                " keep",
-                "+added");
+        DiffFile headers = file("src/Headers.java", "@@ -1 +1 @@", "-old", "+new", "\\ No newline at end of file", "@@ -10,7 +12,9 @@ class Thing", " keep", "+added");
 
         ReviewDiffAnchors anchors = ReviewDiffAnchors.of(ImmutableList.of(headers));
 
@@ -184,13 +176,7 @@ class TestReviewDiffAnchors
     void remapFollowsAnExcerptToItsSingleNewLocation()
     {
         ReviewAnchor anchor = new ReviewAnchor("src/Alpha.java", "RIGHT", 1, 2, ImmutableList.of("one", "two"));
-        ReviewDiffAnchors moved = ReviewDiffAnchors.of(ImmutableList.of(file(
-                "src/Alpha.java",
-                "@@ -1,4 +5,4 @@",
-                " zero",
-                " one",
-                " two",
-                " three")));
+        ReviewDiffAnchors moved = ReviewDiffAnchors.of(ImmutableList.of(file("src/Alpha.java", "@@ -1,4 +5,4 @@", " zero", " one", " two", " three")));
 
         assertThat(moved.remap(anchor))
                 .hasValue(new ReviewAnchor("src/Alpha.java", "RIGHT", 6, 7, ImmutableList.of("one", "two")));
@@ -200,15 +186,7 @@ class TestReviewDiffAnchors
     void remapGivesUpWhenTheExcerptIsAmbiguousOrGone()
     {
         ReviewAnchor ambiguous = new ReviewAnchor("src/Alpha.java", "RIGHT", 20, 21, ImmutableList.of("one", "two"));
-        ReviewDiffAnchors duplicated = ReviewDiffAnchors.of(ImmutableList.of(file(
-                "src/Alpha.java",
-                "@@ -1,6 +1,6 @@",
-                " one",
-                " two",
-                " filler",
-                " one",
-                " two",
-                " tail")));
+        ReviewDiffAnchors duplicated = ReviewDiffAnchors.of(ImmutableList.of(file("src/Alpha.java", "@@ -1,6 +1,6 @@", " one", " two", " filler", " one", " two", " tail")));
 
         assertThat(duplicated.remap(ambiguous)).isEmpty();
 

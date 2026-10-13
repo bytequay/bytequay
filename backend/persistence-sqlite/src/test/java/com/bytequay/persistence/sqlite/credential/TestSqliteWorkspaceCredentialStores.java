@@ -131,8 +131,7 @@ class TestSqliteWorkspaceCredentialStores
         assertThat(apiKeys.findAll()).containsExactly(key);
         assertThat(apiKeys.findById(key.id())).contains(key);
         assertThat(apiKeys.findSecretById(key.id())).contains("sk-secret");
-        assertThatThrownBy(() -> apiKeys.save(
-                new ModelApiKey("personal-deepseek", "DeepSeek", "sk-ot••••••ther", createdAt), "sk-other"))
+        assertThatThrownBy(() -> apiKeys.save(new ModelApiKey("personal-deepseek", "DeepSeek", "sk-ot••••••ther", createdAt), "sk-other"))
                 .isInstanceOf(IllegalArgumentException.class);
 
         apiKeys.delete("personal-deepseek");
@@ -150,8 +149,7 @@ class TestSqliteWorkspaceCredentialStores
     @Test
     void existingApiKeyReceivesPermanentId()
     {
-        apiKeyRows.save(new ModelApiKeyEntity(null, "legacy-deepseek", "DeepSeek", cipher.encrypt("sk-legacy"), "sk-le••••••gacy",
-                Instant.parse("2026-08-23T10:00:00Z")));
+        apiKeyRows.save(new ModelApiKeyEntity(null, "legacy-deepseek", "DeepSeek", cipher.encrypt("sk-legacy"), "sk-le••••••gacy", Instant.parse("2026-08-23T10:00:00Z")));
 
         apiKeys.assignMissingIds();
         String id = apiKeys.findAll().stream()

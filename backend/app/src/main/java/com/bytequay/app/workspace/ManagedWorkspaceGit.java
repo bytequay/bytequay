@@ -109,9 +109,7 @@ class ManagedWorkspaceGit
         requireGitSuccess(head, "inspect generated branch");
         String sha = head.output().strip();
         if (!sha.equals(expectedSha)) {
-            throw new Failure(
-                    "The generated branch moved after the execution completed. Start another execution.",
-                    "Generated branch does not match the completed execution");
+            throw new Failure("The generated branch moved after the execution completed. Start another execution.", "Generated branch does not match the completed execution");
         }
         Result pushed = git.run(
                 repository,
@@ -152,12 +150,7 @@ class ManagedWorkspaceGit
             Path realRoot = root.toRealPath();
             if (!Files.exists(directory, LinkOption.NOFOLLOW_LINKS)) {
                 Files.createDirectory(directory);
-                Files.writeString(
-                        marker,
-                        ownership(workspace),
-                        StandardCharsets.UTF_8,
-                        StandardOpenOption.CREATE_NEW,
-                        StandardOpenOption.WRITE);
+                Files.writeString(marker, ownership(workspace), StandardCharsets.UTF_8, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             }
             if (Files.isSymbolicLink(directory)
                     || !directory.toRealPath().getParent().equals(realRoot)
@@ -179,9 +172,7 @@ class ManagedWorkspaceGit
     {
         Path repository = prepareOwnedWorkspace(workspace);
         if (!Files.exists(repository, LinkOption.NOFOLLOW_LINKS)) {
-            throw new Failure(
-                    "Managed checkout is missing. Retry the workspace to restore it.",
-                    "Managed checkout is missing");
+            throw new Failure("Managed checkout is missing. Retry the workspace to restore it.", "Managed checkout is missing");
         }
         validateCheckout(workspace, repository);
         return repository;
@@ -196,16 +187,9 @@ class ManagedWorkspaceGit
                 repository.getParent(),
                 NETWORK_TIMEOUT,
                 environment,
-                ImmutableList.of(
-                        "clone",
-                        "--origin",
-                        "origin",
-                        workspace.originCloneUrl(),
-                        repository.getFileName().toString()));
+                ImmutableList.of("clone", "--origin", "origin", workspace.originCloneUrl(), repository.getFileName().toString()));
         requireGitSuccess(result, "clone");
-        requireGitSuccess(
-                git.run(repository, "remote", "set-url", "origin", workspace.originCloneUrl()),
-                "record origin routing");
+        requireGitSuccess(git.run(repository, "remote", "set-url", "origin", workspace.originCloneUrl()), "record origin routing");
     }
 
     private void validateCheckout(Workspace workspace, Path repository)
@@ -232,11 +216,7 @@ class ManagedWorkspaceGit
 
     private void reconcileRemotes(Workspace previous, Workspace current, Path repository)
     {
-        reconcileRemote(
-                repository,
-                "origin",
-                previous.originCloneUrl(),
-                current.originCloneUrl());
+        reconcileRemote(repository, "origin", previous.originCloneUrl(), current.originCloneUrl());
         requireGitSuccess(git.run(repository, "config", "remote.pushDefault", "origin"), "configure default push destination");
         reconcileRemoteSources(current, repository);
         Optional<String> actualUpstream = remoteUrl(repository, "upstream");
@@ -287,15 +267,9 @@ class ManagedWorkspaceGit
     void probeRemoteSource(Workspace workspace, String url)
     {
         cloneUri(url);
-        Result result = git.run(
-                paths.repository(workspace),
-                PROBE_TIMEOUT,
-                authenticationEnvironment(workspace),
-                ImmutableList.of("ls-remote", "--", url, "HEAD"));
+        Result result = git.run(paths.repository(workspace), PROBE_TIMEOUT, authenticationEnvironment(workspace), ImmutableList.of("ls-remote", "--", url, "HEAD"));
         if (!result.successful()) {
-            throw new Failure(
-                    "The remote repository could not be reached. Check the URL and access.",
-                    "Remote source probe failed: " + result.output().strip());
+            throw new Failure("The remote repository could not be reached. Check the URL and access.", "Remote source probe failed: " + result.output().strip());
         }
     }
 
@@ -354,8 +328,7 @@ class ManagedWorkspaceGit
             }
             catch (Failure failure) {
                 failed.add(source.name());
-                log.warn("Fetch skipped for remote source {} of workspace {}: {}",
-                        source.name(), workspace.id(), failure.getMessage());
+                log.warn("Fetch skipped for remote source {} of workspace {}: {}", source.name(), workspace.id(), failure.getMessage());
             }
         }
         return failed.build();
@@ -377,11 +350,7 @@ class ManagedWorkspaceGit
 
     private void fetch(Path repository, String remote, Map<String, String> environment)
     {
-        Result result = git.run(
-                repository,
-                NETWORK_TIMEOUT,
-                environment,
-                ImmutableList.of("fetch", "--prune", remote));
+        Result result = git.run(repository, NETWORK_TIMEOUT, environment, ImmutableList.of("fetch", "--prune", remote));
         requireGitSuccess(result, "fetch " + remote);
     }
 
@@ -415,34 +384,25 @@ class ManagedWorkspaceGit
             return uri;
         }
         catch (IllegalArgumentException failure) {
-            throw new Failure(
-                    "Repository clone routing is unsafe. Remove and watch the repository again.",
-                    "Unsafe clone URL",
-                    failure);
+            throw new Failure("Repository clone routing is unsafe. Remove and watch the repository again.", "Unsafe clone URL", failure);
         }
     }
 
     private static void requireGitSuccess(Result result, String action)
     {
         if (!result.successful()) {
-            throw new Failure(
-                    "Git failed while attempting to " + action + ". Check access and retry.",
-                    "Git " + action + " failed: " + result.output().strip());
+            throw new Failure("Git failed while attempting to " + action + ". Check access and retry.", "Git " + action + " failed: " + result.output().strip());
         }
     }
 
     private static Failure unknownDirectory()
     {
-        return new Failure(
-                "Managed checkout identity could not be verified. Move the unexpected directory and retry.",
-                "Managed workspace directory is unknown or mismatched");
+        return new Failure("Managed checkout identity could not be verified. Move the unexpected directory and retry.", "Managed workspace directory is unknown or mismatched");
     }
 
     private static Failure remoteMismatch(String internalMessage)
     {
-        return new Failure(
-                "Managed checkout remotes do not match this workspace. Move the checkout and retry.",
-                internalMessage);
+        return new Failure("Managed checkout remotes do not match this workspace. Move the checkout and retry.", internalMessage);
     }
 
     static final class Failure

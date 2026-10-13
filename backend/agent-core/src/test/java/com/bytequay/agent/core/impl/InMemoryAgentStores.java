@@ -479,14 +479,7 @@ final class InMemoryAgentStores
         if (entry.sequence().isPresent() && entry.sequence().orElseThrow() != sequence) {
             throw new AgentConflictException("Event sequence changed: " + eventId);
         }
-        outbox.put(eventId, new AgentEventOutboxEntry(
-                entry.eventId(),
-                entry.taskId(),
-                entry.turnId(),
-                entry.source(),
-                entry.payload(),
-                entry.occurredAt(),
-                Optional.of(sequence)));
+        outbox.put(eventId, new AgentEventOutboxEntry(entry.eventId(), entry.taskId(), entry.turnId(), entry.source(), entry.payload(), entry.occurredAt(), Optional.of(sequence)));
     }
 
     @Override

@@ -107,10 +107,6 @@ public final class AgentRequestFilter
     {
         response.setStatus(status.value());
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        objectMapper.writeValue(response.getWriter(), new ErrorResponse(
-                Instant.now(),
-                status.value(),
-                message,
-                request.getRequestURI()));
+        objectMapper.writeValue(response.getWriter(), new ErrorResponse(Instant.now(), status.value(), message, request.getRequestURI()));
     }
 }

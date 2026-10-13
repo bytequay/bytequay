@@ -81,8 +81,7 @@ class TestGoalService
     void anAcceptedRevisionReplacesTheCourseWithoutChangingTheRevision()
     {
         GoalView goal = service.create("workspace", "Iceberg", "");
-        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH,
-                Optional.empty());
+        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH, Optional.empty());
         assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
         assertThat(service.planCourse("workspace", goal.id(), course).course()).contains(course);
         GoalCourse revised = new GoalCourse("exchange-2", ImmutableList.of(new GoalCourse.Part("The connector", ImmutableList.of("lesson-1", "lesson-2"))), Instant.EPOCH,
@@ -95,8 +94,7 @@ class TestGoalService
     void aMapIsSavedOnTheCourseItWasDrawnForAndOnlyOnce()
     {
         GoalView goal = service.create("workspace", "Iceberg", "");
-        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH,
-                Optional.empty());
+        GoalCourse course = new GoalCourse("exchange-1", ImmutableList.of(new GoalCourse.Part("Iceberg tables", ImmutableList.of("lesson-1"))), Instant.EPOCH, Optional.empty());
         service.planCourse("workspace", goal.id(), course);
         GoalLesson.Diagram map = new GoalLesson.Diagram(GoalLesson.Diagram.Kind.COMPONENTS, "Iceberg reads", ImmutableList.of(
                 new GoalLesson.Node("scan", "TableScan", Optional.of("Plans the files"), Optional.empty(), Optional.of("Engine")),

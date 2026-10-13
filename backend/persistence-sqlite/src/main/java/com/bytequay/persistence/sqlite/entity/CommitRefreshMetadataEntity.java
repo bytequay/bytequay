@@ -49,10 +49,6 @@ public class CommitRefreshMetadataEntity
 
     public CommitRefreshMetadata toDomain()
     {
-        return new CommitRefreshMetadata(
-                getWorkspaceId(),
-                Optional.ofNullable(getLastAttemptAt()),
-                Optional.ofNullable(getLastSucceededAt()),
-                Optional.ofNullable(getError()));
+        return new CommitRefreshMetadata(getWorkspaceId(), Optional.ofNullable(getLastAttemptAt()), Optional.ofNullable(getLastSucceededAt()), Optional.ofNullable(getError()));
     }
 }

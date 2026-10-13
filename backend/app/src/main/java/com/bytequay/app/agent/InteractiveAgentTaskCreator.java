@@ -215,8 +215,7 @@ public final class InteractiveAgentTaskCreator
                 defaults.serviceTier());
         progress.record(taskId, Phase.REPOSITORY);
         if (!provisioning.synchronizeCode(workspaceId).successful()) {
-            throw new AgentUnavailableException(
-                    "Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
+            throw new AgentUnavailableException("Cannot start task: workspace repository synchronization failed. Check repository access and connectivity, then retry.");
         }
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
         String startRef = startCommit.orElse("refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch()) + "^{commit}";

@@ -52,22 +52,9 @@ class TestSqliteRepositoryIssueDetailStore
     @Test
     void storesIssueDetailsByRepositoryAndIssueNumber()
     {
-        PrTimelineEvent event = new PrTimelineEvent(
-                7L, "commented", "alice", NOW, "Hello", Optional.empty());
-        RepositoryIssueDetail first = new RepositoryIssueDetail(
-                100,
-                42,
-                ImmutableList.of(event),
-                "Task",
-                ImmutableList.of("Task", "Bug"),
-                Optional.of(NOW));
-        RepositoryIssueDetail second = new RepositoryIssueDetail(
-                200,
-                42,
-                ImmutableList.of(),
-                null,
-                ImmutableList.of("Task"),
-                Optional.of(NOW.plusSeconds(1)));
+        PrTimelineEvent event = new PrTimelineEvent(7L, "commented", "alice", NOW, "Hello", Optional.empty());
+        RepositoryIssueDetail first = new RepositoryIssueDetail(100, 42, ImmutableList.of(event), "Task", ImmutableList.of("Task", "Bug"), Optional.of(NOW));
+        RepositoryIssueDetail second = new RepositoryIssueDetail(200, 42, ImmutableList.of(), null, ImmutableList.of("Task"), Optional.of(NOW.plusSeconds(1)));
 
         store.save(first);
         store.save(second);

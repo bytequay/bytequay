@@ -209,8 +209,7 @@ class TestTaskDiscussionAnswers
     void marksTheQuestionThatFailedAndForgetsTheSessionThatMayBeWhy()
     {
         store(discussion(Optional.of(new DiscussionSession(1, "session-1")), List.of()));
-        driver.result = new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(),
-                Optional.of("The provider stopped"), Duration.ZERO, true);
+        driver.result = new AgentTurnResult(AgentTurnResult.State.FAILED, Optional.empty(), Optional.of("The provider stopped"), Duration.ZERO, true);
 
         service.ask(new AskDiscussionCommand("w1", TASK.toString(), "d1", "why per thread?"));
 
@@ -226,8 +225,7 @@ class TestTaskDiscussionAnswers
     @Test
     void retryRerunsTheRecordedQuestionRatherThanAppendingAnother()
     {
-        store(discussion(Optional.empty(), List.of(new DiscussionMessage(
-                "m1", DiscussionMessage.Author.USER, "why per thread?", NOW, Optional.of("The provider stopped")))));
+        store(discussion(Optional.empty(), List.of(new DiscussionMessage("m1", DiscussionMessage.Author.USER, "why per thread?", NOW, Optional.of("The provider stopped")))));
 
         service.retry("w1", TASK.toString(), "d1", "m1");
 
@@ -522,10 +520,7 @@ class TestTaskDiscussionAnswers
         service.summarize("w1", TASK.toString(), ImmutableList.of(anchor("review:1", "{\"body\":\"one\"}"), raced, anchor("review:3", "{\"body\":\"three\"}")));
 
         assertThat(service.list("w1", TASK.toString())).extracting(TaskDiscussionView::id, TaskDiscussionView::pending)
-                .containsExactlyInAnyOrder(
-                        tuple(idOf("review:1"), true),
-                        tuple("elsewhere", false),
-                        tuple(idOf("review:3"), true));
+                .containsExactlyInAnyOrder(tuple(idOf("review:1"), true), tuple("elsewhere", false), tuple(idOf("review:3"), true));
         runHeld();
 
         // One verdict for two comments fails the whole batch, and each hidden request carries the reason.

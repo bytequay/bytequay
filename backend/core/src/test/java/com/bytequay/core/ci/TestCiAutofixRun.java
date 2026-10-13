@@ -48,14 +48,11 @@ class TestCiAutofixRun
     void reservesTheHeadRepositoryBranchAcrossBaseRepositories()
     {
         RepoRef fork = RepoRef.of("AUTHOR", "Sample");
-        Scope first = new Scope(PullRequestRef.of("upstream", "sample", 1), fork, "workspace-1", fork,
-                "author", "feature", "main", "codex", Optional.empty());
-        Scope second = new Scope(PullRequestRef.of("another-upstream", "sample", 2), fork, "workspace-2", fork,
-                "author", "feature", "main", "codex", Optional.empty());
+        Scope first = new Scope(PullRequestRef.of("upstream", "sample", 1), fork, "workspace-1", fork, "author", "feature", "main", "codex", Optional.empty());
+        Scope second = new Scope(PullRequestRef.of("another-upstream", "sample", 2), fork, "workspace-2", fork, "author", "feature", "main", "codex", Optional.empty());
 
         assertThat(first.activeBranchSlot()).isEqualTo("author/sample:feature").isEqualTo(second.activeBranchSlot());
-        Scope direct = new Scope(PullRequestRef.of("author", "sample", 3), fork, "workspace-3", fork,
-                "author", "feature", "main", "codex", Optional.empty());
+        Scope direct = new Scope(PullRequestRef.of("author", "sample", 3), fork, "workspace-3", fork, "author", "feature", "main", "codex", Optional.empty());
         assertThat(direct.headRepository()).isEqualTo(RepoRef.of("author", "sample"));
         assertThat(direct.activeBranchSlot()).isEqualTo(first.activeBranchSlot());
     }
@@ -75,9 +72,7 @@ class TestCiAutofixRun
         assertThat(run.attemptsUsed()).isEqualTo(1);
 
         run = run.resume(NOW.plusSeconds(5))
-                .withFinalFixupCheck(
-                        new FinalFixupCheck(HEAD, CheckResult.VALID, "", NOW.plusSeconds(6)),
-                        NOW.plusSeconds(6))
+                .withFinalFixupCheck(new FinalFixupCheck(HEAD, CheckResult.VALID, "", NOW.plusSeconds(6)), NOW.plusSeconds(6))
                 .finish(FinishReason.GREEN, "CI passed", NOW.plusSeconds(7));
 
         assertThat(run.status()).isEqualTo(Status.FINISHED);
@@ -115,9 +110,7 @@ class TestCiAutofixRun
                 .linkAttemptTurn(third.id(), "turn-3", NOW.plusSeconds(8));
 
         CiAutofixRun exhausted = full;
-        assertThatThrownBy(() -> exhausted.addAttempt(
-                newAttempt(exhausted, 3, NOW.plusSeconds(9)),
-                NOW.plusSeconds(9)))
+        assertThatThrownBy(() -> exhausted.addAttempt(newAttempt(exhausted, 3, NOW.plusSeconds(9)), NOW.plusSeconds(9)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("limit");
     }
@@ -168,28 +161,16 @@ class TestCiAutofixRun
         run = run.addAttempt(attempt, NOW.plusSeconds(1));
 
         for (int index = 1; index <= 3; index++) {
-            run = run.recordRerunJournal(
-                    new RerunJournal(
-                            attempt.id(),
-                            100,
-                            HEAD,
-                            index,
-                            NOW.plusSeconds(index + 1),
-                            Optional.empty()),
-                    NOW.plusSeconds(index + 1));
+            run = run.recordRerunJournal(new RerunJournal(attempt.id(), 100, HEAD, index, NOW.plusSeconds(index + 1), Optional.empty()), NOW.plusSeconds(index + 1));
         }
 
         CiAutofixRun exhausted = run;
-        assertThatThrownBy(() -> exhausted.recordRerunJournal(
-                new RerunJournal(attempt.id(), 100, HEAD, 4, NOW.plusSeconds(5), Optional.empty()),
-                NOW.plusSeconds(5)))
+        assertThatThrownBy(() -> exhausted.recordRerunJournal(new RerunJournal(attempt.id(), 100, HEAD, 4, NOW.plusSeconds(5), Optional.empty()), NOW.plusSeconds(5)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("rerun limit");
 
         CiAutofixRun unchanged = run;
-        assertThatThrownBy(() -> unchanged.recordRerunJournal(
-                new RerunJournal(attempt.id(), 200, "c".repeat(40), 1, NOW.plusSeconds(5), Optional.empty()),
-                NOW.plusSeconds(5)))
+        assertThatThrownBy(() -> unchanged.recordRerunJournal(new RerunJournal(attempt.id(), 200, "c".repeat(40), 1, NOW.plusSeconds(5), Optional.empty()), NOW.plusSeconds(5)))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("expected remote head");
     }
@@ -199,20 +180,10 @@ class TestCiAutofixRun
     {
         assertThatThrownBy(() -> new Authorization(true, true, true, 4, NOW, NOW.plusSeconds(1)))
                 .isInstanceOf(IllegalArgumentException.class);
-        assertThatThrownBy(() -> CiAutofixAttempt.create(
-                CiAutofixAttemptId.random(),
-                CiAutofixRunId.random(),
-                1,
-                "short",
-                ImmutableList.of(failure("signature")),
-                NOW))
+        assertThatThrownBy(() -> CiAutofixAttempt.create(CiAutofixAttemptId.random(), CiAutofixRunId.random(), 1, "short", ImmutableList.of(failure("signature")), NOW))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("full Git SHA");
-        assertThatThrownBy(() -> new CiAutofixAttempt.GitResult(
-                HEAD,
-                "fingerprint",
-                ImmutableList.of("../escape"),
-                ImmutableList.of("Fix feature")))
+        assertThatThrownBy(() -> new CiAutofixAttempt.GitResult(HEAD, "fingerprint", ImmutableList.of("../escape"), ImmutableList.of("Fix feature")))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsafe");
     }
@@ -222,44 +193,21 @@ class TestCiAutofixRun
     {
         CiAutofixRun run = newRun("journal-resolution", "feature-journal", NOW);
         CiAutofixAttempt attempt = newAttempt(run, 1, NOW.plusSeconds(1));
-        GitResult gitResult = new GitResult(
-                "c".repeat(40),
-                "fingerprint",
-                ImmutableList.of("src/Main.java"),
-                ImmutableList.of("Fix feature"));
+        GitResult gitResult = new GitResult("c".repeat(40), "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature"));
         run = run.addAttempt(attempt, NOW.plusSeconds(1))
                 .linkAttemptTurn(attempt.id(), "turn-1", NOW.plusSeconds(2))
                 .clearCurrentTurn("turn-1", NOW.plusSeconds(3));
         attempt = run.attempts().getFirst().withGitResult(gitResult, NOW.plusSeconds(3));
         run = run.updateAttempt(attempt, NOW.plusSeconds(3))
-                .recordPushJournal(
-                        new PushJournal(
-                                attempt.id(),
-                                HEAD,
-                                gitResult.localHead(),
-                                gitResult.fingerprint(),
-                                NOW.plusSeconds(4),
-                                0),
-                        NOW.plusSeconds(4));
+                .recordPushJournal(new PushJournal(attempt.id(), HEAD, gitResult.localHead(), gitResult.fingerprint(), NOW.plusSeconds(4), 0), NOW.plusSeconds(4));
 
-        run = run.recordPublishedAttempt(
-                gitResult.localHead(),
-                NOW.plusSeconds(5),
-                NOW.plusSeconds(5));
+        run = run.recordPublishedAttempt(gitResult.localHead(), NOW.plusSeconds(5), NOW.plusSeconds(5));
         assertThat(run.expectedRemoteHead()).isEqualTo(gitResult.localHead());
         assertThat(run.pushJournal()).isEmpty();
         assertThat(run.rerunCounter()).isEqualTo(CiAutofixRun.RerunCounter.empty());
         assertThat(run.attempts().getFirst().observedCiResult()).isEqualTo(CiResult.PENDING);
 
-        run = run.recordRerunJournal(
-                        new RerunJournal(
-                                attempt.id(),
-                                100,
-                                gitResult.localHead(),
-                                1,
-                                NOW.plusSeconds(6),
-                                Optional.empty()),
-                        NOW.plusSeconds(6))
+        run = run.recordRerunJournal(new RerunJournal(attempt.id(), 100, gitResult.localHead(), 1, NOW.plusSeconds(6), Optional.empty()), NOW.plusSeconds(6))
                 .observeRerunAttempt(2, NOW.plusSeconds(7))
                 .resolveRerun(CiResult.FAILED, "d".repeat(40), NOW.plusSeconds(8));
 
@@ -291,24 +239,11 @@ class TestCiAutofixRun
 
     private static CiAutofixAttempt newAttempt(CiAutofixRun run, int number, Instant now)
     {
-        return CiAutofixAttempt.create(
-                CiAutofixAttemptId.random(),
-                run.id(),
-                number,
-                HEAD,
-                ImmutableList.of(failure("signature-" + number)),
-                now);
+        return CiAutofixAttempt.create(CiAutofixAttemptId.random(), run.id(), number, HEAD, ImmutableList.of(failure("signature-" + number)), now);
     }
 
     private static FailureEvidence failure(String signature)
     {
-        return new FailureEvidence(
-                signature,
-                "compile failed",
-                100,
-                1,
-                200,
-                1,
-                Optional.of(new LogReference("blobs/log-1", "text/plain", 10, false)));
+        return new FailureEvidence(signature, "compile failed", 100, 1, 200, 1, Optional.of(new LogReference("blobs/log-1", "text/plain", 10, false)));
     }
 }

@@ -83,10 +83,8 @@ class PullRequestDetailFetcher
     ListenableFuture<StoredPrDetail> fetchDiscussion(String pat, PullRequestRef ref, StoredPrDetail existing)
     {
         PrRawDetail raw = existing.raw();
-        ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync(
-                "fetchPrReviews", StoredPrDetail.REVIEWS, ref, () -> gitHub.fetchPrReviews(pat, ref));
-        ListenableFuture<SourceItems<PrTimelineEvent>> timeline = fetchOptionalListAsync(
-                "fetchPrTimeline", StoredPrDetail.TIMELINE, ref, () -> gitHub.fetchPrTimeline(pat, ref));
+        ListenableFuture<SourceItems<PrReviewState>> reviews = fetchOptionalListAsync("fetchPrReviews", StoredPrDetail.REVIEWS, ref, () -> gitHub.fetchPrReviews(pat, ref));
+        ListenableFuture<SourceItems<PrTimelineEvent>> timeline = fetchOptionalListAsync("fetchPrTimeline", StoredPrDetail.TIMELINE, ref, () -> gitHub.fetchPrTimeline(pat, ref));
         ListenableFuture<SourceItems<PrTimelineEvent>> comments = fetchOptionalListAsync(
                 "fetchPrIssueComments", StoredPrDetail.COMMENTS, ref, () -> gitHub.fetchPrIssueComments(pat, ref));
         // ponytail: Initial hydration also fetches diff commits for their parent SHAs; subsequent discussions reuse these immutable events.
@@ -181,10 +179,7 @@ class PullRequestDetailFetcher
                 .map(event -> event.payload().commitSha())
                 .filter(Objects::nonNull)
                 .collect(toImmutableSet());
-        Stream<PrTimelineEvent> events = Stream.of(
-                        base.stream(),
-                        commits.stream().filter(event -> !commitShas.contains(event.payload().commitSha())),
-                        threads.stream())
+        Stream<PrTimelineEvent> events = Stream.of(base.stream(), commits.stream().filter(event -> !commitShas.contains(event.payload().commitSha())), threads.stream())
                 .flatMap(stream -> stream);
         if (!descriptionReactions.isEmpty()) {
             events = Stream.concat(events, Stream.of(new PrTimelineEvent(

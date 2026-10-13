@@ -114,8 +114,7 @@ class TestPullRequestDetailFetcher
         when(gitHub.fetchPrDetail("pat", REF)).thenReturn(null);
 
         assertThatThrownBy(() -> fetcher.raw("pat", REF, new PullRequestFetch(Optional.empty(), Optional.empty())))
-                .isInstanceOfSatisfying(ResponseStatusException.class,
-                        e -> assertThat(e.getStatusCode()).isEqualTo(BAD_GATEWAY));
+                .isInstanceOfSatisfying(ResponseStatusException.class, e -> assertThat(e.getStatusCode()).isEqualTo(BAD_GATEWAY));
     }
 
     @Test

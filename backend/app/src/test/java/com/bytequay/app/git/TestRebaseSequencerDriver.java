@@ -112,8 +112,7 @@ class TestRebaseSequencerDriver
         SequenceState staged = driver.observe(repository);
         assertThat(staged.kind()).isEqualTo(Kind.STOPPED_RESOLVED);
 
-        SequenceState completed = driver.continueRebase(
-                repository, staged.head(), conflict.sourceCommit());
+        SequenceState completed = driver.continueRebase(repository, staged.head(), conflict.sourceCommit());
         assertThat(completed.kind()).isEqualTo(Kind.COMPLETED);
         assertThat(git(repository, "merge-base", "--is-ancestor", conflict.baseTip(), completed.head()))
                 .isEmpty();
@@ -130,8 +129,7 @@ class TestRebaseSequencerDriver
         SequenceState empty = driver.observe(repository);
         assertThat(empty.kind()).isEqualTo(Kind.STOPPED_EMPTY);
 
-        SequenceState completed = driver.skipEmpty(
-                repository, stopped.head(), conflict.sourceCommit());
+        SequenceState completed = driver.skipEmpty(repository, stopped.head(), conflict.sourceCommit());
         assertThat(completed.kind()).isEqualTo(Kind.COMPLETED);
         assertThat(completed.head()).isEqualTo(conflict.baseTip());
     }

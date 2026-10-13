@@ -51,8 +51,7 @@ class TestPullRequestSyncJob
         Workspace second = workspace("second", 1, shared);
         Workspace third = workspace("third", 3, other);
         when(workspaces.findAll()).thenReturn(ImmutableList.of(first, second, third));
-        PullRequestSyncJob job = new PullRequestSyncJob(
-                refreshService, metadata, workspaces, credentials, idleSettings(), Clock.systemUTC());
+        PullRequestSyncJob job = new PullRequestSyncJob(refreshService, metadata, workspaces, credentials, idleSettings(), Clock.systemUTC());
 
         job.tick();
 

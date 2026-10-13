@@ -46,8 +46,7 @@ public final class RoutedGitCommandRunner
         if (arguments.isEmpty() || !isTransport(arguments.getFirst())) {
             return super.run(worktree, timeout, environment, arguments);
         }
-        Result route = super.run(
-                worktree, timeout, environment, ImmutableList.of("config", "--get", ROUTE_CONFIG));
+        Result route = super.run(worktree, timeout, environment, ImmutableList.of("config", "--get", ROUTE_CONFIG));
         if (!route.successful() || route.truncated() || route.output().isBlank()) {
             return super.run(worktree, timeout, environment, arguments);
         }

@@ -50,14 +50,7 @@ public record AgentEventOutboxEntry(
             AgentEventPayload payload,
             Instant occurredAt)
     {
-        return new AgentEventOutboxEntry(
-                eventId,
-                taskId,
-                turnId,
-                source,
-                new AgentEventOutboxPayload.Inline(payload),
-                occurredAt,
-                Optional.empty());
+        return new AgentEventOutboxEntry(eventId, taskId, turnId, source, new AgentEventOutboxPayload.Inline(payload), occurredAt, Optional.empty());
     }
 
     public static AgentEventOutboxEntry pendingLifecycle(
@@ -68,12 +61,6 @@ public record AgentEventOutboxEntry(
             String message,
             Instant occurredAt)
     {
-        return pendingInline(
-                eventId,
-                taskId,
-                turnId,
-                root(),
-                new AgentEventPayload.Lifecycle(phase, message),
-                occurredAt);
+        return pendingInline(eventId, taskId, turnId, root(), new AgentEventPayload.Lifecycle(phase, message), occurredAt);
     }
 }

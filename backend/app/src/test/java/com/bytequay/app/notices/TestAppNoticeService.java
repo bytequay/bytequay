@@ -268,7 +268,6 @@ class TestAppNoticeService
 
     private QueuedAgentInput queued()
     {
-        return QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 1, "next-message",
-                new BlobRef("input.txt", "text/plain", 4), "Next", SETTINGS, NOW);
+        return QueuedAgentInput.queued(QueuedInputId.random(), task.id(), 1, "next-message", new BlobRef("input.txt", "text/plain", 4), "Next", SETTINGS, NOW);
     }
 }

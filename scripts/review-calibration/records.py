@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from datetime import datetime, timezone
 import sqlite3
 from urllib.parse import quote
@@ -20,10 +19,9 @@ QUERY = """
            task.lane_id, task.repository_owner, task.repository_name
     FROM agent_turn turn LEFT JOIN agent_task task ON task.id = turn.task_id"""
 TOKENS = ("inputTokens", "cachedInputTokens", "outputTokens")
-# What ByteQuay stores on a turn as a running total instead of the turn's own amount. The Claude command line reports
-# the cost of its whole session, and ByteQuay keeps that as it comes. The tokens of a Codex turn and of a Claude turn
-# are the turn's own. For any other provider the lab cannot tell, so it shows neither tokens nor cost.
-RUNNING_TOTAL = {"codex": (), "claude": (("cost",),)}
+# ByteQuay stores on a Codex turn and on a Claude turn the tokens and the cost of that turn alone. For any other provider
+# the lab cannot tell what the stored amounts count, so it shows neither.
+OWN = {"claude", "codex"}
 
 
 def read(path):
@@ -38,30 +36,10 @@ def read(path):
     finally:
         connection.close()
     made = {(row[0], row[1]): record(*row[2:]) for row in rows if row[2]}
-    own_amounts(made)
+    for one in made.values():
+        if one["provider"] not in OWN:
+            one.update(dict.fromkeys((*TOKENS, "cost")))
     return made
-
-
-def own_amounts(made):
-    """Make every turn's tokens and cost its own. Where the database holds a running total, a turn's own amount is what
-    the total grew by since the task's turn before it."""
-    by_task = defaultdict(list)
-    for (task, _), one in sorted(made.items(), key=lambda item: (item[1]["start"], item[0])):
-        by_task[task].append(one)
-    for turns in by_task.values():
-        before = {}
-        for one in turns:
-            if one["provider"] not in RUNNING_TOTAL:
-                one.update(dict.fromkeys((*TOKENS, "cost")))
-                continue
-            for amounts in RUNNING_TOTAL[one["provider"]]:
-                if one[amounts[0]] is None:
-                    continue
-                totals = {name: one[name] or 0 for name in amounts}
-                # A total below the one before means the thread or session began again, and then the total is the turn's own.
-                if amounts in before and totals[amounts[0]] >= before[amounts][amounts[0]]:
-                    one.update({name: max(0, round(totals[name] - before[amounts][name], 6)) for name in amounts})
-                before[amounts] = totals
 
 
 def record(started, elapsed, model, effort, state, tokens_in, cached, tokens_out, cost, tools, compactions, lane, owner, name):

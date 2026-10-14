@@ -32,7 +32,7 @@ const timestamp = base.createdAt;
 const local: LocalReviewThreadDto = {
   id: 'local-index', taskId: base.task.id, taskVersion: base.task.version, workspaceId: base.workspaceId,
   repo: base.repo, number: base.number, path: 'src/Example.java', side: 'RIGHT', startLine: 12, line: 13,
-  baseSha: null, headSha: base.observedHeadSha, code: 'return fieldId;', resolved: true, version: 1,
+  baseSha: null, headSha: base.observedHeadSha, code: 'return fieldId;', resolved: false, version: 1,
   createdAt: timestamp, updatedAt: timestamp,
   messages: (['USER', 'AGENT'] as const).map((author, index): LocalReviewThreadDto['messages'][number] => ({ id: `local-${index}`, author,
     body: index === 0 ? 'Private question about the field ID' : 'Private agent answer about the field ID',
@@ -53,11 +53,11 @@ const detail: PullRequestDetailDto = {
     { actor: 'reviewer[bot]', eventType: 'reviewed', timestamp, body: 'One issue needs attention.', githubId: 2,
       payload: { ...EMPTY_TIMELINE_PAYLOAD, actorBot: true, state: 'COMMENTED' } },
     { actor: 'reviewer[bot]', eventType: 'review_thread', timestamp, body: null, githubId: 30,
-      payload: { ...EMPTY_TIMELINE_PAYLOAD, resolved: true, outdated: true, path: 'src/Example.java', line: 12, side: 'RIGHT',
+      payload: { ...EMPTY_TIMELINE_PAYLOAD, resolved: false, outdated: true, path: 'src/Example.java', line: 12, side: 'RIGHT',
         comments: [comment(3, 'reviewer[bot]', true, 'Preserve the leaf field ID.'), comment(4, 'alice', false, 'Fixed the lookup.')] } },
   ],
 };
-const review = { ...base, findings: base.findings.map((finding, index) => ({ ...finding, state: index === 1 ? 'RESOLVED' as const : 'OPEN' as const })),
+const review = { ...base, findings: base.findings.map((finding, index) => ({ ...finding, state: index === 1 ? 'RESOLVED' as const : index === 2 ? 'WITHDRAWN' as const : 'OPEN' as const })),
   messages: base.messages.map(message => ({ ...message, findingId: base.findings[0].id })) };
 
 function Surface({ children }: { children: ReactNode }) {
@@ -120,8 +120,9 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         assert(host.querySelector('[role="tooltip"]') !== null, 'Keyboard focus must show the same preview');
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })); await settle();
         assert(host.querySelector('[role="tooltip"]') === null, 'Escape must dismiss the preview');
-        const thread = host.querySelector<HTMLDetailsElement>('.pr-thread-row');
-        assert(thread !== null && !thread.open, 'Resolved thread starts collapsed');
+        const thread = host.querySelector<HTMLDetailsElement>('.pr-inline-thread');
+        assert(thread !== null, 'The review thread must exist');
+        thread.open = false;
         marker('Fixed the lookup.').click(); await settle();
         assert(thread.open && document.activeElement?.textContent?.includes('Fixed the lookup.') === true,
           'Navigation must open and focus the selected reply');
@@ -143,6 +144,11 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
         const updated = { ...detail, recentActivity: detail.recentActivity.slice(1) };
         await mount(<Surface><PullOverview pr={remotePullRequest(updated)} detail={updated} localReview={localReview} onRefresh={async () => {}} /></Surface>);
         assert(entries().length === 5 && !entries().some(button => button.getAttribute('aria-label')?.includes('Please check')), 'Refresh must remove stale destinations');
+        const resolved = { ...updated, recentActivity: updated.recentActivity.map(activity => activity.eventType === 'review_thread'
+          ? { ...activity, payload: { ...activity.payload, resolved: true } } : activity) };
+        await mount(<Surface><PullOverview pr={remotePullRequest(resolved)} detail={resolved}
+          localReview={{ ...localReview, threads: [{ ...local, resolved: true }] }} onRefresh={async () => {}} /></Surface>);
+        assert(entries().length === 1 && marker('One issue needs attention.') !== undefined, 'Resolving threads must remove their comments from the index');
         await mount(<Surface><PullOverview pr={remotePullRequest(detail)} detail={{ ...detail, recentActivity: [] }} onRefresh={async () => {}} /></Surface>);
         assert(host.querySelector('.review-comment-index') === null, 'Empty pages must not reserve a rail');
         await mount(<Surface><div className="cmt-prog-pr" style={{ flex: 1 }}><div className="cmt-pr-overview">
@@ -158,7 +164,7 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
       }],
       ['Index navigation preserves review card layout', async () => {
         const openDetail = { ...detail, recentActivity: detail.recentActivity.map(activity => activity.eventType === 'review_thread'
-          ? { ...activity, payload: { ...activity.payload, resolved: false, outdated: false, diffHunk: '@@ -12 +12 @@\n+return fieldId;' } } : activity) };
+          ? { ...activity, payload: { ...activity.payload, outdated: false, diffHunk: '@@ -12 +12 @@\n+return fieldId;' } } : activity) };
         await mount(<Surface><PullOverview pr={remotePullRequest(openDetail)} detail={openDetail} onRefresh={async () => {}} /></Surface>);
         const thread = host.querySelector<HTMLDetailsElement>('.pr-inline-thread');
         const footer = thread?.querySelector<HTMLElement>('.lrc__foot');
@@ -235,36 +241,36 @@ export async function run(): Promise<{ name: string; error?: string }[]> {
             localReview={{ ...localReview, threads: [{ ...local, messages: extra ? [...local.messages, { ...local.messages[1], id: 'live-reply', body: 'New streamed reply' }] : local.messages }] }} />
         </ReviewCommentIndex></Surface>;
         await mount(render());
-        assert(host.querySelectorAll('.review-comment-index').length === 1 && entries().length === 7,
-          'Nested review panels must share one index for findings and human/agent replies');
+        assert(host.querySelectorAll('.review-comment-index').length === 1 && entries().length === 5,
+          'Nested review panels must share one index for open findings and human/agent replies');
+        assert(host.querySelector(`[data-finding-id="${review.findings[2].id}"]`) !== null
+          && !entries().some(button => [1, 2].some(index => button.getAttribute('aria-label')?.includes(review.findings[index].title))),
+        'Resolved and withdrawn findings must stay out of the index');
         checkRailPosition();
         marker(review.findings[0].title).dispatchEvent(new MouseEvent('mouseover', { bubbles: true })); await settle();
         assert(host.querySelector('[role="tooltip"] p')?.textContent
           === '`resolveNestedFieldId` descends by the first path segment, then falls back to matching the remaining path by leaf name anywhere below.…',
         'Finding previews must show the first 20 words of the body');
-        const resolved = host.querySelector<HTMLDetailsElement>(`[data-finding-id="${review.findings[1].id}"] details`);
-        assert(resolved !== null && !resolved.open, 'Resolved finding starts collapsed');
-        marker(review.findings[1].title).click(); await settle();
+        marker(review.findings[0].title).click(); await settle();
         assert(host.querySelector('[role="tooltip"]') === null, 'Jumping to a comment must close its preview');
-        assert(resolved.open && document.activeElement?.textContent?.includes(review.findings[1].title) === true,
-          'Index must open and focus the selected finding');
+        assert(document.activeElement?.textContent?.includes(review.findings[0].title) === true, 'Index must focus the selected finding');
         const filter = (text: string) => {
           const button = Array.from(host.querySelectorAll<HTMLButtonElement>('.agr-findings__filters button')).find(item => item.textContent?.startsWith(text));
           assert(button !== undefined, `Missing ${text} filter`); button.click();
         };
-        filter('Open'); await settle();
-        assert(entries().length === 6 && !entries().some(button => button.getAttribute('aria-label')?.includes(review.findings[1].title)),
+        filter('Resolved'); await settle();
+        assert(!entries().some(button => review.findings.some(finding => button.getAttribute('aria-label')?.includes(finding.title))),
           'Filtered findings must not leave unreachable index entries');
         filter('All'); await settle();
         await mount(render(true));
-        assert(entries().length === 8, 'New replies must join the index without remounting');
+        assert(entries().length === 6, 'New replies must join the index without remounting');
         marker('New streamed reply').click(); await settle();
         assert(document.activeElement?.textContent?.includes('New streamed reply') === true, 'New reply must have its own destination');
         await mount(render(true, true));
         const page = host.querySelector<HTMLElement>('.review-comment-layout');
         assert(page !== null && getComputedStyle(page).display === 'none', 'Kept Summary must stay hidden on another tab');
         await mount(render(true));
-        assert(getComputedStyle(page).display === 'flex' && entries().length === 8, 'Reopened Summary must retain its destinations');
+        assert(getComputedStyle(page).display === 'flex' && entries().length === 6, 'Reopened Summary must retain its destinations');
         checkRailPosition();
         assert(writes === 0, 'Index navigation must not write to GitHub or start agent work');
       }],

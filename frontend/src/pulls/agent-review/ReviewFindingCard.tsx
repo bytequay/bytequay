@@ -136,7 +136,7 @@ export default function ReviewFindingCard({
 
   return (
     <article className={`agr-finding${withdrawn || finding.state === 'RESOLVED' || finding.outdated ? ' is-muted' : ''}${outgoingBody !== null ? ' is-draft' : ''}`}
-      id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id}>
+      id={`agent-review-finding-${finding.id}`} data-finding-id={finding.id} data-review-closed={withdrawn || undefined}>
       <LocalCard resolved={finding.state === 'RESOLVED'} outdated={finding.outdated} open={defaultOpen}
         title={lines === null
           ? <span className="lrc__title">Whole change</span>

@@ -285,7 +285,7 @@ describe('DiffViewer', () => {
     expect(html).toContain('A reply in this discussion');
     expect(html).toContain('src="https://example.com/bob.png"');
     expect(html).toContain('src="https://example.com/carol.png"');
-    expect(html).toContain('<details class="lrc is-github pr-thread-row"><summary class="lrc__head">');
+    expect(html).toContain('<details class="lrc is-github pr-thread-row" data-review-closed="true"><summary class="lrc__head">');
     expect(html).toContain('Resolved discussion');
     expect(html).toContain('>Unresolve</button>');
     expect(html).toContain('>Resolve</button>');

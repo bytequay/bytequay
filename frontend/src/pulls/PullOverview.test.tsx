@@ -1067,7 +1067,7 @@ describe('PullOverview', () => {
 
     const html = renderToStaticMarkup(<PullOverview pr={pullRequest()} detail={value} onRefresh={async () => {}} />);
 
-    expect(html).toContain('<details class="lrc is-github pr-thread-row"><summary class="lrc__head">');
+    expect(html).toContain('<details class="lrc is-github pr-thread-row" data-review-closed="true"><summary class="lrc__head">');
     expect(html).not.toContain('<details class="lrc is-github pr-thread-row" open="">');
     expect(html).toContain('class="lrc-message pr-thread-comment"');
     expect(html).toContain('class="lrc__ask"');

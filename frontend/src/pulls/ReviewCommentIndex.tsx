@@ -51,7 +51,7 @@ export default function ReviewCommentIndex({ children, className, ref, enabled =
       const next = Array.from(root.querySelectorAll<HTMLElement>('[data-review-comment]'))
         .filter(target => {
           for (let ancestor: HTMLElement | null = target; ancestor !== null && ancestor !== root; ancestor = ancestor.parentElement) {
-            if (ancestor.hidden) return false;
+            if (ancestor.hidden || ancestor.dataset.reviewClosed !== undefined) return false;
           }
           return true;
         })
@@ -63,7 +63,7 @@ export default function ReviewCommentIndex({ children, className, ref, enabled =
     read();
     const observer = new MutationObserver(read);
     observer.observe(root, { subtree: true, childList: true, attributes: true,
-      attributeFilter: ['hidden', 'data-review-comment', 'data-review-comment-label', 'data-review-comment-preview'] });
+      attributeFilter: ['hidden', 'data-review-closed', 'data-review-comment', 'data-review-comment-label', 'data-review-comment-preview'] });
     return () => observer.disconnect();
   }, [active]);
 

@@ -35,7 +35,7 @@ export function ReviewThreadCard({ title, tone = 'github', icon, badges, chip, r
   const Frame = title === undefined ? 'article' : 'details';
   const githubClass = tone === 'github' && title !== undefined ? resolved ? ' pr-thread-row' : ' pr-inline-thread' : '';
   return <Frame className={`lrc is-${tone}${githubClass}${className ? ` ${className}` : ''}`}
-    open={title === undefined ? undefined : defaultOpen ?? !resolved} {...attributes}>
+    open={title === undefined ? undefined : defaultOpen ?? !resolved} data-review-closed={resolved || undefined} {...attributes}>
     {title !== undefined && <summary className="lrc__head">
       <ChevronRight className="lrc__chevron" size={14} strokeWidth={2} aria-hidden="true" />
       {icon}{title}

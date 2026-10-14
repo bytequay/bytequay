@@ -103,7 +103,24 @@
           "noMatch": 0,
           "seconds": 60.0
         }
-      ]
+      ],
+      "hops": [
+        {
+          "from": "tests and builds",
+          "to": "ByteQuay tools",
+          "gap": "long step",
+          "times": 1,
+          "seconds": 10.0
+        },
+        {
+          "from": "tests and builds",
+          "to": "reading and searching files",
+          "gap": "long step",
+          "times": 1,
+          "seconds": 10.0
+        }
+      ],
+      "repeats": []
     },
     {
       "task": "aaaa-1111",
@@ -169,7 +186,9 @@
             "test failure": 1
           }
         }
-      ]
+      ],
+      "hops": [],
+      "repeats": []
     },
     {
       "task": "bbbb-2222",
@@ -234,7 +253,17 @@
           "noMatch": 0,
           "seconds": 40.0
         }
-      ]
+      ],
+      "hops": [
+        {
+          "from": "other shell commands",
+          "to": "reading and searching files",
+          "gap": "long step",
+          "times": 2,
+          "seconds": 70.0
+        }
+      ],
+      "repeats": []
     },
     {
       "task": "cccc-3333",
@@ -261,7 +290,9 @@
       "longRuns": [],
       "approvals": [],
       "notices": {},
-      "calls": []
+      "calls": [],
+      "hops": [],
+      "repeats": []
     }
   ]
 }

@@ -39,6 +39,9 @@ BUBBLE = 44  # pixels across for the program or tool that took the most time
 SMALLEST = 5  # pixels from the middle to the edge of the smallest bubble
 LIFTS = (14, 32, 50)  # pixels from the edge of a bubble up to its name; along the axis the names take these heights in turn
 UNSAID = (activity.OTHER_REASON, activity.NOTHING_KEPT)  # a failure whose reason the words it printed do not give; these stay quiet in the chart
+# Calls the model asked for together stay quiet; the short hops a merge could save stand out; a long step is the model's own time.
+GAP_COLORS = dict(zip(activity.GAPS, ("usual", "tool", "model")))
+TOP_PAIRS = 10  # the pairs of groups listed with the most time in short hops
 # The two kinds of call, the name each goes by and the color it wears. A command wears the color of waiting for a tool, as shell time does.
 CALLS = {"command": ("command", "tool"), "tool": ("tool call", "model")}
 # One step of each hue for each mode, checked against that mode's page surface: neighbours stay apart for color-blind
@@ -518,7 +521,13 @@ def call_frames(table):
         raise ValueError("a call is neither a command nor a tool call")
     reasons = pandas.DataFrame([(number, call["name"], reason, int(times)) for number, row in enumerate(table["turns"]) for call in row["calls"] if call["kind"] == "command"
                                 for reason, times in call["reasons"].items()], columns=["turn", "program", "reason", "times"])
-    return {"calls": calls, "reasons": reasons}
+    hops = pandas.DataFrame([(number, hop["from"], hop["to"], hop["gap"], int(hop["times"]), float(hop["seconds"])) for number, row in enumerate(table["turns"]) for hop in row["hops"]],
+                            columns=["turn", "from", "to", "gap", "times", "seconds"])
+    if not hops["gap"].isin(activity.GAPS).all():
+        raise ValueError("a kind of gap this version does not know")
+    repeats = pandas.DataFrame([(number, made["program"], int(made["runs"]), float(made["seconds"]), int(made["unchangedRuns"]), float(made["unchangedSeconds"]))
+                                for number, row in enumerate(table["turns"]) for made in row["repeats"]], columns=["turn", "program", "runs", "seconds", "unchangedRuns", "unchangedSeconds"])
+    return {"calls": calls, "reasons": reasons, "hops": hops, "repeats": repeats}
 
 
 def calls_of(made, turns):
@@ -614,6 +623,49 @@ def printed_figure(rows, mode="light"):
                               marker={"color": COLORS[mode]["tool"]}, hovertemplate="%{y}<br>%{text}<extra></extra>"))
     figure.update_xaxes(range=[0, max(amount for _, amount, _ in rows) * 1.9])
     return bar_list(figure, 34 * len(rows) + 12)
+
+
+def gap_rows(hops):
+    """For every kind of gap, always all three and in their order: (kind, the calls that came after one, the seconds of those gaps)."""
+    summed = hops.groupby("gap")[["times", "seconds"]].sum().reindex(list(activity.GAPS), fill_value=0)
+    return [(kind, int(row.times), float(row.seconds)) for kind, row in summed.iterrows()]
+
+
+def gaps_figure(hops, whole, mode="light"):
+    """One bar per kind of gap for the model's time before calls, with how many calls and the share of all turn time."""
+    rows = gap_rows(hops)
+    figure = go.Figure(go.Bar(orientation="h", y=[kind for kind, _, _ in rows], x=[seconds / 60 for _, _, seconds in rows], cliponaxis=False, textposition="outside",
+                              text=[f"{times:,} calls · {seconds / 60:,.1f} min · {share(seconds, whole):.1f}% of turn time" for _, times, seconds in rows],
+                              marker={"color": [COLORS[mode][GAP_COLORS[kind]] for kind, _, _ in rows]}, hovertemplate="%{y}<br>%{text}<extra></extra>"))
+    figure.update_xaxes(range=[0, max(max(seconds for _, _, seconds in rows) / 60, 1.0) * 1.9])
+    return bar_list(figure, 34 * len(rows) + 12)
+
+
+def hop_pairs_table(hops, kind=activity.GAPS[1], top=TOP_PAIRS):
+    """The pairs of groups with the most time in this kind of gap: what the model last saw, the call it then made, how often and the minutes."""
+    summed = hops[hops["gap"] == kind].groupby(["from", "to"], as_index=False)[["times", "seconds"]].sum()
+    most = summed.sort_values(["seconds", "from", "to"], ascending=[False, True, True]).head(top)
+    return [{"after": before, "the call": called, "times": int(times), "minutes": round(seconds / 60, 1)} for before, called, times, seconds in most.itertuples(index=False, name=None)]
+
+
+def repeat_rows(repeats, top=TOP_PROGRAMS):
+    """Runs of a line already run, by program, the most seconds first: (program, seconds with nothing written in between, the other seconds, runs, runs with nothing written)."""
+    summed = repeats.groupby("program", as_index=False)[["runs", "seconds", "unchangedRuns", "unchangedSeconds"]].sum()
+    most = summed.sort_values(["seconds", "program"], ascending=[False, True]).head(top)
+    return [(row.program, row.unchangedSeconds, row.seconds - row.unchangedSeconds, int(row.runs), int(row.unchangedRuns)) for row in most.itertuples(index=False)]
+
+
+def repeats_figure(rows, mode="light"):
+    """Minutes of repeated runs by program: those a cache could have answered, with nothing written in between, and the rest.
+    A program is named with its repeated runs, and a part of a bar long enough to hold them has its minutes written in it."""
+    figure = go.Figure()
+    names = [f"{row[0]}  ({activity.count(row[3], 'run')})" for row in rows]
+    for label, color, at, runs in (("nothing written in between", "tool", 1, lambda row: row[4]), ("something written in between", "usual", 2, lambda row: row[3] - row[4])):
+        figure.add_bar(orientation="h", y=names, x=[row[at] / 60 for row in rows], name=label, customdata=[runs(row) for row in rows],
+                       text=[f"{row[at] / 60:,.1f} min" if row[at] else "" for row in rows], textposition="inside", insidetextanchor="middle",
+                       marker={"color": COLORS[mode][color], "line": {"color": COLORS[mode]["surface"], "width": 1}},
+                       hovertemplate="%{y}<br>" + label + ": %{customdata:,} runs · %{x:,.1f} minutes<extra></extra>")
+    return bar_list(figure, 34 * len(rows) + 40, legend=True)
 
 
 def with_provider(calls, turns):

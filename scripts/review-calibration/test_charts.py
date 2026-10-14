@@ -267,7 +267,7 @@ OFTEN = calls((0, "command", "maven", 6, 3, 0, 600), (1, "command", "maven", 4, 
 class TestCalls(unittest.TestCase):
     def test_calls_follow_the_turn_table_row_by_row_and_every_filter(self):
         frames, found = made(), charts.call_frames(TABLE)
-        self.assertEqual(list(found), ["calls", "reasons"])
+        self.assertEqual(list(found), ["calls", "reasons", "hops", "repeats"])
         self.assertEqual(found["calls"].drop(columns="characters").values.tolist(),
                          [[0, "command", "maven", 1, 0, 0, 120], [0, "tool", "Read", 1, 0, 0, 60], [0, "tool", "review_get_context", 1, 0, 0, 60],
                           [1, "command", "npm", 1, 1, 0, 120], [2, "command", "git", 1, 0, 0, 40], [2, "tool", "Read", 2, 1, 0, 40]])
@@ -277,6 +277,9 @@ class TestCalls(unittest.TestCase):
         second_day = charts.calls_of(found, charts.within(frames, date(2026, 1, 2), date(2026, 1, 2))["turns"])
         self.assertEqual((second_day["calls"]["name"].tolist(), second_day["reasons"]["program"].tolist()), (["npm", "git", "Read"], ["npm"]))
         self.assertTrue(charts.calls_of(found, charts.within(frames, date(2026, 1, 1), date(2026, 1, 1))["turns"])["reasons"].empty)
+        self.assertEqual(found["hops"].values.tolist(), [[0, "tests and builds", "ByteQuay tools", "long step", 1, 10], [0, "tests and builds", "reading and searching files", "long step", 1, 10],
+                                                         [2, "other shell commands", "reading and searching files", "long step", 2, 70]])
+        self.assertEqual((second_day["hops"]["turn"].tolist(), found["repeats"].empty), ([2], True))
         self.assertTrue(charts.calls_of(found, charts.only(frames, ~frames["turns"]["logged"])["turns"])["calls"].empty)  # a turn without a log has no calls
 
     def test_table_saved_before_calls_were_counted_is_refused_here_and_still_read_everywhere_else(self):
@@ -361,6 +364,44 @@ class TestCalls(unittest.TestCase):
         self.assertEqual((list(bars.y), list(bars.x), list(bars.text)),
                          (["rg", "git", "every other program"], [80000, 2000, 800], ["80.0 K · 97% · 4.0 K a run", "2.0 K · 2% · 500 a run", "800 · 1% · 267 a run"]))
         self.assertEqual(charts.printed_rows(charts.call_frames(TABLE)["calls"]), [("npm", 2000, 1), ("git", 500, 1), ("maven", 0, 1)])
+
+    def test_table_saved_before_hops_and_repeats_were_counted_or_with_an_unknown_gap_is_refused(self):
+        for missing in ("hops", "repeats"):
+            with self.subTest(missing=missing), self.assertRaises(KeyError):
+                charts.call_frames({"turns": [{name: value for name, value in row.items() if name != missing} for row in TABLE["turns"]]})
+        later = json.loads(json.dumps(TABLE))
+        later["turns"][0]["hops"][0]["gap"] = "a gap from a later version"
+        with self.assertRaises(ValueError):
+            charts.call_frames(later)
+
+    def test_every_kind_of_gap_is_listed_in_its_order_and_drawn_with_the_short_hops_standing_out(self):
+        hops = pandas.DataFrame([(0, "ByteQuay tools", "ByteQuay tools", "short hop", 3, 12.0), (1, "other shell commands", "ByteQuay tools", "short hop", 2, 42.0),
+                                 (1, "ByteQuay tools", "ByteQuay tools", "short hop", 4, 18.0), (0, "tests and builds", "ByteQuay tools", "long step", 1, 120.0)],
+                                columns=["turn", "from", "to", "gap", "times", "seconds"])
+        self.assertEqual(charts.gap_rows(hops), [("in one answer", 0, 0), ("short hop", 9, 72), ("long step", 1, 120)])  # a kind with no call is still there, as zero
+        for mode, colors in charts.COLORS.items():
+            self.assertEqual(list(charts.gaps_figure(hops, 600, mode).data[0].marker.color), [colors["usual"], colors["tool"], colors["model"]], mode)
+        bars = charts.gaps_figure(hops, 600).data[0]
+        self.assertEqual((list(bars.y), list(bars.x), list(bars.text)), (["in one answer", "short hop", "long step"], [0, 1.2, 2],
+                                                                        ["0 calls · 0.0 min · 0.0% of turn time", "9 calls · 1.2 min · 12.0% of turn time", "1 calls · 2.0 min · 20.0% of turn time"]))
+        # The pairs with the most time in short hops: the two pairs of ByteQuay tools add up to more calls, and the shell to more time, which is what counts.
+        self.assertEqual(charts.hop_pairs_table(hops), [{"after": "other shell commands", "the call": "ByteQuay tools", "times": 2, "minutes": 0.7},
+                                                        {"after": "ByteQuay tools", "the call": "ByteQuay tools", "times": 7, "minutes": 0.5}])
+        tie = pandas.DataFrame([(0, "subagents", "ByteQuay tools", "short hop", 1, 5.0), (0, "ByteQuay tools", "subagents", "short hop", 1, 5.0)], columns=hops.columns)
+        self.assertEqual([row["after"] for row in charts.hop_pairs_table(tie)], ["ByteQuay tools", "subagents"])  # as much time each: by name
+        self.assertEqual((len(charts.hop_pairs_table(hops, top=1)), charts.hop_pairs_table(hops, kind="long step")[0]["after"]), (1, "tests and builds"))
+
+    def test_repeats_are_added_up_by_program_with_what_a_cache_could_have_answered_apart(self):
+        repeats = pandas.DataFrame([(0, "maven", 2, 120.0, 1, 30.0), (1, "maven", 1, 60.0, 0, 0.0), (0, "git", 3, 6.0, 3, 6.0), (1, "gh", 1, 6.0, 0, 0.0)],
+                                   columns=["turn", "program", "runs", "seconds", "unchangedRuns", "unchangedSeconds"])
+        self.assertEqual(charts.repeat_rows(repeats), [("maven", 30, 150, 3, 1), ("gh", 0, 6, 1, 0), ("git", 6, 0, 3, 3)])  # the most seconds first, and a tie by name
+        self.assertEqual([row[0] for row in charts.repeat_rows(repeats, top=1)], ["maven"])
+        for mode, colors in charts.COLORS.items():
+            cached, rest = charts.repeats_figure(charts.repeat_rows(repeats), mode).data
+            self.assertEqual(((cached.name, cached.marker.color), (rest.name, rest.marker.color)),
+                             (("nothing written in between", colors["tool"]), ("something written in between", colors["usual"])), mode)
+        self.assertEqual((list(cached.x), list(rest.x), list(cached.customdata), list(rest.customdata)), ([0.5, 0, 0.1], [2.5, 0.1, 0], [1, 0, 3], [2, 1, 0]))
+        self.assertEqual((list(cached.y), list(cached.text), list(rest.text)), (["maven  (3 runs)", "gh  (1 run)", "git  (3 runs)"], ["0.5 min", "", "0.1 min"], ["2.5 min", "0.1 min", ""]))
 
     def test_providers_are_listed_with_their_calls_and_a_kind_that_never_ran_has_no_rate(self):
         frames, found = made(), charts.call_frames(TABLE)["calls"]

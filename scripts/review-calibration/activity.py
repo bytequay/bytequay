@@ -25,6 +25,11 @@ HOW_IT_ENDED = ("state", "exitCode", "output")  # what the end of a command or t
 # ponytail: a command line is named after one program, so a search behind another program's pipe is not seen here.
 SEARCHES = {"rg", "grep"}
 MOST_FAILED = 3  # names listed under commands and under tools in the table of calls
+NOT_CALLS = ("Automatic approval", "Context compaction")  # ByteQuay and the provider run these by themselves; the agent does not choose them
+ONE_ANSWER = 0.5  # seconds; a call that follows this closely was asked for in the same model answer
+SHORT_HOP = 10  # seconds; a gap below this is the model reading one result and asking for the next call
+GAPS = ("in one answer", "short hop", "long step")
+WRITERS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}  # tools that change a file
 NOTHING_KEPT, OTHER_REASON = "no output kept", "other"
 # Why a command failed, by words in what it printed: the first reason that fits. The words are read here and never
 # saved or printed; only the name of the reason is.
@@ -243,7 +248,8 @@ def call_name(item):
     """The name a command or tool call is counted under, or None for an item that is not a call the agent chose."""
     if item.kind == "command":
         return program(command_text(item.detail))
-    if item.kind == "tool" and not item.detail["name"].startswith("hook/"):  # a permission hook guards a call and is not one
+    # A permission hook guards a call and is not one, and neither is a step ByteQuay or the provider takes by itself.
+    if item.kind == "tool" and not item.detail["name"].startswith("hook/") and item.detail["name"] not in NOT_CALLS:
         return tool_name(item.detail["name"])
     return None
 
@@ -261,6 +267,46 @@ def reason(output):
     if not text.strip():
         return NOTHING_KEPT
     return next((label for label, words in REASONS if words.search(text)), OTHER_REASON)
+
+
+def gap(length):
+    """What a pause before a call was: none to speak of, a short hop from one result to the next call, or a long step."""
+    return GAPS[0] if length < ONE_ANSWER else GAPS[1] if length < SHORT_HOP else GAPS[2]
+
+
+def hops(items):
+    """For each call of one turn that had something before it: the group of what the model last saw end or start, the
+    group of the call, and the seconds between the two. An answer from the user counts as something seen."""
+    ran = sorted((item for item in items if item.kind == "approval" or call_name(item) is not None), key=lambda item: (item.start, item.end))
+    # A call that is still running has told the model nothing yet, so until its end it counts from its start.
+    moments = sorted([(item.start, number, 0, item) for number, item in enumerate(ran)] + [(item.end, number, 1, item) for number, item in enumerate(ran)], key=lambda made: made[:3])
+    made, last = [], None
+    for when, _, ending_now, item in moments:
+        if last and not ending_now and item.kind != "approval":
+            made.append((group_of(last[1]), group_of(item), when - last[0]))
+        last = (when, item)
+    return made
+
+
+def could_write(item):
+    """Whether an item may have changed a file: a command that does more than read, a tool that edits, or a subagent."""
+    if item.kind == "command":
+        return group_of(item) != READING
+    return item.kind == "tool" and (tool_name(item.detail["name"]) in WRITERS or group_of(item) == SUBAGENTS)
+
+
+def repeats(events, finished):
+    """Every command of one task that ran the same line in the same folder as an earlier one, each with whether nothing
+    that could write ran in between. Waiting is not a result, so a wait loop run again is not a repeat."""
+    writes = [(seconds(event["occurredAt"]),) * 2 for event in events if event["type"] == "file_change"] + [(item.start, item.end) for item in finished if could_write(item)]
+    seen, made = {}, []
+    for item in sorted((item for item in finished if item.kind == "command"), key=lambda item: (item.end, item.start)):
+        line = (item.detail.get("cwd"), command_text(item.detail))
+        if line in seen and program(line[1]) != "wait loop":
+            # The earlier run ended at seen[line] and this one started later: a write counts when any of it lies between the two.
+            made.append((item, not any(end > seen[line] and start < item.start for start, end in writes)))
+        seen[line] = item.end
+    return made
 
 
 def group_of(item):
@@ -317,6 +363,8 @@ class Turn:
     # For each (command or tool, name): its runs, how many failed, how many searches found nothing, its seconds, and the characters it printed.
     calls: defaultdict = field(default_factory=lambda: defaultdict(Counter))
     reasons: defaultdict = field(default_factory=lambda: defaultdict(Counter))  # for each program, why its failed runs failed
+    hops: defaultdict = field(default_factory=lambda: defaultdict(Counter))  # for each (group before, group of the call, kind of gap): how often and the seconds between
+    repeats: defaultdict = field(default_factory=lambda: defaultdict(Counter))  # for each program: runs of a line already run, and those with nothing written in between
 
 
 @dataclass
@@ -423,6 +471,17 @@ def measure(logs, since=None):
                     one.long_runs.append((name, inside))
             elif item.kind == "approval":
                 one.approvals.append((str(item.detail.get("approvalKind") or "OTHER").lower(), str(item.detail.get("outcome") or "unknown").lower(), inside))
+        in_turn = defaultdict(list)
+        for item in finished:
+            in_turn[item.turn].append(item)
+        for name, one in turns.items():
+            for before, called, length in hops(in_turn[name]):
+                one.hops[(before, called, gap(length))].update(times=1, seconds=length)
+        for item, unchanged in repeats(events, finished):
+            if item.turn in turns:
+                one = turns[item.turn]
+                inside = max(0.0, min(item.end, one.end) - max(item.start, one.start))
+                one.repeats[program(command_text(item.detail))].update(runs=1, seconds=inside, unchangedRuns=int(unchanged), unchangedSeconds=inside * unchanged)
         total.each.extend(turns.values())
     for one in total.each:
         total.turns += 1
@@ -564,14 +623,17 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
                      # Only a command's output is in the log, so only a command says how much it printed and why it failed.
                      "calls": [{"kind": kind, "name": name, "runs": made["runs"], "failed": made["failed"], "noMatch": made["noMatch"], "seconds": round(made["seconds"], 3),
                                 **({"characters": made["characters"], "reasons": dict(sorted(one.reasons[name].items()))} if kind == "command" else {})}
-                               for (kind, name), made in sorted(one.calls.items())]})
+                               for (kind, name), made in sorted(one.calls.items())],
+                     "hops": [{"from": before, "to": called, "gap": kind, "times": made["times"], "seconds": round(made["seconds"], 3)} for (before, called, kind), made in sorted(one.hops.items())],
+                     "repeats": [{"program": name, "runs": made["runs"], "seconds": round(made["seconds"], 3), "unchangedRuns": made["unchangedRuns"],
+                                  "unchangedSeconds": round(made["unchangedSeconds"], 3)} for name, made in sorted(one.repeats.items())]})
     logged = {(one.task, one.turn) for one in total.each}
     for (owner, turn), facts in sorted(known.items(), key=lambda made: (made[1]["start"], made[0])):
         # The same filters as for the logs, so a saved table never mixes two selections.
         if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
             rows.append({"task": owner, "start": saved.stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
                          **{name: facts[name] for name in FACTS}, "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
-                         "longRuns": [], "approvals": [], "notices": {}, "calls": []})
+                         "longRuns": [], "approvals": [], "notices": {}, "calls": [], "hops": [], "repeats": []})
     database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
     return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,
             "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread}, "turns": rows}

@@ -189,12 +189,41 @@ def tools(shown, table, mode):
         st.caption(f"Commands printed {charts.short(sum(amount for _, amount, _ in printed))} characters, which the model then reads. Characters are a rough stand-in for tokens. "
                    "What a tool call hands back is not in the logs.")
         draw("printed_figure", charts.printed_figure(printed, mode))
+    merging(turns, made["hops"], made["repeats"], mode)
     st.subheader("By provider")
     st.caption("Different tasks ran under each provider, so this shows what happened, not which one is better.")
     st.dataframe(charts.providers_table(calls, turns), hide_index=True)
     if len(commands):
         st.caption(f"How often the most used commands failed under each provider. A cell with fewer than {charts.MIN_RUNS} runs says how few and has no color.")
         draw("providers_figure", charts.providers_figure(calls, turns, mode))
+
+
+def merging(turns, hops, repeats, mode):
+    st.subheader("Would merging or caching pay?")
+    whole, (_, together, _), (_, hopped, hop_seconds), _ = turns["seconds"].sum(), *charts.gap_rows(hops)
+    after = int(hops["times"].sum())
+    with st.container(horizontal=True):
+        st.metric("Merging, at most", f"{charts.share(hop_seconds, whole):.1f}%", border=True, width=TILE,
+                  help=f"Of all turn time: {hop_seconds / 60:,.1f} minutes in {hopped:,} short hops between one result and the next call.")
+        st.metric("Caching, at most", f"{charts.share(repeats['unchangedSeconds'].sum(), whole):.1f}%", border=True, width=TILE,
+                  help=f"Of all turn time: {repeats['unchangedSeconds'].sum() / 60:,.1f} minutes in {int(repeats['unchangedRuns'].sum()):,} runs of a line already run, with nothing written in between.")
+        st.metric("Already together", f"{charts.share(together, after):.0f}%" if after else "no calls", border=True, width=TILE,
+                  help="Of the calls that had something before them, the share the model asked for in the same answer as the one before.")
+    st.caption(f"A call counts from what the model last saw end or start. Within {activity.ONE_ANSWER:g} seconds it was asked for in the same answer; within {activity.SHORT_HOP:g} "
+               "seconds it is a short hop from one result to the next call; anything longer is a long step, where the model was thinking or writing. Merging calls into one could save "
+               "at most the short hops, and only where the second call did not need the first one's result. A cache could save at most the runs of a line already run with nothing "
+               "written in between, and only where the line gives the same answer twice.")
+    if after:
+        draw("gaps_figure", charts.gaps_figure(hops, whole, mode))
+    pairs = charts.hop_pairs_table(hops)
+    if pairs:
+        st.caption("The short hops with the most time, by what the model last saw and the call it then made.")
+        st.dataframe(pairs, hide_index=True)
+    if repeats.empty:
+        st.caption("No command line ran twice in a task.")
+    else:
+        st.caption("Runs of a command line already run in the same folder of the same task, by program.")
+        draw("repeats_figure", charts.repeats_figure(charts.repeat_rows(repeats), mode))
 
 
 def models(shown, table, mode):

@@ -178,8 +178,9 @@ by its name without its server. A search with `rg` or `grep` that ends with
 exit code 1 found nothing: it is counted on a line of its own and not as
 failed. A command line is named after one program, so a search behind another
 program's pipe is not seen as one. A test run that fails counts as failed,
-also when the test was meant to fail. ByteQuay's permission hooks are not
-calls the agent chose and are left out.
+also when the test was meant to fail. ByteQuay's permission hooks and
+automatic approvals and the provider's context compactions are not calls the
+agent chose and are left out.
 
 Start and end times are used, because many finished items carry no stored
 duration. An item that never reports an end is left out and counted on its own
@@ -216,7 +217,15 @@ that fits of sandbox or permission, no test matched, compile error, test
 failure, build failed, missing file or path, network, and timeout or killed.
 A failure that printed nothing the log kept is "no output kept", and one whose
 words name none of these is "other". Only the name of the reason is saved, and
-of the output only its length.
+of the output only its length. For every call that had something before it in
+its turn, the row also keeps the group of what the model last saw end or
+start, the group of the call and the seconds between the two, added up by
+kind of gap: in one answer (under half a second), a short hop (under ten
+seconds) or a long step. And for every program, it keeps the runs of a command
+line already run in the same folder of the same task, and how many of them had
+nothing written in between: no file changed, and nothing ran that could
+write, which is any command that does more than read, an editing tool or a
+subagent. A wait loop run again is not counted.
 Both files hold names, counts and times and nothing else: no command
 arguments, no paths and no message text.
 
@@ -285,7 +294,15 @@ commands failed" gives the failed commands by reason, with the programs each
 reason hit most; the two reasons that say nothing, "no output kept" and
 "other", are drawn in gray. "What commands hand back" gives the characters
 commands printed by program, a rough stand-in for the tokens the model then
-reads; what a tool call hands back is not in the logs. "By
+reads; what a tool call hands back is not in the logs. "Would merging or
+caching pay?" gives the best case for each. Merging calls could save at most
+the short hops, and only where the second call did not need the first one's
+result. A cache could save at most the runs of a line already run with
+nothing written in between, and only where the line gives the same answer
+twice. The section also says how many calls the model already asked for in
+one answer, draws the time before calls by kind of gap, lists the short hops
+by what came before and the call made after, and draws the repeated runs by
+program. "By
 provider" gives each provider its commands and tool calls with how many
 failed, and a grid of how often the most used commands failed under each
 provider, where a cell with fewer than five runs says how few and has no

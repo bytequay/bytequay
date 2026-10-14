@@ -36,9 +36,9 @@ def turn(start, end, name="t1"):
     return [event(start, "lifecycle", name, phase="TURN_STARTED"), event(end, "lifecycle", name, phase="TURN_COMPLETED")]
 
 
-def command(start, end, text, item=None, turn="t1", ended="COMPLETED", code=None, output=None):
-    return [event(start, "command", turn, item, state="STARTED", argv=[text], durationMs=None, exitCode=None, output=None),
-            event(end, "command", turn, item, state=ended, argv=[text], durationMs=None, exitCode=code, output=output)]
+def command(start, end, text, item=None, turn="t1", ended="COMPLETED", code=None, output=None, cwd=None):
+    return [event(start, "command", turn, item, state="STARTED", argv=[text], durationMs=None, exitCode=None, output=None, cwd=cwd),
+            event(end, "command", turn, item, state=ended, argv=[text], durationMs=None, exitCode=code, output=output, cwd=cwd)]
 
 
 def tool(start, end, name, item=None, turn="t1", ended="COMPLETED"):
@@ -308,9 +308,9 @@ class TestCalls(Logs):
         self.assertEqual({call: (one["runs"], one["failed"], one["noMatch"]) for call, one in made.items()},
                          {("command", "rg"): (3, 1, 1), ("command", "grep"): (1, 0, 1), ("command", "git"): (1, 1, 0)})
 
-    def test_tool_is_named_without_its_server_and_a_permission_hook_is_not_a_call(self):
+    def test_tool_is_named_without_its_server_and_neither_a_permission_hook_nor_a_step_nobody_chose_is_a_call(self):
         made = self.calls(tool(10, 20, "mcp__bytequay__review_finish", item="a"), tool(30, 40, "bytequay/review_finish", item="b", ended="FAILED"),
-                          tool(50, 60, "hook/PreToolUse:Bash", item="h", ended="FAILED"))
+                          tool(50, 60, "hook/PreToolUse:Bash", item="h", ended="FAILED"), tool(70, 75, "Automatic approval", item="p"), tool(80, 90, "Context compaction", item="k"))
         self.assertEqual(made, {("tool", "review_finish"): {"runs": 2, "failed": 1, "noMatch": 0, "seconds": 20, "characters": 0}})
 
     def test_call_that_never_ended_is_not_counted_and_an_end_without_a_start_still_says_how_it_ended(self):
@@ -381,6 +381,80 @@ class TestCalls(Logs):
 
     def test_turn_without_a_call_has_no_table_of_calls(self):
         self.assertNotIn("Calls and how they ended", activity.render(activity.measure([self.log("aaaa", turn(0, 60), pieces(10, 11))])))
+
+
+class TestHops(Logs):
+    def test_a_pause_is_none_to_speak_of_a_short_hop_or_a_long_step(self):
+        self.assertEqual([activity.gap(length) for length in (0, 0.49, 0.5, 9.99, 10, 600)], ["in one answer", "in one answer", "short hop", "short hop", "long step", "long step"])
+
+    def test_each_call_counts_from_what_the_model_last_saw_end_or_start(self):
+        _, finished, _ = activity.items(in_order(
+            turn(0, 200), command(10, 12, "git status", item="a"),
+            tool(12.2, 14, "Read", item="b"), tool(12.3, 13, "Grep", item="c"),  # asked for together with the one before
+            command(20, 100, "./mvnw test", item="d"),  # six seconds after the last result
+            tool(30, 31, "mcp__bytequay__review_get_context", item="e"),  # Maven was still running, so this counts from its start
+            tool(31.3, 32, "Read", item="f"),
+            approval(40, 70), tool(69.9, 70.1, "hook/PreToolUse:Bash", item="h"), command(70.2, 72, "git push", item="g"),  # the hook is not something the model saw
+            tool(75, 90, "Context compaction", item="k"), tool(95, 96, "Read", item="i"),  # nor is a compaction the model did not ask for
+            pieces(150, 151)))
+        made = [(before, called, round(length, 3)) for before, called, length in activity.hops(finished)]
+        self.assertEqual(made, [(activity.SHELL, activity.READING, 0.2), (activity.READING, activity.READING, 0.1), (activity.READING, activity.BUILDS, 6),
+                                (activity.BUILDS, activity.BYTEQUAY, 10), (activity.BYTEQUAY, activity.READING, 0.3), (activity.YOU, activity.SHELL, 0.2),
+                                (activity.SHELL, activity.READING, 23)])
+
+    def test_a_call_of_no_time_counts_from_what_came_before_it_and_not_from_itself(self):
+        _, finished, _ = activity.items(in_order(turn(0, 100), command(10, 12, "git status", item="a"), tool(15, 15, "Read", item="b"), tool(15, 15, "Grep", item="c")))
+        self.assertEqual([(before, called, round(length, 3)) for before, called, length in activity.hops(finished)],
+                         [(activity.SHELL, activity.READING, 3), (activity.READING, activity.READING, 0)])
+        # A call that starts the moment another ends counts from that end, not from the start of the one before.
+        _, finished, _ = activity.items(in_order(turn(0, 100), command(10, 20, "git status", item="a"), tool(20, 21, "Read", item="b")))
+        self.assertEqual([(before, called, round(length, 3)) for before, called, length in activity.hops(finished)], [(activity.SHELL, activity.READING, 0)])
+
+    def test_hops_are_added_up_in_their_turn_by_the_two_groups_and_the_kind_of_gap_and_saved_so(self):
+        log = self.log("aaaa", turn(0, 100, "t1"), turn(200, 300, "t2"), command(10, 12, "git status", item="a", turn="t1"), command(15, 16, "git diff", item="b", turn="t1"),
+                       command(20, 21, "git log", item="c", turn="t1"), command(210, 211, "git status", item="d", turn="t2"), tool(260, 261, "Read", item="e", turn="t2"))
+        total = activity.measure([log])
+        self.assertEqual([{call: dict(made) for call, made in one.hops.items()} for one in total.each],
+                         [{(activity.SHELL, activity.SHELL, "short hop"): {"times": 2, "seconds": 7}}, {(activity.SHELL, activity.READING, "long step"): {"times": 1, "seconds": 49}}])
+        rows = activity.turn_table(total, WHEN)["turns"]
+        self.assertEqual([row["hops"] for row in rows], [[{"from": activity.SHELL, "to": activity.SHELL, "gap": "short hop", "times": 2, "seconds": 7}],
+                                                        [{"from": activity.SHELL, "to": activity.READING, "gap": "long step", "times": 1, "seconds": 49}]])
+
+
+class TestRepeats(Logs):
+    def repeated(self, *groups):
+        events = in_order(turn(0, 300), *groups)
+        _, finished, _ = activity.items(events)
+        return [(activity.command_text(item.detail), unchanged) for item, unchanged in activity.repeats(events, finished)]
+
+    def test_a_line_run_again_in_its_folder_is_a_repeat_and_says_whether_anything_wrote_in_between(self):
+        self.assertEqual(self.repeated(
+            command(10, 11, "git status", item="a"), tool(12, 13, "Read", item="b"), command(20, 21, "git status", item="c"),  # a read writes nothing
+            command(30, 40, "./mvnw test", item="d"), tool(45, 46, "Edit", item="e"), command(50, 60, "./mvnw test", item="f"),  # an edit in between
+            command(70, 71, "rg needle", item="g"), [event(75, "file_change", item="h", changes=[])], command(80, 81, "rg needle", item="i"),  # a file changed
+            command(90, 91, "cat notes", item="j"), command(92, 93, "make", item="k"), command(94, 95, "cat notes", item="l"),  # a command that may write
+            command(100, 101, "ls", item="m"), tool(102, 108, "Task", item="n"), command(110, 111, "ls", item="o"),  # a subagent may write
+            command(120, 121, "ls", item="p", cwd="/a"), command(130, 131, "ls", item="q", cwd="/b"),  # another folder is another line
+            command(132, 133, "git log -1", item="t"), [event(134, "command", item="u", state=state, argv=["cat todo"], actions=[{"kind": "READ"}], durationMs=None)
+                                                        for state in ("STARTED", "COMPLETED")],
+            command(136, 137, "git log -1", item="v"),  # a command that only reads writes nothing
+            command(140, 170, "sleep 30", item="r"), command(171, 201, "sleep 30", item="s")),  # waiting again is not asking for the same result
+            [("git status", True), ("./mvnw test", False), ("rg needle", False), ("cat notes", False), ("ls", False), ("git log -1", True)])
+
+    def test_the_earlier_run_and_the_repeat_itself_are_not_writes_in_between(self):
+        self.assertEqual(self.repeated(command(10, 20, "./mvnw test", item="a"), command(20, 30, "./mvnw test", item="b"), command(40, 50, "./mvnw test", item="c")),
+                         [("./mvnw test", True), ("./mvnw test", True)])
+
+    def test_repeats_are_counted_in_the_turn_they_ran_by_program_and_saved_so(self):
+        # The second run went on 15 seconds past the end of its turn, and only its ten seconds inside the turn count.
+        log = self.log("aaaa", turn(0, 100, "t1"), turn(200, 300, "t2"), command(10, 20, "./mvnw test", item="a", turn="t1"), command(90, 115, "./mvnw test", item="b", turn="t1"),
+                       tool(120, 121, "Write", item="c", turn="t1"), command(210, 230, "./mvnw test", item="d", turn="t2"), command(240, 241, "git status", item="e", turn="t2"))
+        total = activity.measure([log])
+        self.assertEqual([{name: dict(made) for name, made in one.repeats.items()} for one in total.each],
+                         [{"maven": {"runs": 1, "seconds": 10, "unchangedRuns": 1, "unchangedSeconds": 10}}, {"maven": {"runs": 1, "seconds": 20, "unchangedRuns": 0, "unchangedSeconds": 0}}])
+        self.assertEqual([row["repeats"] for row in activity.turn_table(total, WHEN)["turns"]],
+                         [[{"program": "maven", "runs": 1, "seconds": 10, "unchangedRuns": 1, "unchangedSeconds": 10}],
+                          [{"program": "maven", "runs": 1, "seconds": 20, "unchangedRuns": 0, "unchangedSeconds": 0}]])
 
 
 class TestTables(Logs):
@@ -512,6 +586,7 @@ class TestTurns(Logs):
         self.assertEqual((made["turns"][1]["longRuns"], made["turns"][1]["approvals"], made["turns"][1]["notices"]),
                          ([{"program": "npm", "seconds": 120}], [], {"rate limit: allowed warning": 2, "rate limit: rejected": 1, "retry": 1}))
         self.assertEqual((made["turns"][3]["longRuns"], made["turns"][3]["approvals"], made["turns"][3]["notices"]), ([], [], {}))  # no log, so none of these are known
+        self.assertEqual((made["turns"][3]["hops"], made["turns"][3]["repeats"]), ([], []))
         call = lambda kind, name, seconds, runs=1, failed=0, **printed: {"kind": kind, "name": name, "runs": runs, "failed": failed, "noMatch": 0, "seconds": seconds, **printed}
         # Only a command says how much it printed and why it failed: the log holds no output of a tool.
         self.assertEqual([row["calls"] for row in made["turns"]],

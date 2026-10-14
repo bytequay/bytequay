@@ -63,6 +63,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -812,6 +814,41 @@ class TestCherryPickExecutionService
                 .contains("git commit --amend --no-edit");
         assertThat(git(clone, "rev-list", "--count", started.currentTargetSha() + ".." + finished.workspace().workBranch()))
                 .isEqualTo("2");
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void pausesWhenAFixupAddsUnexpectedHistory(boolean repair)
+    {
+        String base = head(upstream);
+        write(upstream, "seed.txt", "upstream edit\n");
+        commit(upstream, "Conflicting change");
+        String source = head(upstream);
+        write(fork, "seed.txt", "fork edit\n");
+        commit(fork, "Fork edit");
+
+        CherryPickExecution started = start(base, ImmutableList.of());
+        Path worktree = started.workspace().worktree();
+        if (repair) {
+            agent.then(() -> resolveAndFixup(worktree, "seed.txt", "<<<<<<< target\nfork edit\n=======\nupstream edit\n>>>>>>> source\n"), TurnState.COMPLETED);
+        }
+        agent.then(() -> {
+            resolveAndFixup(worktree, "seed.txt", "resolved\n");
+            if (!repair) {
+                write(worktree, "extra.txt", "unexpected history\n");
+                commit(worktree, "Extra change");
+            }
+        }, TurnState.COMPLETED);
+
+        CherryPickExecution paused = runToCompletion(started);
+
+        assertThat(paused.status()).isEqualTo(Status.PAUSED);
+        assertThat(paused.pauseReason()).contains(PauseReason.RECONCILIATION_MISMATCH);
+        assertThat(paused.summary()).contains(repair
+                ? "The repair added history instead of amending the existing fixup"
+                : "The agent did not create exactly one direct child of the conflict snapshot");
+        assertThat(item(paused, source).result()).isEqualTo(Result.PENDING);
+        assertThat(agent.turnsStarted()).isEqualTo(repair ? 2 : 1);
     }
 
     private static void resolve(Path worktree, String name, String content)

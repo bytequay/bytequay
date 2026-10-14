@@ -251,21 +251,7 @@ public class AgentReviewService
             ModelSelection selection = selectModel(workspaceId);
             WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
             Snapshot snapshot = localSnapshot(source, workspace, number);
-            TaskId taskId = TaskId.random();
-            String title = "Review: " + source.title();
-            String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
-            AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> tasks.create(new CreateAgentTaskCommand(
-                    taskId, workspaceId, selection.laneId(), source.repository(), snapshot.headSha(), branch, title, selection.defaults())));
-            Instant now = Instant.now(clock);
-            String reviewId = UUID.randomUUID().toString();
-            return locked(reviewId, () -> {
-                AgentReview review = insertReview(new AgentReview(reviewId, workspaceId, repository, number, snapshot.pullRequestId(), task.id().toString(),
-                        Optional.of(sourceTaskId), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(snapshot.headSha()),
-                        Optional.of(snapshot.headSha()), 0, now, now, Optional.empty()));
-                observer.watch(review);
-                startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
-                return projection(review.id());
-            });
+            return createReview(workspace, selection, snapshot, "Review: " + source.title(), number, Optional.of(sourceTaskId), Optional.empty(), true);
         }
         finally {
             lock.unlock();
@@ -316,45 +302,8 @@ public class AgentReviewService
                 WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
             }
             Snapshot snapshot = snapshot(workspace, repository, number);
-            TaskId taskId = TaskId.random();
-            String title = "Review " + repository + "#" + number;
-            String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
-            CreateAgentTaskCommand command = new CreateAgentTaskCommand(
-                    taskId,
-                    workspaceId,
-                    selection.laneId(),
-                    WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()),
-                    snapshot.headSha(),
-                    branch,
-                    title,
-                    selection.defaults());
-            AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> startReview ? tasks.create(command) : tasks.prepare(command));
-            Instant now = Instant.now(clock);
-            String reviewId = UUID.randomUUID().toString();
-            return locked(reviewId, () -> {
-                AgentReview review = insertReview(new AgentReview(
-                        reviewId,
-                        workspaceId,
-                        repository,
-                        OptionalInt.of(number),
-                        snapshot.pullRequestId(),
-                        task.id().toString(),
-                        Optional.empty(),
-                        AgentReview.State.OPEN,
-                        !startReview,
-                        Optional.empty(),
-                        Optional.of(snapshot.headSha()),
-                        Optional.of(snapshot.headSha()),
-                        0,
-                        now,
-                        now,
-                        Optional.empty()));
-                observer.watch(review);
-                if (startReview) {
-                    startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
-                }
-                return projection(review.id());
-            });
+            return createReview(workspace, selection, snapshot, "Review " + repository + "#" + number, OptionalInt.of(number),
+                    Optional.empty(), Optional.empty(), startReview);
         }
         finally {
             lock.unlock();
@@ -389,24 +338,31 @@ public class AgentReviewService
     {
         AgentReview.Replay replay = start.replay();
         WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
-        String repository = normalize(workspace.monitoredRepository().fullName());
         ModelSelection selection = selectModel(workspaceId);
         WorkflowAgentTasks.requireReady(drivers, selection.laneId(), AgentPermissionPolicy.AUTO);
         Snapshot snapshot = replaySnapshot(workspace.repository(), start.headSha(), start.baseRef(), start.mergeBaseSha());
-        TaskId taskId = TaskId.random();
         String title = "Replay review #" + replay.number() + (replay.memory() ? " · with memory" : " · without memory");
+        return createReview(workspace, selection, snapshot, title, OptionalInt.empty(), Optional.empty(), Optional.of(replay), true);
+    }
+
+    private AgentReviewProjection createReview(WorkspaceRepositoryContext workspace, ModelSelection selection, Snapshot snapshot, String title,
+            OptionalInt number, Optional<String> sourceTaskId, Optional<AgentReview.Replay> replay, boolean startReview)
+    {
+        TaskId taskId = TaskId.random();
         String branch = TaskBranches.generate(taskId, credentials.resolveGitHubCredential().profile().login(), title);
-        AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> tasks.create(new CreateAgentTaskCommand(
-                taskId, workspaceId, selection.laneId(), WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), snapshot.headSha(), branch, title,
-                selection.defaults())));
+        CreateAgentTaskCommand command = new CreateAgentTaskCommand(taskId, workspace.workspaceId(), selection.laneId(),
+                WorkflowAgentTasks.repositoryIdentity(workspace.selectedRepository()), snapshot.headSha(), branch, title, selection.defaults());
+        AgentTask task = WorkflowAgentTasks.createOrGet(tasks, taskId, () -> startReview ? tasks.create(command) : tasks.prepare(command));
         Instant now = Instant.now(clock);
         String reviewId = UUID.randomUUID().toString();
         return locked(reviewId, () -> {
-            AgentReview review = insertReview(new AgentReview(reviewId, workspaceId, repository, OptionalInt.empty(), OptionalLong.empty(), task.id().toString(),
-                    Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.of(snapshot.headSha()), Optional.of(snapshot.headSha()), 0, now, now,
-                    Optional.empty(), Optional.of(replay)));
+            AgentReview review = insertReview(new AgentReview(reviewId, workspace.workspaceId(), normalize(workspace.monitoredRepository().fullName()), number,
+                    snapshot.pullRequestId(), task.id().toString(), sourceTaskId, AgentReview.State.OPEN, !startReview, Optional.empty(), Optional.of(snapshot.headSha()),
+                    Optional.of(snapshot.headSha()), 0, now, now, Optional.empty(), replay));
             observer.watch(review);
-            startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
+            if (startReview) {
+                startRun(review, snapshot, workspace, 1, Optional.empty(), ImmutableList.of());
+            }
             return projection(review.id());
         });
     }

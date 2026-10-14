@@ -297,21 +297,26 @@ class TestAgentReviewService
     }
 
     @ParameterizedTest
-    @ValueSource(booleans = {false, true})
-    void failedReviewInsertionDiscardsOnlyTheUnstartedReviewer(boolean development)
+    @ValueSource(strings = {"pull-request", "development", "exploration", "replay"})
+    void failedReviewInsertionDiscardsOnlyTheUnstartedReviewer(String entryPoint)
     {
         Fixture fixture = new Fixture();
         AgentTask source = developmentSource();
         localSource(fixture, source, HEAD);
+        when(fixture.tasks.prepare(any(CreateAgentTaskCommand.class))).thenReturn(idleTask());
+        when(fixture.browse.history(REPOSITORY, MERGE_BASE, HEAD)).thenReturn(new WorktreeDiffReader.History(ImmutableList.of(), false));
+        when(fixture.browse.diff(REPOSITORY, MERGE_BASE, Optional.of(HEAD))).thenReturn(new WorktreeDiffReader.Diff(ImmutableList.of(), false));
         ReviewConflictException failure = new ReviewConflictException("The review row could not be stored");
         doThrow(failure).when(fixture.store).insertReview(any(AgentReview.class));
 
         assertThatThrownBy(() -> {
-            if (development) {
-                fixture.service.startForTask(WORKSPACE, source.id().toString());
-            }
-            else {
-                fixture.service.start(WORKSPACE, REPO, NUMBER);
+            switch (entryPoint) {
+                case "pull-request" -> fixture.service.start(WORKSPACE, REPO, NUMBER);
+                case "development" -> fixture.service.startForTask(WORKSPACE, source.id().toString());
+                case "exploration" -> fixture.service.prepare(WORKSPACE, REPO, NUMBER);
+                case "replay" -> fixture.service.startReplay(WORKSPACE,
+                        new AgentReviewService.ReplayStart(new AgentReview.Replay("replay-1", NUMBER, true, NOW), HEAD, "main", MERGE_BASE));
+                default -> throw new AssertionError("Unknown review entry point: " + entryPoint);
             }
         }).isSameAs(failure);
 

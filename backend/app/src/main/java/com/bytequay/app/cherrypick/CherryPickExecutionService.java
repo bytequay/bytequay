@@ -309,11 +309,8 @@ public class CherryPickExecutionService
                 .isPresent()) {
             return recoverConflictSnapshot(execution);
         }
-        if (execution.journal().map(ActionJournal::type).filter(ActionType.AGENT_TURN::equals).isPresent()) {
+        if (execution.journal().map(ActionJournal::type).filter(type -> type == ActionType.AGENT_TURN || type == ActionType.AGENT_REPAIR).isPresent()) {
             return inspectFixup(execution, Optional.empty());
-        }
-        if (execution.journal().map(ActionJournal::type).filter(ActionType.AGENT_REPAIR::equals).isPresent()) {
-            return inspectRepair(execution, Optional.empty());
         }
         if (execution.journal().map(ActionJournal::type).filter(ActionType.FINALIZE_CONFLICT_PAIR::equals)
                 .isPresent()) {
@@ -680,36 +677,22 @@ public class CherryPickExecutionService
     {
         ActionJournal journal = execution.journal().orElseThrow();
         Path worktree = execution.workspace().worktree();
-        String conflictCommit = journal.expectedHead();
+        boolean repair = journal.type() == ActionType.AGENT_REPAIR;
+        String expectedHead = journal.expectedHead();
+        String conflictCommit = repair ? parentOf(worktree, expectedHead) : expectedHead;
         String actualHead = headOf(worktree);
-        if (actualHead.equals(conflictCommit)) {
+        if (actualHead.equals(expectedHead)) {
             if (operationOpenOrUnmerged(worktree)) {
-                return pause(execution, PauseReason.UNSAFE_GIT_STATE, "An unexpected Git operation is open while waiting for the fixup");
+                return pause(execution, PauseReason.UNSAFE_GIT_STATE, repair
+                        ? "An unexpected Git operation is open while repairing the fixup"
+                        : "An unexpected Git operation is open while waiting for the fixup");
             }
-            return startAgentTurn(execution, conflictCommit, Optional.empty(), userNote);
+            return startAgentTurn(execution, conflictCommit, repair ? Optional.of(expectedHead) : Optional.empty(), userNote);
         }
         if (!parentOf(worktree, actualHead).equals(conflictCommit)) {
-            return pause(execution, PauseReason.RECONCILIATION_MISMATCH, "The agent did not create exactly one direct child of the conflict snapshot");
-        }
-        return inspectFixupCandidate(execution, conflictCommit, actualHead);
-    }
-
-    /** Retries a structurally valid but dirty or marker-bearing fixup by amendment. */
-    private CherryPickExecution inspectRepair(CherryPickExecution execution, Optional<String> userNote)
-    {
-        ActionJournal journal = execution.journal().orElseThrow();
-        Path worktree = execution.workspace().worktree();
-        String previousFixup = journal.expectedHead();
-        String conflictCommit = parentOf(worktree, previousFixup);
-        String actualHead = headOf(worktree);
-        if (actualHead.equals(previousFixup)) {
-            if (operationOpenOrUnmerged(worktree)) {
-                return pause(execution, PauseReason.UNSAFE_GIT_STATE, "An unexpected Git operation is open while repairing the fixup");
-            }
-            return startAgentTurn(execution, conflictCommit, Optional.of(previousFixup), userNote);
-        }
-        if (!parentOf(worktree, actualHead).equals(conflictCommit)) {
-            return pause(execution, PauseReason.RECONCILIATION_MISMATCH, "The repair added history instead of amending the existing fixup");
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH, repair
+                    ? "The repair added history instead of amending the existing fixup"
+                    : "The agent did not create exactly one direct child of the conflict snapshot");
         }
         return inspectFixupCandidate(execution, conflictCommit, actualHead);
     }
@@ -1004,11 +987,8 @@ public class CherryPickExecutionService
                 throw new CherryPickConflictException("Git is in an unexpected state: " + state.diagnostics());
             }
             CherryPickExecution resumed = store.save(execution.resume(clock.instant()));
-            if (resumed.journal().map(ActionJournal::type).filter(ActionType.AGENT_TURN::equals).isPresent()) {
+            if (resumed.journal().map(ActionJournal::type).filter(type -> type == ActionType.AGENT_TURN || type == ActionType.AGENT_REPAIR).isPresent()) {
                 return inspectFixup(resumed, Optional.of(message));
-            }
-            if (resumed.journal().map(ActionJournal::type).filter(ActionType.AGENT_REPAIR::equals).isPresent()) {
-                return inspectRepair(resumed, Optional.of(message));
             }
             if (state.kind() == SequenceState.Kind.STOPPED_CONFLICT) {
                 CherryPickExecution snapshotted = commitConflictSnapshot(resumed, state);

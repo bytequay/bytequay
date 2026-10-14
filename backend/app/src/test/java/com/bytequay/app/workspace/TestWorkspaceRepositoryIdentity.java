@@ -11,23 +11,25 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.repository;
+package com.bytequay.app.workspace;
 
-import com.bytequay.core.domain.CommitEnrichment;
-import com.bytequay.core.domain.CommitEnrichmentSnapshot;
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.app.service.pr.PullRequestRefreshService;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
-import com.bytequay.core.store.CommitHistoryStore;
 import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
-import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,60 +37,34 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestRepositoryEnrichmentService
+class TestWorkspaceRepositoryIdentity
 {
     private static final Instant NOW = Instant.parse("2026-08-29T00:00:00Z");
 
-    private CommitHistoryStore commitHistory;
+    private GitHubAccountClient gitHub;
     private RemoteSourceStore remoteSources;
     private WorkspaceStore workspaces;
-    private RepositoryEnrichmentService service;
+    private WorkspaceRepositoryService service;
 
     @BeforeEach
     void setUp()
     {
-        commitHistory = mock(CommitHistoryStore.class);
+        gitHub = mock(GitHubAccountClient.class);
         remoteSources = mock(RemoteSourceStore.class);
         workspaces = mock(WorkspaceStore.class);
-        service = new RepositoryEnrichmentService(commitHistory, remoteSources, workspaces);
+        service = new WorkspaceRepositoryService(workspaces, remoteSources, gitHub, mock(CredentialService.class), Clock.fixed(NOW, ZoneOffset.UTC),
+                new WorkspacePaths("/managed"), mock(WorkspaceProvisioningService.class), mock(WorkspaceMetadataService.class),
+                mock(PullRequestRefreshService.class), Runnable::run);
+        when(workspaces.findById("target")).thenReturn(Optional.of(directWorkspace("target", 404, RepoRef.of("target", "project"))));
     }
 
-    @Test
-    void delegatesCommitEnrichmentReadsAndWrites()
+    @AfterEach
+    void loadingRemoteIdentityNeverContactsGitHub()
     {
-        CommitEnrichment value = enrichment(166_515_022L, "abc123");
-        CommitEnrichmentSnapshot snapshot = new CommitEnrichmentSnapshot(ImmutableList.of(value));
-        when(commitHistory.findEnrichment(166_515_022L, ImmutableList.of("abc123")))
-                .thenReturn(snapshot);
-
-        assertThat(service.findCommits(166_515_022L, ImmutableList.of("abc123")))
-                .isSameAs(snapshot);
-        service.upsertCommits(ImmutableList.of(value));
-
-        verify(commitHistory).findEnrichment(166_515_022L, ImmutableList.of("abc123"));
-        verify(commitHistory).upsertEnrichment(ImmutableList.of(value));
-    }
-
-    @Test
-    void sharesPositiveReuseAndDailyRecentNegativeRetryBoundaries()
-    {
-        CommitEnrichment positive = association(Optional.of(42), Optional.empty());
-        assertThat(RepositoryEnrichmentService.associationDue(null, Optional.of(positive), NOW)).isFalse();
-        String oldCommit = NOW.minus(Duration.ofDays(100)).toString();
-        assertThat(RepositoryEnrichmentService.associationDue(oldCommit, Optional.empty(), NOW)).isTrue();
-        assertThat(RepositoryEnrichmentService.associationDue(oldCommit, Optional.of(association(Optional.empty(), Optional.empty())), NOW)).isTrue();
-
-        CommitEnrichment due = association(Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(1))));
-        String windowStart = NOW.minus(Duration.ofDays(7)).toString();
-        assertThat(RepositoryEnrichmentService.associationDue(windowStart, Optional.of(due), NOW)).isTrue();
-        assertThat(RepositoryEnrichmentService.associationDue(NOW.minus(Duration.ofDays(7)).minusNanos(1).toString(), Optional.of(due), NOW)).isFalse();
-        CommitEnrichment fresh = association(Optional.empty(), Optional.of(NOW.minus(Duration.ofDays(1)).plusNanos(1)));
-        assertThat(RepositoryEnrichmentService.associationDue(windowStart, Optional.of(fresh), NOW)).isFalse();
-        assertThat(RepositoryEnrichmentService.associationDue(null, Optional.of(due), NOW)).isTrue();
-        assertThat(RepositoryEnrichmentService.associationDue("malformed", Optional.of(due), NOW)).isTrue();
-        assertThat(RepositoryEnrichmentService.associationDue("malformed", Optional.of(fresh), NOW)).isFalse();
+        verifyNoInteractions(gitHub);
     }
 
     @Test
@@ -102,7 +78,7 @@ class TestRepositoryEnrichmentService
         when(remoteSources.findByWorkspace("target"))
                 .thenReturn(ImmutableList.of(selectedRemote, upstreamRemote));
 
-        assertThat(service.enrichRemoteSources("target")).containsExactly(
+        assertThat(service.requireLocalRepository("target").extraRemotes()).containsExactly(
                 selectedRemote.withRepositoryIdentity(101, RepoRef.of("trinodb", "trino")),
                 upstreamRemote.withRepositoryIdentity(303, RepoRef.of("apache", "iceberg")));
 
@@ -119,7 +95,7 @@ class TestRepositoryEnrichmentService
         when(remoteSources.findByWorkspace("target"))
                 .thenReturn(ImmutableList.of(unmatched, nonGitHub));
 
-        assertThat(service.enrichRemoteSources("target")).containsExactly(unmatched, nonGitHub);
+        assertThat(service.requireLocalRepository("target").extraRemotes()).containsExactly(unmatched, nonGitHub);
         verify(remoteSources, never()).save(any());
     }
 
@@ -134,32 +110,9 @@ class TestRepositoryEnrichmentService
         when(workspaces.findAllRetained()).thenReturn(ImmutableList.of(directWorkspace("current", 202, current)));
         when(remoteSources.findByWorkspace("target")).thenReturn(ImmutableList.of(remembered, renamed));
 
-        assertThat(service.enrichRemoteSources("target")).containsExactly(remembered, renamed.withRepositoryIdentity(202, current));
+        assertThat(service.requireLocalRepository("target").extraRemotes()).containsExactly(remembered, renamed.withRepositoryIdentity(202, current));
 
         verify(remoteSources).save(renamed.withRepositoryIdentity(202, current));
-    }
-
-    private static CommitEnrichment association(Optional<Integer> number, Optional<Instant> checkedAt)
-    {
-        return new CommitEnrichment(42, "a".repeat(40), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(),
-                number, Optional.empty(), Optional.empty(), Optional.empty(), checkedAt, NOW);
-    }
-
-    private static CommitEnrichment enrichment(long repositoryId, String sha)
-    {
-        return new CommitEnrichment(
-                repositoryId,
-                sha,
-                Optional.of("author"),
-                Optional.of("a".repeat(64)),
-                Optional.of("committer"),
-                Optional.of("b".repeat(64)),
-                Optional.of(42),
-                Optional.of("Example pull request"),
-                Optional.of("https://github.com/example/project/pull/42"),
-                Optional.of(NOW),
-                Optional.of(NOW),
-                NOW);
     }
 
     private static Workspace directWorkspace(String id, long repositoryId, RepoRef repository)
@@ -178,7 +131,7 @@ class TestRepositoryEnrichmentService
                 cloneUrl(repository),
                 Optional.empty(),
                 Optional.empty(),
-                "/managed/" + id,
+                "/managed/" + id + "/repository",
                 Optional.of(NOW),
                 Optional.of(NOW),
                 0,
@@ -202,7 +155,7 @@ class TestRepositoryEnrichmentService
                 cloneUrl(selectedRepository),
                 Optional.of("main"),
                 Optional.of(cloneUrl(upstreamRepository)),
-                "/managed/" + id,
+                "/managed/" + id + "/repository",
                 Optional.of(NOW),
                 Optional.of(NOW),
                 0,

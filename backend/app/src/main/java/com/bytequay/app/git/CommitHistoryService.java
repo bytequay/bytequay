@@ -19,7 +19,6 @@ import com.bytequay.app.cherrypick.PullRequestLookupResult;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.CommitHistoryRouting.ResolvedCommitHistoryRef;
 import com.bytequay.app.git.GitBrowseService.Commit;
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
@@ -75,7 +74,6 @@ public class CommitHistoryService
     private final WorkspaceProvisioningService provisioning;
     private final GitBrowseService git;
     private final CommitHistoryStore store;
-    private final RepositoryEnrichmentService enrichment;
     private final CredentialService credentials;
     private final GitHubRepoClient gitHub;
     private final CherryPickPullRequestLookup pullRequests;
@@ -88,7 +86,6 @@ public class CommitHistoryService
             WorkspaceProvisioningService provisioning,
             GitBrowseService git,
             CommitHistoryStore store,
-            RepositoryEnrichmentService enrichment,
             CredentialService credentials,
             GitHubRepoClient gitHub,
             CherryPickPullRequestLookup pullRequests,
@@ -100,7 +97,6 @@ public class CommitHistoryService
         this.provisioning = requireNonNull(provisioning, "provisioning is null");
         this.git = requireNonNull(git, "git is null");
         this.store = requireNonNull(store, "store is null");
-        this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -125,7 +121,7 @@ public class CommitHistoryService
         List<Commit> commits = git.log(context.repository(), resolved.gitRef(), Math.min(limit, MAX_COMMITS));
         Map<String, CommitEnrichment> enrichmentBySha = resolved.repositoryId().isEmpty()
                 ? ImmutableMap.of()
-                : enrichment.findCommits(resolved.repositoryId().orElseThrow(), commits.stream().map(Commit::sha).toList())
+                : store.findEnrichment(resolved.repositoryId().orElseThrow(), commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
         ImmutableList.Builder<CommitHistoryItem> items = ImmutableList.builderWithExpectedSize(commits.size());
@@ -244,7 +240,7 @@ public class CommitHistoryService
         validateRemoteSources(requestedRefs, synchronization);
         WorkspaceRepositoryContext context = workspaces.requireReadyRepository(workspaceId);
         List<ResolvedCommitHistoryRef> refs = requestedRefs.stream().map(ref -> CommitHistoryRouting.resolve(context, ref)).toList();
-        enrichment.upsertCommits(enrichRefs(context, refs));
+        store.upsertEnrichment(enrichRefs(context, refs));
     }
 
     private static void validateRemoteSources(Collection<CommitHistoryRef> refs, WorkspaceCodeSyncResult synchronization)
@@ -281,7 +277,7 @@ public class CommitHistoryService
         long repositoryId = ref.repositoryId().orElseThrow();
         RepoRef repository = ref.repository().orElseThrow();
         List<Commit> commits = git.log(context.repository(), ref.gitRef(), MAX_COMMITS);
-        Map<String, CommitEnrichment> existing = enrichment.findCommits(repositoryId, commits.stream().map(Commit::sha).toList())
+        Map<String, CommitEnrichment> existing = store.findEnrichment(repositoryId, commits.stream().map(Commit::sha).toList())
                 .commits().stream()
                 .collect(toImmutableMap(CommitEnrichment::sha, Function.identity()));
         int avatarLimit = avatarScanLimit(commits, existing, now);
@@ -297,7 +293,7 @@ public class CommitHistoryService
         }
         Set<String> checkedAvatarShas = commits.subList(0, avatarLimit).stream().map(Commit::sha).collect(toImmutableSet());
         List<String> dueAssociations = commits.stream()
-                .filter(commit -> RepositoryEnrichmentService.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
+                .filter(commit -> CommitEnrichment.associationDue(commit.committedAt(), Optional.ofNullable(existing.get(commit.sha())), now))
                 .map(Commit::sha)
                 .toList();
         PullRequestLookupResult associationSnapshot = pullRequests.lookUpResult(repository, dueAssociations, ref.providerRef(), new ArrayList<>());

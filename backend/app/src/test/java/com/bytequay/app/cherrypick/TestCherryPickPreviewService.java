@@ -15,7 +15,6 @@ package com.bytequay.app.cherrypick;
 
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
@@ -25,6 +24,7 @@ import com.bytequay.core.cherrypick.CherryPickConflictException;
 import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.BeforeEach;
@@ -72,7 +72,7 @@ class TestCherryPickPreviewService
     private Path fork;
     private Path clone;
     private MutableClock clock;
-    private RepositoryEnrichmentService enrichment;
+    private CommitHistoryStore enrichment;
     private CredentialService credentials;
     private CherryPickPreviewService service;
 
@@ -89,7 +89,7 @@ class TestCherryPickPreviewService
         git(clone, "remote", "add", "origin", upstream.toString());
         git(clone, "remote", "add", "fork", fork.toString());
         clock = new MutableClock(NOW);
-        enrichment = mock(RepositoryEnrichmentService.class);
+        enrichment = mock(CommitHistoryStore.class);
         credentials = mock(CredentialService.class);
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection()))
                 .thenReturn(ImmutableMap.of());
@@ -117,7 +117,7 @@ class TestCherryPickPreviewService
         write(upstream, "associated.txt", "associated\n");
         commit(upstream, "Associated change");
         String sha = head(upstream);
-        when(enrichment.findCommits(202, ImmutableList.of(sha))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
+        when(enrichment.findEnrichment(202, ImmutableList.of(sha))).thenReturn(new CommitEnrichmentSnapshot(ImmutableList.of(
                 new CommitEnrichment(
                         202,
                         sha,

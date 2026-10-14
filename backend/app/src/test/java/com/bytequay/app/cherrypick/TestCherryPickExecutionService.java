@@ -31,7 +31,6 @@ import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.agent.spi.AgentUnavailableException;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -55,6 +54,7 @@ import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -142,7 +142,7 @@ class TestCherryPickExecutionService
         when(remoteSources.list(WORKSPACE_ID)).thenReturn(ImmutableList.of(
                 new WorkspaceRemote("origin", "https://github.com/trinodb/trino.git", Role.ORIGIN),
                 new WorkspaceRemote("cork", "https://github.com/cork/trino.git", Role.CUSTOM)));
-        previews = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(RepositoryEnrichmentService.class), credentials, remoteSources, CLOCK, relationships);
+        previews = new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class), credentials, remoteSources, CLOCK, relationships);
         agent = new ScriptedCherryPickAgent(new TestWorktreeService(clone, worktreeParent));
         AgentCapabilities capabilities = new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.CHERRY_PICK), ImmutableSet.of());
         driver = mock(AgentDriver.class);

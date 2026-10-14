@@ -16,7 +16,6 @@ package com.bytequay.app.cherrypick;
 import com.bytequay.app.cherrypick.CherryPickCommitPreview.TargetMatch;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitCommandRunner.Result;
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
 import com.bytequay.app.workspace.WorkspaceRemoteSourceService;
@@ -26,6 +25,7 @@ import com.bytequay.core.cherrypick.CherryPickInvalidRequestException;
 import com.bytequay.core.cherrypick.MergedPullRequestRange;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.base.Ticker;
 import com.google.common.cache.Cache;
 import com.google.common.cache.CacheBuilder;
@@ -76,7 +76,7 @@ public class CherryPickPreviewService
 
     private final GitCommandRunner git;
     private final CherryPickConflictScout conflictScout;
-    private final RepositoryEnrichmentService enrichment;
+    private final CommitHistoryStore enrichment;
     private final CredentialService credentials;
     private final WorkspaceRemoteSourceService remoteSources;
     private final Clock clock;
@@ -86,7 +86,7 @@ public class CherryPickPreviewService
     public CherryPickPreviewService(
             GitCommandRunner git,
             CherryPickConflictScout conflictScout,
-            RepositoryEnrichmentService enrichment,
+            CommitHistoryStore enrichment,
             CredentialService credentials,
             WorkspaceRemoteSourceService remoteSources,
             Clock clock,
@@ -228,7 +228,7 @@ public class CherryPickPreviewService
             return ImmutableMap.of();
         }
         Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
-        enrichment.findCommits(repositoryId.orElseThrow(), range.stream().map(RangeCommit::sha).collect(toImmutableList()))
+        enrichment.findEnrichment(repositoryId.orElseThrow(), range.stream().map(RangeCommit::sha).collect(toImmutableList()))
                 .commits().stream()
                 .filter(value -> value.pullRequestNumber().isPresent())
                 .forEach(value -> associations.put(value.sha(), association(value)));

@@ -13,14 +13,15 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestRefreshService;
+import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.hash.Hashing;
@@ -37,7 +38,9 @@ import java.security.MessageDigest;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -61,7 +64,7 @@ public class WorkspaceRepositoryService
     private static final Duration CODE_FRESHNESS = Duration.ofMinutes(5);
 
     private final WorkspaceStore store;
-    private final RepositoryEnrichmentService enrichment;
+    private final RemoteSourceStore remoteSources;
     private final GitHubAccountClient gitHub;
     private final CredentialService credentials;
     private final Clock clock;
@@ -75,7 +78,7 @@ public class WorkspaceRepositoryService
 
     public WorkspaceRepositoryService(
             WorkspaceStore store,
-            RepositoryEnrichmentService enrichment,
+            RemoteSourceStore remoteSources,
             GitHubAccountClient gitHub,
             CredentialService credentials,
             Clock clock,
@@ -86,7 +89,7 @@ public class WorkspaceRepositoryService
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.store = requireNonNull(store, "store is null");
-        this.enrichment = requireNonNull(enrichment, "enrichment is null");
+        this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
         this.clock = requireNonNull(clock, "clock is null");
@@ -292,7 +295,7 @@ public class WorkspaceRepositoryService
                 workspace.upstreamRepositoryId().isPresent() ? "upstream" : "origin",
                 "origin",
                 workspace.upstreamDefaultBranch().orElse(workspace.defaultBranch()),
-                enrichment.enrichRemoteSources(workspace.id()));
+                enrichRemoteSources(workspace.id()));
     }
 
     /**
@@ -717,4 +720,83 @@ public class WorkspaceRepositoryService
                     workspaceId, rejected.getMessage());
         }
     }
+
+    /**
+     * Attaches stable GitHub identities to custom remotes when the same repository is already watched.
+     * This lookup is local-only; an unknown remote never causes a provider request while History loads.
+     */
+    private List<RemoteSource> enrichRemoteSources(String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        List<KnownRepository> knownRepositories = knownRepositories();
+        ImmutableList.Builder<RemoteSource> result = ImmutableList.builder();
+        for (RemoteSource source : remoteSources.findByWorkspace(workspaceId)) {
+            RemoteSource enriched = enrich(source, knownRepositories);
+            if (!enriched.equals(source)) {
+                remoteSources.save(enriched);
+            }
+            result.add(enriched);
+        }
+        return result.build();
+    }
+
+    private List<KnownRepository> knownRepositories()
+    {
+        List<KnownRepository> repositories = new ArrayList<>();
+        for (Workspace workspace : store.findAllRetained()) {
+            repositories.add(new KnownRepository(workspace.selectedRepositoryId(), workspace.selectedRepository()));
+            workspace.upstreamRepositoryId().ifPresent(repositoryId -> repositories.add(new KnownRepository(repositoryId, workspace.upstreamRepository().orElseThrow())));
+        }
+        return repositories;
+    }
+
+    private static RemoteSource enrich(RemoteSource source, List<KnownRepository> repositories)
+    {
+        if (source.repositoryId().isPresent()) {
+            long repositoryId = source.repositoryId().orElseThrow();
+            return repositories.stream()
+                    .filter(candidate -> candidate.repositoryId() == repositoryId)
+                    .findFirst()
+                    .map(value -> source.withRepositoryIdentity(value.repositoryId(), value.repository()))
+                    .orElse(source);
+        }
+        Optional<KnownRepository> repository = githubRepository(source.url())
+                .flatMap(coordinates -> repositories.stream()
+                        .filter(candidate -> sameRepository(candidate.repository(), coordinates))
+                        .findFirst());
+        return repository
+                .map(value -> source.withRepositoryIdentity(value.repositoryId(), value.repository()))
+                .orElse(source);
+    }
+
+    private static Optional<RepoRef> githubRepository(String url)
+    {
+        try {
+            URI remote = URI.create(url);
+            if (!"https".equalsIgnoreCase(remote.getScheme())
+                    || !"github.com".equalsIgnoreCase(remote.getHost())) {
+                return Optional.empty();
+            }
+            String path = remote.getPath().replaceFirst("^/+", "").replaceFirst("/+$", "");
+            if (path.toLowerCase(Locale.ROOT).endsWith(".git")) {
+                path = path.substring(0, path.length() - 4);
+            }
+            String[] parts = path.split("/");
+            if (parts.length != 2 || parts[0].isBlank() || parts[1].isBlank()) {
+                return Optional.empty();
+            }
+            return Optional.of(RepoRef.of(parts[0], parts[1]));
+        }
+        catch (IllegalArgumentException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static boolean sameRepository(RepoRef left, RepoRef right)
+    {
+        return left.owner().equalsIgnoreCase(right.owner())
+                && left.repo().equalsIgnoreCase(right.repo());
+    }
+
+    private record KnownRepository(long repositoryId, RepoRef repository) {}
 }

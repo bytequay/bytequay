@@ -17,9 +17,9 @@ import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
 import com.bytequay.app.cherrypick.PullRequestAssociation;
 import com.bytequay.app.cherrypick.PullRequestLookupResult;
 import com.bytequay.app.git.GitCommandRunner;
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.domain.CommitEnrichment;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
@@ -54,12 +54,12 @@ public class SelectedCommitPullRequestReader
     private static final Duration METADATA_TIMEOUT = Duration.ofSeconds(2);
     private static final int MAX_METADATA_BYTES = 256;
 
-    private final RepositoryEnrichmentService enrichment;
+    private final CommitHistoryStore enrichment;
     private final GitCommandRunner git;
     private final CherryPickPullRequestLookup lookup;
     private final Clock clock;
 
-    public SelectedCommitPullRequestReader(RepositoryEnrichmentService enrichment, GitCommandRunner git, CherryPickPullRequestLookup lookup, Clock clock)
+    public SelectedCommitPullRequestReader(CommitHistoryStore enrichment, GitCommandRunner git, CherryPickPullRequestLookup lookup, Clock clock)
     {
         this.enrichment = requireNonNull(enrichment, "enrichment is null");
         this.git = requireNonNull(git, "git is null");
@@ -105,7 +105,7 @@ public class SelectedCommitPullRequestReader
             if (committedAt.isEmpty()) {
                 gaps.add("Commit " + sha + " could not be read as one exact, complete local commit; no provider lookup was attempted.");
             }
-            else if (RepositoryEnrichmentService.associationDue(committedAt.orElseThrow(), cached, now)) {
+            else if (CommitEnrichment.associationDue(committedAt.orElseThrow(), cached, now)) {
                 due.add(sha);
             }
         }
@@ -137,7 +137,7 @@ public class SelectedCommitPullRequestReader
     {
         Set<String> selected = ImmutableSet.copyOf(shas);
         Map<String, CommitEnrichment> result = new LinkedHashMap<>();
-        for (CommitEnrichment value : enrichment.findCommits(repositoryId, shas).commits()) {
+        for (CommitEnrichment value : enrichment.findEnrichment(repositoryId, shas).commits()) {
             checkState(value.repositoryId() == repositoryId && selected.contains(value.sha()), "Stored association identity differs from selected repository or commit");
             checkState(result.putIfAbsent(value.sha(), value) == null, "Stored associations contain a duplicate commit");
         }
@@ -187,7 +187,7 @@ public class SelectedCommitPullRequestReader
             return;
         }
         try {
-            enrichment.upsertCommits(ImmutableList.copyOf(updates));
+            enrichment.upsertEnrichment(ImmutableList.copyOf(updates));
             List<String> savedShas = updates.stream().map(CommitEnrichment::sha).collect(toImmutableList());
             Map<String, CommitEnrichment> saved = stored(repositoryId, savedShas);
             checkState(savedShas.stream().allMatch(sha -> Optional.ofNullable(saved.get(sha)).flatMap(CommitEnrichment::associationCheckedAt)

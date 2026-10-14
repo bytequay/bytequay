@@ -19,7 +19,6 @@ import com.bytequay.app.cherrypick.PullRequestLookupResult;
 import com.bytequay.app.cherrypick.PullRequestLookupResult.Association;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot;
 import com.bytequay.app.repository.github.CommitAvatarSnapshot.CommitAvatar;
 import com.bytequay.app.repository.github.GitHubRepoClient;
@@ -36,8 +35,6 @@ import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.store.CommitHistoryStore;
-import com.bytequay.core.store.RemoteSourceStore;
-import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.junit.jupiter.api.BeforeEach;
@@ -89,7 +86,6 @@ class TestCommitHistoryRefresh
     private WorkspaceProvisioningService provisioning;
     private GitBrowseService git;
     private RecordingStore store;
-    private RepositoryEnrichmentService enrichment;
     private CredentialService credentials;
     private GitHubRepoClient gitHub;
     private CherryPickPullRequestLookup pullRequests;
@@ -104,13 +100,12 @@ class TestCommitHistoryRefresh
         provisioning = mock(WorkspaceProvisioningService.class);
         git = mock(GitBrowseService.class);
         store = new RecordingStore();
-        enrichment = new RepositoryEnrichmentService(store, mock(RemoteSourceStore.class), mock(WorkspaceStore.class));
         credentials = mock(CredentialService.class);
         gitHub = mock(GitHubRepoClient.class);
         pullRequests = mock(CherryPickPullRequestLookup.class);
         avatars = mock(AvatarCache.class);
         clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        service = new CommitHistoryService(workspaces, provisioning, git, store, enrichment, credentials, gitHub, pullRequests, avatars, clock, mock(ApplicationContext.class));
+        service = new CommitHistoryService(workspaces, provisioning, git, store, credentials, gitHub, pullRequests, avatars, clock, mock(ApplicationContext.class));
 
         readyWorkspace();
         when(provisioning.synchronizeCode(WORKSPACE_ID))

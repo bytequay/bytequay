@@ -26,7 +26,6 @@ import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentProviderStatus;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.GitSequencerDriver;
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspacePaths;
@@ -43,6 +42,7 @@ import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.UserProfile;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -469,7 +469,7 @@ class TestMergedPullRequestResolver
 
     private CherryPickPreviewService previews()
     {
-        return new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(RepositoryEnrichmentService.class),
+        return new CherryPickPreviewService(GIT, new CherryPickConflictScout(GIT), mock(CommitHistoryStore.class),
                 credentials, remotes, Clock.systemUTC(), mock(WorkspaceRelationships.class));
     }
 

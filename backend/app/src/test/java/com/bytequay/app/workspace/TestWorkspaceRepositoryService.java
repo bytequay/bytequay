@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.workspace;
 
-import com.bytequay.app.repository.RepositoryEnrichmentService;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
@@ -23,6 +22,7 @@ import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.RemoteSourceStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -191,22 +191,22 @@ class TestWorkspaceRepositoryService
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-        RepositoryEnrichmentService enrichment = enrichment();
+        RemoteSourceStore remotes = remoteSources();
         List<Runnable> queued = new ArrayList<>();
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, enrichment, gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remotes, gitHub, credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
         Workspace retired = watch(service, 100);
         Workspace watched = watch(service, 200);
         service.unwatch(retired.id());
         queued.clear();
-        reset(enrichment, gitHub, credentials, provisioning, metadata, refresh);
+        reset(remotes, gitHub, credentials, provisioning, metadata, refresh);
 
         assertThat(service.listRetiredWorkspaces()).containsExactly(WorkspaceSummary.of(retired));
         assertThat(service.listWorkspaces()).containsExactly(WorkspaceSummary.of(watched));
         assertThat(service.getWorkspace(retired.id())).isEqualTo(WorkspaceSummary.of(retired));
         assertThat(store.isWatched(retired.id())).isFalse();
         assertThat(queued).isEmpty();
-        verifyNoInteractions(enrichment, gitHub, credentials, provisioning, metadata, refresh);
+        verifyNoInteractions(remotes, gitHub, credentials, provisioning, metadata, refresh);
 
         store.delete(retired.id());
         assertThat(service.listRetiredWorkspaces()).isEmpty();
@@ -246,7 +246,7 @@ class TestWorkspaceRepositoryService
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         List<Runnable> queued = new ArrayList<>();
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, enrichment(), gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
         Workspace workspace = watch(service, 100);
         service.unwatch(workspace.id());
@@ -333,7 +333,7 @@ class TestWorkspaceRepositoryService
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
-                enrichment(),
+                remoteSources(),
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC),
@@ -371,7 +371,7 @@ class TestWorkspaceRepositoryService
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         List<Runnable> queued = new ArrayList<>();
         AtomicBoolean reject = new AtomicBoolean(rejectInitially);
-        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, enrichment(), gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, remoteSources(), gitHub, credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata,
                 mock(PullRequestRefreshService.class), task -> {
                     if (reject.get()) {
@@ -408,7 +408,7 @@ class TestWorkspaceRepositoryService
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
-                enrichment(),
+                remoteSources(),
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC),
@@ -455,7 +455,7 @@ class TestWorkspaceRepositoryService
         });
         WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
-                enrichment(),
+                remoteSources(),
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC),
@@ -501,7 +501,7 @@ class TestWorkspaceRepositoryService
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         return new WorkspaceRepositoryService(
                 store,
-                enrichment(),
+                remoteSources(),
                 gitHub,
                 credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC),
@@ -512,11 +512,11 @@ class TestWorkspaceRepositoryService
                 Runnable::run);
     }
 
-    private static RepositoryEnrichmentService enrichment()
+    private static RemoteSourceStore remoteSources()
     {
-        RepositoryEnrichmentService enrichment = mock(RepositoryEnrichmentService.class);
-        when(enrichment.enrichRemoteSources(anyString())).thenReturn(ImmutableList.of());
-        return enrichment;
+        RemoteSourceStore remotes = mock(RemoteSourceStore.class);
+        when(remotes.findByWorkspace(anyString())).thenReturn(ImmutableList.of());
+        return remotes;
     }
 
     @Test

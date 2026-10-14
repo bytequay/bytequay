@@ -542,6 +542,43 @@ that a line is safe. Nothing is saved, and only providers, kinds, rule words,
 counts and times are printed: a suggested rule keeps the program, a
 subcommand and flags, and stops at a path, a value, a number or quoted text.
 
+## Suggestions
+
+```sh
+uv run suggest.py
+uv run suggest.py --days 28
+```
+
+`suggest.py` turns what the lab measured into a list of changes to make in
+ByteQuay. Each suggestion says what was seen, what to do, where in ByteQuay to
+do it (a file and a name in it, or a place in the app), how many minutes a
+week it could save at most, and the number to watch once the change is made.
+The list is ranked by those minutes, and one that could save less than two
+minutes a week is left out. It reads the saved tables and the approvals in the
+task logs, and by default only the last 14 days up to the last saved one,
+because an older leak may already be fixed: Codex's escalations, for example,
+go to its own reviewer since 26 Sep 2026 and no longer show a card.
+
+Each suggestion comes from a rule with its limits as named constants:
+
+- a rule that would answer several approval asks of one provider by itself,
+  with the risks of what it lets through;
+- asks that ran out with no answer and ended their turn;
+- a program that failed often for a reason the agent can avoid (no test
+  matched, no output kept, the sandbox, a missing file or path, the network,
+  a timeout), with how much more often under one provider than another; a
+  failing test or a compile error is the work itself and suggests nothing;
+- a first model step of a turn that takes long, turn after turn;
+- short hops from one ByteQuay tool result to the next ByteQuay call;
+- long single runs of one program;
+- review runs ByteQuay had to ask again for a complete report.
+
+The minutes are an upper bound, and what they count is said in each
+suggestion. The list shows what happened, not a measured cause: check a change
+by noting it, in the dashboard or with `digest.py --note`, and watching its
+number. A test checks that every file a suggestion names is still in ByteQuay
+and still holds the name it points to.
+
 ## Synthetic smoke fixture
 
 `fixture/` is a deliberately small example for checking the harness and reading

@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta, timezone
+import getpass
 import io
 import json
 import os
 from pathlib import Path
+import plistlib
 import signal
 import subprocess
 import sys
@@ -11,6 +14,7 @@ import unittest
 from unittest import mock
 
 import batch
+import saved
 from test_run import ANSWER, FAKE
 
 SCRIPT = Path(batch.__file__)
@@ -38,6 +42,20 @@ case = json.loads(pathlib.Path(given["--case"]).read_text())
 judgement = {"case": case["head"], "leads": 1, "verdicts": [{"commentId": 7, "verdict": "FOUND", "leadIds": ["c1"]}], "errors": [], "usage": {}}
 (pathlib.Path(given["--run"]) / "judgement.json").write_text(json.dumps(judgement))
 """
+# A stand-in for the Mac's `security` and `launchctl`, so no test reads the real Keychain or loads a real agent. It notes
+# every call; `security` finds the judge's key only when KEYCHAIN_KEY holds one.
+TOOLS = """#!{python}
+import json, os, pathlib, sys
+tool = pathlib.Path(sys.argv[0]).name
+with open(os.environ["TOOL_CALLS"], "a") as calls:
+    calls.write(json.dumps([tool, *sys.argv[1:]]) + "\\n")
+if tool == "security" and sys.argv[1] == "find-generic-password":
+    if not os.environ.get("KEYCHAIN_KEY"):
+        sys.exit(44)  # what security says when the item is not there
+    print(os.environ["KEYCHAIN_KEY"] if sys.argv[-1] == "-w" else "attributes, and no key")
+if tool == "launchctl" and sys.argv[1] == "bootstrap" and os.environ.get("LAUNCHCTL_FAILS"):
+    sys.exit("Bootstrap failed: 5: Input/output error")
+"""
 
 
 class Experiment(unittest.TestCase):
@@ -47,6 +65,15 @@ class Experiment(unittest.TestCase):
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.folder = Path(directory.name).resolve() / "lab"
+        tools = self.folder.parent / "tools"
+        tools.mkdir()
+        for name in ("security", "launchctl"):
+            (tools / name).write_text(TOOLS.format(python=sys.executable))
+            (tools / name).chmod(0o755)
+        self.calls = self.folder.parent / "calls.jsonl"
+        stand_ins = mock.patch.dict(os.environ, {"PATH": f"{tools}{os.pathsep}{os.environ['PATH']}", "TOOL_CALLS": str(self.calls), "KEYCHAIN_KEY": "", "DEEPSEEK_API_KEY": ""})
+        stand_ins.start()
+        self.addCleanup(stand_ins.stop)
         self.clone = self.folder.parent / "clone"
         self.clone.mkdir()
         for case, head in (("pr-1", "h1"), ("pr-2", "h2")):
@@ -73,6 +100,12 @@ class Experiment(unittest.TestCase):
 
     def states(self):
         return {f"{run.parent.name} {run.name}": batch.state(run) for _, _, run in batch.runs(batch.load(self.folder, "first"))}
+
+    def tool_calls(self, tool):
+        return [call[1:] for call in map(json.loads, self.calls.read_text().splitlines()) if call[0] == tool] if self.calls.exists() else []
+
+    def command(self, *arguments):
+        return subprocess.run([sys.executable, str(SCRIPT), *arguments, "--folder", str(self.folder)], capture_output=True, text=True, stdin=subprocess.DEVNULL)
 
 
 class TestPlan(Experiment):
@@ -163,7 +196,8 @@ class TestExecute(Experiment):
         plan, said = batch.load(self.folder, "first"), []
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}), mock.patch.object(sys, "stdin", io.StringIO()):
             batch.judge(plan, said.append)
-        self.assertEqual(said, ["2 runs are not judged: DEEPSEEK_API_KEY is not set."])  # nobody is there to ask, and a failed run is never judged
+        # No key anywhere and nobody there to ask; a failed run is never judged.
+        self.assertEqual(said, ["2 runs are not judged: there is no key. Store it once with `uv run batch.py --store-key`."])
         with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "another-key"}):
             batch.judge(plan, said.append)
         self.assertEqual(said[1:3], ["good pr-1_rep1: not judged (Set DEEPSEEK_API_KEY to your DeepSeek API key)", "good pr-2_rep1: not judged (Set DEEPSEEK_API_KEY to your DeepSeek API key)"])
@@ -187,6 +221,23 @@ class TestExecute(Experiment):
             batch.judge(plan, said.append)
             kept = os.environ["DEEPSEEK_API_KEY"]
         self.assertEqual((asked.call_count, said[7:], kept), (1, ["good pr-1_rep1: judged", f"Saved to {scores}"], ""))  # asked once, handed to the judge, and not kept by this program
+        # A key in the Keychain judges without asking, also when someone is at the terminal.
+        (self.experiment / "good" / "pr-2_rep1" / "judgement.json").unlink()
+        with (mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "", "KEYCHAIN_KEY": "a-key"}), mock.patch.object(sys, "stdin", mock.Mock(isatty=lambda: True)),
+              mock.patch.object(batch.getpass, "getpass", asked)):
+            batch.judge(plan, said.append)
+        self.assertEqual((said[9:], asked.call_count), (["good pr-2_rep1: judged", f"Saved to {scores}"], 1))
+        self.assertEqual(self.tool_calls("security"), [["find-generic-password", "-s", "ByteQuay Lab DeepSeek", "-w"]] * 3)  # each time no key was in the environment
+
+    def test_a_round_runs_every_case_under_every_setting_once_more(self):
+        self.save(repeats=1, cases=["pr-1"])
+        plan = batch.load(self.folder, "first")
+        self.assertEqual((self.execute(), batch.rounds(plan)), (["completed"] * 2, 1))
+        self.assertEqual(batch.execute(plan, 1, self.said.append, total=batch.rounds(plan) + 1), ["completed"] * 2)
+        self.assertEqual((batch.rounds(plan), self.said[2:], batch.listing(plan)[-1]), (2, ["quick pr-1_rep2: completed", "deep pr-1_rep2: completed"], "4 completed"))
+        (self.experiment / "quick" / "pr-1_rep5").mkdir()  # a round cut short: its other runs are missing, and the rounds between are owed too
+        (self.experiment / "gone" / "pr-1_rep9").mkdir(parents=True)  # a setting no longer in the plan does not count
+        self.assertEqual((batch.rounds(plan), batch.listing(plan)[-1]), (5, "4 completed, 1 interrupted, 5 missing"))
 
 
 class TestLock(Experiment):
@@ -208,6 +259,69 @@ class TestLock(Experiment):
         with self.assertRaises(SystemExit) as stopping:
             batch.stopped()
         self.assertEqual((stopping.exception.code, signal.getsignal(signal.SIGTERM)), (143, signal.SIG_IGN))
+
+
+class TestSchedule(Experiment):
+    def setUp(self):
+        super().setUp()
+        home = mock.patch.dict(os.environ, {"HOME": str(self.folder.parent / "home")})  # where the LaunchAgent goes
+        home.start()
+        self.addCleanup(home.stop)
+        self.agent = self.folder.parent / "home" / "Library" / "LaunchAgents" / "com.bytequay.lab.plist"
+
+    def test_schedule_keeps_one_agent_that_starts_the_due_rounds_every_night(self):
+        done = self.command("first", "--every", "week")
+        chosen = batch.schedule(self.folder)["first"]
+        self.assertEqual((done.returncode, done.stderr, done.stdout), (0, "", f"first gets a new round every week, the first on "
+                                                                            f"{batch.next_round(chosen).astimezone():%Y-%m-%d}, judged with the key in the Keychain.\n"))
+        agent = plistlib.loads(self.agent.read_bytes())
+        self.assertEqual((agent["Label"], agent["ProgramArguments"][1:], agent["StartCalendarInterval"], agent["StandardOutPath"]),
+                         ("com.bytequay.lab", [str(SCRIPT.resolve()), "--due", "--folder", str(self.folder)], {"Hour": 3, "Minute": 0}, str(self.folder / "schedule.log")))
+        self.assertTrue(agent["EnvironmentVariables"]["PATH"].startswith(str(self.folder.parent / "tools")))  # the night finds the command lines where the day did
+        domain = f"gui/{os.getuid()}"
+        self.assertEqual(self.tool_calls("launchctl"), [["bootout", f"{domain}/com.bytequay.lab"], ["bootstrap", domain, str(self.agent)]])
+        done = self.command("first", "--every", "never")
+        self.assertEqual((done.returncode, done.stdout, self.agent.exists(), batch.schedule(self.folder)), (0, "first is not scheduled.\n", False, {}))
+        self.assertEqual(self.tool_calls("launchctl")[2:], [["bootout", f"{domain}/com.bytequay.lab"]])  # and nothing is loaded again
+        refused = self.command("nothing", "--every", "week")
+        self.assertEqual((refused.returncode, self.agent.exists(), batch.schedule(self.folder)), (2, False, {}))  # an experiment that cannot run is not scheduled
+        with mock.patch.dict(os.environ, {"LAUNCHCTL_FAILS": "1"}):
+            failed = self.command("first", "--every", "week")
+        self.assertEqual((failed.returncode, failed.stderr), (1, f"launchctl could not load {self.agent}: Bootstrap failed: 5: Input/output error\n"))
+
+    def test_due_rounds_start_one_after_another_and_are_marked_as_started(self):
+        now = datetime(2026, 10, 21, 3, 0, 5, tzinfo=timezone.utc)
+        ago = lambda length: (now - length).isoformat(timespec="seconds")
+        # Last week's look started half a minute later in the night, and its round is still due. Three days ago is not.
+        kept = {"first": {"every": "week", "last": ago(timedelta(days=7, seconds=-30))}, "gone": {"every": "day", "last": ago(timedelta(days=1))},
+                "later": {"every": "week", "last": ago(timedelta(days=3))}}
+        saved.write(self.folder, "schedule.json", {"version": 1, "experiments": kept})
+        said = []
+        with mock.patch.object(subprocess, "run") as started:
+            batch.run_due(self.folder, now, said.append)
+        self.assertEqual(said, ["2026-10-21 03:00 UTC first: a new round starts",
+                                f"2026-10-21 03:00 UTC gone: not started: {self.folder / 'experiments' / 'gone' / 'plan.json'} is not there"])
+        self.assertEqual([call.args[0][1:] for call in started.call_args_list], [[str(SCRIPT.resolve()), "first", "--folder", str(self.folder), "--round", "--judge"]])
+        self.assertEqual({name: chosen["last"] for name, chosen in batch.schedule(self.folder).items()},
+                         {"first": now.isoformat(timespec="seconds"), "gone": kept["gone"]["last"], "later": kept["later"]["last"]})
+        held = batch.claim(batch.load(self.folder, "first"))
+        self.addCleanup(held.close)
+        saved.write(self.folder, "schedule.json", {"version": 1, "experiments": kept})
+        said.clear()
+        with mock.patch.object(subprocess, "run") as started:
+            batch.run_due(self.folder, now, said.append)
+        self.assertEqual((said[0], started.called), ("2026-10-21 03:00 UTC first: not started: it is running", False))
+
+    def test_key_is_stored_by_the_macs_own_tool_and_the_page_only_asks_whether_it_is_there(self):
+        self.assertEqual(self.command("--store-key").returncode, 0)
+        # -w comes last, so `security` asks for the key itself and the key never passes through the lab.
+        self.assertEqual(self.tool_calls("security"), [["add-generic-password", "-U", "-a", getpass.getuser(), "-s", "ByteQuay Lab DeepSeek", "-w"]])
+        self.assertFalse(batch.has_key())
+        with mock.patch.dict(os.environ, {"KEYCHAIN_KEY": "a-key"}):
+            self.assertTrue(batch.has_key())
+        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "a-key"}):
+            self.assertTrue(batch.has_key())
+        self.assertEqual(self.tool_calls("security")[1:], [["find-generic-password", "-s", "ByteQuay Lab DeepSeek"]] * 2)  # asked whether one is there, never for the key
 
 
 class TestCommandLine(Experiment):
@@ -243,8 +357,10 @@ class TestCommandLine(Experiment):
                          ("claude", ["change.diff", "context.md", "policy.md"]))
         self.assertEqual(self.script().stdout, "2 completed\n")
         judged = self.script("--judge")  # no key and nobody to ask: said, and not an error
-        self.assertEqual((judged.returncode, judged.stdout), (0, "2 runs are not judged: DEEPSEEK_API_KEY is not set.\n2 completed\n"))
+        self.assertEqual((judged.returncode, judged.stdout), (0, "2 runs are not judged: there is no key. Store it once with `uv run batch.py --store-key`.\n2 completed\n"))
         self.assertFalse((self.experiment / "scores.json").exists())  # nothing was judged, so there is nothing to score
+        again = self.script("--round")
+        self.assertEqual((again.returncode, again.stdout), (0, "codex-arm pr-1_rep2: completed\nclaude-arm pr-1_rep2: completed\n4 completed\n"))
 
     def test_stopped_experiment_stops_its_command_lines_and_runs_them_again_next_time(self):
         self.real("slow")

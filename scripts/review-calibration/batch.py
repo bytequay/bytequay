@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Run what is still missing of an experiment: every case of its plan under every setting, as often as the plan says.
-An experiment is a folder that keeps its plan and all of its runs, so it can be stopped, started again and added to."""
+An experiment is a folder that keeps its plan and all of its runs, so it can be stopped, started again and added to.
+A schedule can add a round of runs every day or week by itself."""
 
 from __future__ import annotations
 
@@ -8,12 +9,13 @@ import argparse
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 import contextlib
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import fcntl
 import getpass
 import json
 import os
 from pathlib import Path
+import plistlib
 import re
 import shutil
 import signal
@@ -28,6 +30,11 @@ RUN, JUDGE = Path(__file__).with_name("run.py"), Path(__file__).with_name("judge
 PROVIDERS = ("codex", "claude")
 ENDED = ("completed", "failed", "timed_out", "incomplete_output")
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")  # a setting and a case become folder names
+ROUND = re.compile(r".+_rep(\d+)")
+KEYCHAIN = "ByteQuay Lab DeepSeek"  # the Keychain item that keeps the judge's key
+AGENT = "com.bytequay.lab"  # the one LaunchAgent the lab keeps
+EVERY = {"day": timedelta(days=1), "week": timedelta(weeks=1)}
+EARLY = timedelta(hours=12)  # the nightly look comes at about the same hour each night, so a round is due a little before its time is full
 
 
 def load(folder, name):
@@ -76,10 +83,18 @@ def load(folder, name):
     return {"folder": experiment, "repeats": repeats, "timeout": timeout, "executables": programs, "cases": cases, "settings": made}
 
 
-def runs(plan):
-    """Every run the plan asks for as (setting, case, folder), a case at a time, so a stopped experiment has compared whole cases."""
+def rounds(plan):
+    """How many rounds the experiment has: the plan's repeats, or more once the schedule has added rounds."""
+    return max([plan["repeats"], *(int(found[1]) for setting in plan["settings"] for run in (plan["folder"] / setting["name"]).glob("*_rep*")
+                                   if (found := ROUND.fullmatch(run.name)))])
+
+
+def runs(plan, total=None):
+    """Every run of the experiment's rounds, or of `total` rounds, as (setting, case, folder), a case at a time, so a stopped
+    experiment has compared whole cases."""
+    last = total or rounds(plan)
     for case in plan["cases"]:
-        for repeat in range(1, plan["repeats"] + 1):
+        for repeat in range(1, last + 1):
             for setting in plan["settings"]:
                 yield setting, case, plan["folder"] / setting["name"] / f"{case['name']}_rep{repeat}"
 
@@ -141,9 +156,10 @@ def tell(line):
     print(line, flush=True)  # an experiment runs for hours, often into a file: each line is wanted when it happens
 
 
-def execute(plan, parallel, say=tell):
-    """Run every run that has not ended, `parallel` at a time, and return how each of them ended."""
-    waiting = [(setting, case, run) for setting, case, run in runs(plan) if state(run) not in ENDED]
+def execute(plan, parallel, say=tell, total=None):
+    """Run every run that has not ended, `parallel` at a time, and return how each of them ended. With `total`, the experiment
+    gets that many rounds."""
+    waiting = [(setting, case, run) for setting, case, run in runs(plan, total) if state(run) not in ENDED]
     live = []
 
     def one(setting, case, run):
@@ -174,15 +190,33 @@ def execute(plan, parallel, say=tell):
         pool.shutdown(wait=True)
 
 
+def stored_key():
+    """The judge's key from the Keychain, or None. It goes to the judge alone and is never shown."""
+    found = subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN, "-w"], capture_output=True, text=True)
+    return found.stdout.strip() if found.returncode == 0 and found.stdout.strip() else None
+
+
+def has_key():
+    """Whether the judge has a key without asking anyone. The Keychain is only asked whether it holds one; the key is not read."""
+    return bool(os.environ.get("DEEPSEEK_API_KEY")) or subprocess.run(["security", "find-generic-password", "-s", KEYCHAIN], capture_output=True).returncode == 0
+
+
+def store_key():
+    """Keep the judge's key in the Keychain. The Mac's own tool asks for it, so it never passes through this program."""
+    return subprocess.run(["security", "add-generic-password", "-U", "-a", getpass.getuser(), "-s", KEYCHAIN, "-w"]).returncode
+
+
 def judge(plan, say=tell):
-    """Have the judge score every completed run that has no verdicts yet. The key comes from the environment, or is asked for without being shown or kept."""
+    """Have the judge score every completed run that has no verdicts yet. The key comes from the environment or the Keychain, or
+    is asked for without being shown or kept."""
     waiting = [(case, run) for _, case, run in runs(plan) if state(run) == "completed" and not (run / "judgement.json").exists()]
     environment = dict(os.environ)
     if waiting and not environment.get("DEEPSEEK_API_KEY"):
-        if not sys.stdin.isatty():
-            say(f"{len(waiting)} runs are not judged: DEEPSEEK_API_KEY is not set.")
+        key = stored_key() or (getpass.getpass("DeepSeek API key (not shown, not saved): ") if sys.stdin.isatty() else None)
+        if not key:
+            say(f"{len(waiting)} runs are not judged: there is no key. Store it once with `uv run batch.py --store-key`.")
             return
-        environment["DEEPSEEK_API_KEY"] = getpass.getpass("DeepSeek API key (not shown, not saved): ")
+        environment["DEEPSEEK_API_KEY"] = key
     for case, run in waiting:
         done = subprocess.run([sys.executable, str(JUDGE), "run", "--case", str(case["folder"] / "case.json"), "--run", str(run)], capture_output=True, text=True, env=environment)
         judged = (run / "judgement.json").exists()
@@ -208,8 +242,8 @@ def listing(plan):
 
 def start(plan):
     """Run the experiment apart from this process, as `uv run batch.py NAME --judge` would, and wait until it has claimed the
-    experiment or ended. What it says goes to batch.log beside the plan. It judges only when DEEPSEEK_API_KEY is set where it
-    starts: nobody is there to be asked for the key."""
+    experiment or ended. What it says goes to batch.log beside the plan. It judges only with a key in the Keychain or in
+    DEEPSEEK_API_KEY where it starts: nobody is there to be asked for one."""
     with (plan["folder"] / "batch.log").open("a") as log:
         process = subprocess.Popen([sys.executable, str(Path(__file__).resolve()), plan["folder"].name, "--folder", str(plan["folder"].parents[1]), "--judge"],
                                    stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
@@ -238,16 +272,88 @@ def stopped(*_):
     sys.exit(143)
 
 
+def schedule(folder):
+    """For every scheduled experiment: how often a new round starts and when the last one did."""
+    return (saved.read(folder, "schedule.json") or {}).get("experiments", {})
+
+
+def next_round(chosen):
+    """When the next round of a scheduled experiment is due."""
+    return datetime.fromisoformat(chosen["last"]) + EVERY[chosen["every"]]
+
+
+def launchctl(*arguments):
+    return subprocess.run(["launchctl", *arguments], capture_output=True, text=True)
+
+
+def keep_schedule(folder, kept):
+    """Save the schedule, and make the Mac's own scheduler match it: one LaunchAgent while any experiment is scheduled, none when
+    no experiment is. Every night at three it starts the rounds that are due; a night the Mac slept through counts when it wakes."""
+    saved.write(folder, "schedule.json", {"version": 1, "experiments": kept})
+    agent = Path.home() / "Library" / "LaunchAgents" / f"{AGENT}.plist"
+    launchctl("bootout", f"gui/{os.getuid()}/{AGENT}")  # the copy loaded before, if any
+    if not kept:
+        agent.unlink(missing_ok=True)
+        return
+    agent.parent.mkdir(parents=True, exist_ok=True)
+    agent.write_bytes(plistlib.dumps({"Label": AGENT, "ProgramArguments": [sys.executable, str(Path(__file__).resolve()), "--due", "--folder", str(folder)],
+                                      "StartCalendarInterval": {"Hour": 3, "Minute": 0}, "EnvironmentVariables": {"PATH": os.environ.get("PATH", "")},
+                                      "StandardOutPath": str(folder / "schedule.log"), "StandardErrorPath": str(folder / "schedule.log")}))
+    loaded = launchctl("bootstrap", f"gui/{os.getuid()}", str(agent))
+    if loaded.returncode:
+        raise ValueError(f"launchctl could not load {agent}: {loaded.stderr.strip()}")
+
+
+def run_due(folder, now, say=tell):
+    """Start a new round of every scheduled experiment whose time has come, one after another, each judged and scored."""
+    kept = schedule(folder)
+    for name, chosen in kept.items():
+        if now < next_round(chosen) - EARLY:
+            continue
+        try:
+            plan = load(folder, name)
+        except ValueError as problem:
+            say(f"{now:%Y-%m-%d %H:%M %Z} {name}: not started: {problem}")
+            continue
+        if runner(plan) is not None:
+            say(f"{now:%Y-%m-%d %H:%M %Z} {name}: not started: it is running")
+            continue
+        chosen["last"] = now.isoformat(timespec="seconds")
+        saved.write(folder, "schedule.json", {"version": 1, "experiments": kept})
+        say(f"{now:%Y-%m-%d %H:%M %Z} {name}: a new round starts")
+        subprocess.run([sys.executable, str(Path(__file__).resolve()), name, "--folder", str(folder), "--round", "--judge"], stdin=subprocess.DEVNULL)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("name", help="The experiment: a folder under experiments/ that holds a plan.json")
+    parser.add_argument("name", nargs="?", help="The experiment: a folder under experiments/ that holds a plan.json")
     parser.add_argument("--folder", type=Path, default=saved.FOLDER, help="The lab's folder, which holds experiments/ and cases/")
     parser.add_argument("--list", action="store_true", help="Only say how every run of the plan stands; run nothing")
     parser.add_argument("--parallel", type=int, default=1, help="Runs at the same time")
     parser.add_argument("--judge", action="store_true", help="Afterwards, have the judge score the completed runs that have no verdicts yet")
+    parser.add_argument("--round", action="store_true", help="Add a round: every case under every setting once more")
+    parser.add_argument("--every", choices=[*EVERY, "never"], help="Add a judged round by itself every day or week, from now on; never stops it")
+    parser.add_argument("--due", action="store_true", help="Start the scheduled rounds whose time has come (what the Mac runs every night)")
+    parser.add_argument("--store-key", action="store_true", help="Keep the judge's DeepSeek key in the Keychain; the Mac asks for it")
     args = parser.parse_args()
+    if args.store_key:
+        sys.exit(store_key())
+    if args.due:
+        run_due(args.folder, datetime.now(timezone.utc))
+        return
+    if not args.name:
+        parser.error("name the experiment")
     if args.parallel < 1:
         parser.error("--parallel must be 1 or more")
+    if args.every == "never":
+        kept = schedule(args.folder)
+        kept.pop(args.name, None)
+        try:
+            keep_schedule(args.folder, kept)
+        except ValueError as problem:
+            parser.exit(1, f"{problem}\n")
+        print(f"{args.name} is not scheduled.")
+        return
     try:
         plan = load(args.folder, args.name)
     except ValueError as problem:
@@ -255,13 +361,21 @@ def main():
     if args.list:
         print("\n".join(listing(plan)))
         return
+    if args.every:
+        chosen = {"every": args.every, "last": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        try:
+            keep_schedule(args.folder, {**schedule(args.folder), args.name: chosen})
+        except ValueError as problem:
+            parser.exit(1, f"{problem}\n")
+        print(f"{args.name} gets a new round every {args.every}, the first on {next_round(chosen).astimezone():%Y-%m-%d}, judged with the key in the Keychain.")
+        return
     signal.signal(signal.SIGTERM, stopped)
     try:
         held = claim(plan)
     except ValueError as problem:
         parser.exit(2, f"{problem}\n")
     try:
-        execute(plan, args.parallel)
+        execute(plan, args.parallel, total=rounds(plan) + 1 if args.round else None)
         if args.judge:
             judge(plan)
     except KeyboardInterrupt:

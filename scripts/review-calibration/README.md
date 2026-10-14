@@ -197,16 +197,41 @@ however the process ends, so a file left behind by a crash is not believed.
 The two source trees of a run are removed when it ends; its manifest keeps
 their hashes. `--list` only says how every run stands. `--judge` then scores
 the completed runs that have no verdicts yet: the key is read from
-`DEEPSEEK_API_KEY`, or asked for without being shown or kept when a person is
-at the terminal. `"executables"` in the plan can name the full path of `codex`
-and `claude` for a scheduler that does not know where they are.
+`DEEPSEEK_API_KEY`, then from the Keychain, or asked for without being shown or
+kept when a person is at the terminal. `"executables"` in the plan can name the
+full path of `codex` and `claude` for a scheduler that does not know where they
+are.
 
 The dashboard can do the same with a button: its Reviews tab shows how the
 runs of the experiment you picked stand, and runs and judges what is missing,
 one run at a time, or stops the runs. It starts `batch.py NAME --judge` apart
 from the page, so closing the page does not stop the runs, and what it says
-goes to `batch.log` beside the plan. It judges only when the page was started
-with `DEEPSEEK_API_KEY` set, as nobody is there to be asked for the key.
+goes to `batch.log` beside the plan. It judges only with the key in the
+Keychain or in `DEEPSEEK_API_KEY`, as nobody is there to be asked for it.
+
+### Every week by itself
+
+```sh
+uv run batch.py --store-key
+uv run batch.py NAME --every week
+uv run batch.py NAME --every never
+```
+
+`--store-key` keeps the judge's DeepSeek key in the Mac's Keychain. The Mac's
+own `security` tool asks for it, so the key never passes through the lab.
+`--every week` (or `day`) then adds a round to the experiment by itself, from
+now on: every case under every setting once more, judged with the key from
+the Keychain, and the scores saved again. `--round` adds one round by hand.
+Every round counts in the comparison, so it grows firmer week by week, and
+the runs of each round stay apart in the list of scored runs.
+
+The lab keeps the schedule itself: `schedule.json` in its folder, and one
+LaunchAgent, `~/Library/LaunchAgents/com.bytequay.lab.plist`, which it writes,
+loads and removes. Every night at three the agent runs `batch.py --due`, which
+starts the rounds that are due, one after another; a night the Mac slept
+through counts when it wakes. What they say goes to `schedule.log` in the
+lab's folder. `--every never` for the last scheduled experiment removes the
+agent.
 
 ## Agent activity
 

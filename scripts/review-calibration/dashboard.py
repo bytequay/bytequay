@@ -20,6 +20,7 @@ import batch
 import charts
 import digest
 import ranges
+import record
 import saved
 import suggest
 
@@ -471,9 +472,11 @@ def refresh(folder, runtime):
 
 
 def suggestions(made, table, folder, runtime):
-    """What the lab suggests changing in ByteQuay, each with a button to note the change once it is made, and after that the number to watch."""
+    """What the lab suggests changing in ByteQuay, each with buttons to mark it as being worked on, made or not wanted, and below what became of
+    every suggestion marked or made."""
     st.caption("What to change in ByteQuay, the most time each could save first. They come from every model and repository in the days picked here; the side bar does "
-               f"not apply. Once you have changed ByteQuay, press \"I made this change\": the suggestion then shows its number in the {suggest.BEFORE} days before and in the days since.")
+               f"not apply. Once you have changed ByteQuay, press \"I made this change\": the suggestion then shows its number in the {suggest.BEFORE} days before and in the days "
+               "since, within the same models and efforts. \"Not wanted\" takes a suggestion off the list, with your reason, until you bring it back.")
     look = st.radio("Look at the last", list(LOOKS), index=1, horizontal=True, key="look")
     days = made["turns"]["day"]
     last = days.max()
@@ -494,25 +497,51 @@ def suggestions(made, table, folder, runtime):
     except (OSError, KeyError, TypeError, ValueError):
         noted = []
         st.caption("The noted changes in `changes.json` could not be read.")
+    try:
+        marked = record.marks(folder)
+    except (OSError, KeyError, TypeError, ValueError):
+        marked = {}
+        st.caption("The marks in `record.json` could not be read, so every suggestion is shown as open.")
     asks = read_logs(str(runtime))[0]
     data = suggest.window(made, calls, reviews, asks, first, last)
     listed = suggest.suggestions(data)
-    if not listed:
-        st.caption("Nothing in these days passes the limits for a suggestion.")
-    for place, one in enumerate(listed, 1):
+    shown = [one for one in listed if record.standing(one.title, marked, noted)[0] != "dropped"]
+    if not shown:
+        st.caption("Nothing in these days passes the limits for a suggestion." if not listed else "Every suggestion of these days is marked not wanted.")
+    for place, one in enumerate(shown, 1):
+        state, day, _ = record.standing(one.title, marked, noted)
         with st.container(border=True):
             st.markdown(f"##### {place}. {plain(one.title)}")
             st.caption(f"Could save up to {one.saves:,.1f} minutes a week. Watch: {one.watch}, now {suggest.now(one.measure(data))}.")
             st.markdown(plain(f"Seen: {one.seen}"))
             st.markdown(plain(f"Do: {one.advice}"))
             st.markdown("Where: " + "; ".join(f"`{path}` ({plain(what)})" if path else plain(what) for path, what in one.where))
-            mine = [change for change in noted if change["what"] == one.title]
-            if mine:
-                day = mine[-1]["day"]
-                before, since, turns, moved = suggest.checked(one, made, calls, reviews, asks, day, last)
+            if state == "done":
+                before, since, turns, moved = record.check(one, made, calls, reviews, asks, day, last)
                 st.caption(f"You noted this change on {suggest.said(day)}. {one.watch}: {suggest.number(before)} in the {suggest.BEFORE} days before, "
-                           f"{suggest.number(since)} since, over {activity.count(turns, 'turn')}. {ranges.change_in_words(moved)}")
-            st.button("I changed it again" if mine else "I made this change", key=f"noted_{place}", on_click=digest.note, args=(folder, one.title, date.today()))
+                           f"{suggest.number(since)} since, over {activity.count(turns, 'turn')}. {record.verdict(moved)}")
+            elif state == "doing":
+                st.caption(f"Being worked on since {suggest.said(day)}.")
+            with st.container(horizontal=True):
+                st.button("I changed it again" if state == "done" else "I made this change", key=f"noted_{place}", on_click=digest.note, args=(folder, one.title, date.today()))
+                if state != "done":
+                    st.button("Not working on it" if state == "doing" else "Working on it", key=f"doing_{place}", on_click=record.mark,
+                              args=(folder, one.title, None if state == "doing" else "doing", date.today()))
+                with st.popover("Not wanted"):
+                    st.text_input("Why not", key=f"why_{place}")
+                    st.button("Leave it out", key=f"drop_{place}", on_click=lambda title=one.title, why=f"why_{place}": record.mark(
+                        folder, title, "dropped", date.today(), st.session_state.get(why, "")))
+    kept = record.table(marked, noted, listed, made, calls, reviews, asks, last)
+    if kept:
+        st.markdown("##### What became of them")
+        st.caption("Every suggestion you marked or made. A change that was made is checked by its own number, the seven days before it against the days since, "
+                   "within the same models and efforts. Could save now is empty when the suggestion is no longer listed in the days picked above.")
+        st.dataframe(kept, hide_index=True, column_config={"could save then": st.column_config.NumberColumn(format="%.1f min a week"),
+                                                           "could save now": st.column_config.NumberColumn(format="%.1f min a week"),
+                                                           "before": st.column_config.NumberColumn(format="%.1f"), "after": st.column_config.NumberColumn(format="%.1f")})
+        for index, row in enumerate(kept):
+            if row["stands"].startswith("not wanted"):
+                st.button(f"Bring back: {row['suggestion']}", key=f"back_{index}", on_click=record.mark, args=(folder, row["suggestion"], None, date.today()))
 
 
 def asked(runtime, first, last):

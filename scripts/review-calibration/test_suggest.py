@@ -9,7 +9,6 @@ import unittest
 import activity
 import approvals
 import charts
-import ranges
 import suggest
 
 UTC = timezone.utc
@@ -150,25 +149,13 @@ class TestSuggestions(unittest.TestCase):
         asks = [ask("curl x", seconds=300, outcome="expired", stopped=True), ask("./mvnw -o a", seconds=30), ask("./mvnw -o b", seconds=30)]
         self.assertEqual(titled(suggest.suggestions(data(rows, asks))), [("Make long maven runs shorter", 10.0), ("Make sure an ask is seen before it runs out", 5.0)])
 
-    def test_a_noted_change_is_checked_by_its_number_before_and_since(self):
-        rows = [row(f"2026-01-0{day}T10:00:00Z", long_runs=[("maven", 330.0 if day < 8 else 60.0)]) for day in range(1, 10)]
+    def test_the_number_to_watch_comes_with_its_range_once_enough_tasks_stand_behind_it(self):
+        rows = [row(f"2026-01-0{day}T10:00:00Z", task=f"task-{day}-{one}", long_runs=[("maven", 330.0 + 30 * one)]) for day in range(1, 5) for one in range(3)]
         saved = table(*rows)
-        made, calls = charts.frames(saved, UTC), charts.call_frames(saved)
-        (found,) = suggest.long_runs(suggest.window(made, calls, None, (), date(2026, 1, 1), date(2026, 1, 7), UTC))
-        before, since, turns, moved = suggest.checked(found, made, calls, None, (), date(2026, 1, 8), date(2026, 1, 9), UTC)
-        self.assertEqual((round(before, 6), round(since, 6), turns, moved), (33.0, 6.0, 2, None), "long maven minutes in an agent hour; one task, so no range")
-
-    def test_a_noted_change_says_whether_it_is_clear_once_enough_tasks_stand_on_each_side(self):
-        rows = [row(f"2026-01-0{day}T10:00:00Z", task=f"task-{day}-{one}", long_runs=[("maven", (330.0 + 30 * one) if day < 5 else (40.0 + 10 * one))])
-                for day in range(1, 9) for one in range(3)]
-        saved = table(*rows)
-        made, calls = charts.frames(saved, UTC), charts.call_frames(saved)
-        (found,) = suggest.long_runs(suggest.window(made, calls, None, (), date(2026, 1, 1), date(2026, 1, 4), UTC))
-        before, since, turns, moved = suggest.checked(found, made, calls, None, (), date(2026, 1, 5), date(2026, 1, 8), UTC)
-        self.assertEqual((round(before, 6), round(since, 6), turns), (36.0, 5.0, 12))
-        self.assertTrue(ranges.clear(moved) and moved[1] < 0, moved)
-        self.assertTrue(suggest.render([found], suggest.window(made, calls, None, (), date(2026, 1, 1), date(2026, 1, 4), UTC), date(2026, 1, 1), date(2026, 1, 4))
-                        .endswith("now 36.0 (34.8 to 37.5)"), "twelve tasks of 33, 36 and 39 an hour: the range is narrower than one task to the next")
+        window = suggest.window(charts.frames(saved, UTC), charts.call_frames(saved), None, (), date(2026, 1, 1), date(2026, 1, 4), UTC)
+        (found,) = suggest.long_runs(window)
+        self.assertTrue(suggest.render([found], window, date(2026, 1, 1), date(2026, 1, 4)).endswith("now 36.0 (34.8 to 37.5)"),
+                        "twelve tasks of 33, 36 and 39 an hour: the range is narrower than one task to the next")
 
     def test_every_place_named_is_still_in_bytequay(self):
         if not (ROOT / "backend").is_dir():

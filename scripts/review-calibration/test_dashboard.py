@@ -556,9 +556,31 @@ class Page(unittest.TestCase):
         page.button(key="noted_1").click().run()
         self.assertEqual(json.loads((self.folder / "changes.json").read_text())["changes"], [{"day": date.today().isoformat(), "what": "Make long maven runs shorter"}])
         self.assertIn(f"You noted this change on {suggest.said(date.today())}. long maven minutes in an agent hour: - in the 7 days before, - since, over 0 turns. "
-                      "Too few tasks on one side to tell whether it changed.",
+                      "Too few tasks of one model and effort on both sides to tell yet.",
                       captions(page))
         self.assertEqual([button.label for button in page.button if button.key == "noted_1"], ["I changed it again"])
+        self.assertEqual([button.key for button in page.button if button.key == "doing_1"], [])  # made, so no longer being worked on
+        self.assertEqual(page.dataframe[0].value[["suggestion", "stands"]].values.tolist(), [["Make long maven runs shorter", "made"]])
+
+    def test_suggestions_tab_marks_one_as_being_worked_on_or_not_wanted_and_brings_it_back(self):
+        self.save_turns(test_suggest.row("2026-01-11T12:00:00Z", seconds=1200.0, long_runs=[("maven", 900.0)]))
+        page = self.page()
+        page.button(key="doing_1").click().run()
+        self.assertEqual(json.loads((self.folder / "record.json").read_text())["suggestions"],
+                         [{"title": "Make long maven runs shorter", "state": "doing", "day": date.today().isoformat(), "reason": ""}])
+        self.assertIn(f"Being worked on since {suggest.said(date.today())}.", captions(page))
+        self.assertEqual([button.label for button in page.button if button.key == "doing_1"], ["Not working on it"])
+        page.button(key="doing_1").click().run()
+        self.assertEqual(([button.label for button in page.button if button.key == "doing_1"], json.loads((self.folder / "record.json").read_text())["suggestions"]),
+                         (["Working on it"], []))
+        page.text_input(key="why_1").input("  the agent needs the full build ").run()
+        page.button(key="drop_1").click().run()
+        self.assertEqual([text.value for text in page.markdown if text.value.startswith("##### 1.")], [])  # no longer listed
+        self.assertIn("Every suggestion of these days is marked not wanted.", captions(page))
+        self.assertEqual(page.dataframe[0].value[["suggestion", "stands"]].values.tolist(), [["Make long maven runs shorter", "not wanted: the agent needs the full build"]])
+        page.button(key="back_0").click().run()
+        self.assertEqual(([text.value for text in page.markdown if text.value.startswith("##### 1.")], json.loads((self.folder / "record.json").read_text())["suggestions"]),
+                         (["##### 1. Make long maven runs shorter"], []))
 
     def test_suggestions_tab_with_nothing_to_suggest_says_so(self):
         self.save()

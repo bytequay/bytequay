@@ -313,15 +313,6 @@ def suggestions(data):
     return sorted((one for one in made if one.saves >= MIN_WEEKLY), key=lambda one: (-one.saves, one.title))
 
 
-def checked(suggestion, made, calls, reviews, asks, day, last, zone=None):
-    """The number to watch in the days before a change was noted and in the days since, as (before, since, turns since, where the change
-    could lie). The change is None when either side has too few tasks to tell."""
-    before = window(made, calls, reviews, asks, day - timedelta(days=BEFORE), day - timedelta(days=1), zone)
-    since = window(made, calls, reviews, asks, day, last, zone)
-    first, second = suggestion.measure(before), suggestion.measure(since)
-    return value(first), value(second), len(since.made["turns"]), ranges.change(first, second)
-
-
 def value(measure):
     return None if measure is None else measure.value()
 

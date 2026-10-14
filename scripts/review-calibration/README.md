@@ -499,7 +499,15 @@ could save first, each with the numbers seen, what to do, where in ByteQuay,
 and the number to watch. "I made this change" notes the change in
 `changes.json` under the suggestion's title, as `digest.py --note` does; from
 then on the suggestion shows its number in the seven days before that day and
-in the days since. The Approvals tab is the page form of `approvals.py`: what
+in the days since, within the same models and efforts, and says whether the
+change helped, made it worse or is not clear yet. "Working on it" and "Not
+wanted" (with a reason) mark a suggestion in `record.json` in the folder; one
+not wanted leaves the list until "Bring back". "What became of them" lists
+every suggestion marked or made: where it stands, the minutes a week it could
+save when it was made and now, and for a change that was made, its number
+before and after and what the change did. That check takes the suggestion as
+it stood in the 14 days before the change, so a suggestion that no longer
+shows because the change worked is still checked. The Approvals tab is the page form of `approvals.py`: what
 was asked, the rules the asked commands need, and a test of rules picked from
 that table or written by hand, with the asks they answer, the minutes and turn
 endings they save, the risks among them, and how many of all commands run
@@ -749,7 +757,9 @@ number. A test checks that every file a suggestion names is still in ByteQuay
 and still holds the name it points to.
 
 The number to watch comes with its range, and once a change is noted the
-dashboard says whether it went up or down clearly or is not clear yet.
+dashboard says whether the change helped, made it worse or is not clear yet,
+comparing like with like (see Ranges). Every number a suggestion watches is
+better lower.
 
 ## Ranges
 

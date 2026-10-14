@@ -48,6 +48,7 @@ export async function run() {
   };
   const make = (id: string, kind: AppNotice['kind']): AppNotice => ({ id, kind, taskId: id, workspaceId: 'workspace', turnId: 'turn', reviewId: null,
     title: kind === 'QUESTION' ? 'Improve task recovery' : 'Review the settings screen',
+    pullRequestTitle: null, changeSummary: null,
     message: kind === 'QUESTION' ? 'Should interrupted tasks resume automatically?' : 'The latest response is ready to read.',
     laneId: 'codex', repository: 'bytequay/bytequay', occurredAt: new Date().toISOString() });
   const originalTimeout = window.setTimeout.bind(window);
@@ -73,6 +74,18 @@ export async function run() {
     const front = host.querySelector<HTMLElement>('.app-notice:not(.is-preview)');
     const preview = host.querySelector<HTMLElement>('.app-notice.is-preview');
     assert(front && preview && preview.inert, 'The covered preview has no hidden keyboard targets');
+    assert(front.querySelector('h2')?.textContent === 'Review the settings screen' && !front.querySelector('.app-notice__changes'),
+      'Tasks without PR context keep their title and omit change counts');
+    const pullRequestTitle = 'Improve recovery when interrupted tasks resume with queued messages and pending approval requests across repositories';
+    state = { ...state, notices: [{ ...state.notices[0], title: 'Review bytequay/bytequay#42', pullRequestTitle,
+      changeSummary: '2 commits · 3 files · +42 / −12 lines' }, ...state.notices.slice(1)] }; listener(state); await wait();
+    assert(front.querySelector('h2')?.textContent === pullRequestTitle && front.textContent?.includes('Review bytequay/bytequay#42'),
+      'Review cards show both the PR title and its identity');
+    assert(front.querySelector('.app-notice__changes')?.textContent === '2 commits · 3 files · +42 / −12 lines', 'Review cards show compact change counts');
+    const heading = front.querySelector('h2'); assert(heading, 'Review title missing');
+    assert(heading.title === pullRequestTitle && heading.getBoundingClientRect().height <= parseFloat(getComputedStyle(heading).lineHeight) * 2 + 1,
+      'Long PR titles stay within two lines and retain the full title on hover');
+    assert(front.scrollWidth === front.clientWidth, 'Review context stays inside the narrow card');
     const frontRect = front.getBoundingClientRect(); const previewRect = preview.getBoundingClientRect();
     assert(frontRect.top > previewRect.top && frontRect.top < previewRect.bottom && previewRect.left > frontRect.left,
       'The second card peeks out behind the front card');

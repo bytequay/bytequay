@@ -16,7 +16,7 @@ export const NOTICE_WIDTH = 340;
 export type NoticeKind = typeof NOTICE_KINDS[number];
 export type AppNotice = {
   id: string; kind: NoticeKind; taskId: string; workspaceId: string; turnId: string | null; reviewId: string | null;
-  title: string; message: string; repository: string; laneId: string; occurredAt: string;
+  title: string; pullRequestTitle: string | null; changeSummary: string | null; message: string; repository: string; laneId: string; occurredAt: string;
 };
 export type NoticeSnapshot = { notices: AppNotice[]; popupIds: string[]; viewedIds: string[]; active: boolean; maxHeight: number };
 export type AppNoticeBounds = { x: number; y: number; width: number; height: number } | null;
@@ -48,8 +48,12 @@ export function parseNotices(value: unknown): AppNotice[] {
     for (const key of ['turnId', 'reviewId']) {
       if (item[key] !== null && (typeof item[key] !== 'string' || !(item[key] as string).trim() || (item[key] as string).length > 200)) throw new Error('Invalid notice identity');
     }
+    for (const key of ['pullRequestTitle', 'changeSummary']) {
+      if (item[key] !== null && (typeof item[key] !== 'string' || !(item[key] as string).trim() || (item[key] as string).length > 1000)) throw new Error('Invalid notice context');
+    }
     return { id: item.id, kind: item.kind, taskId: item.taskId, workspaceId: item.workspaceId, turnId: item.turnId, reviewId: item.reviewId,
-      title: item.title, message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt } as AppNotice;
+      title: item.title, pullRequestTitle: item.pullRequestTitle, changeSummary: item.changeSummary,
+      message: item.message, repository: item.repository, laneId: item.laneId, occurredAt: item.occurredAt } as AppNotice;
   });
 }
 

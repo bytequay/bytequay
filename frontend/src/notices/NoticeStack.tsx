@@ -37,14 +37,17 @@ function NoticeCard({ notice, active, popup, preview, onDismiss, onClose, onOpen
   const provider = notice.laneId.startsWith('claude') ? 'Claude' : notice.laneId.startsWith('codex') ? 'Codex' : notice.laneId;
   const source = `${provider} · ${notice.repository}`;
   return <article className={`app-notice is-${notice.kind.toLowerCase()}${preview ? ' is-preview' : ''}`} inert={preview} aria-hidden={preview || undefined}
-    aria-label={`${NOTICE_LABELS[notice.kind]}: ${notice.title}`}
+    aria-label={`${NOTICE_LABELS[notice.kind]}: ${notice.title}${notice.pullRequestTitle ? `: ${notice.pullRequestTitle}` : ''}`}
     onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}
     onFocusCapture={() => setFocused(true)} onBlurCapture={event => { if (!event.currentTarget.contains(event.relatedTarget)) setFocused(false); }}>
     <div className="app-notice__head"><span className="app-notice__icon"><Icon size={16} aria-hidden="true" /></span>
       <span>{NOTICE_LABELS[notice.kind]}</span><span className="app-notice__spacer" />
       <button type="button" className="app-notice__close" aria-label={`Close ${NOTICE_LABELS[notice.kind].toLowerCase()} notification`} onClick={onClose}><X size={14} /></button>
     </div>
-    <h2 title={notice.title}>{notice.title}</h2><p title={notice.message}>{notice.message}</p>
+    <h2 title={notice.pullRequestTitle ?? notice.title}>{notice.pullRequestTitle ?? notice.title}</h2>
+    {notice.pullRequestTitle && <div className="app-notice__meta" title={notice.title}>{notice.title}</div>}
+    {notice.changeSummary && <p className="app-notice__changes" title={notice.changeSummary}>{notice.changeSummary}</p>}
+    <p title={notice.message}>{notice.message}</p>
     <div className="app-notice__meta" title={source}>{source}</div>
     <div className="app-notice__actions"><button type="button" onClick={onOpen}>{ACTIONS[notice.kind]}</button>
       {needsAction(notice) && <span>Needs your attention</span>}</div>
@@ -69,7 +72,7 @@ export default function NoticeStack({ bridge = window.noticeBridge }: { bridge?:
     const update = (next: NoticeSnapshot) => {
       if (!active) return;
       const added = next.notices.filter(item => next.popupIds.includes(item.id) && !prior.has(item.id));
-      if (next.active && added.length) setAnnouncement(added.map(item => `${NOTICE_LABELS[item.kind]}: ${item.title}`).join('. '));
+      if (next.active && added.length) setAnnouncement(added.map(item => `${NOTICE_LABELS[item.kind]}: ${item.title}${item.pullRequestTitle ? `: ${item.pullRequestTitle}` : ''}`).join('. '));
       prior = new Set(next.popupIds);
       setState(next);
       if (next.notices.length === 0) { setExpanded(false); setFolded(false); setError(null); }

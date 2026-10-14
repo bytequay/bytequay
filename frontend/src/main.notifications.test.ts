@@ -116,7 +116,7 @@ async function start(): Promise<void> {
 
 it('reads only task notices and opens the matching task', async () => {
   const task: AppNotice = { id: 'question', kind: 'QUESTION', taskId: 'task', workspaceId: 'workspace', turnId: 'turn', reviewId: null,
-    repository: 'owner/repo', laneId: 'codex', title: 'A question', message: 'Please answer', occurredAt: '2026-10-12T00:00:00Z' };
+    repository: 'owner/repo', laneId: 'codex', title: 'A question', pullRequestTitle: null, changeSummary: null, message: 'Please answer', occurredAt: '2026-10-12T00:00:00Z' };
   const fetcher = vi.fn(async (url: string) => new Response(JSON.stringify(url.endsWith('/agent/notices') ? [task] : [])));
   vi.stubGlobal('fetch', fetcher);
   await start();
@@ -133,7 +133,8 @@ it('reads only task notices and opens the matching task', async () => {
 it('opens completed reviews through their review route and checks their task and workspace', async () => {
   const review = reviewFixture();
   const notice: AppNotice = { id: 'review-finished', kind: 'TURN_FINISHED', taskId: review.task.id, workspaceId: review.workspaceId,
-    turnId: 'turn', reviewId: review.id, repository: review.repo, laneId: 'codex', title: 'Review finished', message: 'Ready', occurredAt: '2026-10-12T00:00:00Z' };
+    turnId: 'turn', reviewId: review.id, repository: review.repo, laneId: 'codex', title: 'Review finished', pullRequestTitle: 'Improve recovery',
+    changeSummary: '2 commits · 3 files · +42 / −12 lines', message: 'Ready', occurredAt: '2026-10-12T00:00:00Z' };
   const fetcher = vi.fn(async () => new Response(JSON.stringify(review)));
   vi.stubGlobal('fetch', fetcher);
   await start();

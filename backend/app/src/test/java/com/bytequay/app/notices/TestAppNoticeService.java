@@ -41,10 +41,14 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEventSource;
 import com.bytequay.agent.spi.ProviderApprovalRequest;
 import com.bytequay.agent.spi.ProviderTurnRef;
+import com.bytequay.core.domain.DiffFile;
+import com.bytequay.core.domain.PullRequest;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.AgentReviewStore;
+import com.bytequay.core.review.ReviewCommit;
 import com.bytequay.core.review.ReviewRun;
 import com.bytequay.core.review.ReviewStep;
+import com.bytequay.core.store.PullRequestStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -71,7 +75,8 @@ class TestAppNoticeService
     private final AgentApprovalStore approvals = mock(AgentApprovalStore.class);
     private final QueuedInputStore queues = mock(QueuedInputStore.class);
     private final AgentReviewStore reviews = mock(AgentReviewStore.class);
-    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, new ObjectMapper());
+    private final PullRequestStore pullRequests = mock(PullRequestStore.class);
+    private final AppNoticeService service = new AppNoticeService(tasks, turns, approvals, queues, reviews, pullRequests, new ObjectMapper());
     private final AgentTask task = AgentTask.created(TaskId.random(), Optional.of("workspace"), true, "Fix recovery", new AgentLaneId("codex"),
             new RepositoryIdentity("owner", "repo"), Path.of("/tmp/notice-worktree"), AgentTaskDefaults.forPermission(AgentPermissionPolicy.AUTO), NOW);
 
@@ -84,6 +89,9 @@ class TestAppNoticeService
             assertThat(notice.kind()).isEqualTo(AppNotice.Kind.TURN_FINISHED);
             assertThat(notice.turnId()).contains(turn.id().toString());
             assertThat(notice.reviewId()).isEmpty();
+            assertThat(notice.title()).isEqualTo(task.title());
+            assertThat(notice.pullRequestTitle()).isEmpty();
+            assertThat(notice.changeSummary()).isEmpty();
         });
         show(task.withDevelopmentContinuation(true, NOW), turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
         assertThat(service.current()).isEmpty();
@@ -172,10 +180,15 @@ class TestAppNoticeService
     void includesReviewTasksAndRoutesTheirCompletionAndRequestsToTheReview()
     {
         AgentTask reviewer = AgentTask.created(TaskId.random(), task.workspaceId(), false, "Review owner/repo#42", task.laneId(),
-                task.repository(), task.worktree(), task.defaults(), NOW);
+                new RepositoryIdentity("fork-owner", "repo"), task.worktree(), task.defaults(), NOW);
         AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(42), OptionalLong.empty(), reviewer.id().toString(),
                 Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
+        PullRequest pullRequest = new PullRequest(123, "owner/repo", 42, "Improve  recovery\nfor interrupted tasks", "author", "https://github.com/owner/repo/pull/42",
+                NOW, NOW, PullRequest.Origin.OTHER, ImmutableList.of(), ImmutableMap.of(), false, null, null, null, ImmutableList.of(), null, 0, 0, 0,
+                "open", null, null, null, null, null, null, null, null, null, null);
+        when(pullRequests.findIdByRepoAndNumber("owner/repo", 42)).thenReturn(Optional.of(123L));
+        when(pullRequests.findById(123L)).thenReturn(Optional.of(pullRequest));
         AgentTurn turn = AgentTurn.accepted(TurnId.random(), reviewer.id(), "review-input", SETTINGS, NOW)
                 .markDeliveryStarted(NOW).running(new ProviderTurnRef("review-turn"), Optional.empty());
         show(reviewer, turn.finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10)));
@@ -183,15 +196,48 @@ class TestAppNoticeService
             assertThat(notice.kind()).isEqualTo(AppNotice.Kind.TURN_FINISHED);
             assertThat(notice.taskId()).isEqualTo(reviewer.id().toString());
             assertThat(notice.reviewId()).contains(review.id());
+            assertThat(notice.title()).isEqualTo("Review owner/repo#42");
+            assertThat(notice.pullRequestTitle()).contains("Improve recovery for interrupted tasks");
+            assertThat(notice.changeSummary()).isEmpty();
         });
         show(reviewer, turn);
         approval(turn, ImmutableList.of("AskUserQuestion"), "");
         assertThat(service.current()).singleElement().satisfies(notice -> {
             assertThat(notice.kind()).isEqualTo(AppNotice.Kind.QUESTION);
             assertThat(notice.reviewId()).contains(review.id());
+            assertThat(notice.pullRequestTitle()).contains("Improve recovery for interrupted tasks");
+        });
+        when(pullRequests.findById(123L)).thenReturn(Optional.empty());
+        assertThat(service.current()).singleElement().satisfies(notice -> {
+            assertThat(notice.title()).isEqualTo("Review owner/repo#42");
+            assertThat(notice.pullRequestTitle()).isEmpty();
         });
         when(reviews.listOpenReviews()).thenReturn(ImmutableList.of());
         assertThat(service.current()).isEmpty();
+    }
+
+    @Test
+    void summarizesTheLatestReviewScopeWithCommitFileAndLineCounts()
+    {
+        AgentReview review = new AgentReview("review", "workspace", "owner/repo", OptionalInt.of(42), OptionalLong.empty(), task.id().toString(),
+                Optional.empty(), AgentReview.State.OPEN, false, Optional.empty(), Optional.empty(), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        when(reviews.listOpenReviews()).thenReturn(ImmutableList.of(review));
+        AgentTurn done = turn().finish(TurnState.COMPLETED, AgentMetrics.empty(), Optional.empty(), NOW.plusSeconds(10));
+        show(task, done);
+        ReviewRun full = new ReviewRun("full", review.id(), 1, ReviewRun.Scope.FULL, "main", "base", "base", "head", Optional.empty(),
+                ImmutableList.of(new ReviewCommit("a", "First", "author"), new ReviewCommit("b", "Second", "author")),
+                ImmutableList.of(new DiffFile("a.java", "modified", 30, 8, null), new DiffFile("b.java", "modified", 12, 4, null)),
+                ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
+                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
+        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(full));
+        assertThat(service.current()).singleElement().extracting(AppNotice::changeSummary).isEqualTo(Optional.of("2 commits · 2 files · +42 / −12 lines"));
+
+        ReviewRun update = new ReviewRun("update", review.id(), 2, ReviewRun.Scope.INCREMENTAL, "main", "base", "base", "head", Optional.of("prior"),
+                ImmutableList.of(new ReviewCommit("c", "Rename image", "author")), ImmutableList.of(new DiffFile("image.png", "renamed", 0, 0, null)),
+                ImmutableList.of(done.id().toString()), ReviewRun.State.ACCEPTED, Optional.empty(), Optional.empty(), Optional.empty(), ImmutableList.of(), false,
+                ImmutableMap.of(), ImmutableMap.of(), Optional.empty(), 0, NOW, NOW, Optional.of(NOW));
+        when(reviews.listRuns(review.id())).thenReturn(ImmutableList.of(update, full));
+        assertThat(service.current()).singleElement().extracting(AppNotice::changeSummary).isEqualTo(Optional.of("Update · 1 commit · 1 file · +0 / −0 lines"));
     }
 
     @Test

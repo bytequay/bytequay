@@ -25,6 +25,8 @@ public record AppNotice(
         Optional<String> turnId,
         Optional<String> reviewId,
         String title,
+        Optional<String> pullRequestTitle,
+        Optional<String> changeSummary,
         String message,
         String repository,
         String laneId,

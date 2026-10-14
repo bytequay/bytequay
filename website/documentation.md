@@ -403,6 +403,8 @@ inspection; it is not automatically resent.
 App notices stack in the bottom-right corner when a development or review task finishes a turn,
 asks a question, requests approval, fails, or has queued messages paused. Choose
 the card’s button to open that task or review conversation and close the card.
+Review cards include the PR title, commit and file counts, and added and deleted
+lines when available. Counts reflect the latest review run; **Update** marks changes since the prior review.
 Reviews wait until the full review run settles before showing a completion notice;
 automatic follow-up steps stay quiet. Questions, approvals, and failures still notify you.
 While you’re viewing a task or review in the active ByteQuay window, its notices

@@ -23,7 +23,6 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TaskState;
 import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.app.ByteQuayApplication;
-import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiBaseSynchronization;
 import com.bytequay.app.ci.CiGitInspection;
@@ -40,6 +39,7 @@ import com.bytequay.app.ci.RoutedGitCommandRunner;
 import com.bytequay.app.ci.SynchronizeCiBaseCommand;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.web.agent.AgentRequestFilter;
@@ -81,6 +81,9 @@ import static com.google.common.base.Preconditions.checkState;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 @Execution(ExecutionMode.SAME_THREAD)
 class TestCiAutofixRestartEndToEnd
@@ -166,7 +169,7 @@ class TestCiAutofixRestartEndToEnd
                 Optional.of(scripts),
                 false)) {
             CiAutofixService service = second.getBean(CiAutofixService.class);
-            CiAutofixMonitorTestDriver monitor = second.getBean(CiAutofixMonitorTestDriver.class);
+            WorkflowMonitorJob monitor = second.getBean(WorkflowMonitorJob.class);
             CiAutofixRun finished = driveUntilFinished(service, monitor, runId, 10);
             PrDetailStore details = second.getBean(PrDetailStore.class);
             AgentTaskService tasks = second.getBean(AgentTaskService.class);
@@ -212,8 +215,8 @@ class TestCiAutofixRestartEndToEnd
                     .collect(toImmutableList());
             assertThat(timelineKeys).containsExactly(finished.attempts().getFirst().timelineEventKey().orElseThrow());
             var checkedAt = finished.finalFixupCheck().orElseThrow().checkedAt();
-            monitor.tick();
-            monitor.tick();
+            monitor.monitorCiAutofix();
+            monitor.monitorCiAutofix();
             CiAutofixRun unchanged = service.get(runId);
 
             assertThat(unchanged.finalFixupCheck().orElseThrow().checkedAt()).isEqualTo(checkedAt);
@@ -255,7 +258,7 @@ class TestCiAutofixRestartEndToEnd
                 mvc,
                 context.getBean(ObjectMapper.class),
                 context.getBean(CiAutofixService.class),
-                context.getBean(CiAutofixMonitorTestDriver.class),
+                context.getBean(WorkflowMonitorJob.class),
                 scripts.gitHub(),
                 scripts.agent(),
                 context.getBean(AgentTaskService.class),
@@ -272,24 +275,24 @@ class TestCiAutofixRestartEndToEnd
     private static CiAutofixRun driveUntilRemoteContainsJournal(ConfigurableApplicationContext context, E2eGitRepository repository, CiAutofixRunId runId, int maximumTicks)
     {
         CiAutofixService service = context.getBean(CiAutofixService.class);
-        CiAutofixMonitorTestDriver monitor = context.getBean(CiAutofixMonitorTestDriver.class);
+        WorkflowMonitorJob monitor = context.getBean(WorkflowMonitorJob.class);
         CiAutofixRun run = service.get(runId);
         for (int tick = 0; tick < maximumTicks; tick++) {
             if (run.pushJournal().isPresent()
                     && repository.remoteHead().equals(run.pushJournal().orElseThrow().localHeadSha())) {
                 return run;
             }
-            monitor.tick();
+            monitor.monitorCiAutofix();
             run = service.get(runId);
         }
         throw new AssertionError("Push did not reach the remote with its journal retained: " + run);
     }
 
-    private static CiAutofixRun driveUntilFinished(CiAutofixService service, CiAutofixMonitorTestDriver monitor, CiAutofixRunId runId, int maximumTicks)
+    private static CiAutofixRun driveUntilFinished(CiAutofixService service, WorkflowMonitorJob monitor, CiAutofixRunId runId, int maximumTicks)
     {
         CiAutofixRun run = service.get(runId);
         for (int tick = 0; tick < maximumTicks && run.status() != CiAutofixRun.Status.FINISHED; tick++) {
-            monitor.tick();
+            monitor.monitorCiAutofix();
             run = service.get(runId);
         }
         assertThat(run.status()).isEqualTo(CiAutofixRun.Status.FINISHED);
@@ -347,17 +350,15 @@ class TestCiAutofixRestartEndToEnd
             context.registerBean(
                     "restartWorkspaceProvisioningService",
                     WorkspaceProvisioningService.class,
-                    () -> new WorkspaceProvisioningService()
-                    {
-                        @Override
-                        public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
-                        {
+                    () -> {
+                        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+                        when(provisioning.synchronizeCode(anyString())).thenAnswer(invocation -> {
                             WorkspaceStore store = context.getBean(WorkspaceStore.class);
-                            return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow(), ImmutableSet.of());
-                        }
+                            return WorkspaceCodeSyncResult.success(store.findById(invocation.getArgument(0)).orElseThrow(), ImmutableSet.of());
+                        });
+                        return provisioning;
                     },
                     bean -> bean.setPrimary(true));
-            context.registerBean(CiAutofixMonitorTestDriver.class);
             if (losePushResult) {
                 context.registerBean(LostPushCiGitService.class, () -> new LostPushCiGitService(context.getBean(CiGitOperations.class)), bean -> bean.setPrimary(true));
             }

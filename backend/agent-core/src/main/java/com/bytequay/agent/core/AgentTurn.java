@@ -18,6 +18,8 @@ import com.bytequay.agent.spi.DevelopmentResultReport;
 import com.bytequay.agent.spi.ProviderAgentEvent.PlanItem;
 import com.bytequay.agent.spi.ProviderTurnRef;
 import com.google.common.collect.ImmutableList;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +31,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record AgentTurn(
         TurnId id,
         TaskId taskId,
@@ -141,18 +144,13 @@ public record AgentTurn(
         checkState(startedAt.isPresent(), "provider delivery has not started");
         checkState(settings.isPresent(), "accepted turn has no settings snapshot");
         checkArgument(providerModel.isEmpty() || settings.orElseThrow().model().equals(providerModel), "provider model does not match the accepted turn settings");
-        return copy(
-                TurnState.RUNNING,
-                version,
-                startedAt,
-                Optional.empty(),
-                cancellationRequestedAt,
-                Optional.of(reference),
-                knownUnsent,
-                providerModel,
-                Optional.empty(),
-                failureKind,
-                metrics);
+        return toBuilder()
+                .state(TurnState.RUNNING)
+                .endedAt(Optional.empty())
+                .providerTurnReference(Optional.of(reference))
+                .model(providerModel)
+                .terminalReason(Optional.empty())
+                .build();
     }
 
     public AgentTurn markDeliveryStarted(Instant now)
@@ -161,16 +159,14 @@ public record AgentTurn(
         requireNonNull(now, "now is null");
         checkState(startedAt.isEmpty(), "provider delivery already started");
         checkArgument(!now.isBefore(createdAt), "delivery start is before turn acceptance");
-        return copy(state, version, Optional.of(now), endedAt, cancellationRequestedAt, providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
+        return toBuilder().startedAt(Optional.of(now)).build();
     }
 
     /** The repository guideline files and memories that go with this turn's provider input, recorded when its delivery starts. */
     public AgentTurn withReference(List<String> guidelinePaths, List<TurnMemory> deliveredMemories)
     {
         requireState(TurnState.ACCEPTED);
-        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, developmentOrigin, plan, guidelinePaths,
-                deliveredMemories);
+        return toBuilder().guidelines(guidelinePaths).memories(deliveredMemories).build();
     }
 
     public AgentTurn requestCancellation(Instant now)
@@ -183,7 +179,7 @@ public record AgentTurn(
             return this;
         }
         checkArgument(!now.isBefore(startedAt.orElse(createdAt)), "cancellation time is before turn start");
-        return copy(state, version, startedAt, endedAt, Optional.of(now), providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
+        return toBuilder().cancellationRequestedAt(Optional.of(now)).build();
     }
 
     public AgentTurn finish(TurnState terminalState, AgentMetrics finalMetrics, Optional<String> reason, Instant now)
@@ -224,8 +220,14 @@ public record AgentTurn(
         checkState(state != TurnState.ACCEPTED || terminalState != TurnState.COMPLETED, "an accepted turn cannot complete before running");
         checkArgument((terminalState != TurnState.COMPLETED) == reason.isPresent(), "reason and terminalState disagree");
         checkArgument(updatedFailureKind.isEmpty() || terminalState == TurnState.FAILED, "a typed failure requires a failed turn");
-        return copy(terminalState, version, startedAt, Optional.of(now), cancellationRequestedAt,
-                providerTurnReference, updatedKnownUnsent, model, reason, updatedFailureKind, finalMetrics);
+        return toBuilder()
+                .state(terminalState)
+                .endedAt(Optional.of(now))
+                .knownUnsent(updatedKnownUnsent)
+                .terminalReason(reason)
+                .failureKind(updatedFailureKind)
+                .metrics(finalMetrics)
+                .build();
     }
 
     public AgentTurn withDevelopmentOrigin(DevelopmentTurnOrigin origin)
@@ -233,24 +235,20 @@ public record AgentTurn(
         requireNonNull(origin, "origin is null");
         requireState(TurnState.ACCEPTED);
         checkState(developmentOrigin.isEmpty(), "generated turn already has an origin");
-        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, Optional.of(origin), plan, guidelines, memories);
+        return toBuilder().developmentOrigin(Optional.of(origin)).build();
     }
 
     public AgentTurn withDevelopmentResult(DevelopmentResultReport report)
     {
         requireNonNull(report, "report is null");
         checkState(state.active(), "cannot report development readiness after the turn ended");
-        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.of(report), developmentOrigin, plan, guidelines, memories);
+        return toBuilder().developmentResult(Optional.of(report)).build();
     }
 
     public AgentTurn withPlan(List<PlanItem> items)
     {
         checkState(state.active(), "cannot update the plan after the turn ended");
-        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, developmentResult, developmentOrigin, Optional.of(items), guidelines,
-                memories);
+        return toBuilder().plan(Optional.of(items)).build();
     }
 
     public AgentTurn withoutLearningSummary()
@@ -260,57 +258,18 @@ public record AgentTurn(
             return this;
         }
         DevelopmentResultReport report = developmentResult.orElseThrow();
-        return new AgentTurn(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
-                providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics,
-                Optional.of(new DevelopmentResultReport(report.readyForDelivery(), report.message())), developmentOrigin, plan, guidelines, memories);
+        return toBuilder().developmentResult(Optional.of(new DevelopmentResultReport(report.readyForDelivery(), report.message()))).build();
     }
 
     public AgentTurn withMetrics(AgentMetrics updatedMetrics)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
-        return copy(state, version, startedAt, endedAt, cancellationRequestedAt, providerTurnReference, knownUnsent, model, terminalReason, failureKind, updatedMetrics);
+        return toBuilder().metrics(updatedMetrics).build();
     }
 
     public AgentTurn withVersion(long updatedVersion)
     {
-        return copy(state, updatedVersion, startedAt, endedAt, cancellationRequestedAt, providerTurnReference, knownUnsent, model, terminalReason, failureKind, metrics);
-    }
-
-    private AgentTurn copy(
-            TurnState updatedState,
-            long updatedVersion,
-            Optional<Instant> updatedStartedAt,
-            Optional<Instant> updatedEndedAt,
-            Optional<Instant> updatedCancellationRequestedAt,
-            Optional<ProviderTurnRef> updatedProviderTurnReference,
-            boolean updatedKnownUnsent,
-            Optional<String> updatedModel,
-            Optional<String> updatedTerminalReason,
-            Optional<AgentTurnFailureKind> updatedFailureKind,
-            AgentMetrics updatedMetrics)
-    {
-        return new AgentTurn(
-                id,
-                taskId,
-                idempotencyKey,
-                updatedState,
-                updatedVersion,
-                createdAt,
-                updatedStartedAt,
-                updatedEndedAt,
-                updatedCancellationRequestedAt,
-                updatedProviderTurnReference,
-                updatedKnownUnsent,
-                updatedModel,
-                settings,
-                updatedTerminalReason,
-                updatedFailureKind,
-                updatedMetrics,
-                developmentResult,
-                developmentOrigin,
-                plan,
-                guidelines,
-                memories);
+        return toBuilder().version(updatedVersion).build();
     }
 
     private void requireState(TurnState expected)

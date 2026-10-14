@@ -107,8 +107,8 @@ class TestGitHubClientMergeQueue
         RestClient.Builder restBuilder = RestClient.builder().baseUrl("https://api.github.test");
         RestClient.Builder graphqlBuilder = RestClient.builder().baseUrl("https://api.github.test/graphql");
         MockRestServiceServer graphql = MockRestServiceServer.bindTo(graphqlBuilder).build();
-        return new Fixture(new GitHubMergeClient(restBuilder.build(), graphqlBuilder.build()), graphql);
+        return new Fixture(new GitHubPullRequestWriteClient(restBuilder.build(), graphqlBuilder.build()), graphql);
     }
 
-    private record Fixture(GitHubMergeClient client, MockRestServiceServer graphql) {}
+    private record Fixture(GitHubPullRequestWriteClient client, MockRestServiceServer graphql) {}
 }

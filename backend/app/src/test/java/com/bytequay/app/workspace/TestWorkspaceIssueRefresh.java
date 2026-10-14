@@ -14,10 +14,12 @@
 package com.bytequay.app.workspace;
 
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
+import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
+import com.bytequay.app.service.recent.RecentTouchRecorder;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
@@ -34,6 +36,8 @@ import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -61,7 +65,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestWorkspaceIssueRefreshService
+class TestWorkspaceIssueRefresh
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
     private static final RepoRef DIRECT = RepoRef.of("owner", "project");
@@ -75,7 +79,7 @@ class TestWorkspaceIssueRefreshService
     private final GitHubRepoClient gitHub = mock(GitHubRepoClient.class);
     private final GitHubPullRequestReadClient issueReads = mock(GitHubPullRequestReadClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
-    private WorkspaceIssueRefreshService service;
+    private WorkspaceIssueService service;
 
     @BeforeEach
     void setUp()
@@ -86,7 +90,8 @@ class TestWorkspaceIssueRefreshService
         when(workspaceStore.findAll()).thenAnswer(invocation -> ImmutableList.copyOf(workspaces.values()));
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
-        service = new WorkspaceIssueRefreshService(workspaceStore, issueStore, detailStore, gitHub, issueReads, credentials, Clock.fixed(NOW, ZoneOffset.UTC), settings);
+        service = new WorkspaceIssueService(workspaceStore, issueStore, detailStore, mock(GitHubPullRequestWriteClient.class), gitHub, credentials,
+                mock(RecentTouchRecorder.class), Clock.fixed(NOW, ZoneOffset.UTC), issueReads, settings);
     }
 
     @Test
@@ -153,26 +158,46 @@ class TestWorkspaceIssueRefreshService
         order.verify(issueStore).saveSyncPage(org.mockito.ArgumentMatchers.eq(100L), org.mockito.ArgumentMatchers.eq(ImmutableList.of(issue(2))), anyString());
     }
 
-    @Test
-    void providerFailureLeavesThePreviousIssuePageIntact()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void providerFailureLeavesThePreviousCacheIntact(boolean detail)
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
         when(gitHub.fetchOpenIssuesPage("token", DIRECT, 1))
                 .thenThrow(new IllegalStateException("provider down"));
+        when(issueReads.fetchPrTimeline("token", PullRequestRef.of("owner", "project", 7)))
+                .thenThrow(new IllegalStateException("provider down"));
 
-        assertThatThrownBy(() -> service.refreshIssues("direct"))
+        assertThatThrownBy(() -> {
+            if (detail) {
+                service.refreshDetail("direct", 7);
+            }
+            else {
+                service.refreshIssues("direct");
+            }
+        })
                 .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("ISSUE_SYNC_FAILED"));
         verify(issueStore, never()).completeSync(org.mockito.ArgumentMatchers.anyLong(), anyString(), org.mockito.ArgumentMatchers.any());
+        verify(detailStore, never()).save(any());
     }
 
-    @Test
-    void preservesRateLimitFailures()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preservesRateLimitFailures(boolean detail)
     {
         workspaces.put("direct", workspace("direct", 100, DIRECT, Topology.DIRECT));
         GitHubRateLimitException rateLimit = new GitHubRateLimitException("core", NOW.plusSeconds(60).getEpochSecond());
         when(gitHub.fetchOpenIssuesPage("token", DIRECT, 1)).thenThrow(rateLimit);
+        when(issueReads.fetchPrTimeline("token", PullRequestRef.of("owner", "project", 7))).thenThrow(rateLimit);
 
-        assertThatThrownBy(() -> service.refreshIssues("direct")).isSameAs(rateLimit);
+        assertThatThrownBy(() -> {
+            if (detail) {
+                service.refreshDetail("direct", 7);
+            }
+            else {
+                service.refreshIssues("direct");
+            }
+        }).isSameAs(rateLimit);
     }
 
     @Test

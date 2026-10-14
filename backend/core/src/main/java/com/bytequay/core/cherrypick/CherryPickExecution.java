@@ -16,6 +16,8 @@ package com.bytequay.core.cherrypick;
 import com.bytequay.core.cherrypick.CherryPickItem.Result;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -41,6 +43,7 @@ import static java.util.Objects.requireNonNull;
  * was. The cursor is therefore derived from item results rather than stored,
  * so a crash cannot leave two disagreeing positions.
  */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record CherryPickExecution(
         CherryPickExecutionId id,
         String startIdempotencyKey,
@@ -285,10 +288,7 @@ public record CherryPickExecution(
     public CherryPickExecution withVersion(long updatedVersion)
     {
         checkArgument(updatedVersion >= version, "version moved backwards");
-        return new CherryPickExecution(
-                id, startIdempotencyKey, workspace, pullRequestDraft, delivery, range, currentTargetSha, agentTaskId, currentTurnId,
-                status, currentStep, pauseReason, finishReason, summary, journal, items,
-                updatedVersion, createdAt, updatedAt, terminalAt);
+        return toBuilder().version(updatedVersion).build();
     }
 
     /** Records the deliberate, non-force push of this execution's generated branch. */
@@ -348,7 +348,7 @@ public record CherryPickExecution(
 
     private CherryPickExecution edit(Instant now, Consumer<Draft> edits)
     {
-        Draft draft = new Draft(this);
+        Draft draft = toBuilder();
         draft.updatedAt = now;
         edits.accept(draft);
         return draft.build();
@@ -564,62 +564,5 @@ public record CherryPickExecution(
         AGENT_TURN,
         AGENT_REPAIR,
         FINALIZE_CONFLICT_PAIR
-    }
-
-    private static final class Draft
-    {
-        private final CherryPickExecutionId id;
-        private final String startIdempotencyKey;
-        private final Workspace workspace;
-        private final Optional<PullRequestDraft> pullRequestDraft;
-        private final Range range;
-        private final long version;
-        private final Instant createdAt;
-
-        private String currentTargetSha;
-        private Optional<String> agentTaskId;
-        private Optional<String> currentTurnId;
-        private Status status;
-        private Optional<Step> currentStep;
-        private Optional<PauseReason> pauseReason;
-        private Optional<FinishReason> finishReason;
-        private Optional<String> summary;
-        private Optional<ActionJournal> journal;
-        private Optional<Delivery> delivery;
-        private List<CherryPickItem> items;
-        private Instant updatedAt;
-        private Optional<Instant> terminalAt;
-
-        private Draft(CherryPickExecution execution)
-        {
-            this.id = execution.id;
-            this.startIdempotencyKey = execution.startIdempotencyKey;
-            this.workspace = execution.workspace;
-            this.pullRequestDraft = execution.pullRequestDraft;
-            this.delivery = execution.delivery;
-            this.range = execution.range;
-            this.version = execution.version;
-            this.createdAt = execution.createdAt;
-            this.currentTargetSha = execution.currentTargetSha;
-            this.agentTaskId = execution.agentTaskId;
-            this.currentTurnId = execution.currentTurnId;
-            this.status = execution.status;
-            this.currentStep = execution.currentStep;
-            this.pauseReason = execution.pauseReason;
-            this.finishReason = execution.finishReason;
-            this.summary = execution.summary;
-            this.journal = execution.journal;
-            this.items = execution.items;
-            this.updatedAt = execution.updatedAt;
-            this.terminalAt = execution.terminalAt;
-        }
-
-        private CherryPickExecution build()
-        {
-            return new CherryPickExecution(
-                    id, startIdempotencyKey, workspace, pullRequestDraft, delivery, range, currentTargetSha, agentTaskId, currentTurnId,
-                    status, currentStep, pauseReason, finishReason, summary, journal, items,
-                    version, createdAt, updatedAt, terminalAt);
-        }
     }
 }

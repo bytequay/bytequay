@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.rebase;
+package com.bytequay.app.scheduler;
 
 import com.bytequay.agent.core.AgentEventService;
 import com.bytequay.agent.core.AgentTaskService;
@@ -21,9 +21,15 @@ import com.bytequay.agent.core.impl.AgentRuntimeRegistry;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.backport.BackportChainService;
+import com.bytequay.app.cherrypick.CherryPickExecutionService;
+import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.DevelopmentCiOwnership;
 import com.bytequay.app.git.GitCommandRunner;
 import com.bytequay.app.git.RebaseSequencerDriver;
+import com.bytequay.app.rebase.BranchRebaseService;
+import com.bytequay.core.backport.BackportChainStore;
+import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.rebase.BranchRebase;
@@ -46,7 +52,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verifyNoInteractions;
 
-class TestBranchRebaseMonitorJob
+class TestRebaseMonitoring
 {
     @Test
     void oneFailureDoesNotStopAnotherRunningRebase()
@@ -66,7 +72,7 @@ class TestBranchRebaseMonitorJob
                 new DevelopmentCiOwnership(mock(CiAutofixStore.class), mock(AgentTaskStore.class), mock(AgentTurnStore.class), mock(AgentEventService.class),
                         new AgentRuntimeRegistry(ignored -> {}), Clock.systemUTC()));
 
-        new BranchRebaseMonitorJob(store, service, readyAgentServingGate(), 20).monitor();
+        monitor(store, service, readyAgentServingGate(), 20).monitorRebases();
 
         assertThat(store.attempted()).containsExactly(first.id(), second.id());
     }
@@ -77,9 +83,15 @@ class TestBranchRebaseMonitorJob
         BranchRebaseStore store = mock(BranchRebaseStore.class);
         BranchRebaseService service = mock(BranchRebaseService.class);
 
-        new BranchRebaseMonitorJob(store, service, new AgentServingGate(), 20).monitor();
+        monitor(store, service, new AgentServingGate(), 20).monitorRebases();
 
         verifyNoInteractions(store, service);
+    }
+
+    private static WorkflowMonitorJob monitor(BranchRebaseStore store, BranchRebaseService service, AgentServingGate gate, int batchSize)
+    {
+        return new WorkflowMonitorJob(mock(CherryPickExecutionStore.class), mock(CherryPickExecutionService.class), mock(CiAutofixStore.class), mock(CiAutofixService.class),
+                store, service, mock(BackportChainStore.class), mock(BackportChainService.class), mock(AgentTaskStore.class), gate, Clock.systemUTC(), 20, 20, batchSize);
     }
 
     private static BranchRebase rebase(String key)

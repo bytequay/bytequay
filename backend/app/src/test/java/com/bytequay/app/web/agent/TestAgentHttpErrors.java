@@ -53,7 +53,6 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
-import com.bytequay.app.agent.JiraDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.git.GitCommandRunner;
@@ -170,7 +169,6 @@ class TestAgentHttpErrors
                 startupProgress,
                 new AgentStreamRegistry(),
                 mock(IssueDevelopmentService.class),
-                mock(JiraDevelopmentService.class),
                 mock(TaskPullRequestOwnership.class),
                 mock(WorkItemService.class));
         mvc = standaloneSetup(controller)

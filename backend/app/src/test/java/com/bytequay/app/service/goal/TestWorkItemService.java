@@ -462,6 +462,22 @@ class TestWorkItemService
         assertThat(joined.goalId()).as("it keeps its Goal").contains("goal");
         assertThat(joined.epicId()).contains(EPIC);
         assertThat(service.list("workspace")).hasSize(2);
+
+        WorkItemView goalOnly = service.create("workspace", UUID.randomUUID().toString(), Optional.of("goal"), "Goal only", WorkItem.Kind.LEARN,
+                "Explain the parser", WorkItem.CompletionRule.ACCEPTED_RESULT);
+        List<String> goalOrder = ImmutableList.of(goalOnly.id(), joined.id());
+        List<WorkItemView> orderedGoal = service.order("workspace", "goal", goalOrder);
+        assertThat(find(joined.id()).epicRank()).as("Goal ordering preserves the Epic's order").isEqualTo(joined.epicRank());
+        assertThat(service.order("workspace", "goal", goalOrder)).as("unchanged order preserves revisions and timestamps").isEqualTo(orderedGoal);
+        List<String> epicOrder = ImmutableList.of(joined.id(), created.id());
+        List<WorkItemView> orderedEpic = service.orderEpic("workspace", EPIC, epicOrder);
+        assertThat(find(joined.id()).rank()).as("Epic ordering preserves the Goal's order").isEqualTo(1);
+        assertThat(find(joined.id()).epicRank()).isZero();
+        assertThat(service.orderEpic("workspace", EPIC, epicOrder)).isEqualTo(orderedEpic);
+        List<WorkItemView> beforeRejectedOrder = service.list("workspace");
+        assertThatThrownBy(() -> service.order("workspace", "goal", ImmutableList.of(joined.id(), joined.id()))).hasMessageContaining("The Goal's work changed");
+        assertThatThrownBy(() -> service.orderEpic("workspace", EPIC, ImmutableList.of(joined.id(), goalOnly.id()))).hasMessageContaining("The Epic's work changed");
+        assertThat(service.list("workspace")).as("rejected orders update no items").isEqualTo(beforeRejectedOrder);
     }
 
     @Test

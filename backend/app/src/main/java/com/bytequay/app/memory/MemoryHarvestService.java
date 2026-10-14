@@ -104,7 +104,7 @@ public class MemoryHarvestService
     public List<ClosedPull> findPulls(String workspaceId, String typed)
     {
         checkArgument(typed.length() <= 200, "Type at most 200 characters to find a pull request");
-        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
         if (typed.isBlank()) {
             return ImmutableList.of();
         }
@@ -117,7 +117,7 @@ public class MemoryHarvestService
      */
     public Started start(String workspaceId, ContextBuildService.Request request, Optional<Integer> pull, Optional<String> repository)
     {
-        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
         checkArgument(pull.isEmpty() || repository.filter(workspace.monitoredRepository().fullName()::equalsIgnoreCase).isPresent(),
                 "Only a pull request of %s, the repository this workspace learns from, can be learned from", workspace.monitoredRepository().fullName());
         String head = builds.baseline(workspaceId).map(ContextBuildService.Baseline::sha)

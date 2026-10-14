@@ -74,7 +74,7 @@ class TestMemoryPageReader
         assertThat(git.run(repository, ImmutableList.of("-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "Initial")).successful()).isTrue();
         String head = git.run(repository, "rev-parse", "HEAD").output().strip();
         when(builds.baseline("workspace")).thenReturn(Optional.of(new ContextBuildService.Baseline("master", head)));
-        when(workspaces.requireReadableRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("trinodb", "trino"),
+        when(workspaces.requireReadyRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", repository, 1, RepoRef.of("trinodb", "trino"),
                 OptionalLong.empty(), RepoRef.of("trinodb", "trino"), "origin", "origin", "master", ImmutableList.of()));
         store.save(rule("m1", "workspace", "Delta rule", ImmutableList.of("plugin/trino-delta-lake/", "plugin/trino-gone/", "**/Test*.java")));
         store.save(rule("m2", "workspace", "Docs rule", ImmutableList.of("CONTRIBUTING.md", "docs/connector")));

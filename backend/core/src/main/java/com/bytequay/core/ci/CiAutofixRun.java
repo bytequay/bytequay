@@ -16,6 +16,8 @@ package com.bytequay.core.ci;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.HashSet;
@@ -33,6 +35,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /** Complete durable projection of one consented CI Autofix run. */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record CiAutofixRun(
         CiAutofixRunId id,
         String startIdempotencyKey,
@@ -406,7 +409,7 @@ public record CiAutofixRun(
 
     public CiAutofixRun withVersion(long updatedVersion)
     {
-        Draft draft = new Draft(this);
+        Draft draft = toBuilder();
         draft.version = updatedVersion;
         return draft.build();
     }
@@ -418,101 +421,12 @@ public record CiAutofixRun(
      */
     private CiAutofixRun edit(Instant now, Consumer<Draft> edits)
     {
-        Draft draft = new Draft(this);
+        Draft draft = toBuilder();
         draft.updatedAt = now;
         edits.accept(draft);
         return draft.build();
     }
 
-    /** Mutable scratch copy of every component, used only by {@link #edit}. */
-    private static final class Draft
-    {
-        private final CiAutofixRunId id;
-        private final String startIdempotencyKey;
-        private final Scope scope;
-        private final Authorization authorization;
-        private final Instant createdAt;
-
-        private Optional<String> agentTaskId;
-        private Status status;
-        private Optional<PauseReason> pauseReason;
-        private Optional<FinishReason> finishReason;
-        private Optional<String> summary;
-        private final String taskStartCommit;
-        private String expectedRemoteHead;
-        private String latestObservedBaseSha;
-        private int attemptsUsed;
-        private RerunCounter rerunCounter;
-        private Optional<FinalFixupCheck> finalFixupCheck;
-        private Optional<String> currentTurnId;
-        private Optional<String> currentRebaseId;
-        private Optional<PushJournal> pushJournal;
-        private Optional<RerunJournal> rerunJournal;
-        private List<Warning> warnings;
-        private List<CiAutofixAttempt> attempts;
-        private long version;
-        private Instant updatedAt;
-        private Optional<Instant> terminalAt;
-
-        private Draft(CiAutofixRun run)
-        {
-            this.id = run.id;
-            this.startIdempotencyKey = run.startIdempotencyKey;
-            this.scope = run.scope;
-            this.authorization = run.authorization;
-            this.createdAt = run.createdAt;
-            this.agentTaskId = run.agentTaskId;
-            this.status = run.status;
-            this.pauseReason = run.pauseReason;
-            this.finishReason = run.finishReason;
-            this.summary = run.summary;
-            this.taskStartCommit = run.taskStartCommit;
-            this.expectedRemoteHead = run.expectedRemoteHead;
-            this.latestObservedBaseSha = run.latestObservedBaseSha;
-            this.attemptsUsed = run.attemptsUsed;
-            this.rerunCounter = run.rerunCounter;
-            this.finalFixupCheck = run.finalFixupCheck;
-            this.currentTurnId = run.currentTurnId;
-            this.currentRebaseId = run.currentRebaseId;
-            this.pushJournal = run.pushJournal;
-            this.rerunJournal = run.rerunJournal;
-            this.warnings = run.warnings;
-            this.attempts = run.attempts;
-            this.version = run.version;
-            this.updatedAt = run.updatedAt;
-            this.terminalAt = run.terminalAt;
-        }
-
-        private CiAutofixRun build()
-        {
-            return new CiAutofixRun(
-                    id,
-                    startIdempotencyKey,
-                    scope,
-                    agentTaskId,
-                    status,
-                    pauseReason,
-                    finishReason,
-                    summary,
-                    taskStartCommit,
-                    expectedRemoteHead,
-                    latestObservedBaseSha,
-                    authorization,
-                    attemptsUsed,
-                    rerunCounter,
-                    finalFixupCheck,
-                    currentTurnId,
-                    currentRebaseId,
-                    pushJournal,
-                    rerunJournal,
-                    warnings,
-                    attempts,
-                    version,
-                    createdAt,
-                    updatedAt,
-                    terminalAt);
-        }
-    }
     private void requireMutable(Instant now)
     {
         requireNonNull(now, "now is null");

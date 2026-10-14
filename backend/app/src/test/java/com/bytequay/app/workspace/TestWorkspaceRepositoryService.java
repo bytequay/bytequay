@@ -42,6 +42,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.Callable;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -52,11 +54,12 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestDefaultWorkspaceRepositoryService
+class TestWorkspaceRepositoryService
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 
@@ -70,7 +73,7 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 200L))
                 .thenReturn(Optional.of(fork(200, 300)));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         WatchRepositoryPreview directPreview = service.previewWatch(100, Optional.empty());
         Workspace direct = service.watch(new WatchRepositoryCommand(
@@ -101,7 +104,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         WatchRepositoryPreview preview = service.previewWatch(100, Optional.empty());
         WatchRepositoryCommand command = new WatchRepositoryCommand(100, preview.topology(), preview.fingerprint(), Optional.empty(), false);
         List<Callable<Workspace>> watches = new ArrayList<>();
@@ -132,7 +135,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         Workspace pending = watch(service, 100);
 
         assertThatThrownBy(() -> service.getWorkspace("missing"))
@@ -152,7 +155,7 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         WorkspacePaths paths = new WorkspacePaths(temporaryDirectory.toString());
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        DefaultWorkspaceRepositoryService service = service(store, gitHub, provisioning, paths);
+        WorkspaceRepositoryService service = service(store, gitHub, provisioning, paths);
         Workspace workspace = watch(service, 100);
         Path taskWorktree = paths.worktrees(workspace.id()).resolve("task-1");
         Files.createDirectories(taskWorktree);
@@ -190,7 +193,7 @@ class TestDefaultWorkspaceRepositoryService
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         RepositoryEnrichmentService enrichment = enrichment();
         List<Runnable> queued = new ArrayList<>();
-        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(store, enrichment, gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, enrichment, gitHub, credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
         Workspace retired = watch(service, 100);
         Workspace watched = watch(service, 200);
@@ -216,7 +219,7 @@ class TestDefaultWorkspaceRepositoryService
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         Workspace workspace = watch(service, 100);
         service.unwatch(workspace.id());
         WatchRepositoryPreview preview = service.previewWatch(100, Optional.empty());
@@ -243,7 +246,7 @@ class TestDefaultWorkspaceRepositoryService
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         List<Runnable> queued = new ArrayList<>();
-        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(store, enrichment(), gitHub, credentials,
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, enrichment(), gitHub, credentials,
                 Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata, refresh, queued::add);
         Workspace workspace = watch(service, 100);
         service.unwatch(workspace.id());
@@ -270,7 +273,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        DefaultWorkspaceRepositoryService service = service(store, gitHub, provisioning);
+        WorkspaceRepositoryService service = service(store, gitHub, provisioning);
         Workspace unsynced = watch(service, 100);
         reset(provisioning);
         when(provisioning.synchronizeCode(unsynced.id())).thenAnswer(ignored -> {
@@ -290,7 +293,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
-        DefaultWorkspaceRepositoryService service = service(store, gitHub, provisioning);
+        WorkspaceRepositoryService service = service(store, gitHub, provisioning);
         Workspace unsynced = watch(service, 100);
         reset(provisioning, gitHub);
 
@@ -302,19 +305,17 @@ class TestDefaultWorkspaceRepositoryService
     }
 
     @Test
-    void usesTheLastSuccessfulCodeSyncForReadyAndReadableRepositories()
+    void usesTheLastSuccessfulCodeSyncForReadyRepositories()
     {
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct(100, "owner")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         Workspace synced = store.save(watch(service, 100)
                 .withCodeSyncAt(Optional.of(NOW), NOW));
 
         assertThat(service.requireReadyRepository(synced.id()).repository())
-                .isEqualTo(Path.of("/tmp/bytequay-workspaces", synced.id(), "repository"));
-        assertThat(service.requireReadableRepository(synced.id()).repository())
                 .isEqualTo(Path.of("/tmp/bytequay-workspaces", synced.id(), "repository"));
     }
 
@@ -330,7 +331,7 @@ class TestDefaultWorkspaceRepositoryService
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
-        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
                 enrichment(),
                 gitHub,
@@ -356,6 +357,42 @@ class TestDefaultWorkspaceRepositoryService
         verify(metadata).synchronize(ready.id());
     }
 
+    @ParameterizedTest
+    @CsvSource({"false, 4", "true, 3"})
+    void refreshesDeduplicatePendingWorkAndAllowRetryAfterFailures(boolean rejectInitially, int pending)
+    {
+        InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
+        GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
+        when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
+        CredentialService credentials = mock(CredentialService.class);
+        when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
+        WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+        when(provisioning.synchronizeCode(anyString())).thenThrow(new IllegalStateException("fetch failed"));
+        WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
+        List<Runnable> queued = new ArrayList<>();
+        AtomicBoolean reject = new AtomicBoolean(rejectInitially);
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(store, enrichment(), gitHub, credentials,
+                Clock.fixed(NOW, ZoneOffset.UTC), new WorkspacePaths("/tmp/bytequay-workspaces"), provisioning, metadata,
+                mock(PullRequestRefreshService.class), task -> {
+                    if (reject.get()) {
+                        throw new RejectedExecutionException("executor unavailable");
+                    }
+                    queued.add(task);
+                });
+        Workspace workspace = watch(service, 100);
+        reject.set(false);
+        service.requestSync(workspace.id());
+        assertThat(queued).hasSize(pending);
+        queued.forEach(Runnable::run);
+        queued.clear();
+
+        service.requestSync(workspace.id());
+        assertThat(queued).hasSize(3);
+        queued.forEach(Runnable::run);
+        verify(provisioning, times(2)).synchronizeCode(workspace.id());
+        verify(metadata, times(2)).synchronize(workspace.id());
+    }
+
     @Test
     void startupRecoveryUsesTheSameFreshnessAndSchedulingPath()
     {
@@ -369,7 +406,7 @@ class TestDefaultWorkspaceRepositoryService
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
         WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
         WorkspaceMetadataService metadata = mock(WorkspaceMetadataService.class);
-        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
                 enrichment(),
                 gitHub,
@@ -416,7 +453,7 @@ class TestDefaultWorkspaceRepositoryService
             observed.set(saved.lastCodeSyncAt());
             return WorkspaceCodeSyncResult.success(saved, ImmutableSet.of());
         });
-        DefaultWorkspaceRepositoryService service = new DefaultWorkspaceRepositoryService(
+        WorkspaceRepositoryService service = new WorkspaceRepositoryService(
                 store,
                 enrichment(),
                 gitHub,
@@ -434,14 +471,14 @@ class TestDefaultWorkspaceRepositoryService
         verify(pullRequestRefresh).refreshWorkspace(watched.id());
     }
 
-    private static DefaultWorkspaceRepositoryService service(
+    private static WorkspaceRepositoryService service(
             WorkspaceStore store,
             GitHubAccountClient gitHub)
     {
         return service(store, gitHub, mock(WorkspaceProvisioningService.class));
     }
 
-    private static DefaultWorkspaceRepositoryService service(
+    private static WorkspaceRepositoryService service(
             WorkspaceStore store,
             GitHubAccountClient gitHub,
             WorkspaceProvisioningService provisioning)
@@ -453,7 +490,7 @@ class TestDefaultWorkspaceRepositoryService
                 new WorkspacePaths("/tmp/bytequay-workspaces"));
     }
 
-    private static DefaultWorkspaceRepositoryService service(
+    private static WorkspaceRepositoryService service(
             WorkspaceStore store,
             GitHubAccountClient gitHub,
             WorkspaceProvisioningService provisioning,
@@ -462,7 +499,7 @@ class TestDefaultWorkspaceRepositoryService
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubCredential()).thenReturn(credential("owner"));
-        return new DefaultWorkspaceRepositoryService(
+        return new WorkspaceRepositoryService(
                 store,
                 enrichment(),
                 gitHub,
@@ -490,7 +527,7 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 200L))
                 .thenReturn(Optional.of(fork(200, 300, true)))
                 .thenReturn(Optional.of(fork(200, 300, false)));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
         WatchRepositoryPreview preview = service.previewWatch(200, Optional.of(Topology.FORK));
@@ -541,7 +578,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         Workspace selected = store.save(watch(service, 100)
                 .withCodeSyncAt(Optional.of(NOW), NOW)
                 .withMetadataSyncAt(Optional.of(NOW), NOW));
@@ -569,7 +606,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct(100, "owner")));
         when(gitHub.fetchRepository("token", 999L)).thenReturn(Optional.empty());
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         Workspace selected = store.save(watch(service, 100)
                 .withCodeSyncAt(Optional.of(NOW), NOW)
                 .withMetadataSyncAt(Optional.of(NOW), NOW));
@@ -590,7 +627,7 @@ class TestDefaultWorkspaceRepositoryService
         UserRepo repository = direct(100, "owner");
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(repository));
         when(gitHub.fetchUserRepos("token")).thenReturn(ImmutableList.of(repository));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         Workspace watched = watch(service, 100);
 
         List<RepositorySearchResult> results = service.searchRepositories("", 30);
@@ -621,7 +658,7 @@ class TestDefaultWorkspaceRepositoryService
                 "https://secret@github.com/owner/project.git",
                 Optional.empty());
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(unsafe));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         assertThatThrownBy(() -> service.previewWatch(100, Optional.empty()))
                 .isInstanceOfSatisfying(WorkspaceException.class,
@@ -639,7 +676,7 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(personalFork));
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(personalFork));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         WatchRepositoryPreview preview = service.previewWatch(300, Optional.empty());
         assertThat(preview.pushRepository()).isEqualTo(RepoRef.of("owner", "project"));
@@ -668,7 +705,7 @@ class TestDefaultWorkspaceRepositoryService
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(fork(200, 300)));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         assertThat(service.previewWatch(300, Optional.empty()).existingWorkspaceId()).isEmpty();
         Workspace forkWorkspace = watch(service, 300);
@@ -690,7 +727,7 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 400L)).thenReturn(Optional.of(otherFork));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(fork(200, 300)));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         Workspace workspace = watch(service, 400);
 
@@ -710,7 +747,7 @@ class TestDefaultWorkspaceRepositoryService
                         original.id(), original.owner(), original.name(), original.defaultBranch(), original.cloneUrl())));
         when(gitHub.fetchRepository("token", 400L)).thenReturn(Optional.of(otherFork));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(original));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         WatchRepositoryPreview preview = service.previewWatch(400, Optional.empty());
         assertThat(preview.forkRequired()).isFalse();
@@ -732,7 +769,7 @@ class TestDefaultWorkspaceRepositoryService
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork(200, 300)));
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(fork(200, 300)));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         Workspace workspace = watch(service, 200, Optional.of(Topology.FORK));
         service.setUpstream(workspace.id(), Optional.empty());
 
@@ -755,7 +792,7 @@ class TestDefaultWorkspaceRepositoryService
         UserRepo personalFork = fork(200, 300);
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.createFork("token", upstream)).thenReturn(personalFork);
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         WatchRepositoryPreview preview = service.previewWatch(300, Optional.empty());
 
         assertThat(preview.forkRequired()).isTrue();
@@ -786,7 +823,7 @@ class TestDefaultWorkspaceRepositoryService
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
         when(gitHub.createFork("token", upstream)).thenThrow(new IllegalStateException("Fork creation unavailable"));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         WatchRepositoryPreview preview = service.previewWatch(300, Optional.empty());
 
         assertThatThrownBy(() -> service.watch(new WatchRepositoryCommand(300, preview.topology(), preview.fingerprint(), Optional.empty(), true)))
@@ -801,7 +838,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         UserRepo upstream = direct(300, "upstream");
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(upstream));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         WatchRepositoryPreview preview = service.previewWatch(300, Optional.empty());
         when(gitHub.findOwnedFork("token", upstream, "owner")).thenReturn(Optional.of(fork(200, 300)));
 
@@ -820,7 +857,7 @@ class TestDefaultWorkspaceRepositoryService
         UserRepo repository = new UserRepo(300, owner, "project", owner + "/project", Optional.empty(), false, visibility, true,
                 "main", "https://github.com/" + owner + "/project.git", Optional.empty());
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(repository));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         WatchRepositoryPreview preview = service.previewWatch(300, Optional.empty());
 
@@ -851,7 +888,7 @@ class TestDefaultWorkspaceRepositoryService
         UserRepo repository = new UserRepo(300, "upstream", "project", "upstream/project", Optional.empty(), false, "public", false,
                 "main", "https://github.com/upstream/project.git", Optional.empty());
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(repository));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         WatchRepositoryPreview preview = service.previewWatch(300, Optional.of(Topology.DIRECT));
         Workspace workspace = watch(service, 300, Optional.of(Topology.DIRECT));
@@ -874,7 +911,7 @@ class TestDefaultWorkspaceRepositoryService
                 "main", "https://github.com/upstream/project.git", Optional.empty());
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(repository));
         when(gitHub.createFork("token", repository)).thenReturn(fork(200, 300));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
         WatchRepositoryPreview direct = service.previewWatch(300, Optional.empty());
         WatchRepositoryPreview fork = service.previewWatch(300, Optional.of(Topology.FORK));
 
@@ -899,7 +936,7 @@ class TestDefaultWorkspaceRepositoryService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 200L)).thenReturn(Optional.of(fork(200, 300)));
         when(gitHub.fetchRepository("token", 300L)).thenReturn(Optional.of(direct(300, "upstream")));
-        DefaultWorkspaceRepositoryService service = service(store, gitHub);
+        WorkspaceRepositoryService service = service(store, gitHub);
 
         Workspace direct = watch(service, 200);
         assertThat(direct.topology()).isEqualTo(Topology.DIRECT);
@@ -923,12 +960,12 @@ class TestDefaultWorkspaceRepositoryService
         return new GitHubCredential("token", new UserProfile(login, login, "", "", 0, 0, 0, null, null, null, null));
     }
 
-    private static Workspace watch(DefaultWorkspaceRepositoryService service, long repositoryId)
+    private static Workspace watch(WorkspaceRepositoryService service, long repositoryId)
     {
         return watch(service, repositoryId, Optional.empty());
     }
 
-    private static Workspace watch(DefaultWorkspaceRepositoryService service, long repositoryId, Optional<Topology> topology)
+    private static Workspace watch(WorkspaceRepositoryService service, long repositoryId, Optional<Topology> topology)
     {
         WatchRepositoryPreview preview = service.previewWatch(repositoryId, topology);
         return service.watch(new WatchRepositoryCommand(repositoryId, preview.topology(), preview.fingerprint(), Optional.empty(), false));

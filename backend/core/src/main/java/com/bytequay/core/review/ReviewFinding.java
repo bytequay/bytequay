@@ -14,6 +14,8 @@
 package com.bytequay.core.review;
 
 import com.google.common.collect.ImmutableList;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,6 +36,7 @@ import static java.util.Objects.requireNonNull;
  * @param resolvedByTaskId the development task whose agent resolved the finding after fixing it;
  *        empty when the user resolved it and while it is not resolved
  */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record ReviewFinding(
         String id,
         String reviewId,
@@ -115,33 +118,12 @@ public record ReviewFinding(
     /** The memories the reviewer cited when it saved this revision. */
     public ReviewFinding withMemories(List<MemoryCitation> cited)
     {
-        return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, state, stateReason, validatedHeadSha, outdated,
-                version, createdAt, updatedAt, cited, origin, resolvedByTaskId);
+        return toBuilder().memories(cited).build();
     }
 
     public ReviewFinding withVersion(long updatedVersion)
     {
-        return new ReviewFinding(
-                id,
-                reviewId,
-                runId,
-                ordinal,
-                title,
-                body,
-                severity,
-                anchor,
-                evidence,
-                revision,
-                state,
-                stateReason,
-                validatedHeadSha,
-                outdated,
-                updatedVersion,
-                createdAt,
-                updatedAt,
-                memories,
-                origin,
-                resolvedByTaskId);
+        return toBuilder().version(updatedVersion).build();
     }
 
     /** An evidence-backed agent revision at the current reviewed scope clears pending reassessment. */
@@ -154,86 +136,35 @@ public record ReviewFinding(
             String verifiedHeadSha,
             Instant now)
     {
-        return new ReviewFinding(
-                id,
-                reviewId,
-                runId,
-                ordinal,
-                updatedTitle,
-                updatedBody,
-                updatedSeverity,
-                updatedAnchor,
-                updatedEvidence,
-                revision + 1,
-                state,
-                stateReason,
-                verifiedHeadSha,
-                false,
-                version,
-                createdAt,
-                now,
-                memories,
-                origin,
-                resolvedByTaskId);
+        return toBuilder()
+                .title(updatedTitle)
+                .body(updatedBody)
+                .severity(updatedSeverity)
+                .anchor(updatedAnchor)
+                .evidence(updatedEvidence)
+                .revision(revision + 1)
+                .validatedHeadSha(verifiedHeadSha)
+                .outdated(false)
+                .updatedAt(now)
+                .build();
     }
 
     /** A state the user or the reviewer sets, so the finding names no development task afterwards. */
     public ReviewFinding withState(State updatedState, Optional<String> reason, Instant now)
     {
-        return new ReviewFinding(
-                id,
-                reviewId,
-                runId,
-                ordinal,
-                title,
-                body,
-                severity,
-                anchor,
-                evidence,
-                revision,
-                updatedState,
-                reason,
-                validatedHeadSha,
-                outdated,
-                version,
-                createdAt,
-                now,
-                memories,
-                origin,
-                Optional.empty());
+        return toBuilder().state(updatedState).stateReason(reason).updatedAt(now).resolvedByTaskId(Optional.empty()).build();
     }
 
     /** Resolved by the agent of the development task that fixed it; the task's own reply on the finding says what changed. */
     public ReviewFinding resolvedByDeveloper(String developerTaskId, Instant now)
     {
-        return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, anchor, evidence, revision, State.RESOLVED, Optional.empty(), validatedHeadSha, outdated,
-                version, createdAt, now, memories, origin, Optional.of(developerTaskId));
+        return toBuilder().state(State.RESOLVED).stateReason(Optional.empty()).updatedAt(now).resolvedByTaskId(Optional.of(developerTaskId)).build();
     }
 
     /** A new source scope requires another conclusion even when the location maps exactly. */
     public ReviewFinding pendingReassessment(Instant now)
     {
-        return new ReviewFinding(
-                id,
-                reviewId,
-                runId,
-                ordinal,
-                title,
-                body,
-                severity,
-                anchor,
-                evidence,
-                revision,
-                state,
-                stateReason,
-                validatedHeadSha,
-                true,
-                version,
-                createdAt,
-                now,
-                memories,
-                origin,
-                resolvedByTaskId);
+        return toBuilder().outdated(true).updatedAt(now).build();
     }
 
     /**
@@ -242,8 +173,7 @@ public record ReviewFinding(
      */
     public ReviewFinding carried(Optional<ReviewAnchor> carriedAnchor, String headSha, Instant now)
     {
-        return new ReviewFinding(id, reviewId, runId, ordinal, title, body, severity, carriedAnchor, evidence, revision, state, stateReason, headSha, false,
-                version, createdAt, now, memories, origin, resolvedByTaskId);
+        return toBuilder().anchor(carriedAnchor).validatedHeadSha(headSha).outdated(false).updatedAt(now).build();
     }
 
     public enum Origin

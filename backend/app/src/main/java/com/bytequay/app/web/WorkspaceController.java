@@ -26,7 +26,6 @@ import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsTarget;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
 import com.bytequay.app.workspace.WorkspaceException;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -75,7 +74,6 @@ public class WorkspaceController
     private final PullRequestRefreshService pullRequestRefresh;
     private final WorkspaceMetadataService metadata;
     private final WorkspaceIssueService issues;
-    private final WorkspaceIssueRefreshService issueRefresh;
     private final WorkspaceRemoteSourceService remoteSources;
     private final ModelSettingsService models;
     private final CredentialService credentials;
@@ -90,7 +88,6 @@ public class WorkspaceController
             PullRequestRefreshService pullRequestRefresh,
             WorkspaceMetadataService metadata,
             WorkspaceIssueService issues,
-            WorkspaceIssueRefreshService issueRefresh,
             WorkspaceRemoteSourceService remoteSources,
             ModelSettingsService models,
             CredentialService credentials,
@@ -104,7 +101,6 @@ public class WorkspaceController
         this.pullRequestRefresh = requireNonNull(pullRequestRefresh, "pullRequestRefresh is null");
         this.metadata = requireNonNull(metadata, "metadata is null");
         this.issues = requireNonNull(issues, "issues is null");
-        this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
         this.remoteSources = requireNonNull(remoteSources, "remoteSources is null");
         this.models = requireNonNull(models, "models is null");
         this.credentials = requireNonNull(credentials, "credentials is null");
@@ -183,7 +179,7 @@ public class WorkspaceController
     @PostMapping("/{workspaceId}/issues/refresh")
     public WorkspaceIssueHttpContract.Page refreshIssues(@PathVariable String workspaceId)
     {
-        return WorkspaceIssueHttpContract.page(issueRefresh.refreshIssues(workspaceId), issueDevelopment);
+        return WorkspaceIssueHttpContract.page(issues.refreshIssues(workspaceId), issueDevelopment);
     }
 
     @GetMapping("/{workspaceId}/issues/attention")
@@ -207,7 +203,7 @@ public class WorkspaceController
     @PostMapping("/{workspaceId}/issues/{issueNumber}/detail/refresh")
     public RepositoryIssueDetail refreshIssueDetail(@PathVariable String workspaceId, @PathVariable int issueNumber)
     {
-        return issueRefresh.refreshDetail(workspaceId, issueNumber);
+        return issues.refreshDetail(workspaceId, issueNumber);
     }
 
     @PostMapping("/{workspaceId}/issues/{issueNumber}/comments")

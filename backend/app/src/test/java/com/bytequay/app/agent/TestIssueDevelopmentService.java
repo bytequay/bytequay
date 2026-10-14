@@ -23,6 +23,7 @@ import com.bytequay.agent.core.TurnId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
@@ -34,6 +35,7 @@ import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
@@ -87,7 +89,7 @@ class TestIssueDevelopmentService
     private final TaskId taskId = TaskId.random();
     private final WorkItemService workItems = mock(WorkItemService.class);
     private final IssueDevelopmentService service = new IssueDevelopmentService(sources, issues, workspaces, tasks, taskStore,
-            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, workItems);
+            unitOfWork, github, credentials, Clock.fixed(NOW, ZoneOffset.UTC), turns, workItems, mock(JiraIssueTaskStore.class), mock(JiraService.class));
 
     @BeforeEach
     void setUp()
@@ -136,7 +138,7 @@ class TestIssueDevelopmentService
         TurnId firstId = TurnId.random();
         when(first.id()).thenReturn(firstId);
         when(turns.list(taskId)).thenReturn(ImmutableList.of(first, followup));
-        IssueDevelopmentService.Source source = service.source(taskId.toString()).orElseThrow();
+        IssueDevelopmentService.Source<GitHubIssueSource> source = service.source(taskId.toString()).orElseThrow();
         assertThat(source.initialTurnId()).contains(firstId.toString());
         assertThat(source.instructions()).isEqualTo("Use the existing selection model");
         linked.set(new IssueTask(taskId.toString(), "workspace", SOURCE, Optional.empty(), NOW));
@@ -150,7 +152,7 @@ class TestIssueDevelopmentService
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Implement", ignored -> task))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("without this issue source");
         service.persistTask(task, SOURCE, "Implement");
-        assertThatThrownBy(() -> service.requireUnattachedCreate(taskId)).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> service.requireAttachedSources(taskId, Optional.empty(), Optional.empty())).isInstanceOf(AgentConflictException.class);
     }
 
     @Test
@@ -231,6 +233,8 @@ class TestIssueDevelopmentService
         service.persistTask(task, SOURCE, "Implement");
         TaskId next = TaskId.random();
         IssueSourceInput another = new IssueSourceInput(70, 7, NOW, Optional.of(taskId.toString()));
+        assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> task))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("task is gone");
         when(taskStore.find(taskId)).thenReturn(Optional.of(task));
         when(task.state()).thenReturn(TaskState.OPEN);
         assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> {
@@ -241,6 +245,12 @@ class TestIssueDevelopmentService
         })).isSameAs(task);
 
         when(task.state()).thenReturn(TaskState.FAILED);
+        when(task.developmentContinuationUnfinished()).thenReturn(true);
+        assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> task))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("has not ended");
+        when(task.developmentContinuationUnfinished()).thenReturn(false);
+        assertThatThrownBy(() -> service.start("another-workspace", next, another, "Try again", ignored -> task))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Task belongs to another workspace");
         AgentTask attempt = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
         when(attempt.id()).thenReturn(next);
         when(attempt.workspaceId()).thenReturn(Optional.of("workspace"));

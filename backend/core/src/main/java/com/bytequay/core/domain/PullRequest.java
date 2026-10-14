@@ -96,18 +96,4 @@ public record PullRequest(
         REVIEW_REQUESTED,
         OTHER
     }
-
-    /** This pull request with the viewed and reviewed marks this application holds for it. */
-    public PullRequest withViewState(PrViewState viewState)
-    {
-        if (viewState == null) {
-            return this;
-        }
-        return new PullRequest(
-                id, repo, number, title, author, htmlUrl, createdAt, updatedAt, origin, labels,
-                labelColors, draft, viewState.viewedAt(), viewState.reviewedAt(),
-                viewState.handledAction(), requestedReviewers, ciStatus, additions, deletions,
-                commentCount, state, closedAt, mergedAt, mergeable, mergeableState,
-                headPushedAt, headRef, monitoredAt, activityAt, reviewRequestedAt, reviewDecision);
-    }
 }

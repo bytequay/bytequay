@@ -13,9 +13,45 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.repository.github.GitHubAccountClient;
+import com.bytequay.app.service.credentials.CredentialService;
+import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.domain.UserRepo;
+import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.WorkspaceStore;
+import com.google.common.collect.ImmutableSet;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Service;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.util.Optional;
+import java.util.Set;
+
+import static com.bytequay.app.workspace.WorkspaceException.requireWorkspace;
+import static java.util.Objects.requireNonNull;
+
 /** Owns managed repository clone, remote validation, fetch, and recovery behavior. */
-public interface WorkspaceProvisioningService
+@Service
+public class WorkspaceProvisioningService
 {
+    private static final Logger log = LoggerFactory.getLogger(WorkspaceProvisioningService.class);
+    private final WorkspaceStore store;
+    private final ManagedWorkspaceGit managedGit;
+    private final GitHubAccountClient gitHub;
+    private final CredentialService credentials;
+    private final Clock clock;
+
+    public WorkspaceProvisioningService(WorkspaceStore store, ManagedWorkspaceGit managedGit, GitHubAccountClient gitHub, CredentialService credentials, Clock clock)
+    {
+        this.store = requireNonNull(store, "store is null");
+        this.managedGit = requireNonNull(managedGit, "managedGit is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.credentials = requireNonNull(credentials, "credentials is null");
+        this.clock = requireNonNull(clock, "clock is null");
+    }
+
     /**
      * Creates the managed checkout when needed, otherwise fetches and prunes every configured remote
      * without changing branches or local files.
@@ -27,5 +63,84 @@ public interface WorkspaceProvisioningService
      * @param workspaceId saved workspace to synchronize
      * @return success, the last successful synchronization time, and failed optional remotes
      */
-    WorkspaceCodeSyncResult synchronizeCode(String workspaceId);
+    public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
+    {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
+            Workspace workspace = requireWorkspace(store, workspaceId);
+            try {
+                Workspace previousRouting = workspace;
+                Workspace currentRouting = refreshRouting(workspace);
+                Set<String> failedRemoteSources;
+                if (workspace.lastCodeSyncAt().isEmpty()) {
+                    managedGit.provision(previousRouting, currentRouting);
+                    failedRemoteSources = ImmutableSet.of();
+                }
+                else {
+                    failedRemoteSources = managedGit.synchronize(previousRouting, currentRouting);
+                }
+                Instant now = clock.instant();
+                Workspace latest = mergeRouting(requireWorkspace(store, workspaceId), currentRouting, now);
+                Workspace synced = store.save(latest.withCodeSyncAt(Optional.of(now), now));
+                return WorkspaceCodeSyncResult.success(synced, failedRemoteSources);
+            }
+            catch (RuntimeException failure) {
+                log.warn("Workspace {} code synchronization failed: {}", workspace.id(), failure.getMessage());
+                return WorkspaceCodeSyncResult.failure(requireWorkspace(store, workspaceId));
+            }
+        });
+    }
+
+    private Workspace refreshRouting(Workspace workspace)
+    {
+        String token = credentials.resolveGitHubToken();
+        UserRepo selected = gitHub.fetchRepository(token, workspace.selectedRepositoryId())
+                .orElseThrow(() -> new ManagedWorkspaceGit.Failure(
+                        "GitHub repository is no longer accessible. Restore access and retry.",
+                        "Repository ID is unavailable: " + workspace.selectedRepositoryId()));
+        if (selected.id() != workspace.selectedRepositoryId()) {
+            throw routingChanged("Selected repository identity changed");
+        }
+
+        RepoRef selectedRef = RepoRef.of(selected.owner(), selected.name());
+        Optional<UserRepo> upstream = workspace.upstreamRepositoryId()
+                .map(repositoryId -> {
+                    UserRepo current = gitHub.fetchRepository(token, repositoryId)
+                            .orElseThrow(() -> routingChanged("Upstream repository is no longer accessible"));
+                    if (current.id() != repositoryId) {
+                        throw routingChanged("Upstream repository identity changed");
+                    }
+                    return current;
+                });
+        return workspace.withRepositoryRouting(
+                selectedRef,
+                upstream.map(UserRepo::id),
+                upstream.map(value -> RepoRef.of(value.owner(), value.name())),
+                upstream.map(UserRepo::id).orElse(selected.id()),
+                upstream.map(value -> RepoRef.of(value.owner(), value.name())).orElse(selectedRef),
+                selected.defaultBranch(),
+                selected.cloneUrl(),
+                upstream.map(UserRepo::defaultBranch),
+                upstream.map(UserRepo::cloneUrl),
+                clock.instant());
+    }
+
+    private static Workspace mergeRouting(Workspace latest, Workspace routing, Instant now)
+    {
+        return latest.withRepositoryRouting(
+                routing.selectedRepository(),
+                routing.upstreamRepositoryId(),
+                routing.upstreamRepository(),
+                routing.monitoredRepositoryId(),
+                routing.monitoredRepository(),
+                routing.defaultBranch(),
+                routing.originCloneUrl(),
+                routing.upstreamDefaultBranch(),
+                routing.upstreamCloneUrl(),
+                now);
+    }
+
+    private static ManagedWorkspaceGit.Failure routingChanged(String internalMessage)
+    {
+        return new ManagedWorkspaceGit.Failure("Workspace repository routing changed. Review the upstream repository and retry.", internalMessage);
+    }
 }

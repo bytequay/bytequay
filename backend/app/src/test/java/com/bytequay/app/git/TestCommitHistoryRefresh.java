@@ -76,7 +76,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestCommitHistoryRefresher
+class TestCommitHistoryRefresh
 {
     private static final String WORKSPACE_ID = "workspace-id";
     private static final Path REPOSITORY = Path.of("/managed/example-repository");
@@ -110,8 +110,7 @@ class TestCommitHistoryRefresher
         pullRequests = mock(CherryPickPullRequestLookup.class);
         avatars = mock(AvatarCache.class);
         clock = Clock.fixed(NOW, ZoneOffset.UTC);
-        CommitHistoryRefresher refresher = newRefresher();
-        service = new CommitHistoryService(workspaces, git, enrichment, refresher, mock(ApplicationContext.class));
+        service = new CommitHistoryService(workspaces, provisioning, git, store, enrichment, credentials, gitHub, pullRequests, avatars, clock, mock(ApplicationContext.class));
 
         readyWorkspace();
         when(provisioning.synchronizeCode(WORKSPACE_ID))
@@ -124,7 +123,7 @@ class TestCommitHistoryRefresher
     {
         when(workspaces.getWorkspace(WORKSPACE_ID)).thenThrow(WorkspaceException.notFound(WORKSPACE_ID));
 
-        assertThatThrownBy(() -> newRefresher().refresh(WORKSPACE_ID, ImmutableList.of())).isInstanceOf(WorkspaceException.class);
+        assertThatThrownBy(() -> service.refresh(WORKSPACE_ID, ImmutableList.of(new CommitHistoryRef(Source.WORKSPACE, "main")))).isInstanceOf(WorkspaceException.class);
 
         assertThat(store.metadata).isEmpty();
         assertThat(store.enrichment).isEmpty();
@@ -338,7 +337,10 @@ class TestCommitHistoryRefresher
         RepoRef repository = RepoRef.of("trinodb", "trino");
         readyWorkspace(new RemoteSource(WORKSPACE_ID, "oss", "https://github.com/trinodb/trino.git", Optional.of(202L), Optional.of(repository)));
         Commit commit = commit("remote123", NOW.minusSeconds(60));
-        store.upsertEnrichment(ImmutableList.of(positive(202, commit.sha(), NOW.minusSeconds(86_400))));
+        Instant previousCheck = NOW.minusSeconds(86_400);
+        store.upsertEnrichment(ImmutableList.of(new CommitEnrichment(202, commit.sha(), Optional.of("old-author"), Optional.of(AVATAR_KEY),
+                Optional.of("old-committer"), Optional.of(COMMITTER_AVATAR_KEY), Optional.of(42), Optional.of("Retained title"), Optional.of("https://example.invalid/pull/42"),
+                Optional.of(previousCheck), Optional.of(previousCheck), previousCheck)));
         when(git.log(REPOSITORY, "oss/main", 300)).thenReturn(ImmutableList.of(commit));
         when(gitHub.fetchCommitAvatarSnapshot("test-token", repository, commit.sha(), 1))
                 .thenReturn(new CommitAvatarSnapshot(
@@ -360,7 +362,14 @@ class TestCommitHistoryRefresher
             assertThat(value.repositoryId()).isEqualTo(202);
             assertThat(value.authorLogin()).contains("percy-r");
             assertThat(value.avatarKey()).contains(AVATAR_KEY);
+            assertThat(value.committerLogin()).contains("old-committer");
+            assertThat(value.committerAvatarKey()).contains(COMMITTER_AVATAR_KEY);
             assertThat(value.pullRequestNumber()).contains(42);
+            assertThat(value.pullRequestTitle()).contains("Retained title");
+            assertThat(value.pullRequestUrl()).contains("https://example.invalid/pull/42");
+            assertThat(value.avatarCheckedAt()).contains(NOW);
+            assertThat(value.associationCheckedAt()).contains(previousCheck);
+            assertThat(value.lastSeenAt()).isEqualTo(NOW);
         });
         verify(gitHub).fetchCommitAvatarSnapshot("test-token", repository, commit.sha(), 1);
         verify(pullRequests).lookUpResult(eq(repository), eq(ImmutableList.of()), eq("main"), anyList());
@@ -395,11 +404,6 @@ class TestCommitHistoryRefresher
         when(git.log(REPOSITORY, "origin/" + branch, 300)).thenReturn(ImmutableList.of());
         when(pullRequests.lookUpResult(eq(SELECTED), eq(ImmutableList.of()), eq(branch), anyList()))
                 .thenReturn(new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.of()));
-    }
-
-    private CommitHistoryRefresher newRefresher()
-    {
-        return new CommitHistoryRefresher(workspaces, provisioning, git, store, enrichment, credentials, gitHub, pullRequests, avatars, clock);
     }
 
     private void readyWorkspace(RemoteSource... extraRemotes)

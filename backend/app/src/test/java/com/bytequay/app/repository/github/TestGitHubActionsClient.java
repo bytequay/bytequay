@@ -33,6 +33,8 @@ import com.bytequay.core.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
@@ -306,6 +308,35 @@ class TestGitHubActionsClient
         fixture.apiServer.expect(requestTo(runsUrl(1))).andRespond(withSuccess("{\"total_count\":1,\"workflow_runs\":[]}", MediaType.APPLICATION_JSON));
 
         assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("incomplete workflow-run pages");
+        fixture.verify();
+    }
+
+    @ParameterizedTest
+    @CsvSource({"false, 10", "false, 11", "true, 10", "true, 11"})
+    void requiresCompleteEvidenceWithinTenPages(boolean jobs, int total)
+    {
+        Fixture fixture = fixture();
+        expectPullRequest(fixture);
+        String run = "{\"id\":900,\"workflow_id\":80,\"name\":\"Build\",\"head_sha\":\"" + HEAD_SHA + "\",\"run_attempt\":%d}";
+        if (jobs) {
+            fixture.apiServer.expect(requestTo(runsUrl(1)))
+                    .andRespond(withSuccess("{\"total_count\":1,\"workflow_runs\":[" + run.formatted(10) + "]}", MediaType.APPLICATION_JSON));
+        }
+        for (int page = 1; page <= 10; page++) {
+            String row = jobs ? "{\"id\":" + page + ",\"name\":\"Compile\",\"run_attempt\":" + page + "}" : run.formatted(page);
+            fixture.apiServer.expect(requestTo(jobs ? jobsUrl(900, page) : runsUrl(page)))
+                    .andRespond(withSuccess("{\"total_count\":" + total + ",\"" + (jobs ? "jobs" : "workflow_runs") + "\":[" + row + "]}", MediaType.APPLICATION_JSON));
+        }
+        if (!jobs && total == 10) {
+            fixture.apiServer.expect(requestTo(jobsUrl(900, 1))).andRespond(withSuccess("{\"total_count\":0,\"jobs\":[]}", MediaType.APPLICATION_JSON));
+        }
+        if (total == 10) {
+            CiWorkflowRun latest = fixture.client.inspect(PULL_REQUEST).workflowRuns().getFirst();
+            assertThat(jobs ? latest.jobs().getFirst().attempt() : latest.attempt()).isEqualTo(10);
+        }
+        else {
+            assertThatThrownBy(() -> fixture.client.inspect(PULL_REQUEST)).hasMessageContaining("exceed the complete inspection limit");
+        }
         fixture.verify();
     }
 

@@ -37,14 +37,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-class TestDefaultWorkspaceRemoteSourceService
+class TestWorkspaceRemoteSourceService
 {
     private static final Instant NOW = Instant.parse("2026-08-23T10:00:00Z");
 
     private InMemoryRemoteSourceStore store;
     private ManagedWorkspaceGit git;
     private WorkspaceRepositoryService repositoryService;
-    private DefaultWorkspaceRemoteSourceService service;
+    private WorkspaceRemoteSourceService service;
 
     @BeforeEach
     void setUp()
@@ -55,7 +55,7 @@ class TestDefaultWorkspaceRemoteSourceService
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         when(workspaces.findById("ws-1")).thenReturn(Optional.of(workspace(true)));
         when(workspaces.findById("ws-pending")).thenReturn(Optional.of(workspace(false)));
-        service = new DefaultWorkspaceRemoteSourceService(workspaces, store, git, repositoryService);
+        service = new WorkspaceRemoteSourceService(workspaces, store, git, repositoryService);
     }
 
     @Test

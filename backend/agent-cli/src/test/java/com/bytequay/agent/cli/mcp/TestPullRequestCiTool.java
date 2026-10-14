@@ -17,7 +17,6 @@ import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CiDescriptionProposal;
-import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.PullRequestCiBridge;
 import com.bytequay.agent.spi.ReviewBridge;
@@ -279,8 +278,9 @@ class TestPullRequestCiTool
 
     private PermissionBroker broker(BridgeResolver<PullRequestCiBridge> ci, BridgeResolver<ReviewBridge> review)
     {
-        return new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", review, BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), ci);
+        return PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .reviews(review)
+                .pullRequestChecks(ci).build();
     }
 
     private JsonNode list(PermissionBroker broker, String token)

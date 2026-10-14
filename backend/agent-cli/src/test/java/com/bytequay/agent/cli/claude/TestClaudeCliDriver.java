@@ -45,7 +45,6 @@ import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.DiscussionContextBridge;
-import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -296,8 +295,8 @@ class TestClaudeCliDriver
         };
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_get_context", "Read local review context", ImmutableMap.of("type", "object"), input -> "review context")), "Review the pull request");
-        PermissionBroker permissions = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory", taskId -> Optional.of(review));
+        PermissionBroker permissions = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .reviews(taskId -> Optional.of(review)).build();
         List<ProviderAgentEvent> events = new CopyOnWriteArrayList<>();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(
                 executable.toString(), objectMapper, permissions, supervisor, claudeHome(),
@@ -947,7 +946,7 @@ class TestClaudeCliDriver
         String executable = worktree.resolve("Claude CLI's bin/claude").toString();
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.authentication("{\"loggedIn\":false}", "", 1);
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(executable, objectMapper, broker, supervisor, profile,
                 ImmutableMap.of("HOME", worktree.resolve("ambient-home").toString(), "CLAUDE_CONFIG_DIR", worktree.resolve("ambient-config").toString()))) {
             AgentProviderStatus status = driver.probe();
@@ -976,7 +975,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor personalSupervisor = new ScriptedProcessSupervisor();
         workSupervisor.authentication("{\"loggedIn\":false}", "", 1);
         personalSupervisor.authentication("{\"loggedIn\":true,\"email\":\"personal@example.com\"}", "", 0);
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         Map<String, String> ambient = ImmutableMap.of(
                 "HOME", buildHome.toString(), "JAVA_HOME", System.getProperty("java.home"), "CLAUDE_CONFIG_DIR", "/ambient", "ANTHROPIC_API_KEY", "wrong-key",
                 "ANTHROPIC_AUTH_TOKEN", "wrong-token", "CLAUDE_CODE_OAUTH_TOKEN", "wrong-login", "ANTHROPIC_BASE_URL", "https://wrong.example");
@@ -1060,7 +1059,7 @@ class TestClaudeCliDriver
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         supervisor.authentication("{\"loggedIn\":false}", "", 1);
         Path profile = worktree.resolve("Work account's profile");
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         try (ClaudeCliDriver driver = new ClaudeCliDriver(executable.toString(), objectMapper, broker, supervisor, profile,
                 new AgentLaneId("claude-account-work"), "Claude · Work", Optional.of("o'connor+work@example.com"), ImmutableMap.of())) {
             ProcessBuilder shell = new ProcessBuilder("/bin/sh", "-c", driver.probe().signInCommand().orElseThrow());
@@ -1377,10 +1376,8 @@ class TestClaudeCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
-                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
-                BridgeResolver.none(), taskId -> Optional.of(issue));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .issueContexts(taskId -> Optional.of(issue)).build();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
@@ -1402,10 +1399,8 @@ class TestClaudeCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty());
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory",
-                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
-                taskId -> Optional.of(ci));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .pullRequestChecks(taskId -> Optional.of(ci)).build();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         Optional<AgentSessionRef> reference = Optional.empty();
         for (int index = 0; index < 2; index++) {
@@ -1427,11 +1422,9 @@ class TestClaudeCliDriver
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
         LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())),
-                DraftPullRequestPublisher.NONE, taskId -> Optional.of(local));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .developments(taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())))
+                .localReviews(taskId -> Optional.of(local)).build();
         Map<String, String> environment = apiKey ? ImmutableMap.of("ANTHROPIC_API_KEY", "test-api-key") : ImmutableMap.of();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), environment);
         AgentSessionRef reference;
@@ -1819,7 +1812,7 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         AgentSessionContext plain = context(Optional.empty());
         AgentSessionContext context = new AgentSessionContext(
@@ -1862,7 +1855,7 @@ class TestClaudeCliDriver
             throws Exception
     {
         ScriptedProcessSupervisor supervisor = new ScriptedProcessSupervisor();
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         ClaudeCliDriver driver = new ClaudeCliDriver("/fake/claude", objectMapper, broker, supervisor, claudeHome(), ImmutableMap.of());
         CompletableFuture<ProviderApprovalDecision> decision = new CompletableFuture<>();
         CountDownLatch requested = new CountDownLatch(1);
@@ -1960,11 +1953,8 @@ class TestClaudeCliDriver
 
     private ClaudeCliDriver driver(ProcessSupervisor supervisor, BridgeResolver<ReviewBridge> reviews)
     {
-        PermissionBroker permissions = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
-                objectMapper,
-                (taskId, query) -> "memory",
-                reviews);
+        PermissionBroker permissions = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .reviews(reviews).build();
         return new ClaudeCliDriver(
                 "/fake/claude",
                 objectMapper,

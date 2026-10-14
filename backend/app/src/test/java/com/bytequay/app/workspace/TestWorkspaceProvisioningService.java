@@ -48,7 +48,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-class TestDefaultWorkspaceProvisioningService
+class TestWorkspaceProvisioningService
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
     private static final String ORIGIN_URL = "https://github.test/contributor/project.git";
@@ -69,7 +69,7 @@ class TestDefaultWorkspaceProvisioningService
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace direct = store.createOrGet(workspace("direct", false));
         Workspace fork = store.createOrGet(workspace("fork", true));
-        DefaultWorkspaceProvisioningService service = service(store, git);
+        WorkspaceProvisioningService service = service(store, git);
 
         WorkspaceCodeSyncResult directResult = service.synchronizeCode(direct.id());
         WorkspaceCodeSyncResult forkResult = service.synchronizeCode(fork.id());
@@ -144,7 +144,7 @@ class TestDefaultWorkspaceProvisioningService
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), commandLog);
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("concurrent", false));
-        DefaultWorkspaceProvisioningService service = service(store, git);
+        WorkspaceProvisioningService service = service(store, git);
         ImmutableList.Builder<Callable<WorkspaceCodeSyncResult>> calls = ImmutableList.builder();
         for (int index = 0; index < 8; index++) {
             calls.add(() -> service.synchronizeCode(workspace.id()));
@@ -185,14 +185,14 @@ class TestDefaultWorkspaceProvisioningService
         Path unexpected = directPath(unknown).resolve("keep.txt");
         Files.createDirectories(unexpected.getParent());
         Files.writeString(unexpected, "keep", StandardCharsets.UTF_8);
-        DefaultWorkspaceProvisioningService service = service(store, git);
+        WorkspaceProvisioningService service = service(store, git);
 
         assertThat(service.synchronizeCode(unknown.id()).successful()).isFalse();
         assertThat(unexpected).hasContent("keep");
 
         InMemoryWorkspaceStore mismatchStore = new InMemoryWorkspaceStore();
         Workspace mismatch = mismatchStore.createOrGet(workspace("mismatch", false));
-        DefaultWorkspaceProvisioningService mismatchService = service(mismatchStore, git);
+        WorkspaceProvisioningService mismatchService = service(mismatchStore, git);
         assertThat(mismatchService.synchronizeCode(mismatch.id()).successful()).isTrue();
         git(directPath(mismatch), "remote", "set-url", "origin", "https://github.test/other/project.git");
         mismatchStore.save(mismatchStore.findById(mismatch.id()).orElseThrow()
@@ -212,7 +212,7 @@ class TestDefaultWorkspaceProvisioningService
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("preserve", false));
-        DefaultWorkspaceProvisioningService service = service(store, git);
+        WorkspaceProvisioningService service = service(store, git);
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
         git(repository, "checkout", "-b", "local-work");
@@ -245,7 +245,7 @@ class TestDefaultWorkspaceProvisioningService
         GitCommandRunner git = routedGit(ImmutableMap.of(ORIGIN_URL, origin.bare(), UPSTREAM_URL, upstream.bare()), temporary.resolve("git-commands.log"));
         InMemoryWorkspaceStore store = new InMemoryWorkspaceStore();
         Workspace workspace = store.createOrGet(workspace("preserve-fork", true));
-        DefaultWorkspaceProvisioningService service = service(store, git);
+        WorkspaceProvisioningService service = service(store, git);
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         Path repository = directPath(workspace);
         String localMainHead = git(repository, "rev-parse", "refs/heads/main");
@@ -289,7 +289,7 @@ class TestDefaultWorkspaceProvisioningService
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
-        DefaultWorkspaceProvisioningService service = service(store, git, gitHub, remoteSources);
+        WorkspaceProvisioningService service = service(store, git, gitHub, remoteSources);
         assertThat(service.synchronizeCode(workspace.id()).successful()).isTrue();
         remoteSources.save(new RemoteSource(workspace.id(), "oss", CUSTOM_URL));
 
@@ -313,7 +313,7 @@ class TestDefaultWorkspaceProvisioningService
         when(gitHub.fetchRepository("token", 100L))
                 .thenReturn(Optional.of(direct("contributor", ORIGIN_URL)))
                 .thenReturn(Optional.of(direct("new-owner", renamedUrl)));
-        DefaultWorkspaceProvisioningService service = service(store, git, gitHub);
+        WorkspaceProvisioningService service = service(store, git, gitHub);
         service.synchronizeCode(workspace.id());
 
         WorkspaceCodeSyncResult result = service.synchronizeCode(workspace.id());
@@ -333,7 +333,7 @@ class TestDefaultWorkspaceProvisioningService
                 .isInstanceOfSatisfying(WorkspaceException.class, failure -> assertThat(failure.code()).isEqualTo("REPOSITORY_ROUTING_INVALID"));
     }
 
-    private DefaultWorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git)
+    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git)
     {
         GitHubAccountClient gitHub = mock(GitHubAccountClient.class);
         when(gitHub.fetchRepository("token", 100L)).thenReturn(Optional.of(direct("contributor", ORIGIN_URL)));
@@ -342,19 +342,19 @@ class TestDefaultWorkspaceProvisioningService
         return service(store, git, gitHub);
     }
 
-    private DefaultWorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub)
+    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub)
     {
         return service(store, git, gitHub, new InMemoryRemoteSourceStore());
     }
 
-    private DefaultWorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub, InMemoryRemoteSourceStore remoteSources)
+    private WorkspaceProvisioningService service(WorkspaceStore store, GitCommandRunner git, GitHubAccountClient gitHub, InMemoryRemoteSourceStore remoteSources)
     {
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(credentials.resolveGitHubToken(anyString())).thenReturn("token");
         when(credentials.gitAuthenticationEnvironment(anyString(), anyCollection())).thenCallRealMethod();
         WorkspacePaths paths = new WorkspacePaths(temporary.resolve("workspaces").toString());
-        return new DefaultWorkspaceProvisioningService(
+        return new WorkspaceProvisioningService(
                 store,
                 new ManagedWorkspaceGit(paths, git, credentials, remoteSources),
                 gitHub,

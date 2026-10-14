@@ -16,6 +16,8 @@ package com.bytequay.core.review;
 import com.bytequay.core.domain.DiffFile;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.List;
@@ -34,6 +36,7 @@ import static java.util.Objects.requireNonNull;
  * @param operations replay results by assignment, tool and operation key, committed with the write they name
  * @param evidence retained source excerpts by reference
  */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record ReviewRun(
         String id,
         String reviewId,
@@ -105,28 +108,28 @@ public record ReviewRun(
 
     public ReviewRun withVersion(long updatedVersion)
     {
-        return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, outcome, updatedVersion, updatedAt, endedAt);
+        return toBuilder().version(updatedVersion).build();
     }
 
     public ReviewRun withTurn(String turnId, Instant now)
     {
         List<String> nextTurnIds = ImmutableList.<String>builder().addAll(turnIds).add(turnId).build();
-        return copy(nextTurnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return toBuilder().turnIds(nextTurnIds).updatedAt(now).build();
     }
 
     public ReviewRun withSummary(ReviewSummary updatedSummary, Instant now)
     {
-        return copy(turnIds, state, Optional.of(updatedSummary), coverage, investigation, steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return toBuilder().summary(Optional.of(updatedSummary)).updatedAt(now).build();
     }
 
     public ReviewRun withCoverage(ReviewCoverage updatedCoverage, Instant now)
     {
-        return copy(turnIds, state, summary, Optional.of(updatedCoverage), investigation, steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return toBuilder().coverage(Optional.of(updatedCoverage)).updatedAt(now).build();
     }
 
     public ReviewRun withInvestigation(ReviewInvestigation updatedInvestigation, Instant now)
     {
-        return copy(turnIds, state, summary, coverage, Optional.of(updatedInvestigation), steps, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return toBuilder().investigation(Optional.of(updatedInvestigation)).updatedAt(now).build();
     }
 
     /** The immutable report and its assignment number must always be read together. */
@@ -149,14 +152,14 @@ public record ReviewRun(
     {
         checkArgument(step.number() == steps.size() + 1, "next step number must be consecutive");
         List<ReviewStep> next = ImmutableList.<ReviewStep>builder().addAll(steps).add(step).build();
-        return copy(turnIds, state, summary, Optional.empty(), investigation, next, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return toBuilder().coverage(Optional.empty()).steps(next).updatedAt(now).build();
     }
 
     public ReviewRun replaceCurrentStep(ReviewStep step, Instant now)
     {
         checkArgument(!steps.isEmpty() && step.number() == steps.size(), "only the current step can be replaced");
         List<ReviewStep> next = ImmutableList.<ReviewStep>builder().addAll(steps.subList(0, steps.size() - 1)).add(step).build();
-        return copy(turnIds, state, summary, coverage, investigation, next, completionRepairUsed, operations, evidence, outcome, version, now, endedAt);
+        return toBuilder().steps(next).updatedAt(now).build();
     }
 
     public boolean hasCompleteSummary()
@@ -169,46 +172,24 @@ public record ReviewRun(
     public ReviewRun withOperation(String key, ReviewOperation operation, Instant now)
     {
         Map<String, ReviewOperation> nextOperations = ImmutableMap.<String, ReviewOperation>builder().putAll(operations).put(key, operation).buildOrThrow();
-        return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, nextOperations, evidence, outcome, version, now, endedAt);
+        return toBuilder().operations(nextOperations).updatedAt(now).build();
     }
 
     public ReviewRun withEvidence(String ref, ReviewEvidence item, Instant now)
     {
         Map<String, ReviewEvidence> nextEvidence = ImmutableMap.<String, ReviewEvidence>builder().putAll(evidence).put(ref, item).buildOrThrow();
-        return copy(turnIds, state, summary, coverage, investigation, steps, completionRepairUsed, operations, nextEvidence, outcome, version, now, endedAt);
+        return toBuilder().evidence(nextEvidence).updatedAt(now).build();
     }
 
     public ReviewRun withCompletionRepairUsed(Instant now)
     {
-        return copy(turnIds, state, summary, coverage, investigation, steps, true, operations, evidence, outcome, version, now, endedAt);
+        return toBuilder().completionRepairUsed(true).updatedAt(now).build();
     }
 
     public ReviewRun ended(State terminalState, Optional<String> terminalOutcome, Instant now)
     {
         checkArgument(terminalState.terminal(), "state is not terminal");
-        return copy(turnIds, terminalState, summary, coverage, investigation, steps, completionRepairUsed, operations, evidence, terminalOutcome, version, now, Optional.of(now));
-    }
-
-    /** Carries everything frozen with the head over unchanged; only the progress of the run varies. */
-    private ReviewRun copy(
-            List<String> nextTurnIds,
-            State nextState,
-            Optional<ReviewSummary> nextSummary,
-            Optional<ReviewCoverage> nextCoverage,
-            Optional<ReviewInvestigation> nextInvestigation,
-            List<ReviewStep> nextSteps,
-            boolean nextCompletionRepairUsed,
-            Map<String, ReviewOperation> nextOperations,
-            Map<String, ReviewEvidence> nextEvidence,
-            Optional<String> nextOutcome,
-            long nextVersion,
-            Instant now,
-            Optional<Instant> nextEndedAt)
-    {
-        return new ReviewRun(
-                id, reviewId, ordinal, scope, baseRef, baseSha, mergeBaseSha, headSha, priorHeadSha, commits, diff,
-                nextTurnIds, nextState, nextSummary, nextCoverage, nextInvestigation, nextSteps, nextCompletionRepairUsed, nextOperations, nextEvidence,
-                nextOutcome, nextVersion, createdAt, now, nextEndedAt);
+        return toBuilder().state(terminalState).outcome(terminalOutcome).updatedAt(now).endedAt(Optional.of(now)).build();
     }
 
     public enum Scope

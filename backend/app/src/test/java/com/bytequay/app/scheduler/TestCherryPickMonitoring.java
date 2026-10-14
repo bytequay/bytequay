@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.cherrypick;
+package com.bytequay.app.scheduler;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -20,6 +20,11 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.backport.BackportChainService;
+import com.bytequay.app.cherrypick.CherryPickExecutionService;
+import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.rebase.BranchRebaseService;
+import com.bytequay.core.backport.BackportChainStore;
 import com.bytequay.core.cherrypick.CherryPickExecution;
 import com.bytequay.core.cherrypick.CherryPickExecution.FinishReason;
 import com.bytequay.core.cherrypick.CherryPickExecution.Range;
@@ -28,7 +33,9 @@ import com.bytequay.core.cherrypick.CherryPickExecutionId;
 import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.cherrypick.CherryPickItem;
 import com.bytequay.core.cherrypick.CherryPickItem.Disposition;
+import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.rebase.BranchRebaseStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -49,7 +56,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-class TestCherryPickExecutionMonitorJob
+class TestCherryPickMonitoring
 {
     private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
     private static final Clock CLOCK = Clock.fixed(NOW.plus(Duration.ofMinutes(2)), ZoneOffset.UTC);
@@ -61,7 +68,7 @@ class TestCherryPickExecutionMonitorJob
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         CherryPickExecutionService service = mock(CherryPickExecutionService.class);
 
-        new CherryPickExecutionMonitorJob(store, taskStore, service, new AgentServingGate(), CLOCK, 20).monitor();
+        monitor(store, taskStore, service, new AgentServingGate(), CLOCK, 20).monitorCherryPicks();
 
         verifyNoInteractions(store, taskStore, service);
     }
@@ -103,7 +110,7 @@ class TestCherryPickExecutionMonitorJob
         when(store.findByAgentTaskId(orphanedTaskId.toString())).thenReturn(Optional.empty());
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(execution));
 
-        new CherryPickExecutionMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCherryPicks();
 
         verify(service).advance(executionId);
     }
@@ -130,10 +137,18 @@ class TestCherryPickExecutionMonitorJob
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finishedExecution(executionId, taskId)));
 
-        new CherryPickExecutionMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCherryPicks();
 
         verify(service, times(expectedAdvances)).advance(executionId);
         verifyNoMoreInteractions(service);
+    }
+
+    private static WorkflowMonitorJob monitor(
+            CherryPickExecutionStore store, AgentTaskStore taskStore, CherryPickExecutionService service, AgentServingGate gate, Clock clock, int batchSize)
+    {
+        return new WorkflowMonitorJob(store, service, mock(CiAutofixStore.class), mock(CiAutofixService.class),
+                mock(BranchRebaseStore.class), mock(BranchRebaseService.class), mock(BackportChainStore.class), mock(BackportChainService.class),
+                taskStore, gate, clock, batchSize, 20, 20);
     }
 
     private static CherryPickExecution finishedExecution(CherryPickExecutionId executionId, TaskId taskId)

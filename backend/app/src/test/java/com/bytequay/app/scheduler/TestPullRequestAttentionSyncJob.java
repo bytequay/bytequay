@@ -17,7 +17,7 @@ import com.bytequay.app.repository.github.GitHubRateLimitException;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import org.junit.jupiter.api.Test;
 
 import static org.mockito.Mockito.doThrow;
@@ -30,7 +30,7 @@ import static org.mockito.Mockito.when;
 
 class TestPullRequestAttentionSyncJob
 {
-    private final WorkspaceIssueRefreshService issues = mock(WorkspaceIssueRefreshService.class);
+    private final WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final AppSettingsService settings = mock(AppSettingsService.class);

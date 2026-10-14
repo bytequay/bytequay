@@ -165,7 +165,7 @@ class TestAgentHttpApi
 
         @Bean
         @Primary
-        WorkspaceProvisioningService workspaceProvisioningService()
+        WorkspaceProvisioningService testWorkspaceProvisioningService()
         {
             return mock(WorkspaceProvisioningService.class);
         }

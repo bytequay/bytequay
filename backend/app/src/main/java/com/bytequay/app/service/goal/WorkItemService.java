@@ -494,20 +494,25 @@ public class WorkItemService
     public List<WorkItemView> order(String workspaceId, String goalId, List<String> ids)
     {
         requireGoal(workspaceId, Optional.of(goalId));
+        return order(workspaceId, goalId, ids, false);
+    }
+
+    private List<WorkItemView> order(String workspaceId, String scopeId, List<String> ids, boolean epic)
+    {
         return unitOfWork.execute(() -> {
-            Map<String, WorkItem> work = items.list(workspaceId).stream().filter(item -> item.goalId().filter(goalId::equals).isPresent())
+            Map<String, WorkItem> work = items.list(workspaceId).stream().filter(item -> (epic ? item.epicId() : item.goalId()).filter(scopeId::equals).isPresent())
                     .collect(toImmutableMap(WorkItem::id, item -> item));
             if (ids.size() != work.size() || !ImmutableSet.copyOf(ids).equals(work.keySet())) {
-                throw conflict("The Goal's work changed. Order it again.");
+                throw conflict("The " + (epic ? "Epic" : "Goal") + "'s work changed. Order it again.");
             }
             Instant now = clock.instant();
             ImmutableList.Builder<WorkItemView> ordered = ImmutableList.builder();
             for (int rank = 0; rank < ids.size(); rank++) {
                 WorkItem item = work.get(ids.get(rank));
-                if (item.rank() != rank) {
+                if ((epic ? item.epicRank() : item.rank()) != rank) {
                     WorkItem moved = new WorkItem(item.id(), workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
-                            item.state(), item.revision() + 1, item.links(), item.history(), item.createdAt(), now, item.priority(), rank, item.blockedBy(),
-                            item.epicId(), item.epicRank());
+                            item.state(), item.revision() + 1, item.links(), item.history(), item.createdAt(), now, item.priority(), epic ? item.rank() : rank, item.blockedBy(),
+                            item.epicId(), epic ? rank : item.epicRank());
                     update(moved, item.revision());
                     item = moved;
                 }
@@ -624,27 +629,7 @@ public class WorkItemService
     public List<WorkItemView> orderEpic(String workspaceId, String epicId, List<String> ids)
     {
         epics.require(workspaceId, epicId);
-        return unitOfWork.execute(() -> {
-            Map<String, WorkItem> work = items.list(workspaceId).stream().filter(item -> item.epicId().filter(epicId::equals).isPresent())
-                    .collect(toImmutableMap(WorkItem::id, item -> item));
-            if (ids.size() != work.size() || !ImmutableSet.copyOf(ids).equals(work.keySet())) {
-                throw conflict("The Epic's work changed. Order it again.");
-            }
-            Instant now = clock.instant();
-            ImmutableList.Builder<WorkItemView> ordered = ImmutableList.builder();
-            for (int rank = 0; rank < ids.size(); rank++) {
-                WorkItem item = work.get(ids.get(rank));
-                if (item.epicRank() != rank) {
-                    WorkItem moved = new WorkItem(item.id(), workspaceId, item.goalId(), item.title(), item.kind(), item.acceptanceCriteria(), item.completionRule(),
-                            item.state(), item.revision() + 1, item.links(), item.history(), item.createdAt(), now, item.priority(), item.rank(), item.blockedBy(),
-                            item.epicId(), rank);
-                    update(moved, item.revision());
-                    item = moved;
-                }
-                ordered.add(view(item));
-            }
-            return ordered.build();
-        });
+        return order(workspaceId, epicId, ids, true);
     }
 
     /** Takes work out of its Epic while retaining its local identity, context and history. */

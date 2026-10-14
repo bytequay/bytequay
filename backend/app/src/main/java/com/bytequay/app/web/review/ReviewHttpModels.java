@@ -14,6 +14,9 @@
 package com.bytequay.app.web.review;
 
 import com.bytequay.app.review.AgentReviewProjection;
+import com.bytequay.app.review.AgentReviewProjection.TaskView;
+import com.bytequay.app.review.AgentReviewProjection.TurnView;
+import com.bytequay.app.review.AgentReviewProjection.WorktreeSyncView;
 import com.bytequay.app.review.ReviewPublicationService;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
@@ -64,15 +67,15 @@ final class ReviewHttpModels
                 projection.runs().stream().map(ReviewHttpModels::run).collect(toImmutableList()),
                 projection.findings().stream().map(ReviewHttpModels::finding).collect(toImmutableList()),
                 projection.messages().stream().map(ReviewHttpModels::message).collect(toImmutableList()),
-                task(projection.task()),
-                projection.activeTurn().map(turn -> new TurnResponse(turn.id(), turn.state(), turn.startedAt(), turn.cancellationRequestedAt())),
+                projection.task(),
+                projection.activeTurn(),
                 projection.queuedInputIds(),
                 projection.queuePause(),
                 projection.pendingApprovals(),
                 projection.byteQuayTurnIds(),
                 projection.draft().map(ReviewHttpModels::draft),
                 projection.pullRequest().map(pullRequest -> new PullRequestResponse(pullRequest.title(), pullRequest.state(), pullRequest.draft())),
-                projection.worktreeSync().map(sync -> new WorktreeSyncResponse(sync.state().name(), sync.headSha(), sync.targetHeadSha(), sync.dirty(), sync.reason())),
+                projection.worktreeSync(),
                 review.replay());
     }
 
@@ -91,30 +94,14 @@ final class ReviewHttpModels
                 run.diff().size(),
                 run.turnIds(),
                 run.state().name(),
-                run.summary().map(ReviewHttpModels::summary),
-                run.coverage().map(ReviewHttpModels::coverage),
+                run.summary(),
+                run.coverage(),
                 run.investigation(),
                 run.steps(),
-                run.evidence().values().stream().map(ReviewHttpModels::evidence).collect(toImmutableList()),
+                ImmutableList.copyOf(run.evidence().values()),
                 run.outcome(),
                 run.createdAt(),
                 run.endedAt());
-    }
-
-    private static SummaryResponse summary(ReviewSummary summary)
-    {
-        return new SummaryResponse(
-                summary.revision(),
-                summary.purpose(),
-                summary.commits().stream().map(commit -> new CommitExplanationResponse(commit.sha(), commit.explanation())).collect(toImmutableList()),
-                summary.combinedResult(),
-                summary.evidence(),
-                summary.criticalFindingIds());
-    }
-
-    private static CoverageResponse coverage(ReviewCoverage coverage)
-    {
-        return new CoverageResponse(coverage.complete(), coverage.omissions(), coverage.warnings(), coverage.recordedAt());
     }
 
     private static FindingResponse finding(ReviewFinding finding)
@@ -133,7 +120,7 @@ final class ReviewHttpModels
                 anchor.map(ReviewAnchor::endLine),
                 anchor.map(ReviewAnchor::label),
                 anchor.map(ReviewAnchor::excerpt).orElse(ImmutableList.of()),
-                finding.evidence().stream().map(ReviewHttpModels::evidence).collect(toImmutableList()),
+                finding.evidence(),
                 finding.revision(),
                 finding.state().name(),
                 finding.stateReason(),
@@ -144,11 +131,6 @@ final class ReviewHttpModels
                 finding.memories(),
                 finding.origin().name(),
                 finding.resolvedByTaskId());
-    }
-
-    private static EvidenceResponse evidence(ReviewEvidence evidence)
-    {
-        return new EvidenceResponse(evidence.ref(), evidence.source(), evidence.provenance(), evidence.excerpt(), evidence.explanation());
     }
 
     private static MessageResponse message(AgentReviewProjection.MessageView view)
@@ -167,24 +149,6 @@ final class ReviewHttpModels
                 view.messageEventId(),
                 message.createdAt(),
                 message.developerTaskId());
-    }
-
-    private static TaskResponse task(AgentReviewProjection.TaskView task)
-    {
-        return new TaskResponse(
-                task.id(),
-                task.workspaceId(),
-                task.state(),
-                task.version(),
-                task.laneId(),
-                task.laneLabel(),
-                task.model(),
-                task.effort(),
-                task.serviceTier(),
-                task.selectionLaneId(),
-                task.mutationClaim(),
-                task.steering(),
-                task.nestedAgents());
     }
 
     static DraftResponse draft(ReviewDraft draft)
@@ -244,18 +208,16 @@ final class ReviewHttpModels
             List<RunResponse> runs,
             List<FindingResponse> findings,
             List<MessageResponse> messages,
-            TaskResponse task,
-            Optional<TurnResponse> activeTurn,
+            TaskView task,
+            Optional<TurnView> activeTurn,
             List<String> queuedInputIds,
             Optional<String> queuePause,
             int pendingApprovals,
             List<String> byteQuayTurnIds,
             Optional<DraftResponse> draft,
             Optional<PullRequestResponse> pullRequest,
-            Optional<WorktreeSyncResponse> worktreeSync,
+            Optional<WorktreeSyncView> worktreeSync,
             Optional<AgentReview.Replay> replay) {}
-
-    record WorktreeSyncResponse(String state, Optional<String> headSha, Optional<String> targetHeadSha, boolean dirty, Optional<String> reason) {}
 
     record RunResponse(
             String id,
@@ -270,26 +232,14 @@ final class ReviewHttpModels
             int changedFiles,
             List<String> turnIds,
             String state,
-            Optional<SummaryResponse> summary,
-            Optional<CoverageResponse> coverage,
+            Optional<ReviewSummary> summary,
+            Optional<ReviewCoverage> coverage,
             Optional<ReviewInvestigation> investigation,
             List<ReviewStep> steps,
-            List<EvidenceResponse> evidence,
+            List<ReviewEvidence> evidence,
             Optional<String> outcome,
             Instant createdAt,
             Optional<Instant> endedAt) {}
-
-    record SummaryResponse(
-            int revision,
-            String purpose,
-            List<CommitExplanationResponse> commits,
-            String combinedResult,
-            Optional<String> evidence,
-            List<String> criticalFindingIds) {}
-
-    record CommitExplanationResponse(String sha, String explanation) {}
-
-    record CoverageResponse(boolean complete, List<String> omissions, List<String> warnings, Instant recordedAt) {}
 
     record FindingResponse(
             String id,
@@ -304,7 +254,7 @@ final class ReviewHttpModels
             Optional<Integer> endLine,
             Optional<String> range,
             List<String> excerpt,
-            List<EvidenceResponse> evidence,
+            List<ReviewEvidence> evidence,
             int revision,
             String state,
             Optional<String> stateReason,
@@ -315,8 +265,6 @@ final class ReviewHttpModels
             List<ReviewFinding.MemoryCitation> memories,
             String origin,
             Optional<String> resolvedByTaskId) {}
-
-    record EvidenceResponse(String ref, String source, String provenance, String excerpt, String explanation) {}
 
     record MessageResponse(
             String id,
@@ -333,23 +281,6 @@ final class ReviewHttpModels
             Optional<String> developerTaskId) {}
 
     record ConfigureRequest(Long expectedVersion, String laneId, String model, String effort, String serviceTier) {}
-
-    record TaskResponse(
-            String id,
-            String workspaceId,
-            String state,
-            long version,
-            String laneId,
-            String laneLabel,
-            Optional<String> model,
-            Optional<String> effort,
-            Optional<String> serviceTier,
-            String selectionLaneId,
-            Optional<String> mutationClaim,
-            boolean steering,
-            boolean nestedAgents) {}
-
-    record TurnResponse(String id, String state, Optional<Instant> startedAt, Optional<Instant> cancellationRequestedAt) {}
 
     record PullRequestResponse(String title, String state, boolean draft) {}
 

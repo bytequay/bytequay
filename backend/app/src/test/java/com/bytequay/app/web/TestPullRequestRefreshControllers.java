@@ -20,7 +20,6 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -467,7 +466,6 @@ class TestPullRequestRefreshControllers
                 mock(PullRequestRefreshService.class),
                 mock(WorkspaceMetadataService.class),
                 issues,
-                mock(WorkspaceIssueRefreshService.class),
                 mock(WorkspaceRemoteSourceService.class),
                 mock(ModelSettingsService.class),
                 mock(CredentialService.class),
@@ -488,7 +486,7 @@ class TestPullRequestRefreshControllers
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, mock(PullRequestService.class), mock(PullRequestRefreshService.class),
-                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
+                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class));
         var mvc = standaloneSetup(controller).build();
@@ -519,7 +517,7 @@ class TestPullRequestRefreshControllers
         CredentialService credentials = mock(CredentialService.class);
         WorkspaceController controller = new WorkspaceController(
                 workspaces, deletion, mock(PullRequestService.class), refresh,
-                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
+                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class), credentials, mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class));
         var mvc = standaloneSetup(controller).build();
@@ -554,7 +552,6 @@ class TestPullRequestRefreshControllers
                 refresh,
                 mock(WorkspaceMetadataService.class),
                 mock(WorkspaceIssueService.class),
-                mock(WorkspaceIssueRefreshService.class),
                 mock(WorkspaceRemoteSourceService.class),
                 mock(ModelSettingsService.class),
                 mock(CredentialService.class),

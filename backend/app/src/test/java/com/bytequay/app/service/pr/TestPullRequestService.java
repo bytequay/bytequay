@@ -22,7 +22,6 @@ import com.bytequay.app.repository.github.ConditionalList;
 import com.bytequay.app.repository.github.GitHubAccountClient;
 import com.bytequay.app.repository.github.GitHubActionsClient;
 import com.bytequay.app.repository.github.GitHubActionsClient.PrCheckRunsFetch;
-import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubNotificationRef;
 import com.bytequay.app.repository.github.GitHubPullRequestDetailResponse;
@@ -35,7 +34,7 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -140,12 +139,11 @@ class TestPullRequestService
 {
     @Mock private GitHubNotificationClient notifications;
     @Mock private AppSettingsStore syncSettings;
-    @Mock private WorkspaceIssueRefreshService issues;
+    @Mock private WorkspaceIssueService issues;
     @Mock private GitHubPullRequestReadClient gitHub;
     @Mock private GitHubPullRequestSummaryClient summaries;
     @Mock private GitHubPullRequestWriteClient writes;
     @Mock private GitHubRepoClient repositories;
-    @Mock private GitHubMergeClient merges;
     @Mock private GitHubActionsClient actions;
     @Mock private GitHubAccountClient accounts;
     @Mock private PullRequestStore store;
@@ -169,7 +167,7 @@ class TestPullRequestService
     {
         snapshots = new PullRequestSnapshotService(gitHub, actions, detailStore, diffStore);
         service = new PullRequestService(
-                gitHub, writes, repositories, merges, accounts, store, snapshots,
+                gitHub, writes, repositories, accounts, store, snapshots,
                 new PullRequestDetailFetcher(gitHub, Runnable::run),
                 viewStateStore, recent, credentialService, metadata, summaries, workspaces, applicationContext,
                 notifications, syncSettings, issues, Clock.systemUTC());
@@ -233,7 +231,7 @@ class TestPullRequestService
 
         verify(detailStore).findAuthorAvatarUrls(ImmutableSet.of(12L, 13L));
         verifyNoMoreInteractions(detailStore);
-        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+        verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
     }
 
     @Test
@@ -270,7 +268,7 @@ class TestPullRequestService
 
         verify(detailStore, times(3)).findLatestActivities(ImmutableSet.of(12L));
         verifyNoMoreInteractions(detailStore);
-        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+        verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
     }
 
     @Test
@@ -291,7 +289,7 @@ class TestPullRequestService
         verify(detailStore).findCommitsAfter(ImmutableMap.of(12L, REVIEWED_AT, 13L, requested));
         verify(detailStore).findFreshness(12L);
         verifyNoMoreInteractions(detailStore);
-        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+        verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
     }
 
     @Test
@@ -311,7 +309,7 @@ class TestPullRequestService
         verify(detailStore).findCheckRuns(ImmutableSet.of(12L));
         verify(detailStore).findFreshness(12L);
         verifyNoMoreInteractions(detailStore);
-        verifyNoInteractions(gitHub, writes, repositories, merges, actions, accounts, diffStore, metadata);
+        verifyNoInteractions(gitHub, writes, repositories, actions, accounts, diffStore, metadata);
     }
 
     @ParameterizedTest
@@ -330,7 +328,7 @@ class TestPullRequestService
         verify(detailStore).findCommitsAfter(ImmutableMap.of());
         verify(detailStore).findCheckRuns(ImmutableSet.of());
         verifyNoMoreInteractions(detailStore);
-        verifyNoInteractions(gitHub, summaries, writes, repositories, merges, actions, accounts, diffStore, metadata);
+        verifyNoInteractions(gitHub, summaries, writes, repositories, actions, accounts, diffStore, metadata);
     }
 
     @Test
@@ -1712,11 +1710,12 @@ class TestPullRequestService
     @Test
     void marksDraftReadyForReviewAndPreservesTheSnapshotForRefresh()
     {
-        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_7"));
+        when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_7"));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
 
         service.markReadyForReview("owner/repo", 7);
 
+        verify(writes).pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7));
         verify(writes).markReadyForReview("pat", "PR_7");
         verify(recent).pullRequestAction("owner/repo", 7, RecentReason.EDITED, 0);
         verify(detailStore).updateEtag(12L, Optional.empty());
@@ -1727,13 +1726,14 @@ class TestPullRequestService
     @Test
     void failedReadyForReviewInvalidatesTheSnapshotWithoutRetryingTheWrite()
     {
-        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_7"));
+        when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_7"));
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         ResponseStatusException failure = new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Ready-for-review response is uncertain");
         doThrow(failure).when(writes).markReadyForReview("pat", "PR_7");
 
         assertThatThrownBy(() -> service.markReadyForReview("owner/repo", 7)).isSameAs(failure);
 
+        verify(writes).pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7));
         verify(writes).markReadyForReview("pat", "PR_7");
         verify(detailStore).updateEtag(12L, Optional.empty());
         verifyNoMoreInteractions(writes, detailStore);
@@ -1743,12 +1743,14 @@ class TestPullRequestService
     @Test
     void rejectsReadyForReviewWhenGitHubReturnsNoNodeId()
     {
-        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.empty());
+        when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> service.markReadyForReview("owner/repo", 7))
                 .isInstanceOfSatisfying(ResponseStatusException.class, failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY));
 
-        verifyNoInteractions(writes, detailStore, recent);
+        verify(writes).pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7));
+        verifyNoMoreInteractions(writes);
+        verifyNoInteractions(detailStore, recent);
     }
 
     @Test
@@ -1893,7 +1895,7 @@ class TestPullRequestService
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
         when(detailStore.find(12L)).thenReturn(Optional.of(stored()));
-        when(merges.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
+        when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenReturn(new MergeResult("sha", true, "merged"));
 
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
@@ -1911,10 +1913,10 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(merges.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
+        when(writes.mergePullRequest(eq("pat"), eq(ref), any(MergePullRequestCommand.class)))
                 .thenThrow(new ResponseStatusException(HttpStatus.METHOD_NOT_ALLOWED, "Merge queue is required"));
-        when(merges.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
-        when(merges.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
+        when(writes.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
+        when(writes.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
 
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "squash");
 
@@ -1931,13 +1933,13 @@ class TestPullRequestService
     {
         PullRequestRef ref = PullRequestRef.of("owner", "repo", 7);
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(merges.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
-        when(merges.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
+        when(writes.pullRequestNodeId("pat", ref)).thenReturn(Optional.of("PR_1"));
+        when(writes.enqueuePullRequest("pat", "PR_1")).thenReturn(MergeResult.enqueued("queued"));
 
         MergeResult result = service.mergePullRequest("owner/repo", 7, 12L, "queue");
 
         assertThat(result.queued()).isTrue();
-        verify(merges, never()).mergePullRequest(anyString(), any(), any());
+        verify(writes, never()).mergePullRequest(anyString(), any(), any());
         verify(viewStateStore, never()).markReviewed(anyLong(), any(HandledAction.class), any(), any(Instant.class));
         verify(detailStore).updateEtag(12L, Optional.empty());
         verifyNoMoreInteractions(detailStore);
@@ -1948,12 +1950,12 @@ class TestPullRequestService
     void removesFromMergeQueueWithoutMergingOrDiscardingCachedDiffs()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
+        when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
 
         service.removeFromMergeQueue("owner/repo", 7);
 
-        verify(merges).dequeuePullRequest("pat", "PR_1");
-        verify(merges, never()).mergePullRequest(anyString(), any(), any());
+        verify(writes).dequeuePullRequest("pat", "PR_1");
+        verify(writes, never()).mergePullRequest(anyString(), any(), any());
         verify(detailStore).updateEtag(12L, Optional.empty());
         verifyNoMoreInteractions(detailStore);
         verifyNoInteractions(diffStore, viewStateStore);
@@ -1963,8 +1965,8 @@ class TestPullRequestService
     void invalidatesQueueStatusAfterAnUncertainRemoval()
     {
         when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(12L));
-        when(merges.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
-        doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Response lost")).when(merges).dequeuePullRequest("pat", "PR_1");
+        when(writes.pullRequestNodeId("pat", PullRequestRef.of("owner", "repo", 7))).thenReturn(Optional.of("PR_1"));
+        doThrow(new ResponseStatusException(HttpStatus.BAD_GATEWAY, "Response lost")).when(writes).dequeuePullRequest("pat", "PR_1");
 
         assertThatThrownBy(() -> service.removeFromMergeQueue("owner/repo", 7))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Response lost");

@@ -17,7 +17,6 @@ import com.bytequay.agent.cli.mcp.McpRegistration;
 import com.bytequay.agent.cli.mcp.PermissionBroker;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -121,11 +120,9 @@ class TestDeepSeekLoopback
     void servesOnlyItsRegisteredTaskToolsAndClosesWithTheSession()
             throws Exception
     {
-        PermissionBroker permissions = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper,
-                (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> taskId.equals("task")
-                        ? Optional.of(new DevelopmentResultBridge("turn", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty());
+        PermissionBroker permissions = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper, (taskId, query) -> "memory")
+                .developments(taskId -> taskId.equals("task")
+                        ? Optional.of(new DevelopmentResultBridge("turn", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty()).build();
         try (McpRegistration registration = permissions.registerTools("task", temporary, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
@@ -161,9 +158,8 @@ class TestDeepSeekLoopback
     void routesCiToolCallsThroughTheRegisteredTaskContext()
             throws Exception
     {
-        PermissionBroker permissions = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper,
-                (taskId, query) -> taskId + ": " + query.orElse(""), BridgeResolver.none());
+        PermissionBroker permissions = PermissionBroker.builder(
+                () -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper, (taskId, query) -> taskId + ": " + query.orElse("")).build();
         try (McpRegistration registration = permissions.registerTools("ci-task", temporary, AgentPermissionPolicy.CI_AUTOFIX,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
                 SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow();
@@ -180,7 +176,7 @@ class TestDeepSeekLoopback
 
     private PermissionBroker broker()
     {
-        return new PermissionBroker(() -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper, (taskId, query) -> "memory");
+        return PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9527/internal/agent/claude/mcp"), mapper, (taskId, query) -> "memory").build();
     }
 
     private static HttpRequest post(URI uri, String body)

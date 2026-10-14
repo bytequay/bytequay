@@ -138,7 +138,7 @@ class TestContextBuildService
     @BeforeEach
     void setup()
     {
-        when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, REPOSITORY_PATH, 1, FORK,
+        when(workspaces.requireReadyRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, REPOSITORY_PATH, 1, FORK,
                 OptionalLong.of(7), REPOSITORY, "upstream", "origin", "main", ImmutableList.of()));
         when(models.agentModel(AgentModelType.REVIEW, Optional.of(WORKSPACE)))
                 .thenReturn(new AgentModelSetting(AgentModelType.REVIEW, true, LANE.value(), "Codex", "model", "Model", Optional.of("medium")));

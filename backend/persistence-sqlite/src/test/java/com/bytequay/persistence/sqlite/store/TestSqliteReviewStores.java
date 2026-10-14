@@ -207,6 +207,20 @@ class TestSqliteReviewStores
         assertThat(fixed.resolvedByTaskId()).contains("developer-task");
         assertThat(fixed.withMemories(ImmutableList.of()).resolvedByTaskId()).contains("developer-task");
         assertThat(fixed.withState(ReviewFinding.State.RESOLVED, Optional.of("Mine"), NOW).resolvedByTaskId()).isEmpty();
+        ReviewFinding pending = fixed.pendingReassessment(NOW.plusSeconds(12));
+        assertThat(pending.outdated()).isTrue();
+        ReviewFinding carried = pending.carried(Optional.empty(), NEXT_HEAD_SHA, NOW.plusSeconds(13));
+        assertThat(carried.revision()).as("carrying identical changes is not a new assessment").isEqualTo(fixed.revision());
+        assertThat(carried.outdated()).isFalse();
+        ReviewFinding revised = store.updateFinding(carried.revised("Updated title", "Updated evidence", Optional.of("P2"), Optional.empty(),
+                ImmutableList.of(CONTEXT_EVIDENCE), NEXT_HEAD_SHA, NOW.plusSeconds(14)));
+        entityManager.clear();
+        assertThat(store.findFinding(fixed.id())).contains(revised);
+        assertThat(revised.revision()).isEqualTo(fixed.revision() + 1);
+        assertThat(revised.version()).isEqualTo(fixed.version() + 1);
+        assertThat(revised.state()).isEqualTo(ReviewFinding.State.RESOLVED);
+        assertThat(revised.resolvedByTaskId()).as("reassessment preserves the developer's resolution").contains("developer-task");
+        assertThat(revised.memories()).isEqualTo(fixed.memories());
         assertThatThrownBy(() -> new ReviewFinding("finding-open", "review-1", "run-1", 3, "Title", "Body", Optional.empty(), Optional.empty(), ImmutableList.of(), 1,
                 ReviewFinding.State.OPEN, Optional.empty(), finding.validatedHeadSha(), false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC,
                 Optional.of("developer-task")))

@@ -17,7 +17,6 @@ import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
@@ -61,18 +60,16 @@ public class ContextHistoryReader
     private final SelectedPullRequestDiffReader diffs;
     private final RepoService repositories;
     private final WorkspaceIssueService issues;
-    private final WorkspaceIssueRefreshService issueRefresh;
     private final Clock clock;
 
     public ContextHistoryReader(
             SelectedPullRequestReader pullRequests, SelectedPullRequestDiffReader diffs, RepoService repositories,
-            WorkspaceIssueService issues, WorkspaceIssueRefreshService issueRefresh, Clock clock)
+            WorkspaceIssueService issues, Clock clock)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.diffs = requireNonNull(diffs, "diffs is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
-        this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -158,7 +155,7 @@ public class ContextHistoryReader
         boolean refreshAttempted = detail.refreshedAt().isEmpty() || detail.refreshedAt().orElseThrow().isBefore(preview.updatedAt());
         if (refreshAttempted) {
             try {
-                RepositoryIssueDetail refreshed = issueRefresh.refreshDetail(workspace.workspaceId(), number);
+                RepositoryIssueDetail refreshed = issues.refreshDetail(workspace.workspaceId(), number);
                 checkIssueIdentity(refreshed, repositoryId, number);
                 detail = refreshed;
             }

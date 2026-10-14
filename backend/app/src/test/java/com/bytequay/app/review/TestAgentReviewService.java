@@ -665,11 +665,12 @@ class TestAgentReviewService
     {
         Fixture fixture = new Fixture();
         String reviewId = fixture.service.start(WORKSPACE, REPO, NUMBER).review().id();
+        clearInvocations(fixture.workspaces);
         fixture.service.reconcile(reviewId);
         ReviewRun validating = beginValidation(fixture, fixture.store.listRuns(reviewId).getLast());
 
         assertThat(validating.currentStep().orElseThrow().kind()).isEqualTo(ReviewStep.Kind.VALIDATE);
-        verify(fixture.workspaces, never()).requireReadableRepository(anyString());
+        verify(fixture.workspaces, never()).requireReadyRepository(anyString());
     }
 
     @Test
@@ -3548,7 +3549,6 @@ class TestAgentReviewService
                     "main",
                     ImmutableList.of());
             when(workspaces.requireReadyRepository(WORKSPACE)).thenReturn(workspace);
-            when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(workspace);
             when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("octocat", "Octo Cat", "", "", 0, 0, 0, "", "", "", "")));
             when(pullRequests.getPullRequestDetail(REPO, NUMBER)).thenReturn(detail());
             when(pullRequests.findHeadSha(REPO, NUMBER)).thenReturn(Optional.of(HEAD));

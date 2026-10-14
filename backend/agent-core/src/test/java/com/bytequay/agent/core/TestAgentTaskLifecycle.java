@@ -34,7 +34,7 @@ class TestAgentTaskLifecycle
     @Test
     void openTaskCanComplete()
     {
-        AgentTask task = newTask();
+        AgentTask task = newTask().withDevelopmentContinuation(true, CREATED_AT);
         Instant completedAt = CREATED_AT.plusSeconds(4);
         TaskSummary summary = summary();
 
@@ -45,18 +45,22 @@ class TestAgentTaskLifecycle
         assertThat(completed.summary().orElseThrow().children()).isInstanceOf(ImmutableList.class);
         assertThat(completed.terminalAt()).contains(completedAt);
         assertThat(completed.cleanupState()).isEqualTo(CleanupState.RETAINED);
+        assertThat(completed.developmentContinuationUnfinished()).isFalse();
+        assertThat(task.developmentContinuationUnfinished()).isTrue();
     }
 
     @Test
     void openTaskCanFail()
     {
-        AgentTask task = newTask();
+        AgentTask task = newTask().withDevelopmentContinuation(true, CREATED_AT);
         Instant failedAt = CREATED_AT.plusSeconds(1);
 
         AgentTask failed = task.fail("provider unavailable", failedAt, failedAt.plus(7, ChronoUnit.DAYS));
 
         assertThat(failed.state()).isEqualTo(TaskState.FAILED);
         assertThat(failed.terminalReason()).contains("provider unavailable");
+        assertThat(failed.developmentContinuationUnfinished()).isFalse();
+        assertThat(task.developmentContinuationUnfinished()).isTrue();
     }
 
     @Test

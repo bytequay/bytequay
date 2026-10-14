@@ -47,8 +47,8 @@ class TestDiscussionContextTool
     void bothProvidersExposeOnlyTheirBoundReadAndRejectCrossDiscussionOrWriteArguments()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "",
-                task -> { throw new AssertionError("Read-only sessions must not resolve task write capabilities"); });
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "")
+                .reviews(task -> { throw new AssertionError("Read-only sessions must not resolve task write capabilities"); }).build();
         String closed;
         try (McpRegistration codex = broker.registerTools("same-task", directory, AgentPermissionPolicy.AUTO, approvals, redactor,
                 Optional.empty(), SessionAccess.READ_ONLY, Optional.of(new DiscussionContextBridge(query -> "first known-secret"))).orElseThrow();

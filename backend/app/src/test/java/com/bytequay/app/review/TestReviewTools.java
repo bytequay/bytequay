@@ -37,7 +37,6 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceOperationLocks;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
@@ -174,7 +173,6 @@ class TestReviewTools
     private ReviewToolAssignment assignments;
     private TurnId capturedTurn;
     private WorkspaceIssueService issues;
-    private WorkspaceIssueRefreshService issueRefresh;
     private WorkspaceRepositoryService workspaces;
     private ReviewLocks locks;
     private InMemoryMemoryStore memoryStore;
@@ -196,7 +194,6 @@ class TestReviewTools
         historySources = mock(ContextHistoryReader.class);
         repositories = mock(RepoService.class);
         issues = mock(WorkspaceIssueService.class);
-        issueRefresh = mock(WorkspaceIssueRefreshService.class);
         events = mock(AgentEventService.class);
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitCommandRunner.class);
@@ -216,11 +213,10 @@ class TestReviewTools
         memoryStore = new InMemoryMemoryStore();
         Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
         tools = new ReviewTools(store, pullRequests, selectedPullRequests, selectedPullRequestDiffs, selectedCommitPullRequests, historySources,
-                repositories, issues, issueRefresh, events, workspaces, git, objectMapper, locks, assignments, sourceAssignments,
+                repositories, issues, events, workspaces, git, objectMapper, locks, assignments, sourceAssignments,
                 new MemoryService(memoryStore, new InMemoryAppSettingsStore(), objectMapper, clock), memoryStore, localRuns, credentials, clock);
 
         when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         when(git.run(repository, "show", HEAD_SHA + ":" + DIFF_PATH)).thenReturn(new GitCommandRunner.Result(0, "alpha\nbeta\ngamma\n", false));
 
         bridge = tools.bridge(TASK_ID).orElseThrow();
@@ -299,7 +295,7 @@ class TestReviewTools
     {
         WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 5, RepoRef.of("fork", "widgets"),
                 OptionalLong.of(7), RepoRef.of("acme", "widgets"), "upstream", "origin", "main", ImmutableList.of());
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspace);
+        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspace);
         String first = "a".repeat(40);
         String second = "b".repeat(64);
         List<String> shas = ImmutableList.of(first, second);
@@ -350,7 +346,7 @@ class TestReviewTools
         }
         assertThat(after.evidence().get(result.at("/items/0/evidenceRef").asText()).provenance()).contains("observation=selected lookup");
         assertThat(after.evidence().get(result.at("/items/1/evidenceRef").asText()).provenance()).contains("observation=stored enrichment read");
-        verifyNoInteractions(git, pullRequests, selectedPullRequests, repositories, issues, issueRefresh);
+        verifyNoInteractions(git, pullRequests, selectedPullRequests, repositories, issues);
     }
 
     @Test
@@ -376,7 +372,7 @@ class TestReviewTools
         WorkspaceRepositoryContext workspace = new WorkspaceRepositoryContext(mismatch.equals("workspace") ? "another-workspace" : WORKSPACE_ID,
                 repository, 5, RepoRef.of("fork", "widgets"), mismatch.equals("missing-id") ? OptionalLong.empty() : OptionalLong.of(7),
                 RepoRef.of(mismatch.equals("repository") ? "another-owner" : "acme", "widgets"), "upstream", "origin", "main", ImmutableList.of());
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspace);
+        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspace);
 
         JsonNode result = call("review_get_context", ImmutableMap.of("kind", "commit_prs", "shas", ImmutableList.of(COMMIT_SHA)));
 
@@ -452,7 +448,7 @@ class TestReviewTools
         assertThat(evidence.excerpt()).hasSizeLessThanOrEqualTo(4014).contains(detail.title(), "body ");
         assertThat(evidence.provenance()).contains("refreshAttempted=true", "observedHeadSha=" + observed, "frozenReviewedHead=" + HEAD_SHA, "unavailableSections=[checks]");
         assertThat(store.findRun(RUN_ID).orElseThrow().headSha()).isEqualTo(HEAD_SHA);
-        verifyNoInteractions(pullRequests, repositories, issues, issueRefresh);
+        verifyNoInteractions(pullRequests, repositories, issues);
     }
 
     @Test
@@ -583,7 +579,7 @@ class TestReviewTools
         assertThat(beyondEnd.path(field)).isEmpty();
         assertThat(beyondEnd.path("page").asInt()).isEqualTo(Integer.MAX_VALUE);
         assertThat(store.runUpdates()).isEqualTo(writes + 2);
-        verifyNoInteractions(pullRequests, repositories, issues, issueRefresh);
+        verifyNoInteractions(pullRequests, repositories, issues);
     }
 
     @ParameterizedTest
@@ -598,7 +594,7 @@ class TestReviewTools
                 assertThat(call("review_get_context", ImmutableMap.of("kind", kind, "number", 42, "page", page)).at("/error/field").asText()).isEqualTo("page");
             }
         }
-        verifyNoInteractions(selectedPullRequests, pullRequests, repositories, issues, issueRefresh);
+        verifyNoInteractions(selectedPullRequests, pullRequests, repositories, issues);
     }
 
     @Test
@@ -771,7 +767,7 @@ class TestReviewTools
         assertThat(result.path("body").asText()).isEqualTo("Cached PR body");
         assertThat(result.path("number").asInt()).isEqualTo(7);
         verify(selectedPullRequests).read(REPO, 7, SelectedPullRequestReader.Section.PR);
-        verifyNoInteractions(repositories, issues, issueRefresh, workspaces);
+        verifyNoInteractions(repositories, issues, workspaces);
     }
 
     @Test
@@ -805,7 +801,9 @@ class TestReviewTools
         JsonNode secondPage = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42, "page", 2));
         assertThat(secondPage.at("/activity/items")).hasSize(1);
         assertThat(secondPage.at("/activity/items/0/id").asLong()).isEqualTo(21);
-        verifyNoInteractions(repositories, issueRefresh);
+        verifyNoInteractions(repositories);
+        verify(issues, never()).refreshDetail(WORKSPACE_ID, 42);
+        verify(issues, never()).refreshIssues(WORKSPACE_ID);
     }
 
     @ParameterizedTest
@@ -817,7 +815,7 @@ class TestReviewTools
         cacheIssue("Cached issue body", cached);
         RepositoryIssueDetail refreshed = new RepositoryIssueDetail(1, 42,
                 ImmutableList.of(new PrTimelineEvent(1L, "commented", "bob", NOW, "New activity", Optional.empty())), "Bug", ImmutableList.of(), Optional.of(NOW));
-        when(issueRefresh.refreshDetail(WORKSPACE_ID, 42)).thenReturn(refreshed);
+        when(issues.refreshDetail(WORKSPACE_ID, 42)).thenReturn(refreshed);
 
         JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
 
@@ -825,8 +823,8 @@ class TestReviewTools
         assertThat(context.at("/activity/items/0/body").asText()).isEqualTo("New activity");
         assertThat(context.at("/activity/stale").asBoolean()).isFalse();
         assertThat(context.at("/activity/refreshFailed").asBoolean()).isFalse();
-        verify(issueRefresh).refreshDetail(WORKSPACE_ID, 42);
-        verify(issueRefresh, never()).refreshIssues(WORKSPACE_ID);
+        verify(issues).refreshDetail(WORKSPACE_ID, 42);
+        verify(issues, never()).refreshIssues(WORKSPACE_ID);
         verifyNoInteractions(repositories);
     }
 
@@ -838,7 +836,7 @@ class TestReviewTools
                 ImmutableList.of(new PrTimelineEvent(1L, "commented", "bob", NOW.minusSeconds(180), "Old cached activity", Optional.empty())),
                 "Bug", ImmutableList.of(), missing ? Optional.empty() : Optional.of(NOW.minusSeconds(120)));
         cacheIssue("Cached issue body", cached);
-        when(issueRefresh.refreshDetail(WORKSPACE_ID, 42)).thenThrow(new IllegalStateException("GitHub unavailable"));
+        when(issues.refreshDetail(WORKSPACE_ID, 42)).thenThrow(new IllegalStateException("GitHub unavailable"));
 
         JsonNode context = call("review_get_context", ImmutableMap.of("kind", "issue", "number", 42));
 
@@ -873,13 +871,14 @@ class TestReviewTools
         verify(repositories).getIssuePreview("acme", "widgets", 42);
         verify(issues).find(WORKSPACE_ID, 42);
         verify(issues, never()).detail(WORKSPACE_ID, 42);
-        verifyNoInteractions(issueRefresh);
+        verify(issues, never()).refreshDetail(WORKSPACE_ID, 42);
+        verify(issues, never()).refreshIssues(WORKSPACE_ID);
     }
 
     @Test
     void issueContextCannotUseAnotherMonitoredRepositorysSameNumber()
     {
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 1,
+        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 1,
                 RepoRef.of("acme", "widgets"), OptionalLong.of(2), RepoRef.of("upstream", "widgets"), "upstream", "origin", "main", ImmutableList.of()));
         when(repositories.getIssuePreview("acme", "widgets", 42))
                 .thenReturn(new GitHubIssuePreview("Selected issue", "Correct repository", "alice", ImmutableList.of(), NOW, "open", false));
@@ -888,7 +887,7 @@ class TestReviewTools
 
         assertThat(context.path("body").asText()).isEqualTo("Correct repository");
         verify(repositories).getIssuePreview("acme", "widgets", 42);
-        verifyNoInteractions(issues, issueRefresh);
+        verifyNoInteractions(issues);
     }
 
     private void cacheIssue(String body, RepositoryIssueDetail detail)
@@ -1956,12 +1955,12 @@ class TestReviewTools
     @Test
     void historyRejectsChangedWorkspaceRoutingAndUnavailableTerminalObservation()
     {
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 1,
+        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE_ID, repository, 1,
                 RepoRef.of("other", "repo"), OptionalLong.empty(), RepoRef.of("other", "repo"), "origin", "origin", "main", ImmutableList.of()));
         Map<String, Object> request = ImmutableMap.of("kind", "history", "sourceKind", "PR", "number", 17);
         assertThat(call("review_get_context", request).at("/error/message").asText()).contains("routing");
         verifyNoInteractions(historySources);
-        when(workspaces.requireReadableRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
+        when(workspaces.requireReadyRepository(WORKSPACE_ID)).thenReturn(workspaceRepository());
         int writes = store.runUpdates();
         when(historySources.read(workspaceRepository(), ContextHistoryReader.SourceKind.PR, 17))
                 .thenThrow(new IllegalArgumentException("An actual mergedAt is required"));
@@ -2533,7 +2532,7 @@ class TestReviewTools
         JsonNode investigation = discoverAndSeal(investigation("collect", ImmutableList.of(DIFF_PATH), ImmutableList.of(), ImmutableList.of()));
 
         assertThat(investigation.path("status").asText()).isEqualTo("accepted");
-        verify(workspaces, never()).requireReadableRepository(WORKSPACE_ID);
+        verify(workspaces, never()).requireReadyRepository(WORKSPACE_ID);
         verifyNoInteractions(git);
     }
 

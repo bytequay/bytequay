@@ -14,7 +14,9 @@
 package com.bytequay.app.web.review;
 
 import com.bytequay.app.review.LocalRunService;
+import com.bytequay.app.review.LocalRunService.OutputChunk;
 import com.bytequay.app.review.ReviewCodeService;
+import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewFileConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -60,9 +62,9 @@ public class ReviewCodeController
     }
 
     @GetMapping("/files")
-    public ReviewCodeHttpModels.FilesResponse files(@PathVariable String reviewId)
+    public CodeFiles files(@PathVariable String reviewId)
     {
-        return ReviewCodeHttpModels.files(code.files(reviewId));
+        return code.files(reviewId);
     }
 
     @GetMapping("/file")
@@ -97,10 +99,9 @@ public class ReviewCodeController
     }
 
     @GetMapping("/runs/{runId}/output")
-    public ReviewCodeHttpModels.RunOutputResponse runOutput(@PathVariable String reviewId, @PathVariable String runId, @RequestParam(defaultValue = "0") long after)
+    public OutputChunk runOutput(@PathVariable String reviewId, @PathVariable String runId, @RequestParam(defaultValue = "0") long after)
     {
-        LocalRunService.OutputChunk chunk = localRuns.output(reviewId, runId, after);
-        return new ReviewCodeHttpModels.RunOutputResponse(chunk.text(), chunk.nextOffset(), chunk.skippedBytes(), chunk.complete());
+        return localRuns.output(reviewId, runId, after);
     }
 
     @ExceptionHandler(ReviewFileConflictException.class)

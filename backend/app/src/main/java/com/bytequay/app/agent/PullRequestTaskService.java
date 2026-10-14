@@ -50,7 +50,6 @@ import java.util.Comparator;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.locks.Lock;
 import java.util.stream.Collectors;
 
 import static com.google.common.base.Preconditions.checkArgument;
@@ -118,9 +117,7 @@ public class PullRequestTaskService
     public AgentTask assign(String workspaceId, String repo, int number)
     {
         String repository = repo.toLowerCase(Locale.ROOT);
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             requireWorkspace(workspaceId, repository, number);
             String login = credentials.resolveGitHubCredential().profile().login();
             PullRequestDetail detail = pullRequests.getPullRequestDetail(repository, number);
@@ -166,10 +163,7 @@ public class PullRequestTaskService
             }
             assignments.insert(new PullRequestTask(id.toString(), workspaceId, repository, number, message));
             return tasks.get(id);
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     private void requireWorkspace(String workspaceId, String repo, int number)

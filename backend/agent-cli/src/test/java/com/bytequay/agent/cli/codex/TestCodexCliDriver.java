@@ -41,10 +41,8 @@ import com.bytequay.agent.spi.AgentTurnCommand;
 import com.bytequay.agent.spi.AgentTurnInput;
 import com.bytequay.agent.spi.AgentTurnResult;
 import com.bytequay.agent.spi.AgentUnavailableException;
-import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DiscussionContextBridge;
-import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.ProviderAgentEvent;
@@ -170,7 +168,7 @@ class TestCodexCliDriver
         CodexCliDriver driver = CodexCliDriver.deepSeek(
                 "/fake/codex", "0.156.1", objectMapper, new ScriptedProcessSupervisor(objectMapper),
                 codexHome(),
-                new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> ""),
+                PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "").build(),
                 new AgentLaneId("deepseek-key-123e4567-e89b-12d3-a456-426614174000"), "DeepSeek", () -> Optional.of("fake-key"));
 
         assertThat(driver.capabilities().permissionPolicies())
@@ -2775,7 +2773,7 @@ class TestCodexCliDriver
                         "GH_TOKEN", "github-sentinel",
                         "GH_CONFIG_DIR", worktree.resolve("gh-config").toString()),
                 codexHome(),
-                new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> ""),
+                PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "").build(),
                 quiescenceTimeout);
     }
 
@@ -2910,7 +2908,8 @@ class TestCodexCliDriver
         supervisor.configBody = "{\"mcp_servers\":{\"bytequay\":{\"url\":\"" + MCP_ENDPOINT + "\",\"default_tools_approval_mode\":\"approve\"}}}";
         supervisor.mcpStatuses = "{\"data\":[{\"name\":\"bytequay\",\"pluginId\":null}],\"nextCursor\":null}";
         ReviewBridge review = new ReviewBridge(ImmutableList.of(), "Keep private experiments uncommitted");
-        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review)).build();
         CodexHome.prepare(codexHome());
         List<String> writableRoots = Stream.concat(Stream.of(worktree.toRealPath()), BuildCacheRoots.writableRoots(ImmutableMap.of("HOME", worktree.toString())).stream())
                 .map(Path::toString).toList();
@@ -3023,7 +3022,8 @@ class TestCodexCliDriver
         ReviewBridge review = new ReviewBridge(ImmutableList.of(
                 new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "context", true),
                 new ReviewTool("review_finish", "Finish review", ImmutableMap.of("type", "object"), arguments -> "finished")), "Review privately");
-        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review)).build();
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -3098,9 +3098,8 @@ class TestCodexCliDriver
             calls.incrementAndGet();
             return "linked";
         });
-        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(),
-                BridgeResolver.none(), BridgeResolver.none(), taskId -> Optional.of(related));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .relatedWork(taskId -> Optional.of(related)).build();
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -3291,10 +3290,10 @@ class TestCodexCliDriver
         var related = new RelatedWorkspaceBridge(arguments -> "linked");
         ReviewBridge privateReview = new ReviewBridge(ImmutableList.of(), "This task is in private local review of commit abc.");
         LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
-        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                taskId -> localReview.get() ? Optional.of(privateReview) : Optional.empty(), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
-                taskId -> localReview.get() ? Optional.of(local) : Optional.empty(), BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(),
-                taskId -> localReview.get() ? Optional.empty() : Optional.of(related));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> localReview.get() ? Optional.of(privateReview) : Optional.empty())
+                .localReviews(taskId -> localReview.get() ? Optional.of(local) : Optional.empty())
+                .relatedWork(taskId -> localReview.get() ? Optional.empty() : Optional.of(related)).build();
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -3369,7 +3368,8 @@ class TestCodexCliDriver
         ReviewBridge review = new ReviewBridge(names.stream()
                 .map(name -> new ReviewTool(name, "Fixed task tool", ImmutableMap.of("type", "object"), arguments -> "captured"))
                 .collect(ImmutableList.toImmutableList()), "Check the selected specs");
-        PermissionBroker broker = new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review)).build();
         CodexHome.prepare(codexHome());
         CodexCliDriver driver = new CodexCliDriver("/fake/codex", "0.153.4", objectMapper, supervisor,
                 ImmutableMap.of("HOME", worktree.toString()), codexHome(), broker, Duration.ofSeconds(30));
@@ -3419,26 +3419,24 @@ class TestCodexCliDriver
             case ISSUE_CONTEXT -> {
                 IssueContextBridge issue = new IssueContextBridge(() -> "Accepted issue context", IssueContextBridge.INSTRUCTION);
                 yield new BridgedTool(
-                        new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
-                                BridgeResolver.none(), taskId -> Optional.of(issue)),
+                        PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                                .issueContexts(taskId -> Optional.of(issue)).build(),
                         IssueContextBridge.INSTRUCTION,
                         ImmutableList.of(IssueContextBridge.TOOL_NAME));
             }
             case PULL_REQUEST_CI -> {
                 PullRequestCiBridge ci = new PullRequestCiBridge(jobId -> "No pull request associated yet", (logId, offset) -> "raw", PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty());
                 yield new BridgedTool(
-                        new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
-                                taskId -> Optional.of(ci)),
+                        PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                                .pullRequestChecks(taskId -> Optional.of(ci)).build(),
                         PullRequestCiBridge.INSTRUCTION,
                         ImmutableList.of(PullRequestCiBridge.TOOL_NAME, PullRequestCiBridge.RAW_TOOL_NAME));
             }
             case LOCAL_REVIEW -> {
                 LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
                 yield new BridgedTool(
-                        new PermissionBroker(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "",
-                                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, taskId -> Optional.of(local)),
+                        PermissionBroker.builder(() -> URI.create(MCP_ENDPOINT), objectMapper, (taskId, query) -> "")
+                                .localReviews(taskId -> Optional.of(local)).build(),
                         LocalReviewBridge.INSTRUCTION,
                         LocalReviewBridge.TOOL_NAMES);
             }

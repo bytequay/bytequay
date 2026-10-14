@@ -13,19 +13,25 @@
  */
 package com.bytequay.app.git;
 
+import com.bytequay.app.cherrypick.CherryPickPullRequestLookup;
 import com.bytequay.app.git.CommitHistoryRef.Source;
 import com.bytequay.app.git.GitBrowseService.Commit;
 import com.bytequay.app.repository.RepositoryEnrichmentService;
+import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.workspace.WorkspaceException;
+import com.bytequay.app.workspace.WorkspaceProvisioningService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
 import com.bytequay.app.workspace.WorkspaceSummary;
 import com.bytequay.core.domain.CommitEnrichment;
 import com.bytequay.core.domain.CommitEnrichmentSnapshot;
+import com.bytequay.core.domain.CommitRefreshMetadata;
 import com.bytequay.core.domain.CommitRefreshStatus;
 import com.bytequay.core.domain.RemoteSource;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.CommitHistoryStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -34,6 +40,7 @@ import org.springframework.boot.web.context.WebServerApplicationContext;
 import org.springframework.boot.web.server.WebServer;
 
 import java.nio.file.Path;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -56,7 +63,7 @@ class TestCommitHistoryService
     private WorkspaceRepositoryService workspaces;
     private GitBrowseService git;
     private RepositoryEnrichmentService enrichment;
-    private CommitHistoryRefresher refresher;
+    private CommitHistoryStore store;
     private CommitHistoryService service;
 
     @BeforeEach
@@ -65,13 +72,14 @@ class TestCommitHistoryService
         workspaces = mock(WorkspaceRepositoryService.class);
         git = mock(GitBrowseService.class);
         enrichment = mock(RepositoryEnrichmentService.class);
-        refresher = mock(CommitHistoryRefresher.class);
+        store = mock(CommitHistoryStore.class);
         WebServerApplicationContext applicationContext = mock(WebServerApplicationContext.class);
-        service = new CommitHistoryService(workspaces, git, enrichment, refresher, applicationContext);
+        service = new CommitHistoryService(workspaces, mock(WorkspaceProvisioningService.class), git, store, enrichment, mock(CredentialService.class),
+                mock(GitHubRepoClient.class), mock(CherryPickPullRequestLookup.class), mock(AvatarCache.class), Clock.systemUTC(), applicationContext);
         WebServer server = mock(WebServer.class);
         when(applicationContext.getWebServer()).thenReturn(server);
         when(server.getPort()).thenReturn(41234);
-        when(refresher.status(WORKSPACE_ID)).thenReturn(CommitRefreshStatus.idle(WORKSPACE_ID));
+        when(store.findRefreshMetadata(WORKSPACE_ID)).thenReturn(CommitRefreshMetadata.empty(WORKSPACE_ID));
     }
 
     @Test
@@ -97,8 +105,8 @@ class TestCommitHistoryService
                 Optional.of(42),
                 Optional.of("Example pull request")));
         assertThat(snapshot.refresh()).isEqualTo(CommitRefreshStatus.idle(WORKSPACE_ID));
-        InOrder readOrder = inOrder(refresher, git, enrichment);
-        readOrder.verify(refresher).status(WORKSPACE_ID);
+        InOrder readOrder = inOrder(store, git, enrichment);
+        readOrder.verify(store).findRefreshMetadata(WORKSPACE_ID);
         readOrder.verify(git).log(REPOSITORY, "origin/feature", 300);
         readOrder.verify(enrichment).findCommits(101, ImmutableList.of("abc123"));
     }
@@ -193,7 +201,7 @@ class TestCommitHistoryService
                 .isInstanceOf(WorkspaceException.class)
                 .hasMessageContaining("Workspace not found");
 
-        verify(refresher, never()).status("missing");
+        verify(store, never()).findRefreshMetadata("missing");
     }
 
     private void ready(WorkspaceSummary summary, RemoteSource... extraRemotes)

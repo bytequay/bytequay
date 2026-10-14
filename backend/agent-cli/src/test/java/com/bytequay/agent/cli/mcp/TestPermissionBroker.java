@@ -18,10 +18,8 @@ import com.bytequay.agent.cli.process.TemporaryWriteRoots;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.CodeQueryBridge;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.IssueContextBridge;
 import com.bytequay.agent.spi.LocalReviewBridge;
 import com.bytequay.agent.spi.MemoryBridge;
@@ -76,17 +74,14 @@ class TestPermissionBroker
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_extra_evidence", "Read more evidence", ImmutableMap.of("type", "object"), arguments -> "evidence")), "Review this PR");
         LocalReviewBridge local = new LocalReviewBridge((commentId, contextOffset) -> "[]", reply -> "{}", resolution -> "{}", LocalReviewBridge.INSTRUCTION);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory",
-                taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty(),
-                taskId -> taskId.equals("development")
-                        ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty(),
-                DraftPullRequestPublisher.NONE,
-                taskId -> taskId.equals("development") ? Optional.of(local) : Optional.empty(),
-                taskId -> taskId.equals("development")
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .reviews(taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty())
+                .developments(taskId -> taskId.equals("development")
+                        ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty())
+                .localReviews(taskId -> taskId.equals("development") ? Optional.of(local) : Optional.empty())
+                .pullRequestChecks(taskId -> taskId.equals("development")
                         ? Optional.of(new PullRequestCiBridge(jobId -> "checks", (logId, offset) -> "raw",
-                                PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())) : Optional.empty());
+                                PullRequestCiBridge.INSTRUCTION, Optional.empty(), Optional.empty())) : Optional.empty()).build();
         for (String taskId : ImmutableList.of("plain", "review", "development", "graph", "ci")) {
             AgentPermissionPolicy policy = taskId.equals("ci") ? AgentPermissionPolicy.CI_AUTOFIX : AgentPermissionPolicy.AUTO;
             Optional<CodeQueryBridge> graph = taskId.equals("graph") ? Optional.of(new CodeQueryBridge(query -> "graph", "Use the graph")) : Optional.empty();
@@ -138,11 +133,8 @@ class TestPermissionBroker
                     reads.incrementAndGet();
                     return "Accepted source known-secret";
                 }, IssueContextBridge.INSTRUCTION)));
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(),
-                DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(),
-                taskId -> taskId.equals("task-1") ? current.get() : Optional.empty());
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .issueContexts(taskId -> taskId.equals("task-1") ? current.get() : Optional.empty()).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         String codexToken;
@@ -216,9 +208,8 @@ class TestPermissionBroker
     {
         AtomicReference<String> called = new AtomicReference<>();
         WorkItemBridge bridge = new WorkItemBridge(raw -> { called.set(raw); return "Retained context known-secret"; });
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(),
-                BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), ignored -> Optional.of(bridge));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .workItems(ignored -> Optional.of(bridge)).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         try (McpRegistration codex = broker.registerTools("task-1", temporaryDirectory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty()).orElseThrow();
@@ -253,16 +244,16 @@ class TestPermissionBroker
         MemoryBridge bridge = new MemoryBridge(arguments -> {
             calls.add(arguments);
             if (arguments.contains("EDIT")) {
-                throw new IllegalArgumentException("action must be SEARCH, READ or REPORT");
+                throw new IllegalArgumentException("action must be SEARCH, READ or REPORT: known-secret");
+            }
+            if (arguments.contains("FAIL")) {
+                throw new IllegalStateException();
             }
             return "{\"memories\":[],\"activityLine\":\"Searched memory for “docs” · 0 memories\"}";
         });
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(),
-                DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(),
-                taskId -> taskId.equals("task-1") ? Optional.of(bridge) : Optional.empty());
-        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .memories(taskId -> taskId.equals("task-1") ? Optional.of(bridge) : Optional.empty()).build();
+        SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         AgentApprovalHandler approvals = (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny());
         try (McpRegistration claude = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -287,7 +278,10 @@ class TestPermissionBroker
 
             JsonNode rejected = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"EDIT\"}");
             assertThat(rejected.at("/result/isError").booleanValue()).isTrue();
-            assertThat(rejected.at("/result/content/0/text").textValue()).isEqualTo("Memory call failed: action must be SEARCH, READ or REPORT");
+            assertThat(rejected.at("/result/content/0/text").textValue()).isEqualTo("Memory call failed: action must be SEARCH, READ or REPORT: [REDACTED]");
+            JsonNode failed = localReviewCall(broker, claude.token(), MemoryBridge.TOOL_NAME, "{\"action\":\"FAIL\"}");
+            assertThat(failed.at("/result/isError").booleanValue()).isTrue();
+            assertThat(failed.at("/result/content/0/text").textValue()).isEqualTo("Memory call failed: IllegalStateException");
         }
         try (McpRegistration unbound = broker.register(
                 "task-2", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -322,13 +316,10 @@ class TestPermissionBroker
                     return "resolution accepted";
                 },
                 LocalReviewBridge.INSTRUCTION);
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> taskId.equals("task-1")
-                        ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty(),
-                DraftPullRequestPublisher.NONE,
-                taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty());
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .developments(taskId -> taskId.equals("task-1")
+                        ? Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())) : Optional.empty())
+                .localReviews(taskId -> taskId.equals("task-1") && available.get() ? Optional.of(local) : Optional.empty()).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         String closedToken;
         try (McpRegistration codex = broker.registerTools(
@@ -401,10 +392,8 @@ class TestPermissionBroker
             assertThat(helper.instruction()).isEmpty();
             assertThat(helper.toolNames()).isEmpty();
         }
-        PermissionBroker localOnly = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE,
-                taskId -> Optional.of(local));
+        PermissionBroker localOnly = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .localReviews(taskId -> Optional.of(local)).build();
         try (McpRegistration registration = localOnly.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
@@ -426,14 +415,12 @@ class TestPermissionBroker
     {
         AtomicReference<String> renamed = new AtomicReference<>();
         AtomicReference<String> activeTurn = new AtomicReference<>("turn-1");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> Optional.of(new DevelopmentResultBridge(activeTurn.get(), DevelopmentResultBridge.BRANCH_INSTRUCTION, false,
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .developments(taskId -> Optional.of(new DevelopmentResultBridge(activeTurn.get(), DevelopmentResultBridge.BRANCH_INSTRUCTION, false,
                         Optional.of(branch -> {
                             renamed.set(branch);
                             return "user/bytequay/" + branch;
-                        }))));
+                        })))).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
         try (McpRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -467,10 +454,8 @@ class TestPermissionBroker
     {
         AtomicReference<Optional<DevelopmentResultBridge>> active = new AtomicReference<>(Optional.of(
                 new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())));
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> taskId.equals("task-1") ? active.get() : Optional.empty());
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .developments(taskId -> taskId.equals("task-1") ? active.get() : Optional.empty()).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         try (McpRegistration codex = broker.registerTools(
                 "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -521,9 +506,8 @@ class TestPermissionBroker
     {
         for (boolean allowed : ImmutableList.of(false, true)) {
             DevelopmentResultBridge bridge = new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, allowed, Optional.empty());
-            PermissionBroker broker = new PermissionBroker(
-                    () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                    (taskId, query) -> "memory", BridgeResolver.none(), taskId -> Optional.of(bridge));
+            PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                    .developments(taskId -> Optional.of(bridge)).build();
             SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
             try (McpRegistration codex = broker.registerTools(
                     "task-1", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -564,17 +548,15 @@ class TestPermissionBroker
             throws Exception
     {
         List<String> published = new ArrayList<>();
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "memory", BridgeResolver.none(),
-                taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())),
-                (taskId, title, body) -> {
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory")
+                .developments(taskId -> Optional.of(new DevelopmentResultBridge("turn-1", DevelopmentResultBridge.INSTRUCTION, false, Optional.empty())))
+                .draftPullRequests((taskId, title, body) -> {
                     if (title.equals("Closed window")) {
                         throw new IllegalStateException("ByteQuay is not requesting a draft pull request for this task right now");
                     }
                     published.add(taskId + "|" + title + "|" + body);
                     return "Pushed abc; created draft pull request https://github.com/owner/repo/pull/7 known-secret";
-                });
+                }).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         try (McpRegistration claude = broker.register(
                 "task-1", temporaryDirectory, temporaryDirectory, temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -632,7 +614,7 @@ class TestPermissionBroker
     void servesTypedLanguageQueriesOnlyWhenBridged()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("ANTHROPIC_API_KEY", "known-secret"));
         McpRegistration bridged = broker.register(
                 "task-1",
@@ -699,7 +681,7 @@ class TestPermissionBroker
     void codeQueriesOnlyRegistrationsHideThePermissionTools()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         McpRegistration registration = broker.registerTools(
                 "task-3",
                 temporaryDirectory,
@@ -736,13 +718,10 @@ class TestPermissionBroker
             throws Exception
     {
         AtomicInteger memoryReads = new AtomicInteger();
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
-                objectMapper,
-                (taskId, query) -> {
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> {
                     memoryReads.incrementAndGet();
                     return taskId + ": " + query.orElse("recent");
-                });
+                }).build();
         SecretRedactor redactor = SecretRedactor.fromEnvironment(ImmutableMap.of());
         AgentApprovalHandler approvals = (request, timeout) -> {
             throw new AssertionError("Codex must not invoke Claude permission callbacks");
@@ -787,12 +766,10 @@ class TestPermissionBroker
     {
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "review context")), "Review this pull request");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> {
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> {
                     throw new AssertionError("Review tasks must not read CI memory");
-                },
-                taskId -> Optional.of(review));
+                })
+                .reviews(taskId -> Optional.of(review)).build();
         try (McpRegistration registration = broker.registerTools(
                 "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
@@ -824,7 +801,8 @@ class TestPermissionBroker
                     writes.incrementAndGet();
                     return "saved known-secret";
                 })), "Review only");
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review)).build();
         String token;
         try (McpRegistration registration = broker.registerTools(
                 "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
@@ -876,9 +854,9 @@ class TestPermissionBroker
         });
         ReviewBridge review = new ReviewBridge(ImmutableList.of(
                 new ReviewTool("review_get_context", "Read context", ImmutableMap.of("type", "object"), arguments -> "context", true)), "Review");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review),
-                BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), taskId -> Optional.of(memory));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review))
+                .memories(taskId -> Optional.of(memory)).build();
         try (McpRegistration registration = broker.registerTools(
                 "task-review", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
@@ -917,9 +895,8 @@ class TestPermissionBroker
             starts.incrementAndGet();
             return "linked known-secret";
         });
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "memory",
-                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(),
-                BridgeResolver.none(), BridgeResolver.none(), taskId -> Optional.of(bridge));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), objectMapper, (taskId, query) -> "memory")
+                .relatedWork(taskId -> Optional.of(bridge)).build();
         var redactor = SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret"));
         try (var registration = broker.registerTools("task-related", temporaryDirectory, AgentPermissionPolicy.AUTO,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), redactor, Optional.empty()).orElseThrow()) {
@@ -948,7 +925,7 @@ class TestPermissionBroker
     void writesOwnerOnlyConfigAndBridgesTypedApprovalRequests()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         AtomicReference<Duration> approvalTimeout = new AtomicReference<>();
         McpRegistration registration = broker.register(
@@ -1010,7 +987,7 @@ class TestPermissionBroker
     void carriesQuestionAnswersBackOnTheToolInputItAsked()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory").build();
         Map<String, String> answers = ImmutableMap.of("Which issue should I work on?", "Both", "Never asked", "Ignored");
         try (McpRegistration registration = broker.register(
                 "task-1",
@@ -1052,16 +1029,13 @@ class TestPermissionBroker
     {
         AtomicReference<String> readTask = new AtomicReference<>();
         AtomicReference<Optional<String>> readQuery = new AtomicReference<>();
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
-                objectMapper,
-                (taskId, query) -> {
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> {
                     readTask.set(taskId);
                     readQuery.set(query);
                     return query.filter("missing"::equals).isPresent()
                             ? "CI memory is unavailable"
                             : "bounded memory";
-                });
+                }).build();
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("worktree"));
         Path provider = temporaryDirectory.resolve("provider");
         AtomicReference<ProviderApprovalRequest> requestedApproval = new AtomicReference<>();
@@ -1149,7 +1123,7 @@ class TestPermissionBroker
     void forwardsCiPermissionRequestsToTheApprovalHandler()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "").build();
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("ci-approval-worktree"));
         AtomicReference<ProviderApprovalRequest> requestedApproval = new AtomicReference<>();
         try (McpRegistration registration = broker.register(
@@ -1178,10 +1152,8 @@ class TestPermissionBroker
     void sandboxesCherryPickWithoutExposingCiMemory()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
-                objectMapper,
-                (taskId, query) -> "memory must not reach cherry-pick");
+        PermissionBroker broker = PermissionBroker.builder(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory must not reach cherry-pick").build();
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("cherry-pick-worktree"));
         McpRegistration registration = broker.register(
                 "task-cherry-pick",
@@ -1243,10 +1215,8 @@ class TestPermissionBroker
     void reviewsInteractiveGitHubCommandsWhileKeepingTheSandbox()
             throws Exception
     {
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"),
-                objectMapper,
-                (taskId, query) -> "memory must not reach auto");
+        PermissionBroker broker = PermissionBroker.builder(
+                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "memory must not reach auto").build();
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("auto-worktree"));
         AtomicReference<ProviderApprovalRequest> approval = new AtomicReference<>();
         McpRegistration registration = broker.register(
@@ -1317,7 +1287,7 @@ class TestPermissionBroker
         Path linkedHome = Files.createDirectories(temporaryDirectory.resolve("linked-build-home")).toRealPath();
         Files.createSymbolicLink(linkedHome.resolve(".m2"), external);
         var environment = ImmutableMap.of("HOME", home.toString(), "TMPDIR", Files.createDirectory(temporaryDirectory.resolve("host-tmp")).toString());
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "").build();
         Path worktree = Files.createDirectories(temporaryDirectory.resolve("build-worktree"));
         Path runtime = Files.createDirectory(temporaryDirectory.resolve("build-runtime"));
         Files.createSymbolicLink(worktree.resolve("linked"), external);
@@ -1393,9 +1363,8 @@ class TestPermissionBroker
         Path runtime = Files.createDirectory(root.resolve("linked-runtime"));
         ReviewBridge review = new ReviewBridge(ImmutableList.of(new ReviewTool(
                 "review_context", "Read review context", ImmutableMap.of("type", "object"), input -> "context")), "Review only");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                (taskId, query) -> "", taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty());
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> taskId.equals("review") ? Optional.of(review) : Optional.empty()).build();
         for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
             String taskId = policy.name().toLowerCase();
             try (McpRegistration registration = broker.register(
@@ -1432,7 +1401,7 @@ class TestPermissionBroker
         Files.createSymbolicLink(worktree.resolve(".git"), root.resolve("missing-gitdir"));
         Path runtime = Files.createDirectory(root.resolve("malformed-runtime"));
         Path provider = root.resolve("malformed-provider");
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "");
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "").build();
         assertThatThrownBy(() -> broker.register(
                 "malformed", worktree, runtime, provider, AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),
@@ -1456,9 +1425,8 @@ class TestPermissionBroker
         for (AgentPermissionPolicy policy : AgentPermissionPolicy.values()) {
             for (SessionAccess access : SessionAccess.values()) {
                 for (boolean requestedReview : ImmutableList.of(false, true)) {
-                    PermissionBroker broker = new PermissionBroker(
-                            () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper,
-                            (taskId, query) -> "", taskId -> requestedReview ? Optional.of(review) : Optional.empty());
+                    PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "")
+                            .reviews(taskId -> requestedReview ? Optional.of(review) : Optional.empty()).build();
                     boolean reviewSession = requestedReview && access != SessionAccess.READ_ONLY;
                     boolean interactive = policy == AgentPermissionPolicy.AUTO && access == SessionAccess.FULL && !reviewSession;
                     Optional<JsonNode> previous = Optional.empty();
@@ -1555,8 +1523,8 @@ class TestPermissionBroker
         ReviewBridge review = new ReviewBridge(ImmutableList.of(
                 new ReviewTool("review_get_context", "Read review context", ImmutableMap.of("type", "object"), arguments -> "context", true),
                 new ReviewTool("review_finish", "Finish the review", ImmutableMap.of("type", "object"), arguments -> "{}")), "Review only");
-        PermissionBroker broker = new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "", taskId -> Optional.of(review));
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> "")
+                .reviews(taskId -> Optional.of(review)).build();
         Path gate;
         try (var registration = broker.register("task-gate", worktree, runtime, runtime.resolve("provider"), AgentPermissionPolicy.AUTO, SessionAccess.FULL,
                 (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()),

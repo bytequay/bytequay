@@ -14,8 +14,9 @@
 package com.bytequay.app.web.review;
 
 import com.bytequay.app.review.ReviewCodeService.CodeFile;
-import com.bytequay.app.review.ReviewCodeService.CodeFiles;
+import com.bytequay.app.review.ReviewCodeService.LineChange;
 import com.bytequay.core.review.LocalRun;
+import com.bytequay.core.review.LocalRun.TestClass;
 
 import java.time.Instant;
 import java.util.List;
@@ -24,30 +25,15 @@ import java.util.OptionalInt;
 import java.util.OptionalLong;
 import java.util.function.ToIntFunction;
 
-import static com.google.common.collect.ImmutableList.toImmutableList;
-
 /** The Code and Tests tab's HTTP shapes. Paths are repository-relative; only the terminal route returns a filesystem path. */
 final class ReviewCodeHttpModels
 {
     private ReviewCodeHttpModels() {}
 
-    static FilesResponse files(CodeFiles files)
-    {
-        return new FilesResponse(
-                files.source().name(),
-                files.revision(),
-                files.sourceFingerprint(),
-                files.savedExperiment(),
-                files.truncated(),
-                files.files().stream()
-                        .map(file -> new FileEntryResponse(file.path(), file.changedInPr(), file.addedInPr(), file.onlyInWorkingCopy(), file.uncommitted()))
-                        .collect(toImmutableList()));
-    }
-
     static FileResponse file(CodeFile file)
     {
         return new FileResponse(file.path(), file.content(), file.contentHash(), file.editable(), file.readOnlyReason(), file.unavailableReason(), file.prPatch(),
-                file.lineChanges().stream().map(change -> new LineChangeResponse(change.kind().name(), change.line(), change.count())).collect(toImmutableList()));
+                file.lineChanges());
     }
 
     static RunResponse run(LocalRun run)
@@ -76,27 +62,13 @@ final class ReviewCodeHttpModels
                 run.outputTruncated(),
                 run.omittedBytes(),
                 run.treeUnverified(),
-                run.results().stream()
-                        .map(result -> new RunClassResponse(result.className(), result.durationMs(), result.methods().stream()
-                                .map(method -> new RunMethodResponse(method.name(), method.status().name(), method.durationMs(), method.message(), method.trace()))
-                                .collect(toImmutableList())))
-                        .collect(toImmutableList()));
+                run.results());
     }
 
     private static OptionalInt count(LocalRun run, ToIntFunction<LocalRun.Counts> count)
     {
         return run.counts().map(counts -> OptionalInt.of(count.applyAsInt(counts))).orElse(OptionalInt.empty());
     }
-
-    record FilesResponse(
-            String source,
-            String revision,
-            Optional<String> sourceFingerprint,
-            boolean savedExperiment,
-            boolean truncated,
-            List<FileEntryResponse> files) {}
-
-    record FileEntryResponse(String path, boolean changedInPr, boolean addedInPr, boolean onlyInWorkingCopy, boolean uncommitted) {}
 
     record FileResponse(
             String path,
@@ -106,9 +78,7 @@ final class ReviewCodeHttpModels
             Optional<String> readOnlyReason,
             Optional<String> unavailableReason,
             Optional<String> prPatch,
-            List<LineChangeResponse> lineChanges) {}
-
-    record LineChangeResponse(String kind, int line, int count) {}
+            List<LineChange> lineChanges) {}
 
     record RunsResponse(List<RunResponse> runs) {}
 
@@ -137,13 +107,7 @@ final class ReviewCodeHttpModels
             boolean outputTruncated,
             OptionalLong omittedBytes,
             boolean treeUnverified,
-            List<RunClassResponse> results) {}
-
-    record RunClassResponse(String className, OptionalLong durationMs, List<RunMethodResponse> methods) {}
-
-    record RunMethodResponse(String name, String status, OptionalLong durationMs, Optional<String> message, Optional<String> trace) {}
-
-    record RunOutputResponse(String text, long nextOffset, long skippedBytes, boolean complete) {}
+            List<TestClass> results) {}
 
     record SaveFileRequest(String path, String content, String expectedHash) {}
 

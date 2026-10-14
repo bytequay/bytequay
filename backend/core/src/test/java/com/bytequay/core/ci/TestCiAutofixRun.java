@@ -189,6 +189,44 @@ class TestCiAutofixRun
     }
 
     @Test
+    void attemptObservationsRetainPreparedInputAndRecoveryEvidence()
+    {
+        CiAutofixAttempt original = newAttempt(newRun("attempt-evidence", "feature", NOW), 1, NOW);
+        CiDescriptionChange description = new CiDescriptionChange("Old description", "Updated description", 100, 200, Optional.empty(), Optional.empty());
+        CiRerunAssessment assessment = new CiRerunAssessment(300, "The runner disconnected");
+        GitResult git = new GitResult("c".repeat(40), "fingerprint", ImmutableList.of("src/Main.java"), ImmutableList.of("Fix feature"));
+        CiAutofixAttempt observed = original.withDescriptionChange(description, NOW)
+                .withRerunAssessment(assessment, NOW)
+                .withPreparedInput(BASE, NOW)
+                .withAgentNote("Fixed the failing case", NOW)
+                .withAgentTurn("turn-1", NOW)
+                .withGitResult(git, NOW)
+                .withPushResult(HEAD, git.localHead(), NOW.plusSeconds(1), NOW.plusSeconds(1))
+                .withCiResult(CiResult.PASSED, NOW.plusSeconds(2))
+                .withTimelineEvent("event-1", NOW.plusSeconds(3));
+
+        assertThat(observed.id()).isEqualTo(original.id());
+        assertThat(observed.inputSha()).isEqualTo(BASE);
+        assertThat(observed.failures()).isEqualTo(original.failures());
+        assertThat(observed.descriptionChange()).contains(description);
+        assertThat(observed.rerunAssessment()).contains(assessment);
+        assertThat(observed.untrustedAgentNote()).contains("Fixed the failing case");
+        assertThat(observed.agentTurnId()).contains("turn-1");
+        assertThat(observed.gitResult()).contains(git);
+        assertThat(observed.expectedRemoteSha()).contains(HEAD);
+        assertThat(observed.pushedSha()).contains(git.localHead());
+        assertThat(observed.pushedAt()).contains(NOW.plusSeconds(1));
+        assertThat(observed.observedCiResult()).isEqualTo(CiResult.PASSED);
+        assertThat(observed.timelineEventKey()).contains("event-1");
+        assertThat(observed.createdAt()).isEqualTo(NOW);
+        assertThat(observed.updatedAt()).isEqualTo(NOW.plusSeconds(3));
+        assertThatThrownBy(() -> observed.withAgentNote("Late observation", NOW)).hasMessageContaining("before the previous update");
+        assertThatThrownBy(() -> observed.withPreparedInput(HEAD, NOW.plusSeconds(4))).hasMessageContaining("already started");
+        assertThatThrownBy(() -> observed.withAgentTurn("turn-2", NOW.plusSeconds(4))).hasMessageContaining("another agent turn");
+        assertThatThrownBy(() -> original.withPushResult(HEAD, git.localHead(), NOW.minusSeconds(1), NOW)).hasMessageContaining("pushedAt is before createdAt");
+    }
+
+    @Test
     void resolvesPublishedHeadsAndObservedRerunsFromDurableJournals()
     {
         CiAutofixRun run = newRun("journal-resolution", "feature-journal", NOW);

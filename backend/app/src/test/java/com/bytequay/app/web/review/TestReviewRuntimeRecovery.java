@@ -52,14 +52,19 @@ import com.bytequay.app.web.agent.AgentStreamRegistry;
 import com.bytequay.core.memory.MemorySource;
 import com.bytequay.core.review.AgentReview;
 import com.bytequay.core.review.ReviewAnchor;
+import com.bytequay.core.review.ReviewCoverage;
+import com.bytequay.core.review.ReviewEvidence;
 import com.bytequay.core.review.ReviewFinding;
 import com.bytequay.core.review.ReviewInvalidRequestException;
 import com.bytequay.core.review.ReviewMessage;
 import com.bytequay.core.review.ReviewNotFoundException;
 import com.bytequay.core.review.ReviewRun;
+import com.bytequay.core.review.ReviewSummary;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.web.servlet.MockMvc;
 
@@ -69,6 +74,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.OptionalLong;
@@ -108,6 +114,52 @@ class TestReviewRuntimeRecovery
     private final ReviewController controller = new ReviewController(
             reviews, mock(ReviewPublicationService.class), turns, mock(AgentEventService.class), mock(AgentApprovalService.class), recovery, new AgentStreamRegistry(),
             memories);
+
+    @Test
+    void reviewValuesKeepTheirExactJsonFieldsWithoutExposingStoredRunInternals()
+            throws Exception
+    {
+        ReviewEvidence evidence = new ReviewEvidence("e1", "src/App.java:1", "git", "return value;", "Value is returned");
+        ReviewRun run = new ReviewRun("run-1", REVIEW_ID, 1, ReviewRun.Scope.FULL, "main", "base", "merge-base", "head", Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), ReviewRun.State.RUNNING,
+                Optional.of(new ReviewSummary(2, "Purpose", ImmutableList.of(new ReviewSummary.CommitExplanation("head", "Change")), "Result", Optional.empty(),
+                        ImmutableList.of("finding-1"))),
+                Optional.of(new ReviewCoverage(true, ImmutableList.of(), ImmutableList.of("Limited tests"), NOW)), Optional.empty(), ImmutableList.of(), false,
+                ImmutableMap.of(), ImmutableMap.of("e1", evidence), Optional.empty(), 0, NOW, NOW, Optional.empty());
+        ReviewFinding finding = new ReviewFinding("finding-1", REVIEW_ID, "run-1", 1, "Title", "Body", Optional.empty(), Optional.empty(),
+                ImmutableList.of(evidence), 1, ReviewFinding.State.OPEN, Optional.empty(), "head", false, 0, NOW, NOW, ImmutableList.of(), ReviewFinding.Origin.AUTOMATIC);
+        AgentReviewProjection original = projection(ImmutableList.of(run), ImmutableList.of(finding));
+        AgentReviewProjection projection = new AgentReviewProjection(original.review(), original.runs(), original.findings(), original.messages(), original.task(),
+                Optional.of(new AgentReviewProjection.TurnView("turn-1", "RUNNING", Optional.of(NOW), Optional.empty())), original.queuedInputIds(), original.queuePause(),
+                original.pendingApprovals(), original.byteQuayTurnIds(), original.draft(), original.pullRequest(), Optional.of(new AgentReviewProjection.WorktreeSyncView(
+                        AgentReviewProjection.WorktreeSyncView.State.BLOCKED, Optional.of("head"), Optional.of("next"), true, Optional.of("Local edits"))));
+        JsonNode json = mapper.readTree(mapper.writeValueAsString(ReviewHttpModels.review(projection)));
+
+        assertThat(json.path("task")).isEqualTo(mapper.readTree("""
+                {"id":"%s","workspaceId":"workspace-1","state":"OPEN","version":8,"laneId":"claude","laneLabel":"Claude Code",
+                 "model":null,"effort":null,"serviceTier":null,"selectionLaneId":"claude","mutationClaim":null,"steering":false,"nestedAgents":false}
+                """.formatted(TASK_ID)));
+        assertThat(json.path("activeTurn")).isEqualTo(mapper.readTree("""
+                {"id":"turn-1","state":"RUNNING","startedAt":"2026-09-07T15:00:00Z","cancellationRequestedAt":null}
+                """));
+        assertThat(json.path("worktreeSync")).isEqualTo(mapper.readTree("""
+                {"state":"BLOCKED","headSha":"head","targetHeadSha":"next","dirty":true,"reason":"Local edits"}
+                """));
+        assertThat(json.at("/runs/0/summary")).isEqualTo(mapper.readTree("""
+                {"revision":2,"purpose":"Purpose","commits":[{"sha":"head","explanation":"Change"}],"combinedResult":"Result",
+                 "evidence":null,"criticalFindingIds":["finding-1"]}
+                """));
+        assertThat(json.at("/runs/0/coverage")).isEqualTo(mapper.readTree("""
+                {"complete":true,"omissions":[],"warnings":["Limited tests"],"recordedAt":"2026-09-07T15:00:00Z"}
+                """));
+        JsonNode expectedEvidence = mapper.readTree("""
+                [{"ref":"e1","source":"src/App.java:1","provenance":"git","excerpt":"return value;","explanation":"Value is returned"}]
+                """);
+        assertThat(json.at("/runs/0/evidence")).isEqualTo(expectedEvidence);
+        assertThat(json.at("/findings/0/evidence")).isEqualTo(expectedEvidence);
+        assertThat(json.at("/runs/0").properties()).extracting(Map.Entry::getKey)
+                .doesNotContain("diff", "operations", "completionRepairUsed", "version", "updatedAt", "reviewId");
+    }
 
     @Test
     void workspaceListingAndPullRequestLookupKeepTheirOwnResponseShapes()

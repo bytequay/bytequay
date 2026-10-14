@@ -16,6 +16,8 @@ package com.bytequay.agent.core;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.AgentSessionRef;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -27,6 +29,7 @@ import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record AgentTask(
         TaskId id,
         Optional<String> workspaceId,
@@ -240,19 +243,18 @@ public record AgentTask(
         requireNonNull(completedSummary, "completedSummary is null");
         requireNonNull(completedAt, "completedAt is null");
         requireNonNull(deletionDeadline, "deletionDeadline is null");
-        return copy(
-                TaskState.COMPLETED,
-                Optional.empty(),
-                version,
-                completedAt,
-                Optional.of(completedAt),
-                Optional.empty(),
-                sessionReference,
-                completedSummary.metrics(),
-                Optional.of(completedSummary),
-                CleanupState.RETAINED,
-                Optional.of(deletionDeadline),
-                Optional.empty());
+        return updated(completedAt)
+                .state(TaskState.COMPLETED)
+                .worktreeMutationClaim(Optional.empty())
+                .terminalAt(Optional.of(completedAt))
+                .terminalReason(Optional.empty())
+                .metrics(completedSummary.metrics())
+                .summary(Optional.of(completedSummary))
+                .cleanupState(CleanupState.RETAINED)
+                .deleteAfter(Optional.of(deletionDeadline))
+                .cleanupFailure(Optional.empty())
+                .developmentContinuationUnfinished(false)
+                .build();
     }
 
     public AgentTask fail(String reason, Instant failedAt, Instant deletionDeadline)
@@ -291,32 +293,30 @@ public record AgentTask(
             return this;
         }
         requireState(TaskState.OPEN);
-        return copy(
-                TaskState.FAILED,
-                Optional.empty(),
-                version,
-                failedAt,
-                Optional.of(failedAt),
-                Optional.of(reason),
-                sessionReference,
-                metrics,
-                Optional.empty(),
-                CleanupState.RETAINED,
-                Optional.of(deletionDeadline),
-                Optional.empty());
+        return updated(failedAt)
+                .state(TaskState.FAILED)
+                .worktreeMutationClaim(Optional.empty())
+                .terminalAt(Optional.of(failedAt))
+                .terminalReason(Optional.of(reason))
+                .summary(Optional.empty())
+                .cleanupState(CleanupState.RETAINED)
+                .deleteAfter(Optional.of(deletionDeadline))
+                .cleanupFailure(Optional.empty())
+                .developmentContinuationUnfinished(false)
+                .build();
     }
 
     public AgentTask withSessionReference(AgentSessionRef reference, Instant now)
     {
         requireNonNull(reference, "reference is null");
         checkState(!state.terminal(), "cannot update a terminal task session");
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, Optional.of(reference), metrics, summary, cleanupState, deleteAfter, cleanupFailure);
+        return updated(now).sessionReference(Optional.of(reference)).build();
     }
 
     public AgentTask withMetrics(AgentMetrics updatedMetrics, Instant now)
     {
         requireNonNull(updatedMetrics, "updatedMetrics is null");
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, updatedMetrics, summary, cleanupState, deleteAfter, cleanupFailure);
+        return updated(now).metrics(updatedMetrics).build();
     }
 
     /**
@@ -331,7 +331,7 @@ public record AgentTask(
         checkArgument(source != TitleSource.PROVISIONAL, "a title cannot become provisional again");
         checkState(source == TitleSource.USER || titleSource == TitleSource.PROVISIONAL, "only a provisional title accepts a proposal");
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
-        return copyDetails(updatedTitle, source, defaults, now, worktreeRemovedAt, archivedAt);
+        return toBuilder().title(updatedTitle).titleSource(source).updatedAt(now).build();
     }
 
     /**
@@ -344,7 +344,7 @@ public record AgentTask(
         if (archived == archivedAt.isPresent()) {
             return this;
         }
-        return copyDetails(title, titleSource, defaults, updatedAt, worktreeRemovedAt, archived ? Optional.of(now) : Optional.empty());
+        return toBuilder().archivedAt(archived ? Optional.of(now) : Optional.empty()).build();
     }
 
     public AgentTask withDefaults(AgentTaskDefaults updatedDefaults, Instant now)
@@ -353,7 +353,7 @@ public record AgentTask(
         requireNonNull(now, "now is null");
         checkState(!state.terminal(), "cannot update defaults for a terminal task");
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
-        return copyDetails(title, titleSource, updatedDefaults, now, worktreeRemovedAt, archivedAt);
+        return toBuilder().defaults(updatedDefaults).updatedAt(now).build();
     }
 
     /** Changes the executing provider only at an idle turn boundary; providers cannot share session references. */
@@ -366,10 +366,7 @@ public record AgentTask(
         if (lane.equals(laneId)) {
             return this;
         }
-        return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, lane, repository,
-                worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
-                terminalReason, Optional.empty(), metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, archivedAt, developmentContinuationUnfinished);
+        return toBuilder().laneId(lane).updatedAt(now).sessionReference(Optional.empty()).build();
     }
 
     /** Records only whether a live continuation must fail if its backend owner is lost. */
@@ -378,16 +375,12 @@ public record AgentTask(
         requireNonNull(now, "now is null");
         requireState(TaskState.OPEN);
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
-        return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
-                worktree, taskWorktree, defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
-                terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, archivedAt, unfinished);
+        return toBuilder().updatedAt(now).developmentContinuationUnfinished(unfinished).build();
     }
 
     public AgentTask withVersion(long updatedVersion)
     {
-        return copy(state, worktreeMutationClaim, updatedVersion, updatedAt, terminalAt, terminalReason, sessionReference, metrics,
-                summary, cleanupState, deleteAfter, cleanupFailure);
+        return updated(updatedAt).version(updatedVersion).build();
     }
 
     /** Records a verified local branch rename without changing checkout ownership. */
@@ -397,10 +390,7 @@ public record AgentTask(
         checkArgument(!now.isBefore(updatedAt), "now is before the current update time");
         TaskWorktree previous = taskWorktree.orElseThrow();
         TaskWorktree renamed = new TaskWorktree(id, previous.workspaceId(), previous.physicalRepository(), previous.canonicalWorktree(), branch, previous.startCommit());
-        return new AgentTask(id, workspaceId, interactive, creationFingerprint, title, titleSource, laneId, repository,
-                worktree, Optional.of(renamed), defaults, state, worktreeMutationClaim, version, createdAt, now, terminalAt,
-                terminalReason, sessionReference, metrics, summary, worktreeRemovedAt, cleanupState, deleteAfter,
-                cleanupFailure, archivedAt, developmentContinuationUnfinished);
+        return toBuilder().taskWorktree(Optional.of(renamed)).updatedAt(now).build();
     }
 
     /**
@@ -414,7 +404,7 @@ public record AgentTask(
     {
         requireNonNull(now, "now is null");
         requireState(TaskState.OPEN);
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
+        return updated(now).build();
     }
 
     public AgentTask withCleanupState(CleanupState updatedState, Optional<String> failure, Instant now)
@@ -423,7 +413,7 @@ public record AgentTask(
         checkOptionalText(failure, "failure");
         checkState(state.terminal(), "cannot clean up a live task");
         checkState(cleanupState.canTransitionTo(updatedState), "invalid cleanup transition: " + cleanupState + " -> " + updatedState);
-        return copy(state, worktreeMutationClaim, version, now, terminalAt, terminalReason, sessionReference, metrics, summary, updatedState, deleteAfter, failure);
+        return updated(now).cleanupState(updatedState).cleanupFailure(failure).build();
     }
 
     public AgentTask withWorktreeRemovedAt(Instant removedAt)
@@ -434,7 +424,7 @@ public record AgentTask(
         if (worktreeRemovedAt.isPresent()) {
             return this;
         }
-        return copyDetails(title, titleSource, defaults, removedAt, Optional.of(removedAt), archivedAt);
+        return toBuilder().updatedAt(removedAt).worktreeRemovedAt(Optional.of(removedAt)).build();
     }
 
     public AgentTask withWorktreeCleanupAttemptAt(Instant attemptedAt)
@@ -443,7 +433,7 @@ public record AgentTask(
         checkState(state.terminal(), "cannot clean up a live task worktree");
         checkState(worktreeRemovedAt.isEmpty(), "task worktree is already removed");
         checkArgument(!attemptedAt.isBefore(updatedAt), "attemptedAt is before the current update time");
-        return copy(state, worktreeMutationClaim, version, attemptedAt, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
+        return updated(attemptedAt).build();
     }
 
     public AgentTask claimWorktreeMutation(WorktreeMutationClaim claim, Instant now)
@@ -452,7 +442,7 @@ public record AgentTask(
         requireNonNull(now, "now is null");
         requireState(TaskState.OPEN);
         checkState(worktreeMutationClaim.isEmpty(), "task already has a worktree mutation claim");
-        return copy(state, Optional.of(claim), version, now, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
+        return updated(now).worktreeMutationClaim(Optional.of(claim)).build();
     }
 
     public AgentTask releaseWorktreeMutation(WorktreeMutationClaim claim, Instant now)
@@ -461,90 +451,13 @@ public record AgentTask(
         requireNonNull(now, "now is null");
         requireState(TaskState.OPEN);
         checkState(worktreeMutationClaim.equals(Optional.of(claim)), "worktree mutation claim owner changed");
-        return copy(state, Optional.empty(), version, now, terminalAt, terminalReason, sessionReference, metrics, summary, cleanupState, deleteAfter, cleanupFailure);
+        return updated(now).worktreeMutationClaim(Optional.empty()).build();
     }
 
-    private AgentTask copy(
-            TaskState updatedState,
-            Optional<WorktreeMutationClaim> updatedWorktreeMutationClaim,
-            long updatedVersion,
-            Instant updateTime,
-            Optional<Instant> updatedTerminalAt,
-            Optional<String> updatedTerminalReason,
-            Optional<AgentSessionRef> updatedSessionReference,
-            AgentMetrics updatedMetrics,
-            Optional<TaskSummary> updatedSummary,
-            CleanupState updatedCleanupState,
-            Optional<Instant> updatedDeleteAfter,
-            Optional<String> updatedCleanupFailure)
+    private Draft updated(Instant updateTime)
     {
         checkArgument(!updateTime.isBefore(updatedAt), "updateTime is before the current update time");
-        return new AgentTask(
-                id,
-                workspaceId,
-                interactive,
-                creationFingerprint,
-                title,
-                titleSource,
-                laneId,
-                repository,
-                worktree,
-                taskWorktree,
-                defaults,
-                updatedState,
-                updatedWorktreeMutationClaim,
-                updatedVersion,
-                createdAt,
-                updateTime,
-                updatedTerminalAt,
-                updatedTerminalReason,
-                updatedSessionReference,
-                updatedMetrics,
-                updatedSummary,
-                worktreeRemovedAt,
-                updatedCleanupState,
-                updatedDeleteAfter,
-                updatedCleanupFailure,
-                archivedAt,
-                !updatedState.terminal() && developmentContinuationUnfinished);
-    }
-
-    private AgentTask copyDetails(
-            String updatedTitle,
-            TitleSource updatedTitleSource,
-            AgentTaskDefaults updatedDefaults,
-            Instant updateTime,
-            Optional<Instant> updatedWorktreeRemovedAt,
-            Optional<Instant> updatedArchivedAt)
-    {
-        return new AgentTask(
-                id,
-                workspaceId,
-                interactive,
-                creationFingerprint,
-                updatedTitle,
-                updatedTitleSource,
-                laneId,
-                repository,
-                worktree,
-                taskWorktree,
-                updatedDefaults,
-                state,
-                worktreeMutationClaim,
-                version,
-                createdAt,
-                updateTime,
-                terminalAt,
-                terminalReason,
-                sessionReference,
-                metrics,
-                summary,
-                updatedWorktreeRemovedAt,
-                cleanupState,
-                deleteAfter,
-                cleanupFailure,
-                updatedArchivedAt,
-                developmentContinuationUnfinished);
+        return toBuilder().updatedAt(updateTime);
     }
 
     private void requireState(TaskState expected)

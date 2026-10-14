@@ -21,6 +21,8 @@ import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.core.store.AgentTurnStore;
 import com.bytequay.agent.core.store.AgentUnitOfWork;
+import com.bytequay.app.jira.JiraIssue;
+import com.bytequay.app.jira.JiraService;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.GoalReferenceReader;
@@ -29,11 +31,14 @@ import com.bytequay.app.workspace.WorkspaceException;
 import com.bytequay.core.domain.GitHubIssueSource;
 import com.bytequay.core.domain.IssueEpic;
 import com.bytequay.core.domain.IssueTask;
+import com.bytequay.core.domain.JiraIssueSource;
+import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.RepositoryIssue;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.WorkItemLink;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.store.IssueDevelopmentStore;
+import com.bytequay.core.store.JiraIssueTaskStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.util.concurrent.Striped;
@@ -42,7 +47,9 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.util.Optional;
 import java.util.concurrent.locks.Lock;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static com.google.common.base.Preconditions.checkArgument;
 import static java.util.Objects.requireNonNull;
@@ -53,6 +60,8 @@ public class IssueDevelopmentService
 {
     private static final String HOST = "github.com";
     private final IssueDevelopmentStore sources;
+    private final JiraIssueTaskStore jiraSources;
+    private final JiraService jira;
     private final RepositoryIssueStore issues;
     private final WorkspaceStore workspaces;
     private final AgentTaskService tasks;
@@ -67,9 +76,11 @@ public class IssueDevelopmentService
 
     public IssueDevelopmentService(IssueDevelopmentStore sources, RepositoryIssueStore issues, WorkspaceStore workspaces,
             AgentTaskService tasks, AgentTaskStore taskStore, AgentUnitOfWork unitOfWork, GitHubRepoClient github,
-            CredentialService credentials, Clock clock, AgentTurnStore turns, WorkItemService workItems)
+            CredentialService credentials, Clock clock, AgentTurnStore turns, WorkItemService workItems, JiraIssueTaskStore jiraSources, JiraService jira)
     {
         this.sources = requireNonNull(sources, "sources is null");
+        this.jiraSources = requireNonNull(jiraSources, "jiraSources is null");
+        this.jira = requireNonNull(jira, "jira is null");
         this.issues = requireNonNull(issues, "issues is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.tasks = requireNonNull(tasks, "tasks is null");
@@ -114,17 +125,29 @@ public class IssueDevelopmentService
         return issues.findPage(workspace.monitoredRepositoryId(), workspace.monitoredRepository(), 0, Integer.MAX_VALUE);
     }
 
-    public Optional<Source> source(String taskId)
+    public Optional<Source<GitHubIssueSource>> source(String taskId)
     {
-        return sources.findByTaskId(taskId).map(link -> new Source(link.source(),
-                turns.list(TaskId.valueOf(taskId)).stream().filter(turn -> turn.developmentOrigin().isEmpty()).findFirst().map(AgentTurn::id).map(Object::toString),
-                link.instructions().orElse("")));
+        return sources.findByTaskId(taskId).map(link -> source(taskId, link.source(), link.instructions().orElse("")));
     }
 
-    public void requireUnattachedCreate(TaskId taskId)
+    public Optional<Source<JiraIssueSource>> jiraSource(String taskId)
     {
-        if (sources.findByTaskId(taskId.toString()).isPresent()) {
+        return jiraSources.findByTaskId(taskId).map(link -> source(taskId, link.source(), link.instructions()));
+    }
+
+    private <T> Source<T> source(String taskId, T issue, String instructions)
+    {
+        return new Source<>(issue, turns.list(TaskId.valueOf(taskId)).stream().filter(turn -> turn.developmentOrigin().isEmpty())
+                .findFirst().map(AgentTurn::id).map(Object::toString), instructions);
+    }
+
+    public void requireAttachedSources(TaskId taskId, Optional<IssueSourceInput> issue, Optional<JiraSourceInput> jira)
+    {
+        if (issue.isEmpty() && sources.findByTaskId(taskId.toString()).isPresent()) {
             throw new AgentConflictException("Retry this task with its issue source attached.");
+        }
+        if (jira.isEmpty() && jiraSources.findByTaskId(taskId.toString()).isPresent()) {
+            throw new AgentConflictException("Retry this task with its Jira source attached.");
         }
     }
 
@@ -140,22 +163,11 @@ public class IssueDevelopmentService
                 IssueTask link = linked.orElseThrow();
                 checkArgument(link.source().number() == input.number()
                         && link.source().repo().equalsIgnoreCase(workspace.monitoredRepository().fullName()), "Issue does not belong to this workspace");
-                boolean another = input.replaces().filter(link.taskId()::equals).isPresent() && !link.taskId().equals(taskId.toString());
-                if (!another) {
-                    if (!link.taskId().equals(taskId.toString()) || metadata(input.issueId()).isEpic()) {
-                        return tasks.getInteractive(link.workspaceId(), TaskId.valueOf(link.taskId()));
-                    }
-                    checkArgument(link.workspaceId().equals(workspaceId), "Task belongs to another workspace");
-                    if (link.instructions().filter(instructions::equals).isEmpty()) {
-                        throw new AgentConflictException("Task creation request changed: " + taskId);
-                    }
-                    return create.apply(link.source());
-                }
-                checkArgument(link.workspaceId().equals(workspaceId), "Task belongs to another workspace");
-                // An idle open task is still the issue's attempt, and a delivery still under way belongs to it.
-                AgentTask current = taskStore.find(TaskId.valueOf(link.taskId())).orElseThrow(() -> new AgentConflictException("The issue's task is gone."));
-                if (!current.state().terminal() || current.developmentContinuationUnfinished()) {
-                    throw new AgentConflictException("The issue's task has not ended. Continue it, or end it before starting another attempt.");
+                Optional<AgentTask> resumed = resume(workspaceId, taskId, input.replaces(), instructions,
+                        new Attempt(link.taskId(), link.workspaceId(), link.instructions(), "issue"),
+                        () -> metadata(input.issueId()).isEpic(), () -> create.apply(link.source()));
+                if (resumed.isPresent()) {
+                    return resumed.orElseThrow();
                 }
             }
             RepositoryIssue cached = issue(workspace, input.number());
@@ -201,6 +213,98 @@ public class IssueDevelopmentService
         });
     }
 
+    public AgentTask start(String workspaceId, TaskId taskId, JiraSourceInput input, String instructions, Function<JiraIssueSource, AgentTask> create)
+    {
+        workspace(workspaceId);
+        return JiraIssueLocks.withLock(input.cloudId(), input.issueId(), () -> {
+            Optional<JiraIssueTask> linked = jiraSources.findBySource(input.cloudId(), input.issueId());
+            if (linked.isPresent()) {
+                JiraIssueTask link = linked.orElseThrow();
+                Optional<AgentTask> resumed = resume(workspaceId, taskId, input.replaces(), instructions,
+                        new Attempt(link.taskId(), link.workspaceId(), Optional.of(link.instructions()), "ticket"),
+                        () -> false, () -> create.apply(link.source()));
+                if (resumed.isPresent()) {
+                    return resumed.orElseThrow();
+                }
+            }
+            requireRunnable(jira.issue(input.connectionId(), input.cloudId(), input.issueId()), input, workspaceId);
+            workItems.requireStartable(workspaceId, WorkItemLink.jiraIdentity(input.cloudId(), input.issueId()));
+            JiraIssue fresh = jira.refreshIssue(input.connectionId(), input.cloudId(), input.issueId());
+            requireRunnable(fresh, input, workspaceId);
+            if (taskStore.find(taskId).isPresent()) {
+                throw new AgentConflictException("Task already exists without this Jira source: " + taskId);
+            }
+            return create.apply(new JiraIssueSource(input.connectionId(), fresh.cloudId(), fresh.id(), fresh.key(), fresh.url(), fresh.title(), fresh.body(), fresh.updatedAt()));
+        });
+    }
+
+    private void requireRunnable(JiraIssue issue, JiraSourceInput input, String workspaceId)
+    {
+        checkArgument(issue.connectionId().equals(input.connectionId()) && issue.cloudId().equals(input.cloudId()) && issue.id().equals(input.issueId()),
+                "Jira issue identity changed");
+        if (issue.workspace().isEmpty()) {
+            throw new AgentConflictException("Assign a ByteQuay workspace before starting development.");
+        }
+        if (!issue.workspace().orElseThrow().id().equals(workspaceId)) {
+            throw new AgentConflictException("This Jira ticket is assigned to another workspace. Refresh it before starting development.");
+        }
+        if (issue.isEpic() || jira.isEpic(input.cloudId(), input.issueId())) {
+            throw new AgentConflictException("This Jira issue is an Epic. Unmark it before starting development.");
+        }
+        if (issue.hasChildren()) {
+            throw new AgentConflictException("This Jira issue has children. Start development from a leaf issue.");
+        }
+        if ("done".equalsIgnoreCase(issue.status().category())) {
+            throw new AgentConflictException("This Jira issue is done. Refresh it before starting development.");
+        }
+        if (!issue.key().equals(input.key()) || !issue.title().equals(input.title()) || !issue.body().equals(input.body())) {
+            throw new AgentConflictException("Jira issue changed. Refresh it before starting development.");
+        }
+    }
+
+    /** The prepared task and accepted Jira association commit before the first turn can start. */
+    public void persistTask(AgentTask task, JiraIssueSource source, String instructions)
+    {
+        unitOfWork.execute(() -> {
+            String workspaceId = task.workspaceId().orElseThrow();
+            workspace(workspaceId);
+            taskStore.insert(task);
+            workItems.recordAttempt(task, GoalReferenceReader.jiraLink(source, clock.instant()));
+            // Another attempt takes the ticket from the ended one, which keeps its source and stays the work item's earlier attempt.
+            jiraSources.findBySource(source.cloudId(), source.issueId()).filter(previous -> !previous.taskId().equals(task.id().toString()))
+                    .ifPresent(previous -> jiraSources.retire(previous.taskId()));
+            jiraSources.insert(new JiraIssueTask(task.id().toString(), workspaceId, source, instructions, clock.instant()));
+            return null;
+        });
+    }
+
+    /** Empty means a replacement may proceed through the source's current eligibility checks. */
+    private Optional<AgentTask> resume(String workspaceId, TaskId taskId, Optional<String> replaces, String instructions,
+            Attempt previous, BooleanSupplier reopenOnly, Supplier<AgentTask> retry)
+    {
+        boolean another = replaces.filter(previous.taskId()::equals).isPresent() && !previous.taskId().equals(taskId.toString());
+        if (!another) {
+            if (!previous.taskId().equals(taskId.toString()) || reopenOnly.getAsBoolean()) {
+                return Optional.of(tasks.getInteractive(previous.workspaceId(), TaskId.valueOf(previous.taskId())));
+            }
+            checkArgument(previous.workspaceId().equals(workspaceId), "Task belongs to another workspace");
+            if (previous.instructions().filter(instructions::equals).isEmpty()) {
+                throw new AgentConflictException("Task creation request changed: " + taskId);
+            }
+            return Optional.of(retry.get());
+        }
+        checkArgument(previous.workspaceId().equals(workspaceId), "Task belongs to another workspace");
+        // An idle open task is still the attempt, and a delivery still under way belongs to it.
+        AgentTask current = taskStore.find(TaskId.valueOf(previous.taskId()))
+                .orElseThrow(() -> new AgentConflictException("The " + previous.subject() + "'s task is gone."));
+        if (!current.state().terminal() || current.developmentContinuationUnfinished()) {
+            throw new AgentConflictException("The " + previous.subject() + "'s task has not ended. Continue it, or end it before starting another attempt.");
+        }
+        return Optional.empty();
+    }
+
+    private record Attempt(String taskId, String workspaceId, Optional<String> instructions, String subject) {}
+
     private static AgentConflictException changed()
     {
         return new AgentConflictException("Issue changed. Refresh the issue before starting development.");
@@ -217,7 +321,7 @@ public class IssueDevelopmentService
                 .orElseThrow(() -> new AgentConflictException("Issue is no longer available locally. Refresh issues before starting development."));
     }
 
-    public record Source(GitHubIssueSource issue, Optional<String> initialTurnId, String instructions) {}
+    public record Source<T>(T issue, Optional<String> initialTurnId, String instructions) {}
 
     public record TaskLink(String taskId, String workspaceId) {}
 

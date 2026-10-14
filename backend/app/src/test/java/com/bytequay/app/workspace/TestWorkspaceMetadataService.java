@@ -51,7 +51,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-class TestDefaultWorkspaceMetadataService
+class TestWorkspaceMetadataService
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
     private static final RepoRef DIRECT = RepoRef.of("owner", "project");
@@ -65,7 +65,7 @@ class TestDefaultWorkspaceMetadataService
     private final GitHubPullRequestReadClient pullRequests = mock(GitHubPullRequestReadClient.class);
     private final AvatarCache avatarCache = mock(AvatarCache.class);
     private final CredentialService credentials = mock(CredentialService.class);
-    private DefaultWorkspaceMetadataService service;
+    private WorkspaceMetadataService service;
 
     @BeforeEach
     void setUp()
@@ -158,7 +158,7 @@ class TestDefaultWorkspaceMetadataService
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.anyList(),
                 org.mockito.ArgumentMatchers.any());
-        service = new DefaultWorkspaceMetadataService(
+        service = new WorkspaceMetadataService(
                 workspaceStore,
                 metadataStore,
                 gitHub,

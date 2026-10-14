@@ -23,7 +23,6 @@ import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsTarget;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -71,7 +70,7 @@ class TestWorkspaceCommitsSettingsController
         WorkspaceDeletionService deletion = mock(WorkspaceDeletionService.class);
         PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
         WorkspaceController controller = new WorkspaceController(workspaces, deletion, mock(PullRequestService.class), refresh,
-                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class), mock(WorkspaceIssueRefreshService.class),
+                mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
                 mock(WorkspaceRemoteSourceService.class), models, mock(CredentialService.class), settings, mock(IssueDevelopmentService.class),
                 mock(WorkspaceRelationships.class));
         var mvc = standaloneSetup(controller).build();
@@ -108,7 +107,7 @@ class TestWorkspaceCommitsSettingsController
                 RepoRef.of("apache", "iceberg"), OptionalLong.empty(), RepoRef.of("apache", "iceberg"), "origin", "origin", "main", ImmutableList.of()));
         var controller = new WorkspaceController(workspaces, mock(WorkspaceDeletionService.class), mock(PullRequestService.class),
                 mock(PullRequestRefreshService.class), mock(WorkspaceMetadataService.class), mock(WorkspaceIssueService.class),
-                mock(WorkspaceIssueRefreshService.class), mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class),
+                mock(WorkspaceRemoteSourceService.class), mock(ModelSettingsService.class),
                 mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), mock(IssueDevelopmentService.class), relationships);
         var mvc = standaloneSetup(controller).build();
         mvc.perform(get("/api/workspaces/trino/relationships"))

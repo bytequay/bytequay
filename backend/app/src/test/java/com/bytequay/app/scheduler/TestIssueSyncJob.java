@@ -15,7 +15,7 @@ package com.bytequay.app.scheduler;
 
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.settings.AppSettingsService;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.core.domain.RepoRef;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
@@ -37,7 +37,7 @@ class TestIssueSyncJob
     @Test
     void scheduledSyncRefreshesEachMonitoredRepositoryOnce()
     {
-        WorkspaceIssueRefreshService issues = mock(WorkspaceIssueRefreshService.class);
+        WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
         WorkspaceStore workspaces = mock(WorkspaceStore.class);
         CredentialService credentials = mock(CredentialService.class);
         when(credentials.isGitHubAccountConfigured()).thenReturn(true);

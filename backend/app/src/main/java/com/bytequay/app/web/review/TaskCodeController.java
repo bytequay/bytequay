@@ -14,7 +14,9 @@
 package com.bytequay.app.web.review;
 
 import com.bytequay.app.review.LocalRunService;
+import com.bytequay.app.review.LocalRunService.OutputChunk;
 import com.bytequay.app.review.ReviewCodeService;
+import com.bytequay.app.review.ReviewCodeService.CodeFiles;
 import com.bytequay.app.review.ReviewFileConflictException;
 import com.bytequay.app.review.TaskCodeHost;
 import org.springframework.http.HttpStatus;
@@ -64,9 +66,9 @@ public class TaskCodeController
     }
 
     @GetMapping("/files")
-    public ReviewCodeHttpModels.FilesResponse files(@PathVariable String taskId, @RequestParam String workspaceId)
+    public CodeFiles files(@PathVariable String taskId, @RequestParam String workspaceId)
     {
-        return ReviewCodeHttpModels.files(code.files(new TaskCodeHost(workspaceId, taskId)));
+        return code.files(new TaskCodeHost(workspaceId, taskId));
     }
 
     @GetMapping("/file")
@@ -107,14 +109,13 @@ public class TaskCodeController
     }
 
     @GetMapping("/runs/{runId}/output")
-    public ReviewCodeHttpModels.RunOutputResponse runOutput(
+    public OutputChunk runOutput(
             @PathVariable String taskId,
             @PathVariable String runId,
             @RequestParam String workspaceId,
             @RequestParam(defaultValue = "0") long after)
     {
-        LocalRunService.OutputChunk chunk = localRuns.output(new TaskCodeHost(workspaceId, taskId), runId, after);
-        return new ReviewCodeHttpModels.RunOutputResponse(chunk.text(), chunk.nextOffset(), chunk.skippedBytes(), chunk.complete());
+        return localRuns.output(new TaskCodeHost(workspaceId, taskId), runId, after);
     }
 
     @ExceptionHandler(ReviewFileConflictException.class)

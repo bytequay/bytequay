@@ -145,18 +145,19 @@ public class AgentConfiguration
             BridgeResolver<GoogleWorkspaceBridge> googleWorkspace,
             ObjectProvider<DevelopmentFollowupCoordinator> developmentFollowups)
     {
-        return new PermissionBroker(
-                () -> URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort()
-                        + "/internal/agent/claude/mcp"),
-                objectMapper,
-                (taskId, query) -> ciMemoryService.read(new ReadCiMemoryCommand(TaskId.valueOf(taskId), query)).markdown(),
-                reviews,
-                developmentResults,
-                (taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body),
-                localReviews,
-                pullRequestChecks,
-                issueContexts,
-                memories, relatedWork, workItems, googleWorkspace, pullRequestContexts);
+        return PermissionBroker.builder(() -> URI.create("http://127.0.0.1:" + ((WebServerApplicationContext) context).getWebServer().getPort()
+                        + "/internal/agent/claude/mcp"), objectMapper, (taskId, query) -> ciMemoryService.read(new ReadCiMemoryCommand(TaskId.valueOf(taskId), query)).markdown())
+                .reviews(reviews)
+                .developments(developmentResults)
+                .draftPullRequests((taskId, title, body) -> developmentFollowups.getObject().publishDraftPullRequest(taskId, title, body))
+                .localReviews(localReviews)
+                .pullRequestChecks(pullRequestChecks)
+                .issueContexts(issueContexts)
+                .memories(memories)
+                .relatedWork(relatedWork)
+                .workItems(workItems)
+                .googleWorkspace(googleWorkspace)
+                .pullRequestContexts(pullRequestContexts).build();
     }
 
     @Bean(destroyMethod = "close")

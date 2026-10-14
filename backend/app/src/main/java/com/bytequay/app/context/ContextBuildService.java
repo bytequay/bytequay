@@ -187,7 +187,7 @@ public class ContextBuildService
             AgentLaneId lane = new AgentLaneId(model.configId());
             WorkflowAgentTasks.requireReady(drivers, lane, AgentPermissionPolicy.AUTO);
             models.validateSelection(lane.value(), model.model(), model.effort(), Optional.empty());
-            WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+            WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
             GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify", baselineSha + "^{commit}");
             checkArgument(resolved.successful() && !resolved.truncated() && resolved.output().strip().matches("[0-9a-f]{40}|[0-9a-f]{64}"), "The check's baseline is unavailable");
             TaskId id = continued.map(build -> TaskId.valueOf(build.taskId())).orElseGet(TaskId::random);
@@ -396,7 +396,7 @@ public class ContextBuildService
     public Optional<Baseline> baseline(String workspaceId)
     {
         try {
-            WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+            WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
             GitCommandRunner.Result resolved = git.run(workspace.repository(), "rev-parse", "--verify",
                     "refs/remotes/" + workspace.sourceRemote() + "/" + workspace.defaultBranch() + "^{commit}");
             String sha = resolved.output().strip();

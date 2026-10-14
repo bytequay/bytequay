@@ -34,7 +34,6 @@ import com.bytequay.agent.core.store.TaskLogStore;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.agent.spi.BridgeResolver;
 import com.bytequay.agent.spi.DevelopmentResultBridge;
-import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiMemoryService;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
@@ -45,6 +44,7 @@ import com.bytequay.app.repository.github.GitHubDeliveryChecks;
 import com.bytequay.app.repository.github.GitHubPullRequestIdentity;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
+import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.github.GhCliService;
 import com.bytequay.app.workspace.WorkspaceCodeSyncResult;
@@ -98,8 +98,10 @@ import java.util.function.Supplier;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -114,7 +116,7 @@ import static org.mockito.Mockito.when;
                 "logging.level.com.bytequay.app.ci.CiAutofixService=OFF"
         })
 @AutoConfigureMockMvc
-@Import({TestCiAutofixEndToEnd.E2eConfiguration.class, CiAutofixMonitorTestDriver.class})
+@Import(TestCiAutofixEndToEnd.E2eConfiguration.class)
 @Execution(ExecutionMode.SAME_THREAD)
 class TestCiAutofixEndToEnd
 {
@@ -132,7 +134,7 @@ class TestCiAutofixEndToEnd
     private CiAutofixService service;
 
     @Autowired
-    private CiAutofixMonitorTestDriver monitor;
+    private WorkflowMonitorJob monitor;
 
     @Autowired
     private ScriptedGitHubActionsClient gitHub;
@@ -985,14 +987,10 @@ class TestCiAutofixEndToEnd
         @Primary
         WorkspaceProvisioningService e2eWorkspaceProvisioningService(WorkspaceStore store)
         {
-            return new WorkspaceProvisioningService()
-            {
-                @Override
-                public WorkspaceCodeSyncResult synchronizeCode(String workspaceId)
-                {
-                    return WorkspaceCodeSyncResult.success(store.findById(workspaceId).orElseThrow(), ImmutableSet.of());
-                }
-            };
+            WorkspaceProvisioningService provisioning = mock(WorkspaceProvisioningService.class);
+            when(provisioning.synchronizeCode(anyString())).thenAnswer(invocation ->
+                    WorkspaceCodeSyncResult.success(store.findById(invocation.getArgument(0)).orElseThrow(), ImmutableSet.of()));
+            return provisioning;
         }
     }
 }

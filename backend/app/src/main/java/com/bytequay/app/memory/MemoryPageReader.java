@@ -71,7 +71,7 @@ public class MemoryPageReader
         List<GuidelineView> files = ImmutableList.of();
         if (head.isPresent()) {
             try {
-                WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(workspaceId);
+                WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(workspaceId);
                 missing = missing(workspace, head.orElseThrow(), list);
                 String blob = "https://github.com/" + workspace.monitoredRepository().fullName() + "/blob/" + head.orElseThrow() + "/";
                 files = guidelines.files(workspace.repository(), head.orElseThrow()).stream()

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.workspace;
 
+import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
 import com.bytequay.app.repository.github.GitHubPullRequestWriteClient;
 import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
@@ -26,6 +27,7 @@ import com.bytequay.core.domain.RepositoryIssueDetail;
 import com.bytequay.core.domain.RepositoryIssuePage;
 import com.bytequay.core.domain.Workspace;
 import com.bytequay.core.domain.Workspace.Topology;
+import com.bytequay.core.store.AppSettingsStore;
 import com.bytequay.core.store.RepositoryIssueDetailStore;
 import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
@@ -47,7 +49,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestDefaultWorkspaceIssueService
+class TestWorkspaceIssueService
 {
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
     private static final RepoRef DIRECT = RepoRef.of("owner", "project");
@@ -59,9 +61,10 @@ class TestDefaultWorkspaceIssueService
     private final RepositoryIssueDetailStore detailStore = mock(RepositoryIssueDetailStore.class);
     private final GitHubPullRequestWriteClient issueWrites = mock(GitHubPullRequestWriteClient.class);
     private final GitHubRepoClient issueReads = mock(GitHubRepoClient.class);
+    private final GitHubPullRequestReadClient timelineReads = mock(GitHubPullRequestReadClient.class);
     private final CredentialService credentials = mock(CredentialService.class);
     private final RecentTouchRecorder recent = mock(RecentTouchRecorder.class);
-    private DefaultWorkspaceIssueService service;
+    private WorkspaceIssueService service;
 
     @BeforeEach
     void setUp()
@@ -69,7 +72,7 @@ class TestDefaultWorkspaceIssueService
         when(credentials.resolveGitHubToken()).thenReturn("token");
         when(workspaceStore.findById(org.mockito.ArgumentMatchers.anyString()))
                 .thenAnswer(invocation -> Optional.ofNullable(workspaces.get(invocation.getArgument(0))));
-        service = new DefaultWorkspaceIssueService(
+        service = new WorkspaceIssueService(
                 workspaceStore,
                 issueStore,
                 detailStore,
@@ -77,7 +80,9 @@ class TestDefaultWorkspaceIssueService
                 issueReads,
                 credentials,
                 recent,
-                Clock.fixed(NOW, ZoneOffset.UTC));
+                Clock.fixed(NOW, ZoneOffset.UTC),
+                timelineReads,
+                mock(AppSettingsStore.class));
     }
 
     @Test
@@ -94,7 +99,7 @@ class TestDefaultWorkspaceIssueService
         assertThat(service.find("direct", 7)).contains(issue(7));
         verify(issueStore).findPage(100, DIRECT, 2, 50);
         verify(issueStore).find(100, 7);
-        verifyNoInteractions(credentials, issueWrites);
+        verifyNoInteractions(credentials, issueWrites, issueReads, timelineReads);
     }
 
     @Test
@@ -106,7 +111,7 @@ class TestDefaultWorkspaceIssueService
 
         assertThat(service.detail("direct", 7)).isSameAs(detail);
         assertThat(service.detail("direct", 8)).isEqualTo(RepositoryIssueDetail.empty(100, 8));
-        verifyNoInteractions(credentials, issueWrites);
+        verifyNoInteractions(credentials, issueWrites, issueReads, timelineReads);
     }
 
     @Test

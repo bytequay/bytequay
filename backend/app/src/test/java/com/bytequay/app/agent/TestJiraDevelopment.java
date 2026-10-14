@@ -26,11 +26,15 @@ import com.bytequay.agent.core.store.AgentUnitOfWork;
 import com.bytequay.app.jira.JiraDtos;
 import com.bytequay.app.jira.JiraIssue;
 import com.bytequay.app.jira.JiraService;
+import com.bytequay.app.repository.github.GitHubRepoClient;
+import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.goal.WorkItemService;
 import com.bytequay.core.domain.JiraIssueSource;
 import com.bytequay.core.domain.JiraIssueTask;
 import com.bytequay.core.domain.Workspace;
+import com.bytequay.core.store.IssueDevelopmentStore;
 import com.bytequay.core.store.JiraIssueTaskStore;
+import com.bytequay.core.store.RepositoryIssueStore;
 import com.bytequay.core.store.WorkspaceStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.BeforeEach;
@@ -59,7 +63,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.withSettings;
 
-class TestJiraDevelopmentService
+class TestJiraDevelopment
 {
     private static final Instant NOW = Instant.parse("2026-09-16T00:00:00Z");
     private static final JiraIssueSource SOURCE = new JiraIssueSource("connection", "cloud", "10001", "APP-7",
@@ -75,8 +79,9 @@ class TestJiraDevelopmentService
     private final TaskId taskId = TaskId.random();
     private final AgentTask task = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
     private final AtomicReference<JiraIssueTask> linked = new AtomicReference<>();
-    private final JiraDevelopmentService service = new JiraDevelopmentService(sources, workspaces, tasks, taskStore,
-            turns, unitOfWork, jira, Clock.fixed(NOW, ZoneOffset.UTC), mock(WorkItemService.class));
+    private final IssueDevelopmentService service = new IssueDevelopmentService(mock(IssueDevelopmentStore.class), mock(RepositoryIssueStore.class), workspaces,
+            tasks, taskStore, unitOfWork, mock(GitHubRepoClient.class), mock(CredentialService.class), Clock.fixed(NOW, ZoneOffset.UTC), turns,
+            mock(WorkItemService.class), sources, jira);
 
     @BeforeEach
     void setUp()
@@ -123,10 +128,10 @@ class TestJiraDevelopmentService
             assertThat(accepted).isEqualTo(SOURCE);
             return task;
         })).isSameAs(task);
-        assertThat(service.source(taskId.toString()).orElseThrow().initialTurnId()).contains(initial.toString());
+        assertThat(service.jiraSource(taskId.toString()).orElseThrow().initialTurnId()).contains(initial.toString());
         assertThatThrownBy(() -> service.start("workspace", taskId, INPUT, "Different instructions", ignored -> task))
                 .isInstanceOf(AgentConflictException.class).hasMessageContaining("request changed");
-        assertThatThrownBy(() -> service.requireUnattachedCreate(taskId)).isInstanceOf(AgentConflictException.class);
+        assertThatThrownBy(() -> service.requireAttachedSources(taskId, Optional.empty(), Optional.empty())).isInstanceOf(AgentConflictException.class);
         verifyNoInteractions(jira);
     }
 
@@ -136,6 +141,8 @@ class TestJiraDevelopmentService
         service.persistTask(task, SOURCE, "Implement");
         TaskId next = TaskId.random();
         JiraSourceInput another = new JiraSourceInput("connection", "cloud", "10001", "APP-7", SOURCE.title(), SOURCE.body(), NOW, Optional.of(taskId.toString()));
+        assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> task))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("task is gone");
         when(taskStore.find(taskId)).thenReturn(Optional.of(task));
         when(task.state()).thenReturn(TaskState.OPEN);
         assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> {
@@ -146,6 +153,12 @@ class TestJiraDevelopmentService
         })).isSameAs(task);
 
         when(task.state()).thenReturn(TaskState.FAILED);
+        when(task.developmentContinuationUnfinished()).thenReturn(true);
+        assertThatThrownBy(() -> service.start("workspace", next, another, "Try again", ignored -> task))
+                .isInstanceOf(AgentConflictException.class).hasMessageContaining("has not ended");
+        when(task.developmentContinuationUnfinished()).thenReturn(false);
+        assertThatThrownBy(() -> service.start("another-workspace", next, another, "Try again", ignored -> task))
+                .isInstanceOf(IllegalArgumentException.class).hasMessage("Task belongs to another workspace");
         AgentTask attempt = mock(AgentTask.class, withSettings().mockMaker(MockMakers.INLINE));
         when(attempt.id()).thenReturn(next);
         when(attempt.workspaceId()).thenReturn(Optional.of("workspace"));

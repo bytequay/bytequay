@@ -31,7 +31,6 @@ import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.app.workspace.WorkspaceRepositoryService;
@@ -159,7 +158,6 @@ public class ReviewTools
     private final ContextHistoryReader historySources;
     private final RepoService repositories;
     private final WorkspaceIssueService issues;
-    private final WorkspaceIssueRefreshService issueRefresh;
     private final AgentEventService events;
     private final WorkspaceRepositoryService workspaces;
     private final GitCommandRunner git;
@@ -183,7 +181,6 @@ public class ReviewTools
             ContextHistoryReader historySources,
             RepoService repositories,
             WorkspaceIssueService issues,
-            WorkspaceIssueRefreshService issueRefresh,
             AgentEventService events,
             WorkspaceRepositoryService workspaces,
             GitCommandRunner git,
@@ -205,7 +202,6 @@ public class ReviewTools
         this.historySources = requireNonNull(historySources, "historySources is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
         this.issues = requireNonNull(issues, "issues is null");
-        this.issueRefresh = requireNonNull(issueRefresh, "issueRefresh is null");
         this.events = requireNonNull(events, "events is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.git = requireNonNull(git, "git is null");
@@ -1554,7 +1550,7 @@ public class ReviewTools
             throw new ReviewInvalidRequestException("sourceKind: select PR or ISSUE");
         }
         int number = integer(call.arguments(), "number").orElseThrow(() -> new ReviewInvalidRequestException("number: required for kind history"));
-        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(call.review().workspaceId());
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(call.review().workspaceId());
         if (!workspace.workspaceId().equals(call.review().workspaceId()) || !workspace.monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
             throw new ReviewInvalidRequestException("history: workspace repository routing no longer matches the reviewed repository");
         }
@@ -1699,7 +1695,7 @@ public class ReviewTools
         if (call.run().scope() == ReviewRun.Scope.FULL || previous.isEmpty()) {
             return call.run().diff().stream().map(DiffFile::filename).collect(toImmutableList());
         }
-        return ReviewScopeFiles.required(git, workspaces.requireReadableRepository(call.review().workspaceId()).repository(), call.run(), previous);
+        return ReviewScopeFiles.required(git, workspaces.requireReadyRepository(call.review().workspaceId()).repository(), call.run(), previous);
     }
 
     private JsonNode timeline(Call call, int number, int page)
@@ -1844,7 +1840,7 @@ public class ReviewTools
         if (shas.isEmpty() || shas.stream().distinct().count() != shas.size()) {
             throw new ReviewInvalidRequestException("shas: provide 1 to " + SelectedCommitPullRequestReader.MAX_COMMITS + " distinct full commit IDs");
         }
-        WorkspaceRepositoryContext workspace = workspaces.requireReadableRepository(call.review().workspaceId());
+        WorkspaceRepositoryContext workspace = workspaces.requireReadyRepository(call.review().workspaceId());
         if (!workspace.workspaceId().equals(call.review().workspaceId()) || !workspace.monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
             throw new ReviewInvalidRequestException("shas: the workspace no longer identifies this review's monitored repository");
         }
@@ -1934,7 +1930,7 @@ public class ReviewTools
         if (pullRequests.findStored(call.review().repo(), number).isPresent()) {
             return pullRequest(call, number);
         }
-        if (workspaces.requireReadableRepository(call.review().workspaceId()).monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
+        if (workspaces.requireReadyRepository(call.review().workspaceId()).monitoredRepository().fullName().equalsIgnoreCase(call.review().repo())) {
             Optional<RepositoryIssue> cached = issues.find(call.review().workspaceId(), number);
             if (cached.isPresent()) {
                 return cachedIssue(call, cached.orElseThrow(), page);
@@ -1957,7 +1953,7 @@ public class ReviewTools
         boolean refreshFailed = false;
         if (detail.refreshedAt().isEmpty() || detail.refreshedAt().orElseThrow().isBefore(issue.updatedAt())) {
             try {
-                detail = issueRefresh.refreshDetail(workspace, issue.number());
+                detail = issues.refreshDetail(workspace, issue.number());
             }
             catch (RuntimeException ignored) {
                 refreshFailed = true;

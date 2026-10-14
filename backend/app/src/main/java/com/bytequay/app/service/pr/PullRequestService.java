@@ -14,7 +14,6 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.repository.github.GitHubAccountClient;
-import com.bytequay.app.repository.github.GitHubMergeClient;
 import com.bytequay.app.repository.github.GitHubNotificationClient;
 import com.bytequay.app.repository.github.GitHubNotificationRef;
 import com.bytequay.app.repository.github.GitHubPullRequestReadClient;
@@ -26,7 +25,7 @@ import com.bytequay.app.repository.github.GitHubRepoClient;
 import com.bytequay.app.service.credentials.CredentialService;
 import com.bytequay.app.service.credentials.CredentialService.GitHubCredential;
 import com.bytequay.app.service.recent.RecentTouchRecorder;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
+import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.core.domain.DiffCommit;
 import com.bytequay.core.domain.DiffFile;
@@ -128,7 +127,6 @@ public class PullRequestService
     private final GitHubPullRequestReadClient gitHub;
     private final GitHubPullRequestWriteClient pullRequestWrites;
     private final GitHubRepoClient repositories;
-    private final GitHubMergeClient merges;
     private final GitHubAccountClient accounts;
     private final PullRequestStore store;
     private final PullRequestSnapshotService snapshots;
@@ -142,14 +140,13 @@ public class PullRequestService
     private final ApplicationContext applicationContext;
     private final GitHubNotificationClient notifications;
     private final AppSettingsStore syncSettings;
-    private final WorkspaceIssueRefreshService issues;
+    private final WorkspaceIssueService issues;
     private final Clock clock;
     @Autowired
     public PullRequestService(
             GitHubPullRequestReadClient gitHub,
             GitHubPullRequestWriteClient pullRequestWrites,
             GitHubRepoClient repositories,
-            GitHubMergeClient merges,
             GitHubAccountClient accounts,
             PullRequestStore store,
             PullRequestSnapshotService snapshots,
@@ -163,13 +160,12 @@ public class PullRequestService
             ApplicationContext applicationContext,
             GitHubNotificationClient notifications,
             AppSettingsStore syncSettings,
-            WorkspaceIssueRefreshService issues,
+            WorkspaceIssueService issues,
             Clock clock)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequestWrites = requireNonNull(pullRequestWrites, "pullRequestWrites is null");
         this.repositories = requireNonNull(repositories, "repositories is null");
-        this.merges = requireNonNull(merges, "merges is null");
         this.accounts = requireNonNull(accounts, "accounts is null");
         this.store = requireNonNull(store, "store is null");
         this.snapshots = requireNonNull(snapshots, "snapshots is null");
@@ -394,7 +390,7 @@ public class PullRequestService
         requireNotBlank(baseRef, "baseRef");
         String pat = credentialService.resolveGitHubToken();
         PullRequestRef ref = parseRef(repo, 1);
-        return merges.hasMergeQueue(pat, RepoRef.of(ref.owner(), ref.repo()), baseRef);
+        return pullRequestWrites.hasMergeQueue(pat, RepoRef.of(ref.owner(), ref.repo()), baseRef);
     }
 
     public String readCheckLog(String repo, int number, long jobId)
@@ -1043,7 +1039,7 @@ public class PullRequestService
     public void markReadyForReview(String repo, int number)
     {
         String pat = credentialService.resolveGitHubToken();
-        String nodeId = merges.pullRequestNodeId(pat, parseRef(repo, number))
+        String nodeId = pullRequestWrites.pullRequestNodeId(pat, parseRef(repo, number))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
         try {
             pullRequestWrites.markReadyForReview(pat, nodeId);
@@ -1354,7 +1350,7 @@ public class PullRequestService
         MergePullRequestCommand command = strategyCommand(strategy);
         MergeResult result;
         try {
-            result = merges.mergePullRequest(pat, ref, command);
+            result = pullRequestWrites.mergePullRequest(pat, ref, command);
         }
         catch (ResponseStatusException e) {
             if (requiresMergeQueue(e)) {
@@ -1374,10 +1370,10 @@ public class PullRequestService
     public void removeFromMergeQueue(String repo, int number)
     {
         String pat = credentialService.resolveGitHubToken();
-        String nodeId = merges.pullRequestNodeId(pat, parseRef(repo, number))
+        String nodeId = pullRequestWrites.pullRequestNodeId(pat, parseRef(repo, number))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
         try {
-            merges.dequeuePullRequest(pat, nodeId);
+            pullRequestWrites.dequeuePullRequest(pat, nodeId);
             recent.pullRequestAction(repo, number, RecentReason.EDITED, 0);
         }
         finally {
@@ -1388,9 +1384,9 @@ public class PullRequestService
 
     private MergeResult enqueuePullRequest(String pat, PullRequestRef ref, String repo, int number)
     {
-        String nodeId = merges.pullRequestNodeId(pat, ref)
+        String nodeId = pullRequestWrites.pullRequestNodeId(pat, ref)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned no pull request node ID"));
-        MergeResult result = merges.enqueuePullRequest(pat, nodeId);
+        MergeResult result = pullRequestWrites.enqueuePullRequest(pat, nodeId);
         // Queueing does not change the diff; retain it while the timeline refreshes.
         invalidatePullRequestDetail(repo, number);
         return result;

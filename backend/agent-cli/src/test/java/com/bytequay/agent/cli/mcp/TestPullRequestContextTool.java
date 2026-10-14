@@ -16,8 +16,6 @@ package com.bytequay.agent.cli.mcp;
 import com.bytequay.agent.cli.process.SecretRedactor;
 import com.bytequay.agent.spi.AgentApprovalHandler;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
-import com.bytequay.agent.spi.BridgeResolver;
-import com.bytequay.agent.spi.DraftPullRequestPublisher;
 import com.bytequay.agent.spi.ProviderApprovalDecision;
 import com.bytequay.agent.spi.PullRequestContextBridge;
 import com.bytequay.agent.spi.SessionAccess;
@@ -49,10 +47,8 @@ class TestPullRequestContextTool
             throws Exception
     {
         AtomicReference<Optional<PullRequestContextBridge>> available = new AtomicReference<>(Optional.of(new PullRequestContextBridge(query -> "saved known-secret")));
-        PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "",
-                BridgeResolver.none(), BridgeResolver.none(), DraftPullRequestPublisher.NONE, BridgeResolver.none(), BridgeResolver.none(),
-                BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(), BridgeResolver.none(),
-                task -> task.equals("assigned") ? available.get() : Optional.empty());
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), mapper, (task, query) -> "")
+                .pullRequestContexts(task -> task.equals("assigned") ? available.get() : Optional.empty()).build();
         String closed;
         try (McpRegistration codex = broker.registerTools("assigned", directory, AgentPermissionPolicy.AUTO, approvals, redactor, Optional.empty()).orElseThrow();
                 McpRegistration claude = broker.register("assigned", directory, directory, directory.resolve("provider"), AgentPermissionPolicy.AUTO, approvals, redactor)) {

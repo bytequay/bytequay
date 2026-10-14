@@ -21,7 +21,6 @@ import com.bytequay.agent.core.AgentTurn;
 import com.bytequay.agent.core.AgentTurnService;
 import com.bytequay.agent.core.TaskId;
 import com.bytequay.agent.core.TurnId;
-import com.bytequay.app.ci.CiAutofixMonitorTestDriver;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.ci.CiHeadSnapshot;
 import com.bytequay.app.ci.CiJob;
@@ -30,6 +29,7 @@ import com.bytequay.app.ci.CiStep;
 import com.bytequay.app.ci.CiWorkflowRun;
 import com.bytequay.app.ci.ReadCiLogQuery;
 import com.bytequay.app.ci.RerunFailedJobsCommand;
+import com.bytequay.app.scheduler.WorkflowMonitorJob;
 import com.bytequay.app.web.agent.AgentController;
 import com.bytequay.app.workspace.WorkspacePaths;
 import com.bytequay.core.ci.CiAutofixRun;
@@ -81,7 +81,7 @@ final class CiAutofixE2eHarness
     private final MockMvc mvc;
     private final ObjectMapper objectMapper;
     private final CiAutofixService service;
-    private final CiAutofixMonitorTestDriver monitor;
+    private final WorkflowMonitorJob monitor;
     private final ScriptedGitHubActionsClient gitHub;
     private final ScriptedAgentDriver agent;
     private final AgentTaskService tasks;
@@ -99,7 +99,7 @@ final class CiAutofixE2eHarness
             MockMvc mvc,
             ObjectMapper objectMapper,
             CiAutofixService service,
-            CiAutofixMonitorTestDriver monitor,
+            WorkflowMonitorJob monitor,
             ScriptedGitHubActionsClient gitHub,
             ScriptedAgentDriver agent,
             AgentTaskService tasks,
@@ -273,14 +273,14 @@ final class CiAutofixE2eHarness
 
     void tick()
     {
-        monitor.tick();
+        monitor.monitorCiAutofix();
     }
 
     CiAutofixRun driveUntil(CiAutofixRunId runId, Predicate<CiAutofixRun> done, int maximumTicks)
     {
         CiAutofixRun run = service.get(runId);
         for (int tick = 0; tick < maximumTicks && !done.test(run); tick++) {
-            monitor.tick();
+            monitor.monitorCiAutofix();
             run = service.get(runId);
         }
         if (!done.test(run)) {

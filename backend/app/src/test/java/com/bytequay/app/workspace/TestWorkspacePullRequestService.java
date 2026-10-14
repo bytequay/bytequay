@@ -70,7 +70,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-class TestDefaultWorkspacePullRequestService
+class TestWorkspacePullRequestService
 {
     private static final Instant NOW = Instant.parse("2026-08-22T00:00:00Z");
     private static final String SHA = "1111111111111111111111111111111111111111";
@@ -365,7 +365,7 @@ class TestDefaultWorkspacePullRequestService
         BackportChainStore chains = mock(BackportChainStore.class);
         GitHubPullRequestReadClient reads = mock(GitHubPullRequestReadClient.class);
         when(credentials.resolveGitHubToken("workspace")).thenReturn("token");
-        DefaultWorkspacePullRequestService service = new DefaultWorkspacePullRequestService(
+        WorkspacePullRequestService service = new WorkspacePullRequestService(
                 workspaceStore,
                 executionStore,
                 provisioning,
@@ -532,7 +532,7 @@ class TestDefaultWorkspacePullRequestService
     }
 
     private record Fixture(
-            DefaultWorkspacePullRequestService service,
+            WorkspacePullRequestService service,
             Workspace workspace,
             CherryPickExecutionId executionId,
             WorkspaceProvisioningService provisioning,

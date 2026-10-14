@@ -54,6 +54,7 @@ import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import lombok.Builder;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -79,6 +80,7 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -159,123 +161,30 @@ public final class PermissionBroker
     private final BridgeResolver<RelatedWorkspaceBridge> relatedWork;
     private final Map<String, PermissionContext> contexts = new ConcurrentHashMap<>();
 
-    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader)
+    public static PermissionBrokerBuilder builder(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader)
     {
-        this(endpoint, objectMapper, ciMemoryReader, BridgeResolver.none());
+        return new PermissionBrokerBuilder().endpoint(endpoint).objectMapper(objectMapper).ciMemoryReader(ciMemoryReader);
     }
 
-    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader, BridgeResolver<ReviewBridge> reviews)
+    public static class PermissionBrokerBuilder
     {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, BridgeResolver.none());
+        private BridgeResolver<ReviewBridge> reviews = BridgeResolver.none();
+        private BridgeResolver<DevelopmentResultBridge> developments = BridgeResolver.none();
+        private DraftPullRequestPublisher draftPullRequests = DraftPullRequestPublisher.NONE;
+        private BridgeResolver<LocalReviewBridge> localReviews = BridgeResolver.none();
+        private BridgeResolver<PullRequestCiBridge> pullRequestChecks = BridgeResolver.none();
+        private BridgeResolver<IssueContextBridge> issueContexts = BridgeResolver.none();
+        private BridgeResolver<MemoryBridge> memories = BridgeResolver.none();
+        private BridgeResolver<RelatedWorkspaceBridge> relatedWork = BridgeResolver.none();
+        private BridgeResolver<WorkItemBridge> workItems = BridgeResolver.none();
+        private BridgeResolver<GoogleWorkspaceBridge> googleWorkspace = BridgeResolver.none();
+        private BridgeResolver<PullRequestContextBridge> pullRequestContexts = BridgeResolver.none();
+
+        private PermissionBrokerBuilder() {}
     }
 
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews,
-            BridgeResolver<DevelopmentResultBridge> developments)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, DraftPullRequestPublisher.NONE);
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews,
-            BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, BridgeResolver.none());
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews,
-            BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests,
-            BridgeResolver<LocalReviewBridge> localReviews)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, BridgeResolver.none());
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews,
-            BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests,
-            BridgeResolver<LocalReviewBridge> localReviews,
-            BridgeResolver<PullRequestCiBridge> pullRequestChecks)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, BridgeResolver.none());
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews,
-            BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests,
-            BridgeResolver<LocalReviewBridge> localReviews,
-            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
-            BridgeResolver<IssueContextBridge> issueContexts)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts, BridgeResolver.none());
-    }
-
-    public PermissionBroker(
-            Supplier<URI> endpoint,
-            ObjectMapper objectMapper,
-            CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews,
-            BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests,
-            BridgeResolver<LocalReviewBridge> localReviews,
-            BridgeResolver<PullRequestCiBridge> pullRequestChecks,
-            BridgeResolver<IssueContextBridge> issueContexts,
-            BridgeResolver<MemoryBridge> memories)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts, memories, BridgeResolver.none());
-    }
-
-    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
-            BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
-            BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts,
-                memories, relatedWork, BridgeResolver.none());
-    }
-
-    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
-            BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
-            BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork, BridgeResolver<WorkItemBridge> workItems)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts,
-                memories, relatedWork, workItems, BridgeResolver.none());
-    }
-
-    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
-            BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
-            DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
-            BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
-            BridgeResolver<MemoryBridge> memories, BridgeResolver<RelatedWorkspaceBridge> relatedWork, BridgeResolver<WorkItemBridge> workItems,
-            BridgeResolver<GoogleWorkspaceBridge> googleWorkspace)
-    {
-        this(endpoint, objectMapper, ciMemoryReader, reviews, developments, draftPullRequests, localReviews, pullRequestChecks, issueContexts,
-                memories, relatedWork, workItems, googleWorkspace, BridgeResolver.none());
-    }
-
-    public PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
+    @Builder(builderMethodName = "")
+    private PermissionBroker(Supplier<URI> endpoint, ObjectMapper objectMapper, CiMemoryReader ciMemoryReader,
             BridgeResolver<ReviewBridge> reviews, BridgeResolver<DevelopmentResultBridge> developments,
             DraftPullRequestPublisher draftPullRequests, BridgeResolver<LocalReviewBridge> localReviews,
             BridgeResolver<PullRequestCiBridge> pullRequestChecks, BridgeResolver<IssueContextBridge> issueContexts,
@@ -705,16 +614,11 @@ public final class PermissionBroker
         if (!arguments.isObject() || !arguments.isEmpty()) {
             return error(id, -32602, "read_issue_context accepts no arguments");
         }
-        try {
+        return runTool(id, context, () -> {
             IssueContextBridge bridge = issueContexts.resolve(context.taskId())
                     .orElseThrow(() -> new IllegalStateException("Issue context is no longer available for this task"));
-            String text = context.redactor().redact(bridge.read().get());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
-        }
-        catch (RuntimeException failure) {
-            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Unable to read local issue context: " + context.redactor().redact(reason))), true));
-        }
+            return bridge.read().get();
+        }, failure -> "Unable to read local issue context: " + context.redactor().redact(failureReason(failure)));
     }
 
     private McpHttpResponse relatedWork(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -722,14 +626,8 @@ public final class PermissionBroker
         if (context.relatedWork().isEmpty()) {
             return error(id, -32602, "Unknown tool");
         }
-        try {
-            String result = context.relatedWork().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
-        }
-        catch (JsonProcessingException | RuntimeException failure) {
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(
-                    "Related work failed: " + Optional.ofNullable(failure.getMessage()).orElse("Request rejected")))), true));
-        }
+        return runTool(id, context, () -> context.relatedWork().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
+                failure -> context.redactor().redact("Related work failed: " + Optional.ofNullable(failure.getMessage()).orElse("Request rejected")));
     }
 
     private McpHttpResponse googleWorkspace(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -737,13 +635,8 @@ public final class PermissionBroker
         if (context.googleWorkspace().isEmpty()) {
             return error(id, -32602, "Unknown tool");
         }
-        try {
-            String result = context.googleWorkspace().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
-        }
-        catch (JsonProcessingException | RuntimeException failure) {
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Google data could not be read. Check access in Settings or list saved items again.")), true));
-        }
+        return runTool(id, context, () -> context.googleWorkspace().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
+                failure -> "Google data could not be read. Check access in Settings or list saved items again.");
     }
 
     private McpHttpResponse workItems(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -751,14 +644,8 @@ public final class PermissionBroker
         if (context.workItems().isEmpty()) {
             return error(id, -32602, "Unknown tool");
         }
-        try {
-            String result = context.workItems().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
-        }
-        catch (JsonProcessingException | RuntimeException failure) {
-            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Work item call failed: " + reason))), true));
-        }
+        return runTool(id, context, () -> context.workItems().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
+                failure -> context.redactor().redact("Work item call failed: " + failureReason(failure)));
     }
 
     private McpHttpResponse memory(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -766,14 +653,8 @@ public final class PermissionBroker
         if (context.memory().isEmpty()) {
             return error(id, -32602, "Unknown tool");
         }
-        try {
-            String result = context.memory().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments));
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
-        }
-        catch (JsonProcessingException | RuntimeException failure) {
-            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Memory call failed: " + reason))), true));
-        }
+        return runTool(id, context, () -> context.memory().orElseThrow().call().apply(objectMapper.writeValueAsString(arguments)),
+                failure -> context.redactor().redact("Memory call failed: " + failureReason(failure)));
     }
 
     private McpHttpResponse proposeCiDescription(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -792,14 +673,8 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, failure.getMessage());
         }
-        try {
-            String text = proposer.orElseThrow().apply(proposal);
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
-        }
-        catch (RuntimeException failure) {
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text",
-                    "Description proposal was not accepted. Read current CI and description before trying again.")), true));
-        }
+        return runTool(id, context, () -> proposer.orElseThrow().apply(proposal),
+                failure -> "Description proposal was not accepted. Read current CI and description before trying again.");
     }
 
     private McpHttpResponse requestCiRerun(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -818,13 +693,8 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, failure.getMessage());
         }
-        try {
-            String text = requester.orElseThrow().apply(arguments.path("jobId").longValue(), arguments.path("reason").textValue());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
-        }
-        catch (RuntimeException failure) {
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Rerun request was not accepted. Read current CI before trying again.")), true));
-        }
+        return runTool(id, context, () -> requester.orElseThrow().apply(arguments.path("jobId").longValue(), arguments.path("reason").textValue()),
+                failure -> "Rerun request was not accepted. Read current CI before trying again.");
     }
 
     private McpHttpResponse pullRequestCi(JsonNode id, String tool, JsonNode arguments, PermissionContext context)
@@ -945,13 +815,8 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, "Invalid " + params.name() + " arguments: " + context.redactor().redact(failure.getMessage()));
         }
-        try {
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(action.get()))), false));
-        }
-        catch (RuntimeException failure) {
-            String reason = Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", "Local review operation failed: " + context.redactor().redact(reason))), true));
-        }
+        return runTool(id, context, action::get,
+                failure -> "Local review operation failed: " + context.redactor().redact(failureReason(failure)));
     }
 
     private McpHttpResponse developmentResult(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -997,14 +862,8 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, "Invalid " + DevelopmentResultBridge.PUBLISH_TOOL_NAME + " arguments");
         }
-        try {
-            String result = draftPullRequests.publish(context.taskId(), title, body);
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
-        }
-        catch (RuntimeException failure) {
-            String detail = Optional.ofNullable(failure.getMessage()).orElseGet(() -> failure.getClass().getSimpleName());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Publication was refused: " + detail))), true));
-        }
+        return runTool(id, context, () -> draftPullRequests.publish(context.taskId(), title, body),
+                failure -> context.redactor().redact("Publication was refused: " + failureReason(failure)));
     }
 
     private McpHttpResponse renameTaskBranch(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -1024,14 +883,8 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, "Invalid rename_task_branch arguments");
         }
-        try {
-            String result = bridge.orElseThrow().branchRenamer().orElseThrow().apply(branch);
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(result))), false));
-        }
-        catch (RuntimeException failure) {
-            String detail = Optional.ofNullable(failure.getMessage()).orElseGet(() -> failure.getClass().getSimpleName());
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact("Branch rename was refused: " + detail))), true));
-        }
+        return runTool(id, context, () -> bridge.orElseThrow().branchRenamer().orElseThrow().apply(branch),
+                failure -> context.redactor().redact("Branch rename was refused: " + failureReason(failure)));
     }
 
     private static String requireText(JsonNode arguments, String field, int maximumCharacters)
@@ -1204,14 +1057,9 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, "Invalid read_pull_request_context arguments");
         }
-        try {
-            String text = pullRequestContexts.resolve(context.taskId()).orElseThrow(() -> new IllegalStateException("PR context is no longer available")).read().apply(query);
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
-        }
-        catch (RuntimeException failure) {
-            String reason = Optional.ofNullable(failure.getMessage()).orElse("Saved context is unavailable");
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(reason))), true));
-        }
+        return runTool(id, context, () -> pullRequestContexts.resolve(context.taskId())
+                        .orElseThrow(() -> new IllegalStateException("PR context is no longer available")).read().apply(query),
+                failure -> context.redactor().redact(Optional.ofNullable(failure.getMessage()).orElse("Saved context is unavailable")));
     }
 
     private McpHttpResponse readDiscussionContext(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -1229,14 +1077,8 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return error(id, -32602, "Invalid read_discussion_context arguments");
         }
-        try {
-            String text = context.discussionContext().orElseThrow().read().apply(query);
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(text))), false));
-        }
-        catch (RuntimeException failure) {
-            String reason = Optional.ofNullable(failure.getMessage()).orElse("Saved context is unavailable");
-            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", context.redactor().redact(reason))), true));
-        }
+        return runTool(id, context, () -> context.discussionContext().orElseThrow().read().apply(query),
+                failure -> context.redactor().redact(Optional.ofNullable(failure.getMessage()).orElse("Saved context is unavailable")));
     }
 
     private McpHttpResponse codeQueriesExplore(JsonNode id, JsonNode arguments, PermissionContext context)
@@ -1277,6 +1119,28 @@ public final class PermissionBroker
         catch (IllegalArgumentException failure) {
             return Optional.empty();
         }
+    }
+
+    private McpHttpResponse runTool(JsonNode id, PermissionContext context, ToolAction action, Function<Exception, String> failureText)
+    {
+        try {
+            String text = context.redactor().redact(action.run());
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", text)), false));
+        }
+        catch (JsonProcessingException | RuntimeException failure) {
+            return response(id, new ToolResult(ImmutableList.of(new TextContent("text", failureText.apply(failure))), true));
+        }
+    }
+
+    private static String failureReason(Exception failure)
+    {
+        return Optional.ofNullable(failure.getMessage()).orElse(failure.getClass().getSimpleName());
+    }
+
+    @FunctionalInterface
+    private interface ToolAction
+    {
+        String run() throws JsonProcessingException;
     }
 
     private McpHttpResponse response(JsonNode id, Object result)

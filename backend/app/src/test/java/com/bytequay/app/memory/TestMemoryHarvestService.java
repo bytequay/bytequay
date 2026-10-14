@@ -73,7 +73,7 @@ class TestMemoryHarvestService
     @BeforeEach
     void setUp()
     {
-        when(workspaces.requireReadableRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", Path.of("/tmp/repository"), 1, REPOSITORY,
+        when(workspaces.requireReadyRepository("workspace")).thenReturn(new WorkspaceRepositoryContext("workspace", Path.of("/tmp/repository"), 1, REPOSITORY,
                 OptionalLong.empty(), REPOSITORY, "origin", "origin", "master", ImmutableList.of()));
         when(builds.baseline("workspace")).thenReturn(Optional.of(new ContextBuildService.Baseline("master", HEAD)));
         when(credentials.resolveGitHubCredential()).thenReturn(new GitHubCredential("token", new UserProfile("alice", "", "", "", 0, 0, 0, "", "", "", "")));

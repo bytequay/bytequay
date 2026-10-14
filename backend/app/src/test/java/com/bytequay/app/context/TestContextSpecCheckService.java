@@ -139,7 +139,7 @@ class TestContextSpecCheckService
     void aCheckStartsFromADirectoryOnTheMonitoredBranchHeadAndKeepsItsEarlierFindings()
     {
         Path repository = Path.of("/tmp/bytequay-repository");
-        when(workspaces.requireReadableRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, REPO, OptionalLong.empty(), REPO,
+        when(workspaces.requireReadyRepository(WORKSPACE)).thenReturn(new WorkspaceRepositoryContext(WORKSPACE, repository, 1, REPO, OptionalLong.empty(), REPO,
                 "origin", "origin", "main", ImmutableList.of()));
         when(builds.baseline(WORKSPACE)).thenReturn(Optional.of(new ContextBuildService.Baseline("main", SHA)));
         when(git.run(repository, "cat-file", "-t", SHA + ":plugin/trino-delta-lake")).thenReturn(new GitCommandRunner.Result(0, "tree\n", false));

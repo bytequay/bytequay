@@ -17,7 +17,6 @@ import com.bytequay.app.repository.github.GitHubIssuePreview;
 import com.bytequay.app.service.RepoService;
 import com.bytequay.app.service.pr.SelectedPullRequestDiffReader;
 import com.bytequay.app.service.pr.SelectedPullRequestReader;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceRepositoryContext;
 import com.bytequay.core.context.ContextLimits;
@@ -67,8 +66,7 @@ class TestContextHistoryReader
     private final SelectedPullRequestDiffReader diffs = mock(SelectedPullRequestDiffReader.class);
     private final RepoService repositories = mock(RepoService.class);
     private final WorkspaceIssueService issues = mock(WorkspaceIssueService.class);
-    private final WorkspaceIssueRefreshService issueRefresh = mock(WorkspaceIssueRefreshService.class);
-    private final ContextHistoryReader reader = new ContextHistoryReader(pullRequests, diffs, repositories, issues, issueRefresh, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final ContextHistoryReader reader = new ContextHistoryReader(pullRequests, diffs, repositories, issues, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @Test
     void capturesMergedPrMetadataDiscussionAndSeparateDefaultDiffWithoutClaimingApplicability()
@@ -92,7 +90,7 @@ class TestContextHistoryReader
         assertHash(read);
         verify(pullRequests).read(REPO.fullName(), NUMBER, SelectedPullRequestReader.Section.TIMELINE);
         verify(diffs).read(REPO.fullName(), NUMBER, Optional.empty(), false);
-        verifyNoInteractions(repositories, issues, issueRefresh);
+        verifyNoInteractions(repositories, issues);
     }
 
     @Test
@@ -141,7 +139,7 @@ class TestContextHistoryReader
         verify(repositories).getIssuePreview("owner", "repo", NUMBER);
         verify(issues).detail("workspace", NUMBER);
         verifyNoMoreInteractions(repositories, issues);
-        verifyNoInteractions(pullRequests, diffs, issueRefresh);
+        verifyNoInteractions(pullRequests, diffs);
     }
 
     @Test
@@ -149,15 +147,16 @@ class TestContextHistoryReader
     {
         preview("closed", false, UPDATED);
         when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(9, NUMBER));
-        when(issueRefresh.refreshDetail("workspace", NUMBER)).thenReturn(issueDetail(NOW, "Closure activity"));
+        when(issues.refreshDetail("workspace", NUMBER)).thenReturn(issueDetail(NOW, "Closure activity"));
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
 
         assertThat(read.excerpt()).contains("Closure activity");
         assertThat(read.provenance()).contains("activityRefreshAttempted=true", "activityRefreshedAt=" + NOW);
         assertThat(read.refreshFailed()).isFalse();
-        verify(issueRefresh).refreshDetail("workspace", NUMBER);
-        verifyNoMoreInteractions(issueRefresh);
+        verify(issues).refreshDetail("workspace", NUMBER);
+        verify(issues).detail("workspace", NUMBER);
+        verifyNoMoreInteractions(issues);
     }
 
     @Test
@@ -166,7 +165,7 @@ class TestContextHistoryReader
         preview("closed", false, UPDATED);
         Instant cachedAt = UPDATED.minusSeconds(60);
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(cachedAt, "Original cached discussion"));
-        when(issueRefresh.refreshDetail("workspace", NUMBER)).thenThrow(new IllegalStateException("Unavailable"));
+        when(issues.refreshDetail("workspace", NUMBER)).thenThrow(new IllegalStateException("Unavailable"));
 
         ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
 
@@ -185,7 +184,7 @@ class TestContextHistoryReader
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("closed issue");
         when(repositories.getIssuePreview("owner", "repo", NUMBER)).thenThrow(new IllegalStateException("Preview unavailable"));
         assertThatThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).isInstanceOf(IllegalStateException.class).hasMessage("Preview unavailable");
-        verifyNoInteractions(issues, issueRefresh, pullRequests, diffs);
+        verifyNoInteractions(issues, pullRequests, diffs);
     }
 
     @Test
@@ -195,7 +194,7 @@ class TestContextHistoryReader
         when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER));
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, NUMBER)).withMessageContaining("identity");
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(UPDATED.minusSeconds(1), "Original"));
-        when(issueRefresh.refreshDetail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER));
+        when(issues.refreshDetail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(1, NUMBER));
         ContextHistoryReader.Read read = reader.read(WORKSPACE, ISSUE, NUMBER);
         assertThat(read.refreshFailed()).isTrue();
         assertThat(read.excerpt()).contains("Original");
@@ -271,7 +270,7 @@ class TestContextHistoryReader
         preview("closed", false, UPDATED);
         when(issues.detail("workspace", NUMBER)).thenReturn(issueDetail(NOW, "Same discussion"));
         ContextHistoryReader.Read first = reader.read(WORKSPACE, ISSUE, NUMBER);
-        ContextHistoryReader later = new ContextHistoryReader(pullRequests, diffs, repositories, issues, issueRefresh, Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC));
+        ContextHistoryReader later = new ContextHistoryReader(pullRequests, diffs, repositories, issues, Clock.fixed(NOW.plusSeconds(60), ZoneOffset.UTC));
         assertThat(later.read(WORKSPACE, ISSUE, NUMBER).contentHash()).isEqualTo(first.contentHash());
         preview("closed", false, UPDATED.plusSeconds(1));
         assertThat(reader.read(WORKSPACE, ISSUE, NUMBER).contentHash()).isNotEqualTo(first.contentHash());
@@ -283,7 +282,7 @@ class TestContextHistoryReader
         preview("closed", false, UPDATED);
         RepositoryIssueDetail detail = issueDetail(NOW, "Same closed discussion");
         when(issues.detail("workspace", NUMBER)).thenReturn(RepositoryIssueDetail.empty(9, NUMBER), detail);
-        when(issueRefresh.refreshDetail("workspace", NUMBER)).thenReturn(detail);
+        when(issues.refreshDetail("workspace", NUMBER)).thenReturn(detail);
         ContextHistoryReader.Read refreshedIssue = reader.read(WORKSPACE, ISSUE, NUMBER);
         ContextHistoryReader.Read cachedIssue = reader.read(WORKSPACE, ISSUE, NUMBER);
         assertThat(refreshedIssue.provenance()).contains("activityRefreshAttempted=true");
@@ -306,7 +305,7 @@ class TestContextHistoryReader
     void rejectsAnInvalidNumberBeforeSourceReads()
     {
         assertThatIllegalArgumentException().isThrownBy(() -> reader.read(WORKSPACE, ISSUE, 0));
-        verifyNoInteractions(pullRequests, diffs, repositories, issues, issueRefresh);
+        verifyNoInteractions(pullRequests, diffs, repositories, issues);
     }
 
     private void selected(PullRequestDetail detail, boolean failed)

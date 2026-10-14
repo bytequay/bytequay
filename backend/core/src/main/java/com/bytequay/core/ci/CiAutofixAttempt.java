@@ -14,6 +14,8 @@
 package com.bytequay.core.ci;
 
 import com.google.common.collect.ImmutableList;
+import lombok.AccessLevel;
+import lombok.Builder;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -30,6 +32,7 @@ import static com.google.common.base.Preconditions.checkState;
 import static java.util.Objects.requireNonNull;
 
 /** Durable facts for one bounded code-fix attempt. */
+@Builder(builderClassName = "Draft", builderMethodName = "", toBuilder = true, access = AccessLevel.PRIVATE)
 public record CiAutofixAttempt(
         CiAutofixAttemptId id,
         CiAutofixRunId runId,
@@ -111,7 +114,7 @@ public record CiAutofixAttempt(
         checkText(turnId, "turnId", 128);
         requireUpdateTime(now);
         checkState(agentTurnId.isEmpty() || agentTurnId.orElseThrow().equals(turnId), "attempt already owns another agent turn");
-        return copy(Optional.of(turnId), untrustedAgentNote, gitResult, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, now);
+        return toBuilder().agentTurnId(Optional.of(turnId)).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withPreparedInput(String preparedInputSha, Instant now)
@@ -122,52 +125,33 @@ public record CiAutofixAttempt(
                         && pushedSha.isEmpty() && timelineEventKey.isEmpty()
                         && observedCiResult == CiResult.UNKNOWN,
                 "attempt has already started");
-        return new CiAutofixAttempt(
-                id,
-                runId,
-                number,
-                preparedInputSha,
-                failures,
-                agentTurnId,
-                untrustedAgentNote,
-                gitResult,
-                descriptionChange,
-                rerunAssessment,
-                expectedRemoteSha,
-                pushedSha,
-                pushedAt,
-                observedCiResult,
-                timelineEventKey,
-                createdAt,
-                now);
+        return toBuilder().inputSha(preparedInputSha).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withDescriptionChange(CiDescriptionChange change, Instant now)
     {
         requireUpdateTime(now);
-        return new CiAutofixAttempt(id, runId, number, inputSha, failures, agentTurnId, untrustedAgentNote,
-                gitResult, Optional.of(change), rerunAssessment, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, createdAt, now);
+        return toBuilder().descriptionChange(Optional.of(change)).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withRerunAssessment(CiRerunAssessment assessment, Instant now)
     {
         requireUpdateTime(now);
-        return new CiAutofixAttempt(id, runId, number, inputSha, failures, agentTurnId, untrustedAgentNote,
-                gitResult, descriptionChange, Optional.of(assessment), expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, createdAt, now);
+        return toBuilder().rerunAssessment(Optional.of(assessment)).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withAgentNote(String note, Instant now)
     {
         checkText(note, "note", 16 * 1024);
         requireUpdateTime(now);
-        return copy(agentTurnId, Optional.of(note), gitResult, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, now);
+        return toBuilder().untrustedAgentNote(Optional.of(note)).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withGitResult(GitResult result, Instant now)
     {
         requireNonNull(result, "result is null");
         requireUpdateTime(now);
-        return copy(agentTurnId, untrustedAgentNote, Optional.of(result), expectedRemoteSha, pushedSha, pushedAt, observedCiResult, timelineEventKey, now);
+        return toBuilder().gitResult(Optional.of(result)).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withPushResult(String expectedSha, String actualSha, Instant pushedAt, Instant now)
@@ -176,52 +160,21 @@ public record CiAutofixAttempt(
         checkSha(actualSha, "actualSha");
         requireNonNull(pushedAt, "pushedAt is null");
         requireUpdateTime(now);
-        return copy(agentTurnId, untrustedAgentNote, gitResult, Optional.of(expectedSha), Optional.of(actualSha), Optional.of(pushedAt), observedCiResult, timelineEventKey, now);
+        return toBuilder().expectedRemoteSha(Optional.of(expectedSha)).pushedSha(Optional.of(actualSha)).pushedAt(Optional.of(pushedAt)).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withCiResult(CiResult result, Instant now)
     {
         requireNonNull(result, "result is null");
         requireUpdateTime(now);
-        return copy(agentTurnId, untrustedAgentNote, gitResult, expectedRemoteSha, pushedSha, pushedAt, result, timelineEventKey, now);
+        return toBuilder().observedCiResult(result).updatedAt(now).build();
     }
 
     public CiAutofixAttempt withTimelineEvent(String eventKey, Instant now)
     {
         checkText(eventKey, "eventKey", 200);
         requireUpdateTime(now);
-        return copy(agentTurnId, untrustedAgentNote, gitResult, expectedRemoteSha, pushedSha, pushedAt, observedCiResult, Optional.of(eventKey), now);
-    }
-
-    private CiAutofixAttempt copy(
-            Optional<String> updatedAgentTurnId,
-            Optional<String> updatedAgentNote,
-            Optional<GitResult> updatedGitResult,
-            Optional<String> updatedExpectedRemoteSha,
-            Optional<String> updatedPushedSha,
-            Optional<Instant> updatedPushedAt,
-            CiResult updatedCiResult,
-            Optional<String> updatedTimelineEventKey,
-            Instant now)
-    {
-        return new CiAutofixAttempt(
-                id,
-                runId,
-                number,
-                inputSha,
-                failures,
-                updatedAgentTurnId,
-                updatedAgentNote,
-                updatedGitResult,
-                descriptionChange,
-                rerunAssessment,
-                updatedExpectedRemoteSha,
-                updatedPushedSha,
-                updatedPushedAt,
-                updatedCiResult,
-                updatedTimelineEventKey,
-                createdAt,
-                now);
+        return toBuilder().timelineEventKey(Optional.of(eventKey)).updatedAt(now).build();
     }
 
     private void requireUpdateTime(Instant now)

@@ -130,13 +130,13 @@ public class ContextSpecCheckService
 
     private List<ContextSpecSource> sources(String workspaceId, ContextBuildService.Baseline baseline, String directory)
     {
-        return ContextSpecSource.scan(git, workspaces.requireReadableRepository(workspaceId), baseline, directory);
+        return ContextSpecSource.scan(git, workspaces.requireReadyRepository(workspaceId), baseline, directory);
     }
 
     /** The repository's modules at the monitored branch head, those whose own code cites a page in the most sections first. */
     public List<ContextSpecModule> modules(String workspaceId)
     {
-        return ContextSpecModule.scan(git, workspaces.requireReadableRepository(workspaceId), baseline(workspaceId));
+        return ContextSpecModule.scan(git, workspaces.requireReadyRepository(workspaceId), baseline(workspaceId));
     }
 
     private ContextBuildService.Baseline baseline(String workspaceId)
@@ -160,7 +160,7 @@ public class ContextSpecCheckService
         List<ContextSpecSource> found = sources(workspaceId, baseline, request.directory());
         Optional<ContextSpecCheck> earlier = checks.find(workspaceId).stream().filter(check -> check.directory().equals(request.directory())).findFirst();
         ContextSpecCheck check = checks.save(workspaceId, earlier, new ContextSpecCheck(UUID.randomUUID().toString(), request.directory(), baseline.sha(),
-                request.requestKey(), request.specs(), ImmutableList.of(), labels(workspaces.requireReadableRepository(workspaceId).monitoredRepository()),
+                request.requestKey(), request.specs(), ImmutableList.of(), labels(workspaces.requireReadyRepository(workspaceId).monitoredRepository()),
                 ContextSpecCheck.State.CHECKING,
                 earlier.map(ContextSpecCheck::kept).orElse(ImmutableList.of()), earlier.map(ContextSpecCheck::covered).orElse(ImmutableList.of()),
                 earlier.map(ContextSpecCheck::next).orElse(ImmutableList.of()), 0, request.maxReproductions(), Optional.empty(), Instant.now(clock),

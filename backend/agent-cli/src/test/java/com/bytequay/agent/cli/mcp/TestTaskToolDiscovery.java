@@ -39,8 +39,8 @@ class TestTaskToolDiscovery
     private final ObjectMapper json = new ObjectMapper();
     private final AtomicInteger writes = new AtomicInteger();
     private final AtomicReference<ReviewBridge> review = new AtomicReference<>(review("review_finish", "complete"));
-    private final PermissionBroker broker = new PermissionBroker(() -> URI.create("http://127.0.0.1:9000/mcp"), json,
-            (task, query) -> "", task -> task.equals("review") ? Optional.of(review.get()) : Optional.empty());
+    private final PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/mcp"), json, (task, query) -> "")
+            .reviews(task -> task.equals("review") ? Optional.of(review.get()) : Optional.empty()).build();
 
     @TempDir
     private Path directory;

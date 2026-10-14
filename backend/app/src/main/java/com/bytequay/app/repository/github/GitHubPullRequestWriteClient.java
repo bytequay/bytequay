@@ -14,6 +14,8 @@
 package com.bytequay.app.repository.github;
 
 import com.bytequay.core.domain.InlineReviewComment;
+import com.bytequay.core.domain.MergePullRequestCommand;
+import com.bytequay.core.domain.MergeResult;
 import com.bytequay.core.domain.PrReviewState;
 import com.bytequay.core.domain.PrTimelineEvent;
 import com.bytequay.core.domain.PullRequestRef;
@@ -34,8 +36,10 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -204,20 +208,14 @@ public class GitHubPullRequestWriteClient
     public PrReviewState submitReview(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments)
     {
         return translating(() -> {
-            Map<String, Object> request = new LinkedHashMap<>();
+            Map<String, Object> request = reviewRequest(comments == null ? ImmutableList.of() : comments);
             request.put("event", event);
             if (body != null && !body.isBlank()) {
                 request.put("body", body);
             }
-            if (comments != null && !comments.isEmpty()) {
-                // One review is anchored at one commit; callers guarantee every comment names the same one.
-                comments.stream().map(InlineReviewComment::commitId).filter(commitId -> commitId != null && !commitId.isBlank()).findFirst()
-                        .ifPresent(commitId -> request.put("commit_id", commitId));
-                request.put("comments", comments.stream()
-                        .map(GitHubPullRequestWriteClient::toReviewCommentRequest)
-                        .toList());
-            }
-            return postReview(pat, pr, request);
+            return requireBody(send(gitHubRestClient, HttpMethod.POST, pat, request,
+                    "/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
+                    .body(GitHubReview.class), "Empty response from GitHub when submitting review").toReviewState();
         });
     }
 
@@ -225,13 +223,7 @@ public class GitHubPullRequestWriteClient
     public PrReviewState submitReviewWithReplies(String pat, PullRequestRef pr, String event, String body, List<InlineReviewComment> comments, Map<Long, String> replyThreads)
     {
         return translating(() -> {
-            Map<String, Object> request = new LinkedHashMap<>();
-            List<InlineReviewComment> inline = comments.stream().filter(comment -> comment.replyToCommentId().isEmpty()).toList();
-            inline.stream().map(InlineReviewComment::commitId).filter(commit -> commit != null && !commit.isBlank()).findFirst()
-                    .ifPresent(commit -> request.put("commit_id", commit));
-            if (!inline.isEmpty()) {
-                request.put("comments", inline.stream().map(GitHubPullRequestWriteClient::toReviewCommentRequest).toList());
-            }
+            Map<String, Object> request = reviewRequest(comments.stream().filter(comment -> comment.replyToCommentId().isEmpty()).toList());
             PendingReview pending = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, request,
                     "/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
                     .body(PendingReview.class), "Empty response from GitHub when preparing review");
@@ -271,17 +263,6 @@ public class GitHubPullRequestWriteClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record PendingReview(Long id, @JsonProperty("node_id") String nodeId, String state) {}
 
-    /** Posts a review and returns what GitHub created, so callers need not re-read it. */
-    private PrReviewState postReview(String pat, PullRequestRef pr, Map<String, ?> request)
-    {
-        return translating(() -> {
-            GitHubReview created = requireBody(send(gitHubRestClient, HttpMethod.POST, pat, request,
-                    "/repos/{owner}/{repo}/pulls/{number}/reviews", pr.owner(), pr.repo(), pr.number())
-                    .body(GitHubReview.class), "Empty response from GitHub when submitting review");
-            return created.toReviewState();
-        });
-    }
-
     public PrTimelineEvent createReviewComment(String pat, PullRequestRef pr, InlineReviewComment comment)
     {
         return translating(() -> {
@@ -292,6 +273,18 @@ public class GitHubPullRequestWriteClient
                     .body(GitHubReviewComment.class), "Empty response from GitHub when posting review comment");
             return GitHubPullRequestReadClient.toReviewThreadEvent(posted);
         });
+    }
+
+    private static Map<String, Object> reviewRequest(List<InlineReviewComment> comments)
+    {
+        Map<String, Object> request = new LinkedHashMap<>();
+        if (!comments.isEmpty()) {
+            // One review is anchored at one commit; callers guarantee every comment names the same one.
+            comments.stream().map(InlineReviewComment::commitId).filter(commit -> commit != null && !commit.isBlank()).findFirst()
+                    .ifPresent(commit -> request.put("commit_id", commit));
+            request.put("comments", comments.stream().map(GitHubPullRequestWriteClient::toReviewCommentRequest).toList());
+        }
+        return request;
     }
 
     private static Map<String, Object> toReviewCommentRequest(InlineReviewComment comment)
@@ -410,4 +403,164 @@ public class GitHubPullRequestWriteClient
     private record GitHubReaction(long id) {}
 
     private record ReviewThreadMutationResponse(List<GitHubReviewThreadsResponse.Error> errors) {}
+
+    public boolean hasMergeQueue(String pat, RepoRef repo, String branch)
+    {
+        String query = "query($owner: String!, $name: String!, $branch: String!) {" + " repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { id } } }";
+        return translating(() -> {
+            MergeQueueResponse response = graphql(graphQlRestClient, pat, query, ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch))
+                    .body(MergeQueueResponse.class);
+            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub merge queue lookup failed: " + response.errors().getFirst().message());
+            }
+            if (response == null || response.data() == null || response.data().repository() == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub merge queue lookup returned incomplete GraphQL data");
+            }
+            return response.data().repository().mergeQueue() != null;
+        });
+    }
+
+    public MergeResult mergePullRequest(String pat, PullRequestRef pr, MergePullRequestCommand command)
+    {
+        Map<String, Object> body = new HashMap<>();
+        body.put("merge_method", command.mergeMethod());
+        command.commitTitle().ifPresent(value -> body.put("commit_title", value));
+        command.commitMessage().ifPresent(value -> body.put("commit_message", value));
+        command.sha().ifPresent(value -> body.put("sha", value));
+        return translating(() -> {
+            MergeResponse response = send(gitHubRestClient, HttpMethod.PUT, pat, body, "/repos/{owner}/{repo}/pulls/{number}/merge", pr.owner(), pr.repo(), pr.number())
+                    .body(MergeResponse.class);
+            return response == null ? null : response.toDomain();
+        });
+    }
+
+    public Optional<String> pullRequestNodeId(String pat, PullRequestRef pr)
+    {
+        return Optional.ofNullable(requirePullRequest(fetchProbe(pat, pr), "pullRequestNodeId").id());
+    }
+
+    private ProbeResponse fetchProbe(String pat, PullRequestRef pr)
+    {
+        String query = "query($owner: String!, $name: String!, $number: Int!) {" + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } } }";
+        return translating(() -> graphql(graphQlRestClient, pat, query, ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()))
+                .body(ProbeResponse.class));
+    }
+
+    private static ProbePullRequest requirePullRequest(ProbeResponse response, String operation)
+    {
+        if (response != null && response.errors() != null && !response.errors().isEmpty()) {
+            GraphQlError error = response.errors().getFirst();
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub " + operation + " returned GraphQL error " + error.type() + ": " + error.message());
+        }
+        if (response == null
+                || response.data() == null
+                || response.data().repository() == null
+                || response.data().repository().pullRequest() == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub " + operation + " returned incomplete GraphQL data");
+        }
+        return response.data().repository().pullRequest();
+    }
+
+    public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId)
+    {
+        String mutation = "mutation($id: ID!) {" + " enqueuePullRequest(input: { pullRequestId: $id }) {" + " mergeQueueEntry { position state } } }";
+        return translating(() -> {
+            EnqueueResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
+                    .body(EnqueueResponse.class);
+            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub enqueuePullRequest failed: " + response.errors().getFirst().message());
+            }
+            QueueEntry entry = response == null
+                    || response.data() == null
+                    || response.data().enqueuePullRequest() == null
+                    ? null
+                    : response.data().enqueuePullRequest().mergeQueueEntry();
+            if (entry == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub enqueuePullRequest returned no queue entry");
+            }
+            return MergeResult.enqueued(queueMessage(entry));
+        });
+    }
+
+    public void dequeuePullRequest(String pat, String pullRequestNodeId)
+    {
+        String mutation = "mutation($id: ID!) { dequeuePullRequest(input: { id: $id }) { clientMutationId } }";
+        translating(() -> {
+            DequeueResponse response = graphql(graphQlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
+                    .body(DequeueResponse.class);
+            if (response != null && response.errors() != null && !response.errors().isEmpty()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(422), "GitHub dequeuePullRequest failed: " + response.errors().getFirst().message());
+            }
+            if (response == null || response.data() == null || response.data().dequeuePullRequest() == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "GitHub dequeuePullRequest returned incomplete GraphQL data");
+            }
+            return null;
+        });
+    }
+
+    private static String queueMessage(QueueEntry entry)
+    {
+        String state = entry.state() == null ? null : entry.state().toLowerCase(Locale.ROOT).replace('_', ' ');
+        if (entry.position() != null && state != null) {
+            return "Added to merge queue (position " + entry.position() + ", " + state + ")";
+        }
+        return state != null ? "Added to merge queue (" + state + ")" : "Added to merge queue";
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeResponse(String sha, boolean merged, String message)
+    {
+        MergeResult toDomain()
+        {
+            return new MergeResult(sha, merged, message);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ProbeResponse(ProbeData data, List<GraphQlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueResponse(MergeQueueData data, List<GraphQlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueData(MergeQueueRepository repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueRepository(MergeQueue mergeQueue) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueue(String id) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ProbeData(ProbeRepository repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ProbeRepository(ProbePullRequest pullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ProbePullRequest(String id) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GraphQlError(String type, String message) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueueResponse(EnqueueData data, List<GraphQlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueueData(EnqueuePayload enqueuePullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueuePayload(QueueEntry mergeQueueEntry) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record QueueEntry(Integer position, String state) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueResponse(DequeueData data, List<GraphQlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueData(DequeuePayload dequeuePullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeuePayload(String clientMutationId) {}
 }

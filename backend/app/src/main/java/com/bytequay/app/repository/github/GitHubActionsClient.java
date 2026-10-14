@@ -71,6 +71,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CancellationException;
+import java.util.function.Consumer;
+import java.util.function.IntFunction;
 import java.util.function.Supplier;
 import java.util.regex.Pattern;
 
@@ -442,32 +444,15 @@ public class GitHubActionsClient
     {
         Map<Long, WorkflowRunResponse> latest = new LinkedHashMap<>();
         Set<String> observedAttempts = new HashSet<>();
-        int collected = 0;
-        boolean complete = false;
-        for (int page = 1; page <= MAX_PAGES; page++) {
-            WorkflowRunsResponse response = fetchWorkflowRunPage(pat, pullRequest, headSha, page);
-            List<WorkflowRunResponse> rows = response.workflowRuns();
-            for (WorkflowRunResponse row : rows) {
-                if (row == null || row.id() <= 0 || row.workflowId() <= 0 || !headSha.equals(row.headSha())) {
-                    throw badGateway("GitHub returned an invalid current-head workflow run");
-                }
-                if (!observedAttempts.add(row.id() + ":" + positiveOrOne(row.runAttempt()))) {
-                    throw badGateway("GitHub returned duplicate workflow attempts during pagination");
-                }
-                latest.merge(row.id(), row, GitHubActionsClient::newerRun);
+        forEachCompletePage(page -> fetchWorkflowRunPage(pat, pullRequest, headSha, page), row -> {
+            if (row == null || row.id() <= 0 || row.workflowId() <= 0 || !headSha.equals(row.headSha())) {
+                throw badGateway("GitHub returned an invalid current-head workflow run");
             }
-            collected += rows.size();
-            if (collected == response.totalCount()) {
-                complete = true;
-                break;
+            if (!observedAttempts.add(row.id() + ":" + positiveOrOne(row.runAttempt()))) {
+                throw badGateway("GitHub returned duplicate workflow attempts during pagination");
             }
-            if (rows.isEmpty() || collected > response.totalCount()) {
-                throw badGateway("GitHub returned incomplete workflow-run pages");
-            }
-        }
-        if (!complete) {
-            throw badGateway("GitHub workflow runs exceed the complete inspection limit");
-        }
+            latest.merge(row.id(), row, GitHubActionsClient::newerRun);
+        }, "run");
         Map<WorkflowKey, WorkflowRunResponse> workflows = new LinkedHashMap<>();
         // A description edit replaces its PR-event run, but must not hide another trigger's failure.
         latest.values().forEach(run -> workflows.merge(new WorkflowKey(run.workflowId(), Optional.ofNullable(run.event())), run,
@@ -480,20 +465,14 @@ public class GitHubActionsClient
 
     private WorkflowRunsResponse fetchWorkflowRunPage(String pat, PullRequestRef pullRequest, String headSha, int page)
     {
-        return translating(() -> {
-            WorkflowRunsResponse response = conditional(
-                    "runs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + headSha + "/" + page,
-                    get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs")
-                            .queryParam("head_sha", headSha)
-                            .queryParam("per_page", PAGE_SIZE)
-                            .queryParam("page", page)
-                            .build(pullRequest.owner(), pullRequest.repo())),
-                    WorkflowRunsResponse.class);
-            if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.workflowRuns() == null) {
-                throw badGateway("GitHub returned incomplete workflow-run evidence");
-            }
-            return response;
-        });
+        return translating(() -> conditional(
+                "runs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + headSha + "/" + page,
+                get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs")
+                        .queryParam("head_sha", headSha)
+                        .queryParam("per_page", PAGE_SIZE)
+                        .queryParam("page", page)
+                        .build(pullRequest.owner(), pullRequest.repo())),
+                WorkflowRunsResponse.class));
     }
 
     private CiWorkflowRun toWorkflowRun(String pat, PullRequestRef pullRequest, WorkflowRunResponse run)
@@ -515,32 +494,15 @@ public class GitHubActionsClient
     {
         Map<String, JobResponse> latest = new LinkedHashMap<>();
         Set<Long> observedJobs = new HashSet<>();
-        int collected = 0;
-        boolean complete = false;
-        for (int page = 1; page <= MAX_PAGES; page++) {
-            JobsResponse response = fetchJobPage(pat, pullRequest, workflowRunId, page);
-            List<JobResponse> rows = response.jobs();
-            for (JobResponse row : rows) {
-                if (row == null || row.id() <= 0 || row.name() == null) {
-                    throw badGateway("GitHub returned an invalid workflow job");
-                }
-                if (!observedJobs.add(row.id())) {
-                    throw badGateway("GitHub returned duplicate workflow jobs during pagination");
-                }
-                latest.merge(row.name(), row, GitHubActionsClient::newerJob);
+        forEachCompletePage(page -> fetchJobPage(pat, pullRequest, workflowRunId, page), row -> {
+            if (row == null || row.id() <= 0 || row.name() == null) {
+                throw badGateway("GitHub returned an invalid workflow job");
             }
-            collected += rows.size();
-            if (collected == response.totalCount()) {
-                complete = true;
-                break;
+            if (!observedJobs.add(row.id())) {
+                throw badGateway("GitHub returned duplicate workflow jobs during pagination");
             }
-            if (rows.isEmpty() || collected > response.totalCount()) {
-                throw badGateway("GitHub returned incomplete workflow-job pages");
-            }
-        }
-        if (!complete) {
-            throw badGateway("GitHub workflow jobs exceed the complete inspection limit");
-        }
+            latest.merge(row.name(), row, GitHubActionsClient::newerJob);
+        }, "job");
         return latest.values().stream()
                 .map(job -> toJob(workflowRunId, workflowAttempt, workflowUrl, job))
                 .sorted(Comparator.comparing(CiJob::name).thenComparingLong(CiJob::id))
@@ -549,20 +511,43 @@ public class GitHubActionsClient
 
     private JobsResponse fetchJobPage(String pat, PullRequestRef pullRequest, long workflowRunId, int page)
     {
-        return translating(() -> {
-            JobsResponse response = conditional(
-                    "jobs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + workflowRunId + "/" + page,
-                    get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs/{runId}/jobs")
-                            .queryParam("filter", "all")
-                            .queryParam("per_page", PAGE_SIZE)
-                            .queryParam("page", page)
-                            .build(pullRequest.owner(), pullRequest.repo(), workflowRunId)),
-                    JobsResponse.class);
-            if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.jobs() == null) {
-                throw badGateway("GitHub returned incomplete workflow-job evidence");
+        return translating(() -> conditional(
+                "jobs/" + pullRequest.owner() + "/" + pullRequest.repo() + "/" + workflowRunId + "/" + page,
+                get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/actions/runs/{runId}/jobs")
+                        .queryParam("filter", "all")
+                        .queryParam("per_page", PAGE_SIZE)
+                        .queryParam("page", page)
+                        .build(pullRequest.owner(), pullRequest.repo(), workflowRunId)),
+                JobsResponse.class));
+    }
+
+    /** A CI result is usable only after all reported rows have been read and individually validated. */
+    private static <T> void forEachCompletePage(IntFunction<? extends Page<T>> fetch, Consumer<T> accept, String kind)
+    {
+        int collected = 0;
+        for (int page = 1; page <= MAX_PAGES; page++) {
+            Page<T> response = fetch.apply(page);
+            if (response == null || response.totalCount() == null || response.totalCount() < 0 || response.rows() == null) {
+                throw badGateway("GitHub returned incomplete workflow-" + kind + " evidence");
             }
-            return response;
-        });
+            response.rows().forEach(accept);
+            collected += response.rows().size();
+            if (collected == response.totalCount()) {
+                return;
+            }
+            if (response.rows().isEmpty() || collected > response.totalCount()) {
+                throw badGateway("GitHub returned incomplete workflow-" + kind + " pages");
+            }
+        }
+        throw badGateway("GitHub workflow " + kind + "s exceed the complete inspection limit");
+    }
+
+    private sealed interface Page<T>
+            permits JobsResponse, WorkflowRunsResponse
+    {
+        Integer totalCount();
+
+        List<T> rows();
     }
 
     private static CiJob toJob(long workflowRunId, int workflowAttempt, String workflowUrl, JobResponse job)
@@ -808,7 +793,8 @@ public class GitHubActionsClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record WorkflowRunsResponse(
             @JsonProperty("total_count") Integer totalCount,
-            @JsonProperty("workflow_runs") List<WorkflowRunResponse> workflowRuns) {}
+            @JsonProperty("workflow_runs") List<WorkflowRunResponse> rows)
+            implements Page<WorkflowRunResponse> {}
 
     private record WorkflowKey(long workflowId, Optional<String> event) {}
 
@@ -828,7 +814,8 @@ public class GitHubActionsClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record JobsResponse(
             @JsonProperty("total_count") Integer totalCount,
-            List<JobResponse> jobs) {}
+            @JsonProperty("jobs") List<JobResponse> rows)
+            implements Page<JobResponse> {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record JobResponse(

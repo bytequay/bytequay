@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.ci;
+package com.bytequay.app.scheduler;
 
 import com.bytequay.agent.core.AgentTask;
 import com.bytequay.agent.core.RepositoryIdentity;
@@ -20,6 +20,12 @@ import com.bytequay.agent.core.store.AgentTaskStore;
 import com.bytequay.agent.spi.AgentLaneId;
 import com.bytequay.agent.spi.AgentPermissionPolicy;
 import com.bytequay.app.agent.AgentServingGate;
+import com.bytequay.app.backport.BackportChainService;
+import com.bytequay.app.cherrypick.CherryPickExecutionService;
+import com.bytequay.app.ci.CiAutofixService;
+import com.bytequay.app.rebase.BranchRebaseService;
+import com.bytequay.core.backport.BackportChainStore;
+import com.bytequay.core.cherrypick.CherryPickExecutionStore;
 import com.bytequay.core.ci.CiAutofixRun;
 import com.bytequay.core.ci.CiAutofixRun.Authorization;
 import com.bytequay.core.ci.CiAutofixRun.Scope;
@@ -27,6 +33,7 @@ import com.bytequay.core.ci.CiAutofixRunId;
 import com.bytequay.core.ci.CiAutofixStore;
 import com.bytequay.core.domain.PullRequestRef;
 import com.bytequay.core.domain.RepoRef;
+import com.bytequay.core.rebase.BranchRebaseStore;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -41,6 +48,7 @@ import java.util.Optional;
 
 import static com.bytequay.app.agent.AgentServingGates.readyAgentServingGate;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -48,7 +56,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
-class TestCiAutofixMonitorJob
+class TestCiAutofixMonitoring
 {
     private static final Instant MONITOR_NOW = Instant.parse("2026-09-01T00:00:00Z");
     private static final Clock CLOCK = Clock.fixed(MONITOR_NOW, ZoneOffset.UTC);
@@ -64,7 +72,7 @@ class TestCiAutofixMonitorJob
         when(store.listStandaloneNonFinished(2)).thenReturn(ImmutableList.of(first, second));
         doThrow(new IllegalStateException("provider unavailable")).when(service).advance(first.id());
 
-        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 2).monitor();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 2).monitorCiAutofix();
 
         verify(service).advance(first.id());
         verify(service).advance(second.id());
@@ -94,7 +102,7 @@ class TestCiAutofixMonitorJob
         when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
 
-        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
 
         verify(service, times(expectedAdvances)).advance(finished.id());
         verifyNoMoreInteractions(service);
@@ -141,7 +149,7 @@ class TestCiAutofixMonitorJob
         when(store.findByAgentTaskId(unfinishedTaskId.toString())).thenReturn(Optional.of(unfinished));
         when(store.findByAgentTaskId(taskId.toString())).thenReturn(Optional.of(finished));
 
-        new CiAutofixMonitorJob(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitor();
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
 
         verify(service).advance(finished.id());
     }
@@ -153,12 +161,76 @@ class TestCiAutofixMonitorJob
         AgentTaskStore taskStore = mock(AgentTaskStore.class);
         CiAutofixService service = mock(CiAutofixService.class);
 
-        new CiAutofixMonitorJob(store, taskStore, service, new AgentServingGate(), CLOCK, 1).monitor();
+        monitor(store, taskStore, service, new AgentServingGate(), CLOCK, 1).monitorCiAutofix();
 
         verifyNoInteractions(store, taskStore, service);
     }
 
+    @Test
+    void excludesDevelopmentOwnedCiRunsFromBothCleanupPasses()
+    {
+        CiAutofixStore store = mock(CiAutofixStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        CiAutofixService service = mock(CiAutofixService.class);
+        AgentTask task = liveTask();
+        CiAutofixRun finished = run(Optional.of("parent-task"))
+                .assignAgentTask(task.id().toString(), MONITOR_NOW.minusSeconds(90))
+                .finish(CiAutofixRun.FinishReason.CANCELLED, "cancelled", MONITOR_NOW.minusSeconds(80));
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
+        when(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(60))).thenReturn(ImmutableList.of(task));
+        when(store.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(finished));
+
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
+
+        verify(store, times(2)).findByAgentTaskId(task.id().toString());
+        verifyNoInteractions(service);
+    }
+
+    @Test
+    void selectsEachCleanupPassAfterAdvancingThePreviousPassEvenWhenCleanupFails()
+    {
+        CiAutofixStore store = mock(CiAutofixStore.class);
+        AgentTaskStore taskStore = mock(AgentTaskStore.class);
+        CiAutofixService service = mock(CiAutofixService.class);
+        CiAutofixRun running = run();
+        AgentTask task = liveTask();
+        CiAutofixRun finished = run().assignAgentTask(task.id().toString(), MONITOR_NOW.minusSeconds(90))
+                .finish(CiAutofixRun.FinishReason.GREEN, "green", MONITOR_NOW.minusSeconds(80));
+        when(store.listStandaloneNonFinished(1)).thenReturn(ImmutableList.of(running));
+        when(taskStore.listLive()).thenReturn(ImmutableList.of(task));
+        when(taskStore.listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(60))).thenReturn(ImmutableList.of(task));
+        when(store.findByAgentTaskId(task.id().toString())).thenReturn(Optional.of(finished));
+        doThrow(new IllegalStateException("cleanup still pending")).when(service).advance(finished.id());
+
+        monitor(store, taskStore, service, readyAgentServingGate(), CLOCK, 1).monitorCiAutofix();
+
+        var order = inOrder(service, taskStore);
+        order.verify(service).advance(running.id());
+        order.verify(taskStore).listLive();
+        order.verify(service).advance(finished.id());
+        order.verify(taskStore).listPendingWorktreeCleanup(AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(60));
+        order.verify(service).advance(finished.id());
+    }
+
+    private static AgentTask liveTask()
+    {
+        return AgentTask.created(TaskId.random(), Optional.empty(), false, "CI Autofix", AgentLaneId.CODEX_CLI,
+                new RepositoryIdentity("bytequay", "sample"), Path.of("/tmp/bytequay-ci-monitor"), AgentPermissionPolicy.CI_AUTOFIX, MONITOR_NOW.minusSeconds(120));
+    }
+
+    private static WorkflowMonitorJob monitor(CiAutofixStore store, AgentTaskStore taskStore, CiAutofixService service, AgentServingGate gate, Clock clock, int batchSize)
+    {
+        return new WorkflowMonitorJob(mock(CherryPickExecutionStore.class), mock(CherryPickExecutionService.class), store, service,
+                mock(BranchRebaseStore.class), mock(BranchRebaseService.class), mock(BackportChainStore.class), mock(BackportChainService.class),
+                taskStore, gate, clock, 20, batchSize, 20);
+    }
+
     private static CiAutofixRun run()
+    {
+        return run(Optional.empty());
+    }
+
+    private static CiAutofixRun run(Optional<String> parentTaskId)
     {
         CiAutofixRunId id = CiAutofixRunId.random();
         Instant now = Instant.parse("2026-08-18T00:00:00Z");
@@ -173,7 +245,7 @@ class TestCiAutofixMonitorJob
                         "author",
                         "feature",
                         "main",
-                        "codex", Optional.empty()),
+                        "codex", parentTaskId),
                 "a".repeat(40),
                 "a".repeat(40),
                 "b".repeat(40),

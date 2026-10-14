@@ -20,7 +20,6 @@ import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.settings.ModelSettingsService;
 import com.bytequay.app.workspace.WorkspaceCommitsSettingsService;
 import com.bytequay.app.workspace.WorkspaceDeletionService;
-import com.bytequay.app.workspace.WorkspaceIssueRefreshService;
 import com.bytequay.app.workspace.WorkspaceIssueService;
 import com.bytequay.app.workspace.WorkspaceMetadataService;
 import com.bytequay.app.workspace.WorkspaceRelationships;
@@ -53,7 +52,7 @@ class TestWorkspaceIssueDevelopmentController
     private final IssueDevelopmentService development = mock(IssueDevelopmentService.class);
     private final MockMvc mvc = standaloneSetup(new WorkspaceController(
             mock(WorkspaceRepositoryService.class), mock(WorkspaceDeletionService.class), mock(PullRequestService.class), mock(PullRequestRefreshService.class),
-            mock(WorkspaceMetadataService.class), issues, mock(WorkspaceIssueRefreshService.class), mock(WorkspaceRemoteSourceService.class),
+            mock(WorkspaceMetadataService.class), issues, mock(WorkspaceRemoteSourceService.class),
             mock(ModelSettingsService.class), mock(CredentialService.class), mock(WorkspaceCommitsSettingsService.class), development, mock(WorkspaceRelationships.class))).build();
 
     @Test

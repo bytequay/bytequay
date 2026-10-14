@@ -56,7 +56,6 @@ import com.bytequay.app.agent.AgentStartupRecovery;
 import com.bytequay.app.agent.AgentTaskStartupProgress;
 import com.bytequay.app.agent.InteractiveAgentTaskCreator;
 import com.bytequay.app.agent.IssueDevelopmentService;
-import com.bytequay.app.agent.JiraDevelopmentService;
 import com.bytequay.app.agent.TaskPullRequestOwnership;
 import com.bytequay.app.ci.CiAutofixService;
 import com.bytequay.app.service.goal.WorkItemService;
@@ -108,7 +107,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.UUID;
-import java.util.concurrent.locks.Lock;
 import java.util.function.Consumer;
 
 import static com.bytequay.app.utils.StringInputUtil.requireNotBlank;
@@ -147,7 +145,6 @@ public class AgentController
     private final AgentTaskStartupProgress startupProgress;
     private final AgentStreamRegistry streams;
     private final IssueDevelopmentService issueDevelopment;
-    private final JiraDevelopmentService jiraDevelopment;
     private final TaskPullRequestOwnership ownership;
     private final WorkItemService workItems;
 
@@ -173,7 +170,6 @@ public class AgentController
             AgentTaskStartupProgress startupProgress,
             AgentStreamRegistry streams,
             IssueDevelopmentService issueDevelopment,
-            JiraDevelopmentService jiraDevelopment,
             TaskPullRequestOwnership ownership,
             WorkItemService workItems)
     {
@@ -198,7 +194,6 @@ public class AgentController
         this.startupProgress = requireNonNull(startupProgress, "startupProgress is null");
         this.streams = requireNonNull(streams, "streams is null");
         this.issueDevelopment = requireNonNull(issueDevelopment, "issueDevelopment is null");
-        this.jiraDevelopment = requireNonNull(jiraDevelopment, "jiraDevelopment is null");
         this.ownership = requireNonNull(ownership, "ownership is null");
         this.workItems = requireNonNull(workItems, "workItems is null");
     }
@@ -217,7 +212,7 @@ public class AgentController
                 .map(pr -> new InteractiveAgentHttpContract.TaskPullRequestResponse(pr.number(), pr.title(), pr.state(), pr.draft()));
         return InteractiveAgentHttpContract.task(task, metrics, developmentCi, pullRequest, issueDevelopment.source(task.id().toString()).map(source ->
                 new InteractiveAgentHttpContract.IssueSourceResponse(source.issue(), source.initialTurnId(), source.instructions())),
-                jiraDevelopment.source(task.id().toString()).map(source ->
+                issueDevelopment.jiraSource(task.id().toString()).map(source ->
                         new InteractiveAgentHttpContract.JiraSourceResponse(source.issue(), source.initialTurnId(), source.instructions())));
     }
 
@@ -248,17 +243,12 @@ public class AgentController
 
     private ResponseEntity<InteractiveAgentHttpContract.TaskResponse> createTask(InteractiveAgentHttpContract.CreateTaskRequest request, List<StoreAgentAttachmentCommand> uploads)
     {
-        if (request.issueSource().isEmpty()) {
-            issueDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
-        }
-        if (request.jiraSource().isEmpty()) {
-            jiraDevelopment.requireUnattachedCreate(TaskId.valueOf(request.taskId()));
-        }
+        issueDevelopment.requireAttachedSources(TaskId.valueOf(request.taskId()), request.issueSource(), request.jiraSource());
         request.workItemId().ifPresent(id -> workItems.requireAttemptable(request.workspaceId(), id));
         AgentTask task = request.issueSource()
                 .map(source -> issueDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
                         accepted -> createTask(request, uploads, Optional.of(accepted), Optional.empty())))
-                .or(() -> request.jiraSource().map(source -> jiraDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
+                .or(() -> request.jiraSource().map(source -> issueDevelopment.start(request.workspaceId(), TaskId.valueOf(request.taskId()), source, request.message(),
                         accepted -> createTask(request, uploads, Optional.empty(), Optional.of(accepted)))))
                 .orElseGet(() -> createTask(request, uploads, Optional.empty(), Optional.empty()));
         return ResponseEntity.status(HttpStatus.CREATED).body(taskResponse(task));
@@ -298,7 +288,7 @@ public class AgentController
                     source,
                     jiraSource,
                     source.<Consumer<AgentTask>>map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message()))
-                            .or(() -> jiraSource.map(accepted -> prepared -> jiraDevelopment.persistTask(prepared, accepted, request.message())))
+                            .or(() -> jiraSource.map(accepted -> prepared -> issueDevelopment.persistTask(prepared, accepted, request.message())))
                             .or(() -> request.workItemId().map(id -> prepared -> workItems.persistAttempt(prepared, id))));
             if (!replay && !uploads.isEmpty()) {
                 startupProgress.record(taskId, AgentTaskStartupProgress.Phase.ATTACHMENTS);
@@ -456,9 +446,7 @@ public class AgentController
     @PostMapping("/tasks/{taskId}/pull-requests/sync")
     public List<PullRequest> refreshTaskPullRequests(@PathVariable String taskId, @RequestParam String workspaceId)
     {
-        Lock lock = WorkspaceOperationLocks.get(workspaceId);
-        lock.lock();
-        try {
+        return WorkspaceOperationLocks.withLock(workspaceId, () -> {
             AgentTask task = taskService.getInteractive(workspaceId, TaskId.valueOf(taskId));
             var assignment = pullRequestTasks.findByTaskId(taskId);
             if (assignment.isPresent()) {
@@ -472,10 +460,7 @@ public class AgentController
                 branches.forEach(branch -> pullRequestCatalog.syncRepositoryBranch(repository, worktree.physicalRepository().owner(), branch));
                 return ownership.branchPullRequests(repository, worktree, branches);
             }).orElse(ImmutableList.of());
-        }
-        finally {
-            lock.unlock();
-        }
+        });
     }
 
     /**

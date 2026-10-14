@@ -160,9 +160,7 @@ public final class AgentRuntimeRegistry
     Optional<CompletableFuture<DevelopmentTurnCompletion>> developmentTurn(TaskId taskId, DevelopmentTurnOrigin origin)
     {
         DevelopmentOwner owner = developmentOwners.get(taskId);
-        return owner == null || !owner.sourceTurnId().equals(origin.parentUserTurnId())
-                ? Optional.empty()
-                : Optional.ofNullable(owner.turns().get(origin.kind()));
+        return owner == null || !owner.sourceTurnId().equals(origin.parentUserTurnId()) ? Optional.empty() : Optional.ofNullable(owner.turns().get(origin.kind()));
     }
 
     CompletableFuture<DevelopmentTurnCompletion> registerDevelopmentTurn(TaskId taskId, DevelopmentTurnOrigin origin)

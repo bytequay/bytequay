@@ -90,9 +90,7 @@ class TestGitHubAccountClientEvents
                         ]
                         """, APPLICATION_JSON));
 
-        List<RecentEvent> events = feed.equals("events")
-                ? client.fetchUserEvents("token", "octocat", 2)
-                : client.fetchReceivedEvents("token", "octocat", 2);
+        List<RecentEvent> events = feed.equals("events") ? client.fetchUserEvents("token", "octocat", 2) : client.fetchReceivedEvents("token", "octocat", 2);
 
         assertEquals(ImmutableList.of(Instant.parse("2026-10-12T09:41:00Z"), Instant.parse("2026-10-12T09:00:00Z")), events.stream().map(RecentEvent::createdAt).toList());
         server.verify();

@@ -96,8 +96,7 @@ final class CodexAppServerClient
     private final AtomicBoolean disconnected = new AtomicBoolean();
     private final AtomicReference<String> codexHome = new AtomicReference<>();
     private final AtomicReference<ProcessExit.TreeTermination> treeTermination = new AtomicReference<>();
-    private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending =
-            new ConcurrentHashMap<>();
+    private final ConcurrentMap<Long, CompletableFuture<CodexProtocol.JsonRpcEnvelope>> pending = new ConcurrentHashMap<>();
     private final CodexMessageDispatcher dispatcher = new CodexMessageDispatcher();
     private final Utf8LineBuffer protocolLines = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, true, this::receive);
     private final Utf8LineBuffer diagnosticLines;
@@ -277,8 +276,7 @@ final class CodexAppServerClient
                 await(current.write(ByteBuffer.wrap(bytes)).toCompletableFuture(), WRITE_TIMEOUT, "input write");
             }
             catch (RuntimeException failure) {
-                AgentUnavailableException unavailable =
-                        new AgentUnavailableException("Unable to write to Codex App Server", failure);
+                AgentUnavailableException unavailable = new AgentUnavailableException("Unable to write to Codex App Server", failure);
                 disconnect(unavailable);
                 throw unavailable;
             }
@@ -334,9 +332,7 @@ final class CodexAppServerClient
         catch (RuntimeException protocolFailure) {
             failure = protocolFailure;
         }
-        String message = failure == null
-                ? "Codex App Server exited with code " + result.exitCode()
-                : "Codex App Server process failed: " + failureMessage(failure);
+        String message = failure == null ? "Codex App Server exited with code " + result.exitCode() : "Codex App Server process failed: " + failureMessage(failure);
         if (result != null && result.treeTermination() == ProcessExit.TreeTermination.UNVERIFIABLE) {
             // Root exit does not prove the tool tree stopped; say so rather than reporting an
             // ordinary disconnect a caller could treat as quiescence.
@@ -383,8 +379,7 @@ final class CodexAppServerClient
 
     private void receiveResponse(CodexProtocol.JsonRpcEnvelope envelope)
     {
-        long id = responseId(envelope.id().orElseThrow(() ->
-                new AgentUnavailableException("Codex response has no id")));
+        long id = responseId(envelope.id().orElseThrow(() -> new AgentUnavailableException("Codex response has no id")));
         CompletableFuture<CodexProtocol.JsonRpcEnvelope> response = pending.remove(id);
         if (response == null) {
             return;
@@ -439,9 +434,7 @@ final class CodexAppServerClient
     Optional<Boolean> processTreeVerifiedStopped()
     {
         ProcessExit.TreeTermination termination = treeTermination.get();
-        return termination == null
-                ? Optional.empty()
-                : Optional.of(termination == ProcessExit.TreeTermination.VERIFIED_STOPPED);
+        return termination == null ? Optional.empty() : Optional.of(termination == ProcessExit.TreeTermination.VERIFIED_STOPPED);
     }
 
     /** Closes after the provider has confirmed that every agent and tool in this run finished. */
@@ -513,8 +506,7 @@ final class CodexAppServerClient
             throw new AgentUnavailableException("Codex App Server process tree could not be stopped", e.getCause());
         }
         catch (TimeoutException e) {
-            throw new AgentUnavailableException("Codex App Server did not stop within " + STOP_TIMEOUT.toSeconds()
-                    + " seconds, so its process tree is not verified stopped", e);
+            throw new AgentUnavailableException("Codex App Server did not stop within " + STOP_TIMEOUT.toSeconds() + " seconds, so its process tree is not verified stopped", e);
         }
         treeTermination.set(termination);
         if (termination != ProcessExit.TreeTermination.VERIFIED_STOPPED) {

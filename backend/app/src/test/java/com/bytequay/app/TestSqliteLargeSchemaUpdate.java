@@ -32,9 +32,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 @SpringBootTest
 class TestSqliteLargeSchemaUpdate
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-large-schema-update-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-large-schema-update-" + UUID.randomUUID() + ".db").toString();
 
     @Autowired
     private JdbcTemplate jdbc;

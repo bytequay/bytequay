@@ -593,8 +593,7 @@ class TestJiraService
         doAnswer(call -> {
             String path = URLDecoder.decode(call.getArgument(2), StandardCharsets.UTF_8);
             requests.add(path);
-            return json("{\"issues\":[" + completedTicket("2001") + "],"
-                    + (path.contains("nextPageToken") ? "\"isLast\":true}" : "\"nextPageToken\":\"next/token\"}"));
+            return json("{\"issues\":[" + completedTicket("2001") + "]," + (path.contains("nextPageToken") ? "\"isLast\":true}" : "\"nextPageToken\":\"next/token\"}"));
         }).when(remote).request(eq("connection"), eq("cloud"), startsWith("/rest/software/"), eq("GET"), any());
         String assignment = "(" + (mine ? "assignee = currentUser() OR " : "") + "cf[123] = currentUser() OR cf[456] = currentUser())";
         JiraDtos.IssuePage sprint = jira.issues("connection", "cloud", 82, Optional.of(9L), mine, true, false, true, Optional.empty());

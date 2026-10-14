@@ -119,8 +119,7 @@ public class PullRequestService
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
     private static final int CLOSED_RETENTION_DAYS = 30;
     private static final int SEARCH_PAGE_SIZE = 100;
-    private static final Set<String> REACTION_CONTENTS = ImmutableSet.of(
-            "+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
+    private static final Set<String> REACTION_CONTENTS = ImmutableSet.of("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes");
 
     private final Map<PullRequestRef, SummaryStamp> summaryStamps = new ConcurrentHashMap<>();
     private String summaryCredential;
@@ -458,8 +457,7 @@ public class PullRequestService
 
     private void discoverRecent(GitHubCredential credential, String query, PullRequest.Origin origin, Map<String, FetchedPullRequest> seen)
     {
-        String key = "github.discovery." + credential.profile().login().toLowerCase(Locale.ROOT) + "."
-                + Hashing.sha256().hashString(query, StandardCharsets.UTF_8);
+        String key = "github.discovery." + credential.profile().login().toLowerCase(Locale.ROOT) + "." + Hashing.sha256().hashString(query, StandardCharsets.UTF_8);
         Instant started = clock.instant();
         Optional<Instant> completed = syncSettings.get(key).map(Instant::parse).filter(at -> !at.isAfter(started));
         if (completed.filter(at -> started.isBefore(at.plusSeconds(120))).isPresent()) {
@@ -498,8 +496,7 @@ public class PullRequestService
             return;
         }
         FetchedPullRequest fetched = gitHub.getPullRequest(credential.token(), ref).withViewerOrigin(credential.profile().login());
-        PullRequest row = store.saveObserved(notification.reviewRequested() && fetched.origin() != AUTHORED
-                ? fetched.withOrigin(REVIEW_REQUESTED) : fetched);
+        PullRequest row = store.saveObserved(notification.reviewRequested() && fetched.origin() != AUTHORED ? fetched.withOrigin(REVIEW_REQUESTED) : fetched);
         // Save the dirty marker before enrichment: a comment request failure cannot hide the notification.
         if (!"ci_activity".equals(notification.reason())) {
             store.observeActivity(row.id(), Optional.empty(), notification.updatedAt());
@@ -621,8 +618,7 @@ public class PullRequestService
                     if (row.updatedAt().isAfter(summary.pullRequest().updatedAt())) {
                         continue;
                     }
-                    Instant source = summary.discussionUpdatedAt().isAfter(summary.pullRequest().updatedAt())
-                            ? summary.discussionUpdatedAt() : summary.pullRequest().updatedAt();
+                    Instant source = summary.discussionUpdatedAt().isAfter(summary.pullRequest().updatedAt()) ? summary.discussionUpdatedAt() : summary.pullRequest().updatedAt();
                     summaryStamps.put(ref, new SummaryStamp(credential.token(), source, now));
                 }
             }
@@ -695,9 +691,7 @@ public class PullRequestService
             pushedAt = row.headPushedAt();
         }
         if (state != null && state.handledAction() != null && state.reviewedAt() != null) {
-            boolean newHead = state.reviewedHeadSha() == null
-                    ? pushedAt != null && pushedAt.isAfter(state.reviewedAt())
-                    : !state.reviewedHeadSha().equals(summary.headSha());
+            boolean newHead = state.reviewedHeadSha() == null ? pushedAt != null && pushedAt.isAfter(state.reviewedAt()) : !state.reviewedHeadSha().equals(summary.headSha());
             boolean requestedAgain = summary.reviewRequestedAt().isPresent() && summary.reviewRequestedAt().orElseThrow().isAfter(state.reviewedAt());
             boolean dismissed = summary.viewerReview().filter(review -> "DISMISSED".equals(review.state())).isPresent();
             if (newHead || requestedAgain || dismissed || hasUnseenAuthorReply(pat, row, summary, login, state.reviewedAt())) {

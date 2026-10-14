@@ -43,9 +43,7 @@ public record ReviewTestCheck(Outcome outcome, String explanation, Optional<Stri
         /** Every selected test fails once the change is undone. */
         PROTECTS,
         /** At least one selected test still passes once the change is undone. */
-        DOES_NOT_PROTECT,
-        NOT_APPLICABLE,
-        BLOCKED;
+        DOES_NOT_PROTECT, NOT_APPLICABLE, BLOCKED;
 
         /** Both runs happened, so the outcome is an observation rather than the reason there is none. */
         public boolean ran()

@@ -61,24 +61,10 @@ final class CodexLaunchProfile
             "tool_suggest",
             "workspace_dependencies");
     /** Execution features a disposable text-only request must not expose to prompt data. */
-    private static final List<String> TEXT_ONLY_DISABLED_FEATURES = ImmutableList.of(
-            "code_mode",
-            "js_repl",
-            "shell_snapshot",
-            "shell_tool",
-            "unified_exec");
+    private static final List<String> TEXT_ONLY_DISABLED_FEATURES = ImmutableList.of("code_mode", "js_repl", "shell_snapshot", "shell_tool", "unified_exec");
 
     /** The only environment variables a model-requested command may inherit. */
-    private static final List<String> SHELL_ENVIRONMENT_INCLUDE_ONLY = ImmutableList.of(
-            "HOME",
-            "LANG",
-            "LC_ALL",
-            "LOGNAME",
-            "PATH",
-            "SHELL",
-            "TERM",
-            "TMPDIR",
-            "USER");
+    private static final List<String> SHELL_ENVIRONMENT_INCLUDE_ONLY = ImmutableList.of("HOME", "LANG", "LC_ALL", "LOGNAME", "PATH", "SHELL", "TERM", "TMPDIR", "USER");
     /** Root, child, and grandchild: the bounded recursive tree proven by the compatibility gate. */
     private static final int MULTI_AGENT_MAX_DEPTH = 2;
     private CodexLaunchProfile() {}

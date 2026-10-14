@@ -102,8 +102,7 @@ class TestGoalConversationService
     private final DefaultListableBeanFactory beans = new DefaultListableBeanFactory();
     private final Topics topics = new Topics();
     private final GoalQuestions questions = mock(GoalQuestions.class);
-    private final GoalService goals = new GoalService(goalStore, workspaces, work, mock(GoalReferenceReader.class), cards, topics,
-            Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
+    private final GoalService goals = new GoalService(goalStore, workspaces, work, mock(GoalReferenceReader.class), cards, topics, Clock.fixed(Instant.EPOCH, ZoneOffset.UTC));
     private final Exchanges exchanges = new Exchanges();
     private final ModelSettingsService models = mock(ModelSettingsService.class);
     private final GoalPlanner planner = mock(GoalPlanner.class);

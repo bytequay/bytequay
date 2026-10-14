@@ -72,8 +72,7 @@ public class CherryPickPreviewService
     private static final String FIELD = "\u001f";
     /** ASCII record separator, for the same reason. */
     private static final String RECORD = "\u001e";
-    private static final Pattern ORIGIN_LINE =
-            Pattern.compile("^\\(cherry picked from commit ([0-9a-f]{40}|[0-9a-f]{64})\\)$");
+    private static final Pattern ORIGIN_LINE = Pattern.compile("^\\(cherry picked from commit ([0-9a-f]{40}|[0-9a-f]{64})\\)$");
 
     private final GitCommandRunner git;
     private final CherryPickConflictScout conflictScout;
@@ -178,8 +177,7 @@ public class CherryPickPreviewService
                     Optional.ofNullable(associations.get(commit.sha()))));
         }
         if (conflicts.values().stream().anyMatch(preview -> preview.status() == ConflictPreview.Status.CONFLICT)) {
-            warnings.add("Conflict scope is exact up to the first conflict. Commits after it are not analyzed, "
-                    + "because the resolution you choose decides what they meet.");
+            warnings.add("Conflict scope is exact up to the first conflict. Commits after it are not analyzed, " + "because the resolution you choose decides what they meet.");
         }
 
         Instant now = clock.instant();
@@ -226,8 +224,7 @@ public class CherryPickPreviewService
     {
         OptionalLong repositoryId = command.sourceRepositoryId();
         if (repositoryId.isEmpty()) {
-            warnings.add("Pull-request grouping is unavailable until commit history has been synchronized. "
-                    + "Every commit is listed individually and stays selectable.");
+            warnings.add("Pull-request grouping is unavailable until commit history has been synchronized. " + "Every commit is listed individually and stays selectable.");
             return ImmutableMap.of();
         }
         Map<String, PullRequestAssociation> associations = new LinkedHashMap<>();
@@ -237,8 +234,7 @@ public class CherryPickPreviewService
                 .forEach(value -> associations.put(value.sha(), association(value)));
         int missing = range.size() - associations.size();
         if (missing > 0) {
-            warnings.add(missing + " commit(s) have no stored pull-request association. "
-                    + "They are listed individually and stay selectable.");
+            warnings.add(missing + " commit(s) have no stored pull-request association. " + "They are listed individually and stay selectable.");
         }
         return ImmutableMap.copyOf(associations);
     }
@@ -342,14 +338,10 @@ public class CherryPickPreviewService
         }
         Optional<String> local = tryResolve(repository, localBranch);
         if (local.isEmpty()) {
-            throw new CherryPickConflictException(
-                    "Local target branch " + localBranch + " was not created by the fetch: "
-                            + target.output().strip());
+            throw new CherryPickConflictException("Local target branch " + localBranch + " was not created by the fetch: " + target.output().strip());
         }
         if (!local.equals(remote)) {
-            throw new CherryPickConflictException(
-                    "Local target branch " + localBranch + " has diverged from " + remoteTrackingRef
-                            + "; reconcile it before previewing a range");
+            throw new CherryPickConflictException("Local target branch " + localBranch + " has diverged from " + remoteTrackingRef + "; reconcile it before previewing a range");
         }
     }
 
@@ -390,9 +382,7 @@ public class CherryPickPreviewService
             }
             String[] parents = fields[1].isBlank() ? new String[0] : fields[1].strip().split(" ");
             if (parents.length > 1) {
-                throw new CherryPickInvalidRequestException(
-                        "Source range contains merge commit " + shortSha(fields[0])
-                                + "; merge commits are not supported");
+                throw new CherryPickInvalidRequestException("Source range contains merge commit " + shortSha(fields[0]) + "; merge commits are not supported");
             }
             if (parents.length == 0) {
                 throw new CherryPickInvalidRequestException("Source range contains root commit " + shortSha(fields[0]));

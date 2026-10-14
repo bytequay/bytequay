@@ -444,8 +444,7 @@ final class JiraMapping
 
     private static String raw(JsonNode node)
     {
-        return node.path("type").asText().equals("text") ? node.path("text").asText()
-                : nodes(node.path("content")).stream().map(JiraMapping::raw).collect(joining());
+        return node.path("type").asText().equals("text") ? node.path("text").asText() : nodes(node.path("content")).stream().map(JiraMapping::raw).collect(joining());
     }
 
     private static String escape(String value)

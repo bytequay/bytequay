@@ -101,8 +101,7 @@ public final class AgentStartupRecovery
             // anything can be served.
             drainPendingEvents();
             if (!attributable) {
-                log.error("Agent operations remain unavailable: an owned provider process could not be "
-                        + "verified stopped, so a worktree may still have a live writer");
+                log.error("Agent operations remain unavailable: an owned provider process could not be " + "verified stopped, so a worktree may still have a live writer");
                 return;
             }
             taskStore.listLive().stream()

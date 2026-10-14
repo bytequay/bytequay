@@ -151,9 +151,7 @@ class TestGitHubPaginator
 
     private List<Integer> read(boolean conditional)
     {
-        return conditional
-                ? paginator.paginateConditional("pat", PATH, TYPE, Optional.empty()).values().orElseThrow()
-                : paginator.paginate("pat", PATH, TYPE);
+        return conditional ? paginator.paginateConditional("pat", PATH, TYPE, Optional.empty()).values().orElseThrow() : paginator.paginate("pat", PATH, TYPE);
     }
 
     private void expectFullFirstPage()

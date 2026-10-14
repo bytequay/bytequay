@@ -72,8 +72,7 @@ public class RecentService
 
     /** Timeline events that count as somebody replying to the user. */
     private static final Set<String> REPLY_EVENTS = ImmutableSet.of("commented", "reviewed", "review_commented");
-    private static final Set<String> FAILED_CONCLUSIONS =
-            ImmutableSet.of("failure", "timed_out", "action_required", "startup_failure");
+    private static final Set<String> FAILED_CONCLUSIONS = ImmutableSet.of("failure", "timed_out", "action_required", "startup_failure");
     private static final int MAX_SENTENCE = 240;
     /**
      * How many bodies the most selective token may pull back before the
@@ -261,9 +260,7 @@ public class RecentService
         LocalDate from = filter.from().isBefore(windowStart()) ? windowStart() : filter.from();
         LocalDate to = filter.to().isAfter(today()) ? today() : filter.to();
         List<RecentTouch> window = store.findTouches(from, to);
-        Set<String> moved = filter.changedSinceRead()
-                ? changes().stream().filter(RecentChange::moved).map(RecentChange::itemKey).collect(toImmutableSet())
-                : ImmutableSet.of();
+        Set<String> moved = filter.changedSinceRead() ? changes().stream().filter(RecentChange::moved).map(RecentChange::itemKey).collect(toImmutableSet()) : ImmutableSet.of();
         Optional<String> narrow = filter.narrow().map(value -> value.toLowerCase(Locale.ROOT));
         Optional<String> scope = filter.workspace().map(this::watchedRepository);
         return window.stream()

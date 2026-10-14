@@ -262,8 +262,7 @@ public record ContextBuild(
         public Capture withGap(String gap)
         {
             String bounded = ContextText.excerpt(gap, 1000);
-            return gaps.contains(bounded) || gaps.size() >= MAX_GAPS ? this
-                    : new Capture(attempts, ImmutableList.<String>builder().addAll(gaps).add(bounded).build(), activity);
+            return gaps.contains(bounded) || gaps.size() >= MAX_GAPS ? this : new Capture(attempts, ImmutableList.<String>builder().addAll(gaps).add(bounded).build(), activity);
         }
 
         public Capture withAttempts(Map<String, String> added)

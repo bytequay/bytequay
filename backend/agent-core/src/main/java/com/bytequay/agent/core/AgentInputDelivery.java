@@ -105,11 +105,7 @@ public record AgentInputDelivery(
 
     public enum State
     {
-        ACCEPTED,
-        SENDING,
-        DELIVERED,
-        FAILED,
-        UNKNOWN;
+        ACCEPTED, SENDING, DELIVERED, FAILED, UNKNOWN;
 
         public boolean settled()
         {

@@ -142,8 +142,7 @@ class TestCherryPickExecutionHttpApi
                 .andExpect(jsonPath("$.updatedAt").exists())
                 .andExpect(jsonPath("$.terminalAt").value(nullValue()));
 
-        ArgumentCaptor<StartCherryPickExecutionCommand> command =
-                ArgumentCaptor.forClass(StartCherryPickExecutionCommand.class);
+        ArgumentCaptor<StartCherryPickExecutionCommand> command = ArgumentCaptor.forClass(StartCherryPickExecutionCommand.class);
         ArgumentCaptor<Path> repository = ArgumentCaptor.forClass(Path.class);
         ArgumentCaptor<RepositoryIdentity> physicalRepository = ArgumentCaptor.forClass(RepositoryIdentity.class);
         verify(service).start(command.capture(), any(), repository.capture(), physicalRepository.capture());

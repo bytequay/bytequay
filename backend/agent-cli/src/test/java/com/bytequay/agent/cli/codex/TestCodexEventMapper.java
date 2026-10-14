@@ -222,20 +222,17 @@ class TestCodexEventMapper
 
         assertThat(request).isInstanceOf(CodexProtocol.CommandApprovalRequest.class);
         CodexProtocol.CommandApprovalRequest approval = (CodexProtocol.CommandApprovalRequest) request;
-        assertThat(approval.params().additionalPermissions()).hasValueSatisfying(value ->
-                assertThat(value.path("network").path("enabled").asBoolean()).isTrue());
+        assertThat(approval.params().additionalPermissions()).hasValueSatisfying(value -> assertThat(value.path("network").path("enabled").asBoolean()).isTrue());
         assertThat(approval.params().approvalId()).contains("approval-1");
         assertThat(approval.params().availableDecisions().orElseThrow())
                 .extracting(JsonNode::asText)
                 .containsExactly("accept", "decline");
         assertThat(approval.params().command()).contains("mvn verify");
-        assertThat(approval.params().commandActions().orElseThrow()).singleElement().satisfies(action ->
-                assertThat(action.path("type").asText()).isEqualTo("unknown"));
+        assertThat(approval.params().commandActions().orElseThrow()).singleElement().satisfies(action -> assertThat(action.path("type").asText()).isEqualTo("unknown"));
         assertThat(approval.params().cwd()).contains("/worktree");
         assertThat(approval.params().environmentId()).contains("environment-1");
         assertThat(approval.params().kind()).contains("writeStdin");
-        assertThat(approval.params().networkApprovalContext()).hasValueSatisfying(value ->
-                assertThat(value.path("host").asText()).isEqualTo("example.com"));
+        assertThat(approval.params().networkApprovalContext()).hasValueSatisfying(value -> assertThat(value.path("host").asText()).isEqualTo("example.com"));
         assertThat(approval.params().proposedExecpolicyAmendment().orElseThrow()).containsExactly("mvn verify");
         assertThat(approval.params().proposedNetworkPolicyAmendments().orElseThrow()).singleElement().satisfies(amendment ->
                 assertThat(amendment.path("action").asText()).isEqualTo("allow"));

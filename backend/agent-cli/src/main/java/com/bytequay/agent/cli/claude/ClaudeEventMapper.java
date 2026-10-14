@@ -457,9 +457,7 @@ final class ClaudeEventMapper
 
     private ProviderAgentEvent completedTool(Optional<String> eventId, ClaudeProtocol.ToolResultBlock result, ToolCall call, Optional<JsonNode> metadata)
     {
-        ProviderAgentEvent.ActivityState state = result.error()
-                ? ProviderAgentEvent.ActivityState.FAILED
-                : ProviderAgentEvent.ActivityState.COMPLETED;
+        ProviderAgentEvent.ActivityState state = result.error() ? ProviderAgentEvent.ActivityState.FAILED : ProviderAgentEvent.ActivityState.COMPLETED;
         if (call.isCommand()) {
             return new ProviderAgentEvent.Command(
                     eventId,
@@ -698,9 +696,7 @@ final class ClaudeEventMapper
     private String bounded(String text)
     {
         String redacted = redactor.redact(text);
-        return redacted.length() <= MAX_OUTPUT_CHARACTERS
-                ? redacted
-                : redacted.substring(0, MAX_OUTPUT_CHARACTERS);
+        return redacted.length() <= MAX_OUTPUT_CHARACTERS ? redacted : redacted.substring(0, MAX_OUTPUT_CHARACTERS);
     }
 
     private static Optional<String> eventId(Optional<String> uuid, String suffix, int index)

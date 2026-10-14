@@ -51,8 +51,7 @@ public class GitHubMergeClient
 
     public boolean hasMergeQueue(String pat, RepoRef repo, String branch)
     {
-        String query = "query($owner: String!, $name: String!, $branch: String!) {"
-                + " repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { id } } }";
+        String query = "query($owner: String!, $name: String!, $branch: String!) {" + " repository(owner: $owner, name: $name) { mergeQueue(branch: $branch) { id } } }";
         return translating(() -> {
             MergeQueueResponse response = graphql(graphqlRestClient, pat, query, ImmutableMap.of("owner", repo.owner(), "name", repo.repo(), "branch", branch))
                     .body(MergeQueueResponse.class);
@@ -87,8 +86,7 @@ public class GitHubMergeClient
 
     private ProbeResponse fetchProbe(String pat, PullRequestRef pr)
     {
-        String query = "query($owner: String!, $name: String!, $number: Int!) {"
-                + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } } }";
+        String query = "query($owner: String!, $name: String!, $number: Int!) {" + " repository(owner: $owner, name: $name) { pullRequest(number: $number) { id } } }";
         return translating(() -> graphql(graphqlRestClient, pat, query, ImmutableMap.of("owner", pr.owner(), "name", pr.repo(), "number", pr.number()))
                 .body(ProbeResponse.class));
     }
@@ -110,9 +108,7 @@ public class GitHubMergeClient
 
     public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId)
     {
-        String mutation = "mutation($id: ID!) {"
-                + " enqueuePullRequest(input: { pullRequestId: $id }) {"
-                + " mergeQueueEntry { position state } } }";
+        String mutation = "mutation($id: ID!) {" + " enqueuePullRequest(input: { pullRequestId: $id }) {" + " mergeQueueEntry { position state } } }";
         return translating(() -> {
             EnqueueResponse response = graphql(graphqlRestClient, pat, mutation, ImmutableMap.of("id", pullRequestNodeId))
                     .body(EnqueueResponse.class);
@@ -149,9 +145,7 @@ public class GitHubMergeClient
 
     private static String queueMessage(QueueEntry entry)
     {
-        String state = entry.state() == null
-                ? null
-                : entry.state().toLowerCase(Locale.ROOT).replace('_', ' ');
+        String state = entry.state() == null ? null : entry.state().toLowerCase(Locale.ROOT).replace('_', ' ');
         if (entry.position() != null && state != null) {
             return "Added to merge queue (position " + entry.position() + ", " + state + ")";
         }

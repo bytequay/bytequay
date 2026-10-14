@@ -48,8 +48,7 @@ final class CodexMessageDispatcher
     /** Bounds how far handling may fall behind the reader before messages are shed. */
     private static final int MAX_PENDING = 512;
 
-    private final ExecutorService handlers = Executors.newSingleThreadExecutor(
-            Thread.ofVirtual().name("bytequay-codex-handler-", 0).factory());
+    private final ExecutorService handlers = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("bytequay-codex-handler-", 0).factory());
     private final AtomicReference<Listener> listener = new AtomicReference<>();
     private final AtomicInteger pending = new AtomicInteger();
     private volatile boolean degraded;

@@ -34,9 +34,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteRecentStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-recent-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-recent-store-" + UUID.randomUUID() + ".db").toString();
     private static final LocalDate TODAY = LocalDate.parse("2026-08-28");
     private static final Instant MORNING = Instant.parse("2026-08-28T09:00:00Z");
     private static final Instant AFTERNOON = Instant.parse("2026-08-28T14:00:00Z");

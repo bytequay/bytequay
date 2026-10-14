@@ -63,8 +63,7 @@ public class GitHubAccountClient
             RestClient gitHubRestClient,
             @Qualifier("gitHubGraphQLRestClient") RestClient gitHubGraphQLRestClient) {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
-        this.graphqlRestClient =
-                requireNonNull(gitHubGraphQLRestClient, "gitHubGraphQLRestClient is null");
+        this.graphqlRestClient = requireNonNull(gitHubGraphQLRestClient, "gitHubGraphQLRestClient is null");
     }
 
     public UserProfile fetchUserProfile(String pat) {
@@ -173,10 +172,8 @@ public class GitHubAccountClient
                 }
                 throw new IllegalStateException("GitHub contribution calendar returned no data");
             }
-            ContributionGqlCalendar cal =
-                    response.data().user().contributionsCollection().contributionCalendar();
-            List<ContributionGqlWeek> rawWeeks =
-                    cal.weeks() != null ? cal.weeks() : ImmutableList.of();
+            ContributionGqlCalendar cal = response.data().user().contributionsCollection().contributionCalendar();
+            List<ContributionGqlWeek> rawWeeks = cal.weeks() != null ? cal.weeks() : ImmutableList.of();
             checkState(!rawWeeks.isEmpty(), "GitHub contribution calendar returned no weeks");
             List<ContributionCalendar.Week> weeks =
                     rawWeeks.stream()
@@ -278,10 +275,7 @@ public class GitHubAccountClient
 
     private static UserCommitSummary toUserCommitSummary(CommitSearchItem item) {
         String repoFullName = item.repository() != null ? item.repository().fullName() : "";
-        String rawMessage =
-                item.commit() != null && item.commit().message() != null
-                        ? item.commit().message()
-                        : "";
+        String rawMessage = item.commit() != null && item.commit().message() != null ? item.commit().message() : "";
         // Only the first line — the cube popover is one row per commit.
         int newline = rawMessage.indexOf('\n');
         String shortMessage = newline >= 0 ? rawMessage.substring(0, newline) : rawMessage;
@@ -506,8 +500,7 @@ public class GitHubAccountClient
     }
 
     private static UserRepo toUserRepoFromSearch(GitHubUserRepoItem item) {
-        String owner =
-                Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");
+        String owner = Optional.ofNullable(item.owner()).map(GitHubUserRepoItem.Owner::login).orElse("");
         Optional<UserRepo.Upstream> upstream = Optional.ofNullable(item.source())
                 .or(() -> Optional.ofNullable(item.parent()))
                 .map(repository -> new UserRepo.Upstream(

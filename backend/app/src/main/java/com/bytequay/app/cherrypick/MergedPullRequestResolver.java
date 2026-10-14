@@ -86,8 +86,7 @@ public class MergedPullRequestResolver
         catch (ResponseStatusException unavailable) {
             throw hold(Optional.ofNullable(unavailable.getReason()).orElse("GitHub merge evidence is unavailable"));
         }
-        context.sourceRepositoryId(sourceRemote).ifPresent(id ->
-                requireEvidence(id == merged.repositoryId(), "The source repository ID changed"));
+        context.sourceRepositoryId(sourceRemote).ifPresent(id -> requireEvidence(id == merged.repositoryId(), "The source repository ID changed"));
 
         // Private refs keep simultaneous resolutions independent, without sharing FETCH_HEAD or moving workspace branches.
         String prefix = "refs/bytequay/merged-pr/" + UUID.randomUUID();

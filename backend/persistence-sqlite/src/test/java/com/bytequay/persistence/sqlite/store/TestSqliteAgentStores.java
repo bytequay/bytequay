@@ -110,9 +110,7 @@ import static org.mockito.Mockito.mock;
 class TestSqliteAgentStores
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-agent-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-agent-store-" + UUID.randomUUID() + ".db").toString();
 
     @Autowired
     private SqliteAgentTaskStore taskStore;
@@ -1127,12 +1125,7 @@ class TestSqliteAgentStores
     private static final class RecordingDriver
             implements AgentDriver
     {
-        private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(
-                false,
-                false,
-                false,
-                ImmutableSet.of(AgentPermissionPolicy.AUTO),
-                ImmutableSet.of());
+        private static final AgentCapabilities CAPABILITIES = new AgentCapabilities(false, false, false, ImmutableSet.of(AgentPermissionPolicy.AUTO), ImmutableSet.of());
 
         private final List<AgentTurnCommand> commands = new ArrayList<>();
         private CompletableFuture<AgentTurnResult> current;

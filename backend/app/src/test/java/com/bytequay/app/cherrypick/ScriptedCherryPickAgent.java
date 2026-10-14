@@ -251,9 +251,7 @@ final class ScriptedCherryPickAgent
     @Override
     public List<AgentTask> list(String workspaceId, int limit)
     {
-        return task != null && task.interactive() && task.workspaceId().stream().anyMatch(workspaceId::equals)
-                ? ImmutableList.of(task)
-                : ImmutableList.of();
+        return task != null && task.interactive() && task.workspaceId().stream().anyMatch(workspaceId::equals) ? ImmutableList.of(task) : ImmutableList.of();
     }
 
     @Override

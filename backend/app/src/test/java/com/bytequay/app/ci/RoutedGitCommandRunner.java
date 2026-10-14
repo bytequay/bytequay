@@ -31,8 +31,7 @@ public final class RoutedGitCommandRunner
 
     public static String route(Path target, String sourceUrl)
     {
-        return "url." + requireNonNull(target, "target is null").toUri()
-                + ".insteadOf=" + requireNonNull(sourceUrl, "sourceUrl is null");
+        return "url." + requireNonNull(target, "target is null").toUri() + ".insteadOf=" + requireNonNull(sourceUrl, "sourceUrl is null");
     }
 
     /**

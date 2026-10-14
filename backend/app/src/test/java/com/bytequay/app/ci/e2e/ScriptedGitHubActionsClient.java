@@ -159,8 +159,7 @@ final class ScriptedGitHubActionsClient
 
         private String identity()
         {
-            return pullRequest.fullName() + ", workflow " + workflowRunId + "/" + workflowAttempt
-                    + ", job " + jobId + "/" + jobAttempt;
+            return pullRequest.fullName() + ", workflow " + workflowRunId + "/" + workflowAttempt + ", job " + jobId + "/" + jobAttempt;
         }
     }
 
@@ -173,8 +172,7 @@ final class ScriptedGitHubActionsClient
 
         private String identity()
         {
-            return pullRequest.fullName() + ", workflow " + workflowRunId + "/" + previousAttempt
-                    + ", head " + headSha + ", authorized " + authorized;
+            return pullRequest.fullName() + ", workflow " + workflowRunId + "/" + previousAttempt + ", head " + headSha + ", authorized " + authorized;
         }
     }
 }

@@ -319,8 +319,7 @@ public final class CodexCliDriver
 
     static CodexLaunchProfile.ChildProfile childProfile(CodexLaunchProfile.ChildProfile configured, boolean restricted, boolean review, String version)
     {
-        return restricted || (review && compareVersion(version, REVIEW_CHILD_GATE_MINIMUM_RELEASE).orElse(-1) < 0)
-                ? CodexLaunchProfile.ChildProfile.NONE : configured;
+        return restricted || (review && compareVersion(version, REVIEW_CHILD_GATE_MINIMUM_RELEASE).orElse(-1) < 0) ? CodexLaunchProfile.ChildProfile.NONE : configured;
     }
 
     private CodexAppServerClient appServerClient(String ownerId, Path workingDirectory, CodexLaunchProfile.ChildProfile childProfile)
@@ -357,14 +356,12 @@ public final class CodexCliDriver
         SecretRedactor launchRedactor = registration.map(value -> baseRedactor.withSecret(value.token())).orElse(baseRedactor);
         Optional<DeepSeekLoopback> loopback = key.map(value -> DeepSeekLoopback.start(value, permissions, registration, objectMapper));
         try {
-            Optional<Path> reviewGate = review && childProfile != CodexLaunchProfile.ChildProfile.NONE
-                    ? Optional.of(CodexReviewGate.install(codexHome)) : Optional.empty();
+            Optional<Path> reviewGate = review && childProfile != CodexLaunchProfile.ChildProfile.NONE ? Optional.of(CodexReviewGate.install(codexHome)) : Optional.empty();
             Optional<CodexLaunchProfile.ManagedToolsLaunch> tools = registration.map(value -> new CodexLaunchProfile.ManagedToolsLaunch(
                     loopback.map(DeepSeekLoopback::mcpEndpoint).orElse(value.endpoint()), value.instruction().orElse(""),
                     guardedReviewTools.map(PermissionBroker.CodexRootTools::mcpNames).orElse(value.toolNames()),
                     deepSeekSecret.isEmpty(), reviewGate));
-            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = loopback.map(value ->
-                    new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
+            Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek = loopback.map(value -> new CodexLaunchProfile.DeepSeekProfile(deepSeekCatalog.orElseThrow(), value.baseUrl()));
             return new ClientLaunch(new CodexAppServerClient(
                     supervisor,
                     new ProcessSpec(
@@ -624,9 +621,7 @@ public final class CodexCliDriver
             throw new AgentUnavailableException("DeepSeek key removed or unavailable");
         }
         SecretRedactor toolRedactor = savedKey.map(redactor::withSecret).orElse(redactor);
-        List<String> ciWritableRoots = context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX
-                ? ciWritableRoots(context.worktree())
-                : ImmutableList.of();
+        List<String> ciWritableRoots = context.permissionPolicy() == AgentPermissionPolicy.CI_AUTOFIX ? ciWritableRoots(context.worktree()) : ImmutableList.of();
         // A task tool token lives exactly as long as this session; the App Server reaches the
         // ByteQuay task MCP endpoint with it and never learns the task's filesystem identity.
         Optional<McpRegistration> codeQueries = context.restricted() && context.discussionContext().isEmpty() && context.reviewContext().isEmpty() ? Optional.empty() : permissions.registerTools(
@@ -1500,8 +1495,7 @@ public final class CodexCliDriver
                         .forEach(this::requireKnownGraphIdentity);
                 // The spawn carries what the parent asked for; the child never repeats it as a
                 // message of its own, so this is the only record of its purpose.
-                collab.receiverThreadIds().forEach(receiver ->
-                        register(receiver, namingThread, Optional.empty(), collab.prompt()));
+                collab.receiverThreadIds().forEach(receiver -> register(receiver, namingThread, Optional.empty(), collab.prompt()));
                 return;
             }
             if (item instanceof CodexProtocol.SubAgentActivityItem activity) {
@@ -1938,8 +1932,7 @@ public final class CodexCliDriver
                 }
                 catch (RuntimeException failure) {
                     // An inventory that cannot be read is not an empty one.
-                    return Optional.of("the background terminals of thread " + thread
-                            + " could not be listed: " + failure.getMessage());
+                    return Optional.of("the background terminals of thread " + thread + " could not be listed: " + failure.getMessage());
                 }
                 if (!page.data().isEmpty()) {
                     String processId = page.data().getFirst().processId();
@@ -2492,9 +2485,7 @@ public final class CodexCliDriver
         {
             AgentTurnResult.State state = switch (turn.status()) {
                 case COMPLETED -> AgentTurnResult.State.COMPLETED;
-                case INTERRUPTED -> cancellationRequested.get()
-                        ? AgentTurnResult.State.CANCELLED
-                        : AgentTurnResult.State.INTERRUPTED;
+                case INTERRUPTED -> cancellationRequested.get() ? AgentTurnResult.State.CANCELLED : AgentTurnResult.State.INTERRUPTED;
                 case FAILED, IN_PROGRESS, UNKNOWN -> AgentTurnResult.State.FAILED;
             };
             String detail = turn.error()

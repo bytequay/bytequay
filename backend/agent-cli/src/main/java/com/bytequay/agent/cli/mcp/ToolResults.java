@@ -32,8 +32,7 @@ final class ToolResults
             return Optional.empty();
         }
         JsonNode blocks = content.isObject() && content.has("content") ? content.path("content") : content;
-        JsonNode text = blocks.isArray() && blocks.size() == 1 && blocks.get(0).path("type").asText().equals("text")
-                ? blocks.get(0).path("text") : blocks;
+        JsonNode text = blocks.isArray() && blocks.size() == 1 && blocks.get(0).path("type").asText().equals("text") ? blocks.get(0).path("text") : blocks;
         if (!text.isTextual() || text.textValue().length() > 128 * 1024) {
             return Optional.empty();
         }

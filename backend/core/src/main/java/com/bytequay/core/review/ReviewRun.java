@@ -225,8 +225,7 @@ public record ReviewRun(
         /** Turns settled without a valid report, or the report was refused and the repair budget is spent. */
         INCOMPLETE,
         /** The user stopped the run; what was saved stays provisional. */
-        STOPPED,
-        FAILED;
+        STOPPED, FAILED;
 
         public boolean terminal()
         {

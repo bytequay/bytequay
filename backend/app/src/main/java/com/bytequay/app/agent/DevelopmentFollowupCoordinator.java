@@ -60,8 +60,7 @@ import static java.util.Objects.requireNonNull;
 public class DevelopmentFollowupCoordinator
 {
     private static final Logger log = LoggerFactory.getLogger(DevelopmentFollowupCoordinator.class);
-    private static final Pattern ATTRIBUTION = Pattern.compile(
-            "(?im)^.*(?:generated with[^\\n]{0,40}claude code|co-authored-by:\\s*claude\\b).*$\\R?");
+    private static final Pattern ATTRIBUTION = Pattern.compile("(?im)^.*(?:generated with[^\\n]{0,40}claude code|co-authored-by:\\s*claude\\b).*$\\R?");
 
     private final AgentTurnService turns;
     private final AgentTurnStore turnStore;
@@ -317,8 +316,7 @@ public class DevelopmentFollowupCoordinator
                     run = latest;
                     continue;
                 }
-                throw new IllegalStateException("CI Autofix cannot continue: "
-                        + run.summary().orElseGet(() -> latest.pauseReason().map(Enum::name).orElse("Unknown result")));
+                throw new IllegalStateException("CI Autofix cannot continue: " + run.summary().orElseGet(() -> latest.pauseReason().map(Enum::name).orElse("Unknown result")));
             }
             // The coordinator owns polling; a renderer reload or an independent monitor cannot drive this run.
             run = ci.advance(run.id());
@@ -681,9 +679,7 @@ public class DevelopmentFollowupCoordinator
             window.existingPr().ifPresent(original -> checkState(pullRequest.pullRequest().equals(original.pullRequest()), "Publication replaced the task's pull request"));
             return "Pushed " + window.localHead() + "; pull request " + pullRequest.url() + " already tracks this branch.";
         }
-        String head = route.headRepository().equals(route.baseRepository())
-                ? route.headBranch()
-                : route.headRepository().owner() + ":" + route.headBranch();
+        String head = route.headRepository().equals(route.baseRepository()) ? route.headBranch() : route.headRepository().owner() + ":" + route.headBranch();
         CreatedPullRequest created = writes.createPullRequest(
                 credentials.resolveGitHubToken(worktree.workspaceId()),
                 route.baseRepository(), head, route.baseBranch(), withoutAttribution(title), withoutAttribution(body), true);

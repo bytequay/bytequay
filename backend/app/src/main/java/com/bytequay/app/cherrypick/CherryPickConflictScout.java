@@ -41,9 +41,7 @@ import static java.util.Objects.requireNonNull;
 class CherryPickConflictScout
 {
     private static final Logger log = LoggerFactory.getLogger(CherryPickConflictScout.class);
-    private static final List<String> IDENTITY = ImmutableList.of(
-            "-c", "user.name=ByteQuay Preview",
-            "-c", "user.email=preview@bytequay.invalid");
+    private static final List<String> IDENTITY = ImmutableList.of("-c", "user.name=ByteQuay Preview", "-c", "user.email=preview@bytequay.invalid");
 
     private final GitCommandRunner git;
 

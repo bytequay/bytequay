@@ -58,8 +58,7 @@ class TestCherryPickPullRequestLookup
                                 """));
 
         List<String> warnings = new ArrayList<>();
-        PullRequestLookupResult result =
-                lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
 
         assertThat(association(result, SHA).number()).isEqualTo(23401);
         assertThat(association(result, SHA).title()).isEqualTo("Fix Hive coercion");
@@ -94,8 +93,7 @@ class TestCherryPickPullRequestLookup
                                 """));
 
         List<String> warnings = new ArrayList<>();
-        PullRequestLookupResult result =
-                lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA, tie), "master", warnings);
+        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA, tie), "master", warnings);
 
         assertThat(association(result, SHA).number()).as("base ref breaks the tie").isEqualTo(2);
         assertThat(result.associations()).as("an ambiguous commit is never guessed")
@@ -130,8 +128,7 @@ class TestCherryPickPullRequestLookup
         server.expect(manyTimes(), requestTo(url(SHA))).andRespond(withServerError());
 
         List<String> warnings = new ArrayList<>();
-        PullRequestLookupResult result =
-                lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
+        PullRequestLookupResult result = lookup(builder).lookUpResult(REPOSITORY, ImmutableList.of(SHA), "master", warnings);
 
         assertThat(result.associations()).isEmpty();
         assertThat(result.failedShas()).containsExactly(SHA);

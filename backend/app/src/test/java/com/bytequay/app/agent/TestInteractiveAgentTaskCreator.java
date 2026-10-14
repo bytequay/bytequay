@@ -182,8 +182,7 @@ class TestInteractiveAgentTaskCreator
 
         create(new AgentTaskDefaults(Optional.of("model-a"), Optional.of("high"), AgentPermissionPolicy.AUTO));
 
-        ArgumentCaptor<CreateInteractiveAgentTaskCommand> command =
-                ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
+        ArgumentCaptor<CreateInteractiveAgentTaskCommand> command = ArgumentCaptor.forClass(CreateInteractiveAgentTaskCommand.class);
         verify(tasks).createInteractive(command.capture());
         assertThat(command.getValue().workspaceId()).isEqualTo("workspace-1");
         assertThat(command.getValue().physicalRepository())

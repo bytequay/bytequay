@@ -297,9 +297,7 @@ class CommitHistoryRefresher
         Optional<String> pullRequestUrl = association.map(PullRequestAssociation::url)
                 .filter(value -> !value.isBlank())
                 .or(() -> existing.flatMap(CommitEnrichment::pullRequestUrl));
-        Optional<Instant> associationCheckedAt = association.isPresent() || associationChecked
-                ? Optional.of(now)
-                : existing.flatMap(CommitEnrichment::associationCheckedAt);
+        Optional<Instant> associationCheckedAt = association.isPresent() || associationChecked ? Optional.of(now) : existing.flatMap(CommitEnrichment::associationCheckedAt);
         return new CommitEnrichment(
                 repositoryId,
                 commit.sha(),

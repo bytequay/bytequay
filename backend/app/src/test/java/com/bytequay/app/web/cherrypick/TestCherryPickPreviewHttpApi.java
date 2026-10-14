@@ -158,8 +158,7 @@ class TestCherryPickPreviewHttpApi
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.code").value("WORKSPACE_REMOTE_SOURCE_INVALID"));
 
-        ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
-                ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands = ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
         verify(previewService).preview(commands.capture());
         assertThat(commands.getValue()).satisfies(command -> {
             assertThat(command.repository()).isEqualTo(Path.of("/managed/workspace-id/repository"));
@@ -203,8 +202,7 @@ class TestCherryPickPreviewHttpApi
                         .content(EXTRA_SOURCE_BODY))
                 .andExpect(status().isBadRequest());
 
-        ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
-                ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands = ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
         verify(previewService).preview(commands.capture());
         assertThat(commands.getValue()).satisfies(command -> {
             assertThat(command.sourceRemote()).isEqualTo("oss");
@@ -257,8 +255,7 @@ class TestCherryPickPreviewHttpApi
                         .content(EXTRA_SOURCE_BODY))
                 .andExpect(status().isBadRequest());
 
-        ArgumentCaptor<PreviewCherryPickRangeCommand> commands =
-                ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
+        ArgumentCaptor<PreviewCherryPickRangeCommand> commands = ArgumentCaptor.forClass(PreviewCherryPickRangeCommand.class);
         verify(previewService).preview(commands.capture());
         assertThat(commands.getValue().sourceRepositoryId()).hasValue(303);
     }

@@ -1032,8 +1032,7 @@ public class ReviewTools
         }
         if (insert) {
             long existing = findings.stream().filter(finding -> finding.runId().equals(call.run().id())).count();
-            int limit = call.run().active() ? call.run().latestSealedInvestigation().orElseThrow().investigation().orElseThrow().candidates().size()
-                    : candidateLimit(call.run());
+            int limit = call.run().active() ? call.run().latestSealedInvestigation().orElseThrow().investigation().orElseThrow().candidates().size() : candidateLimit(call.run());
             if (existing >= limit) {
                 throw new ReviewInvalidRequestException("finding: saved findings cannot exceed the candidate capacity; deduplicate shared root causes");
             }
@@ -1146,9 +1145,7 @@ public class ReviewTools
         }
         Instant now = now();
         // A user's local resolution stands; the withdrawal then lives in the discussion, not the state.
-        ReviewFinding updated = finding.state() == ReviewFinding.State.OPEN
-                ? finding.withState(ReviewFinding.State.WITHDRAWN, Optional.of(explanation), now)
-                : finding;
+        ReviewFinding updated = finding.state() == ReviewFinding.State.OPEN ? finding.withState(ReviewFinding.State.WITHDRAWN, Optional.of(explanation), now) : finding;
         ReviewMessage message = new ReviewMessage(UUID.randomUUID().toString(), call.review().id(), Optional.of(finding.id()), Optional.empty(), ReviewMessage.Author.AGENT,
                 "Withdrawn: " + explanation + (refs.isEmpty() ? "" : "\n\nEvidence: " + String.join(", ", refs)),
                 finding.revision(), call.run().id(), Optional.empty(), Optional.empty(), 0, now);
@@ -1966,8 +1963,7 @@ public class ReviewTools
                 refreshFailed = true;
             }
         }
-        String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown")
-                + "; GitHub issue updated at " + issue.updatedAt();
+        String provenance = "Cached open issue projection; synced at " + syncedAt.map(Instant::toString).orElse("unknown") + "; GitHub issue updated at " + issue.updatedAt();
         GitHubIssuePreview preview = new GitHubIssuePreview(issue.title(), issue.body(), issue.author(), issue.labels(), issue.updatedAt(), "open", false);
         ObjectNode node = issueNode(call, issue.number(), preview, "workspace-issue-cache", provenance);
         syncedAt.ifPresentOrElse(at -> node.put("projectionSyncedAt", at.toString()), () -> node.putNull("projectionSyncedAt"));

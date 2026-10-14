@@ -59,8 +59,7 @@ class TestSelectedPullRequestDiffReader
     private final PrDetailStore details = mock(PrDetailStore.class);
     private final SelectedPullRequestReader selected = mock(SelectedPullRequestReader.class);
     private final PullRequestRefreshService refresh = mock(PullRequestRefreshService.class);
-    private final SelectedPullRequestDiffReader reader = new SelectedPullRequestDiffReader(
-            pullRequests, diffs, details, selected, refresh, Clock.fixed(NOW, ZoneOffset.UTC));
+    private final SelectedPullRequestDiffReader reader = new SelectedPullRequestDiffReader(pullRequests, diffs, details, selected, refresh, Clock.fixed(NOW, ZoneOffset.UTC));
 
     @ParameterizedTest
     @ValueSource(booleans = {false, true})

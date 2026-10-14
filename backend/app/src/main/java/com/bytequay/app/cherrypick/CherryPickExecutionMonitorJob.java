@@ -52,8 +52,7 @@ final class CherryPickExecutionMonitorJob
     private final AgentServingGate servingGate;
     private final Clock clock;
     private final int batchSize;
-    private final MonitorLoop loop =
-            new MonitorLoop(CherryPickExecutionMonitorJob.class, "cherry-pick execution");
+    private final MonitorLoop loop = new MonitorLoop(CherryPickExecutionMonitorJob.class, "cherry-pick execution");
 
     CherryPickExecutionMonitorJob(
             CherryPickExecutionStore store,

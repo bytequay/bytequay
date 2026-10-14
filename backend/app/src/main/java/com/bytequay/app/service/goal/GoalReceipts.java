@@ -64,8 +64,7 @@ public class GoalReceipts
     private static final Logger log = LoggerFactory.getLogger(GoalReceipts.class);
     private static final int MAX_RECORDS = 10_000;
     private static final int MAX_ANSWER = 1_500;
-    private static final Map<TurnState, String> ENDINGS = ImmutableMap.of(TurnState.COMPLETED, "finished", TurnState.FAILED, "failed",
-            TurnState.INTERRUPTED, "was interrupted");
+    private static final Map<TurnState, String> ENDINGS = ImmutableMap.of(TurnState.COMPLETED, "finished", TurnState.FAILED, "failed", TurnState.INTERRUPTED, "was interrupted");
 
     private final WorkItemStore items;
     private final WorkspaceStore workspaces;

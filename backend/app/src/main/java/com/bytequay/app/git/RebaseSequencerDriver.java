@@ -33,8 +33,7 @@ import static java.util.Objects.requireNonNull;
 @Component
 public final class RebaseSequencerDriver
 {
-    private static final Set<String> UNMERGED_CODES = ImmutableSet.of(
-            "DD", "AU", "UD", "UA", "DU", "AA", "UU");
+    private static final Set<String> UNMERGED_CODES = ImmutableSet.of("DD", "AU", "UD", "UA", "DU", "AA", "UU");
 
     private final GitCommandRunner git;
 
@@ -126,18 +125,14 @@ public final class RebaseSequencerDriver
     {
         SequenceState before = observe(worktree);
         if (before.kind() == Kind.COMPLETED) {
-            return before.head().equals(originalWorkTip)
-                    ? before
-                    : unsafe(before.head(), "Rebase is closed away from the original work tip");
+            return before.head().equals(originalWorkTip) ? before : unsafe(before.head(), "Rebase is closed away from the original work tip");
         }
         if (before.stoppedCommit().isEmpty()) {
             return unsafe(before.head(), "No guarded rebase is open to abort");
         }
         git.run(worktree, "rebase", "--abort");
         SequenceState after = observe(worktree);
-        return after.kind() == Kind.COMPLETED && after.head().equals(originalWorkTip)
-                ? after
-                : unsafe(after.head(), "Abort did not restore the original work tip");
+        return after.kind() == Kind.COMPLETED && after.head().equals(originalWorkTip) ? after : unsafe(after.head(), "Abort did not restore the original work tip");
     }
 
     /** Reads a completed or stopped rebase without trusting command output. */
@@ -154,9 +149,7 @@ public final class RebaseSequencerDriver
         List<ConflictedPath> conflicts = git.conflicts(worktree);
 
         if (openMarkers.isEmpty()) {
-            return conflicts.isEmpty() && status.isBlank()
-                    ? completed(head)
-                    : unsafe(head, "No rebase is open but the worktree is not clean");
+            return conflicts.isEmpty() && status.isBlank() ? completed(head) : unsafe(head, "No rebase is open but the worktree is not clean");
         }
         boolean oneRebaseMarker = openMarkers.equals(ImmutableSet.of("rebase-merge"))
                 || openMarkers.equals(ImmutableSet.of("rebase-apply"));

@@ -29,9 +29,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteSettingsStores
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-settings-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-settings-store-" + UUID.randomUUID() + ".db").toString();
 
     @Autowired
     private SqliteRemoteSourceStore remoteSources;

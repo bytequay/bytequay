@@ -181,8 +181,7 @@ final class CodexIsolationGuard
         return switch (type) {
             case "system", "user" -> Optional.of(Path.of(requireText(source, "file", type)).getParent());
             case "project" -> throw unavailable("Codex loaded a project config layer for the task worktree");
-            case "packagedDefaults", "legacyManagedConfigTomlFromFile", "mdm",
-                    "enterpriseManaged", "sessionFlags", "legacyManagedConfigTomlFromMdm" -> Optional.empty();
+            case "packagedDefaults", "legacyManagedConfigTomlFromFile", "mdm", "enterpriseManaged", "sessionFlags", "legacyManagedConfigTomlFromMdm" -> Optional.empty();
             default -> throw unavailable("Codex reported an unsupported config layer source: " + type);
         };
     }

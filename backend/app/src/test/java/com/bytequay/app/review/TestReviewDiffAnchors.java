@@ -28,23 +28,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestReviewDiffAnchors
 {
-    private static final DiffFile ALPHA = file(
-            "src/Alpha.java",
-            "@@ -1,3 +1,4 @@",
-            " one",
-            "+two",
-            " three",
-            "@@ -10,4 +11,3 @@ class Alpha",
-            " ten",
-            "-eleven",
-            " twelve");
+    private static final DiffFile ALPHA = file("src/Alpha.java", "@@ -1,3 +1,4 @@", " one", "+two", " three", "@@ -10,4 +11,3 @@ class Alpha", " ten", "-eleven", " twelve");
 
-    private static final DiffFile BRAVO = file(
-            "docs/bravo.md",
-            "@@ -1 +1 @@",
-            "-old title",
-            "+new title",
-            "\\ No newline at end of file");
+    private static final DiffFile BRAVO = file("docs/bravo.md", "@@ -1 +1 @@", "-old title", "+new title", "\\ No newline at end of file");
 
     private static final DiffFile BINARY = new DiffFile("assets/logo.png", "modified", 0, 0, null);
 

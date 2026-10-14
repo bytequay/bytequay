@@ -1037,9 +1037,7 @@ public final class DefaultAgentTurnService
                     .filter(held -> activeTurn.stream().anyMatch(turn -> held.ownerId().equals(turn.id().toString())))
                     .isPresent();
             if (!ownTurnRunning) {
-                throw new AgentConflictException(claim.isPresent()
-                        ? claim.orElseThrow().conflictMessage()
-                        : "Task has no active turn to queue behind: " + task.id());
+                throw new AgentConflictException(claim.isPresent() ? claim.orElseThrow().conflictMessage() : "Task has no active turn to queue behind: " + task.id());
             }
             Instant queuedAt = Instant.now(clock);
             BlobRef textBlob = logStore.writeBlob(task.id(), ByteBuffer.wrap(command.message().getBytes(UTF_8)), "text/plain; charset=utf-8");
@@ -1884,8 +1882,7 @@ public final class DefaultAgentTurnService
         return switch (phase) {
             case SESSION_OPENED, TURN_STARTED, TURN_COMPLETED, INTERRUPTED -> true;
             // Subagent and backfill phases are display-only; they change no task or turn state.
-            case RETRYING, RATE_LIMITED, AGENT_STARTED, AGENT_COMPLETED, AGENT_FAILED,
-                    BACKFILL_STARTED, BACKFILL_COMPLETED -> false;
+            case RETRYING, RATE_LIMITED, AGENT_STARTED, AGENT_COMPLETED, AGENT_FAILED, BACKFILL_STARTED, BACKFILL_COMPLETED -> false;
         };
     }
 
@@ -2298,9 +2295,7 @@ public final class DefaultAgentTurnService
 
     private static AgentEventPayload.LifecyclePhase lifecyclePhase(TurnState state)
     {
-        return state == TurnState.INTERRUPTED
-                ? AgentEventPayload.LifecyclePhase.INTERRUPTED
-                : AgentEventPayload.LifecyclePhase.TURN_COMPLETED;
+        return state == TurnState.INTERRUPTED ? AgentEventPayload.LifecyclePhase.INTERRUPTED : AgentEventPayload.LifecyclePhase.TURN_COMPLETED;
     }
 
     private static String lifecycleMessage(TurnState state, Optional<String> reason)

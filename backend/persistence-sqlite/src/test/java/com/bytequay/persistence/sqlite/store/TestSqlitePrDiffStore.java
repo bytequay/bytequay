@@ -37,9 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqlitePrDiffStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-pr-diff-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-pr-diff-store-" + UUID.randomUUID() + ".db").toString();
 
     @Autowired
     private SqlitePrDiffStore store;

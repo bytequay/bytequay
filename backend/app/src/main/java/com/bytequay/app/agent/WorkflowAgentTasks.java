@@ -89,9 +89,7 @@ public final class WorkflowAgentTasks
         if (!driver.capabilities().permissionPolicies().contains(policy)) {
             throw new AgentUnavailableException("Agent lane " + laneId + " cannot enforce " + policy);
         }
-        AgentProviderStatus status = laneId.value().startsWith(DeepSeekAgentDriverRegistry.PREFIX)
-                ? driver.probe(model)
-                : driver.probe();
+        AgentProviderStatus status = laneId.value().startsWith(DeepSeekAgentDriverRegistry.PREFIX) ? driver.probe(model) : driver.probe();
         if (!status.available()) {
             throw new AgentProviderUnavailableException(status);
         }

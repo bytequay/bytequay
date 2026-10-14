@@ -67,8 +67,7 @@ public class AgentCliUpdateJob
                 continue;
             }
             try {
-                drivers.require(status.laneId()).update().ifPresent(output ->
-                        log.info("{} CLI update: {}", lane, output));
+                drivers.require(status.laneId()).update().ifPresent(output -> log.info("{} CLI update: {}", lane, output));
             }
             catch (RuntimeException failure) {
                 log.warn("{} CLI update failed: {}", lane, failure.getMessage());

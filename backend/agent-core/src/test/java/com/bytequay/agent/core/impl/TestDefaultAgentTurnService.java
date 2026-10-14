@@ -398,8 +398,7 @@ class TestDefaultAgentTurnService
         AgentTurn first = service.start(command("First", "first"));
         driver.complete("Done");
         AgentTurn previous = service.get(first.id());
-        AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "second",
-                previous.settings().orElseThrow().withLaneId(new AgentLaneId("different-provider")), NOW);
+        AgentTurn current = AgentTurn.accepted(TurnId.random(), task.id(), "second", previous.settings().orElseThrow().withLaneId(new AgentLaneId("different-provider")), NOW);
         assertThat(ReviewTurnInputResolver.stillInConversation(ImmutableList.of(previous, current), turn -> true)).isEmpty();
         AgentTurn sameProvider = AgentTurn.accepted(TurnId.random(), task.id(), "same", previous.settings().orElseThrow(), NOW);
         assertThat(ReviewTurnInputResolver.stillInConversation(ImmutableList.of(previous, sameProvider), turn -> true)).contains(previous);
@@ -414,8 +413,7 @@ class TestDefaultAgentTurnService
         taskService = new DefaultAgentTaskService(stores, worktrees, resources, registry, CLOCK);
         service = service(driver, runtimeRegistry);
         service.start(command("First", "first"));
-        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), taskService.get(task.id()).version(),
-                task.defaults().withLaneId(nextDriver.id())));
+        taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), taskService.get(task.id()).version(), task.defaults().withLaneId(nextDriver.id())));
         QueuedAgentInput queued = service.enqueue(new QueueAgentInputCommand(task.id(), taskService.get(task.id()).version(), "Next", ImmutableList.of(), "queued"));
         taskService.updateDefaults(new UpdateAgentTaskDefaultsCommand(task.id(), taskService.get(task.id()).version(), task.defaults().withLaneId(driver.id())));
         driver.complete("First done");
@@ -1978,8 +1976,7 @@ class TestDefaultAgentTurnService
         enableDevelopment(completed::add);
         AgentTurn source = service.start(command("Change", "cancel-before-native-callback"));
         reportReady(source);
-        CompletionStage<?> cancellation = runtimeRegistry.running(source.id()).orElseThrow().completion().whenComplete((result, failure) ->
-                service.cancel(source.id()));
+        CompletionStage<?> cancellation = runtimeRegistry.running(source.id()).orElseThrow().completion().whenComplete((result, failure) -> service.cancel(source.id()));
 
         driver.complete("Finished before cancellation reached the provider");
         cancellation.toCompletableFuture().join();
@@ -2368,8 +2365,7 @@ class TestDefaultAgentTurnService
         assertThat(stores.outboxEntries())
                 .hasSize(2)
                 .allSatisfy(entry -> assertThat(entry.sequence()).isPresent());
-        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.startedAt()).isEmpty());
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> assertThat(turn.startedAt()).isEmpty());
     }
 
     @Test
@@ -2557,8 +2553,7 @@ class TestDefaultAgentTurnService
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("start failed");
 
-        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.FAILED));
     }
 
     @Test
@@ -2667,8 +2662,7 @@ class TestDefaultAgentTurnService
                 .isInstanceOf(AgentDeliveryUncertainException.class)
                 .hasMessage("start failed after approval");
 
-        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.INTERRUPTED));
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.INTERRUPTED));
         assertThat(stores.find(approvalId).orElseThrow().pending()).isTrue();
 
         durableApprovals(new AgentRuntimeRegistry(ignored -> {})).denyAllPending();
@@ -2856,8 +2850,7 @@ class TestDefaultAgentTurnService
         assertThatThrownBy(() -> service.start(command("fail", "key-1")))
                 .isSameAs(failure);
 
-        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.FAILED));
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.FAILED));
         assertThat(stores.find(task.id()).orElseThrow().worktreeMutationClaim()).isPresent();
         assertThat(runtimeRegistry.session(task.id())).isPresent();
         assertThat(runtimeRegistry.unverifiedClose(task.id())).contains(failure);
@@ -2874,8 +2867,7 @@ class TestDefaultAgentTurnService
         assertThatThrownBy(() -> service.start(command("fail", "key-1")))
                 .isSameAs(failure);
 
-        assertThat(stores.list(task.id())).singleElement().satisfies(turn ->
-                assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
+        assertThat(stores.list(task.id())).singleElement().satisfies(turn -> assertThat(turn.state()).isEqualTo(TurnState.ACCEPTED));
         assertThat(stores.find(task.id()).orElseThrow().state()).isEqualTo(TaskState.OPEN);
         assertThat(stores.findActive(task.id())).isPresent();
     }
@@ -3070,8 +3062,7 @@ class TestDefaultAgentTurnService
         assertThatThrownBy(() -> service.steer(steer))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessage("blocked event log");
-        assertThat(stores.steers()).singleElement().satisfies(delivery ->
-                assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
+        assertThat(stores.steers()).singleElement().satisfies(delivery -> assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
         assertThat(driver.steers()).isEmpty();
         assertThat(service.findSteerByIdempotencyKey(first.id(), "steer-1"))
                 .hasValueSatisfying(delivery -> assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
@@ -3104,8 +3095,7 @@ class TestDefaultAgentTurnService
         assertThatThrownBy(() -> service.steer(new SteerAgentTurnCommand(first.id(), "never sent", ImmutableList.of(), "steer-1")))
                 .isInstanceOf(AgentStorageException.class)
                 .hasMessage("blocked event log");
-        assertThat(stores.steers()).singleElement().satisfies(delivery ->
-                assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
+        assertThat(stores.steers()).singleElement().satisfies(delivery -> assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.ACCEPTED));
 
         driver.complete("done");
 
@@ -3202,8 +3192,7 @@ class TestDefaultAgentTurnService
 
         assertThatThrownBy(() -> secondEntered.get(200, TimeUnit.MILLISECONDS))
                 .isInstanceOf(TimeoutException.class);
-        assertThat(stores.steers()).singleElement().satisfies(delivery ->
-                assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.SENDING));
+        assertThat(stores.steers()).singleElement().satisfies(delivery -> assertThat(delivery.state()).isEqualTo(AgentInputDelivery.State.SENDING));
 
         releaseFirst.complete(null);
         assertThat(firstSteer.get(5, TimeUnit.SECONDS).state()).isEqualTo(AgentInputDelivery.State.DELIVERED);

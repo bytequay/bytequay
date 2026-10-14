@@ -35,8 +35,7 @@ class TestCodexDevelopmentResult
 {
     private final ObjectMapper json = new ObjectMapper().registerModule(new Jdk8Module());
     private final CodexProtocolCodec codec = new CodexProtocolCodec(json);
-    private final CodexEventMapper mapper = new CodexEventMapper(Path.of("/tmp"),
-            SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
+    private final CodexEventMapper mapper = new CodexEventMapper(Path.of("/tmp"), SecretRedactor.fromEnvironment(ImmutableMap.of("OPENAI_API_KEY", "known-secret")));
     private final DevelopmentResultBridge bridge = new DevelopmentResultBridge("app-turn", DevelopmentResultBridge.INSTRUCTION, true, Optional.empty());
 
     @Test

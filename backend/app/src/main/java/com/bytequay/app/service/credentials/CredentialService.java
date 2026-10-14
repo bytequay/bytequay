@@ -158,9 +158,7 @@ public class CredentialService
      */
     public GitHubTokenSource gitHubTokenSource()
     {
-        return credentialStore.source().filter(GITHUB_CLI_SOURCE::equals).isPresent()
-                ? GitHubTokenSource.GITHUB_CLI
-                : GitHubTokenSource.PERSONAL_ACCESS_TOKEN;
+        return credentialStore.source().filter(GITHUB_CLI_SOURCE::equals).isPresent() ? GitHubTokenSource.GITHUB_CLI : GitHubTokenSource.PERSONAL_ACCESS_TOKEN;
     }
 
     /** The full stored account token for clipboard copy; the UI never renders it. */

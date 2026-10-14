@@ -547,8 +547,7 @@ class TestCodexCliDriver
         assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
         assertThat(request.path("sandboxPolicy").has("writableRoots")).isFalse();
         assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();
-        supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"title\","
-                + "\"text\":\"Find refactoring opportunities\",\"phase\":\"final_answer\"}]");
+        supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"title\"," + "\"text\":\"Find refactoring opportunities\",\"phase\":\"final_answer\"}]");
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
         assertThat(result.finalResponse()).contains("Find refactoring opportunities");
@@ -764,8 +763,7 @@ class TestCodexCliDriver
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
         assertThat(failedResult.state()).isEqualTo(AgentTurnResult.State.FAILED);
-        assertThat(failedResult.terminalReason()).hasValueSatisfying(reason ->
-                assertThat(reason).contains("Codex CLI 0.153.4").contains("provider failed"));
+        assertThat(failedResult.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("Codex CLI 0.153.4").contains("provider failed"));
 
         session = driver.open(context(Optional.of(reference), new AtomicReference<>()), event -> {});
         supervisor.versionOutput("future-build");
@@ -777,8 +775,7 @@ class TestCodexCliDriver
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
         assertThat(disconnectedResult.state()).isEqualTo(AgentTurnResult.State.INTERRUPTED);
-        assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason ->
-                assertThat(reason).contains("Codex CLI 0.153.4").contains("exited with code 1"));
+        assertThat(disconnectedResult.terminalReason()).hasValueSatisfying(reason -> assertThat(reason).contains("Codex CLI 0.153.4").contains("exited with code 1"));
     }
 
     @Test
@@ -1244,8 +1241,7 @@ class TestCodexCliDriver
         RunningTurn turn = session.start(command("approval-timeout-missing-history"));
         AppServerProcess server = supervisor.server();
         server.inventoryChildren.put("thread-1", ImmutableList.of("missing-child"));
-        server.historyOverrides.put("missing-child", "{\"thread\":{\"id\":\"missing-child\",\"sessionId\":\"session-1\","
-                + "\"status\":{\"type\":\"idle\"},\"turns\":[]}}");
+        server.historyOverrides.put("missing-child", "{\"thread\":{\"id\":\"missing-child\",\"sessionId\":\"session-1\"," + "\"status\":{\"type\":\"idle\"},\"turns\":[]}}");
         server.emit("""
                 {"id":98,"method":"item/commandExecution/requestApproval","params":{
                 "availableDecisions":["accept","decline"],"command":"echo expired",
@@ -1577,8 +1573,7 @@ class TestCodexCliDriver
         assertThat(wrongSessionFlags.server().threadRequests()).isEmpty();
 
         ScriptedProcessSupervisor inheritedThreadServer = new ScriptedProcessSupervisor(objectMapper);
-        inheritedThreadServer.mcpStatuses = "{\"data\":[{\"name\":\"ambient\",\"pluginId\":null}],"
-                + "\"nextCursor\":null}";
+        inheritedThreadServer.mcpStatuses = "{\"data\":[{\"name\":\"ambient\",\"pluginId\":null}]," + "\"nextCursor\":null}";
         assertThatThrownBy(() -> driver(inheritedThreadServer).open(context(Optional.empty(), new AtomicReference<>()), event -> {}))
                 .isInstanceOf(AgentUnavailableException.class)
                 .hasMessageContaining("thread inherited an MCP server");
@@ -1846,8 +1841,7 @@ class TestCodexCliDriver
         RunningTurn turn = session.start(command("missing child history"));
         AppServerProcess server = supervisor.server();
         server.inventoryChildren.put("thread-1", ImmutableList.of("missing-child"));
-        server.historyOverrides.put("missing-child", "{\"thread\":{\"id\":\"missing-child\",\"sessionId\":\"session-1\","
-                + "\"status\":{\"type\":\"idle\"},\"turns\":[]}}");
+        server.historyOverrides.put("missing-child", "{\"thread\":{\"id\":\"missing-child\",\"sessionId\":\"session-1\"," + "\"status\":{\"type\":\"idle\"},\"turns\":[]}}");
         server.completeTurn();
 
         AgentTurnResult result = turn.completion().toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -2001,8 +1995,7 @@ class TestCodexCliDriver
         AgentSession session = driver.open(context(Optional.empty(), new AtomicReference<>()), events::add);
         RunningTurn turn = session.start(command("recover root answer"));
 
-        supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"final-summary\","
-                + "\"phase\":\"final_answer\",\"text\":\"recovered root answer\"}]");
+        supervisor.server().completeTurnWithSummary("[{\"type\":\"agentMessage\",\"id\":\"final-summary\"," + "\"phase\":\"final_answer\",\"text\":\"recovered root answer\"}]");
         AgentTurnResult result = turn.completion().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         assertThat(result.state()).isEqualTo(AgentTurnResult.State.COMPLETED);
@@ -2852,8 +2845,7 @@ class TestCodexCliDriver
                 .singleElement()
                 .satisfies(event -> assertThat(((ProviderAgentEvent.Lifecycle) event).message())
                         .isEqualTo(agentPath));
-        assertThat(childEvents).allSatisfy(event ->
-                assertThat(event.source().logicalAgentPath()).contains(agentPath));
+        assertThat(childEvents).allSatisfy(event -> assertThat(event.source().logicalAgentPath()).contains(agentPath));
         int discovery = childEvents.indexOf(childEvents.stream()
                 .filter(event -> event instanceof ProviderAgentEvent.Lifecycle lifecycle
                         && lifecycle.phase() == ProviderAgentEvent.LifecyclePhase.AGENT_STARTED)
@@ -3892,8 +3884,7 @@ class TestCodexCliDriver
         /** Reports one command still running after the item that started it went terminal. */
         private void reportBackgroundTerminal()
         {
-            backgroundTerminals = "{\"data\":[{\"processId\":\"proc-1\",\"itemId\":\"exec-1\","
-                    + "\"command\":\"sleep 600\",\"cwd\":\"/worktree\"}],\"nextCursor\":null}";
+            backgroundTerminals = "{\"data\":[{\"processId\":\"proc-1\",\"itemId\":\"exec-1\"," + "\"command\":\"sleep 600\",\"cwd\":\"/worktree\"}],\"nextCursor\":null}";
         }
 
         private void reportNoBackgroundTerminals()
@@ -4001,9 +3992,7 @@ class TestCodexCliDriver
             }
             if (spec.argv().contains("login")) {
                 output.onOutput(ProcessStream.STDOUT, StandardCharsets.UTF_8.encode(loggedIn ? "Logged in using ChatGPT\n" : "Not logged in\n"));
-                return loggedIn
-                        ? ImmediateProcess.success(probeTermination)
-                        : ImmediateProcess.failure(probeTermination);
+                return loggedIn ? ImmediateProcess.success(probeTermination) : ImmediateProcess.failure(probeTermination);
             }
             boolean catalog = spec.owner().id().equals("codex-model-catalog");
             AppServerProcess server = new AppServerProcess(
@@ -4105,8 +4094,7 @@ class TestCodexCliDriver
         private final Path codexHome;
         private final List<String> argv;
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
-        private final ExecutorService reader = Executors.newSingleThreadExecutor(
-                Thread.ofVirtual().name("scripted-app-server-reader").factory());
+        private final ExecutorService reader = Executors.newSingleThreadExecutor(Thread.ofVirtual().name("scripted-app-server-reader").factory());
         private final AtomicInteger turns = new AtomicInteger();
         private final AtomicInteger threads = new AtomicInteger();
         private final AtomicInteger resumes = new AtomicInteger();
@@ -4489,11 +4477,7 @@ class TestCodexCliDriver
                     respond(id, "{\"terminated\":true}");
                 }
                 case "model/list" -> respond(id, models.get());
-                case "mcpServerStatus/list" -> respond(
-                        id,
-                        mcpStatuses.get() != null
-                                ? mcpStatuses.get()
-                                : "{\"data\":[],\"nextCursor\":null}");
+                case "mcpServerStatus/list" -> respond(id, mcpStatuses.get() != null ? mcpStatuses.get() : "{\"data\":[],\"nextCursor\":null}");
                 case "initialized" -> {}
                 case "thread/start" -> {
                     threadRequests.add(message.path("params").deepCopy());
@@ -4518,13 +4502,11 @@ class TestCodexCliDriver
                 case "thread/unsubscribe" -> respond(id, "{\"status\":\"unsubscribed\"}");
                 case "turn/start" -> {
                     turnRequests.add(message.path("params").deepCopy());
-                    turnSettings.add(message.path("params").path("model").asText("none")
-                            + "/" + message.path("params").path("effort").asText("none"));
+                    turnSettings.add(message.path("params").path("model").asText("none") + "/" + message.path("params").path("effort").asText("none"));
                     turnInputs.add(message.path("params").path("input").toString());
                     activeThread = message.path("params").path("threadId").asText();
                     activeTurn = "turn-" + turns.incrementAndGet();
-                    respond(id, "{\"turn\":{\"id\":\"" + activeTurn
-                            + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null,\"items\":[]}}");
+                    respond(id, "{\"turn\":{\"id\":\"" + activeTurn + "\",\"status\":\"inProgress\",\"error\":null,\"durationMs\":null,\"items\":[]}}");
                 }
                 case "turn/steer" -> {
                     steerRequests.add(message.path("params").toString());

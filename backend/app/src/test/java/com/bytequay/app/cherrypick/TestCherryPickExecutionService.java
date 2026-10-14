@@ -1305,13 +1305,7 @@ class TestCherryPickExecutionService
     private static final class TestWorktreeService
             implements WorktreeService
     {
-        private static final List<String> GIT_OPERATION_PATHS = ImmutableList.of(
-                "MERGE_HEAD",
-                "CHERRY_PICK_HEAD",
-                "REVERT_HEAD",
-                "REBASE_HEAD",
-                "rebase-merge",
-                "rebase-apply");
+        private static final List<String> GIT_OPERATION_PATHS = ImmutableList.of("MERGE_HEAD", "CHERRY_PICK_HEAD", "REVERT_HEAD", "REBASE_HEAD", "rebase-merge", "rebase-apply");
 
         private final Path repository;
         private final Path worktreeParent;

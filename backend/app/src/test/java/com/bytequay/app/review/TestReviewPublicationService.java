@@ -651,8 +651,7 @@ class TestReviewPublicationService
     @Test
     void confirmedMissingCommentReturnsToPendingWithoutChangingThePayloadOrPosting()
     {
-        ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN,
-                OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
+        ReviewPublication uncertain = new ReviewPublication("failed-send", ReviewPublication.State.UNCERTAIN, OptionalLong.empty(), OptionalLong.empty(), Optional.empty(), NOW);
         ReviewDraftItem original = manual("src/A.java", 10, "My edited comment").withPublication(Optional.of(uncertain));
         ReviewDraft saved = drafts.save(ReviewDraft.empty(REPO, NUMBER, NOW).withReview("Saved review", "REQUEST_CHANGES", NOW)
                 .withItems(ImmutableList.of(original), NOW));

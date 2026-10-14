@@ -74,8 +74,7 @@ class TestCherryPickConflictScout
         commit("Target change");
         String movedTarget = head();
 
-        Map<String, ConflictPreview> previews =
-                scout.scout(repository, movedTarget, ImmutableList.of(clean, conflicting, later));
+        Map<String, ConflictPreview> previews = scout.scout(repository, movedTarget, ImmutableList.of(clean, conflicting, later));
 
         assertThat(previews.get(clean).status()).isEqualTo(Status.CLEAN);
 
@@ -145,8 +144,7 @@ class TestCherryPickConflictScout
         commit("Target already has it");
         String target = head();
 
-        Map<String, ConflictPreview> previews =
-                scout.scout(repository, target, ImmutableList.of(redundant, unique));
+        Map<String, ConflictPreview> previews = scout.scout(repository, target, ImmutableList.of(redundant, unique));
 
         assertThat(previews.get(redundant).status()).isEqualTo(Status.CLEAN);
         assertThat(previews.get(unique).status())
@@ -162,8 +160,7 @@ class TestCherryPickConflictScout
         commit("Base");
         String target = head();
 
-        Map<String, ConflictPreview> previews =
-                scout.scout(repository, target, ImmutableList.of("0".repeat(40)));
+        Map<String, ConflictPreview> previews = scout.scout(repository, target, ImmutableList.of("0".repeat(40)));
 
         assertThat(previews.values()).allMatch(preview -> preview.status() == Status.NOT_ANALYZED);
         assertNoLeftoverWorktree(target);

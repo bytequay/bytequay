@@ -101,8 +101,7 @@ class TestOwnedProcessRecovery
 
         assertThat(first.recoverOwnedProcesses()).isEmpty();
 
-        List<OwnedProcessRecovery> recovered =
-                new DefaultProcessSupervisor(launches, intents).recoverOwnedProcesses();
+        List<OwnedProcessRecovery> recovered = new DefaultProcessSupervisor(launches, intents).recoverOwnedProcesses();
 
         assertThat(recovered).singleElement().satisfies(result -> {
             assertThat(result.launchId()).isEqualTo(process.launchId());
@@ -496,8 +495,7 @@ class TestOwnedProcessRecovery
 
     private OwnedProcessRecovery recover()
     {
-        List<OwnedProcessRecovery> results =
-                new DefaultProcessSupervisor(launches, intents).recoverOwnedProcesses();
+        List<OwnedProcessRecovery> results = new DefaultProcessSupervisor(launches, intents).recoverOwnedProcesses();
         assertThat(results).hasSize(1);
         return results.getFirst();
     }

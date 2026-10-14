@@ -343,9 +343,7 @@ final class ScriptedAgentDriver
                 }
                 events.emit(new ProviderAgentEvent.Lifecycle(Optional.of("finished-" + command.turnId()), lifecycle(action.result().state()), action.result().state().name()));
             }
-            CompletableFuture<AgentTurnResult> completion = action.waitsForCancellation()
-                    ? new CompletableFuture<>()
-                    : CompletableFuture.completedFuture(action.result());
+            CompletableFuture<AgentTurnResult> completion = action.waitsForCancellation() ? new CompletableFuture<>() : CompletableFuture.completedFuture(action.result());
             if (action.waitsForCancellation()) {
                 synchronized (ScriptedAgentDriver.this) {
                     pendingTurns.put(command.turnId(), completion);
@@ -451,8 +449,6 @@ final class ScriptedAgentDriver
 
     private static ProviderAgentEvent.LifecyclePhase lifecycle(AgentTurnResult.State state)
     {
-        return state == AgentTurnResult.State.COMPLETED
-                ? ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED
-                : ProviderAgentEvent.LifecyclePhase.INTERRUPTED;
+        return state == AgentTurnResult.State.COMPLETED ? ProviderAgentEvent.LifecyclePhase.TURN_COMPLETED : ProviderAgentEvent.LifecyclePhase.INTERRUPTED;
     }
 }

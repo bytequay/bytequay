@@ -353,9 +353,7 @@ public final class DefaultProcessSupervisor
                 return result(marker, OwnedProcessRecovery.Outcome.UNVERIFIABLE, "Recorded PID runs an unrecognized executable");
             }
         }
-        ProcessExit.TreeTermination groupTermination = liveLeader
-                ? terminateGroup(group.orElseThrow(), Duration.ofSeconds(1))
-                : verifyGroupEmpty(group.orElseThrow());
+        ProcessExit.TreeTermination groupTermination = liveLeader ? terminateGroup(group.orElseThrow(), Duration.ofSeconds(1)) : verifyGroupEmpty(group.orElseThrow());
         ProcessExit.TreeTermination descendantTermination = descendants
                 .map(identities -> terminateIdentities(identities, Duration.ofSeconds(1)))
                 .orElse(ProcessExit.TreeTermination.UNVERIFIABLE);
@@ -406,16 +404,12 @@ public final class DefaultProcessSupervisor
             ProcessGroups.members(processGroup)
                     .ifPresent(current -> current.forEach(pid -> ProcessHandle.of(pid).ifPresent(ProcessHandle::destroyForcibly)));
         }
-        return awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT)
-                ? ProcessExit.TreeTermination.VERIFIED_STOPPED
-                : ProcessExit.TreeTermination.UNVERIFIABLE;
+        return awaitGroupEmpty(processGroup, TREE_VERIFICATION_TIMEOUT) ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
     }
 
     private static ProcessExit.TreeTermination verifyGroupEmpty(long processGroup)
     {
-        return ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent()
-                ? ProcessExit.TreeTermination.VERIFIED_STOPPED
-                : ProcessExit.TreeTermination.UNVERIFIABLE;
+        return ProcessGroups.members(processGroup).filter(List::isEmpty).isPresent() ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
     }
 
     private static ProcessExit.TreeTermination terminateIdentities(List<ProcessIdentity> identities, Duration grace)
@@ -434,9 +428,7 @@ public final class DefaultProcessSupervisor
                     .flatMap(Optional::stream)
                     .forEach(ProcessHandle::destroyForcibly);
         }
-        return awaitIdentitiesDead(identities, TREE_VERIFICATION_TIMEOUT)
-                ? ProcessExit.TreeTermination.VERIFIED_STOPPED
-                : ProcessExit.TreeTermination.UNVERIFIABLE;
+        return awaitIdentitiesDead(identities, TREE_VERIFICATION_TIMEOUT) ? ProcessExit.TreeTermination.VERIFIED_STOPPED : ProcessExit.TreeTermination.UNVERIFIABLE;
     }
 
     private static boolean awaitIdentitiesDead(List<ProcessIdentity> identities, Duration timeout)
@@ -507,9 +499,7 @@ public final class DefaultProcessSupervisor
     private static String resolveExecutable(ProcessSpec spec)
     {
         String command = spec.argv().getFirst();
-        Optional<Path> resolved = command.contains("/")
-                ? Optional.of(Path.of(command))
-                : searchPath(command, spec.environment().get("PATH"));
+        Optional<Path> resolved = command.contains("/") ? Optional.of(Path.of(command)) : searchPath(command, spec.environment().get("PATH"));
         return resolved
                 .map(path -> path.toAbsolutePath().normalize())
                 .filter(Files::isExecutable)
@@ -603,9 +593,7 @@ public final class DefaultProcessSupervisor
             }
             catch (IOException | RuntimeException failure) {
                 abort(launcher, recorded, released);
-                throw failure instanceof AgentUnavailableException unavailable
-                        ? unavailable
-                        : new AgentUnavailableException("Unable to start process: " + executable, failure);
+                throw failure instanceof AgentUnavailableException unavailable ? unavailable : new AgentUnavailableException("Unable to start process: " + executable, failure);
             }
         }
 
@@ -721,8 +709,7 @@ public final class DefaultProcessSupervisor
         private final Object terminationLock = new Object();
         private final Object markerLock = new Object();
         private final ExecutorService inputExecutor;
-        private final BlockingQueue<OutputChunk> outputQueue =
-                new LinkedBlockingQueue<>(OUTPUT_QUEUE_CAPACITY);
+        private final BlockingQueue<OutputChunk> outputQueue = new LinkedBlockingQueue<>(OUTPUT_QUEUE_CAPACITY);
         private final CompletableFuture<ProcessExit> exit = new CompletableFuture<>();
         private final CompletableFuture<Void> stdoutDone = new CompletableFuture<>();
         private final CompletableFuture<Void> stderrDone = new CompletableFuture<>();
@@ -737,8 +724,7 @@ public final class DefaultProcessSupervisor
         private final AtomicBoolean terminating = new AtomicBoolean();
         private final AtomicBoolean verifiedStopped = new AtomicBoolean();
         private final AtomicBoolean observingDescendants = new AtomicBoolean(true);
-        private final AtomicReference<ProcessExit.Reason> reason =
-                new AtomicReference<>(ProcessExit.Reason.EXITED);
+        private final AtomicReference<ProcessExit.Reason> reason = new AtomicReference<>(ProcessExit.Reason.EXITED);
         private final Thread outputDispatcher;
         private final Thread descendantObserver;
 
@@ -757,10 +743,8 @@ public final class DefaultProcessSupervisor
             this.descendantObserver = Thread.ofVirtual()
                     .name("bytequay-process-descendants-" + payloadPid)
                     .start(this::observeDescendants);
-            Thread.ofVirtual().name("bytequay-process-stdout-" + payloadPid).start(() ->
-                    drain(launcher.getInputStream(), ProcessStream.STDOUT, stdoutDone));
-            Thread.ofVirtual().name("bytequay-process-stderr-" + payloadPid).start(() ->
-                    drain(launcher.getErrorStream(), ProcessStream.STDERR, stderrDone));
+            Thread.ofVirtual().name("bytequay-process-stdout-" + payloadPid).start(() -> drain(launcher.getInputStream(), ProcessStream.STDOUT, stdoutDone));
+            Thread.ofVirtual().name("bytequay-process-stderr-" + payloadPid).start(() -> drain(launcher.getErrorStream(), ProcessStream.STDERR, stderrDone));
             launcher.onExit().whenComplete((ignored, failure) -> finish());
             if (!spec.maximumRuntime().isZero()) {
                 CompletableFuture.delayedExecutor(spec.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)

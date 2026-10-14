@@ -1206,9 +1206,7 @@ public class AgentReviewService
         // A stale sealed report needs a new identity: replaying its old operation key would restore the stale result.
         boolean stale = step.validation().filter(report -> !currentValidation(run, report)).isPresent()
                 || (step.investigation().isPresent() && !ReviewCards.hasExplanation(store, run));
-        ReviewRun repairing = stale
-                ? run.withStep(step.next(step.kind()).forRepair(), Instant.now(clock))
-                : run.replaceCurrentStep(step.forRepair(), Instant.now(clock));
+        ReviewRun repairing = stale ? run.withStep(step.next(step.kind()).forRepair(), Instant.now(clock)) : run.replaceCurrentStep(step.forRepair(), Instant.now(clock));
         startFollowup(store.updateRun(repairing.withCompletionRepairUsed(Instant.now(clock))), task);
     }
 

@@ -53,10 +53,8 @@ public final class AgentMaintenance
 {
     private static final System.Logger log = System.getLogger(AgentMaintenance.class.getName());
     private static final String INTERRUPTION_REASON = "Backend restarted while the turn was active";
-    private static final String VERIFIED_STOP_REASON =
-            INTERRUPTION_REASON + "; its provider process is verified stopped";
-    private static final String UNVERIFIED_STOP_REASON =
-            INTERRUPTION_REASON + "; a process it started could not be verified stopped, so the worktree stays reserved";
+    private static final String VERIFIED_STOP_REASON = INTERRUPTION_REASON + "; its provider process is verified stopped";
+    private static final String UNVERIFIED_STOP_REASON = INTERRUPTION_REASON + "; a process it started could not be verified stopped, so the worktree stays reserved";
     private static final Duration CLEANUP_RETRY_DELAY = Duration.ofMinutes(1);
 
     private final AgentTaskStore taskStore;
@@ -340,9 +338,7 @@ public final class AgentMaintenance
             Instant interruptedAt = Instant.now(clock);
             AgentTask current = taskStore.find(task.id()).orElseThrow();
             turnStore.update(turnStore.find(turn.id()).orElseThrow().finish(TurnState.INTERRUPTED, metrics, Optional.of(reason), interruptedAt));
-            AgentTask released = current.worktreeMutationClaim().equals(Optional.of(claim))
-                    ? current.releaseWorktreeMutation(claim, interruptedAt)
-                    : current;
+            AgentTask released = current.worktreeMutationClaim().equals(Optional.of(claim)) ? current.releaseWorktreeMutation(claim, interruptedAt) : current;
             taskStore.update(unverifiableLaunch
                     .map(launchId -> released.claimWorktreeMutation(WorktreeMutationClaim.recovery(launchId, interruptedAt), interruptedAt))
                     .orElse(released));

@@ -35,9 +35,7 @@ import static java.util.Objects.requireNonNull;
 public class SqliteSteerDeliveryStore
         implements SteerDeliveryStore
 {
-    private static final List<AgentInputDelivery.State> UNSETTLED = ImmutableList.of(
-            AgentInputDelivery.State.ACCEPTED,
-            AgentInputDelivery.State.SENDING);
+    private static final List<AgentInputDelivery.State> UNSETTLED = ImmutableList.of(AgentInputDelivery.State.ACCEPTED, AgentInputDelivery.State.SENDING);
 
     private final AgentInputDeliveryJpaRepository repository;
 

@@ -63,9 +63,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteReviewStores
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-review-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-review-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
     private static final String BASE_SHA = "0000000000000000000000000000000000000000";
     private static final String MERGE_BASE_SHA = "1111111111111111111111111111111111111111";

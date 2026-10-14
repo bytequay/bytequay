@@ -205,13 +205,7 @@ public record QueuedAgentInput(
 
     public enum State
     {
-        QUEUED,
-        STARTING,
-        STARTED,
-        PAUSED,
-        UNCERTAIN,
-        REMOVED,
-        ABANDONED;
+        QUEUED, STARTING, STARTED, PAUSED, UNCERTAIN, REMOVED, ABANDONED;
 
         /** Waiting or being claimed: what stands between the task and Complete. */
         public boolean live()

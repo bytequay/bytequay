@@ -165,9 +165,7 @@ public class RecentTouchRecorder
             };
             // Opening a diff is intent, and it is worth more than the minute
             // count that a glance happens to have accumulated.
-            int minutes = touch.signal() == ViewerTouch.Signal.DIFF_OPENED
-                    ? 0
-                    : touch.dwellSeconds() / 60;
+            int minutes = touch.signal() == ViewerTouch.Signal.DIFF_OPENED ? 0 : touch.dwellSeconds() / 60;
             item.ifPresent(resolved -> save(resolved, RecentReason.READ, minutes));
         });
     }

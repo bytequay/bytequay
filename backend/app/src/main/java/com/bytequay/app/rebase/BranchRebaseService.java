@@ -345,9 +345,7 @@ public class BranchRebaseService
         String stopped = state.stoppedCommit().orElseThrow();
         BranchRebase resolving = rebase.resolving(stopped, clock.instant());
         if (resolving.attemptCount() >= BranchRebase.MAX_AGENT_TURNS) {
-            return pause(resolving, PauseReason.RETRY_LIMIT_REACHED,
-                    "Conflict on " + stopped + " remains after "
-                            + BranchRebase.MAX_AGENT_TURNS + " attempts");
+            return pause(resolving, PauseReason.RETRY_LIMIT_REACHED, "Conflict on " + stopped + " remains after " + BranchRebase.MAX_AGENT_TURNS + " attempts");
         }
         BranchRebase counted = resolving.recordTurnStarted(clock.instant());
         ActionJournal action = journal(counted, ActionType.AGENT_TURN, Optional.of(stopped), state.head(), counted.attemptCount());

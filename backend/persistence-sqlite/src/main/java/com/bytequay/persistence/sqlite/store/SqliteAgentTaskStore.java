@@ -57,9 +57,7 @@ public class SqliteAgentTaskStore
 {
     private static final List<TaskState> TERMINAL_STATES = ImmutableList.of(TaskState.COMPLETED, TaskState.FAILED);
     // These policies have a separate durable workflow row that must reach FINISHED before removal.
-    private static final List<AgentPermissionPolicy> WORKFLOW_POLICIES = ImmutableList.of(
-            AgentPermissionPolicy.CI_AUTOFIX,
-            AgentPermissionPolicy.CHERRY_PICK);
+    private static final List<AgentPermissionPolicy> WORKFLOW_POLICIES = ImmutableList.of(AgentPermissionPolicy.CI_AUTOFIX, AgentPermissionPolicy.CHERRY_PICK);
 
     private final AgentTaskJpaRepository repository;
     private final AgentTurnJpaRepository turns;

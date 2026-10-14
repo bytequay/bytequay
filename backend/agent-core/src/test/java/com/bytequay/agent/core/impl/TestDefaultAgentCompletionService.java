@@ -87,12 +87,7 @@ class TestDefaultAgentCompletionService
     private static final Instant NOW = Instant.parse("2026-08-16T00:00:00Z");
     private static final Path WORKTREE = Path.of("/tmp/bytequay-completion-worktree");
     private static final RepositoryIdentity REPOSITORY = new RepositoryIdentity("bytequay", "sample");
-    private static final AgentMetrics METRICS = new AgentMetrics(
-            10,
-            2,
-            3,
-            Optional.empty(),
-            Duration.ofSeconds(4));
+    private static final AgentMetrics METRICS = new AgentMetrics(10, 2, 3, Optional.empty(), Duration.ofSeconds(4));
 
     private InMemoryAgentStores stores;
     private RecordingResources resources;

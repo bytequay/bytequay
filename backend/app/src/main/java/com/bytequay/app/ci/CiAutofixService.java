@@ -710,9 +710,7 @@ public class CiAutofixService
             ensureAgentTask(run);
         }
         if (run.status() == Status.PAUSED) {
-            return now.isBefore(run.authorization().expiresAt())
-                    ? run
-                    : finishRun(run, FinishReason.AUTHORIZATION_EXPIRED, "CI Autofix authorization expired", now);
+            return now.isBefore(run.authorization().expiresAt()) ? run : finishRun(run, FinishReason.AUTHORIZATION_EXPIRED, "CI Autofix authorization expired", now);
         }
         Optional<CiAutofixRun> reconciledGreen = reconcileCompletedGreenTask(run, now);
         if (reconciledGreen.isPresent()) {
@@ -851,9 +849,7 @@ public class CiAutofixService
 
     private static String authenticationRecovery(CiAutofixRun run)
     {
-        return run.scope().laneId().startsWith("deepseek-key-")
-                ? "DeepSeek key needs attention. Check it in Models settings."
-                : "Agent provider sign-in required";
+        return run.scope().laneId().startsWith("deepseek-key-") ? "DeepSeek key needs attention. Check it in Models settings." : "Agent provider sign-in required";
     }
 
     private CiAutofixRun inspectCompletedAttempt(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)
@@ -963,18 +959,14 @@ public class CiAutofixService
     private CiAutofixRun handleNoChange(CiAutofixRun run, CiAutofixAttempt attempt, CiHeadSnapshot snapshot, Instant now)
     {
         if (snapshot.green()) {
-            return attempt.observedCiResult() == CiResult.PASSED
-                    ? finishGreenOrCheckFixups(run, now)
-                    : observeCi(run, attempt, CiResult.PASSED, snapshot, now);
+            return attempt.observedCiResult() == CiResult.PASSED ? finishGreenOrCheckFixups(run, now) : observeCi(run, attempt, CiResult.PASSED, snapshot, now);
         }
         if (attempt.observedCiResult() == CiResult.FAILED) {
             return startNextAttemptOrFinish(run, snapshot, now);
         }
         Optional<CiWorkflowRun> failedWorkflow = failedWorkflow(snapshot);
         if (failedWorkflow.isEmpty()) {
-            return attempt.observedCiResult() == CiResult.PENDING
-                    ? run
-                    : observeCi(run, attempt, CiResult.PENDING, snapshot, now);
+            return attempt.observedCiResult() == CiResult.PENDING ? run : observeCi(run, attempt, CiResult.PENDING, snapshot, now);
         }
         if (run.rerunCounter().headSha().filter(snapshot.headSha()::equals).isPresent()
                 && run.rerunCounter().used() >= CiAutofixRun.MAX_RERUNS_PER_HEAD) {
@@ -1117,9 +1109,7 @@ public class CiAutofixService
         if (run.attemptsUsed() >= run.authorization().maxFixAttempts()) {
             return finishRun(run, FinishReason.MAX_ATTEMPTS, "GitHub Actions still fails after " + run.attemptsUsed() + " fix attempts", now);
         }
-        return snapshot.actionableFailures().isEmpty()
-                ? run
-                : prepareFixAttempt(run, requireOpenTask(run), snapshot);
+        return snapshot.actionableFailures().isEmpty() ? run : prepareFixAttempt(run, requireOpenTask(run), snapshot);
     }
 
     private CiAutofixRun finishGreenOrCheckFixups(CiAutofixRun run, Instant now)
@@ -1134,12 +1124,8 @@ public class CiAutofixService
                     run.expectedRemoteHead()));
             boolean valid = check.result() == FixupPositionCheck.Result.VALID
                     && check.headSha().equals(run.expectedRemoteHead());
-            CheckResult result = valid
-                    ? CheckResult.VALID
-                    : CheckResult.INVALID;
-            String diagnostics = check.headSha().equals(run.expectedRemoteHead())
-                    ? check.diagnostics()
-                    : "Final fixup check returned another head";
+            CheckResult result = valid ? CheckResult.VALID : CheckResult.INVALID;
+            String diagnostics = check.headSha().equals(run.expectedRemoteHead()) ? check.diagnostics() : "Final fixup check returned another head";
             return store.update(run.withFinalFixupCheck(new FinalFixupCheck(check.headSha(), result, diagnostics, now), now));
         }
         FinalFixupCheck check = run.finalFixupCheck().orElseThrow();
@@ -1224,9 +1210,7 @@ public class CiAutofixService
         }
         if (rebase.status() == BranchRebase.Status.FINISHED) {
             RebaseGate finished = finishedBranchRebase(run, rebase, now);
-            return rebase.baseSha().equals(snapshot.baseSha())
-                    ? finished
-                    : RebaseGate.waiting(finished.run());
+            return rebase.baseSha().equals(snapshot.baseSha()) ? finished : RebaseGate.waiting(finished.run());
         }
         return switch (rebase.status()) {
             case RUNNING -> RebaseGate.waiting(run);
@@ -1241,9 +1225,7 @@ public class CiAutofixService
     private RebaseGate finishedBranchRebase(CiAutofixRun run, BranchRebase rebase, Instant now)
     {
         if (rebase.finishReason().filter(BranchRebase.FinishReason.COMPLETED::equals).isEmpty()) {
-            CiAutofixRun cleared = run.currentRebaseId().isPresent()
-                    ? run.clearBranchRebase(rebase.id().toString(), now)
-                    : run;
+            CiAutofixRun cleared = run.currentRebaseId().isPresent() ? run.clearBranchRebase(rebase.id().toString(), now) : run;
             return RebaseGate.waiting(store.update(cleared.pause(PauseReason.REBASE_PAUSED, "The program-owned target rebase was cancelled", now)));
         }
         CiAutofixRun prepared = run.currentRebaseId().isPresent()
@@ -1274,8 +1256,7 @@ public class CiAutofixService
     private void cancelBranchRebase(CiAutofixRun run)
     {
         ownership.require(run);
-        run.currentRebaseId().ifPresent(value ->
-                rebaseService.cancel(BranchRebaseId.valueOf(value)));
+        run.currentRebaseId().ifPresent(value -> rebaseService.cancel(BranchRebaseId.valueOf(value)));
     }
 
     private void cleanupSynchronizedBase(CiAutofixRun run)
@@ -1395,9 +1376,7 @@ public class CiAutofixService
 
     private CiAutofixRun preserveUnfinishedRun(CiAutofixRun run, String message, Instant now)
     {
-        return run.status() == Status.PAUSED
-                ? run
-                : store.update(run.pause(PauseReason.ERROR, message, now));
+        return run.status() == Status.PAUSED ? run : store.update(run.pause(PauseReason.ERROR, message, now));
     }
 
     private void completeFinishedTask(CiAutofixRun run)
@@ -1582,8 +1561,7 @@ public class CiAutofixService
     private static AgentTask requireAgentTask(CiAutofixRun run, AgentTask task, RepositoryIdentity repository)
     {
         TaskId taskId = TaskId.valueOf(run.agentTaskId().orElseThrow());
-        TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
-                new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
+        TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
         if (!task.id().equals(taskId)
                 || task.interactive()
                 || task.workspaceId().stream().noneMatch(run.scope().workspaceId()::equals)
@@ -1621,8 +1599,7 @@ public class CiAutofixService
 
     private static TaskWorktree requireTaskWorktree(AgentTask task, CiAutofixRun run)
     {
-        TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
-                new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
+        TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new CiAutofixConflictException("CI Autofix agent task has no managed worktree"));
         if (!worktree.workspaceId().equals(run.scope().workspaceId())
                 || !worktree.physicalRepository().equals(task.repository())
                 || !task.id().toString().equals(run.agentTaskId().orElseThrow())) {

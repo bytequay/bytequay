@@ -111,8 +111,7 @@ public final class DevelopmentResultTool
             return Optional.empty();
         }
         JsonNode blocks = content.isObject() ? content.path("content") : content;
-        JsonNode text = blocks.isArray() && blocks.size() == 1 && blocks.get(0).path("type").asText().equals("text")
-                ? blocks.get(0).path("text") : blocks;
+        JsonNode text = blocks.isArray() && blocks.size() == 1 && blocks.get(0).path("type").asText().equals("text") ? blocks.get(0).path("text") : blocks;
         if (!text.isTextual() || text.textValue().length() > MAXIMUM_RECEIPT_LENGTH) {
             return Optional.empty();
         }

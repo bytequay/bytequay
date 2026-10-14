@@ -117,8 +117,6 @@ public class CiMemoryService
     {
         String message = Optional.ofNullable(failure.getMessage()).filter(value -> !value.isBlank())
                 .orElse(failure.getClass().getSimpleName());
-        return message.length() <= MAX_WARNING_CHARACTERS
-                ? message
-                : message.substring(0, MAX_WARNING_CHARACTERS);
+        return message.length() <= MAX_WARNING_CHARACTERS ? message : message.substring(0, MAX_WARNING_CHARACTERS);
     }
 }

@@ -34,8 +34,7 @@ import static com.google.common.collect.ImmutableList.toImmutableList;
 
 final class PullRequestDetailMapper
 {
-    private static final java.util.Set<String> FAILED_CHECK_CONCLUSIONS = ImmutableSet.of(
-            "failure", "timed_out", "cancelled", "action_required", "startup_failure");
+    private static final java.util.Set<String> FAILED_CHECK_CONCLUSIONS = ImmutableSet.of("failure", "timed_out", "cancelled", "action_required", "startup_failure");
 
     private PullRequestDetailMapper() {}
 

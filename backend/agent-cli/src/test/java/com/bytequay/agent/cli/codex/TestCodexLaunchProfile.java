@@ -351,9 +351,7 @@ class TestCodexLaunchProfile
         assertThat(arguments).containsSequence("-c", "web_search=\"live\"");
         // ByteQuay supplies the repository's guideline files itself, so Codex must not load AGENTS.md from the worktree.
         assertThat(arguments).containsSequence("-c", "project_doc_max_bytes=0");
-        assertThat(arguments).contains(
-                "shell_environment_policy.include_only=[\"HOME\",\"LANG\",\"LC_ALL\",\"LOGNAME\","
-                        + "\"PATH\",\"SHELL\",\"TERM\",\"TMPDIR\",\"USER\"]");
+        assertThat(arguments).contains("shell_environment_policy.include_only=[\"HOME\",\"LANG\",\"LC_ALL\",\"LOGNAME\"," + "\"PATH\",\"SHELL\",\"TERM\",\"TMPDIR\",\"USER\"]");
         for (String feature : ImmutableList.of("apps", "goals", "hooks", "memories", "plugins", "computer_use", "browser_use", "network_proxy", "skill_search")) {
             assertThat(arguments).containsSequence("--disable", feature);
         }

@@ -61,9 +61,7 @@ public class GhCliService
     /** A packaged Electron app inherits the GUI's minimal PATH
      *  (/usr/bin:/bin:/usr/sbin:/sbin), so the usual install locations are
      *  probed explicitly before falling back to PATH. */
-    private static final List<Path> PREFERRED_PATHS = ImmutableList.of(
-            Path.of("/opt/homebrew/bin/gh"),
-            Path.of("/usr/local/bin/gh"));
+    private static final List<Path> PREFERRED_PATHS = ImmutableList.of(Path.of("/opt/homebrew/bin/gh"), Path.of("/usr/local/bin/gh"));
 
     private final GitCommandRunner processRunner;
     private final AtomicReference<CachedToken> cached = new AtomicReference<>();

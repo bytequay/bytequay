@@ -138,8 +138,7 @@ class TestCiLogExcerpt
                 + timestamp + "  line 3: 89 characters\n"
                 + timestamp + "  Rollback discards the pending upload instead of publishing the file and then deleting it.\n"
                 + timestamp + "##[error]Process completed with exit code 1.\n";
-        String cleanup = timestamp + "##[end-action outcome=failure;conclusion=failure]\n"
-                + timestamp + "Post job cleanup.\n";
+        String cleanup = timestamp + "##[end-action outcome=failure;conclusion=failure]\n" + timestamp + "Post job cleanup.\n";
 
         for (String noise : new String[] {"", checkout}) {
             for (String compilerError : new String[] {"", timestamp + "[ERROR] Compilation failed.\n"}) {
@@ -230,8 +229,7 @@ class TestCiLogExcerpt
     @Test
     void aCompleteBlockCanUseTheEntireHardLimit()
     {
-        String failure = "java.lang.IllegalStateException: failed\n"
-                + "    at Worker.repeat(Worker.java:42)\n".repeat(1400);
+        String failure = "java.lang.IllegalStateException: failed\n" + "    at Worker.repeat(Worker.java:42)\n".repeat(1400);
 
         CiLogExcerpt excerpt = CiLogExcerpt.from(failure, 32 * 1024, failure.getBytes(UTF_8).length);
 

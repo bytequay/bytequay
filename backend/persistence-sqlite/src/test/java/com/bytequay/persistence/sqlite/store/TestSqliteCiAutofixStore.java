@@ -64,9 +64,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteCiAutofixStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-ci-autofix-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-ci-autofix-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-08-17T00:00:00Z");
     private static final String HEAD = "a".repeat(40);
     private static final String BASE = "b".repeat(40);

@@ -224,9 +224,7 @@ public class SqliteCiAutofixStore
 
     private static RuntimeException mapWriteFailure(String message, DataAccessException failure)
     {
-        return isConstraintViolation(failure)
-                ? new CiAutofixConflictException(message, failure)
-                : new StorageException(message, failure);
+        return isConstraintViolation(failure) ? new CiAutofixConflictException(message, failure) : new StorageException(message, failure);
     }
 
     private static void checkLimit(int limit)

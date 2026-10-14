@@ -37,9 +37,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @ContextConfiguration(classes = SqlitePersistenceConfiguration.class)
 class TestSqliteWorkspaceCredentialStores
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-credential-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-credential-store-" + UUID.randomUUID() + ".db").toString();
 
     @Autowired
     private SqliteWorkspaceCredentialStore workspaceCredentials;

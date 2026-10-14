@@ -241,8 +241,7 @@ class TestCiAutofixService
                 false,
                 ImmutableList.of("error: compilation failed"),
                 Optional.empty(), Optional.empty(), true));
-        when(worktreeService.inspect(any())).thenAnswer(invocation ->
-                new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false, false));
+        when(worktreeService.inspect(any())).thenAnswer(invocation -> new WorktreeSnapshot(invocation.getArgument(0), HEAD, false, false, false));
         when(taskService.create(any())).thenAnswer(invocation -> task(invocation.getArgument(0)));
         when(taskService.get(any())).thenAnswer(invocation -> {
             TaskId requested = invocation.getArgument(0);
@@ -1247,9 +1246,7 @@ class TestCiAutofixService
     {
         CiWorkflowRun fresh = workflow(300, 1, "Description", HEAD, status, conclusion);
         fresh = new CiWorkflowRun(fresh.id(), 10, fresh.name(), fresh.attempt(), fresh.status(), fresh.conclusion(), fresh.headSha(), fresh.url(), fresh.jobs());
-        return snapshot(HEAD, BASE, otherPending
-                ? ImmutableList.of(fresh, workflow(400, 1, "Integration tests", HEAD, "in_progress", Optional.empty()))
-                : ImmutableList.of(fresh));
+        return snapshot(HEAD, BASE, otherPending ? ImmutableList.of(fresh, workflow(400, 1, "Integration tests", HEAD, "in_progress", Optional.empty())) : ImmutableList.of(fresh));
     }
 
     @Test

@@ -1035,14 +1035,12 @@ class TestGitHubActionsClient
 
     private static String runsUrl(int page)
     {
-        return "https://api.github.test/repos/owner/repo/actions/runs?head_sha="
-                + HEAD_SHA + "&per_page=100&page=" + page;
+        return "https://api.github.test/repos/owner/repo/actions/runs?head_sha=" + HEAD_SHA + "&per_page=100&page=" + page;
     }
 
     private static String jobsUrl(long runId, int page)
     {
-        return "https://api.github.test/repos/owner/repo/actions/runs/" + runId
-                + "/jobs?filter=all&per_page=100&page=" + page;
+        return "https://api.github.test/repos/owner/repo/actions/runs/" + runId + "/jobs?filter=all&per_page=100&page=" + page;
     }
 
     private static String jsonString(String value)

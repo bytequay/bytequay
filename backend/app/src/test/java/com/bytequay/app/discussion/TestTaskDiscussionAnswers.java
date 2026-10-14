@@ -1032,8 +1032,7 @@ class TestTaskDiscussionAnswers
         private final Deque<String> answers = new ArrayDeque<>();
         private boolean failResume;
         private AgentSessionContext lastContext;
-        private AgentTurnResult result = new AgentTurnResult(
-                AgentTurnResult.State.COMPLETED, Optional.of("Answered."), Optional.empty(), Duration.ZERO, true);
+        private AgentTurnResult result = new AgentTurnResult(AgentTurnResult.State.COMPLETED, Optional.of("Answered."), Optional.empty(), Duration.ZERO, true);
 
         @Override
         public AgentLaneId id()

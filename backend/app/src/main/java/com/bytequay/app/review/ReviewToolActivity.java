@@ -72,8 +72,7 @@ final class ReviewToolActivity
     private static String context(JsonNode arguments, JsonNode result)
     {
         String kind = arguments.path("kind").asText("").toLowerCase(Locale.ROOT);
-        String number = arguments.path("number").isInt() ? " #" + arguments.path("number").asInt()
-                : result.path("number").isInt() ? " #" + result.path("number").asInt() : "";
+        String number = arguments.path("number").isInt() ? " #" + arguments.path("number").asInt() : result.path("number").isInt() ? " #" + result.path("number").asInt() : "";
         String page = arguments.path("page").isInt() && arguments.path("page").asInt() > 1 ? " · page " + arguments.path("page").asInt() : "";
         return switch (kind) {
             case "source" -> "Read " + arguments.path("path").asText("") + (result.path("startLine").isInt()

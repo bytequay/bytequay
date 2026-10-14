@@ -33,9 +33,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteCommitHistoryStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-commit-history-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-commit-history-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-08-23T00:00:00Z");
     private static final String SHA = "0123456789abcdef";
 

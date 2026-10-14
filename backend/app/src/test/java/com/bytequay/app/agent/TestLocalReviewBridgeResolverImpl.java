@@ -256,8 +256,7 @@ class TestLocalReviewBridgeResolverImpl
         beans.registerSingleton("localReviewService", service);
         LocalReviewBridgeResolverImpl resolver = new LocalReviewBridgeResolverImpl(beans.getBeanProvider(LocalReviewService.class), mapper);
         String context = "x".repeat(3999) + "\uD83D\uDE80" + "\u0001".repeat(55_999);
-        Optional<LocalReviewLearningAnchor> anchor = learning
-                ? Optional.of(new LocalReviewLearningAnchor("summary-turn", "purpose", "Saved card", context)) : Optional.empty();
+        Optional<LocalReviewLearningAnchor> anchor = learning ? Optional.of(new LocalReviewLearningAnchor("summary-turn", "purpose", "Saved card", context)) : Optional.empty();
         LocalReviewView thread = new LocalReviewView("comment", "task-1", "workspace-1", "owner/repo", learning ? 0 : 7,
                 learning ? "" : "src/Example.java", "RIGHT", learning ? 0 : 1, learning ? 0 : 2, Optional.empty(), Optional.empty(),
                 learning ? "" : context, false, 1, Instant.EPOCH, Instant.EPOCH, 0, ImmutableList.of(), anchor);

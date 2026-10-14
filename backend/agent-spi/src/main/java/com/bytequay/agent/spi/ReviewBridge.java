@@ -60,8 +60,7 @@ public record ReviewBridge(List<ReviewTool> tools, String instruction)
     private static final String RESET_LOCAL_ARGUMENTS = "(?:\\s+(?:-q|--quiet))*"
             + "(?:(?:\\s+--hard)?(?:\\s+HEAD)?\\s*" + COMMAND_END
             + "|\\s+(?:" + SHELL_WORD + "\\s+)?--(?:\\s+" + SHELL_WORD + ")+\\s*" + COMMAND_END + ")";
-    private static final String SYMBOLIC_REF_READ_ARGUMENTS = "(?:\\s+(?:-q|--quiet|--short|--recurse|--no-recurse))*"
-            + "\\s+(?!-)" + SHELL_WORD + "\\s*" + COMMAND_END;
+    private static final String SYMBOLIC_REF_READ_ARGUMENTS = "(?:\\s+(?:-q|--quiet|--short|--recurse|--no-recurse))*" + "\\s+(?!-)" + SHELL_WORD + "\\s*" + COMMAND_END;
     // This checks visible native commands; invoked scripts and aliases still depend on the provider sandbox.
     private static final Pattern HISTORY_WRITE = Pattern.compile(GIT_COMMAND + "(?:"
             + "(?:commit|commit-tree|update-ref|merge|rebase|cherry-pick|revert|am|switch|pull)(?![-\\w])"

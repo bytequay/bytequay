@@ -35,8 +35,7 @@ public record StoredPrDetail(
     public static final String REVIEW_THREADS = "reviewThreads";
     public static final String REACTIONS = "reactions";
 
-    private static final List<String> TIMELINE_SOURCES =
-            ImmutableList.of(TIMELINE, COMMENTS, COMMITS, REVIEW_THREADS, REACTIONS);
+    private static final List<String> TIMELINE_SOURCES = ImmutableList.of(TIMELINE, COMMENTS, COMMITS, REVIEW_THREADS, REACTIONS);
 
     public StoredPrDetail
     {

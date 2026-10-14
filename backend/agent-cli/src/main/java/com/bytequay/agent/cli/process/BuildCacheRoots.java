@@ -71,8 +71,7 @@ public final class BuildCacheRoots
                     // Another task may have created this fixed cache while this one was starting.
                 }
             }
-            return Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) && path.toRealPath().equals(path)
-                    ? Optional.of(path) : Optional.empty();
+            return Files.isDirectory(path, LinkOption.NOFOLLOW_LINKS) && path.toRealPath().equals(path) ? Optional.of(path) : Optional.empty();
         }
         catch (IOException failure) {
             return Optional.empty();

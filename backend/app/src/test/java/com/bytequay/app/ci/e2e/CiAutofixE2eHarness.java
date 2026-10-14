@@ -284,8 +284,7 @@ final class CiAutofixE2eHarness
             run = service.get(runId);
         }
         if (!done.test(run)) {
-            throw new AssertionError("CI Autofix did not reach the expected condition after "
-                    + maximumTicks + " ticks: " + snapshot(runId));
+            throw new AssertionError("CI Autofix did not reach the expected condition after " + maximumTicks + " ticks: " + snapshot(runId));
         }
         return run;
     }

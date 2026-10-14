@@ -42,8 +42,7 @@ class TestGitHubApiSupport
     @Test
     void summarizesAnHtmlErrorPageInsteadOfDumpingIt()
     {
-        String unicorn = "<!DOCTYPE html>\n<html><head><title>Unicorn!</title></head>"
-                + "<body>" + "x".repeat(5000) + "</body></html>";
+        String unicorn = "<!DOCTYPE html>\n<html><head><title>Unicorn!</title></head>" + "<body>" + "x".repeat(5000) + "</body></html>";
 
         String summary = GitHubApiSupport.summarizeErrorBody(unicorn);
 

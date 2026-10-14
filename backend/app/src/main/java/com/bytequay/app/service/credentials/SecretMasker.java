@@ -28,9 +28,7 @@ public final class SecretMasker
         if (secret.length() <= 12) {
             return DOTS;
         }
-        String prefix = secret.startsWith("github_pat_")
-                ? secret.substring(0, "github_pat_".length() + 3)
-                : secret.substring(0, 5);
+        String prefix = secret.startsWith("github_pat_") ? secret.substring(0, "github_pat_".length() + 3) : secret.substring(0, 5);
         return prefix + DOTS + secret.substring(secret.length() - 4);
     }
 }

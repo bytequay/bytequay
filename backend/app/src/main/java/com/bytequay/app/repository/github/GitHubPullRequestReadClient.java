@@ -95,10 +95,8 @@ public class GitHubPullRequestReadClient
     }
 
     private static final String REPOS_SEGMENT = "/repos/";
-    private static final Pattern ISSUE_REFERENCE = Pattern.compile(
-            "https://github\\.com/[^/\\s]+/[^/\\s]+/(?:issues|pull)/\\d+");
-    private static final Pattern SHORT_ISSUE_REFERENCE = Pattern.compile(
-            "(?<![\\w/\\[])#(\\d+)\\b(?!\\]\\()");
+    private static final Pattern ISSUE_REFERENCE = Pattern.compile("https://github\\.com/[^/\\s]+/[^/\\s]+/(?:issues|pull)/\\d+");
+    private static final Pattern SHORT_ISSUE_REFERENCE = Pattern.compile("(?<![\\w/\\[])#(\\d+)\\b(?!\\]\\()");
     private static final Set<String> NON_CI_RULES = ImmutableSet.of(
             "creation", "update", "deletion", "required_linear_history", "merge_queue", "required_deployments", "required_signatures", "pull_request", "non_fast_forward",
             "commit_message_pattern", "commit_author_email_pattern", "committer_email_pattern", "branch_name_pattern", "tag_name_pattern",
@@ -605,8 +603,7 @@ public class GitHubPullRequestReadClient
         if (response == null || response.items() == null || Boolean.TRUE.equals(response.incompleteResults())) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "GitHub returned incomplete pull request search results");
         }
-        PullRequest.Origin origin =
-                query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
+        PullRequest.Origin origin = query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
         List<FetchedPullRequest> items =
                 response.items().stream()
                         .map(item -> toPullRequest(item, origin))
@@ -770,9 +767,7 @@ public class GitHubPullRequestReadClient
             index = 0;
             for (Map.Entry<String, String> reference : references.entrySet()) {
                 int referenceIndex = index++;
-                JsonNode item = response == null
-                        ? null
-                        : response.path("data").path("ref" + referenceIndex);
+                JsonNode item = response == null ? null : response.path("data").path("ref" + referenceIndex);
                 if (item == null || item.isMissingNode() || item.isNull() || item.path("title").isMissingNode()) {
                     continue;
                 }
@@ -1339,9 +1334,7 @@ public class GitHubPullRequestReadClient
         GitHubPullRequestCommit.Author author = Optional.ofNullable(details)
                 .map(GitHubPullRequestCommit.Commit::author)
                 .orElse(null);
-        String actor = user == null
-                ? Optional.ofNullable(author).map(GitHubPullRequestCommit.Author::name).orElse(null)
-                : user.login();
+        String actor = user == null ? Optional.ofNullable(author).map(GitHubPullRequestCommit.Author::name).orElse(null) : user.login();
         return new PrTimelineEvent(
                 null,
                 "committed",
@@ -1414,9 +1407,7 @@ public class GitHubPullRequestReadClient
         comments.stream()
                 .sorted(Comparator.comparing(comment -> Optional.ofNullable(comment.createdAt()).orElse(Instant.EPOCH)))
                 .forEach(comment -> {
-                    long rootId = comment.inReplyToId() == null
-                            ? comment.id()
-                            : roots.getOrDefault(comment.inReplyToId(), comment.inReplyToId());
+                    long rootId = comment.inReplyToId() == null ? comment.id() : roots.getOrDefault(comment.inReplyToId(), comment.inReplyToId());
                     roots.put(comment.id(), rootId);
                     grouped.computeIfAbsent(rootId, ignored -> new ArrayList<>()).add(comment);
                 });
@@ -1612,8 +1603,7 @@ public class GitHubPullRequestReadClient
     }
 
     private static FetchedPullRequest toPullRequest(GitHubRepoPullRequestItem item, String fullName) {
-        List<GitHubRepoPullRequestItem.Label> rawLabels =
-                Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
+        List<GitHubRepoPullRequestItem.Label> rawLabels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
         List<String> labels =
                 rawLabels.stream()
                         .map(GitHubRepoPullRequestItem.Label::name)
@@ -1666,16 +1656,13 @@ public class GitHubPullRequestReadClient
 
     // ── Helpers ───────────────────────────────────────────────────────────────
     static FetchedPullRequest toPullRequest(GitHubSearchResponse.Item item, PullRequest.Origin origin) {
-        List<GitHubSearchResponse.Label> rawLabels =
-                Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
-        List<String> labels =
-                rawLabels.stream().map(GitHubSearchResponse.Label::name).collect(toImmutableList());
+        List<GitHubSearchResponse.Label> rawLabels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
+        List<String> labels = rawLabels.stream().map(GitHubSearchResponse.Label::name).collect(toImmutableList());
         Map<String, String> labelColors =
                 rawLabels.stream()
                         .filter(l -> l.name() != null && l.color() != null)
                         .collect(toImmutableMap(GitHubSearchResponse.Label::name, GitHubSearchResponse.Label::color, (a, b) -> a));
-        String author =
-                Optional.ofNullable(item.user()).map(GitHubSearchResponse.User::login).orElse(null);
+        String author = Optional.ofNullable(item.user()).map(GitHubSearchResponse.User::login).orElse(null);
         return new FetchedPullRequest(
                 item.id(),
                 extractRepo(item.repositoryUrl()),

@@ -40,8 +40,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TestCodexProtocolReferenceBindings
 {
-    private static final String REFERENCE_BINDINGS =
-            "/com/bytequay/agent/cli/codex/app-server-v0.159.3-bindings.json";
+    private static final String REFERENCE_BINDINGS = "/com/bytequay/agent/cli/codex/app-server-v0.159.3-bindings.json";
     private static final ImmutableSet<String> UNBOUND_RECORDS = ImmutableSet.of(
             "UnknownNotification",
             "UnknownParams",

@@ -93,9 +93,7 @@ public class AgentEventOutboxEntity
 
     private static void checkEventBound(AgentEventOutboxPayload payload, String sourceJson, String payloadJson)
     {
-        long bytes = (long) sourceJson.getBytes(UTF_8).length
-                + payloadJson.getBytes(UTF_8).length
-                + ENVELOPE_HEADROOM_BYTES;
+        long bytes = (long) sourceJson.getBytes(UTF_8).length + payloadJson.getBytes(UTF_8).length + ENVELOPE_HEADROOM_BYTES;
         if (payload instanceof AgentEventOutboxPayload.UserMessageBlob message) {
             long textBytes = message.textBlob().size();
             bytes += textBytes > AgentEventEnvelope.MAX_SERIALIZED_BYTES / MAX_JSON_ESCAPE_EXPANSION

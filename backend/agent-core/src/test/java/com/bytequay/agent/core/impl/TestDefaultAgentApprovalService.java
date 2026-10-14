@@ -466,8 +466,7 @@ class TestDefaultAgentApprovalService
         assertThat(resolved.pending()).isFalse();
         assertThat(resolved.decision().orElseThrow().decision()).isEqualTo(ApprovalDecision.Decision.DENY);
         assertThat(resolved.outcome()).contains(AgentEventPayload.ApprovalOutcome.CANCELLED);
-        assertThat(restartedEvents.events).singleElement().satisfies(event ->
-                assertThat(event.payload()).isInstanceOf(AgentEventPayload.ApprovalResolved.class));
+        assertThat(restartedEvents.events).singleElement().satisfies(event -> assertThat(event.payload()).isInstanceOf(AgentEventPayload.ApprovalResolved.class));
         assertThat(abandonedProvider).isNotDone();
     }
 
@@ -503,8 +502,7 @@ class TestDefaultAgentApprovalService
                 new AgentRuntimeRegistry(ignored -> {}));
         assertThat(restarted.resolve(command).decision()).isEqualTo(ApprovalDecision.Decision.ALLOW);
         assertThat(stores.outboxEntries().getLast().sequence()).isPresent();
-        assertThat(restartedEvents.events).singleElement().satisfies(event ->
-                assertThat(event.payload()).isInstanceOf(AgentEventPayload.ApprovalResolved.class));
+        assertThat(restartedEvents.events).singleElement().satisfies(event -> assertThat(event.payload()).isInstanceOf(AgentEventPayload.ApprovalResolved.class));
     }
 
     @Test

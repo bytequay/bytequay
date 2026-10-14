@@ -108,8 +108,7 @@ class TestClaudeQuota
         assertThat(process.credentialRead.await(3, TimeUnit.SECONDS)).isTrue();
         assertThat(process.exit.isDone()).isFalse();
         assertThat(process.cancelled).isFalse();
-        process.credentials = "{\"claudeAiOauth\":{\"refreshToken\":\"new-fabricated-token\",\"expiresAt\":"
-                + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}";
+        process.credentials = "{\"claudeAiOauth\":{\"refreshToken\":\"new-fabricated-token\",\"expiresAt\":" + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}";
         process.acknowledged.get(3, TimeUnit.SECONDS);
         assertThat(process.exit.join().reason()).isEqualTo(ProcessExit.Reason.EXITED);
         assertThat(process.cancelled).isFalse();
@@ -142,8 +141,7 @@ class TestClaudeQuota
         assertThat(process.credentialRead.await(3, TimeUnit.SECONDS)).isTrue();
         assertThat(process.exit.isDone()).isFalse();
         Files.createDirectory(home.resolve(".oauth_refresh.lock"));
-        Files.writeString(credentials, "{\"claudeAiOauth\":{\"refreshToken\":\"fabricated-token\",\"expiresAt\":"
-                + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}");
+        Files.writeString(credentials, "{\"claudeAiOauth\":{\"refreshToken\":\"fabricated-token\",\"expiresAt\":" + Instant.now().plus(Duration.ofHours(8)).toEpochMilli() + "}}");
         assertThat(ClaudeCredentialRefresh.pending(process, spec(), mapper)).isTrue();
         Files.delete(home.resolve(".oauth_refresh.lock"));
         process.acknowledged.get(3, TimeUnit.SECONDS);

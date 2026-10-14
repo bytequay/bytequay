@@ -129,8 +129,7 @@ class TestProviderAgentEventAdapter
                         Optional.of("TODO references"),
                         Optional.empty(),
                         Optional.of("TODO"))));
-        AgentEventPayload.CommandActivity activity =
-                (AgentEventPayload.CommandActivity) ProviderAgentEventAdapter.adapt(command).payload();
+        AgentEventPayload.CommandActivity activity = (AgentEventPayload.CommandActivity) ProviderAgentEventAdapter.adapt(command).payload();
         assertThat(activity.cwd()).contains("backend");
         assertThat(activity.durationMs()).contains(1450L);
         assertThat(activity.actions()).containsExactly(new ProviderAgentEvent.CommandAction(

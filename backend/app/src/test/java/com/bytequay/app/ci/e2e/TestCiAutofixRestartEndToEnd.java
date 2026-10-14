@@ -401,9 +401,7 @@ class TestCiAutofixRestartEndToEnd
             checkState(result.outcome() == CiPushResult.Outcome.PUSHED, "test push did not succeed: %s", result);
             String remoteHead = E2eGitRepository.routedGit(command.worktree(), "ls-remote", command.remote(), "refs/heads/" + command.remoteHeadRef()).split("\\s+", 2)[0];
             checkState(remoteHead.equals(command.journal().localHeadSha()), "remote did not receive the journaled SHA");
-            return pushCalls == 1
-                    ? CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "test discarded the successful push result")
-                    : result;
+            return pushCalls == 1 ? CiPushResult.failed(CiPushResult.Outcome.UNCERTAIN, "test discarded the successful push result") : result;
         }
 
         @Override

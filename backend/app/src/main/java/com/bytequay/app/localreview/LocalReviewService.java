@@ -379,8 +379,7 @@ public class LocalReviewService
         try {
             AgentTask task = tasks.get(taskId);
             boolean development = task.interactive();
-            Optional<DevelopmentAutomation> automation = development && thread.learningAnchor().isPresent()
-                    ? Optional.of(DevelopmentAutomation.LOCAL_ONLY) : Optional.empty();
+            Optional<DevelopmentAutomation> automation = development && thread.learningAnchor().isPresent() ? Optional.of(DevelopmentAutomation.LOCAL_ONLY) : Optional.empty();
             String prompt = prompt(thread, message);
             if (!development) {
                 AgentReview review = reviews.findReviewByTask(thread.taskId()).orElseThrow();

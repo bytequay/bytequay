@@ -37,9 +37,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSqliteRepositoryMetadataStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-repository-metadata-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-repository-metadata-" + UUID.randomUUID() + ".db").toString();
     private static final RepoRef REPOSITORY = RepoRef.of("owner", "project");
     private static final Instant NOW = Instant.parse("2026-08-21T00:00:00Z");
 

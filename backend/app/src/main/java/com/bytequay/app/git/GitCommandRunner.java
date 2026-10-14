@@ -49,8 +49,7 @@ public class GitCommandRunner
 {
     public static final int MAXIMUM_OUTPUT_BYTES = 5 * 1024 * 1024;
     /** Git directory entries that exist while a merge, cherry-pick, revert, or rebase is open. */
-    public static final List<String> OPERATION_MARKERS = ImmutableList.of(
-            "CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply");
+    public static final List<String> OPERATION_MARKERS = ImmutableList.of("CHERRY_PICK_HEAD", "MERGE_HEAD", "REVERT_HEAD", "rebase-merge", "rebase-apply");
     private static final int MAXIMUM_ERROR_BYTES = 64 * 1024;
     private static final Duration COMMAND_TIMEOUT = Duration.ofSeconds(60);
     private static final Duration DRAIN_TIMEOUT = Duration.ofSeconds(2);
@@ -190,8 +189,7 @@ public class GitCommandRunner
         requireNonNull(worktree, "worktree is null");
         requireNonNull(markers, "markers is null");
         checkArgument(!markers.isEmpty(), "markers is empty");
-        ImmutableList.Builder<String> arguments =
-                ImmutableList.builderWithExpectedSize(1 + (2 * markers.size()));
+        ImmutableList.Builder<String> arguments = ImmutableList.builderWithExpectedSize(1 + (2 * markers.size()));
         arguments.add("rev-parse");
         for (String marker : markers) {
             arguments.add("--git-path", marker);
@@ -239,9 +237,7 @@ public class GitCommandRunner
     Optional<String> markerCommit(Path worktree, String marker)
     {
         Result result = run(worktree, "rev-parse", "--verify", "--quiet", marker);
-        return result.successful() && !result.output().isBlank()
-                ? Optional.of(result.output().strip())
-                : Optional.empty();
+        return result.successful() && !result.output().isBlank() ? Optional.of(result.output().strip()) : Optional.empty();
     }
 
     public List<ConflictedPath> conflicts(Path worktree)
@@ -282,9 +278,7 @@ public class GitCommandRunner
         if (!stages.contains(1)) {
             return ConflictedPath.Type.ADD_ADD;
         }
-        return stages.contains(2) && stages.contains(3)
-                ? ConflictedPath.Type.CONTENT
-                : ConflictedPath.Type.MODIFY_DELETE;
+        return stages.contains(2) && stages.contains(3) ? ConflictedPath.Type.CONTENT : ConflictedPath.Type.MODIFY_DELETE;
     }
 
     /** Runs an arbitrary argv-based command in one working directory. */

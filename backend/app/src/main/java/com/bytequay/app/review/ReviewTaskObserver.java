@@ -58,10 +58,7 @@ public class ReviewTaskObserver
             AgentEventPayload.LifecyclePhase.QUEUED_INPUT_STARTED,
             AgentEventPayload.LifecyclePhase.QUEUED_INPUT_PAUSED,
             AgentEventPayload.LifecyclePhase.QUEUE_CHANGED);
-    private static final Set<ActivityState> MIRRORED_STATES = EnumSet.of(
-            ActivityState.STARTED,
-            ActivityState.COMPLETED,
-            ActivityState.FAILED);
+    private static final Set<ActivityState> MIRRORED_STATES = EnumSet.of(ActivityState.STARTED, ActivityState.COMPLETED, ActivityState.FAILED);
 
     private final TaskEventWatcher watcher;
     private final AgentReviewStore store;

@@ -88,8 +88,7 @@ public class CherryPickPullRequestLookup
             token = tokenSupplier.get();
         }
         catch (RuntimeException e) {
-            warnings.add("Pull-request grouping is unavailable without GitHub credentials. "
-                    + "Every commit is listed individually and stays selectable.");
+            warnings.add("Pull-request grouping is unavailable without GitHub credentials. " + "Every commit is listed individually and stays selectable.");
             return new PullRequestLookupResult(ImmutableList.of(), ImmutableSet.copyOf(sourceShas));
         }
 
@@ -123,8 +122,7 @@ public class CherryPickPullRequestLookup
                     + "They are listed individually and stay selectable.");
         }
         if (ambiguous > 0) {
-            warnings.add(ambiguous + " commit(s) have no single merged pull request. "
-                    + "They are listed individually rather than grouped under a guess.");
+            warnings.add(ambiguous + " commit(s) have no single merged pull request. " + "They are listed individually rather than grouped under a guess.");
         }
         return new PullRequestLookupResult(associations, failedShas);
     }

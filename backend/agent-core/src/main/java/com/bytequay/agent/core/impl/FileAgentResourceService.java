@@ -56,10 +56,7 @@ public final class FileAgentResourceService
     private static final int MAX_ATTACHMENT_NAME_LENGTH = 200;
     private static final Pattern ATTACHMENT_ID = Pattern.compile("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}");
     /** The image formats the JDK can read the dimensions of without decoding the pixels. */
-    private static final Map<String, String> IMAGE_MEDIA_TYPES = Map.of(
-            "png", "image/png",
-            "jpeg", "image/jpeg",
-            "gif", "image/gif");
+    private static final Map<String, String> IMAGE_MEDIA_TYPES = Map.of("png", "image/png", "jpeg", "image/jpeg", "gif", "image/gif");
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final Path runtimeRoot;

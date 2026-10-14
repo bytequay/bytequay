@@ -183,8 +183,7 @@ class TestCiAutofixHttpApi
         assertThat(start.getValue().idempotencyKey()).isEqualTo("start-key");
         assertThat(start.getValue().workspaceId()).isEqualTo("workspace-1");
         assertThat(start.getValue().pullRequestNumber()).isEqualTo(42);
-        ArgumentCaptor<SendCiAutofixMessageCommand> message =
-                ArgumentCaptor.forClass(SendCiAutofixMessageCommand.class);
+        ArgumentCaptor<SendCiAutofixMessageCommand> message = ArgumentCaptor.forClass(SendCiAutofixMessageCommand.class);
         verify(service, times(2)).sendMessage(message.capture());
         assertThat(message.getAllValues().getFirst().idempotencyKey()).isEqualTo("message-key");
         assertThat(message.getAllValues().getFirst().expectedTurnId()).isEmpty();

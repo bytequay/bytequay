@@ -92,8 +92,7 @@ public record ContextSpecCheck(
     {
         checkArgument(!replacement.active(), "An ended check has a final state");
         String reason = switch (replacement) {
-            case DONE -> "Not reached: this check reproduces at most " + maxReproductions + (maxReproductions == 1 ? " candidate" : " candidates")
-                    + ", most severe first";
+            case DONE -> "Not reached: this check reproduces at most " + maxReproductions + (maxReproductions == 1 ? " candidate" : " candidates") + ", most severe first";
             case STOPPED -> "The check was stopped before reproducing it";
             default -> "The check failed before reproducing it";
         };

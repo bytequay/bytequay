@@ -954,8 +954,7 @@ class TestClaudeCliDriver
             assertThat(status.readiness()).isEqualTo(AgentProviderStatus.Readiness.AUTHENTICATION_REQUIRED);
             assertThat(status.signInCommand().orElseThrow()).isEqualTo("CLAUDE_CONFIG_DIR='" + profile.toString().replace("'", "'\"'\"'")
                     + "' '" + executable.replace("'", "'\"'\"'") + "' auth login");
-            assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec ->
-                    assertThat(spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString()));
+            assertThat(supervisor.specs()).isNotEmpty().allSatisfy(spec -> assertThat(spec.environment()).containsEntry("CLAUDE_CONFIG_DIR", profile.toString()));
 
             try (AgentSession session = driver.open(context(Optional.empty()), event -> {})) {
                 assertThat(await(session.start(command("profile-check"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
@@ -2391,9 +2390,7 @@ class TestClaudeCliDriver
                 return;
             }
             if (prompt.equals("fail\n")) {
-                emit(ProcessStream.STDERR, "known-secret diagnostic"
-                        + (runtimeSecret.isEmpty() ? "" : " " + runtimeSecret)
-                        + "\n");
+                emit(ProcessStream.STDERR, "known-secret diagnostic" + (runtimeSecret.isEmpty() ? "" : " " + runtimeSecret) + "\n");
                 exit.complete(new ProcessExit(1, ProcessExit.Reason.EXITED, ProcessExit.TreeTermination.VERIFIED_STOPPED, Duration.ofMillis(5), false, false));
                 return;
             }

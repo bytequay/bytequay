@@ -75,10 +75,7 @@ public class RemoteSourceEntity
     public RemoteSource toDomain()
     {
         Optional<Long> domainRepositoryId = Optional.ofNullable(repositoryId);
-        Optional<RepoRef> domainRepository =
-                repositoryOwner == null || repositoryName == null
-                        ? Optional.empty()
-                        : Optional.of(RepoRef.of(repositoryOwner, repositoryName));
+        Optional<RepoRef> domainRepository = repositoryOwner == null || repositoryName == null ? Optional.empty() : Optional.of(RepoRef.of(repositoryOwner, repositoryName));
         if (domainRepositoryId.isEmpty() || domainRepository.isEmpty()) {
             domainRepositoryId = Optional.empty();
             domainRepository = Optional.empty();

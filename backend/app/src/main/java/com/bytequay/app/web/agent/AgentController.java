@@ -573,9 +573,7 @@ public class AgentController
         boolean replay = turnService.findTurnByIdempotencyKey(id, idempotencyKey).isPresent();
         // A replay owns its persisted attachments. Re-enter core so its completion/outbox recovery
         // still runs, while mutable files and defaults cannot block the accepted request.
-        List<AgentAttachment> attachments = replay || request.attachments().isEmpty()
-                ? ImmutableList.of()
-                : attachments(taskService.get(id), request.attachments());
+        List<AgentAttachment> attachments = replay || request.attachments().isEmpty() ? ImmutableList.of() : attachments(taskService.get(id), request.attachments());
         AgentTurn turn = turnService.start(new StartAgentTurnCommand(
                 id,
                 request.expectedVersion(),
@@ -640,9 +638,7 @@ public class AgentController
         TurnId id = TurnId.valueOf(turnId);
         checkArgument(taskService.get(turnService.get(id).taskId()).interactive(), "Workflow-owned tasks cannot accept interactive input");
         var repeated = turnService.findSteerByIdempotencyKey(id, idempotencyKey);
-        List<AgentAttachment> attachments = repeated.isPresent()
-                ? ImmutableList.of()
-                : attachments(turnService.get(id), request.attachments());
+        List<AgentAttachment> attachments = repeated.isPresent() ? ImmutableList.of() : attachments(turnService.get(id), request.attachments());
         AgentInputDelivery delivery = turnService.steer(new SteerAgentTurnCommand(id, request.message(), attachments, idempotencyKey));
         TaskId taskId = delivery.taskId();
         if (repeated.isEmpty()) {
@@ -664,9 +660,7 @@ public class AgentController
         TaskId id = TaskId.valueOf(taskId);
         AgentTask task = taskService.getInteractive(workspaceId, id);
         boolean replay = turnService.findQueuedByIdempotencyKey(id, idempotencyKey).isPresent();
-        List<AgentAttachment> attachments = replay
-                ? ImmutableList.of()
-                : attachments(task, request.attachments());
+        List<AgentAttachment> attachments = replay ? ImmutableList.of() : attachments(task, request.attachments());
         QueuedAgentInput queued = turnService.enqueue(new QueueAgentInputCommand(
                 id,
                 request.expectedVersion(),

@@ -602,9 +602,7 @@ public final class ClaudeCliDriver
                 return Optional.empty();
             }
             JsonNode loggedIn = status.get("loggedIn");
-            return loggedIn != null && loggedIn.isBoolean()
-                    ? Optional.of(status)
-                    : Optional.empty();
+            return loggedIn != null && loggedIn.isBoolean() ? Optional.of(status) : Optional.empty();
         }
         catch (IOException ignored) {
             return Optional.empty();
@@ -872,10 +870,8 @@ public final class ClaudeCliDriver
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
         private final ClaudeEventMapper mapper;
         private final boolean completeSubagentStream;
-        private final Utf8LineBuffer stdout =
-                new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, false, this::receive);
-        private final Utf8LineBuffer stderr =
-                new Utf8LineBuffer(MAX_DIAGNOSTIC_LINE_BYTES, false, this::diagnostic);
+        private final Utf8LineBuffer stdout = new Utf8LineBuffer(MAX_PROTOCOL_LINE_BYTES, false, this::receive);
+        private final Utf8LineBuffer stderr = new Utf8LineBuffer(MAX_DIAGNOSTIC_LINE_BYTES, false, this::diagnostic);
         private final StringBuilder lastDiagnostic = new StringBuilder();
         private final AtomicBoolean cancelled = new AtomicBoolean();
         private final boolean streamingInput;
@@ -1375,9 +1371,7 @@ public final class ClaudeCliDriver
         private String exitReason(ProcessExit exit)
         {
             synchronized (lastDiagnostic) {
-                return lastDiagnostic.isEmpty()
-                        ? "Claude exited with code " + exit.exitCode() + " without a terminal result"
-                        : lastDiagnostic.toString();
+                return lastDiagnostic.isEmpty() ? "Claude exited with code " + exit.exitCode() + " without a terminal result" : lastDiagnostic.toString();
             }
         }
 

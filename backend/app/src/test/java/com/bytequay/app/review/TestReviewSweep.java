@@ -236,8 +236,7 @@ class TestReviewSweep
         sweep.start(review(Optional.empty()), run(), task(), () -> {});
         queued.get(1).run();
         queued.get(2).run();
-        assertThat(captured).hasSize(3).allSatisfy(context ->
-                assertThat(context.call().apply("{\"kind\":\"scope\"}")).contains("stopped or been replaced"));
+        assertThat(captured).hasSize(3).allSatisfy(context -> assertThat(context.call().apply("{\"kind\":\"scope\"}")).contains("stopped or been replaced"));
     }
 
     @Test

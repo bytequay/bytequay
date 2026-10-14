@@ -205,9 +205,7 @@ class PullRequestDetailFetcher
 
     private static String commentKey(PrTimelineEvent event)
     {
-        return event.actor() == null || event.timestamp() == null
-                ? null
-                : event.actor() + "@" + event.timestamp();
+        return event.actor() == null || event.timestamp() == null ? null : event.actor() + "@" + event.timestamp();
     }
 
     private record SourceItems<T>(List<T> items, String unavailableSection) {}

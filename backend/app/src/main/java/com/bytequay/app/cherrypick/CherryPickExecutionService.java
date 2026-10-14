@@ -369,9 +369,7 @@ public class CherryPickExecutionService
             if (state.kind() != SequenceState.Kind.COMPLETED || !state.head().equals(expectedHead)) {
                 return pause(execution, PauseReason.UNSAFE_GIT_STATE, "The worktree moved after the empty result was recorded");
             }
-            return execution.pendingItems().isEmpty()
-                    ? complete(execution)
-                    : store.save(execution.withoutJournal(clock.instant()));
+            return execution.pendingItems().isEmpty() ? complete(execution) : store.save(execution.withoutJournal(clock.instant()));
         }
         if (item.result() != CherryPickItem.Result.PENDING) {
             return pause(execution, PauseReason.RECONCILIATION_MISMATCH, "Empty-skip journal points to a completed item");
@@ -650,9 +648,7 @@ public class CherryPickExecutionService
         String sourceSha = execution.journal().orElseThrow().sourceSha().orElseThrow();
         CherryPickItem current = itemOf(execution, sourceSha);
         if (current.agentTurnCount() >= CherryPickItem.MAX_AGENT_TURNS) {
-            return pause(execution, PauseReason.RETRY_LIMIT_REACHED,
-                    "Conflict on " + sourceSha + " remains after "
-                            + CherryPickItem.MAX_AGENT_TURNS + " attempts");
+            return pause(execution, PauseReason.RETRY_LIMIT_REACHED, "Conflict on " + sourceSha + " remains after " + CherryPickItem.MAX_AGENT_TURNS + " attempts");
         }
         int attempt = current.agentTurnCount() + 1;
         CherryPickExecution counted = store.save(execution
@@ -866,8 +862,7 @@ public class CherryPickExecutionService
     {
         TaskId taskId = TaskId.valueOf(execution.agentTaskId().orElseThrow());
         String workspaceId = execution.workspace().workspaceId();
-        TaskWorktree worktree = task.taskWorktree().orElseThrow(() ->
-                new CherryPickConflictException("Cherry-pick agent task has no managed worktree"));
+        TaskWorktree worktree = task.taskWorktree().orElseThrow(() -> new CherryPickConflictException("Cherry-pick agent task has no managed worktree"));
         if (!task.id().equals(taskId)
                 || task.interactive()
                 || task.workspaceId().stream().noneMatch(workspaceId::equals)
@@ -919,9 +914,7 @@ public class CherryPickExecutionService
                 return pause(execution, PauseReason.RECONCILIATION_MISMATCH, "Commit " + commit.targetSha() + " does not record source " + item.sourceSha());
             }
             if (!commit.targetSha().equals(item.targetSha().orElse(null))) {
-                return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
-                        "Recorded target " + item.targetSha().orElse("none")
-                                + " is not the commit on the branch");
+                return pause(execution, PauseReason.RECONCILIATION_MISMATCH, "Recorded target " + item.targetSha().orElse("none") + " is not the commit on the branch");
             }
             if (!item.conflictPaths().isEmpty() && createdIndex < created.size()) {
                 CreatedCommit candidate = created.get(createdIndex);
@@ -934,17 +927,13 @@ public class CherryPickExecutionService
             }
         }
         if (createdIndex != created.size()) {
-            return pause(execution, PauseReason.RECONCILIATION_MISMATCH,
-                    "The work branch holds " + (created.size() - createdIndex)
-                            + " unrecorded commit(s)");
+            return pause(execution, PauseReason.RECONCILIATION_MISMATCH, "The work branch holds " + (created.size() - createdIndex) + " unrecorded commit(s)");
         }
         if (!git.withoutConflictMarkers(worktree, execution.range().initialTargetSha(), state.head())) {
             return pause(execution, PauseReason.UNSAFE_GIT_STATE, "A created commit still contains a conflict marker");
         }
 
-        CherryPickExecution settled = execution.journal().isPresent()
-                ? store.save(execution.withoutJournal(clock.instant()))
-                : execution;
+        CherryPickExecution settled = execution.journal().isPresent() ? store.save(execution.withoutJournal(clock.instant())) : execution;
         completeAgentTask(settled);
         CherryPickExecution finished = store.save(settled.finish(FinishReason.COMPLETED, summary(settled), clock.instant()));
         cleanupAgentTask(finished);

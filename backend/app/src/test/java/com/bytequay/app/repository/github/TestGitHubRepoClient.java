@@ -358,8 +358,7 @@ class TestGitHubRepoClient
         Fixture fixture = fixture();
         fixture.server().expect(request -> {
             assertThat(request.getURI().getPath()).isEqualTo("/search/issues");
-            assertThat(request.getURI().getQuery()).isEqualTo("q=repo:owner/repo in:title,body \"engine/cache\" \"OR\""
-                    + "&sort=updated&order=desc&per_page=10&page=1");
+            assertThat(request.getURI().getQuery()).isEqualTo("q=repo:owner/repo in:title,body \"engine/cache\" \"OR\"" + "&sort=updated&order=desc&per_page=10&page=1");
         }).andExpect(header("Authorization", "Bearer pat")).andRespond(withSuccess("""
                 {"total_count":40,"incomplete_results":true,"items":[
                   {"id":10,"number":7,"title":"Closed issue","body":"Not pursued","state":"closed","state_reason":"not_planned",

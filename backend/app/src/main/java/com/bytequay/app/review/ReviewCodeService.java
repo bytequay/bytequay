@@ -958,9 +958,7 @@ public class ReviewCodeService
 
     private static CodeFile content(String path, byte[] bytes, boolean tooLarge, Optional<String> readOnlyReason, Optional<String> prPatch, Supplier<List<LineChange>> lineChanges)
     {
-        Optional<String> unavailable = binary(bytes) ? Optional.of("Binary file")
-                : tooLarge ? Optional.of("This file is larger than 2 MiB")
-                : Optional.empty();
+        Optional<String> unavailable = binary(bytes) ? Optional.of("Binary file") : tooLarge ? Optional.of("This file is larger than 2 MiB") : Optional.empty();
         if (unavailable.isPresent()) {
             return new CodeFile(path, Optional.empty(), Optional.empty(), readOnlyReason, unavailable, prPatch, ImmutableList.of());
         }

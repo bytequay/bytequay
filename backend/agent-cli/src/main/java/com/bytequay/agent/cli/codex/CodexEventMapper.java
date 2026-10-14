@@ -137,8 +137,7 @@ final class CodexEventMapper
 
     private static String taskToolName(String tool, Optional<JsonNode> arguments)
     {
-        return tool.equals(PermissionBroker.CALL_TOOL)
-                ? arguments.map(value -> value.path("name")).filter(JsonNode::isTextual).map(JsonNode::asText).orElse(tool) : tool;
+        return tool.equals(PermissionBroker.CALL_TOOL) ? arguments.map(value -> value.path("name")).filter(JsonNode::isTextual).map(JsonNode::asText).orElse(tool) : tool;
     }
 
     List<ProviderAgentEvent> map(CodexProtocol.Notification notification, boolean rootThread, ThreadLineage lineage)
@@ -186,10 +185,8 @@ final class CodexEventMapper
                 heldStreams.remove(completed.params().item().id());
                 yield mapItem(completed.params().item(), false, rootThread, source(completed, Optional.of(completed.params().item().id()), lineage));
             }
-            case CodexProtocol.AutoApprovalReviewStartedNotification started ->
-                ImmutableList.of(autoApprovalReview(started, started.params(), lineage));
-            case CodexProtocol.AutoApprovalReviewCompletedNotification completed ->
-                ImmutableList.of(autoApprovalReview(completed, completed.params(), lineage));
+            case CodexProtocol.AutoApprovalReviewStartedNotification started -> ImmutableList.of(autoApprovalReview(started, started.params(), lineage));
+            case CodexProtocol.AutoApprovalReviewCompletedNotification completed -> ImmutableList.of(autoApprovalReview(completed, completed.params(), lineage));
             // The driver announces a new thread once its lineage is known; nothing to show here.
             case CodexProtocol.ThreadStartedNotification ignored -> ImmutableList.of();
             // The session withdraws the approval it settles; the resolution event says so.
@@ -308,10 +305,8 @@ final class CodexEventMapper
                             ProviderAgentEvent.MessagePhase.FINAL,
                             redactor.redact(prompt.text()),
                             source));
-            case CodexProtocol.CommandExecutionItem command ->
-                ImmutableList.of(command(command, eventId, started, source));
-            case CodexProtocol.FileChangeItem fileChange ->
-                mapFileChanges(fileChange, started, source);
+            case CodexProtocol.CommandExecutionItem command -> ImmutableList.of(command(command, eventId, started, source));
+            case CodexProtocol.FileChangeItem fileChange -> mapFileChanges(fileChange, started, source);
             case CodexProtocol.McpToolCallItem tool -> ImmutableList.of(tool(
                     tool.server() + "/" + (tool.server().equals("bytequay") ? taskToolName(tool.tool(), tool.arguments()) : tool.tool()),
                     tool.status(),
@@ -516,9 +511,7 @@ final class CodexEventMapper
         return switch (kind.type()) {
             case "add" -> Optional.of(ProviderAgentEvent.ChangeKind.ADDED);
             case "delete" -> Optional.of(ProviderAgentEvent.ChangeKind.DELETED);
-            case "update" -> Optional.of(kind.movePath().isPresent()
-                    ? ProviderAgentEvent.ChangeKind.RENAMED
-                    : ProviderAgentEvent.ChangeKind.MODIFIED);
+            case "update" -> Optional.of(kind.movePath().isPresent() ? ProviderAgentEvent.ChangeKind.RENAMED : ProviderAgentEvent.ChangeKind.MODIFIED);
             default -> Optional.empty();
         };
     }

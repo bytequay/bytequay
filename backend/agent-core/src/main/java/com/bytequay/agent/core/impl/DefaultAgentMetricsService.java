@@ -51,8 +51,7 @@ public final class DefaultAgentMetricsService
         implements AgentMetricsService
 {
     private static final Set<String> EXPLORE_TOOLS = ImmutableSet.of("Read", "Grep", "Glob", "LS", "code_query", "bytequay/code_query", "mcp__bytequay__code_query");
-    private static final Set<CommandActionKind> EXPLORE_ACTIONS =
-            ImmutableSet.of(CommandActionKind.READ, CommandActionKind.LIST_FILES, CommandActionKind.SEARCH);
+    private static final Set<CommandActionKind> EXPLORE_ACTIONS = ImmutableSet.of(CommandActionKind.READ, CommandActionKind.LIST_FILES, CommandActionKind.SEARCH);
     // A cost arrives as a JSON double and SQLite keeps fifteen digits of it, so a session total that did not move can come back a hair below what the turns hold.
     private static final BigDecimal COST_NOISE = new BigDecimal("0.000001");
 

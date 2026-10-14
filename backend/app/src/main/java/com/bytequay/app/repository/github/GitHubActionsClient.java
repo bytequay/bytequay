@@ -99,12 +99,9 @@ public class GitHubActionsClient
             + "request the cached raw log for complete evidence.\n";
     private static final String LOG_MEDIA_TYPE = "text/plain; charset=utf-8";
     private static final Pattern ANSI_ESCAPE = Pattern.compile("\\x1B(?:[@-Z\\\\-_]|\\[[0-?]*[ -/]*[@-~])");
-    private static final Pattern TIMESTAMP_PREFIX = Pattern.compile(
-            "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s+");
-    private static final Pattern AUTHORIZATION_VALUE = Pattern.compile(
-            "(?i)(authorization\\s*[:=]\\s*(?:bearer|token)\\s+)[^\\s]+");
-    private static final Pattern GITHUB_TOKEN = Pattern.compile(
-            "\\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)\\b");
+    private static final Pattern TIMESTAMP_PREFIX = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d+)?Z\\s+");
+    private static final Pattern AUTHORIZATION_VALUE = Pattern.compile("(?i)(authorization\\s*[:=]\\s*(?:bearer|token)\\s+)[^\\s]+");
+    private static final Pattern GITHUB_TOKEN = Pattern.compile("\\b(?:github_pat_[A-Za-z0-9_]+|gh[pousr]_[A-Za-z0-9]+)\\b");
 
     private final RestClient gitHubRestClient;
     private final RestClient logRestClient;
@@ -710,9 +707,7 @@ public class GitHubActionsClient
         String normalized = ANSI_ESCAPE.matcher(value).replaceAll("");
         normalized = TIMESTAMP_PREFIX.matcher(normalized).replaceFirst("");
         normalized = normalized.strip().replaceAll("\\s+", " ");
-        return normalized.length() <= MAX_ERROR_LINE
-                ? normalized
-                : normalized.substring(0, MAX_ERROR_LINE);
+        return normalized.length() <= MAX_ERROR_LINE ? normalized : normalized.substring(0, MAX_ERROR_LINE);
     }
 
     private String token()

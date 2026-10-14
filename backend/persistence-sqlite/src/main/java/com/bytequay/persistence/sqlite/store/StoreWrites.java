@@ -39,14 +39,10 @@ import static java.util.Objects.requireNonNull;
  */
 final class StoreWrites
 {
-    static final Failures AGENT = new Failures(
-            AgentConflictException::new, AgentConflictException::new, SqliteStoreExceptions::mapConstraint, AgentStorageException::new);
-    static final Failures REVIEW = new Failures(
-            ReviewConflictException::new, ReviewConflictException::new, ReviewConflictException::new, ReviewConflictException::new);
-    static final Failures BRANCH_REBASE = new Failures(
-            BranchRebaseException::new, BranchRebaseException::new, BranchRebaseException::new, StorageException::new);
-    static final Failures CHERRY_PICK = new Failures(
-            CherryPickConflictException::new, CherryPickConflictException::new, CherryPickConflictException::new, StorageException::new);
+    static final Failures AGENT = new Failures(AgentConflictException::new, AgentConflictException::new, SqliteStoreExceptions::mapConstraint, AgentStorageException::new);
+    static final Failures REVIEW = new Failures(ReviewConflictException::new, ReviewConflictException::new, ReviewConflictException::new, ReviewConflictException::new);
+    static final Failures BRANCH_REBASE = new Failures(BranchRebaseException::new, BranchRebaseException::new, BranchRebaseException::new, StorageException::new);
+    static final Failures CHERRY_PICK = new Failures(CherryPickConflictException::new, CherryPickConflictException::new, CherryPickConflictException::new, StorageException::new);
 
     private StoreWrites() {}
 

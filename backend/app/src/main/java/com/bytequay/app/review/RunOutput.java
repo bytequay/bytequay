@@ -96,9 +96,7 @@ final class RunOutput
         if (after < head.length()) {
             String text = head.substring((int) after);
             // Without a dropped middle the tail continues the head directly.
-            return tailStart == head.length()
-                    ? new OutputChunk(text + tail, total, 0, complete)
-                    : new OutputChunk(text, head.length(), 0, false);
+            return tailStart == head.length() ? new OutputChunk(text + tail, total, 0, complete) : new OutputChunk(text, head.length(), 0, false);
         }
         long from = Math.min(Math.max(after, tailStart), total);
         return new OutputChunk(tail.substring((int) (from - tailStart)), total, Math.max(0, tailStart - after), complete);

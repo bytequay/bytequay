@@ -59,9 +59,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteAgentEventOutboxStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-agent-event-outbox-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-agent-event-outbox-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-01T00:00:00Z");
 
     @Autowired

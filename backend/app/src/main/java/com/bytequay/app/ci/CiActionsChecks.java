@@ -28,13 +28,7 @@ import static java.util.Objects.requireNonNull;
 
 final class CiActionsChecks
 {
-    private static final Set<String> ACTIONABLE_CONCLUSIONS = ImmutableSet.of(
-            "action_required",
-            "cancelled",
-            "failure",
-            "stale",
-            "startup_failure",
-            "timed_out");
+    private static final Set<String> ACTIONABLE_CONCLUSIONS = ImmutableSet.of("action_required", "cancelled", "failure", "stale", "startup_failure", "timed_out");
     private static final Set<String> PASSING_CONCLUSIONS = ImmutableSet.of("neutral", "skipped", "success");
 
     private CiActionsChecks() {}

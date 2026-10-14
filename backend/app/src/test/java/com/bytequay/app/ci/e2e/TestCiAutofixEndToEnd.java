@@ -118,15 +118,9 @@ import static org.mockito.Mockito.when;
 @Execution(ExecutionMode.SAME_THREAD)
 class TestCiAutofixEndToEnd
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-ci-e2e-" + UUID.randomUUID() + ".db").toString();
-    private static final String RUNTIME_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-ci-e2e-runtime-" + UUID.randomUUID()).toString();
-    private static final String WORKSPACE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-ci-e2e-workspaces-" + UUID.randomUUID()).toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-ci-e2e-" + UUID.randomUUID() + ".db").toString();
+    private static final String RUNTIME_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-ci-e2e-runtime-" + UUID.randomUUID()).toString();
+    private static final String WORKSPACE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-ci-e2e-workspaces-" + UUID.randomUUID()).toString();
 
     @Autowired
     private MockMvc mvc;

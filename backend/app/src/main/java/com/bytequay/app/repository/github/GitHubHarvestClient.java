@@ -59,8 +59,7 @@ public class GitHubHarvestClient
     // GitHub refuses search queries over 256 characters, so a long pasted title searches by its first words.
     private static final int SEARCH_WORDS = 8;
     private static final Pattern NUMBER = Pattern.compile("#?([1-9][0-9]{0,8})");
-    private static final Pattern LINK = Pattern.compile("(?:https?://)?(?:www\\.)?github\\.com/([\\w.-]+)/([\\w.-]+)/pull/([1-9][0-9]{0,8})(?:[/?#].*)?",
-            Pattern.CASE_INSENSITIVE);
+    private static final Pattern LINK = Pattern.compile("(?:https?://)?(?:www\\.)?github\\.com/([\\w.-]+)/([\\w.-]+)/pull/([1-9][0-9]{0,8})(?:[/?#].*)?", Pattern.CASE_INSENSITIVE);
     private static final String NOTE_FIELDS = "id body url author { __typename login }";
     private static final String QUERY = """
             query($owner:String!,$repo:String!,$number:Int!) {

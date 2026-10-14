@@ -36,9 +36,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestSqliteTaskDiscussionStore
         extends AbstractTestSqliteStore
 {
-    private static final String DATABASE_PATH = Path.of(
-            System.getProperty("java.io.tmpdir"),
-            "bytequay-discussion-store-" + UUID.randomUUID() + ".db").toString();
+    private static final String DATABASE_PATH = Path.of(System.getProperty("java.io.tmpdir"), "bytequay-discussion-store-" + UUID.randomUUID() + ".db").toString();
     private static final Instant NOW = Instant.parse("2026-09-21T00:00:00Z");
     private static final String HASH = "a".repeat(64);
     private static final String OTHER_HASH = "b".repeat(64);

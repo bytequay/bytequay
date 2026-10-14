@@ -233,9 +233,7 @@ public class PullRequestEntity
         // (status pills on rows and titles) sees
         // one canonical value instead of having to special-case the
         // closed-but-merged combination.
-        String synthesizedState = getMergedAt() != null && "closed".equals(getState())
-                ? "merged"
-                : getState();
+        String synthesizedState = getMergedAt() != null && "closed".equals(getState()) ? "merged" : getState();
         return new PullRequest(
                 getId(),
                 getRepo(),

@@ -1675,8 +1675,7 @@ class TestAgentHttpApi
                 JsonNode.class);
 
         assertThat(foreignDelete.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
-        assertThat(get(ownerQueuePath).getBody()).singleElement().satisfies(input ->
-                assertThat(input.required("id").asText()).isEqualTo(queuedId));
+        assertThat(get(ownerQueuePath).getBody()).singleElement().satisfies(input -> assertThat(input.required("id").asText()).isEqualTo(queuedId));
         rest.exchange(url("/agent/tasks/" + ownerTaskId + "/queue/" + queuedId + "?workspaceId=" + workspaceId), HttpMethod.DELETE, new HttpEntity<>(headers()), JsonNode.class);
         driver.completeHeldTurn();
     }

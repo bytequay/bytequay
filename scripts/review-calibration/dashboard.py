@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 from datetime import date, datetime, timedelta
 import json
-import os
 from pathlib import Path
 import re
 import subprocess
@@ -365,13 +364,19 @@ def experiment_runs(plan):
     unjudged = sum(stands == "completed" and not judged for _, _, stands, judged in made)
     waiting = unjudged or any(stands not in batch.ENDED for _, _, stands, _ in made)
     st.caption(f"Runs: {lines[-1]}" + (f", {unjudged} of them not judged yet." if unjudged else "."))
+    try:
+        chosen = batch.schedule(plan["folder"].parents[1]).get(plan["folder"].name)
+        if chosen:
+            st.caption(f"A new round every {chosen['every']}, the next on {batch.next_round(chosen).astimezone():%Y-%m-%d}.")
+    except (OSError, AttributeError, KeyError, TypeError, ValueError):
+        st.caption("The schedule cannot be read. Set it again with `uv run batch.py NAME --every week`")
     if batch.runner(plan) is not None:
         st.button("Stop", key="stop_runs", on_click=batch.stop, args=(plan,))
     elif waiting or not (plan["folder"] / "scores.json").exists():  # with nothing left to run or judge, a start only saves the scores
         st.button("Run and judge what is missing", key="start_runs", on_click=batch.start, args=(plan,))
-        if waiting and not os.environ.get("DEEPSEEK_API_KEY"):
-            st.caption("Judging needs DEEPSEEK_API_KEY set where this page was started. Without it, judge in a terminal with "
-                       f"`uv run batch.py {plan['folder'].name} --judge`")
+        if waiting and not batch.has_key():
+            st.caption("Judging needs the DeepSeek key. Store it once in the Keychain with `uv run batch.py --store-key`, or judge in a "
+                       f"terminal with `uv run batch.py {plan['folder'].name} --judge`")
     with st.expander("Every run"):
         st.text("\n".join(lines[:-1]))
         log = plan["folder"] / "batch.log"

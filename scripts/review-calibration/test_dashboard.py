@@ -372,8 +372,10 @@ class Page(unittest.TestCase):
     def test_reviews_tab_runs_the_picked_experiment_and_stops_it(self):
         self.save()
         kept = self.save_plan("trial")
-        hint = "Judging needs DEEPSEEK_API_KEY set where this page was started. Without it, judge in a terminal with `uv run batch.py trial --judge`"
-        with mock.patch.object(batch, "start") as started, mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
+        hint = ("Judging needs the DeepSeek key. Store it once in the Keychain with `uv run batch.py --store-key`, or judge in a terminal with "
+                "`uv run batch.py trial --judge`")
+        keyed = self.enterContext(mock.patch.object(batch, "has_key", return_value=False))  # never the real Keychain
+        with mock.patch.object(batch, "start") as started:
             page = self.page()
             self.assertEqual(list(page.exception), [])
             self.assertEqual(([box.value for box in page.selectbox], run_buttons(page)), (["trial"], ["Run and judge what is missing"]))
@@ -389,18 +391,17 @@ class Page(unittest.TestCase):
             page.button(key="stop_runs").click().run()
         self.assertEqual([call.args[0]["folder"] for call in stopped.call_args_list], [kept])
         (run / "runtime.json").write_text(json.dumps({"status": "completed"}))
-        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": "a-key"}):
-            page = self.page()
+        keyed.return_value = True
+        page = self.page()
+        keyed.return_value = False
         self.assertEqual(("Runs: 1 completed, 1 of them not judged yet." in captions(page), hint in captions(page), run_buttons(page)),
                          (True, False, ["Run and judge what is missing"]))  # a run left to judge, and the key to judge it
         self.save_scores("trial")
-        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
-            page = self.page()
+        page = self.page()
         self.assertEqual((hint in captions(page), run_buttons(page)), (True, ["Run and judge what is missing"]))  # scored before, and a run left to judge since
         (kept / "scores.json").unlink()
         (run / "judgement.json").write_text("{}")
-        with mock.patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}):
-            page = self.page()
+        page = self.page()
         self.assertEqual(("Runs: 1 completed." in captions(page), hint in captions(page), run_buttons(page)),
                          (True, False, ["Run and judge what is missing"]))  # judged and not scored: a start only saves the scores, which needs no key
         self.save_scores("trial")
@@ -408,6 +409,11 @@ class Page(unittest.TestCase):
         page = self.page()
         self.assertEqual(("Runs: 1 completed." in captions(page), run_buttons(page), page.code[-1].value),
                          (True, [], "line 3\nline 4\nline 5\nline 6\nline 7"))  # nothing left to do, and the end of what the last start said
+        chosen = {"every": "week", "last": "2026-10-14T03:00:00+00:00"}
+        (self.folder / "schedule.json").write_text(json.dumps({"version": 1, "experiments": {"trial": chosen}}))
+        self.assertIn(f"A new round every week, the next on {batch.next_round(chosen).astimezone():%Y-%m-%d}.", captions(self.page()))
+        (self.folder / "schedule.json").write_text("{")
+        self.assertIn("The schedule cannot be read. Set it again with `uv run batch.py NAME --every week`", captions(self.page()))
         (kept / "scores.json").unlink()
         (kept / "plan.json").write_text("{")
         page = self.page()

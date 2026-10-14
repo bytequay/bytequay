@@ -203,7 +203,12 @@ def has_key():
 
 def store_key():
     """Keep the judge's key in the Keychain. The Mac's own tool asks for it, so it never passes through this program."""
-    return subprocess.run(["security", "add-generic-password", "-U", "-a", getpass.getuser(), "-s", KEYCHAIN, "-w"]).returncode
+    # The Mac's prompt says "password data", which reads like the Mac's own password.
+    print("Paste your DeepSeek API key (not your Mac password) when asked for password data, then once more. Nothing shows as you type.", flush=True)
+    try:
+        return subprocess.run(["security", "add-generic-password", "-U", "-a", getpass.getuser(), "-s", KEYCHAIN, "-w"]).returncode
+    except KeyboardInterrupt:
+        return 130  # stopped with Ctrl+C: nothing is stored
 
 
 def judge(plan, say=tell):

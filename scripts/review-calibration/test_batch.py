@@ -1,3 +1,4 @@
+import contextlib
 from datetime import datetime, timedelta, timezone
 import getpass
 import io
@@ -313,9 +314,13 @@ class TestSchedule(Experiment):
         self.assertEqual((said[0], started.called), ("2026-10-21 03:00 UTC first: not started: it is running", False))
 
     def test_key_is_stored_by_the_macs_own_tool_and_the_page_only_asks_whether_it_is_there(self):
-        self.assertEqual(self.command("--store-key").returncode, 0)
+        stored = self.command("--store-key")
+        self.assertEqual((stored.returncode, stored.stdout), (0, "Paste your DeepSeek API key (not your Mac password) when asked for password data, then once more. "
+                                                                  "Nothing shows as you type.\n"))
         # -w comes last, so `security` asks for the key itself and the key never passes through the lab.
         self.assertEqual(self.tool_calls("security"), [["add-generic-password", "-U", "-a", getpass.getuser(), "-s", "ByteQuay Lab DeepSeek", "-w"]])
+        with mock.patch.object(subprocess, "run", side_effect=KeyboardInterrupt), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(batch.store_key(), 130)  # Ctrl+C at the prompt: nothing is stored, and no traceback
         self.assertFalse(batch.has_key())
         with mock.patch.dict(os.environ, {"KEYCHAIN_KEY": "a-key"}):
             self.assertTrue(batch.has_key())

@@ -1459,7 +1459,7 @@ public final class DefaultAgentTurnService
                 .findFirst();
         Optional<EventId> queueEventId = queuedInput.map(input -> EventId.random());
         AgentTurn running = unitOfWork.execute(() -> {
-            AgentTurn updated = turnStore.update(turnStore.require(accepted.id()).running(providerTurnReference, Optional.empty()));
+            AgentTurn updated = turnStore.update(turnStore.require(accepted.id()).running(providerTurnReference, Optional.empty()).withSetup(runningTurn.setup()));
             // The thread reference is persisted only now that a turn has run on it. A thread that
             // was opened but never turned has no rollout, so resuming it after a restart fails
             // forever; forgetting it means the next turn starts a fresh thread instead.

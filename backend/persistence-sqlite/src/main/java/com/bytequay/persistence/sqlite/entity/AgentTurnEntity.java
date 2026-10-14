@@ -193,6 +193,9 @@ public class AgentTurnEntity
     @Column(name = "context_compactions")
     private Long contextCompactions;
 
+    @Column(name = "setup_fingerprint")
+    private String setupFingerprint;
+
     public AgentTurnEntity() {}
 
     public static AgentTurnEntity fromDomain(AgentTurn turn)
@@ -249,6 +252,7 @@ public class AgentTurnEntity
         toolCalls = turn.metrics().counters().toolCalls();
         exploreActions = turn.metrics().counters().exploreActions();
         contextCompactions = turn.metrics().counters().compactions();
+        setupFingerprint = turn.setup().orElse(null);
     }
 
     public AgentTurn toDomain()
@@ -285,7 +289,8 @@ public class AgentTurnEntity
                 developmentOrigin(),
                 Optional.ofNullable(planJson).map(json -> AGENT.read(json, PLAN, "turn plan")),
                 Optional.ofNullable(guidelinesJson).map(json -> AGENT.read(json, GUIDELINES, "turn guidelines")).orElse(ImmutableList.of()),
-                Optional.ofNullable(memoriesJson).map(json -> AGENT.read(json, MEMORIES, "turn memories")).orElse(ImmutableList.of()));
+                Optional.ofNullable(memoriesJson).map(json -> AGENT.read(json, MEMORIES, "turn memories")).orElse(ImmutableList.of()),
+                Optional.ofNullable(setupFingerprint));
     }
 
     private Optional<DevelopmentTurnOrigin> developmentOrigin()

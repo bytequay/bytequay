@@ -1288,6 +1288,7 @@ class TestDefaultAgentTurnService
                 .extracting(event -> ((AgentEventPayload.UserMessage) event.payload()).text())
                 .containsExactly("Review this change");
         assertThat(accepted.providerTurnReference()).isPresent();
+        assertThat(stores.find(accepted.id()).orElseThrow().setup()).contains("deterministic-setup");  // what the provider session was set up with, kept with the turn
         assertThat(service.start(command("Ignored duplicate", "context-input")).id()).isEqualTo(accepted.id());
         assertThat(prepared).containsExactly(accepted.id());
         assertThat(driver.commands()).hasSize(1);

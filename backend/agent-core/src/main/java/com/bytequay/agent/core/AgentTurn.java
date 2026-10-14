@@ -53,7 +53,8 @@ public record AgentTurn(
         Optional<DevelopmentTurnOrigin> developmentOrigin,
         Optional<List<PlanItem>> plan,
         List<String> guidelines,
-        List<TurnMemory> memories)
+        List<TurnMemory> memories,
+        Optional<String> setup)
 {
     public AgentTurn(
             TurnId id,
@@ -75,7 +76,7 @@ public record AgentTurn(
     {
         this(id, taskId, idempotencyKey, state, version, createdAt, startedAt, endedAt, cancellationRequestedAt,
                 providerTurnReference, knownUnsent, model, settings, terminalReason, failureKind, metrics, Optional.empty(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(), ImmutableList.of());
+                ImmutableList.of(), ImmutableList.of(), Optional.empty());
     }
 
     public AgentTurn
@@ -100,6 +101,7 @@ public record AgentTurn(
         checkOptionalText(terminalReason, "terminalReason");
         requireNonNull(failureKind, "failureKind is null");
         requireNonNull(metrics, "metrics is null");
+        checkOptionalText(setup, "setup");
         checkArgument(version >= 0, "version is negative");
         checkArgument(providerTurnReference.isEmpty() || startedAt.isPresent(), "a provider reference requires delivery start time");
         checkArgument(state != TurnState.RUNNING || providerTurnReference.isPresent(), "a running turn requires a provider reference");
@@ -151,6 +153,13 @@ public record AgentTurn(
                 .model(providerModel)
                 .terminalReason(Optional.empty())
                 .build();
+    }
+
+    /** What the provider session that runs this turn was set up with, recorded when the turn starts running. */
+    public AgentTurn withSetup(Optional<String> runningSetup)
+    {
+        requireState(TurnState.RUNNING);
+        return toBuilder().setup(runningSetup).build();
     }
 
     public AgentTurn markDeliveryStarted(Instant now)

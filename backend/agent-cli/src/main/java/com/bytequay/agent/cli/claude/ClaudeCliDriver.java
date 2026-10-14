@@ -709,6 +709,7 @@ public final class ClaudeCliDriver
         private final AgentEventSink events;
         private final McpRegistration registration;
         private final AgentPermissionScope permissionScope;
+        private final String setup;
         private final SecretRedactor redactor;
         private ClaudeRunningTurn running;
         private ClaudeRunningTurn lastTurn;
@@ -733,6 +734,9 @@ public final class ClaudeCliDriver
                     environment,
                     context.discussionContext(), context.reviewContext());
             this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
+            // The same instructions every turn's launch arguments carry; see argv.
+            this.setup = ProviderInstructions.setup(ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(), registration.instruction().orElse("")),
+                    Optional.of(registration.toolsDigest()));
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());
             this.resume = resume;
         }
@@ -1052,6 +1056,12 @@ public final class ClaudeCliDriver
         public ProviderTurnRef reference()
         {
             return reference;
+        }
+
+        @Override
+        public Optional<String> setup()
+        {
+            return Optional.of(session.setup);
         }
 
         @Override

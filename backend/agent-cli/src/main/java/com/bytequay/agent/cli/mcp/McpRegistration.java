@@ -38,6 +38,8 @@ public record McpRegistration(
         String token,
         URI endpoint,
         List<String> toolNames,
+        /** A digest of every tool the session is given, by name, description and parameters. */
+        String toolsDigest,
         Optional<String> instruction,
         Optional<ReviewBridge> review,
         Optional<DevelopmentResultBridge> development,
@@ -51,6 +53,7 @@ public record McpRegistration(
         requireNonNull(token, "token is null");
         requireNonNull(endpoint, "endpoint is null");
         toolNames = ImmutableList.copyOf(toolNames);
+        requireNonNull(toolsDigest, "toolsDigest is null");
         requireNonNull(instruction, "instruction is null");
         requireNonNull(review, "review is null");
         requireNonNull(development, "development is null");

@@ -475,6 +475,24 @@ class TestSqliteAgentStores
     }
 
     @Test
+    void roundTripsTheSetupATurnRanWith()
+    {
+        Instant now = Instant.parse("2026-08-16T00:00:00Z");
+        AgentTask task = newTask(now);
+        taskStore.insert(task);
+        AgentTurn turn = AgentTurn.accepted(TurnId.random(), task.id(), "request-1", turnSettings(), now)
+                .markDeliveryStarted(now.plusSeconds(1))
+                .running(new ProviderTurnRef("provider-turn-1"), Optional.of("model"))
+                .withSetup(Optional.of("3fa9c1d2-91be07aa"));
+        turnStore.insert(turn);
+        entityManager.clear();
+
+        assertThat(turnStore.find(turn.id()).orElseThrow().setup()).contains("3fa9c1d2-91be07aa");
+        // The lab reads this column by name.
+        assertThat(jdbc.queryForObject("SELECT setup_fingerprint FROM agent_turn WHERE id = ?", String.class, turn.id().toString())).isEqualTo("3fa9c1d2-91be07aa");
+    }
+
+    @Test
     void readsLegacyProviderModelWithoutTurnSettings()
     {
         Instant now = Instant.parse("2026-08-16T00:00:00Z");

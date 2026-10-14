@@ -132,6 +132,11 @@ agents retain their read-only review scope. Conversations created with the old
 fixed tool contract must be replaced once; their saved provider tool list cannot
 be updated on resume.
 
+Each turn keeps a short name for its session's setup: a digest of the
+instructions the provider session started with, and one of the tools it was
+given. Turns with one name ran with the same setup, so a change to either can be
+judged by the turns before and after it.
+
 Review composer choices are saved as defaults for future turns. Acceptance captures
 provider, model, effort, and service tier; queued input keeps its own captured choice.
 The executing provider changes only while the task is idle and its previous runtime

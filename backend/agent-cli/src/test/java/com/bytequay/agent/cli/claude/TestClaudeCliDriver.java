@@ -59,6 +59,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -111,8 +112,13 @@ class TestClaudeCliDriver
                 plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
                 Optional.empty(), "", Optional.of(new DiscussionContextBridge(query -> "saved context")));
         try (AgentSession session = driver.open(discussion, event -> {})) {
-            assertThat(await(session.start(command("explain this"))).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
+            RunningTurn turn = session.start(command("explain this"));
+            assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
             ProcessSpec spec = supervisor.turns().getLast().spec();
+            // The setup's first half names the very instructions the turn was launched with.
+            String instructions = spec.argv().get(spec.argv().indexOf("--append-system-prompt") + 1);
+            assertThat(turn.setup().orElseThrow()).matches("[0-9a-f]{8}-[0-9a-f]{8}")
+                    .startsWith(Hashing.sha256().hashString(instructions, StandardCharsets.UTF_8).toString().substring(0, 8) + "-");
             assertThat(spec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
             assertThat(spec.argv()).anyMatch(argument -> argument.contains("mcp__bytequay__read_discussion_context"));
             assertThat(spec.argv()).anyMatch(argument -> argument.contains(DiscussionContextBridge.INSTRUCTION));

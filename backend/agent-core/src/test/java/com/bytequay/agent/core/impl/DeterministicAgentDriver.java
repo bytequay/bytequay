@@ -409,6 +409,12 @@ final class DeterministicAgentDriver
         }
 
         @Override
+        public Optional<String> setup()
+        {
+            return Optional.of("deterministic-setup");
+        }
+
+        @Override
         public CompletionStage<AgentTurnResult> completion()
         {
             return completion;

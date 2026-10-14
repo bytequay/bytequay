@@ -874,6 +874,7 @@ public final class CodexCliDriver
         private final AgentPermissionScope permissionScope;
         private final Optional<CodexLaunchProfile.DeepSeekProfile> deepSeek;
         private final String developerInstructions;
+        private final String setup;
         /** Current instructions a resumed thread has not seen; this session's turn carries them. */
         private Optional<String> instructionUpdate = Optional.empty();
         /** Every thread this task's process has shown us, root and subagents alike. */
@@ -943,6 +944,7 @@ public final class CodexCliDriver
             this.developerInstructions = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(),
                     codeQueries.flatMap(McpRegistration::instruction).orElse(""),
                     permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "");
+            this.setup = ProviderInstructions.setup(developerInstructions, codeQueries.map(McpRegistration::toolsDigest));
             this.eventMapper = new CodexEventMapper(context.worktree(), sessionRedactor, deepSeekSecret.isEmpty());
             this.isolation = new CodexIsolationGuard(
                     client,
@@ -1167,7 +1169,7 @@ public final class CodexCliDriver
             }
             development = codeQueries.flatMap(McpRegistration::development)
                     .filter(bridge -> bridge.turnId().equals(command.turnId()));
-            running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, this::userInput);
+            running = new CodexRunningTurn(client, sessionRedactor, reference.providerValue(), turnId, setup, this::userInput);
             if (!command.maximumRuntime().isZero()) {
                 CodexRunningTurn started = running;
                 CompletableFuture.delayedExecutor(command.maximumRuntime().toMillis(), TimeUnit.MILLISECONDS)
@@ -2342,6 +2344,7 @@ public final class CodexCliDriver
         private final SecretRedactor sessionRedactor;
         private final ProviderTurnRef reference;
         private final String threadId;
+        private final String setup;
         private final BiFunction<String, List<AgentAttachment>, List<CodexProtocol.UserInput>> userInput;
         private final Instant startedAt = Instant.now();
         private final CompletableFuture<AgentTurnResult> completion = new CompletableFuture<>();
@@ -2356,12 +2359,14 @@ public final class CodexCliDriver
                 SecretRedactor sessionRedactor,
                 String threadId,
                 String turnId,
+                String setup,
                 BiFunction<String, List<AgentAttachment>, List<CodexProtocol.UserInput>> userInput)
         {
             this.client = requireNonNull(client, "client is null");
             this.sessionRedactor = requireNonNull(sessionRedactor, "sessionRedactor is null");
             this.threadId = requireNonNull(threadId, "threadId is null");
             this.reference = new ProviderTurnRef(turnId);
+            this.setup = requireNonNull(setup, "setup is null");
             this.userInput = requireNonNull(userInput, "userInput is null");
         }
 
@@ -2369,6 +2374,12 @@ public final class CodexCliDriver
         public ProviderTurnRef reference()
         {
             return reference;
+        }
+
+        @Override
+        public Optional<String> setup()
+        {
+            return Optional.of(setup);
         }
 
         @Override

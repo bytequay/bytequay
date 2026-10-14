@@ -49,11 +49,13 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.hash.Hashing;
 import lombok.Builder;
 
 import java.io.IOException;
@@ -91,6 +93,7 @@ import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.ALLOW_ONCE
 import static com.bytequay.agent.spi.ProviderApprovalRequest.Decision.DENY;
 import static com.google.common.base.Preconditions.checkArgument;
 import static com.google.common.collect.ImmutableList.toImmutableList;
+import static java.util.Comparator.comparing;
 import static java.util.Objects.requireNonNull;
 
 /** Serves ByteQuay's task-scoped MCP tools. */
@@ -294,12 +297,13 @@ public final class PermissionBroker
                 Files.setPosixFilePermissions(childGateFile, PosixFilePermissions.fromString("rwx------"));
             }
             writeOwnerOnly(settingsFile, sandboxSettings(context.scope(), runtimeDirectory.toRealPath(), worktree, environment, childGate));
-            List<String> toolNames = exposedTools(context).stream()
+            List<ToolDefinition> exposed = exposedTools(context);
+            List<String> toolNames = exposed.stream()
                     .map(ToolDefinition::name)
                     .filter(name -> !name.equals("permission_prompt"))
                     .collect(toImmutableList());
             return new McpRegistration(
-                    token, uri, toolNames, managedInstruction(context), context.review(), context.development(),
+                    token, uri, toolNames, toolsDigest(exposed), managedInstruction(context), context.review(), context.development(),
                     Optional.of(configFile), Optional.of(settingsFile), () -> {
                         contexts.remove(token);
                         delete(configFile);
@@ -364,9 +368,10 @@ public final class PermissionBroker
             return Optional.empty();
         }
         contexts.put(token, context);
-        List<String> toolNames = exposedTools(context).stream().map(ToolDefinition::name).collect(toImmutableList());
+        List<ToolDefinition> exposed = exposedTools(context);
         return Optional.of(new McpRegistration(
-                token, requireNonNull(endpoint.get(), "endpoint URI is null"), toolNames, managedInstruction(context), context.review(), context.development(),
+                token, requireNonNull(endpoint.get(), "endpoint URI is null"), exposed.stream().map(ToolDefinition::name).collect(toImmutableList()), toolsDigest(exposed),
+                managedInstruction(context), context.review(), context.development(),
                 Optional.empty(), Optional.empty(), () -> contexts.remove(token)));
     }
 
@@ -1189,6 +1194,19 @@ public final class PermissionBroker
                         "properties", ImmutableMap.of("tool_name", ImmutableMap.of("type", "string"), "input", ImmutableMap.of("type", "object")),
                         "required", ImmutableList.of("tool_name", "input"),
                         "additionalProperties", true));
+    }
+
+    /** A digest of the tools a session is given, by name, description and parameters in any order, so two setups can be told apart. */
+    private String toolsDigest(List<ToolDefinition> tools)
+    {
+        try {
+            String canonical = objectMapper.writer().with(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS)
+                    .writeValueAsString(tools.stream().sorted(comparing(ToolDefinition::name)).collect(toImmutableList()));
+            return Hashing.sha256().hashString(canonical, StandardCharsets.UTF_8).toString();
+        }
+        catch (JsonProcessingException e) {
+            throw new UncheckedIOException(e);
+        }
     }
 
     private static List<ToolDefinition> exposedTools(PermissionContext context)

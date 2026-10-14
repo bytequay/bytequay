@@ -15,7 +15,10 @@ package com.bytequay.agent.cli;
 
 import com.bytequay.agent.spi.AgentCommandPolicy;
 import com.bytequay.agent.spi.AgentPermissionScope;
+import com.google.common.hash.Hashing;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static java.util.stream.Collectors.joining;
@@ -36,5 +39,20 @@ public final class ProviderInstructions
                         Stream.of(toolInstructions))
                 .filter(part -> !part.isBlank())
                 .collect(joining("\n\n"));
+    }
+
+    /**
+     * A short name for what a session was set up with: the first half follows its composed instructions, the second the
+     * digest of its tools. Turns with one name ran with the same setup, so their results can be compared before and after
+     * a change to either.
+     */
+    public static String setup(String instructions, Optional<String> toolsDigest)
+    {
+        return digest(instructions).substring(0, 8) + "-" + toolsDigest.orElseGet(() -> digest("")).substring(0, 8);
+    }
+
+    private static String digest(String text)
+    {
+        return Hashing.sha256().hashString(text, StandardCharsets.UTF_8).toString();
     }
 }

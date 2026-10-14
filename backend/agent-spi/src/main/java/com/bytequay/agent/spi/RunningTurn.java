@@ -13,6 +13,7 @@
  */
 package com.bytequay.agent.spi;
 
+import java.util.Optional;
 import java.util.concurrent.CompletionStage;
 
 /**
@@ -40,6 +41,17 @@ public interface RunningTurn
      * @return success, failure, cancellation, or interruption result
      */
     CompletionStage<AgentTurnResult> completion();
+
+    /**
+     * Returns a short name for what the session running this turn was set up with: its
+     * instructions and its tools. Turns with one name ran with the same setup.
+     *
+     * @return the setup's name, or empty when the provider does not name it
+     */
+    default Optional<String> setup()
+    {
+        return Optional.empty();
+    }
 
     /**
      * Adds input to this exact running turn.

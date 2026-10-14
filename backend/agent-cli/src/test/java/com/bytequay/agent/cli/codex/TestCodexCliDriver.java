@@ -61,6 +61,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -128,6 +129,9 @@ class TestCodexCliDriver
             JsonNode thread = supervisor.server().threadRequests().getFirst();
             assertThat(thread.path("developerInstructions").asText()).contains(DiscussionContextBridge.INSTRUCTION);
             RunningTurn turn = session.start(command("explain this"));
+            // The setup's first half names the very instructions the thread was given.
+            assertThat(turn.setup().orElseThrow()).matches("[0-9a-f]{8}-[0-9a-f]{8}")
+                    .startsWith(Hashing.sha256().hashString(thread.path("developerInstructions").asText(), StandardCharsets.UTF_8).toString().substring(0, 8) + "-");
             JsonNode request = supervisor.server().turnRequests().getFirst();
             assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
             assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();

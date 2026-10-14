@@ -54,6 +54,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Function;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -121,6 +122,24 @@ class TestPermissionBroker
                 }
             }
         }
+    }
+
+    @Test
+    void toolsDigestFollowsTheToolsAndNotTheSession()
+    {
+        PermissionBroker broker = PermissionBroker.builder(() -> URI.create("http://127.0.0.1:9000/internal/agent/codex/mcp"), objectMapper, (taskId, query) -> "memory")
+                .reviews(taskId -> Optional.of(new ReviewBridge(ImmutableList.of(new ReviewTool(
+                        "review_extra_evidence", taskId.equals("changed") ? "Read more of the evidence" : "Read more evidence", ImmutableMap.of("type", "object"), arguments -> "evidence")),
+                        "Review this PR")))
+                .build();
+        Function<String, String> digest = taskId -> {
+            try (McpRegistration tools = broker.registerTools(taskId, temporaryDirectory, AgentPermissionPolicy.AUTO,
+                    (request, timeout) -> CompletableFuture.completedFuture(ProviderApprovalDecision.deny()), SecretRedactor.fromEnvironment(ImmutableMap.of()), Optional.empty()).orElseThrow()) {
+                return tools.toolsDigest();
+            }
+        };
+        assertThat(digest.apply("first")).matches("[0-9a-f]{64}").isEqualTo(digest.apply("second"));
+        assertThat(digest.apply("changed")).isNotEqualTo(digest.apply("first"));
     }
 
     @Test

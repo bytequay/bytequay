@@ -745,6 +745,24 @@ describe('PullOverview', () => {
     expect(html.indexOf('Retry BigQuery Storage Write API')).toBeLessThan(html.indexOf('force-pushed the head branch'));
   });
 
+  it.each([
+    ['jc/lakekeeper-azure-credential-vending', 'stale-branch', 'deleted the <code>jc/lakekeeper-azure-credential-vending</code> branch'],
+    [null, 'feature/overview', 'deleted the <code>feature/overview</code> branch'],
+    [null, null, 'deleted the head branch'],
+  ])('names the deleted head branch from detail %s and summary %s', (headRef, summaryHeadRef, expected) => {
+    const value = detail();
+    value.headRef = headRef;
+    value.recentActivity = [{
+      actor: 'chenjian2664', eventType: 'head_ref_deleted', timestamp: '2026-08-20T10:00:00Z', body: null, githubId: 23,
+      payload: emptyPayload,
+    }];
+
+    const html = renderToStaticMarkup(<PullOverview pr={{ ...pullRequest(), headRef: summaryHeadRef }} detail={value} onRefresh={async () => {}} />);
+
+    expect(html).toContain(expected);
+    expect(html).not.toContain('head ref deleted');
+  });
+
   it('groups review requests and names only the first three requested reviewers', () => {
     const now = vi.spyOn(Date, 'now').mockReturnValue(Date.parse('2026-09-03T03:03:15Z'));
     const value = detail();

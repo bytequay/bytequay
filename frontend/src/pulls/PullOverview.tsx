@@ -181,7 +181,7 @@ export default function PullOverview({ pr, detail, contributorsWorkspaceId, loca
           <div className="pr-timeline__slot" key={item.key}
             id={item.activities[0].githubId === null ? undefined : `pr-activity-${item.activities[0].githubId}`}>
             <TimelineItem activities={item.activities} viewerLogin={viewerLogin} privateThreads={privateThreads}
-              pr={pr} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate}
+              pr={pr} headRef={detail.headRef ?? pr.headRef} workspaceId={contributorsWorkspaceId} onRefresh={onRefresh} onDetailUpdate={onDetailUpdate}
               onQuote={body => setQuotedReply(current => ({ id: (current?.id ?? 0) + 1, body }))} />
           </div>
         ) : null)}
@@ -791,11 +791,12 @@ function DescriptionCard({ pr, detail, fallbackAuthor, fallbackUrl, onDetailUpda
   );
 }
 
-function TimelineItem({ activities, viewerLogin, privateThreads, pr, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
+function TimelineItem({ activities, viewerLogin, privateThreads, pr, headRef, workspaceId, onRefresh, onDetailUpdate, onQuote }: {
   activities: Activity[];
   viewerLogin?: string;
   privateThreads?: PrivateThreads;
   pr: PullRequestDto;
+  headRef: string | null;
   workspaceId?: string;
   onRefresh: () => Promise<void>;
   onDetailUpdate: PullDetailUpdater;
@@ -815,7 +816,7 @@ function TimelineItem({ activities, viewerLogin, privateThreads, pr, workspaceId
       onDetailUpdate={onDetailUpdate} onQuote={onQuote} />;
   }
   if (activity.eventType === 'committed') return <CommitEvent activity={activity} />;
-  return <CompactEvent activities={activities} />;
+  return <CompactEvent activities={activities} headRef={headRef} />;
 }
 
 export function groupTimelineActivities(activities: Activity[]) {
@@ -1380,7 +1381,7 @@ export function CommentedCodeLine({ line }: { line: ReviewCommentLine }) {
   );
 }
 
-function CompactEvent({ activities }: { activities: Activity[] }) {
+function CompactEvent({ activities, headRef }: { activities: Activity[]; headRef: string | null }) {
   const activity = activities[0];
   const { payload } = activity;
   const actor = displayActor(activity.actor || 'github');
@@ -1390,7 +1391,7 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
         <span className="pr-review-group__marker" aria-hidden="true"><ReviewIcon /></span>
         <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
         {payload.actorBot && <span className="pr-bot">Bot</span>}
-        <span>{eventText(activity, activities)}</span>
+        <span>{eventText(activity, activities, headRef)}</span>
         <time dateTime={activity.timestamp ?? undefined}>{relativeTime(activity.timestamp, { style: 'long' })}</time>
       </div>
     );
@@ -1422,14 +1423,14 @@ function CompactEvent({ activities }: { activities: Activity[] }) {
       <UserAvatar login={actor} avatarUrl={payload.actorAvatarUrl} size={24} showLogin />
       <div>
         {payload.actorBot && <span className="pr-bot">Bot</span>}{' '}
-        <span>{eventText(activity, activities)}</span>
+        <span>{eventText(activity, activities, headRef)}</span>
         <time> · {relativeTime(activity.timestamp)}</time>
       </div>
     </div>
   );
 }
 
-function eventText(activity: Activity, activities: Activity[]) {
+function eventText(activity: Activity, activities: Activity[], headRef: string | null) {
   const p = activity.payload;
   switch (activity.eventType) {
     case 'labeled': return <>added <LabelBadge name={p.label ?? 'label'} color={p.labelColor} /></>;
@@ -1459,6 +1460,7 @@ function eventText(activity: Activity, activities: Activity[]) {
     case 'added_to_merge_queue': return <>added this to the merge queue</>;
     case 'removed_from_merge_queue': return <>removed this from the merge queue</>;
     case 'head_ref_force_pushed': return <>force-pushed the head branch{activities.length > 1 ? ` ${activities.length} times` : ''}</>;
+    case 'head_ref_deleted': return <>deleted the {headRef ? <code>{headRef}</code> : 'head'} branch</>;
     case 'convert_to_draft': return <>converted this pull request to draft</>;
     case 'ready_for_review': return <>marked this pull request ready for review</>;
     case 'closed': return <>closed this</>;

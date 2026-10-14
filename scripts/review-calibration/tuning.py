@@ -6,8 +6,10 @@ the table for the dashboard's Tuning page."""
 from __future__ import annotations
 
 import argparse
+from collections import Counter, defaultdict
 from contextlib import closing
 from datetime import datetime, timezone
+import math
 from pathlib import Path
 import sqlite3
 from urllib.parse import quote
@@ -26,6 +28,9 @@ HICCUPS = {"RATE_LIMITED": "rateLimits", "RETRYING": "retries", "INTERRUPTED": "
 STEPS = {"followUps": "another message", "queued": "a message queued while it worked", "steers": "a message into a running turn",
          "answered": "an approval answered", "cancels": "a turn stopped"}
 SIZES = (("1", 1), ("2", 2), ("3 to 4", 4), ("5 to 8", 8), ("9 or more", float("inf")))  # messages a task needed
+# ByteQuay's own tools are loaded only when the agent asks for them; these calls look them up instead of doing work.
+LOOKUPS = ("bytequay_list_tools", "bytequay_get_tool", "ToolSearch")
+TOP_TOOLS = 8  # the tools in the chart of which call follows which
 ENDINGS = ("COMPLETED", "CANCELLED", "INTERRUPTED", "FAILED")
 
 
@@ -44,7 +49,26 @@ def turns_of(task, events):
     for item in finished:
         if item.kind == "approval" and item.turn in rows:
             rows[item.turn]["answered" if item.detail.get("outcome") in ANSWERED else "unanswered"] += 1
+    calls = defaultdict(list)
+    for item in sorted(finished, key=lambda item: item.start):
+        if item.turn in rows and activity.call_name(item):
+            calls[item.turn].append((activity.call_name(item), item.end - item.start))
+    for turn, row in rows.items():
+        row |= path(calls[turn])
     return list(rows.values())
+
+
+def path(calls):
+    """What one turn's calls, in the order they started, say about its path: the calls of each tool, which call followed
+    which, the longest run of one call in a row, and the lookups of ByteQuay's own tools with the seconds they took."""
+    names = [name for name, _ in calls]
+    longest, run = None, 0
+    for at, name in enumerate(names):
+        run = run + 1 if at and names[at - 1] == name else 1
+        if longest is None or run > longest[1]:
+            longest = [name, run]
+    return {"calls": len(names), "tools": dict(Counter(names)), "paths": [[before, after, count] for (before, after), count in Counter(zip(names, names[1:])).items()],
+            "streak": longest, "lookups": sum(name in LOOKUPS for name in names), "lookupSeconds": round(sum(length for name, length in calls if name in LOOKUPS), 3)}
 
 
 def database(path):
@@ -146,6 +170,37 @@ def busiest(tasks, top=10):
     return pandas.DataFrame({"task": shown["task"].str[:8], "repository": shown["repository"].fillna("not known"), "state": shown["state"].fillna("not known").str.lower(),
                              "turns": shown["turns"], "messages": shown["messages"], "queued": shown["queued"], "steered": shown["steers"],
                              "approvals": shown["answered"], "stopped": shown["cancels"]})
+
+
+def tools_table(turns):
+    """For every tool and program: the turns that used it, its calls, how many a turn that used it typically made and at
+    most, and the share of its calls that came straight after a call to itself."""
+    used = pandas.DataFrame([(turn, name, count) for turn, tools in zip(turns["turn"], turns["tools"]) for name, count in tools.items()], columns=["turn", "tool", "calls"])
+    again = Counter()
+    for paths in turns["paths"]:
+        again.update({before: count for before, after, count in paths if before == after})
+    made = used.groupby("tool", as_index=False).agg(turns=("turn", "nunique"), calls=("calls", "sum"), typical=("calls", "median"), most=("calls", "max"))
+    made["after itself"] = made["tool"].map(again).fillna(0) / made["calls"]
+    return made.sort_values(["calls", "tool"], ascending=[False, True]).rename(columns={"typical": "per turn", "most": "most in a turn"})
+
+
+def follows_figure(turns, mode, top=TOP_TOOLS):
+    """Which call follows which among the most called tools and programs: a cell counts how often the row's call came
+    straight before the column's, and the diagonal is a call that followed itself. Shades go by the tens, as a few pairs
+    run to thousands."""
+    counts, totals = Counter(), Counter()
+    for paths, tools in zip(turns["paths"], turns["tools"]):
+        counts.update({(before, after): count for before, after, count in paths})
+        totals.update(tools)
+    names = [name for name, _ in totals.most_common(top)]
+    cells = [[counts[before, after] for after in names] for before in names]
+    low, high = charts.COLORS[mode]["scale"]
+    figure = go.Figure(go.Heatmap(z=[[math.log10(count + 1) for count in row] for row in cells], x=names, y=names, text=[[f"{count:,}" if count else "" for count in row] for row in cells],
+                                  texttemplate="%{text}", colorscale=[[0, charts.COLORS[mode]["surface"]], [0.001, low], [1, high]], zmin=0, showscale=False, xgap=2, ygap=2,
+                                  customdata=cells, hovertemplate="%{y}, then %{x}: %{customdata:,} times<extra></extra>"))
+    figure.update_yaxes(autorange="reversed", ticksuffix="  ")
+    figure.update_xaxes(side="top", tickangle=-30)
+    return charts.tidy(figure, 44 * len(names) + 120)
 
 
 def main():

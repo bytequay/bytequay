@@ -10,6 +10,7 @@ import tempfile
 import unittest
 from unittest import mock
 
+import pandas
 from streamlit import config
 from streamlit.testing.v1 import AppTest
 
@@ -20,8 +21,13 @@ PAGE = Path(__file__).with_name("pages") / "Tuning.py"
 logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").addFilter(lambda record: "missing ScriptRunContext" not in record.getMessage())
 
 
-def event(minute, kind, payload, turn):
-    return {"occurredAt": f"2026-10-12T10:{minute:02d}:00+00:00", "turnId": turn, "type": kind, "payload": payload}
+def event(minute, kind, payload, turn, second=0):
+    return {"occurredAt": f"2026-10-12T10:{minute:02d}:{second:02d}+00:00", "turnId": turn, "type": kind, "payload": payload}
+
+
+def call(minute, start, end, kind, payload, turn):
+    """A command or tool call that started and ended within one minute."""
+    return [event(minute, kind, payload | {"state": "STARTED"}, turn, start), event(minute, kind, payload | {"state": "COMPLETED", "exitCode": 0}, turn, end)]
 
 
 def phase(minute, name, turn):
@@ -40,10 +46,17 @@ LOGS = {
                event(4, "approval_resolved", {"approvalId": "a2", "outcome": "EXPIRED"}, "t1"), event(4, "approval_requested", {"approvalId": "a3"}, "t1"),
                event(5, "approval_resolved", {"approvalId": "a3", "outcome": "DENIED"}, "t1"), phase(5, "RATE_LIMITED", "t1"), phase(5, "RATE_LIMITED", "t1"), phase(5, "RETRYING", "t1"),
                phase(6, "TURN_COMPLETED", "t1"), message(7, "QUEUED", "t2"), phase(8, "TURN_STARTED", "t2"), message(9, "STEER", "t2"), message(9, "STEER", "t2"), phase(10, "INTERRUPTED", "t2"),
-               message(11, "TURN", "t9")],  # a turn that never started is no turn
+               message(11, "TURN", "t9"),  # a turn that never started is no turn
+               *call(0, 10, 12, "tool", {"name": "bytequay/bytequay_list_tools"}, "t1"), *call(0, 13, 14, "tool", {"name": "mcp__bytequay__review_get_context"}, "t1"),
+               *call(0, 15, 16, "tool", {"name": "review_get_context"}, "t1"), *call(0, 17, 18, "tool", {"name": "review_get_context"}, "t1"),
+               *call(0, 20, 21, "command", {"argv": ["rg", "needle"]}, "t1"), *call(0, 22, 23, "tool", {"name": "Read"}, "t1"),
+               *call(0, 24, 25, "tool", {"name": "Automatic approval"}, "t1")],  # ByteQuay's own step, not a call the agent chose
     "task-b": [message(20, "TURN", "t3"), phase(20, "TURN_STARTED", "t3"), phase(25, "TURN_COMPLETED", "t3")],
-    "task-c": [message(30, "TURN", "t4"), phase(30, "TURN_STARTED", "t4"), phase(32, "TURN_COMPLETED", "t4"),
-               message(40, "TURN", "t5"), phase(40, "TURN_STARTED", "t5"), phase(41, "TURN_COMPLETED", "t5")],
+    # Its first turn runs an edit inside a search: they end in the other order, and the path still goes by when each started.
+    "task-c": [message(30, "TURN", "t4"), phase(30, "TURN_STARTED", "t4"), event(30, "command", {"argv": ["rg", "x"], "state": "STARTED"}, "t4", 5),
+               *call(30, 7, 8, "tool", {"name": "Edit"}, "t4"), event(30, "command", {"argv": ["rg", "x"], "state": "COMPLETED", "exitCode": 0}, "t4", 9),
+               phase(32, "TURN_COMPLETED", "t4"), message(40, "TURN", "t5"), phase(40, "TURN_STARTED", "t5"),
+               *(made for second in (5, 7, 9) for made in call(40, second, second + 1, "tool", {"name": "review_get_context"}, "t5")), phase(41, "TURN_COMPLETED", "t5")],
 }
 
 
@@ -77,6 +90,28 @@ class TestTable(Saved):
         self.assertEqual({name: rows["t1"][name] for name in ("messages", "queued", "steers", "answered", "unanswered", "rateLimits", "retries", "interruptions", "seconds")},
                          {"messages": 1, "queued": 0, "steers": 0, "answered": 2, "unanswered": 1, "rateLimits": 2, "retries": 1, "interruptions": 0, "seconds": 360})
         self.assertEqual([rows["t2"][name] for name in ("messages", "queued", "steers", "interruptions")], [0, 1, 2, 1])
+        # The calls in the order they started, by name without their server; an automatic approval is no call.
+        self.assertEqual({name: rows["t1"][name] for name in ("calls", "tools", "paths", "streak", "lookups", "lookupSeconds")},
+                         {"calls": 6, "tools": {"bytequay_list_tools": 1, "review_get_context": 3, "rg": 1, "Read": 1},
+                          "paths": [["bytequay_list_tools", "review_get_context", 1], ["review_get_context", "review_get_context", 2], ["review_get_context", "rg", 1], ["rg", "Read", 1]],
+                          "streak": ["review_get_context", 3], "lookups": 1, "lookupSeconds": 2.0})
+        self.assertEqual({name: rows["t2"][name] for name in ("calls", "tools", "paths", "streak", "lookups")}, {"calls": 0, "tools": {}, "paths": [], "streak": None, "lookups": 0})
+        first = tuning.turns_of("task-c", LOGS["task-c"])[0]
+        self.assertEqual((first["paths"], first["streak"]), ([["rg", "Edit", 1]], ["rg", 1]))  # of two runs as long, the first
+
+    def test_tools_are_listed_by_calls_and_the_chart_counts_which_call_follows_which(self):
+        turns, _ = tuning.frames(self.made(), zone=timezone.utc)
+        table = tuning.tools_table(turns)
+        self.assertEqual(table.values.tolist(), [["review_get_context", 2, 6, 3, 3, 4 / 6], ["rg", 2, 2, 1, 1, 0], ["Edit", 1, 1, 1, 1, 0], ["Read", 1, 1, 1, 1, 0],
+                                                 ["bytequay_list_tools", 1, 1, 1, 1, 0]])
+        uneven = pandas.DataFrame({"turn": ["a", "b", "c"], "tools": [{"x": 1}, {"x": 1}, {"x": 4}], "paths": [[], [], []]})
+        self.assertEqual(tuning.tools_table(uneven)[["per turn", "most in a turn"]].values.tolist(), [[1, 4]])  # the middle turn, not the mean
+        self.assertEqual(list(table.columns), ["tool", "turns", "calls", "per turn", "most in a turn", "after itself"])
+        heat = tuning.follows_figure(turns, "light").data[0]
+        self.assertEqual(list(heat.x), ["review_get_context", "rg", "bytequay_list_tools", "Read", "Edit"])
+        cell = lambda before, after: heat.customdata[list(heat.y).index(before)][list(heat.x).index(after)]
+        self.assertEqual([cell("review_get_context", "review_get_context"), cell("bytequay_list_tools", "review_get_context"), cell("rg", "Edit"), cell("Edit", "rg")], [4, 1, 1, 0])
+        self.assertEqual(list(tuning.follows_figure(turns, "light", top=2).data[0].x), ["review_get_context", "rg"])
 
     def test_database_adds_how_turns_ended_and_what_tasks_are_without_writing(self):
         before = self.database.stat().st_mtime_ns
@@ -143,12 +178,13 @@ class TestPage(Saved):
         self.save()
         page = self.page()
         self.assertEqual((list(page.exception), [note.value for note in page.warning]), ([], []))
-        self.assertEqual([heading.value for heading in page.subheader], ["A person in the loop", "How turns ended"])
+        self.assertEqual([heading.value for heading in page.subheader], ["A person in the loop", "How turns ended", "Tool paths"])
         self.assertEqual([(tile.label, tile.value) for tile in page.metric],
-                         [("Tasks", "3"), ("One-ask tasks", "33%"), ("Messages per task", "1"), ("Approvals", "2"), ("Turns stopped", "1"), ("Turns", "5"), ("Completed", "67%")])
+                         [("Tasks", "3"), ("One-ask tasks", "33%"), ("Messages per task", "1"), ("Approvals", "2"), ("Turns stopped", "1"), ("Turns", "5"), ("Completed", "67%"),
+                          ("Calls", "11"), ("Calls per turn", "3"), ("Tool lookups", "1"), ("Same call in a row", "3×")])  # per turn: of the turns that made calls
         self.assertIn("For every 100 turns: 40 rate limits, 20 retries, 20 interruptions. Rate limits and retries over time are on the Slow spots tab.",
                       [caption.value for caption in page.caption])
-        self.assertEqual(len(page.get("plotly_chart")), 3)
+        self.assertEqual(len(page.get("plotly_chart")), 4)
         self.assertEqual(page.dataframe[0].value["task"].tolist(), ["task-c", "task-a", "task-b"])
 
     def test_page_says_how_to_save_and_names_a_file_it_cannot_read(self):
@@ -160,6 +196,15 @@ class TestPage(Saved):
                 page = self.page()
                 self.assertEqual(([note.value for note in page.warning], list(page.exception)),
                                  (["The saved tuning table could not be read. Save it again with `uv run tuning.py --save`"], []))
+
+    def test_table_saved_before_tool_paths_were_counted_asks_for_a_new_save_and_shows_the_rest(self):
+        made = self.made()
+        old = {**made, "turns": [{name: value for name, value in row.items() if name not in ("calls", "tools", "paths", "streak", "lookups", "lookupSeconds")} for row in made["turns"]]}
+        self.save(json.dumps(old))
+        page = self.page()
+        self.assertEqual((list(page.exception), [note.value for note in page.info]),
+                         ([], ["This table was saved before tool paths were counted. Save it again with `uv run tuning.py --save`"]))
+        self.assertEqual(len(page.get("plotly_chart")), 3)  # the person in the loop and the endings are still drawn
 
     def test_page_started_another_way_shows_nothing(self):
         self.save()

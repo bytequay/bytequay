@@ -312,6 +312,18 @@ of the turns whose ending the database still holds, the rate limits, retries
 and interruptions for every 100 turns, and the turns of each week by how they
 ended, with those whose ending is not known hatched.
 
+"Tool paths" follows the calls of every turn in the order they started, by
+the name a call is counted under in the Tools tab: the calls in all and per
+turn, the lookups of ByteQuay's own tools (`bytequay_list_tools`,
+`bytequay_get_tool` and `ToolSearch` find a tool and do no work), and the most
+times one call followed itself within a turn. A grid of the most called tools
+counts which call came straight before which, so a loop shows on its
+diagonal; its shades go by the tens, as a few pairs run to thousands. A table
+lists every tool and program with the turns that used it, its calls, the calls
+of a typical and of the busiest turn, and the share of its calls that came
+straight after a call to itself. A table saved before paths were counted asks
+to be saved again.
+
 ## Agent activity
 
 `activity.py` shows where the wall-clock time of ByteQuay agent turns goes. It

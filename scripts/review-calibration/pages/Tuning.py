@@ -51,6 +51,26 @@ def endings(turns, mode):
     dashboard.draw("endings", tuning.endings_figure(turns, mode))
 
 
+def paths(turns, mode):
+    st.subheader("Tool paths")
+    if "calls" not in turns:
+        st.info(f"This table was saved before tool paths were counted. Save it again with `{SAVE}`")
+        return
+    used, looked = turns[turns["calls"] > 0], turns[turns["lookups"] > 0]
+    streak = max((made for made in turns["streak"] if made), key=lambda made: made[1], default=None)
+    with st.container(horizontal=True):
+        st.metric("Calls", f"{int(turns['calls'].sum()):,}", border=True, width=dashboard.TILE)
+        st.metric("Calls per turn", f"{used['calls'].median():,.0f}" if len(used) else "none", border=True, width=dashboard.TILE, help="The middle turn of those that made calls.")
+        st.metric("Tool lookups", f"{int(turns['lookups'].sum()):,}", border=True, width=dashboard.TILE,
+                  help=f"Calls that only looked up one of ByteQuay's own tools: in {100 * len(looked) / len(turns):.0f}% of turns, {turns['lookupSeconds'].sum() / 60:,.1f} minutes in all.")
+        st.metric("Same call in a row", f"{streak[1]:,}×" if streak else "none", border=True, width=dashboard.TILE,
+                  help=f"{streak[0]}: the most times one call followed itself within one turn." if streak else None)
+    st.caption("Which call follows which, among the most called tools and programs. The diagonal is a call that followed itself.")
+    dashboard.draw("follows", tuning.follows_figure(turns, mode))
+    st.caption("Every tool and program. Per turn is the middle of the turns that used it; after itself is the share of its calls that came straight after a call to itself.")
+    st.dataframe(tuning.tools_table(turns), hide_index=True, column_config={"after itself": st.column_config.NumberColumn(format="percent")})
+
+
 st.set_page_config(page_title="ByteQuay Lab", layout="wide")
 # Started any other way, Streamlit would serve the page to the whole network.
 if st.get_option("server.address") != dashboard.HOST:
@@ -61,8 +81,8 @@ arguments.add_argument("folder", type=Path, nargs="?", default=saved.FOLDER)
 FOLDER = arguments.parse_known_args()[0].folder
 MODE = "dark" if st.context.theme.type == "dark" else "light"
 st.title("Tuning")
-st.caption("How much a person had to step in to get the agent's work done, and how its turns ended. The counts come from the task logs; "
-           "a task's state and a turn's ending from ByteQuay's database.")
+st.caption("How much a person had to step in to get the agent's work done, how its turns ended, and the paths its calls took. The counts come "
+           "from the task logs; a task's state and a turn's ending from ByteQuay's database.")
 UNREADABLE = f"The saved tuning table could not be read. Save it again with `{SAVE}`"
 try:
     MADE = saved.read(FOLDER, "tuning.json")
@@ -86,3 +106,4 @@ if TURNS.empty:
     st.stop()
 people(TASKS, MODE)
 endings(TURNS, MODE)
+paths(TURNS, MODE)

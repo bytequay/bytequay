@@ -1,23 +1,32 @@
+import ast
 from datetime import date, timedelta, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
+from streamlit import config
+from streamlit.testing.v1 import AppTest
+
+import dashboard
 import digest
 
 SCRIPT = Path(__file__).with_name("digest.py")
+PAGE = Path(__file__).with_name("pages") / "Report.py"
+logging.getLogger("streamlit.runtime.scriptrunner_utils.script_run_context").addFilter(lambda record: "missing ScriptRunContext" not in record.getMessage())
 SAVE = "uv run activity.py --save"
 
 
 def turn(day, seconds, logged=True, task="aaaa-1111", model="gpt-6-astra", effort="max", tokens=None, cost=None, groups=None, after=None, programs=None, long_runs=(), approvals=(),
-         notices=None):
+         notices=None, provider="codex"):
     """One saved turn of January 2026. `tokens` is (in, cached, out); `after` and `programs` map a name to (seconds, times)."""
     read, cached, written = tokens or (None, None, None)
-    return {"task": task, "start": f"2026-01-{day:02}T12:00:00Z", "seconds": seconds, "logged": logged, "outcome": "completed", "provider": "codex" if model else None, "model": model,
+    return {"task": task, "start": f"2026-01-{day:02}T12:00:00Z", "seconds": seconds, "logged": logged, "outcome": "completed", "provider": provider if model else None, "model": model,
             "effort": effort if model else None, "repository": "trinodb/trino" if model else None, "inputTokens": read, "cachedInputTokens": cached, "outputTokens": written, "cost": cost,
             "toolCalls": None, "compactions": None, "groups": groups or {}, "programs": {name: {"seconds": length, "runs": runs} for name, (length, runs) in (programs or {}).items()},
             "after": {name: {"seconds": length, "times": times} for name, (length, times) in (after or {}).items()}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
@@ -150,6 +159,30 @@ class TestReport(unittest.TestCase):
         for private in ("aaaa-1111", "bbbb-2222", "cccc-3333", "trinodb", "review-9"):
             self.assertNotIn(private, text)
 
+    def test_why_names_the_models_and_efforts_that_moved_each_total(self):
+        # Before: six Codex turns that record no cost and one opus turn that does. These days: two Codex turns, four opus at max and one at high.
+        codex = dict(tokens=(1000, 0, 10))
+        opus = dict(model="opus", provider="claude", tokens=(3000, 0, 30))
+        made = [*(turn(day, 600, task=f"codex-{day}", **codex) for day in range(1, 7)), turn(7, 300, task="opus-7", cost=2.0, **opus),
+                *(turn(day, 600, task=f"codex-{day}", **codex) for day in (8, 9)), *(turn(day, 900, task=f"opus-{day}", cost=5.0, **opus) for day in (10, 11, 12, 13)),
+                turn(14, 600, task="opus-14", effort="high", **{**opus, "tokens": None})]  # a Claude turn that recorded neither tokens nor a cost
+        section = report(turns={**TABLE, "turns": made}, reviews=None).split("## Why it moved\n\n", 1)[1].split("\n\n## ", 1)[0]
+        self.assertEqual(section.splitlines(), [
+            "The turns ran with other models and efforts than in the days before: gpt-6-astra · max 29% of the turns (86% before), opus · max 57% of the turns "
+            "(14% before), opus · high 14% of the turns (0% before).", "",
+            # opus at high moved agent time too, but only the two that moved it most are named
+            "- Agent time 1.1 h → 1.5 h: opus · max +0.9 h (1 → 4 turns), gpt-6-astra · max -0.7 h (6 → 2 turns).",
+            "- Tokens in 9.0 K → 14.0 K: opus · max +9.0 K (1 → 4 turns), gpt-6-astra · max -4.0 K (6 → 2 turns). Tokens are recorded for 7 of 7 turns before and 6 of 7 these days.",
+            "- Tokens out 90 → 140: opus · max +90 (1 → 4 turns), gpt-6-astra · max -40 (6 → 2 turns). Tokens are recorded for 7 of 7 turns before and 6 of 7 these days.",
+            # Codex turns gave nothing, as their cost is not known rather than zero; Claude records one on most turns, so it is not named
+            "- Recorded cost $2.00 → $20.00: opus · max +$18.00 (1 → 4 turns). A cost is recorded for 1 of 7 turns before and 4 of 7 these days; no codex turn records one."])
+        self.assertEqual(report().split("## Why it moved\n\n", 1)[1].split("\n", 1)[0], "Fewer than 5 turns on a side, too few to say why the totals moved.")
+        few_before = [turn(2, 600, task="x"), *(turn(day, 600, task=f"y-{day}") for day in range(8, 14))]  # one turn before and six these days
+        self.assertEqual(report(turns={**TABLE, "turns": few_before}, reviews=None).split("## Why it moved\n\n", 1)[1].split("\n", 1)[0],
+                         "Fewer than 5 turns on a side, too few to say why the totals moved.")
+        alike = [turn(day, 600, task=f"codex-{day}") for day in (*range(2, 7), *range(9, 14))]
+        self.assertEqual(report(turns={**TABLE, "turns": alike}, reviews=None).split("## Why it moved\n\n", 1)[1].split("\n", 1)[0], "No total moved by 25% or more.")
+
 
 class TestMoved(unittest.TestCase):
     def test_number_moves_by_how_much_it_grew_and_a_share_in_points(self):
@@ -276,6 +309,60 @@ class TestCommandLine(unittest.TestCase):
             self.assertEqual((refused.returncode, refused.stdout), (2, ""), arguments)
             self.assertIn(reason, refused.stderr)
         self.assertFalse((self.folder / "changes.json").exists())
+
+
+class TestPage(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.folder = Path(directory.name)
+        arguments = mock.patch.object(sys, "argv", ["dashboard.py", str(self.folder)])
+        arguments.start()
+        self.addCleanup(arguments.stop)
+        config.set_option("server.address", dashboard.HOST)
+        self.addCleanup(config.set_option, "server.address", None)
+
+    def page(self, kind=None):
+        page = AppTest.from_file(str(PAGE), default_timeout=30).run()
+        if kind:
+            page.button_group(key="kind").set_value(kind).run()
+        return page
+
+    def save(self, name="turns.json", text=None):
+        (self.folder / name).write_text(json.dumps(TABLE) if text is None else text)
+
+    def test_page_shows_the_report_of_the_days_picked(self):
+        self.save()
+        self.save("reviews.json", json.dumps(REVIEWS))
+        page = self.page()
+        self.assertEqual((list(page.exception), [note.value for note in page.warning]), ([], []))
+        self.assertTrue(page.subheader[0].value.startswith("ByteQuay lab report: "), page.subheader[0].value)
+        body = page.markdown[0].value
+        self.assertIn("Against the 7 days before.", body)
+        self.assertIn("\n## Why it moved\n", body)
+        self.assertIn("\\$2.00", body)  # a dollar sign is written as such, not as the start of a formula
+        self.assertIn("Against the day before.", self.page("Day").markdown[0].value)
+
+    def test_page_says_how_to_save_and_names_a_table_it_cannot_read(self):
+        self.assertEqual([note.value for note in self.page().info], ["Nothing saved yet. Save the turn table with `uv run activity.py --save`"])
+        for text in ('{"version": 1, "turns": [', json.dumps({**TABLE, "turns": [{"task": "a"}]})):
+            with self.subTest(text=text[:30]):
+                self.save(text=text)
+                self.assertEqual([note.value for note in self.page().warning], ["The saved turn table could not be read. Save it again with `uv run activity.py --save`"])
+        self.save()
+        self.save("changes.json", "{")
+        self.assertIn("The noted changes in `changes.json` could not be read, so they are left out.", [caption.value for caption in self.page().caption])
+
+    def test_page_started_another_way_shows_nothing(self):
+        self.save()
+        config.set_option("server.address", "0.0.0.0")
+        self.assertEqual([note.value for note in self.page().error], ["This page is only shown to this machine. Start it with `uv run dashboard.py`"])
+
+    def test_page_has_no_bare_expression_that_streamlit_would_print(self):
+        tree = ast.parse(PAGE.read_text())
+        bare = [node.lineno for node in ast.walk(tree) if isinstance(node, ast.Expr) and not isinstance(node.value, ast.Call)
+                and not (isinstance(node.value, ast.Constant) and isinstance(node.value.value, str))]
+        self.assertEqual(bare, [])
 
 
 if __name__ == "__main__":

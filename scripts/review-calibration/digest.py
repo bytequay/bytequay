@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""The lab's daily or weekly report, made from the saved tables: what changed against the days before, where the turn
-time went, and what moved after a change the reader noted. Start it with `uv run digest.py`."""
+"""The lab's daily or weekly report, made from the saved tables: what changed against the days before and why, where the
+turn time went, and what moved after a change the reader noted. Start it with `uv run digest.py`."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 import activity
 import charts
+import explain
 import ranges
 import saved
 
@@ -237,6 +238,7 @@ def report(turn_table, review_table, noted, kind, ending=None, zone=None):
              f"Against the {'day' if kind == 'day' else f'{DAYS[kind]} days'} before. From the tables saved {saved_at:%Y-%m-%d %H:%M}. Days are in your own time zone.",
              *(line for note in notes for line in ("", note)),
              "", "## What changed", "", *table(("", "Before", "These days", "Change"), compared(LISTED, before, now)),
+             "", "## Why it moved", "", *explain.why(shown_before, shown, before, now, facts, WRITTEN),
              "", "## Where the time went", "", *time_went(shown, shown_before),
              "", "## Models and effort", "", *models(shown["turns"], shown_before["turns"]),
              "", "## Changes you noted", ""]

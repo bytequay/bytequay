@@ -621,12 +621,21 @@ uv run digest.py --note "Narrower Maven commands in the review rules" --on 2026-
 last whole day before the save, or one day with `--day`. It reads the folder
 and nothing else, so save first with `activity.py --save`. The report is
 printed and kept as a file of its own under `reports/` in the folder, so
-earlier reports stay.
+earlier reports stay. The dashboard's Report page shows the same report for
+the week or the day picked there.
 
-The report has four parts. "What changed" sets each number of these days
+The report has five parts. "What changed" sets each number of these days
 against the same number of days before. How much was done counts every turn.
 How the time was spent is known only for turns that still have a log, and the
-report says how many those are. "Where the time went" ranks the model's time
+report says how many those are. "Why it moved" first names the models and
+efforts whose share of the turns moved by ten points or more. Then it takes
+every total that moved by a quarter or more (agent time, turns, long
+commands, questions, rate limit notices, tokens and cost) and names the two
+models and efforts that moved it most, with their turns before and since. A
+count that stays below ten on both sides gets no reason. For tokens and cost
+it says how many turns on each side record them and which provider never
+does, so a cost that grew because more turns record one is not read as work
+that got dearer. "Where the time went" ranks the model's time
 by what had just finished, each kind of waiting for a tool, and waiting for
 the reader, each with its share before, and for the model how often it
 happened and how long each time took. "Models and effort" lists the settings

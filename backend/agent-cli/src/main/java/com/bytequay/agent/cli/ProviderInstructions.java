@@ -42,13 +42,14 @@ public final class ProviderInstructions
     }
 
     /**
-     * A short name for what a session was set up with: the first half follows its composed instructions, the second the
-     * digest of its tools. Turns with one name ran with the same setup, so their results can be compared before and after
-     * a change to either.
+     * A short name for what a session was set up with: the first half follows ByteQuay's own instructions for it, composed as
+     * above without the managed instructions, and the second the digest of its tools. Managed instructions carry each task's
+     * own context, such as its pull request, so with them every task would have a name of its own. Turns with one name ran
+     * with the same setup, so their results can be compared before and after a change to either.
      */
-    public static String setup(String instructions, Optional<String> toolsDigest)
+    public static String setup(AgentPermissionScope scope, String planInstruction, Optional<String> toolsDigest, String... toolInstructions)
     {
-        return digest(instructions).substring(0, 8) + "-" + toolsDigest.orElseGet(() -> digest("")).substring(0, 8);
+        return digest(compose(scope, planInstruction, "", toolInstructions)).substring(0, 8) + "-" + toolsDigest.orElseGet(() -> digest("")).substring(0, 8);
     }
 
     private static String digest(String text)

@@ -107,6 +107,7 @@ class TestCodexCliDriver
 {
     private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
     private static final String MCP_ENDPOINT = "http://127.0.0.1:9000/internal/agent/claude/mcp";
+    private static final String TASK_CONTEXT = "This task continues the existing pull request owner/repo#7.";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @TempDir
@@ -123,15 +124,17 @@ class TestCodexCliDriver
         AgentSessionContext plain = context(Optional.empty(), new AtomicReference<>());
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
                 plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
-                Optional.empty(), "", Optional.of(new DiscussionContextBridge(query -> "saved context")));
+                Optional.empty(), TASK_CONTEXT, Optional.of(new DiscussionContextBridge(query -> "saved context")));
         try (AgentSession session = driver.open(discussion, event -> {})) {
             assertThat(supervisor.serverArgv().getLast()).anyMatch(argument -> argument.contains("read_discussion_context"));
             JsonNode thread = supervisor.server().threadRequests().getFirst();
-            assertThat(thread.path("developerInstructions").asText()).contains(DiscussionContextBridge.INSTRUCTION);
+            String instructions = thread.path("developerInstructions").asText();
+            assertThat(instructions).contains(DiscussionContextBridge.INSTRUCTION).startsWith(TASK_CONTEXT + "\n\n");
             RunningTurn turn = session.start(command("explain this"));
-            // The setup's first half names the very instructions the thread was given.
-            assertThat(turn.setup().orElseThrow()).matches("[0-9a-f]{8}-[0-9a-f]{8}")
-                    .startsWith(Hashing.sha256().hashString(thread.path("developerInstructions").asText(), StandardCharsets.UTF_8).toString().substring(0, 8) + "-");
+            // The setup's first half names the instructions the thread was given, all but the task's own context, which a
+            // read-only session starts with.
+            String own = Hashing.sha256().hashString(instructions.substring(TASK_CONTEXT.length() + 2), StandardCharsets.UTF_8).toString();
+            assertThat(turn.setup().orElseThrow()).matches("[0-9a-f]{8}-[0-9a-f]{8}").startsWith(own.substring(0, 8) + "-");
             JsonNode request = supervisor.server().turnRequests().getFirst();
             assertThat(request.path("sandboxPolicy").path("type").asText()).isEqualTo("readOnly");
             assertThat(request.path("sandboxPolicy").path("networkAccess").asBoolean()).isFalse();

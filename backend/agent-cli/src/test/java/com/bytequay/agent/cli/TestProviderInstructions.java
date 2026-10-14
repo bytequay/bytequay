@@ -13,8 +13,13 @@
  */
 package com.bytequay.agent.cli;
 
+import com.bytequay.agent.spi.AgentPermissionPolicy;
+import com.bytequay.agent.spi.AgentPermissionScope;
+import com.bytequay.agent.spi.SessionAccess;
+import com.google.common.hash.Hashing;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -22,16 +27,22 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestProviderInstructions
 {
     private static final String TOOLS = "ab".repeat(32);
+    private static final AgentPermissionScope FULL = new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false);
+    private static final AgentPermissionScope READ_ONLY = new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.READ_ONLY, false);
 
     @Test
-    void setupNamesTheInstructionsAndTheToolsApart()
+    void setupNamesByteQuaysOwnInstructionsAndTheToolsApart()
     {
-        String setup = ProviderInstructions.setup("Use the review tools.", Optional.of(TOOLS));
+        String setup = ProviderInstructions.setup(FULL, "Plan first.", Optional.of(TOOLS), "Use the review tools.");
 
-        assertThat(setup).matches("[0-9a-f]{8}-abababab").isEqualTo(ProviderInstructions.setup("Use the review tools.", Optional.of(TOOLS)));
-        // A change to the instructions moves only the first half, a change to the tools only the second.
-        assertThat(ProviderInstructions.setup("Use the review tools first.", Optional.of(TOOLS))).doesNotStartWith(setup.substring(0, 8)).endsWith("-abababab");
-        assertThat(ProviderInstructions.setup("Use the review tools.", Optional.of("cd".repeat(32)))).isEqualTo(setup.substring(0, 9) + "cdcdcdcd");
-        assertThat(ProviderInstructions.setup("Use the review tools.", Optional.empty())).startsWith(setup.substring(0, 9)).isNotEqualTo(setup);
+        assertThat(setup).matches("[0-9a-f]{8}-abababab").isEqualTo(ProviderInstructions.setup(FULL, "Plan first.", Optional.of(TOOLS), "Use the review tools."));
+        // The instructions as a session composes them, without the managed instructions that carry a task's own context.
+        String own = ProviderInstructions.compose(FULL, "Plan first.", "", "Use the review tools.");
+        assertThat(setup).startsWith(Hashing.sha256().hashString(own, StandardCharsets.UTF_8).toString().substring(0, 8) + "-");
+        // A change to the instructions or the scope moves only the first half, a change to the tools only the second.
+        assertThat(ProviderInstructions.setup(FULL, "Plan first.", Optional.of(TOOLS), "Use the tools.")).doesNotStartWith(setup.substring(0, 8)).endsWith("-abababab");
+        assertThat(ProviderInstructions.setup(READ_ONLY, "Plan first.", Optional.of(TOOLS), "Use the review tools.")).doesNotStartWith(setup.substring(0, 8)).endsWith("-abababab");
+        assertThat(ProviderInstructions.setup(FULL, "Plan first.", Optional.of("cd".repeat(32)), "Use the review tools.")).isEqualTo(setup.substring(0, 9) + "cdcdcdcd");
+        assertThat(ProviderInstructions.setup(FULL, "Plan first.", Optional.empty(), "Use the review tools.")).startsWith(setup.substring(0, 9)).isNotEqualTo(setup);
     }
 }

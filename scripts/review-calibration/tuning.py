@@ -207,21 +207,24 @@ def follows_figure(turns, mode, top=TOP_TOOLS):
 
 def setups_table(turns):
     """Every setup the turns ran with, in the order each first ran, with how its turns went. Changed says which half of the
-    name differs from the setup before: the instructions, the tools, or both. None while no turn names its setup."""
+    name no earlier setup had: the instructions, the tools, or both. Sessions of several kinds run side by side, each with
+    a setup of its own, so a half is set against every earlier one and not only the setup just before. None while no turn
+    names its setup."""
     named = turns[turns["setup"].notna()] if "setup" in turns else turns.iloc[:0]
     if named.empty:
         return None
-    rows, before = [], None
+    rows, seen = [], (set(), set())
     for setup, group in sorted(named.groupby("setup"), key=lambda pair: pair[1]["start"].min()):
         called = group[group["calls"] > 0] if "calls" in group else group.iloc[:0]
-        rows.append({"setup": setup, "changed": "" if before is None else " and ".join(part for part, old, new in zip(("instructions", "tools"), before.split("-"), setup.split("-"))
-                                                                                     if old != new),
+        halves = setup.split("-")
+        rows.append({"setup": setup, "changed": "" if not seen[0] else " and ".join(part for part, half, earlier in zip(("instructions", "tools"), halves, seen) if half not in earlier),
                      "first ran": datetime.fromtimestamp(group["start"].min()).strftime("%Y-%m-%d %H:%M"), "turns": len(group),
                      # A turn names its setup only through its row in the database, which always holds how it ended.
                      "completed": (group["ended"] == "COMPLETED").sum() / len(group), "minutes per turn": group["seconds"].median() / 60,
                      "calls per turn": called["calls"].median() if len(called) else None,
                      "steered or stopped per 100": 100 * (group["steers"] + group["cancels"]).sum() / len(group), "rate limits per 100": 100 * group["rateLimits"].sum() / len(group)})
-        before = setup
+        for half, earlier in zip(halves, seen):
+            earlier.add(half)
     return pandas.DataFrame(rows)
 
 

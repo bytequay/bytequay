@@ -112,6 +112,9 @@ class TestTable(Saved):
                            "steered or stopped per 100": 0, "rate limits per 100": 0}])
         self.assertEqual(table["minutes per turn"].tolist(), [4, 5])  # the middle of a turn of 6 minutes and one of 2; a turn of 5
         self.assertIsNone(tuning.setups_table(turns.assign(setup=None)))
+        # Two kinds of session side by side: each half is set against every earlier setup, not only the one just before.
+        sides = turns.iloc[:4].assign(setup=["aaaaaaaa-11111111", "bbbbbbbb-22222222", "cccccccc-11111111", "bbbbbbbb-33333333"], start=[1.0, 2.0, 3.0, 4.0])
+        self.assertEqual(tuning.setups_table(sides)["changed"].tolist(), ["", "instructions and tools", "instructions", "tools"])
 
     def test_tools_are_listed_by_calls_and_the_chart_counts_which_call_follows_which(self):
         turns, _ = tuning.frames(self.made(), zone=timezone.utc)

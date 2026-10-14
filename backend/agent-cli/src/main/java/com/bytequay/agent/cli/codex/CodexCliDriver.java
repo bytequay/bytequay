@@ -941,10 +941,10 @@ public final class CodexCliDriver
             this.ciWritableRoots = ImmutableList.copyOf(ciWritableRoots);
             this.permissionScope = requireNonNull(permissionScope, "permissionScope is null");
             this.deepSeek = requireNonNull(deepSeek, "deepSeek is null");
-            this.developerInstructions = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(),
-                    codeQueries.flatMap(McpRegistration::instruction).orElse(""),
-                    permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : "");
-            this.setup = ProviderInstructions.setup(developerInstructions, codeQueries.map(McpRegistration::toolsDigest));
+            String[] toolInstructions = {codeQueries.flatMap(McpRegistration::instruction).orElse(""),
+                    permissionScope.review() && childProfile != CodexLaunchProfile.ChildProfile.NONE ? CodexReviewGate.INSTRUCTION : ""};
+            this.developerInstructions = ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(), toolInstructions);
+            this.setup = ProviderInstructions.setup(permissionScope, PLAN_INSTRUCTION, codeQueries.map(McpRegistration::toolsDigest), toolInstructions);
             this.eventMapper = new CodexEventMapper(context.worktree(), sessionRedactor, deepSeekSecret.isEmpty());
             this.isolation = new CodexIsolationGuard(
                     client,

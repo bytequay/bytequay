@@ -78,8 +78,8 @@ def setups(turns):
         st.info("No turn names its setup yet. ByteQuay names it for every turn it starts from a version that records it; "
                 f"save the table again with `{SAVE}` once such turns have run.")
         return
-    st.caption("A setup is named after the instructions a provider session started with and the tools it was given, so the turns of one setup "
-               "can be set against the turns of the next. Changed says which of the two differs from the setup before.")
+    st.caption("A setup is named after ByteQuay's own instructions for a provider session and the tools it was given, so the turns of one setup "
+               "can be set against the turns of the next. Changed says which half no earlier turn had.")
     st.dataframe(table, hide_index=True, column_config={"completed": st.column_config.NumberColumn(format="percent"), "minutes per turn": st.column_config.NumberColumn(format="%.1f"),
                                                         "steered or stopped per 100": st.column_config.NumberColumn(format="%.0f"),
                                                         "rate limits per 100": st.column_config.NumberColumn(format="%.0f")})

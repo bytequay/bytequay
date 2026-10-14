@@ -734,9 +734,8 @@ public final class ClaudeCliDriver
                     environment,
                     context.discussionContext(), context.reviewContext());
             this.permissionScope = new AgentPermissionScope(context.permissionPolicy(), context.access(), registration.review().isPresent());
-            // The same instructions every turn's launch arguments carry; see argv.
-            this.setup = ProviderInstructions.setup(ProviderInstructions.compose(permissionScope, PLAN_INSTRUCTION, context.managedInstructions(), registration.instruction().orElse("")),
-                    Optional.of(registration.toolsDigest()));
+            // ByteQuay's own part of the instructions every turn's launch arguments carry; see argv.
+            this.setup = ProviderInstructions.setup(permissionScope, PLAN_INSTRUCTION, Optional.of(registration.toolsDigest()), registration.instruction().orElse(""));
             this.redactor = ClaudeCliDriver.this.redactor.withSecret(registration.token());
             this.resume = resume;
         }

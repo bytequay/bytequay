@@ -336,10 +336,13 @@ straight after a call to itself. A table saved before paths were counted asks
 to be saved again.
 
 "Setups" lists every setup the turns ran with. ByteQuay names it for every
-turn it starts: two halves, such as `3fa9c1d2-91be07aa`, the first from the
-instructions the provider session started with and the second from the tools
-it was given, so a change to either gives a new name and says which changed.
-Each setup shows when it first ran, its turns, the share completed, the
+turn it starts: two halves, such as `3fa9c1d2-91be07aa`, the first from
+ByteQuay's own instructions for the provider session (its command scope, plan
+guidance and tool guidance, without the task's own context such as its pull
+request) and the second from the tools it was given. Each kind of session,
+such as a development task or a read-only discussion, has a setup of its own.
+A change to either half gives a new name, and Changed says which half no
+earlier turn had. Each setup shows when it first ran, its turns, the share completed, the
 typical minutes and calls of a turn, and the steering or stops and the rate
 limits for every 100 turns, so a change can be judged by the turns before and
 after it. Turns from before ByteQuay named setups have none.

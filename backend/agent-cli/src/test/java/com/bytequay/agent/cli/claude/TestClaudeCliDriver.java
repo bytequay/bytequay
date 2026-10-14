@@ -96,6 +96,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class TestClaudeCliDriver
 {
     private static final String DEVELOPMENT_POLICY = AgentCommandPolicy.instructions(new AgentPermissionScope(AgentPermissionPolicy.AUTO, SessionAccess.FULL, false));
+    private static final String TASK_CONTEXT = "This task continues the existing pull request owner/repo#7.";
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @TempDir
@@ -110,15 +111,17 @@ class TestClaudeCliDriver
         AgentSessionContext plain = context(Optional.empty(), AgentPermissionPolicy.AUTO);
         AgentSessionContext discussion = new AgentSessionContext(plain.taskId(), plain.worktree(), plain.runtimeDirectory(), plain.providerDirectory(),
                 plain.permissionPolicy(), plain.sessionReference(), plain.approvals(), plain.model(), plain.effort(), SessionAccess.READ_ONLY,
-                Optional.empty(), "", Optional.of(new DiscussionContextBridge(query -> "saved context")));
+                Optional.empty(), TASK_CONTEXT, Optional.of(new DiscussionContextBridge(query -> "saved context")));
         try (AgentSession session = driver.open(discussion, event -> {})) {
             RunningTurn turn = session.start(command("explain this"));
             assertThat(await(turn).state()).isEqualTo(AgentTurnResult.State.COMPLETED);
             ProcessSpec spec = supervisor.turns().getLast().spec();
-            // The setup's first half names the very instructions the turn was launched with.
+            // The setup's first half names the instructions the turn was launched with, all but the task's own context, which a
+            // read-only session starts with.
             String instructions = spec.argv().get(spec.argv().indexOf("--append-system-prompt") + 1);
-            assertThat(turn.setup().orElseThrow()).matches("[0-9a-f]{8}-[0-9a-f]{8}")
-                    .startsWith(Hashing.sha256().hashString(instructions, StandardCharsets.UTF_8).toString().substring(0, 8) + "-");
+            assertThat(instructions).startsWith(TASK_CONTEXT + "\n\n");
+            String own = Hashing.sha256().hashString(instructions.substring(TASK_CONTEXT.length() + 2), StandardCharsets.UTF_8).toString();
+            assertThat(turn.setup().orElseThrow()).matches("[0-9a-f]{8}-[0-9a-f]{8}").startsWith(own.substring(0, 8) + "-");
             assertThat(spec.argv()).containsSequence("--tools", "Bash,Glob,Grep,Read");
             assertThat(spec.argv()).anyMatch(argument -> argument.contains("mcp__bytequay__read_discussion_context"));
             assertThat(spec.argv()).anyMatch(argument -> argument.contains(DiscussionContextBridge.INSTRUCTION));

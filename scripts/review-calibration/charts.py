@@ -18,6 +18,14 @@ TOP_RUNS = 15
 ANSWERS = {"allowed": "usual", "denied": "serious", "cancelled": "warning", "expired": "critical"}
 WAITS = (("under 30 s", 30), ("30 s to 1 min", 60), ("1 to 2 min", 120), ("2 to 5 min", 300), ("5 min or more", float("inf")))
 NOTICES = {"rate limit: allowed warning": "warning", "rate limit: rejected": "critical", "retry": "other"}
+# What became of a review's finding. The user or a development agent marks one resolved, the reviewer itself withdraws one, and an open one is not decided
+# yet. So a resolved finding is read as one that held up, and a withdrawn one as one that did not.
+FINDINGS = {"resolved": "model", "withdrawn": "serious", "open": "usual"}
+RUN_ENDINGS = {"accepted": "usual", "incomplete": "serious", "stopped": "warning", "failed": "critical"}
+SEVERITIES = ("high", "medium", "low")
+# What a scored run made of a human reviewer's comment, best first. A judge error is its own part and is never drawn as missed.
+VERDICTS = {"found": "model", "partly": "lighter", "missed": "usual", "errors": "warning"}
+SCORE_AMOUNTS = ("comments", *VERDICTS, "leads", "extra", "inputTokens", "cachedInputTokens", "outputTokens", "seconds", "judgeInputTokens", "judgeOutputTokens")
 # The three kinds of tokens a turn is billed for, and the color each wears in the token charts. Fresh input is what was
 # not read from the cache. Cached input is most of the tokens and the cheapest, so it stays quiet and the eye goes to the other two.
 TOKEN_KINDS = {"fresh input": "model", "cached input": "usual", "output": "tool"}
@@ -487,3 +495,158 @@ def repositories_figure(turns, parts, mode="light"):
                        marker={"color": COLORS[mode][KINDS[state]], "line": {"color": COLORS[mode]["surface"], "width": 1}},
                        hovertemplate="%{y}<br>" + state + ": %{x:.1f} hours<extra></extra>")
     return bar_list(figure, 34 * len(most) + 40, legend=True)
+
+
+def review_frames(table, zone=None):
+    """The saved review runs and findings as two frames. A finding carries the number of its run; a run its day in the reader's own time zone."""
+    rows = table["runs"]
+    start = pandas.to_datetime([row["start"] for row in rows], utc=True).tz_convert(zone or datetime.now().astimezone().tzinfo)
+    runs = pandas.DataFrame({"review": [row["review"] for row in rows], "repository": [row["repository"] for row in rows], "start": start, "day": start.date,
+                             "seconds": [row["seconds"] for row in rows], "state": [str(row["state"]) for row in rows], "repaired": [bool(row["repaired"]) for row in rows],
+                             "turns": [int(row["turns"]) for row in rows], **{name: [row[name] for row in rows] for name in ("provider", "model", "effort", "inputTokens",
+                                                                                                                              "cachedInputTokens", "outputTokens", "cost")}})
+    runs["setting"] = [None if row["model"] is None else f"{row['model']} · {row['effort'] or 'no effort'}" for row in rows]
+    found = table["findings"]
+    findings = pandas.DataFrame({"run": [int(row["run"]) for row in found], "state": [str(row["state"]) for row in found], "severity": [row["severity"] for row in found]})
+    if not findings["run"].isin(runs.index).all():
+        raise ValueError("a finding names a run that is not saved")
+    return {"runs": runs, "findings": findings}
+
+
+def reviews_chosen(made, first, last, settings=(), repositories=()):
+    """Only the runs that started in these days, under these models and efforts and in these repositories, with their findings."""
+    runs = made["runs"]
+    keep = (runs["day"] >= first) & (runs["day"] <= last)
+    if settings:
+        keep &= runs["setting"].isin(settings)
+    if repositories:
+        keep &= runs["repository"].isin(repositories)
+    return {"runs": runs[keep], "findings": made["findings"][made["findings"]["run"].isin(runs[keep].index)]}
+
+
+def in_order(found, known):
+    """The names found, the known ones in their fixed order and then any other by name."""
+    return [name for name in known if name in found] + sorted(set(found) - set(known))
+
+
+def counted_donut(counted, known, middle, mode):
+    """A ring of counts by name, with each count in the key."""
+    names = in_order(counted.index, known)
+    figure = go.Figure(go.Pie(labels=[f"{name}  {int(counted[name]):,}" for name in names], values=[int(counted[name]) for name in names], hole=0.6, sort=False,
+                              direction="clockwise", textposition="inside", insidetextorientation="horizontal", texttemplate="%{value}", customdata=names,
+                              marker={"colors": [COLORS[mode][known.get(name, "other")] for name in names], "line": {"color": COLORS[mode]["surface"], "width": 2}},
+                              hovertemplate="%{customdata}<br>%{value} · %{percent:.1%}<extra></extra>"))
+    figure.add_annotation(text=middle, showarrow=False, font={"size": 20})
+    return tidy(figure, 300, legend=True)
+
+
+def findings_donut(findings, mode="light"):
+    """What became of the findings."""
+    return counted_donut(findings["state"].value_counts(), FINDINGS, activity.count(len(findings), "finding"), mode)
+
+
+def run_endings_donut(runs, mode="light"):
+    """How the review runs ended."""
+    return counted_donut(runs["state"].value_counts(), RUN_ENDINGS, activity.count(len(runs), "run"), mode)
+
+
+def held_up(findings):
+    """Of the findings that are decided, the share in percent that was resolved and not withdrawn; None while none is decided."""
+    resolved, withdrawn = int((findings["state"] == "resolved").sum()), int((findings["state"] == "withdrawn").sum())
+    return share(resolved, resolved + withdrawn) if resolved + withdrawn else None
+
+
+def findings_per_run_figure(runs, findings, mode="light"):
+    """How many findings a run raised: the number of runs for each number of findings, with five or more together."""
+    raised = findings.groupby("run").size().reindex(runs.index, fill_value=0)
+    names = ["0", "1", "2", "3", "4", "5 or more"]
+    counted = [int((raised == number).sum()) for number in range(5)] + [int((raised >= 5).sum())]
+    figure = go.Figure(go.Bar(x=names, y=counted, text=[f"{amount:,}" if amount else "" for amount in counted], textposition="outside", cliponaxis=False,
+                              marker={"color": COLORS[mode]["model"]}, hovertemplate="%{x} findings<br>%{y} runs<extra></extra>"))
+    figure.update_xaxes(fixedrange=True, showgrid=False, type="category", title_text="findings in a run")
+    figure.update_yaxes(fixedrange=True, visible=False, range=[0, max(counted) * 1.25 if max(counted) else 1])
+    return tidy(figure, 300)
+
+
+def severity_figure(findings, mode="light"):
+    """What became of the findings of each severity, as counts."""
+    graded = findings.assign(severity=findings["severity"].fillna("not given"))
+    counted = graded.groupby(["severity", "state"]).size().unstack(fill_value=0)
+    rows = in_order(counted.index, dict.fromkeys((*SEVERITIES, "not given")))
+    figure = go.Figure()
+    for state in in_order(counted.columns, FINDINGS):
+        amounts = [int(counted.loc[row, state]) for row in rows]
+        figure.add_bar(orientation="h", y=rows, x=amounts, name=state, text=[f"{amount:,}" if amount else "" for amount in amounts], textposition="inside", insidetextanchor="middle",
+                       marker={"color": COLORS[mode][FINDINGS.get(state, "other")], "line": {"color": COLORS[mode]["surface"], "width": 2}},
+                       hovertemplate="%{y}<br>" + state + ": %{x}<extra></extra>")
+    return bar_list(figure, 40 * len(rows) + 40, legend=True)
+
+
+def review_settings_table(runs, findings):
+    """One row for every model and effort that reviewed: its runs, how many of them ByteQuay had to ask again for a complete report, its findings and what
+    became of them. A run whose turns the database lost is "not recorded"."""
+    rows = []
+    for name, group in runs.assign(setting=runs["setting"].fillna("not recorded")).groupby("setting"):
+        own = findings[findings["run"].isin(group.index)]
+        kept = held_up(own)
+        rows.append({"model and effort": name, "runs": len(group), "asked again": int(group["repaired"].sum()),
+                     "typical minutes": None if group["seconds"].isna().all() else round(float(group["seconds"].median()) / 60, 1),
+                     "findings": len(own), "findings a run": round(len(own) / len(group), 1), **{state: int((own["state"] == state).sum()) for state in FINDINGS},
+                     "held up %": None if kept is None else round(kept), "typical tokens in": whole_or_none(group["inputTokens"].median())})
+    return sorted(rows, key=lambda row: (-row["runs"], row["model and effort"]))
+
+
+def score_totals(scores):
+    """For each setting of the scorer: its name, its rules files, and every number added up over its scored runs."""
+    return [(setting["name"], setting["rules"], {amount: sum(run[amount] for run in setting["runs"]) for amount in SCORE_AMOUNTS}) for setting in scores["settings"]]
+
+
+def verdicts(scores):
+    """A part of zeros says nothing, so judge errors appear only when there are some."""
+    return [verdict for verdict in VERDICTS if verdict != "errors" or any(total["errors"] for _, _, total in score_totals(scores))]
+
+
+def said(verdict):
+    return "judge errors" if verdict == "errors" else verdict
+
+
+def scores_figure(scores, mode="light"):
+    """One bar per setting, cut by what became of the human reviewer's comments. Every bar has the same length, so they compare down the page."""
+    scored = [(name, total) for name, _, total in score_totals(scores) if total["comments"]]
+    figure = go.Figure()
+    for verdict in verdicts(scores):
+        amounts = [total[verdict] for _, total in scored]
+        figure.add_bar(orientation="h", y=[f"{name}  ({activity.count(total['comments'], 'comment')})" for name, total in scored],
+                       x=[share(total[verdict], total["comments"]) for _, total in scored], name=said(verdict), customdata=amounts,
+                       text=[f"{amount} {said(verdict)}" if amount else "" for amount in amounts], textposition="inside", insidetextanchor="middle",
+                       marker={"color": COLORS[mode][VERDICTS[verdict]], "line": {"color": COLORS[mode]["surface"], "width": 2}},
+                       hovertemplate="%{y}<br>%{customdata} " + said(verdict) + "<extra></extra>")
+    return bar_list(figure, 44 * len(scored) + 40, legend=True)
+
+
+def score_cells(scores, total):
+    return {"comments": total["comments"], **{said(verdict): total[verdict] for verdict in verdicts(scores)}, "leads": total["leads"], "extra leads": total["extra"],
+            "tokens in": total["inputTokens"], "cached": total["cachedInputTokens"], "tokens out": total["outputTokens"], "minutes": round(total["seconds"] / 60, 1)}
+
+
+def score_settings_table(scores):
+    """One row per setting: what all of its scored runs found and what they cost."""
+    return [{"setting": name, "rules": ", ".join(rules), "scored runs": f"{len(setting['runs'])} of {len(setting['runs']) + len(setting['notScored'])}",
+             **score_cells(scores, total), "judge tokens in": total["judgeInputTokens"], "judge tokens out": total["judgeOutputTokens"]}
+            for (name, rules, total), setting in zip(score_totals(scores), scores["settings"])]
+
+
+def score_runs_table(scores):
+    """One row per scored run."""
+    return [{"setting": setting["name"], "run": run["run"], "case": run["case"], **score_cells(scores, run)} for setting in scores["settings"] for run in setting["runs"]]
+
+
+def score_notes(scores):
+    """What the score tables cannot show: settings that are not one comparison, and runs that were left out."""
+    lines = []
+    for setting in scores["settings"]:
+        if len(setting["rules"]) > 1:
+            lines.append(f"{setting['name']}: mixed rules files or models in this setting, so its runs are not one comparison: {', '.join(setting['rules'])}")
+        if setting["notScored"]:
+            lines.append(f"{setting['name']}: not scored, and not counted as zero: " + ", ".join(f"{left['run']} ({left['status']})" for left in setting["notScored"]))
+    return lines

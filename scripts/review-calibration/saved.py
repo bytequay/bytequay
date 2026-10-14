@@ -1,10 +1,16 @@
 """Where the lab keeps its saved results, and how it writes and reads them."""
 
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 
 # A folder of the lab's own, beside the application's data and not inside it.
 FOLDER = Path.home() / "Library/Application Support/ByteQuay Lab"
+
+
+def stamp(moment):
+    """A moment in seconds as the saved files write it: UTC, to the second."""
+    return datetime.fromtimestamp(moment, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def write(directory, name, made):

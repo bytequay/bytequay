@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The lab's dashboard: the saved turn table as one page, shown to this machine only. Start it with `uv run dashboard.py`."""
+"""The lab's dashboard: the saved results as one page, shown to this machine only. Start it with `uv run dashboard.py`."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def when(moment):
 
 
 def chosen(made, table):
-    """The turns the reader asks for in the side bar."""
+    """The turns the reader asks for in the side bar, and the choice itself for what is not a turn."""
     days = made["turns"]["day"]
     with st.sidebar:
         picked = st.date_input("Days", (days.min(), days.max()), min_value=days.min(), max_value=days.max())
@@ -41,13 +41,13 @@ def chosen(made, table):
         first, last = (picked[0], picked[-1]) if picked else (days.min(), days.max())
         shown = charts.within(made, first, last)
         names = [row["model and effort"] for row in charts.settings_table(made["turns"])]
-        wanted = st.multiselect("Model and effort", names, placeholder="All") if names else []
-        if wanted:
-            shown = charts.only(shown, shown["turns"]["setting"].isin(wanted))
-        repositories = sorted(set(made["turns"]["repository"].dropna()))
-        wanted = st.multiselect("Repository", repositories, placeholder="All") if repositories else []
-        if wanted:
-            shown = charts.only(shown, shown["turns"]["repository"].isin(wanted))
+        settings = st.multiselect("Model and effort", names, placeholder="All") if names else []
+        if settings:
+            shown = charts.only(shown, shown["turns"]["setting"].isin(settings))
+        names = sorted(set(made["turns"]["repository"].dropna()))
+        repositories = st.multiselect("Repository", names, placeholder="All") if names else []
+        if repositories:
+            shown = charts.only(shown, shown["turns"]["repository"].isin(repositories))
         turns = shown["turns"]
         st.caption(f"{len(turns):,} of {len(made['turns']):,} turns. Days are in your own time zone.")
         # Two sources stand behind a turn, and not every turn is in both.
@@ -58,7 +58,7 @@ def chosen(made, table):
             st.caption(f"Only turns that started on or after {table['since']} were saved.")
         if table["task"]:
             st.caption(f"Only the task whose id starts with {table['task']} was saved.")
-    return shown
+    return shown, (first, last, settings, repositories)
 
 
 def overview(shown, table, mode):
@@ -215,6 +215,78 @@ def cost(shown, table, folder, mode):
         st.code(json.dumps({"version": 1, "dollarsPerMillionTokens": wanted}, indent=2), language="json")
 
 
+def real_reviews(folder, choice, together, mode):
+    st.subheader("Reviews ByteQuay ran")
+    try:
+        table = saved.read(folder, "reviews.json")
+        made = None if table is None else charts.reviews_chosen(charts.review_frames(table), *choice)
+        apart = None if table is None or table["savedAt"] == together else when(table["savedAt"])
+    except (OSError, KeyError, TypeError, ValueError):
+        st.warning(f"The saved reviews could not be read. Save them again with `{SAVE}`")
+        return
+    if made is None:
+        st.info(f"Nothing saved yet. Save the reviews with `{SAVE}`")
+        return
+    if apart:
+        # One save writes the turns and the reviews with the same time. Another time means a later save could not read the reviews.
+        st.warning(f"These reviews were saved {apart}, at another time than the turns. Save both again with `{SAVE}`")
+    runs, findings = made["runs"], made["findings"]
+    if runs.empty:
+        st.info("No review run matches this choice.")
+        return
+    kept = charts.held_up(findings)
+    with st.container(horizontal=True):
+        st.metric("Reviews", f"{runs['review'].nunique():,}", border=True, width=TILE)
+        st.metric("Runs", f"{len(runs):,}", border=True, width=TILE)
+        st.metric("Findings", f"{len(findings):,}", border=True, width=TILE)
+        st.metric("Held up", "none decided" if kept is None else f"{kept:.0f}%", border=True, width=TILE,
+                  help="Of the findings that are decided, the share that was resolved and not withdrawn.")
+        st.metric("Still open", f"{int((findings['state'] == 'open').sum()):,}", border=True, width=TILE)
+    st.caption("Resolved: you or a development agent marked the finding done. Withdrawn: the reviewer took it back. Open: not decided yet. "
+               "Held up is the resolved share of the first two.")
+    left, right = st.columns(2)
+    with left:
+        if len(findings):
+            draw("findings_donut", charts.findings_donut(findings, mode))
+    with right:
+        draw("run_endings_donut", charts.run_endings_donut(runs, mode))
+    st.caption("How many findings a run raised.")
+    draw("findings_per_run", charts.findings_per_run_figure(runs, findings, mode))
+    if len(findings):
+        st.caption("What became of the findings of each severity.")
+        draw("severity", charts.severity_figure(findings, mode))
+    st.caption("Different pull requests were reviewed under each model and effort, so this shows what happened, not which one reviews better. "
+               "Asked again counts the runs whose report was not complete, so ByteQuay asked the reviewer once more.")
+    st.dataframe(charts.review_settings_table(runs, findings), hide_index=True, column_config={"typical tokens in": st.column_config.NumberColumn(format="localized")})
+
+
+def scored_reviews(folder, mode):
+    st.subheader("Scored against a human reviewer")
+    command = "uv run report.py ROOT --save"
+    try:
+        scores = saved.read(folder, "review-scores.json")
+        made = None if scores is None else (charts.score_settings_table(scores), charts.score_runs_table(scores), charts.score_notes(scores),
+                                           charts.scores_figure(scores, mode) if any(total["comments"] for _, _, total in charts.score_totals(scores)) else None)
+    except (OSError, KeyError, TypeError, ValueError):
+        st.warning(f"The saved scores could not be read. Save them again with `{command}`")
+        return
+    if made is None:
+        st.info(f"Nothing saved yet. Save the scores with `{command}`")
+        return
+    settings, runs, notes, figure = made
+    if not settings:
+        st.info("The saved scores hold no setting.")
+        return
+    st.caption(f"What each setting found of the comments a human reviewer left on the same pull requests. Saved {when(scores['savedAt'])}")
+    if figure is not None:
+        draw("scores", figure)
+    for note in notes:
+        st.caption(note)
+    numbers = {name: st.column_config.NumberColumn(format="localized") for name in ("tokens in", "cached", "tokens out", "judge tokens in", "judge tokens out")}
+    st.dataframe(settings, hide_index=True, column_config=numbers)
+    st.dataframe(runs, hide_index=True, column_config=numbers)
+
+
 def timed(tab, logged, *more):
     """Draw a tab that is about time, or say that no turn of this choice has a log to split."""
     if len(logged["turns"]):
@@ -243,14 +315,14 @@ def page(folder):
     if made["turns"].empty:
         st.info("The saved turn table holds no turn.")
         return
-    shown = chosen(made, table)
+    shown, choice = chosen(made, table)
     if shown["turns"].empty:
         st.info("No turn matches this choice.")
         return
     mode = "dark" if st.context.theme.type == "dark" else "light"
-    # The first three tabs are about time, which only a log can split. The other two are about what ByteQuay recorded.
+    # The first three tabs are about time, which only a log can split. The others are about what ByteQuay recorded.
     logged = charts.only(shown, shown["turns"]["logged"])
-    first, second, third, fourth, fifth = st.tabs(["Overview", "Time", "Slow spots", "Models", "Cost"])
+    first, second, third, fourth, fifth, sixth = st.tabs(["Overview", "Time", "Slow spots", "Models", "Cost", "Reviews"])
     with first:
         timed(overview, logged, table, mode)
     with second:
@@ -261,6 +333,9 @@ def page(folder):
         models(shown, table, mode)
     with fifth:
         cost(shown, table, folder, mode)
+    with sixth:
+        real_reviews(folder, choice, table["savedAt"], mode)
+        scored_reviews(folder, mode)
 
 
 def main():

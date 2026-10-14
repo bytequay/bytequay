@@ -9,7 +9,7 @@ import tempfile
 import unittest
 
 import activity
-from test_records import database
+from test_records import database, reviewed
 
 START = datetime(2026, 1, 1, tzinfo=timezone.utc)
 WHEN = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
@@ -482,6 +482,15 @@ class TestTurns(Logs):
         self.assertIn('"npm"', saved_text)
 
 
+class TestReviewTable(Logs):
+    def test_review_table_is_what_the_database_holds_and_the_example_the_dashboard_tests_read(self):
+        path = reviewed(self.runtime.parent / "bytequay-1.0.db")
+        made = activity.review_table(activity.records.reviews(path, activity.records.read(path)), WHEN)
+        matches_example(self, "saved-reviews.json", made)
+        self.assertEqual((made["version"], made["savedAt"], made["since"], made["task"], len(made["runs"]), len(made["findings"])), (1, "2026-01-02T03:04:05Z", None, None, 3, 4))
+        self.assertEqual(activity.review_table({"runs": [], "findings": []}, WHEN, "2026-01-01", "aaaa")["task"], "aaaa")
+
+
 class TestTimeline(Logs):
     def test_long_stretches_are_listed_in_order_and_short_ones_are_only_counted(self):
         total = activity.measure([self.log("aaaa", turn(0, 300), command(10, 50, "./mvnw compile", item="m1"), command(50, 100, "./mvnw test", item="m2"),
@@ -528,6 +537,7 @@ class TestCommandLine(Logs):
         # No database beside the runtime folder: the table is saved from the logs alone and says so.
         self.assertEqual((written["database"], written["turns"][0]["model"]), ({"problem": "the database is not there"}, None))
         self.assertIn("Model, effort, tokens and cost are left out: the database is not there.", first.stdout)
+        self.assertIn("Reviews are not saved: the database is not there.", first.stdout)
         self.assertTrue(re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", written["savedAt"]))
         nothing = self.run_script("--since", "2030-01-01", "--save", str(folder))
         self.assertEqual((nothing.returncode, nothing.stderr), (0, ""))
@@ -546,6 +556,9 @@ class TestCommandLine(Logs):
         self.assertNotIn("left out", saved_all.stdout)
         written = json.loads((folder / "turns.json").read_text())
         self.assertEqual(written["database"], {"turns": 2, "matched": 1})
+        self.assertIn(f"Saved to {folder / 'reviews.json'}", saved_all.stdout)
+        self.assertEqual({name: value for name, value in json.loads((folder / "reviews.json").read_text()).items() if name != "savedAt"},
+                         {"version": 1, "since": None, "task": None, "runs": [], "findings": []})  # this database holds no review
         self.assertEqual([(row["task"], row["logged"], row["model"], row["effort"], row["outcome"], row["inputTokens"], row["cost"]) for row in written["turns"]],
                          [("aaaa-1111", True, "gpt-6-astra", "max", "completed", 900, None), ("zzzz-9999", False, "opus", "high", "failed", 100, 0.25)])
         self.assertEqual(beside.read_bytes(), before)
@@ -556,6 +569,26 @@ class TestCommandLine(Logs):
         self.assertEqual(other_shape.returncode, 0, other_shape.stderr)
         self.assertIn("Model, effort, tokens and cost are left out: the database has another shape (no such column: turn.effort).", other_shape.stdout)
         self.assertEqual(json.loads((folder / "turns.json").read_text())["database"], {"problem": "the database has another shape (no such column: turn.effort)"})
+
+    def test_save_writes_the_review_runs_and_findings_under_the_same_choices_as_the_turn_table(self):
+        self.log("aaaa-0001", turn(0, 60, "t1"))
+        self.log("bbbb-0002", turn(3 * 3600, 3 * 3600 + 60, "u1"))
+        reviewed(self.runtime.parent / "bytequay-1.0.db")
+        folder = self.runtime.parent / "saved"
+        everything = self.run_script("--save", str(folder))
+        self.assertEqual((everything.returncode, everything.stderr), (0, ""))
+        written = json.loads((folder / "reviews.json").read_text())
+        self.assertEqual(([run["start"] for run in written["runs"]], [finding["run"] for finding in written["findings"]], written["since"], written["task"]),
+                         (["2026-01-01T01:00:00Z", "2026-01-01T03:00:00Z", "2026-01-01T04:00:00Z"], [0, 0, 0, 2], None, None))
+        one_task = self.run_script("--task", "bbbb-0002", "--save", str(folder))
+        self.assertEqual(one_task.returncode, 0, one_task.stderr)
+        written = json.loads((folder / "reviews.json").read_text())
+        self.assertEqual(([run["model"] for run in written["runs"]], len(written["findings"]), written["task"]), (["opus"], 1, "bbbb-0002"))
+        # Review tables in another shape leave the earlier review file as it is, say so, and still save the turns.
+        other_shape = self.run_script("--save", str(folder), "--database", str(database(self.runtime.parent / "another.db", without=("turn_ids_json",))))
+        self.assertEqual(other_shape.returncode, 0, other_shape.stderr)
+        self.assertIn("Reviews are not saved: the database has another shape (no such column: run.turn_ids_json).", other_shape.stdout)
+        self.assertEqual((json.loads((folder / "reviews.json").read_text()), "problem" in json.loads((folder / "turns.json").read_text())["database"]), (written, False))
 
     def test_wrong_arguments_are_refused_with_a_reason(self):
         self.log("aaaa-1111", TEN_MINUTES)

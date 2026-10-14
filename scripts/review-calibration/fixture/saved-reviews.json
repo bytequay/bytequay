@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "savedAt": "2026-01-02T03:04:05Z",
+  "since": null,
+  "task": null,
+  "runs": [
+    {
+      "review": "review-1",
+      "repository": "trinodb/trino",
+      "start": "2026-01-01T01:00:00Z",
+      "seconds": 1830.0,
+      "state": "accepted",
+      "repaired": false,
+      "turns": 2,
+      "provider": "codex",
+      "model": "gpt-6-astra",
+      "effort": "max",
+      "inputTokens": 4000,
+      "cachedInputTokens": 2000,
+      "outputTokens": 20,
+      "cost": null
+    },
+    {
+      "review": "review-1",
+      "repository": "trinodb/trino",
+      "start": "2026-01-01T03:00:00Z",
+      "seconds": 600.0,
+      "state": "failed",
+      "repaired": true,
+      "turns": 1,
+      "provider": "codex",
+      "model": "gpt-6-sol",
+      "effort": "high",
+      "inputTokens": 3500,
+      "cachedInputTokens": 1750,
+      "outputTokens": 10,
+      "cost": null
+    },
+    {
+      "review": "review-2",
+      "repository": "o/n",
+      "start": "2026-01-01T04:00:00Z",
+      "seconds": null,
+      "state": "running",
+      "repaired": false,
+      "turns": 1,
+      "provider": "claude",
+      "model": "opus",
+      "effort": "extra",
+      "inputTokens": 800,
+      "cachedInputTokens": 400,
+      "outputTokens": 10,
+      "cost": 2.5
+    }
+  ],
+  "findings": [
+    {
+      "run": 0,
+      "state": "resolved",
+      "severity": "medium"
+    },
+    {
+      "run": 0,
+      "state": "withdrawn",
+      "severity": null
+    },
+    {
+      "run": 0,
+      "state": "open",
+      "severity": "high"
+    },
+    {
+      "run": 2,
+      "state": "open",
+      "severity": null
+    }
+  ]
+}

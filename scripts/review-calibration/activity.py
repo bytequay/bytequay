@@ -461,10 +461,6 @@ OUTCOMES = {"TURN_COMPLETED": "completed", "INTERRUPTED": "interrupted", "TASK_F
 FACTS = ("provider", "model", "effort", "repository", "inputTokens", "cachedInputTokens", "outputTokens", "cost", "toolCalls", "compactions")
 
 
-def stamp(moment):
-    return datetime.fromtimestamp(moment, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
 def midnight(day_text):
     """The start of a UTC day given as YYYY-MM-DD, in seconds."""
     return datetime.strptime(day_text, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp()
@@ -479,7 +475,7 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
     rows, known = [], recorded or {}
     for one in total.each:
         facts = known.get((one.task, one.turn))
-        rows.append({"task": one.task, "start": stamp(one.start), "seconds": round(one.end - one.start, 3), "logged": True,
+        rows.append({"task": one.task, "start": saved.stamp(one.start), "seconds": round(one.end - one.start, 3), "logged": True,
                      "outcome": facts and facts["outcome"] or OUTCOMES[one.ended], **{name: facts[name] if facts else None for name in FACTS},
                      "groups": {group: round(length, 3) for group, length in one.groups.items()},
                      "programs": {name: {"seconds": round(length, 3), "runs": one.program_runs[name]} for name, length in one.program_seconds.items()},
@@ -492,12 +488,27 @@ def turn_table(total, when, since=None, task=None, recorded=None, problem=None):
     for (owner, turn), facts in sorted(known.items(), key=lambda made: (made[1]["start"], made[0])):
         # The same filters as for the logs, so a saved table never mixes two selections.
         if (owner, turn) not in logged and (since is None or facts["start"] >= midnight(since)) and (task is None or owner.startswith(task)):
-            rows.append({"task": owner, "start": stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
+            rows.append({"task": owner, "start": saved.stamp(facts["start"]), "seconds": round(facts["seconds"], 3), "logged": False, "outcome": facts["outcome"] or OUTCOMES[""],
                          **{name: facts[name] for name in FACTS}, "groups": {}, "programs": {}, "after": {}, "parallel": 0.0, "mostAtOnce": 0, "unfinished": 0,
                          "longRuns": [], "approvals": [], "notices": {}})
     database = {"problem": problem or "the database was not read"} if recorded is None else {"turns": len(known), "matched": len(logged & set(known))}
     return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, "database": database,
             "leftOut": {"skippedLines": total.skipped, "unreadLogs": total.unread}, "turns": rows}
+
+
+def review_table(reviewed, when, since=None, task=None):
+    """The review runs and their findings as `records.reviews` gave them, with when and under which choices they were saved."""
+    return {"version": 1, "savedAt": when.strftime("%Y-%m-%dT%H:%M:%SZ"), "since": since, "task": task, **reviewed}
+
+
+def from_database(read):
+    """What `read` gives, or the reason why the database gave nothing."""
+    try:
+        return read(), None
+    except OSError:
+        return None, "the database is not there"
+    except sqlite3.Error as error:
+        return None, f"the database has another shape ({error})"
 
 
 def main():
@@ -520,16 +531,17 @@ def main():
     total = measure(logs, since)
     print(render(total) + ("\n\n" + timeline(total) if args.task and total.turns else ""))
     if args.save and total.turns:  # with no turns there is nothing worth replacing an earlier result with
-        # The tables above come from the logs alone. Only the saved table also carries what the database knows about a turn.
-        try:
-            recorded, problem = records.read(args.database or args.runtime.parent / "bytequay-1.0.db"), None
-        except OSError:
-            recorded, problem = None, "the database is not there"
-        except sqlite3.Error as error:
-            recorded, problem = None, f"the database has another shape ({error})"
+        # The tables above come from the logs alone. Only the saved tables also carry what the database knows.
+        database, now = args.database or args.runtime.parent / "bytequay-1.0.db", datetime.now(timezone.utc)
+        recorded, problem = from_database(lambda: records.read(database))
         if problem:
             print(f"\nModel, effort, tokens and cost are left out: {problem}.")
-        print("\nSaved to", saved.write(args.save, "turns.json", turn_table(total, datetime.now(timezone.utc), args.since, args.task, recorded, problem)))
+        print("\nSaved to", saved.write(args.save, "turns.json", turn_table(total, now, args.since, args.task, recorded, problem)))
+        reviewed, problem = from_database(lambda: records.reviews(database, recorded or {}, since, args.task))
+        if problem:
+            print(f"Reviews are not saved: {problem}.")
+        else:
+            print("Saved to", saved.write(args.save, "reviews.json", review_table(reviewed, now, args.since, args.task)))
 
 
 if __name__ == "__main__":

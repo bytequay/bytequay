@@ -181,11 +181,11 @@ message text.
 ## Saving results
 
 `report.py` and `activity.py` take `--save`. Besides printing, each then writes
-its numbers as one JSON file into `~/Library/Application Support/ByteQuay Lab`,
-or into the folder named after `--save`: `review-scores.json` from `report.py`
-and `turns.json` from `activity.py`. The folder is the lab's own. A new result
-replaces the earlier one in one step. Nothing is saved when no run or turn was
-found, so an empty filter cannot wipe a result.
+its numbers as JSON into `~/Library/Application Support/ByteQuay Lab`, or into
+the folder named after `--save`: `review-scores.json` from `report.py`, and
+`turns.json` and `reviews.json` from `activity.py`. The folder is the lab's
+own. A new result replaces the earlier one in one step. Nothing is saved when
+no run or turn was found, so an empty filter cannot wipe a result.
 
 ```sh
 uv run report.py ROOT --save
@@ -210,6 +210,15 @@ in its row. A turn only in the log has none of them. A turn only in the
 database gets a row without a time split, because its log is gone. When the
 database is missing or has another shape, the table is saved from the logs
 alone and says why.
+
+`reviews.json` holds the reviews ByteQuay itself ran, from the same database
+and under the same `--since` and `--task`: one row for every review run with
+its repository, its start, its length, how it ended, whether ByteQuay had to
+ask again for a complete report, and the model, effort, tokens and cost of
+its own turns; and one row for every finding with the run that raised it,
+how it stands (open, resolved or withdrawn) and its severity. A finding's
+title, its text and the reason given for its state are never read.
+`fixture/saved-reviews.json` is a small example.
 
 ByteQuay stores on a Codex turn and on a Claude turn the tokens and the cost
 of that turn alone, and `records.py` saves them as they are. For any other
@@ -270,6 +279,19 @@ fill in. A model whose prices are all zero has no price yet. The lab ships no
 prices of its own. The table gives each model and effort its tokens, its
 dollars, how they are known, the typical dollars of a turn, and the dollars
 of a completed turn, which also carries the turns that did not complete.
+
+The Reviews tab has two halves. The first is about the reviews ByteQuay ran:
+what became of their findings, how the runs ended, how many findings a run
+raised, the findings of each severity, and a table by model and effort. A
+finding is resolved when the user or a development agent marked it done, and
+withdrawn when the reviewer took it back; "held up" is the resolved share of
+those two, and an open finding is not decided yet. "Asked again" counts the
+runs whose report was not complete, so ByteQuay asked the reviewer once more.
+Different pull requests were reviewed under each model, so this too shows
+what happened and is not a fair test. The tab says so when the reviews were
+saved at another time than the turns. The second half shows the saved score
+table: one bar per setting for what it found of a human reviewer's comments,
+with the settings and the scored runs listed below it.
 
 The page is served to this machine only. Started any other way, for example
 with `streamlit run dashboard.py`, Streamlit would serve it to the whole

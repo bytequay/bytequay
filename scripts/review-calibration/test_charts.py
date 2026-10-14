@@ -136,7 +136,8 @@ class TestFigures(unittest.TestCase):
         self.assertEqual(list(charts.tasks_figure(made()["turns"], made()["parts"], top=1).data[0].y), ["aaaa-1111"])
 
     def test_both_modes_have_every_color_a_chart_asks_for(self):
-        wanted = {*charts.KINDS.values(), *charts.ENDINGS.values(), *charts.TOKEN_KINDS.values(), *charts.ANSWERS.values(), *charts.NOTICES.values(), "other", "surface",
+        wanted = {*charts.KINDS.values(), *charts.ENDINGS.values(), *charts.TOKEN_KINDS.values(), *charts.ANSWERS.values(), *charts.NOTICES.values(), *charts.FINDINGS.values(), *charts.RUN_ENDINGS.values(),
+                  *charts.VERDICTS.values(), "other", "surface",
                   "grid", "scale", "ink", "lighter"}
         for mode, colors in charts.COLORS.items():
             self.assertLessEqual(wanted, set(colors), mode)
@@ -251,6 +252,118 @@ class TestSlowSpots(unittest.TestCase):
         # The task the database does not know has no repository and is named as such, never dropped.
         self.assertEqual((list(figure.data[0].y), [bar.name for bar in figure.data]), (["trinodb/trino", "not recorded"], charts.STATES))
         self.assertEqual([[round(hours * 3600) for hours in bar.x] for bar in figure.data], [[540, 60], [300, 60], [60, 0]])
+
+
+REVIEWS = json.loads((Path(__file__).with_name("fixture") / "saved-reviews.json").read_text())
+SCORES = json.loads((Path(__file__).with_name("fixture") / "saved-review-scores.json").read_text())
+
+
+def reviewed():
+    return charts.review_frames(REVIEWS, timezone.utc)
+
+
+class TestReviews(unittest.TestCase):
+    def test_runs_and_findings_follow_the_saved_reviews_and_a_finding_keeps_the_number_of_its_run(self):
+        made = reviewed()
+        self.assertEqual(made["runs"][["review", "repository", "day", "seconds", "state", "repaired", "turns", "setting"]].values.tolist()[:2],
+                         [["review-1", "trinodb/trino", date(2026, 1, 1), 1830, "accepted", False, 2, "gpt-6-astra · max"],
+                          ["review-1", "trinodb/trino", date(2026, 1, 1), 600, "failed", True, 1, "gpt-6-sol · high"]])
+        self.assertTrue(pandas.isna(made["runs"]["seconds"][2]))  # still running: its length is not known, and not zero
+        self.assertEqual(made["findings"].fillna("not given").values.tolist(), [[0, "resolved", "medium"], [0, "withdrawn", "not given"], [0, "open", "high"], [2, "open", "not given"]])
+        self.assertEqual(charts.review_frames(REVIEWS, timezone(timedelta(hours=-5)))["runs"]["day"].tolist(), [date(2025, 12, 31)] * 3)
+
+    def test_reviews_in_another_shape_are_refused(self):
+        with self.assertRaisesRegex(ValueError, "a run that is not saved"):
+            charts.review_frames({**REVIEWS, "findings": [{**REVIEWS["findings"][0], "run": 3}]}, timezone.utc)
+        for missing in ("review", "start", "state", "model", "cost"):
+            with self.subTest(missing=missing), self.assertRaises(KeyError):
+                charts.review_frames({"runs": [{name: value for name, value in REVIEWS["runs"][0].items() if name != missing}], "findings": []}, timezone.utc)
+        with self.assertRaises(KeyError):
+            charts.review_frames({"runs": REVIEWS["runs"], "findings": [{"run": 0}]}, timezone.utc)
+
+    def test_choice_keeps_the_runs_of_those_days_models_and_repositories_with_their_findings(self):
+        made, day = reviewed(), date(2026, 1, 1)
+        pick = lambda **choice: (lambda chosen: (chosen["runs"].index.tolist(), chosen["findings"]["run"].tolist()))(charts.reviews_chosen(made, day, day, **choice))
+        self.assertEqual(pick(), ([0, 1, 2], [0, 0, 0, 2]))
+        self.assertEqual(pick(settings=["opus · extra"]), ([2], [2]))
+        self.assertEqual(pick(repositories=["trinodb/trino"]), ([0, 1], [0, 0, 0]))
+        self.assertEqual(pick(settings=["gpt-6-sol · high"], repositories=["trinodb/trino"]), ([1], []))
+        self.assertEqual(pick(settings=["opus · extra"], repositories=["trinodb/trino"]), ([], []))
+        self.assertTrue(charts.reviews_chosen(made, date(2026, 1, 2), date(2026, 1, 3))["runs"].empty)
+
+    def test_held_up_is_the_resolved_share_of_the_decided_findings_and_nothing_while_none_is_decided(self):
+        findings = reviewed()["findings"]
+        self.assertEqual(charts.held_up(findings), 50)  # one resolved, one withdrawn; the two open ones are not decided
+        self.assertEqual(charts.held_up(findings[findings["state"] != "withdrawn"]), 100)
+        self.assertIsNone(charts.held_up(findings[findings["state"] == "open"]))
+        self.assertIsNone(charts.held_up(findings[:0]))
+
+    def test_rings_count_findings_and_run_endings_in_a_fixed_order_and_keep_a_name_they_do_not_know(self):
+        made = reviewed()
+        findings, runs = charts.findings_donut(made["findings"]), charts.run_endings_donut(made["runs"], "dark")
+        self.assertEqual((list(findings.data[0].labels), list(findings.data[0].values), findings.layout.annotations[0].text),
+                         (["resolved  1", "withdrawn  1", "open  2"], [1, 1, 2], "4 findings"))
+        self.assertEqual(list(findings.data[0].marker.colors), [charts.COLORS["light"][kind] for kind in ("model", "serious", "usual")])
+        self.assertEqual((list(runs.data[0].labels), runs.layout.annotations[0].text), (["accepted  1", "failed  1", "running  1"], "3 runs"))
+        self.assertEqual(list(runs.data[0].marker.colors), [charts.COLORS["dark"][kind] for kind in ("usual", "critical", "other")])
+
+    def test_findings_per_run_counts_every_run_also_those_that_raised_nothing(self):
+        made = reviewed()
+        bars = charts.findings_per_run_figure(made["runs"], made["findings"]).data[0]
+        self.assertEqual((list(bars.x), list(bars.y)), (["0", "1", "2", "3", "4", "5 or more"], [1, 1, 0, 1, 0, 0]))
+        many = pandas.concat([made["findings"]] * 3, ignore_index=True)  # nine findings in the first run, three in the last
+        self.assertEqual(list(charts.findings_per_run_figure(made["runs"], many).data[0].y), [1, 0, 0, 1, 0, 1])
+
+    def test_severity_bars_count_what_became_of_the_findings_gravest_first(self):
+        figure = charts.severity_figure(reviewed()["findings"])
+        self.assertEqual((list(figure.data[0].y), [bar.name for bar in figure.data]), (["high", "medium", "not given"], ["resolved", "withdrawn", "open"]))
+        self.assertEqual([list(bar.x) for bar in figure.data], [[0, 1, 0], [0, 0, 1], [1, 0, 1]])
+
+    def test_table_by_model_and_effort_lists_runs_findings_and_what_held_up(self):
+        made = reviewed()
+        rows = charts.review_settings_table(made["runs"], made["findings"])
+        self.assertEqual(rows[0], {"model and effort": "gpt-6-astra · max", "runs": 1, "asked again": 0, "typical minutes": 30.5, "findings": 3, "findings a run": 3, "resolved": 1,
+                                   "withdrawn": 1, "open": 1, "held up %": 50, "typical tokens in": 4000})
+        self.assertEqual([(row["model and effort"], row["asked again"], row["typical minutes"], row["findings a run"], row["held up %"]) for row in rows[1:]],
+                         [("gpt-6-sol · high", 1, 10, 0, None), ("opus · extra", 0, None, 1, None)])
+        lost = made["runs"].assign(setting=None)  # runs whose turns the database no longer holds
+        self.assertEqual([(row["model and effort"], row["runs"], row["findings"]) for row in charts.review_settings_table(lost, made["findings"])], [("not recorded", 3, 4)])
+
+
+class TestScores(unittest.TestCase):
+    def test_bars_give_every_setting_the_same_length_and_write_the_counts(self):
+        figure = charts.scores_figure(SCORES)
+        self.assertEqual(([bar.name for bar in figure.data], list(figure.data[0].y)), (["found", "partly", "missed", "judge errors"], ["before  (2 comments)", "today  (5 comments)"]))
+        self.assertEqual([[round(part) for part in bar.x] for bar in figure.data], [[50, 60], [0, 20], [50, 0], [0, 20]])
+        self.assertEqual([list(bar.text) for bar in figure.data], [["1 found", "3 found"], ["", "1 partly"], ["1 missed", ""], ["", "1 judge errors"]])
+        for row in range(2):
+            self.assertAlmostEqual(sum(bar.x[row] for bar in figure.data), 100)
+
+    def test_judge_errors_have_a_part_of_their_own_only_when_there_are_some(self):
+        clean = {**SCORES, "settings": [SCORES["settings"][0]]}
+        self.assertEqual((charts.verdicts(SCORES), charts.verdicts(clean)), (["found", "partly", "missed", "errors"], ["found", "partly", "missed"]))
+        self.assertNotIn("judge errors", charts.score_settings_table(clean)[0])
+        self.assertEqual([bar.name for bar in charts.scores_figure(clean).data], ["found", "partly", "missed"])
+
+    def test_tables_add_up_each_setting_and_list_each_scored_run(self):
+        settings = charts.score_settings_table(SCORES)
+        self.assertEqual(settings[1], {"setting": "today", "rules": "aaaaaaaa reviewer-model, bbbbbbbb reviewer-model", "scored runs": "2 of 3", "comments": 5, "found": 3,
+                                       "partly": 1, "missed": 0, "judge errors": 1, "leads": 6, "extra leads": 2, "tokens in": 2000, "cached": 800, "tokens out": 100, "minutes": 3,
+                                       "judge tokens in": 1600, "judge tokens out": 120})
+        self.assertEqual([(row["setting"], row["run"], row["case"], row["comments"], row["minutes"]) for row in charts.score_runs_table(SCORES)],
+                         [("before", "pr1_rep1", "o/n#1", 2, 1.5), ("today", "pr1_rep1", "o/n#1", 3, 1.5), ("today", "pr1_rep2", "o/n#1", 2, 1.5)])
+
+    def test_notes_name_mixed_settings_and_runs_that_were_not_scored(self):
+        self.assertEqual(charts.score_notes(SCORES), [
+            "before: not scored, and not counted as zero: pr1_rep2 (timed_out)",
+            "today: mixed rules files or models in this setting, so its runs are not one comparison: aaaaaaaa reviewer-model, bbbbbbbb reviewer-model",
+            "today: not scored, and not counted as zero: pr2_rep1 (not judged)"])
+        self.assertEqual(charts.score_notes({"settings": [{**SCORES["settings"][0], "notScored": []}]}), [])
+
+    def test_setting_with_no_scored_run_has_no_bar_and_is_never_drawn_as_zero(self):
+        unscored = {**SCORES, "settings": [SCORES["settings"][0], {"name": "broken", "rules": ["cccccccc reviewer-model"], "runs": [], "notScored": [{"run": "r", "status": "failed"}]}]}
+        self.assertEqual(list(charts.scores_figure(unscored).data[0].y), ["before  (2 comments)"])
+        self.assertEqual(charts.score_settings_table(unscored)[1]["scored runs"], "0 of 1")
 
 
 PRICES = {"version": 1, "dollarsPerMillionTokens": {"gpt-6-astra": {"input": 2, "cachedInput": 0.2, "output": 10}, "opus": {"input": 15, "cachedInput": 1.5, "output": 75},

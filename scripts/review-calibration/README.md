@@ -437,6 +437,7 @@ effort with its turns, typical turn, typical tokens and tool calls, and how
 often a turn completed, then draws the typical turn as a grid of model by
 effort, the spread of turn length, the time split and the endings side by
 side. "Typical" is the middle turn, so a few very long turns do not move it.
+The typical turn and the completed share each come with a range (see Ranges).
 A model and effort with fewer than five turns stays in the table and out of
 the charts. Different tasks ran under each one, so the tab shows what
 happened and is not a fair test of which is better.
@@ -521,7 +522,9 @@ happened and how long each time took. "Models and effort" lists the settings
 with the most turns. "Changes you noted" is for checking a change made to
 ByteQuay: note what you changed with `--note`, and for four weeks each report
 sets the days since that day against the seven before it, by numbers that do
-not grow with the amount of work. The notes are kept in `changes.json` in the
+not grow with the amount of work. Its "Clear?" column says whether each number
+moved beyond chance (see Ranges), in the unit of the Change column, or that a
+side has too few tasks to tell. The notes are kept in `changes.json` in the
 folder and can be edited by hand.
 
 A share moves in points and any other number by how much it grew. A number
@@ -597,6 +600,26 @@ suggestion. The list shows what happened, not a measured cause: check a change
 by noting it, in the dashboard or with `digest.py --note`, and watching its
 number. A test checks that every file a suggestion names is still in ByteQuay
 and still holds the name it points to.
+
+The number to watch comes with its range, and once a change is noted the
+dashboard says whether it went up or down clearly or is not clear yet.
+
+## Ranges
+
+`ranges.py` gives a number a 95% range: where it could lie had other tasks
+come. It draws the tasks again, with replacement, 2,000 times with a fixed
+seed, so the same table always gives the same range. Whole tasks are drawn and
+not single turns, because the turns of one task share its code, its prompt and
+its mistakes; drawn turn by turn, a task with forty alike turns would make the
+range look far narrower than it is. Review runs are drawn by review for the
+same reason. A share or a rate is a sum of parts over a sum of wholes, and a
+typical value is the middle one. With fewer than three tasks there is no range.
+
+A change is clear when its whole range lies on one side of zero. The tasks
+before and since are drawn apart, never paired, because they are other tasks.
+Ranges appear in the Models and Reviews tables, beside each number to watch,
+on a noted change in the Suggestions tab, and in the report's "Clear?" column.
+The comparison of two scorer settings keeps its own sign test.
 
 ## Synthetic smoke fixture
 

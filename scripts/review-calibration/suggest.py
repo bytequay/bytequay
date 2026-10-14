@@ -12,9 +12,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
 
+import pandas
+
 import activity
 import approvals
 import charts
+import ranges
 import saved
 
 SAVE = "uv run activity.py --save"
@@ -95,7 +98,7 @@ class Suggestion:
     advice: str
     where: tuple  # (path from the repository root or None for a place in the app, what to look for there)
     watch: str  # the number to watch once the change is made
-    measure: Callable  # Window -> that number, or None when those days do not tell
+    measure: Callable  # Window -> that number as a ranges.Ratio or ranges.Median, made by task so it has a range
 
 
 def window(made, calls, reviews, asks, first, last, zone=None):
@@ -123,8 +126,19 @@ def last_day(asks):
     return said(datetime.fromtimestamp(max(ask.start for ask in asks)).date())
 
 
-def per_hour(amount, data):
-    return amount / data.hours() if data.hours() else None
+def logged_hours(window):
+    """Hours of turn time with a log, by task: what every "in an agent hour" is measured against."""
+    return window.logged()["turns"].groupby("task")["seconds"].sum() / 3600
+
+
+def by_task(window, frame, column):
+    """A column of a frame of turn numbers, added up by the task of each turn."""
+    return frame.merge(window.made["turns"][["task"]], left_on="turn", right_index=True).groupby("task")[column].sum()
+
+
+def counted(asks):
+    """How many of these asks each task had."""
+    return pandas.Series(Counter(ask.task for ask in asks), dtype=float)
 
 
 def allow_rules(data):
@@ -145,7 +159,8 @@ def allow_rules(data):
         programs = sorted({activity.program(approvals.parse_rule(rule)[0]) for rule in rules})
         made.append(Suggestion(f"Let {name} run {listed(programs)} without asking", weekly(sum(ask.seconds for ask in answered), data.days), seen, advice, (where,),
                                f"{name} command asks in an agent hour",
-                               lambda window, provider=provider: per_hour(sum(ask.what == "command" and ask.provider == provider for ask in window.asks), window)))
+                               lambda window, provider=provider: ranges.ratio(counted([ask for ask in window.asks if ask.what == "command" and ask.provider == provider]),
+                                                                               logged_hours(window))))
     return made
 
 
@@ -161,7 +176,7 @@ def ran_out(data):
               "or a longer wait, would keep the turn going.")
     return [Suggestion("Make sure an ask is seen before it runs out", weekly(sum(ask.seconds for ask in stopped), data.days), seen, advice,
                        ((CODEX_DRIVER, "APPROVAL_TIMEOUT"), (PERMISSIONS, "APPROVAL_TIMEOUT")), "asks that ended their turn, of every ask (%)",
-                       lambda window: charts.share(sum(ask.stopped for ask in window.asks), len(window.asks)) if window.asks else None)]
+                       lambda window: ranges.ratio(counted([ask for ask in window.asks if ask.stopped]), counted(window.asks), 100))]
 
 
 def failure_share(name):
@@ -169,7 +184,7 @@ def failure_share(name):
         if window.calls is None:
             return None
         own = window.calls["calls"][(window.calls["calls"]["kind"] == "command") & (window.calls["calls"]["name"] == name)]
-        return charts.share(float(own["failed"].sum()), float(own["runs"].sum())) if own["runs"].sum() else None
+        return ranges.ratio(by_task(window, own, "failed"), by_task(window, own, "runs"), 100)
     return measure
 
 
@@ -207,7 +222,7 @@ def model_after(before):
     def measure(window):
         rows = window.logged()["after"]
         rows = rows[rows["before"] == before]
-        return float(rows["seconds"].sum() / rows["times"].sum()) if rows["times"].sum() else None
+        return ranges.ratio(by_task(window, rows, "seconds"), by_task(window, rows, "times"))
     return measure
 
 
@@ -234,7 +249,7 @@ def after_tools(data):
     hopped = hops[(hops["from"] == activity.BYTEQUAY) & (hops["to"] == activity.BYTEQUAY) & (hops["gap"] == activity.GAPS[1])]
     if hopped.empty:
         return []
-    each = model_after(AFTER_TOOLS)(data)
+    each = model_after(AFTER_TOOLS)(data).value()
     seen = (f"The model made {int(hopped['times'].sum()):,} ByteQuay tool calls within {activity.SHORT_HOP} seconds of the last one's result: "
             f"{hopped['seconds'].sum() / 60:,.1f} minutes." + (f" After a ByteQuay tool result it took {each:.0f} seconds on average before going on." if each else ""))
     advice = ("Calls made right after one another often fetch the next piece of the same thing. A call that returns both, or a result that says what to "
@@ -246,7 +261,7 @@ def after_tools(data):
 def long_minutes(name):
     def measure(window):
         runs = window.logged()["runs"]
-        return per_hour(float(runs[runs["program"] == name]["seconds"].sum()) / 60, window)
+        return ranges.ratio(by_task(window, runs[runs["program"] == name], "seconds") / 60, logged_hours(window))
     return measure
 
 
@@ -267,8 +282,9 @@ def long_runs(data):
 
 
 def asked_again_share(window):
+    """Review runs asked again, by review: the runs of one pull request are alike, as the turns of one task are."""
     runs = None if window.reviews is None else window.reviews["runs"]
-    return None if runs is None or runs.empty else charts.share(int(runs["repaired"].sum()), len(runs))
+    return None if runs is None else ranges.ratio(runs.groupby("review")["repaired"].sum(), runs.groupby("review").size(), 100)
 
 
 def asked_again(data):
@@ -298,14 +314,26 @@ def suggestions(data):
 
 
 def checked(suggestion, made, calls, reviews, asks, day, last, zone=None):
-    """The number to watch in the days before a change was noted and in the days since, as (before, since, turns since)."""
+    """The number to watch in the days before a change was noted and in the days since, as (before, since, turns since, where the change
+    could lie). The change is None when either side has too few tasks to tell."""
     before = window(made, calls, reviews, asks, day - timedelta(days=BEFORE), day - timedelta(days=1), zone)
     since = window(made, calls, reviews, asks, day, last, zone)
-    return suggestion.measure(before), suggestion.measure(since), len(since.made["turns"])
+    first, second = suggestion.measure(before), suggestion.measure(since)
+    return value(first), value(second), len(since.made["turns"]), ranges.change(first, second)
+
+
+def value(measure):
+    return None if measure is None else measure.value()
 
 
 def number(amount):
     return "-" if amount is None else f"{amount:,.1f}"
+
+
+def now(measure):
+    """A number to watch as it stands, with where it could lie when its tasks are enough to tell."""
+    found = None if measure is None else ranges.range_of(measure)
+    return number(value(measure)) + (f" ({ranges.said(found)})" if found else "")
 
 
 def where_lines(suggestion):
@@ -320,7 +348,7 @@ def render(found, data, first, last):
     lines = [head]
     for place, one in enumerate(found, 1):
         lines += ["", f"{place}. {one.title}: up to {one.saves:,.1f} minutes a week", f"   Seen: {one.seen}", f"   Do: {one.advice}",
-                  *(f"   Where: {where}" for where in where_lines(one)), f"   Watch: {one.watch}, now {number(one.measure(data))}"]
+                  *(f"   Where: {where}" for where in where_lines(one)), f"   Watch: {one.watch}, now {now(one.measure(data))}"]
     return "\n".join(lines)
 
 

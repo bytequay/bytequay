@@ -9,6 +9,7 @@ import unittest
 import activity
 import approvals
 import charts
+import ranges
 import suggest
 
 UTC = timezone.utc
@@ -71,7 +72,7 @@ class TestRules(unittest.TestCase):
         self.assertEqual(found.seen, "2 of 3 Codex command asks match 1 rule: Bash(./mvnw -o -pl:*). You waited 3.0 minutes for them, and 1 ask ran out and ended the turn. "
                                      "The last was on 5 Jan. Risks among them: writes a file 1.")
         self.assertEqual(found.where, ((suggest.CODEX_DRIVER, "registerApproval"),))
-        self.assertEqual(found.measure(data(asks=asks)), 3 / (10 / 60), "Codex command asks in an agent hour")
+        self.assertEqual(suggest.value(found.measure(data(asks=asks))), 3 / (10 / 60), "Codex command asks in an agent hour")
 
     def test_a_rule_that_answers_only_one_ask_is_not_suggested(self):
         self.assertEqual(suggest.allow_rules(data(asks=[ask("./mvnw -o test"), ask("gh api user"), ask("curl x")])), [])
@@ -82,7 +83,7 @@ class TestRules(unittest.TestCase):
         (found,) = suggest.ran_out(data(asks=asks))
         self.assertEqual((found.title, found.saves), ("Make sure an ask is seen before it runs out", 10.0))
         self.assertEqual(found.seen, "2 asks ran out after 5 minutes with no answer and ended their turn: 1 Codex command, 1 Claude question. The last was on 5 Jan.")
-        self.assertEqual(found.measure(data(asks=asks)), 50.0)
+        self.assertEqual(suggest.value(found.measure(data(asks=asks))), 50.0)
         self.assertEqual(suggest.ran_out(data(asks=[ask("make", outcome="expired")])), [])
 
     def test_each_avoidable_failure_reason_is_its_own_suggestion(self):
@@ -94,7 +95,7 @@ class TestRules(unittest.TestCase):
                                         "so how it is run matters more than the code.")
         self.assertEqual(found[1].advice, suggest.MAVEN_NO_TEST)
         self.assertEqual(found[0].advice, suggest.FIXES[activity.NOTHING_KEPT])
-        self.assertEqual(found[1].measure(data(rows)), 40.0)
+        self.assertEqual(suggest.value(found[1].measure(data(rows))), 40.0)
         close = [row(calls=[maven(10, 6, 600.0, {"no test matched": 6})]), row(provider="claude", task="task-2", calls=[maven(10, 4, 600.0, {"no test matched": 4})])]
         self.assertEqual(suggest.failing(data(close))[0].seen, "maven ran 20 times and failed 10 times; 10 of the failures were \"no test matched\".",
                          "60% against 40% is no gap to speak of")
@@ -108,7 +109,7 @@ class TestRules(unittest.TestCase):
         rows = [row(f"2026-01-0{day}T10:00:00Z", after={suggest.START: {"seconds": 80.0, "times": 1}}) for day in range(5, 10)]
         (found,) = suggest.turn_start(data(rows))
         self.assertEqual((found.title, found.saves), ("Shorten what a turn starts with", 5.0))
-        self.assertEqual(found.measure(data(rows)), 80.0)
+        self.assertEqual(suggest.value(found.measure(data(rows))), 80.0)
         quick = [row(f"2026-01-0{day}T10:00:00Z", after={suggest.START: {"seconds": 40.0, "times": 1}}) for day in range(5, 10)]
         self.assertEqual(suggest.turn_start(data(quick)), [])
         self.assertEqual(suggest.turn_start(data(rows[:4])), [], "too few turns")
@@ -129,7 +130,7 @@ class TestRules(unittest.TestCase):
         self.assertEqual(titled(found), [("Make long maven runs shorter", 10.0), ("Make long wait loop runs shorter", 10.0)])
         self.assertTrue(found[0].advice.startswith(suggest.LONG_ADVICE["build"]))
         self.assertTrue(found[1].advice.startswith(suggest.LONG_ADVICE["wait loop"]))
-        self.assertEqual(found[0].measure(data(rows)), 11 / (10 / 60))
+        self.assertEqual(suggest.value(found[0].measure(data(rows))), 11 / (10 / 60))
         self.assertEqual(titled(suggest.long_runs(data(rows, last=date(2026, 1, 18)))), [], "two weeks halve the minutes a week, below the limit")
         self.assertEqual(titled(suggest.long_runs(data(rows * 2, last=date(2026, 1, 18)))), [("Make long maven runs shorter", 10.0), ("Make long wait loop runs shorter", 10.0)])
 
@@ -138,7 +139,7 @@ class TestRules(unittest.TestCase):
         (found,) = suggest.asked_again(data(reviews=runs))
         self.assertEqual((found.title, found.saves), ("Get a complete review report the first time", 60.0))
         self.assertTrue(found.seen.startswith("3 of 7 review runs ended without a complete report, so ByteQuay asked again. Those runs took 30 minutes typically, the others 10."))
-        self.assertAlmostEqual(found.measure(data(reviews=runs)), 300 / 7)
+        self.assertAlmostEqual(suggest.value(found.measure(data(reviews=runs))), 300 / 7)
         self.assertEqual(suggest.asked_again(data(reviews=runs[1:])), [], "fewer than three asked again")
         self.assertEqual(suggest.asked_again(data()), [], "no reviews saved")
 
@@ -154,8 +155,20 @@ class TestSuggestions(unittest.TestCase):
         saved = table(*rows)
         made, calls = charts.frames(saved, UTC), charts.call_frames(saved)
         (found,) = suggest.long_runs(suggest.window(made, calls, None, (), date(2026, 1, 1), date(2026, 1, 7), UTC))
-        before, since, turns = suggest.checked(found, made, calls, None, (), date(2026, 1, 8), date(2026, 1, 9), UTC)
-        self.assertEqual((round(before, 6), round(since, 6), turns), (33.0, 6.0, 2), "long maven minutes in an agent hour, seven days before and two since")
+        before, since, turns, moved = suggest.checked(found, made, calls, None, (), date(2026, 1, 8), date(2026, 1, 9), UTC)
+        self.assertEqual((round(before, 6), round(since, 6), turns, moved), (33.0, 6.0, 2, None), "long maven minutes in an agent hour; one task, so no range")
+
+    def test_a_noted_change_says_whether_it_is_clear_once_enough_tasks_stand_on_each_side(self):
+        rows = [row(f"2026-01-0{day}T10:00:00Z", task=f"task-{day}-{one}", long_runs=[("maven", (330.0 + 30 * one) if day < 5 else (40.0 + 10 * one))])
+                for day in range(1, 9) for one in range(3)]
+        saved = table(*rows)
+        made, calls = charts.frames(saved, UTC), charts.call_frames(saved)
+        (found,) = suggest.long_runs(suggest.window(made, calls, None, (), date(2026, 1, 1), date(2026, 1, 4), UTC))
+        before, since, turns, moved = suggest.checked(found, made, calls, None, (), date(2026, 1, 5), date(2026, 1, 8), UTC)
+        self.assertEqual((round(before, 6), round(since, 6), turns), (36.0, 5.0, 12))
+        self.assertTrue(ranges.clear(moved) and moved[1] < 0, moved)
+        self.assertTrue(suggest.render([found], suggest.window(made, calls, None, (), date(2026, 1, 1), date(2026, 1, 4), UTC), date(2026, 1, 1), date(2026, 1, 4))
+                        .endswith("now 36.0 (34.8 to 37.5)"), "twelve tasks of 33, 36 and 39 an hour: the range is narrower than one task to the next")
 
     def test_every_place_named_is_still_in_bytequay(self):
         if not (ROOT / "backend").is_dir():

@@ -155,8 +155,9 @@ class TestModels(unittest.TestCase):
 
     def test_table_has_one_row_for_every_model_and_effort_the_database_knows(self):
         rows = charts.settings_table(made()["turns"])
-        self.assertEqual(rows[0], {"model and effort": "gpt-6-astra · max", "turns": 1, "tasks": 1, "hours": 0.2, "typical minutes": 10,
-                                   "typical tokens in": 900000, "cached %": 94, "typical tokens out": 4000, "typical tool calls": 30, "completed %": 100})
+        self.assertEqual(rows[0], {"model and effort": "gpt-6-astra · max", "turns": 1, "tasks": 1, "hours": 0.2, "typical minutes": 10, "typical minutes range": None,
+                                   "typical tokens in": 900000, "cached %": 94, "typical tokens out": 4000, "typical tool calls": 30, "completed %": 100,
+                                   "completed % range": None})  # one task gives no range
         self.assertEqual([(row["model and effort"], row["completed %"], row["cached %"]) for row in rows[1:]], [("gpt-6-astra · medium", 0, 75), ("opus · high", 100, 80)])
         twice = pandas.concat([made()["turns"], made()["turns"][made()["turns"]["setting"] == "opus · high"]], ignore_index=True)
         self.assertEqual([(row["model and effort"], row["turns"]) for row in charts.settings_table(twice)][0], ("opus · high", 2))  # the most turns come first
@@ -164,6 +165,16 @@ class TestModels(unittest.TestCase):
         three = pandas.concat([opus.assign(seconds=seconds, inputTokens=tokens) for seconds, tokens in ((60, 10), (120, 20), (6000, 3000))], ignore_index=True)
         (row,) = charts.settings_table(three)
         self.assertEqual((row["turns"], row["typical minutes"], row["typical tokens in"]), (3, 2, 20))  # the middle turn, which one very long turn does not move
+
+    def test_ranges_come_from_whole_tasks_and_need_three_of_them(self):
+        opus = made()["turns"][made()["turns"]["setting"] == "opus · high"]
+        # Three tasks of two turns each: minutes 2 and 4, 6 and 8, 60 and 62; the last task completed nothing.
+        turns = pandas.concat([opus.assign(task=f"task-{place}", seconds=60.0 * minutes, outcome="completed" if place < 2 else "failed")
+                               for place, pair in enumerate(((2, 4), (6, 8), (60, 62))) for minutes in pair], ignore_index=True)
+        (row,) = charts.settings_table(turns)
+        self.assertEqual((row["typical minutes"], row["typical minutes range"], row["completed %"], row["completed % range"]), (7.0, "3.0 to 61.0", 67, "0 to 100"))
+        (row,) = charts.settings_table(turns[turns["task"] != "task-2"])
+        self.assertEqual((row["typical minutes range"], row["completed % range"]), (None, None), "two tasks give no range")
 
     def test_model_and_effort_with_too_few_turns_is_left_out_of_the_charts_and_kept_in_the_table(self):
         turns = made()["turns"]
@@ -501,9 +512,15 @@ class TestReviews(unittest.TestCase):
         made = reviewed()
         rows = charts.review_settings_table(made["runs"], made["findings"])
         self.assertEqual(rows[0], {"model and effort": "gpt-6-astra · max", "runs": 1, "asked again": 0, "typical minutes": 30.5, "findings": 3, "findings a run": 3, "resolved": 1,
-                                   "withdrawn": 1, "open": 1, "held up %": 50, "typical tokens in": 4000})
+                                   "withdrawn": 1, "open": 1, "held up %": 50, "held up % range": None, "typical tokens in": 4000})
         self.assertEqual([(row["model and effort"], row["asked again"], row["typical minutes"], row["findings a run"], row["held up %"]) for row in rows[1:]],
                          [("gpt-6-sol · high", 1, 10, 0, None), ("opus · extra", 0, None, 1, None)])
+        # Five runs of four reviews; the first review ran twice and both of its runs held up.
+        many = pandas.concat([made["runs"].iloc[[0]].assign(review=review) for review in ("review-0", "review-0", "review-1", "review-2", "review-3")], ignore_index=True)
+        decided = pandas.DataFrame({"run": [0, 0, 1, 1, 2, 2, 3, 3, 4, 4], "severity": [None] * 10,
+                                    "state": ["resolved", "resolved", "resolved", "resolved", "resolved", "withdrawn", "withdrawn", "withdrawn", "resolved", "withdrawn"]})
+        (row,) = charts.review_settings_table(many, decided)
+        self.assertEqual((row["held up %"], row["held up % range"]), (60, "12 to 93"), "drawn by review; drawn by run it would read 30 to 90")
         lost = made["runs"].assign(setting=None)  # runs whose turns the database no longer holds
         self.assertEqual([(row["model and effort"], row["runs"], row["findings"]) for row in charts.review_settings_table(lost, made["findings"])], [("not recorded", 3, 4)])
 

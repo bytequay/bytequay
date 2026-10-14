@@ -20,6 +20,7 @@ import approvals
 import batch
 import charts
 import digest
+import ranges
 import saved
 import suggest
 
@@ -245,7 +246,8 @@ def models(shown, table, mode):
         st.info("ByteQuay's records hold no turn for this choice.")
         return
     st.caption(f"Different tasks ran on each model and effort, so this shows what happened, not which one is better. "
-               f"One with fewer than {charts.MIN_TURNS} turns is in the table only. Typical means the middle turn: half are below it, half above.")
+               f"One with fewer than {charts.MIN_TURNS} turns is in the table only. Typical means the middle turn: half are below it, half above. "
+               f"A range says where a number could lie had other tasks come, drawing whole tasks again; it needs {ranges.MIN_TASKS} tasks.")
     st.dataframe(rows, hide_index=True, column_config={name: st.column_config.NumberColumn(format="localized") for name in ("typical tokens in", "typical tokens out")})
     if not charts.settings(turns):
         return
@@ -495,16 +497,16 @@ def suggestions(made, table, folder, runtime):
     for place, one in enumerate(listed, 1):
         with st.container(border=True):
             st.markdown(f"##### {place}. {plain(one.title)}")
-            st.caption(f"Could save up to {one.saves:,.1f} minutes a week. Watch: {one.watch}, now {suggest.number(one.measure(data))}.")
+            st.caption(f"Could save up to {one.saves:,.1f} minutes a week. Watch: {one.watch}, now {suggest.now(one.measure(data))}.")
             st.markdown(plain(f"Seen: {one.seen}"))
             st.markdown(plain(f"Do: {one.advice}"))
             st.markdown("Where: " + "; ".join(f"`{path}` ({plain(what)})" if path else plain(what) for path, what in one.where))
             mine = [change for change in noted if change["what"] == one.title]
             if mine:
                 day = mine[-1]["day"]
-                before, since, turns = suggest.checked(one, made, calls, reviews, asks, day, last)
+                before, since, turns, moved = suggest.checked(one, made, calls, reviews, asks, day, last)
                 st.caption(f"You noted this change on {suggest.said(day)}. {one.watch}: {suggest.number(before)} in the {suggest.BEFORE} days before, "
-                           f"{suggest.number(since)} since, over {activity.count(turns, 'turn')}.")
+                           f"{suggest.number(since)} since, over {activity.count(turns, 'turn')}. {ranges.change_in_words(moved)}")
             st.button("I changed it again" if mine else "I made this change", key=f"noted_{place}", on_click=digest.note, args=(folder, one.title, date.today()))
 
 

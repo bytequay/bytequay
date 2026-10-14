@@ -123,7 +123,8 @@ class Page(unittest.TestCase):
         self.assertEqual(table(page, "typical minutes")[["model and effort", "turns", "typical minutes", "typical tokens in", "completed %"]].values.tolist(),
                          [["gpt-6-astra · max", 1, 10, 900000, 100], ["gpt-6-astra · medium", 1, 5, 200000, 0], ["opus · high", 1, 4, 50000, 100]])
         self.assertIn("Different tasks ran on each model and effort, so this shows what happened, not which one is better. One with fewer than 5 turns is in the table only. "
-                      "Typical means the middle turn: half are below it, half above.", [caption.value for caption in page.caption])
+                      "Typical means the middle turn: half are below it, half above. A range says where a number could lie had other tasks come, drawing whole tasks "
+                      "again; it needs 3 tasks.", [caption.value for caption in page.caption])
         self.assertNotIn("How long a turn took", headings(page))  # one turn each: the table has them, the charts do not
         with mock.patch.object(charts, "MIN_TURNS", 1):
             drawn = self.page()
@@ -548,7 +549,8 @@ class Page(unittest.TestCase):
         self.assertEqual([button.label for button in page.button if button.key == "noted_1"], ["I made this change"])
         page.button(key="noted_1").click().run()
         self.assertEqual(json.loads((self.folder / "changes.json").read_text())["changes"], [{"day": date.today().isoformat(), "what": "Make long maven runs shorter"}])
-        self.assertIn(f"You noted this change on {suggest.said(date.today())}. long maven minutes in an agent hour: - in the 7 days before, - since, over 0 turns.",
+        self.assertIn(f"You noted this change on {suggest.said(date.today())}. long maven minutes in an agent hour: - in the 7 days before, - since, over 0 turns. "
+                      "Too few tasks on one side to tell whether it changed.",
                       captions(page))
         self.assertEqual([button.label for button in page.button if button.key == "noted_1"], ["I changed it again"])
 

@@ -10,6 +10,7 @@ from pathlib import Path
 
 import activity
 import charts
+import ranges
 import saved
 
 SAVE = "uv run activity.py --save"
@@ -73,6 +74,47 @@ def facts(shown, reviewed):
                  **{name: int((found["state"] == state).sum()) for name, state in (("Resolved", "resolved"), ("Withdrawn", "withdrawn"), ("Still open", "open"))},
                  "Held up": charts.held_up(found)}
     return made
+
+
+def measures(shown, reviewed):
+    """The numbers a noted change is judged by, each made by task so that it has a range: the same numbers `facts` gives, as
+    ranges.Ratio or ranges.Median. Review runs are drawn by review, since the runs of one pull request are alike."""
+    turns = shown["turns"]
+    logged = charts.only(shown, turns["logged"])
+
+    def by_task(frame, amount):
+        return amount.groupby(frame["turn"].map(turns["task"])).sum()
+
+    hours = logged["turns"].groupby("task")["seconds"].sum() / 3600
+    after, parts = logged["after"], logged["parts"]
+
+    def model(before):
+        rows = after[after["before"] == before]
+        return ranges.ratio(by_task(rows, rows["seconds"]), by_task(rows, rows["times"]))
+
+    tokens = charts.tokens(turns)
+    made = {"Typical turn": ranges.median(turns["seconds"] / 60, turns["task"]),
+            **{state: ranges.ratio(by_task(parts, parts["seconds"].where(parts["state"] == state, 0.0)), hours * 3600, 100) for state in charts.STATES},
+            "Model time after a ByteQuay tool call": model(TOOLS), "Model time at the start of a turn": model(START),
+            "Long command minutes in an agent hour": ranges.ratio(by_task(logged["runs"], logged["runs"]["seconds"] / 60), hours),
+            "Questions to you in an agent hour": ranges.ratio(logged["waits"].groupby(logged["waits"]["turn"].map(turns["task"])).size(), hours),
+            "Typical tokens in a turn": ranges.median(tokens["fresh input"] + tokens["cached input"], turns.loc[tokens.index, "task"]),
+            "Share of review runs asked again": None}
+    if reviewed is not None:
+        runs = reviewed["runs"]
+        made["Share of review runs asked again"] = ranges.ratio(runs.groupby("review")["repaired"].sum(), runs.groupby("review").size(), 100)
+    return made
+
+
+def clear(name, before, since):
+    """Whether a noted change moved this number beyond chance, with where the change could lie, in the unit of the Change column:
+    points for a share, and percent of the days before for any other number."""
+    share = WRITTEN[name] is SHARE
+    moved = (ranges.change if share else ranges.relative)(before[name], since[name])
+    if moved is None:
+        return "too few tasks"
+    verdict = "yes" if ranges.clear(moved) else "not yet"
+    return f"{verdict}: {moved[0]:+.0f} to {moved[1]:+.0f} points" if share else f"{verdict}: {moved[0]:+.0f}% to {moved[1]:+.0f}%"
 
 
 def moved(before, now, share):
@@ -181,9 +223,10 @@ def report(turn_table, review_table, noted, kind, ending=None, zone=None):
 
     def stretch(start, end):
         shown = charts.within(made, start, end)
-        return shown, facts(shown, None if reviews is None else charts.reviews_chosen(reviews, start, end))
+        chosen = None if reviews is None else charts.reviews_chosen(reviews, start, end)
+        return shown, facts(shown, chosen), chosen
 
-    (shown, now), (shown_before, before) = stretch(first, last), stretch(earlier - timedelta(days=DAYS[kind] - 1), earlier)
+    (shown, now, _), (shown_before, before, _) = stretch(first, last), stretch(earlier - timedelta(days=DAYS[kind] - 1), earlier)
     # ponytail: the days before are measured again from today's tables, so a log lost since then is missing from them.
     # Keep each report's numbers and read them back if this note shows up often.
     for when, known in (("In these days", now), ("Before", before)):
@@ -199,10 +242,13 @@ def report(turn_table, review_table, noted, kind, ending=None, zone=None):
              "", "## Changes you noted", ""]
     recent = [one for one in noted if last - timedelta(days=NOTED) < one["day"] <= last]
     for one in recent:
-        was, since = stretch(one["day"] - timedelta(days=BEFORE), one["day"] - timedelta(days=1))[1], stretch(one["day"], last)[1]
+        (was_shown, was, was_reviews), (since_shown, since, since_reviews) = stretch(one["day"] - timedelta(days=BEFORE), one["day"] - timedelta(days=1)), stretch(one["day"], last)
         head = ("", f"{BEFORE} days before ({activity.count(was['Turns'], 'turn')})",
-                f"{activity.count((last - one['day']).days + 1, 'day')} since ({activity.count(since['Turns'], 'turn')})", "Change")
-        lines += [f"### {said(one['day'])}: {one['what']}", "", *table(head, compared(RATES, was, since)), ""]
+                f"{activity.count((last - one['day']).days + 1, 'day')} since ({activity.count(since['Turns'], 'turn')})", "Change", "Clear?")
+        measured = measures(was_shown, was_reviews), measures(since_shown, since_reviews)
+        lines += [f"### {said(one['day'])}: {one['what']}", "", *table(head, [(*row, clear(row[0], *measured)) for row in compared(RATES, was, since)]), "",
+                  f"Clear? says whether the change is beyond what other tasks could have given: whole tasks drawn again, {ranges.LEVEL}% of the draws. "
+                  "With fewer than three tasks on a side it cannot tell.", ""]
     if not recent:
         lines.append(f"None in the last {NOTED} days. Note one with `uv run digest.py --note \"what you changed\"`")
     return "\n".join(lines).rstrip("\n") + "\n", last

@@ -162,18 +162,33 @@ class TestMoved(unittest.TestCase):
 class TestNotedChanges(unittest.TestCase):
     def test_days_since_a_noted_change_are_set_against_the_seven_before_it(self):
         text = report(noted=NOTED)
+        few = "too few tasks"  # two tasks at most on a side
         self.assertEqual(rows(text, "### 9 Jan: Fewer tool calls"), {
-            "": ["7 days before (2 turns)", "6 days since (3 turns)", "Change"],
-            "Typical turn": ["7.5 min", "5.0 min", "-33%"],
-            "The model is working": ["67%", "60%", "-7 points"], "Waiting for a tool to finish": ["25%", "40%", "+15 points"], "Waiting for you": ["8%", "0%", "-8 points"],
-            "Model time after a ByteQuay tool call": ["-", "20 s", ""], "Model time at the start of a turn": ["100 s", "63 s", "-37%"],
-            "Long command minutes in an agent hour": ["15.0 min", "4.4 min", "-71%"], "Questions to you in an agent hour": ["6.0", "0.0", "-100%"],
-            "Typical tokens in a turn": ["2.0 K", "4.0 K", "+100%"], "Share of review runs asked again": ["100%", "50%", "-50 points"]})
+            "": ["7 days before (2 turns)", "6 days since (3 turns)", "Change", "Clear?"],
+            "Typical turn": ["7.5 min", "5.0 min", "-33%", few],
+            "The model is working": ["67%", "60%", "-7 points", few], "Waiting for a tool to finish": ["25%", "40%", "+15 points", few], "Waiting for you": ["8%", "0%", "-8 points", few],
+            "Model time after a ByteQuay tool call": ["-", "20 s", "", few], "Model time at the start of a turn": ["100 s", "63 s", "-37%", few],
+            "Long command minutes in an agent hour": ["15.0 min", "4.4 min", "-71%", few], "Questions to you in an agent hour": ["6.0", "0.0", "-100%", few],
+            "Typical tokens in a turn": ["2.0 K", "4.0 K", "+100%", few], "Share of review runs asked again": ["100%", "50%", "-50 points", few]})
         self.assertNotIn("None in the last", text)
         today = rows(report(noted=[{"day": date(2026, 1, 14), "what": "A change made on the last day"}]), "### 14 Jan: A change made on the last day")
-        self.assertEqual(today[""], ["7 days before (2 turns)", "1 day since (1 turn)", "Change"])
+        self.assertEqual(today[""], ["7 days before (2 turns)", "1 day since (1 turn)", "Change", "Clear?"])
         # Seven days and no more: the turn of the 2nd is the eighth day before the 10th.
-        self.assertEqual(rows(report(noted=[{"day": date(2026, 1, 10), "what": "Later"}]), "### 10 Jan: Later")[""], ["7 days before (2 turns)", "5 days since (2 turns)", "Change"])
+        self.assertEqual(rows(report(noted=[{"day": date(2026, 1, 10), "what": "Later"}]), "### 10 Jan: Later")[""], ["7 days before (2 turns)", "5 days since (2 turns)", "Change", "Clear?"])
+
+    def test_a_noted_change_says_whether_it_moved_beyond_chance(self):
+        # Three tasks on each side: the first step got much shorter, the turns stayed as long and the asks came as often.
+        made = [turn(day, 600, task=f"task-{day}-{one}", groups={"model silent": silent, "tests and builds": 600 - silent}, after={"at the start of a turn": (start + 10 * one, 1)},
+                     approvals=[("command", "allowed", 5)])
+                for day, start, silent in ((6, 90, 400), (7, 90, 400), (10, 15, 500), (11, 15, 500)) for one in range(3)]
+        text = report(turns={**TABLE, "turns": made}, reviews=None, noted=[{"day": date(2026, 1, 10), "what": "Shorter memory block"}])
+        found = rows(text, "### 10 Jan: Shorter memory block")
+        self.assertEqual(found["Model time at the start of a turn"][:3], ["100 s", "25 s", "-75%"])
+        self.assertTrue(found["Model time at the start of a turn"][3].startswith("yes: -"), found["Model time at the start of a turn"])
+        self.assertEqual(found["Typical turn"], ["10.0 min", "10.0 min", "same", "not yet: +0% to +0%"])
+        self.assertEqual(found["The model is working"], ["67%", "83%", "+16 points", "yes: +17 to +17 points"])  # every task moved alike, so the range is one number
+        self.assertEqual(found["Share of review runs asked again"], ["-", "-", "", "too few tasks"])
+        self.assertIn("Clear? says whether the change is beyond what other tasks could have given: whole tasks drawn again, 95% of the draws.", text)
 
     def test_only_changes_of_the_last_four_weeks_up_to_the_last_day_are_listed(self):
         noted = [{"day": date(2025, 12, 17), "what": "Too long ago"}, {"day": date(2025, 12, 18), "what": "Just inside"}, {"day": date(2026, 1, 15), "what": "After the report"}]

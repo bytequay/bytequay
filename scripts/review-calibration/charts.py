@@ -9,6 +9,7 @@ import pandas
 import plotly.graph_objects as go
 
 import activity
+import ranges
 
 TOP_PROGRAMS = 5  # programs named in the chart; the rest are added up, as in the terminal table
 TOP_TASKS = 10
@@ -244,10 +245,12 @@ def settings_table(turns):
     for name, group in turns[turns["setting"].notna()].groupby("setting"):
         rows.append({"model and effort": name, "turns": len(group), "tasks": int(group["task"].nunique()),
                      "hours": round(float(group["seconds"].sum()) / 3600, 1), "typical minutes": round(float(group["seconds"].median()) / 60, 1),
+                     "typical minutes range": ranges.said(ranges.range_of(ranges.median(group["seconds"] / 60, group["task"]))),
                      "typical tokens in": whole_or_none(group["inputTokens"].median()),
                      "cached %": whole_or_none(share(group["cachedInputTokens"].sum(), group["inputTokens"].sum())) if group["inputTokens"].sum() else None,
                      "typical tokens out": whole_or_none(group["outputTokens"].median()), "typical tool calls": whole_or_none(group["toolCalls"].median()),
-                     "completed %": round(share(int((group["outcome"] == "completed").sum()), len(group)))})
+                     "completed %": round(share(int((group["outcome"] == "completed").sum()), len(group))),
+                     "completed % range": ranges.said(ranges.range_of(ranges.ratio((group["outcome"] == "completed").groupby(group["task"]).sum(), group.groupby("task").size(), 100)), 0)})
     return sorted(rows, key=lambda row: (-row["turns"], row["model and effort"]))
 
 
@@ -800,10 +803,14 @@ def review_settings_table(runs, findings):
     for name, group in runs.assign(setting=runs["setting"].fillna("not recorded")).groupby("setting"):
         own = findings[findings["run"].isin(group.index)]
         kept = held_up(own)
+        # Findings of one pull request are alike, so reviews are drawn whole.
+        decided = own[own["state"].isin(("resolved", "withdrawn"))]
+        reviews = runs.loc[decided["run"], "review"].to_numpy()
+        kept_range = ranges.range_of(ranges.ratio((decided["state"] == "resolved").groupby(reviews).sum(), decided.groupby(reviews).size(), 100))
         rows.append({"model and effort": name, "runs": len(group), "asked again": int(group["repaired"].sum()),
                      "typical minutes": None if group["seconds"].isna().all() else round(float(group["seconds"].median()) / 60, 1),
                      "findings": len(own), "findings a run": round(len(own) / len(group), 1), **{state: int((own["state"] == state).sum()) for state in FINDINGS},
-                     "held up %": None if kept is None else round(kept), "typical tokens in": whole_or_none(group["inputTokens"].median())})
+                     "held up %": None if kept is None else round(kept), "held up % range": ranges.said(kept_range, 0), "typical tokens in": whole_or_none(group["inputTokens"].median())})
     return sorted(rows, key=lambda row: (-row["runs"], row["model and effort"]))
 
 

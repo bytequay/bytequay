@@ -111,18 +111,20 @@ public class GitHubPullRequestReadClient
         ImmutableList.Builder<FetchedPullRequest> result = ImmutableList.builder();
         for (int page = 1; page <= 50; page++) {
             int currentPage = page;
-            List<GitHubRepoPullRequestItem> rows = translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
+            List<GitHubPullRequestDetailResponse> rows = translating(() -> get(gitHubRestClient, pat, uri -> uri.path("/repos/{owner}/{repo}/pulls")
                     .queryParam("state", "all")
                     .queryParam("head", "{head}")
                     .queryParam("per_page", GitHubPaginator.PAGE_SIZE)
                     .queryParam("page", currentPage)
                     .build(repository.owner(), repository.repo(), head))
                     .retrieve()
-                    .body(new ParameterizedTypeReference<List<GitHubRepoPullRequestItem>>() {}));
+                    .body(new ParameterizedTypeReference<List<GitHubPullRequestDetailResponse>>() {}));
             if (rows == null || rows.isEmpty()) {
                 break;
             }
-            rows.forEach(row -> result.add(toPullRequest(row, repository.fullName())));
+            rows.forEach(row -> result.add(toPullRequest(row, repository.fullName(),
+                    Optional.ofNullable(row.requestedReviewers()).orElse(ImmutableList.of()).stream()
+                            .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).collect(toImmutableList()))));
             if (rows.size() < GitHubPaginator.PAGE_SIZE) {
                 break;
             }
@@ -1575,16 +1577,9 @@ public class GitHubPullRequestReadClient
         }
         GitHubPullRequestDetailResponse item = response.getBody();
         checkState(item != null, "Empty response from GitHub for " + fullName + "#" + pr.number());
-        List<GitHubPullRequestDetailResponse.Label> labels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
-        FetchedPullRequest fetched = new FetchedPullRequest(
-                item.id(), fullName, item.number(), item.title(), Optional.ofNullable(item.user()).map(GitHubPullRequestDetailResponse.User::login).orElse(null),
-                item.htmlUrl(), item.createdAt(), item.updatedAt(), OTHER, labels.stream().map(GitHubPullRequestDetailResponse.Label::name).collect(toImmutableList()),
-                labels.stream().filter(label -> label.name() != null && label.color() != null)
-                        .collect(toImmutableMap(GitHubPullRequestDetailResponse.Label::name, GitHubPullRequestDetailResponse.Label::color, (left, right) -> left)),
-                item.draft(), item.state(), item.closedAt(), item.mergedAt(), Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                        .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).filter(Objects::nonNull).collect(toImmutableList()),
-                item.mergeable(), item.mergeableState(), Optional.ofNullable(item.head()).map(GitHubPullRequestDetailResponse.Head::ref).orElse(null));
-        return new PullRequestFetch(Optional.of(fetched), responseEtag, Optional.of(item));
+        List<String> reviewers = Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
+                .map(GitHubPullRequestDetailResponse.RequestedReviewer::login).filter(Objects::nonNull).collect(toImmutableList());
+        return new PullRequestFetch(Optional.of(toPullRequest(item, fullName, reviewers)), responseEtag, Optional.of(item));
     }
 
     public record PullRequestFetch(Optional<FetchedPullRequest> pullRequest, Optional<String> etag, Optional<GitHubPullRequestDetailResponse> detailResponse)
@@ -1602,47 +1597,16 @@ public class GitHubPullRequestReadClient
         }
     }
 
-    private static FetchedPullRequest toPullRequest(GitHubRepoPullRequestItem item, String fullName) {
-        List<GitHubRepoPullRequestItem.Label> rawLabels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
-        List<String> labels =
-                rawLabels.stream()
-                        .map(GitHubRepoPullRequestItem.Label::name)
-                        .collect(toImmutableList());
-        Map<String, String> labelColors =
-                rawLabels.stream()
-                        .filter(l -> l.name() != null && l.color() != null)
-                        .collect(toImmutableMap(GitHubRepoPullRequestItem.Label::name, GitHubRepoPullRequestItem.Label::color, (a, b) -> a));
-        List<String> reviewers =
-                Optional.ofNullable(item.requestedReviewers()).orElse(ImmutableList.of()).stream()
-                        .map(GitHubRepoPullRequestItem.RequestedReviewer::login)
-                        .collect(toImmutableList());
-        String author =
-                Optional.ofNullable(item.user())
-                        .map(GitHubRepoPullRequestItem.User::login)
-                        .orElse(null);
+    private static FetchedPullRequest toPullRequest(GitHubPullRequestDetailResponse item, String fullName, List<String> reviewers)
+    {
+        List<GitHubPullRequestDetailResponse.Label> labels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of());
         return new FetchedPullRequest(
-                item.id(),
-                fullName,
-                item.number(),
-                item.title(),
-                author,
-                item.htmlUrl(),
-                item.createdAt(),
-                item.updatedAt(),
-                OTHER,
-                labels,
-                labelColors,
-                item.draft(),
-                item.state(),
-                item.closedAt(),
-                item.mergedAt(),
-                reviewers,
-                item.mergeable(),
-                item.mergeableState(),
-                // Head ref is available directly from the list response.
-                Optional.ofNullable(item.head())
-                        .map(GitHubRepoPullRequestItem.Head::ref)
-                        .orElse(null));
+                item.id(), fullName, item.number(), item.title(), Optional.ofNullable(item.user()).map(GitHubPullRequestDetailResponse.User::login).orElse(null),
+                item.htmlUrl(), item.createdAt(), item.updatedAt(), OTHER, labels.stream().map(GitHubPullRequestDetailResponse.Label::name).collect(toImmutableList()),
+                labels.stream().filter(label -> label.name() != null && label.color() != null)
+                        .collect(toImmutableMap(GitHubPullRequestDetailResponse.Label::name, GitHubPullRequestDetailResponse.Label::color, (left, right) -> left)),
+                item.draft(), item.state(), item.closedAt(), item.mergedAt(), reviewers, item.mergeable(), item.mergeableState(),
+                Optional.ofNullable(item.head()).map(GitHubPullRequestDetailResponse.Head::ref).orElse(null));
     }
 
     // ── GraphQL: review-thread resolution ────────────────────────────────

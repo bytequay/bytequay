@@ -83,6 +83,56 @@ class TestGitHubPullRequestOverviewClient
     }
 
     @Test
+    void listAndDetailReadsKeepTheSamePullRequestFacts()
+    {
+        Fixture fixture = fixture();
+        String response = """
+                {"id":12,"number":42,"title":"Fix parser","state":"closed","draft":false,
+                 "html_url":"https://github.com/owner/repo/pull/42","user":{"login":"alice"},
+                 "created_at":"2026-08-19T10:00:00Z","updated_at":"2026-08-20T10:00:00Z",
+                 "closed_at":"2026-08-20T10:00:00Z","merged_at":"2026-08-20T10:00:00Z",
+                 "labels":[{"name":"bug","color":"ff0000"},{"name":"bug","color":"000000"},{"name":"parser"}],
+                 "requested_reviewers":[{"login":"bob"}],"head":{"ref":"feature"},
+                 "mergeable":true,"mergeable_state":"clean"}
+                """;
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1"))
+                .andRespond(withSuccess("[" + response + "]", MediaType.APPLICATION_JSON));
+        fixture.api().expect(requestTo("https://api.github.test/repos/owner/repo/pulls/42"))
+                .andRespond(withSuccess(response, MediaType.APPLICATION_JSON));
+
+        FetchedPullRequest listed = fixture.client().fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature").getFirst();
+
+        assertThat(fixture.client().getPullRequest("pat", PULL_REQUEST)).isEqualTo(listed);
+        assertThat(listed.labels()).containsExactly("bug", "bug", "parser");
+        assertThat(listed.labelColors()).hasSize(1).containsEntry("bug", "ff0000");
+        assertThat(listed.requestedReviewers()).containsExactly("bob");
+        assertThat(listed.author()).isEqualTo("alice");
+        assertThat(listed.headRef()).isEqualTo("feature");
+        assertThat(listed.mergedAt()).isEqualTo(Instant.parse("2026-08-20T10:00:00Z"));
+        fixture.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void preservesEachEndpointsHandlingOfMissingReviewerLogins(boolean list)
+    {
+        Fixture fixture = fixture();
+        String response = """
+                {"id":12,"number":42,"title":"Fix parser","state":"open","requested_reviewers":[{}, {"login":"bob"}]}
+                """;
+        String path = list ? "/repos/owner/repo/pulls?state=all&head=alice%3Afeature&per_page=100&page=1" : "/repos/owner/repo/pulls/42";
+        fixture.api().expect(requestTo("https://api.github.test" + path)).andRespond(withSuccess(list ? "[" + response + "]" : response, MediaType.APPLICATION_JSON));
+
+        if (list) {
+            assertThatThrownBy(() -> fixture.client().fetchPullRequestsByHead("pat", RepoRef.of("owner", "repo"), "alice:feature")).isInstanceOf(NullPointerException.class);
+        }
+        else {
+            assertThat(fixture.client().getPullRequest("pat", PULL_REQUEST).requestedReviewers()).containsExactly("bob");
+        }
+        fixture.verify();
+    }
+
+    @Test
     void mapsTheSelfContainedOverviewHeader()
     {
         Fixture fixture = fixture();

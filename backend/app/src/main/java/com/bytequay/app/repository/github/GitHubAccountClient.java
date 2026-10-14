@@ -404,27 +404,17 @@ public class GitHubAccountClient
     }
 
     public Optional<UserRepo> fetchRepository(String pat, String owner, String repo) {
-        try {
-            GitHubUserRepoItem item =
-                    get(gitHubRestClient, pat, "/repos/{owner}/{repo}", owner, repo)
-                            .retrieve()
-                            .body(GitHubUserRepoItem.class);
-            return Optional.ofNullable(item).map(GitHubAccountClient::toUserRepoFromSearch);
-        }
-        catch (RestClientResponseException e) {
-            if (e.getStatusCode().value() == 404) {
-                return Optional.empty();
-            }
-            throw toReadableException(e);
-        }
+        return readRepository(pat, "/repos/{owner}/{repo}", owner, repo);
     }
 
     public Optional<UserRepo> fetchRepository(String pat, long repositoryId) {
+        return readRepository(pat, "/repositories/{repositoryId}", repositoryId);
+    }
+
+    private Optional<UserRepo> readRepository(String pat, String path, Object... variables)
+    {
         try {
-            GitHubUserRepoItem item =
-                    get(gitHubRestClient, pat, "/repositories/{repositoryId}", repositoryId)
-                            .retrieve()
-                            .body(GitHubUserRepoItem.class);
+            GitHubUserRepoItem item = get(gitHubRestClient, pat, path, variables).retrieve().body(GitHubUserRepoItem.class);
             return Optional.ofNullable(item).map(GitHubAccountClient::toUserRepoFromSearch);
         }
         catch (RestClientResponseException e) {

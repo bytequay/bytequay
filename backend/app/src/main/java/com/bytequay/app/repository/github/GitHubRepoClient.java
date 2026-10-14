@@ -195,16 +195,12 @@ public class GitHubRepoClient
     /** One card read for a notification; closed issues are removed from the open projection. */
     public Optional<RepositoryIssue> fetchIssue(String pat, RepoRef repo, int issueNumber)
     {
-        checkArgument(issueNumber > 0, "issueNumber must be positive");
-        return translating(() -> {
-            IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
-                    .retrieve().body(IssueResponse.class), "Empty issue response from GitHub");
-            requireIssueState(issue);
-            if (issue.pullRequest() != null || issue.number() != issueNumber) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Unexpected issue response from GitHub");
-            }
-            return "closed".equals(issue.state()) ? Optional.empty() : Optional.of(issueCard(issue));
-        });
+        IssueResponse issue = readIssue(pat, repo, issueNumber);
+        requireIssueState(issue);
+        if (issue.pullRequest() != null || issue.number() != issueNumber) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Unexpected issue response from GitHub");
+        }
+        return "closed".equals(issue.state()) ? Optional.empty() : Optional.of(issueCard(issue));
     }
 
     public ChangedIssuePage fetchChangedIssuesPage(String pat, RepoRef repo, Instant since, int page)
@@ -281,18 +277,14 @@ public class GitHubRepoClient
 
     private GitHubIssueSource fetchIssueSource(String pat, RepoRef repo, int issueNumber, boolean requireOpen)
     {
-        checkArgument(issueNumber > 0, "issueNumber must be positive");
-        return translating(() -> {
-            IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
-                    .retrieve().body(IssueResponse.class), "Empty issue response from GitHub");
-            if (requireOpen && !"open".equals(issue.state()) || issue.pullRequest() != null || issue.number() != issueNumber) {
-                throw new AgentConflictException(requireOpen ? "This source is not an open issue. Refresh issues before starting development."
-                        : "This source is not a GitHub issue.");
-            }
-            return new GitHubIssueSource("github.com", issue.id(), repo.fullName(), issueNumber,
-                    "https://github.com/" + repo.fullName() + "/issues/" + issueNumber,
-                    issue.title(), Optional.ofNullable(issue.body()).orElse(""), issue.updatedAt());
-        });
+        IssueResponse issue = readIssue(pat, repo, issueNumber);
+        if (requireOpen && !"open".equals(issue.state()) || issue.pullRequest() != null || issue.number() != issueNumber) {
+            throw new AgentConflictException(requireOpen ? "This source is not an open issue. Refresh issues before starting development."
+                    : "This source is not a GitHub issue.");
+        }
+        return new GitHubIssueSource("github.com", issue.id(), repo.fullName(), issueNumber,
+                "https://github.com/" + repo.fullName() + "/issues/" + issueNumber,
+                issue.title(), Optional.ofNullable(issue.body()).orElse(""), issue.updatedAt());
     }
 
     public GitHubIssuePreview fetchIssuePreview(String pat, RepoRef repo, int issueNumber)
@@ -318,12 +310,15 @@ public class GitHubRepoClient
 
     public IssueActivity fetchIssueActivity(String pat, RepoRef repo, int issueNumber)
     {
+        IssueResponse issue = readIssue(pat, repo, issueNumber);
+        return new IssueActivity(Math.max(0, issue.comments()), requireNonNull(issue.updatedAt(), "issue updatedAt is null"));
+    }
+
+    private IssueResponse readIssue(String pat, RepoRef repo, int issueNumber)
+    {
         checkArgument(issueNumber > 0, "issueNumber must be positive");
-        return translating(() -> {
-            IssueResponse issue = requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
-                    .retrieve().body(IssueResponse.class), "Empty issue response from GitHub");
-            return new IssueActivity(Math.max(0, issue.comments()), requireNonNull(issue.updatedAt(), "issue updatedAt is null"));
-        });
+        return translating(() -> requireBody(get(gitHubRestClient, pat, "/repos/{owner}/{repo}/issues/{number}", repo.owner(), repo.repo(), issueNumber)
+                .retrieve().body(IssueResponse.class), "Empty issue response from GitHub"));
     }
 
     public record IssueActivity(int commentCount, Instant updatedAt) {}

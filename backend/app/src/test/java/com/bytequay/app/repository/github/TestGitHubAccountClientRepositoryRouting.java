@@ -16,14 +16,23 @@ package com.bytequay.app.repository.github;
 import com.bytequay.core.domain.UserProfile;
 import com.bytequay.core.domain.UserRepo;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.client.MockRestServiceServer;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.Optional;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.method;
 import static org.springframework.test.web.client.match.MockRestRequestMatchers.requestTo;
+import static org.springframework.test.web.client.response.MockRestResponseCreators.withStatus;
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 class TestGitHubAccountClientRepositoryRouting
@@ -59,13 +68,14 @@ class TestGitHubAccountClientRepositoryRouting
         server.verify();
     }
 
-    @Test
-    void stableIdReadUsesCanonicalSourceAndPermissionSummary()
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void repositoryReadUsesCanonicalSourceAndPermissionSummary(boolean byId)
     {
         RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
         MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
         GitHubAccountClient client = new GitHubAccountClient(apiBuilder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
-        server.expect(requestTo("https://api.github.test/repositories/42"))
+        server.expect(requestTo("https://api.github.test" + (byId ? "/repositories/42" : "/repos/contributor/project")))
                 .andExpect(method(HttpMethod.GET))
                 .andRespond(withSuccess("""
                         {
@@ -96,11 +106,32 @@ class TestGitHubAccountClientRepositoryRouting
                         }
                         """, MediaType.APPLICATION_JSON));
 
-        UserRepo repository = client.fetchRepository("pat", 42).orElseThrow();
+        UserRepo repository = (byId ? client.fetchRepository("pat", 42) : client.fetchRepository("pat", "contributor", "project")).orElseThrow();
 
         assertThat(repository.visibility()).isEqualTo("private");
         assertThat(repository.viewerCanPush()).isTrue();
         assertThat(repository.upstream()).contains(new UserRepo.Upstream(40, "canonical", "project", "main", "https://github.com/canonical/project.git"));
+        server.verify();
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void repositoryReadsPreserveMissingAndFailedResponses(boolean byId)
+    {
+        RestClient.Builder apiBuilder = RestClient.builder().baseUrl("https://api.github.test");
+        MockRestServiceServer server = MockRestServiceServer.bindTo(apiBuilder).build();
+        GitHubAccountClient client = new GitHubAccountClient(apiBuilder.build(), RestClient.builder().baseUrl("https://api.github.test/graphql").build());
+        String url = "https://api.github.test" + (byId ? "/repositories/42" : "/repos/contributor/project");
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.NOT_FOUND));
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.UNAUTHORIZED));
+        server.expect(requestTo(url)).andRespond(withStatus(HttpStatus.INTERNAL_SERVER_ERROR));
+        Supplier<Optional<UserRepo>> fetch = () -> byId ? client.fetchRepository("pat", 42) : client.fetchRepository("pat", "contributor", "project");
+
+        assertThat(fetch.get()).isEmpty();
+        assertThatThrownBy(fetch::get).isInstanceOfSatisfying(ResponseStatusException.class,
+                failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED));
+        assertThatThrownBy(fetch::get).isInstanceOfSatisfying(ResponseStatusException.class,
+                failure -> assertThat(failure.getStatusCode()).isEqualTo(HttpStatus.INTERNAL_SERVER_ERROR));
         server.verify();
     }
 }

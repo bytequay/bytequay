@@ -14,7 +14,7 @@
 
 import { flushSync } from 'react-dom';
 import { createRoot } from 'react-dom/client';
-import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullTimelinePayloadDto, WorkspaceDto } from '../../types';
+import type { AgentStreamMessage, AgentTaskDto, Bridge, DiffCommitDto, DiffFileDto, InlineReviewCommentDto, PullRequestDetailDto, PullRequestDto, PullRequestPageDto, PullTimelinePayloadDto, WorkspaceDto } from '../../types';
 import { SUMMARY_REQUEST, type TaskDiscussionDto } from '../../agents/discussions/contracts';
 import PullOverview from '../PullOverview';
 import PullRequestTaskActions from '../PullRequestTaskActions';
@@ -847,6 +847,111 @@ export async function runListSearch(): Promise<string> {
       assert(listReads === afterDiscovery, 'Unchanged attention snapshots must not reload after a parent renders the same workspace');
     }
     return 'Search resolves exact PR numbers, filters local text, and shows newly discovered PRs';
+  }
+  finally {
+    flushSync(() => root.unmount());
+    host.remove();
+    Object.assign(window, { bridge: originalBridge });
+  }
+}
+
+export async function runListLoadingRace(trigger: 'sync' | 'attention'): Promise<string> {
+  const detail: PullRequestDetailDto = { ...reviewDetail(reviewFixture()), repo: 'owner/repo', number: 7, id: 7,
+    reviewers: [{ login: 'bob', avatarUrl: null, state: 'PENDING' }] };
+  const row = remotePullRequest(detail, 'bob');
+  const page = (title: string, repo = row.repo): PullRequestPageDto => ({
+    pullRequests: [{ ...row, repo, title }], page: 0, pageSize: 50, totalPullRequests: 1, openPullRequests: 1, hasMore: false,
+  });
+  const requests: { workspaceId: string | undefined; result: ReturnType<typeof Promise.withResolvers<PullRequestPageDto>> }[] = [];
+  let synced = () => {};
+  const originalBridge = window.bridge;
+  const bridge = {
+    getUserProfile: async () => ({ login: 'bob', name: null, avatarUrl: '', htmlUrl: '', publicRepos: 0, followers: 0,
+      following: 0, bio: null, location: null, company: null, email: null }),
+    fetchPrs: (workspaceId) => {
+      const result = Promise.withResolvers<PullRequestPageDto>();
+      requests.push({ workspaceId, result });
+      return result.promise;
+    },
+    onPullRequestsSynced: callback => { synced = callback; return () => {}; },
+    listWorkspaces: async () => [],
+    findAgentReview: async () => null,
+    findPullRequestTask: async () => null,
+    listAgentReviews: async () => [],
+    listLocalReviewComments: async () => [],
+    fetchAttentionPrs: async () => [],
+    fetchPullRequestDetailByRef: async (repo) => ({ ...detail, repo }),
+    refreshPullRequestDetailByRef: async (repo) => ({ full: true as const, detail: { ...detail, repo }, status: null }),
+    recordRecentTouch: async () => {},
+  } satisfies Pick<Bridge, 'getUserProfile' | 'fetchPrs' | 'onPullRequestsSynced' | 'listWorkspaces' | 'findAgentReview'
+    | 'findPullRequestTask' | 'listAgentReviews' | 'listLocalReviewComments' | 'fetchAttentionPrs'
+    | 'fetchPullRequestDetailByRef' | 'refreshPullRequestDetailByRef' | 'recordRecentTouch'>;
+  Object.assign(window, { bridge });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  let mountedKey: string | null = null;
+  const mount = (key: string, repository = row.repo) => {
+    flushSync(() => root.render(<PullsScreen key={key} repositoryScope={{ workspaceId: repository, repository }} />));
+    // Detail reconciliation must not mask which list response supplied the row.
+    if (mountedKey !== key) flushSync(() => host.querySelector<HTMLButtonElement>('[aria-label="Toggle pull request details"]')?.click());
+    mountedKey = key;
+  };
+  const loading = () => host.querySelector('.pulls-list__rows > .hp-loading:not(.pulls-list__loading)') !== null;
+  const titles = () => [...host.querySelectorAll('.pull-row__title')].map(node => node.textContent).join('|');
+  const update = () => {
+    if (trigger === 'sync') synced();
+    else window.dispatchEvent(new CustomEvent('bytequay:pr-attention-updated', { detail: [{ ...row, id: requests.length + 100 }] }));
+  };
+  try {
+    for (const fails of [false, true]) {
+      for (const initialFirst of [false, true]) {
+        requests.length = 0;
+        mount(`${fails}-${initialFirst}`);
+        await settle();
+        assert(requests.length === 1 && loading(), 'The initial request must block the list while pending');
+        update();
+        assert(Number(requests.length) === 2, 'The background event must supersede the initial request');
+        if (initialFirst) {
+          requests[0].result.resolve(page('Stale initial row'));
+          await settle();
+          assert(loading(), 'A superseded response must not finish the current load');
+        }
+        if (fails) requests[1].result.reject(new Error('List read failed'));
+        else requests[1].result.resolve(page('Current row'));
+        await settle();
+        assert(!loading(), 'The latest request must finish loading on success or failure');
+        if (!initialFirst) {
+          requests[0].result.resolve(page('Stale initial row'));
+          await settle();
+        }
+        assert(!titles().includes('Stale initial row'), 'A late initial response must not replace the current result');
+        if (fails) {
+          assert(host.querySelector('[role="alert"]')?.textContent?.includes('List read failed') === true, 'A failed replacement must show its error');
+          update();
+          requests[2].result.resolve(page('Current row'));
+          await settle();
+        }
+        assert(!loading() && titles().includes('Current row') && host.querySelector('[role="alert"]') === null,
+          'A successful current response must display rows and clear any prior load error');
+      }
+    }
+    requests.length = 0;
+    mount('workspace-switch');
+    await settle();
+    update();
+    mount('workspace-switch', 'owner/other');
+    await settle();
+    assert(requests.length === 3 && requests[2].workspaceId === 'owner/other', 'Changing workspace must start a new list load');
+    requests[0].result.resolve(page('Old workspace row'));
+    requests[1].result.reject(new Error('Old workspace failure'));
+    await settle();
+    assert(loading() && titles() === '' && host.querySelector('[role="alert"]') === null,
+      'Old workspace completions must not stop loading, display rows or report errors in the new workspace');
+    requests[2].result.resolve(page('New workspace row', 'owner/other'));
+    await settle();
+    assert(!loading() && titles().includes('New workspace row'), 'The new workspace must finish its own load');
+    return 'Latest list reads finish loading, recover from failure and isolate workspaces';
   }
   finally {
     flushSync(() => root.unmount());

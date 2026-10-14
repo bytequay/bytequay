@@ -514,22 +514,35 @@ export default function PullsScreen({
       : null);
   }, []);
 
-  const readList = useCallback(async (): Promise<PullRequestPageDto> => {
+  const readList = useCallback(async (throughPage?: number): Promise<PullRequestPageDto> => {
     const { workspaceId, page } = listContext.current;
     // Replace the loaded range together so refreshes never remove and reload the lower rows.
-    const pages = await Promise.all(Array.from({ length: page + 1 }, (_, index) => window.bridge.fetchPrs(workspaceId, index, PAGE_SIZE)));
+    const pages = await Promise.all(Array.from({ length: (throughPage ?? page) + 1 }, (_, index) => window.bridge.fetchPrs(workspaceId, index, PAGE_SIZE)));
     return { ...pages[pages.length - 1], pullRequests: [...new Map(pages.flatMap(result => result.pullRequests).map(pr => [pr.id, pr])).values()] };
   }, []);
 
+  const loadList = useCallback(async (throughPage?: number) => {
+    const request = ++listRequest.current;
+    try {
+      const result = await readList(throughPage);
+      if (request === listRequest.current) {
+        applyPage(result);
+        setError(null);
+      }
+    }
+    catch (failure) {
+      if (request === listRequest.current) setError(remoteErrorMessage(failure));
+    }
+    finally {
+      // Background updates can supersede the initial read and must finish its loading state too.
+      if (request === listRequest.current) setLoading(false);
+    }
+  }, [applyPage, readList]);
+
   useEffect(() => {
     if (singlePullRequest) return;
-    return window.bridge.onPullRequestsSynced(() => {
-      const request = ++listRequest.current;
-      void readList()
-        .then(result => { if (request === listRequest.current) applyPage(result); })
-        .catch(() => {});
-    });
-  }, [applyPage, readList, singlePullRequest]);
+    return window.bridge.onPullRequestsSynced(() => { void loadList(); });
+  }, [loadList, singlePullRequest]);
 
   useEffect(() => {
     let knownIds: Set<number> | null = null;
@@ -541,14 +554,11 @@ export default function PullsScreen({
       knownIds = new Set(updates.keys());
       setPrs(current => current.map(pr => updates.get(pr.id) ?? pr));
       if (singlePullRequest || !discovered) return;
-      const request = ++listRequest.current;
-      void readList()
-        .then(result => { if (request === listRequest.current) applyPage(result); })
-        .catch(() => {});
+      void loadList();
     };
     window.addEventListener('bytequay:pr-attention-updated', updateAttention);
     return () => window.removeEventListener('bytequay:pr-attention-updated', updateAttention);
-  }, [applyPage, readList, scopedRepository, scopedWorkspaceId, singlePullRequest]);
+  }, [loadList, scopedRepository, scopedWorkspaceId, singlePullRequest]);
 
   const refreshList = useCallback(async () => {
     const workspaceId = repositoryScope?.workspaceId;
@@ -583,7 +593,6 @@ export default function PullsScreen({
 
   useEffect(() => {
     if (singlePullRequest) return;
-    const request = ++listRequest.current;
     setLoading(true);
     setError(null);
     setSyncError(null);
@@ -592,17 +601,8 @@ export default function PullsScreen({
     selectedPullRequest.current = null;
     setHasMore(false);
     setPage(0);
-    window.bridge.fetchPrs(repositoryScope?.workspaceId, 0, PAGE_SIZE)
-      .then(result => {
-        if (request === listRequest.current) applyPage(result);
-      })
-      .catch(e => {
-        if (request === listRequest.current) setError(e instanceof Error ? e.message : String(e));
-      })
-      .finally(() => {
-        if (request === listRequest.current) setLoading(false);
-      });
-  }, [applyPage, singlePullRequest, repositoryScope?.workspaceId]);
+    void loadList(0);
+  }, [loadList, singlePullRequest, repositoryScope?.workspaceId]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => setQuery(search.trim()), 250);

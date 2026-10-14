@@ -81,6 +81,13 @@ it('looks up exact PR numbers and shows newly discovered PRs without repeating l
   expect(result).toContain('newly discovered PRs');
 }, 30_000);
 
+it.each(['sync', 'attention'])('finishes initial PR loading when %s supersedes it and ignores stale workspace responses', async trigger => {
+  const result = await fixture.run<string>({
+    body: `const results = await window.webContents.executeJavaScript('PullScreenTests.runListLoadingRace("${trigger}")');`,
+  });
+  expect(result).toBe('Latest list reads finish loading, recover from failure and isolate workspaces');
+}, 30_000);
+
 it('hosts a task’s or a review’s private threads on the pull-request page for other people’s comments', async () => {
   const results = await fixture.run<string[]>({
     width: 1250, height: 850,
